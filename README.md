@@ -128,9 +128,10 @@ can slide parallel to the tube axis, but not leave the channel direction:
 
 ![FixedLine movement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedline.gif)
 
-`FixedPlane` is shown as a Li ion moving over a Cu(111) surface. The motion is
-restricted to the surface-parallel XY plane, so it reads as surface diffusion
-rather than rotation:
+`FixedPlane` is shown as a Li ion moving over a Cu(111) surface. The guide is an
+unbounded plane field through the selected atom, not a finite patch, so the
+surface-parallel XY constraint reads as diffusion over the surface rather than
+rotation:
 
 ![FixedPlane movement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedplane.gif)
 
@@ -160,9 +161,10 @@ the allowed line or plane and the backend commit uses
 `Hookean` constraints are drawn with physical meaning. The `rt` threshold is
 placed in Angstroms along the constrained direction. Below the threshold the
 spring is inactive and shows slack. Beyond the threshold the latch engages and
-the spring becomes active. The example below uses a surface O-H stretch: the
-constraint is quiet near the normal bond length and activates only when the bond
-is pulled beyond the cutoff.
+the spring becomes active. The example below uses a 9-atom ethanol-like
+adsorbate on Cu(111). The O-H group moves with oxygen while the C-O bond is
+pulled, so the graphic reads as a bond-retention constraint rather than an
+arbitrary long-range tether.
 
 ![Hookean threshold-aware spring](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_hookean.png)
 
@@ -174,7 +176,7 @@ from ase.constraints import Hookean
 from v_ase.visualize import view
 
 atoms = molecule("H2O")
-atoms.set_constraint(Hookean(1, 2, rt=1.8, k=5.0))
+atoms.set_constraint(Hookean(0, 1, rt=1.15, k=5.0))
 view(atoms)
 ```
 

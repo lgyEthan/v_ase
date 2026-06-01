@@ -256,21 +256,36 @@ export class ASERenderer {
             planeGrid: new THREE.LineBasicMaterial({
                 color: 0x82f8df,
                 transparent: true,
-                opacity: 0.58,
+                opacity: 0.32,
+                depthTest: false,
+                depthWrite: false
+            }),
+            planeGridMajor: new THREE.LineBasicMaterial({
+                color: 0xb5fff1,
+                transparent: true,
+                opacity: 0.50,
+                depthTest: false,
+                depthWrite: false
+            }),
+            planeVeil: new THREE.MeshBasicMaterial({
+                color: 0x30c7a7,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.055,
                 depthTest: false,
                 depthWrite: false
             }),
             planeTrack: new THREE.MeshBasicMaterial({
                 color: 0xffd35a,
                 transparent: true,
-                opacity: 0.92,
+                opacity: 0.86,
                 depthTest: false,
                 depthWrite: false
             }),
             planeAxis: new THREE.MeshBasicMaterial({
                 color: 0x7fffe4,
                 transparent: true,
-                opacity: 0.82,
+                opacity: 0.72,
                 depthTest: false,
                 depthWrite: false
             }),
@@ -1021,11 +1036,14 @@ export class ASERenderer {
         this.constraintGuideGroup.add(group);
     }
 
-    fixedPlaneGridGeometry(size = 120, divisions = 4) {
+    fixedPlaneGridGeometry(size = 160, divisions = 16, every = 1) {
         const half = size / 2;
         const step = size / divisions;
         const points = [];
-        for (let i = 0; i <= divisions; i++) {
+        const center = divisions / 2;
+        for (let i = 1; i < divisions; i++) {
+            if (Math.abs(i - center) < 1e-6) continue;
+            if (every > 1 && i % every !== 0) continue;
             const v = -half + step * i;
             points.push(-half, v, 0, half, v, 0);
             points.push(v, -half, 0, v, half, 0);
@@ -1049,26 +1067,47 @@ export class ASERenderer {
             planeOffset
         };
 
-        const grid = new THREE.LineSegments(this.fixedPlaneGridGeometry(), this.constraintMaterials.planeGrid);
+        const guideSize = Math.max(120, this.desiredGuideSize?.() || 160);
+        let divisions = Math.max(14, Math.min(30, Math.round(guideSize / 8)));
+        if (divisions % 2 !== 0) divisions += 1;
+        const half = guideSize / 2;
+
+        const veil = new THREE.Mesh(new THREE.PlaneGeometry(guideSize, guideSize), this.constraintMaterials.planeVeil);
+        veil.userData.sharedMaterial = true;
+        veil.renderOrder = 16;
+        group.add(veil);
+
+        const grid = new THREE.LineSegments(
+            this.fixedPlaneGridGeometry(guideSize, divisions, 1),
+            this.constraintMaterials.planeGrid
+        );
         grid.userData.sharedMaterial = true;
         grid.renderOrder = 18;
         group.add(grid);
 
+        const majorGrid = new THREE.LineSegments(
+            this.fixedPlaneGridGeometry(guideSize, divisions, 4),
+            this.constraintMaterials.planeGridMajor
+        );
+        majorGrid.userData.sharedMaterial = true;
+        majorGrid.renderOrder = 18;
+        group.add(majorGrid);
+
         const axisA = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.planeAxis);
         axisA.userData = { sharedMaterial: true, planeAxis: true };
         this.setLinePoints(axisA, [
-            new THREE.Vector3(-60, 0, 0),
-            new THREE.Vector3(60, 0, 0)
-        ], 'planeAxisASignature', 0.012);
+            new THREE.Vector3(-half, 0, 0),
+            new THREE.Vector3(half, 0, 0)
+        ], 'planeAxisASignature', 0.014);
         axisA.renderOrder = 19;
         group.add(axisA);
 
         const axisB = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.planeAxis);
         axisB.userData = { sharedMaterial: true, planeAxis: true };
         this.setLinePoints(axisB, [
-            new THREE.Vector3(0, -60, 0),
-            new THREE.Vector3(0, 60, 0)
-        ], 'planeAxisBSignature', 0.012);
+            new THREE.Vector3(0, -half, 0),
+            new THREE.Vector3(0, half, 0)
+        ], 'planeAxisBSignature', 0.014);
         axisB.renderOrder = 19;
         group.add(axisB);
 
@@ -1077,12 +1116,6 @@ export class ASERenderer {
         trail.visible = false;
         trail.renderOrder = 21;
         group.add(trail);
-
-        const trailHead = new THREE.Mesh(new THREE.SphereGeometry(0.07, 16, 10), this.constraintMaterials.planeTrack);
-        trailHead.userData = { sharedMaterial: true, planeTrailHead: true };
-        trailHead.visible = false;
-        trailHead.renderOrder = 22;
-        group.add(trailHead);
 
         const normalStem = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.line);
         normalStem.userData = { sharedMaterial: true, planeNormalStem: true };
@@ -1272,10 +1305,10 @@ export class ASERenderer {
             this.setLinePoints(springLine, this.makeFlatSpringPoints(
                 springStart,
                 springEnd,
-                Math.min(0.16, span * 0.08),
+                Math.min(0.22, span * 0.10),
                 coils,
                 0
-            ), 'springSignature', 0.024);
+            ), 'springSignature', 0.030);
         }
         springLine.material = state === 'inactive' ? this.constraintMaterials.hookeanInactive : this.constraintMaterials.hookean;
         springLine.userData.sharedMaterial = true;

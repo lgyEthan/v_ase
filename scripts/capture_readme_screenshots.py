@@ -228,23 +228,40 @@ def make_hookean_surface_scene() -> tuple[Atoms, dict[str, int]]:
     center = np.mean(positions, axis=0)
     x0, y0 = float(center[0]), float(center[1])
 
-    ads_symbols = ["O", "H", "H"]
-    ads_positions = [
-        [x0 - 0.55, y0 - 0.10, top_z + 3.05],
-        [x0 + 0.42, y0 - 0.10, top_z + 3.05],
-        [x0 - 0.92, y0 + 0.78, top_z + 3.25],
-    ]
+    # Ethanol-like adsorbate: the Hookean constraint keeps the C-O bond from
+    # over-stretching while the hydroxyl group is pulled away from the surface.
+    ads_symbols = ["C", "C", "O", "H", "H", "H", "H", "H", "H"]
+    base = np.array([x0 - 2.25, y0 - 0.25, top_z + 3.15])
+    rel_positions = np.array([
+        [0.00, 0.00, 0.00],
+        [1.52, 0.08, 0.05],
+        [2.93, 0.16, 0.08],
+        [3.50, 0.88, 0.15],
+        [-0.52, 0.93, 0.18],
+        [-0.57, -0.50, 0.78],
+        [-0.54, -0.42, -0.78],
+        [1.63, 0.86, 0.85],
+        [1.66, -0.88, -0.70],
+    ])
+    ads_positions = (base + rel_positions).tolist()
     atoms = slab + Atoms(ads_symbols, positions=ads_positions)
     atoms.pbc = [True, True, False]
-    oxygen = len(slab)
-    constrained_h = len(slab) + 1
+    carbon = len(slab) + 1
+    oxygen = len(slab) + 2
+    hydroxyl_h = len(slab) + 3
     bottom = [i for i, p in enumerate(positions) if p[2] < top_z - 0.5]
     atoms.set_constraint([
         FixAtoms(indices=bottom),
-        Hookean(oxygen, constrained_h, rt=1.12, k=12.0),
+        Hookean(carbon, oxygen, rt=1.50, k=12.0),
     ])
-    atoms.info["readme_scene"] = "cu111_hookean_oh_bond"
-    return atoms, {"oxygen": oxygen, "hydrogen": constrained_h}
+    atoms.info["readme_scene"] = "cu111_hookean_ethanol_co_bond"
+    return atoms, {
+        "carbon": carbon,
+        "oxygen": oxygen,
+        "hydroxyl_h": hydroxyl_h,
+        "top_z": top_z,
+        "center": [x0, y0, top_z],
+    }
 
 
 def make_ferrocene_scene() -> tuple[Atoms, dict[str, list[int]]]:
@@ -342,6 +359,17 @@ def hookean_frames(base: np.ndarray, index: int, start: np.ndarray, end: np.ndar
     return frames
 
 
+def hookean_group_frames(base: np.ndarray, indices: list[int], delta: np.ndarray, count=42) -> list[np.ndarray]:
+    frames = []
+    for step in range(count):
+        t = 0.5 - 0.5 * math.cos(2 * math.pi * step / count)
+        positions = base.copy()
+        for idx in indices:
+            positions[idx] = base[idx] + delta * t
+        frames.append(positions)
+    return frames
+
+
 def ferrocene_rotate_frames(base: np.ndarray, indices: list[int], count=46) -> list[np.ndarray]:
     frames = []
     pivot = np.array([0.0, 0.0, 0.0])
@@ -417,25 +445,33 @@ def main() -> int:
             hookean_atoms, hidx = make_hookean_surface_scene()
             editor, page = open_scene(browser, hookean_atoms, show_bonds=True)
             set_display(page, {
-                "atomRadiusScale": 0.58,
-                "elementRadii": {"Cu": 0.48, "O": 0.72, "H": 0.34},
+                "atomRadiusScale": 0.54,
+                "elementRadii": {"Cu": 0.42, "C": 0.56, "O": 0.60, "H": 0.28},
                 "showBonds": True,
                 "showGrid": True
             })
-            set_selection(page, [hidx["oxygen"], hidx["hydrogen"]])
+            set_selection(page, [])
             open_panels(page, ["structure-info", "selection", "view"])
-            settle_view(page, target=[5.0, 4.3, 13.1], position=[10.6, -6.1, 17.0], fov=37)
-            page.screenshot(path=ASSET_DIR / "readme_hookean.png")
             base = hookean_atoms.get_positions()
+            carbon_pos = base[hidx["carbon"]].copy()
             oxygen_pos = base[hidx["oxygen"]].copy()
-            start = base[hidx["hydrogen"]].copy()
-            direction = start - oxygen_pos
+            direction = oxygen_pos - carbon_pos
             direction /= np.linalg.norm(direction)
-            end = oxygen_pos + direction * 1.62
+            target = (carbon_pos + oxygen_pos) * 0.5 + np.array([0.15, 0.05, 0.12])
+            camera = target + np.array([3.90, -4.70, 2.90])
+            settle_view(page, target=target.tolist(), position=camera.tolist(), fov=33)
+            active_preview = base.copy()
+            preview_delta = direction * 0.62
+            active_preview[hidx["oxygen"]] = base[hidx["oxygen"]] + preview_delta
+            active_preview[hidx["hydroxyl_h"]] = base[hidx["hydroxyl_h"]] + preview_delta
+            update_positions(page, active_preview)
+            page.screenshot(path=ASSET_DIR / "readme_hookean.png")
+            end = carbon_pos + direction * 2.18
+            delta = end - oxygen_pos
             capture_animation(
                 page,
                 ASSET_DIR / "readme_hookean.gif",
-                hookean_frames(base, hidx["hydrogen"], start, end),
+                hookean_group_frames(base, [hidx["oxygen"], hidx["hydroxyl_h"]], delta),
             )
             page.close()
             editor.close()
