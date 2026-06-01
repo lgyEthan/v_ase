@@ -1,0 +1,11 @@
+# Runtime dependencies for end users.
+# Tested on Python 3.11 with:
+# ase 3.28.0, fastapi 0.136.1, uvicorn 0.46.0, numpy 2.4.4.
+ase>=3.23
+fastapi>=0.110
+uvicorn[standard]>=0.29
+numpy>=1.24
+ipython>=8
+requests>=2.31
+setuptools>=61
+wheel>=0.40

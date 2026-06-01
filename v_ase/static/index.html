@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>v_ase</title>
+    <link id="app-style" rel="stylesheet" href="static/style.css">
+    <script>
+        window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
+        const threeModulePath = window.location.protocol === 'file:'
+            ? './vendor/three.module.js'
+            : '/static/vendor/three.module.js';
+        const importMap = document.createElement('script');
+        importMap.type = 'importmap';
+        importMap.textContent = JSON.stringify({
+            imports: {
+                three: threeModulePath
+            }
+        });
+        document.currentScript.after(importMap);
+        if (window.location.protocol === 'file:') {
+            document.getElementById('app-style').href = './style.css';
+        }
+    </script>
+</head>
+<body>
+    <div id="app-viewport"></div>
+    <div id="busy-overlay" class="hidden" aria-live="polite">
+        <div class="busy-card">
+            <div class="busy-spinner"></div>
+            <div id="busy-message">Working...</div>
+        </div>
+    </div>
+
+    <!-- Top Status Bar -->
+    <header id="top-bar" class="glass-panel">
+        <div class="logo">v_<span>ase</span></div>
+        <div class="status-group">
+            <div class="status-item">
+                <span class="label">MODE</span>
+                <span id="val-mode" class="value">SELECT</span>
+            </div>
+            <div class="status-item">
+                <span class="label">ENERGY</span>
+                <span id="val-energy" class="value">-</span>
+            </div>
+            <div class="status-item">
+                <span class="label">FMAX</span>
+                <span id="val-fmax" class="value">-</span>
+            </div>
+            <div class="status-item">
+                <span class="label">CALC</span>
+                <span id="val-calc" class="value badge">-</span>
+            </div>
+        </div>
+        <div class="action-group">
+            <button id="btn-apply" class="btn primary">APPLY</button>
+            <button id="btn-reset" class="btn">RESET</button>
+            <button id="btn-reset-coords" class="btn">RESET COORDS</button>
+            <button id="btn-done" class="btn primary success">DONE</button>
+            <button id="btn-cancel" class="btn danger">CANCEL</button>
+            <button id="btn-shortcuts" class="btn icon-btn" title="Shortcuts">?</button>
+        </div>
+    </header>
+
+    <!-- Right Inspector -->
+    <aside id="inspector" class="glass-panel">
+        <details class="panel-section" open data-panel="structure-info">
+            <summary class="section-header">Structure Info</summary>
+            <div class="prop-grid">
+                <span class="p-label">Atoms</span><span id="prop-natoms" class="p-val">-</span>
+                <span class="p-label">Selected</span><span id="prop-selected" class="p-val">0</span>
+                <span class="p-label">PBC</span><span id="prop-pbc" class="p-val badge">-</span>
+            </div>
+        </details>
+
+        <details class="panel-section" open data-panel="selection">
+            <summary class="section-header">Selection</summary>
+            <div class="prop-grid">
+                <span class="p-label">Indices</span><span id="selected-indices" class="p-val">-</span>
+                <span class="p-label">Elements</span><span id="selected-elements" class="p-val">-</span>
+                <span class="p-label">Center</span><span id="selected-center" class="p-val">-</span>
+            </div>
+            <button id="btn-delete-selection" class="btn-block danger-soft">Delete Selected</button>
+        </details>
+
+        <details class="panel-section" open data-panel="view">
+            <summary class="section-header">View</summary>
+            <div class="prop-row">
+                <label for="chk-cell">Unit Cell</label>
+                <input type="checkbox" id="chk-cell" checked>
+            </div>
+            <div class="prop-row">
+                <label for="chk-axes">Axes</label>
+                <input type="checkbox" id="chk-axes" checked>
+            </div>
+            <div class="prop-row">
+                <label for="chk-grid">Grid</label>
+                <input type="checkbox" id="chk-grid" checked>
+            </div>
+            <div class="prop-row">
+                <label for="chk-constraints">Apply constraints</label>
+                <input type="checkbox" id="chk-constraints" checked>
+            </div>
+            <div class="prop-row supercell-row">
+                <label>Supercell</label>
+                <div class="num-group">
+                    <input type="number" id="super-x" value="1" min="1">
+                    <input type="number" id="super-y" value="1" min="1">
+                    <input type="number" id="super-z" value="1" min="1">
+                </div>
+            </div>
+            <button id="btn-set-supercell" class="btn-block">Set Supercell as Cell</button>
+            <button id="btn-wrap" class="btn-block">Wrap Atoms Into Cell</button>
+        </details>
+
+        <details class="panel-section" data-panel="transform">
+            <summary class="section-header">Transform</summary>
+            <div class="prop-row">
+                <label for="rotate-pivot">Rotate pivot</label>
+                <select id="rotate-pivot">
+                    <option value="selection">Selection COM</option>
+                    <option value="origin">Global origin</option>
+                    <option value="cell">Unit-cell center</option>
+                </select>
+            </div>
+            <div class="prop-row">
+                <label for="move-increment">Move increment / A</label>
+                <input type="number" id="move-increment" value="0" min="0" step="0.01" placeholder="0 = continuous">
+            </div>
+            <div class="prop-row">
+                <label for="rotate-increment">Rotate increment / deg</label>
+                <input type="number" id="rotate-increment" value="0" min="0" step="1" placeholder="0 = continuous">
+            </div>
+            <div class="prop-row">
+                <label for="chk-unit-aware-rotate">Bond-strain guard</label>
+                <input type="checkbox" id="chk-unit-aware-rotate">
+            </div>
+            <div class="prop-row">
+                <label for="rotate-strain-cutoff">Max bond strain</label>
+                <input type="number" id="rotate-strain-cutoff" value="0.15" min="0" max="5" step="0.01">
+            </div>
+        </details>
+
+        <details class="panel-section" data-panel="appearance">
+            <summary class="section-header">Appearance</summary>
+            <div class="prop-row">
+                <label for="chk-antialias">Anti-aliasing</label>
+                <input type="checkbox" id="chk-antialias" checked>
+            </div>
+            <div class="prop-row">
+                <label for="sphere-quality">Atom smoothness</label>
+                <select id="sphere-quality">
+                    <option value="auto">Auto</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="ultra">Ultra</option>
+                    <option value="low">Low</option>
+                </select>
+            </div>
+            <div class="range-row">
+                <div class="range-head">
+                    <label for="atom-radius-scale">Atom radius</label>
+                    <output id="atom-radius-scale-value">1.00x</output>
+                </div>
+                <input type="range" id="atom-radius-scale" value="1" min="0.25" max="2.5" step="0.05">
+            </div>
+            <div id="element-radius-panel" class="element-radius-panel">
+                <div class="mini-table-head">
+                    <span>Element</span>
+                    <span>Radius / A</span>
+                </div>
+                <div id="element-radius-list"></div>
+            </div>
+        </details>
+
+        <details class="panel-section" data-panel="cell-transform">
+            <summary class="section-header">Cell Transform</summary>
+            <div class="matrix-grid" id="make-supercell-matrix">
+                <input type="number" id="matrix-00" value="1" step="1">
+                <input type="number" id="matrix-01" value="0" step="1">
+                <input type="number" id="matrix-02" value="0" step="1">
+                <input type="number" id="matrix-10" value="0" step="1">
+                <input type="number" id="matrix-11" value="1" step="1">
+                <input type="number" id="matrix-12" value="0" step="1">
+                <input type="number" id="matrix-20" value="0" step="1">
+                <input type="number" id="matrix-21" value="0" step="1">
+                <input type="number" id="matrix-22" value="1" step="1">
+            </div>
+            <button id="btn-apply-supercell-matrix" class="btn-block">Apply make_supercell Matrix</button>
+        </details>
+
+        <details class="panel-section" data-panel="bonding">
+            <summary class="section-header">Bonding</summary>
+            <div class="prop-row">
+                <label for="chk-bonds">Show Bonds</label>
+                <input type="checkbox" id="chk-bonds">
+            </div>
+            <div class="prop-row">
+                <label for="bond-mode">Mode</label>
+                <select id="bond-mode">
+                    <option value="auto">Auto cutoff</option>
+                    <option value="element">Element cutoffs</option>
+                    <option value="manual">Pair list</option>
+                </select>
+            </div>
+            <div class="prop-row">
+                <label for="bond-cutoff">Cutoff scale</label>
+                <input type="number" id="bond-cutoff" value="1.25" min="0.5" max="3.0" step="0.05">
+            </div>
+            <div id="element-bond-panel" class="bond-element-panel hidden">
+                <div class="mini-table-head">
+                    <span>Element pair</span>
+                    <span>Rcut / A</span>
+                </div>
+                <div id="element-bond-list"></div>
+            </div>
+            <textarea id="bond-pairs" rows="4" placeholder="Na-Cl: 3.2&#10;or 0-1, 1-2"></textarea>
+            <div class="btn-stack-row two">
+                <button id="btn-bond-apply">Apply Bonds</button>
+                <button id="btn-bond-infer">Infer Now</button>
+            </div>
+        </details>
+
+        <details id="trajectory-panel" class="panel-section hidden" open>
+            <summary class="section-header">Trajectory</summary>
+            <div class="timeline-head">
+                <button id="btn-frame-prev" title="Previous frame">‹</button>
+                <button id="btn-play" title="Play/Pause">▶</button>
+                <button id="btn-frame-next" title="Next frame">›</button>
+                <span id="frame-label">1 / 1</span>
+            </div>
+            <input type="range" id="frame-slider" min="0" max="0" value="0">
+            <div class="prop-row">
+                <label for="movie-fps">FPS</label>
+                <input type="number" id="movie-fps" value="12" min="1" max="60">
+            </div>
+        </details>
+
+        <details class="panel-section" data-panel="scientific-tools">
+            <summary class="section-header">Scientific Tools</summary>
+            <div class="relax-grid">
+                <label>fmax</label>
+                <input type="number" id="relax-fmax" value="0.05" step="0.01" min="0">
+                <label>steps</label>
+                <input type="number" id="relax-steps" value="200" step="10" min="1">
+            </div>
+            <button id="btn-relax" class="btn-block">Relax</button>
+            <button id="btn-stop-relax" class="btn-block">Stop Relax</button>
+            <button id="btn-export-poscar" class="btn-block">Export POSCAR</button>
+            <button id="btn-export-pickle" class="btn-block">Export Pickle</button>
+            <button id="btn-export-blender" class="btn-block">Export Blender</button>
+            <div class="relax-grid">
+                <label>image W</label>
+                <input type="number" id="image-width" value="1920" step="128" min="256">
+                <label>image H</label>
+                <input type="number" id="image-height" value="1080" step="128" min="256">
+            </div>
+            <button id="btn-export-image" class="btn-block">Export Image</button>
+            <button id="btn-export-video" class="btn-block" disabled>Export Video</button>
+            <div class="btn-stack-row two">
+                <button id="btn-save-settings">Save Settings</button>
+                <button id="btn-load-settings">Load Settings</button>
+            </div>
+            <input type="file" id="settings-file" class="hidden" accept=".pkl,.pickle,.vase,.vase.pkl">
+            <div class="btn-stack-row">
+                <button id="btn-undo" title="Undo (Ctrl+Z)">↺</button>
+                <button id="btn-redo" title="Redo (Ctrl+Shift+Z)">↻</button>
+            </div>
+        </details>
+    </aside>
+
+    <!-- Bottom Command Overlay -->
+    <footer id="command-bar">
+        <div id="cmd-buffer" class="hidden">
+            <span id="cmd-mode">MOVE</span> | <span id="cmd-axis">-</span> | <span id="cmd-val"></span>
+        </div>
+        <div id="hover-readout">Hover atom: -</div>
+        <div id="coord-readout">X: 0.00 Y: 0.00 Z: 0.00</div>
+    </footer>
+
+    <!-- Modals -->
+    <div id="modal-container" class="hidden">
+        <div class="modal glass-panel">
+            <div id="modal-content">
+                <h2>Shortcuts</h2>
+                <div class="shortcut-grid">
+                    <span>Left click</span><label>Select / confirm transform</label>
+                    <span>Shift + click</span><label>Add or remove selection</label>
+                    <span>Left drag</span><label>Box select</label>
+                    <span>Middle drag</span><label>Orbit viewport</label>
+                    <span>Right drag</span><label>Pan viewport</label>
+                    <span>G</span><label>Move selected atoms</label>
+                    <span>R</span><label>Rotate selected atoms</label>
+                    <span>X / Y / Z</span><label>Align view in select mode</label>
+                    <span>X / Y / Z</span><label>Lock transform axis in G/R mode</label>
+                    <span>Enter</span><label>Confirm transform</label>
+                    <span>Esc</span><label>Cancel transform</label>
+                    <span>Ctrl+C / V / Z</span><label>Copy, paste, undo</label>
+                    <span>Delete</span><label>Delete selected atoms</label>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button id="modal-close" class="btn">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Selection Marquee -->
+    <div id="marquee" class="hidden"></div>
+
+    <!-- Error Toast -->
+    <div id="toast-container" aria-live="polite"></div>
+
+    <script type="module">
+        const modulePath = window.location.protocol === 'file:' ? './main.js' : './static/main.js';
+        import(modulePath);
+    </script>
+</body>
+</html>

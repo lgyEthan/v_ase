@@ -1,0 +1,1406 @@
+import * as THREE from 'three';
+
+class BlenderTumbleControls {
+    constructor(camera, domElement) {
+        this.camera = camera;
+        this.domElement = domElement;
+        this.target = new THREE.Vector3();
+        this.enabled = true;
+        this.enableDamping = false;
+        this.dampingFactor = 0;
+        this.rotateSpeed = 0.011;
+        this.panSpeed = 1.0;
+        this.zoomSpeed = 0.0012;
+        this.state = 'idle';
+        this.activePointerId = null;
+        this.lastPointer = new THREE.Vector2();
+
+        this.onContextMenu = (event) => event.preventDefault();
+        this.onAuxClick = (event) => {
+            if (event.button === 1) event.preventDefault();
+        };
+        this.onPointerDown = (event) => this.handlePointerDown(event);
+        this.onPointerMove = (event) => this.handlePointerMove(event);
+        this.onPointerUp = (event) => this.endGesture(event);
+        this.onWheel = (event) => this.handleWheel(event);
+        this.onLostPointerCapture = (event) => this.endGesture(event);
+
+        domElement.addEventListener('contextmenu', this.onContextMenu);
+        domElement.addEventListener('auxclick', this.onAuxClick);
+        domElement.addEventListener('pointerdown', this.onPointerDown);
+        domElement.addEventListener('pointermove', this.onPointerMove);
+        domElement.addEventListener('pointerup', this.onPointerUp);
+        domElement.addEventListener('pointercancel', this.onPointerUp);
+        domElement.addEventListener('lostpointercapture', this.onLostPointerCapture);
+        domElement.addEventListener('wheel', this.onWheel, { passive: false });
+    }
+
+    handlePointerDown(event) {
+        if (!this.enabled) return;
+        if (event.button === 1) {
+            event.preventDefault();
+            this.state = event.shiftKey ? 'pan' : 'rotate';
+            this.activePointerId = event.pointerId;
+            this.lastPointer.set(event.clientX, event.clientY);
+            this.domElement.setPointerCapture?.(event.pointerId);
+        } else if (event.button === 2) {
+            event.preventDefault();
+            this.state = 'pan';
+            this.activePointerId = event.pointerId;
+            this.lastPointer.set(event.clientX, event.clientY);
+            this.domElement.setPointerCapture?.(event.pointerId);
+        }
+    }
+
+    handlePointerMove(event) {
+        if (!this.enabled || this.state === 'idle') return;
+        if (this.activePointerId !== null && event.pointerId !== this.activePointerId) return;
+        event.preventDefault();
+        const dx = event.clientX - this.lastPointer.x;
+        const dy = event.clientY - this.lastPointer.y;
+        this.lastPointer.set(event.clientX, event.clientY);
+        if (dx === 0 && dy === 0) return;
+        if (this.state === 'rotate') {
+            this.rotate(dx, dy);
+        } else if (this.state === 'pan') {
+            this.pan(dx, dy);
+        }
+    }
+
+    handleWheel(event) {
+        if (!this.enabled) return;
+        event.preventDefault();
+        const offset = new THREE.Vector3().subVectors(this.camera.position, this.target);
+        const factor = Math.exp(event.deltaY * this.zoomSpeed);
+        offset.multiplyScalar(Math.min(8, Math.max(0.125, factor)));
+        this.camera.position.copy(this.target).add(offset);
+        this.camera.lookAt(this.target);
+    }
+
+    rotate(dx, dy) {
+        const offset = new THREE.Vector3().subVectors(this.camera.position, this.target);
+        if (offset.lengthSq() < 1e-12) return;
+        this.camera.updateMatrixWorld();
+        const localRight = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0).normalize();
+        const localUp = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1).normalize();
+        const yaw = new THREE.Quaternion().setFromAxisAngle(localUp, -dx * this.rotateSpeed);
+        const pitch = new THREE.Quaternion().setFromAxisAngle(localRight, -dy * this.rotateSpeed);
+        const rotation = new THREE.Quaternion().multiplyQuaternions(yaw, pitch);
+        offset.applyQuaternion(rotation);
+        this.camera.up.applyQuaternion(rotation).normalize();
+        this.camera.position.copy(this.target).add(offset);
+        this.camera.lookAt(this.target);
+    }
+
+    pan(dx, dy) {
+        const offset = new THREE.Vector3().subVectors(this.camera.position, this.target);
+        const distance = Math.max(offset.length(), 1);
+        const fov = THREE.MathUtils.degToRad(this.camera.fov);
+        const worldPerPixel = (2 * Math.tan(fov / 2) * distance) / Math.max(1, this.domElement.clientHeight);
+        this.camera.updateMatrixWorld();
+        const localRight = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0).normalize();
+        const localUp = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1).normalize();
+        const delta = new THREE.Vector3()
+            .addScaledVector(localRight, -dx * worldPerPixel * this.panSpeed)
+            .addScaledVector(localUp, dy * worldPerPixel * this.panSpeed);
+        this.camera.position.add(delta);
+        this.target.add(delta);
+        this.camera.lookAt(this.target);
+    }
+
+    endGesture(event = null) {
+        if (event?.pointerId !== undefined && this.activePointerId !== null && event.pointerId !== this.activePointerId) {
+            return;
+        }
+        if (this.activePointerId !== null && this.domElement.hasPointerCapture?.(this.activePointerId)) {
+            this.domElement.releasePointerCapture(this.activePointerId);
+        }
+        this.state = 'idle';
+        this.activePointerId = null;
+    }
+
+    update() {
+        return false;
+    }
+}
+
+const FALLBACK_ATOM_COLOR = '#cccccc';
+const FALLBACK_ATOM_RADIUS = 0.7;
+const FALLBACK_COVALENT_RADIUS = 0.75;
+
+export class ASERenderer {
+    constructor(container) {
+        this.container = container;
+        this.setupScene();
+        this.animate();
+    }
+
+    setupScene() {
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x303235);
+        
+        this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 10000);
+        this.camera.up.set(0, 0, 1);
+        this.camera.position.set(10, 10, 10);
+
+        this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+        this.renderer.setClearColor(0x303235, 1);
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+        this.domElement = this.renderer.domElement;
+        this.container.appendChild(this.renderer.domElement);
+
+        this.controls = new BlenderTumbleControls(this.camera, this.renderer.domElement);
+
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x2b2b2f, 0.75);
+        this.scene.add(hemiLight);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.28);
+        this.scene.add(ambientLight);
+        
+        const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight1.position.set(10, 20, 10);
+        this.scene.add(dirLight1);
+
+        const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
+        dirLight2.position.set(-10, -10, -10);
+        this.scene.add(dirLight2);
+
+        this.viewportGuides = this.buildViewportGuides();
+        this.gridGroup = this.viewportGuides.gridGroup;
+        this.axesHelper = this.viewportGuides.axisGroup;
+        this.scene.add(this.gridGroup);
+        this.scene.add(this.axesHelper);
+
+        this.atomMeshes = new THREE.Group();
+        this.scene.add(this.atomMeshes);
+
+        this.selectionOutlines = new THREE.Group();
+        this.scene.add(this.selectionOutlines);
+
+        this.cellGroup = new THREE.Group();
+        this.scene.add(this.cellGroup);
+        this.bondGroup = new THREE.Group();
+        this.scene.add(this.bondGroup);
+        this.strainViolationGroup = new THREE.Group();
+        this.scene.add(this.strainViolationGroup);
+        this.supercellGroup = new THREE.Group();
+        this.scene.add(this.supercellGroup);
+        this.constraintGuideGroup = new THREE.Group();
+        this.scene.add(this.constraintGuideGroup);
+        this.hookeanGroup = new THREE.Group();
+        this.scene.add(this.hookeanGroup);
+        this.atomMeshByIndex = new Map();
+        this.geometryCache = new Map();
+        this.materialCache = new Map();
+        this.atomsData = null;
+        this.needsInitialCameraFit = true;
+        this.customColors = {};
+        this.displayOptions = {
+            showCell: true,
+            showAxes: true,
+            showGrid: true,
+            showBonds: false,
+            bondMode: 'auto',
+            bondCutoffScale: 1.25,
+            manualBondPairs: [],
+            elementBondCutoffs: {},
+            atomRadiusScale: 1.0,
+            elementRadii: {},
+            rotatePivot: 'selection',
+            unitCellAwareRotate: false,
+            rotateStrainCutoff: 0.15,
+            supercell: [1, 1, 1],
+            antiAliasing: true,
+            sphereQuality: 'auto'
+        };
+        this.bondPairs = [];
+        this.bondGeometry = new THREE.CylinderGeometry(0.055, 0.055, 1, 16);
+        this.bondMaterial = new THREE.MeshStandardMaterial({
+            color: 0xc8ccd0,
+            roughness: 0.55,
+            metalness: 0.04,
+            transparent: true,
+            opacity: 0.9
+        });
+        this.strainViolationGeometry = new THREE.CylinderGeometry(0.085, 0.085, 1, 24);
+        this.strainViolationMaterial = new THREE.MeshBasicMaterial({
+            color: 0xff3b30,
+            transparent: true,
+            opacity: 0.88,
+            depthWrite: false
+        });
+        this.constraintMaterials = {
+            line: new THREE.MeshBasicMaterial({
+                color: 0x66d9ff,
+                transparent: true,
+                opacity: 0.58,
+                depthWrite: false
+            }),
+            plane: new THREE.MeshBasicMaterial({
+                color: 0x3dd6b0,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.18,
+                depthWrite: false
+            }),
+            planeEdge: new THREE.MeshBasicMaterial({
+                color: 0x72ffe0,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.62,
+                depthWrite: false
+            }),
+            hookean: new THREE.MeshBasicMaterial({
+                color: 0xff9f43,
+                transparent: true,
+                opacity: 0.92,
+                depthWrite: false
+            }),
+            hookeanInactive: new THREE.MeshBasicMaterial({
+                color: 0x8fb7ff,
+                transparent: true,
+                opacity: 0.48,
+                depthWrite: false
+            }),
+            hookeanGuide: new THREE.MeshBasicMaterial({
+                color: 0xaec1d8,
+                transparent: true,
+                opacity: 0.42,
+                depthWrite: false
+            }),
+            hookeanHook: new THREE.MeshBasicMaterial({
+                color: 0x7bb7ff,
+                transparent: true,
+                opacity: 0.86,
+                depthWrite: false
+            }),
+            hookeanSlack: new THREE.MeshBasicMaterial({
+                color: 0xb8c3d8,
+                transparent: true,
+                opacity: 0.38,
+                depthWrite: false
+            }),
+            hookeanRing: new THREE.MeshBasicMaterial({
+                color: 0xffc266,
+                transparent: true,
+                opacity: 0.86,
+                side: THREE.DoubleSide,
+                depthWrite: false
+            }),
+            hookeanActiveMarker: new THREE.MeshBasicMaterial({
+                color: 0x38d996,
+                transparent: true,
+                opacity: 0.92,
+                depthWrite: false
+            }),
+            hookeanInactiveMarker: new THREE.MeshBasicMaterial({
+                color: 0x75a9ff,
+                transparent: true,
+                opacity: 0.78,
+                depthWrite: false
+            }),
+            hookeanThresholdMarker: new THREE.MeshBasicMaterial({
+                color: 0xffd15a,
+                transparent: true,
+                opacity: 0.9,
+                depthWrite: false
+            })
+        };
+    }
+
+    atomVisualRadius(index) {
+        const symbol = this.atomsData?.symbols?.[index];
+        const elementRadius = Number(this.displayOptions?.elementRadii?.[symbol]);
+        const sourceRadius = Number.isFinite(elementRadius) && elementRadius > 0
+            ? elementRadius
+            : Number(this.atomsData?.visual?.radii?.[index]);
+        const scale = Number(this.displayOptions?.atomRadiusScale || 1);
+        const radius = Number.isFinite(sourceRadius) && sourceRadius > 0 ? sourceRadius : FALLBACK_ATOM_RADIUS;
+        return radius * (Number.isFinite(scale) && scale > 0 ? scale : 1);
+    }
+
+    atomCovalentRadius(index) {
+        const radius = Number(this.atomsData?.visual?.covalent_radii?.[index]);
+        return Number.isFinite(radius) && radius > 0 ? radius : FALLBACK_COVALENT_RADIUS;
+    }
+
+    atomVisualColor(index) {
+        return this.atomsData?.visual?.colors?.[index] || FALLBACK_ATOM_COLOR;
+    }
+
+    gridDivisionsForSize(size) {
+        if (!Number.isFinite(size) || size <= 0) return 80;
+        const target = Math.max(24, Math.min(160, Math.round(size / 2)));
+        return Math.max(24, Math.min(160, target));
+    }
+
+    niceGuideSize(rawSize) {
+        const value = Math.max(80, Number(rawSize) || 80);
+        const exponent = Math.floor(Math.log10(value));
+        const base = Math.pow(10, exponent);
+        const normalized = value / base;
+        const factor = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+        return factor * base;
+    }
+
+    cellCorners(cell) {
+        const [a, b, c] = cell.map(v => new THREE.Vector3(...v));
+        const o = new THREE.Vector3(0, 0, 0);
+        return [
+            o,
+            a,
+            b,
+            c,
+            a.clone().add(b),
+            a.clone().add(c),
+            b.clone().add(c),
+            a.clone().add(b).add(c)
+        ];
+    }
+
+    desiredGuideSize() {
+        let extent = 80;
+        const box = this.structureBounds?.();
+        if (box) {
+            const size = new THREE.Vector3();
+            box.getSize(size);
+            extent = Math.max(extent, size.x, size.y, size.length() * 0.55);
+        }
+        if (this.hasValidCell?.()) {
+            const corners = this.cellCorners(this.atomsData.cell);
+            const cellBox = new THREE.Box3().setFromPoints(corners);
+            const cellSize = new THREE.Vector3();
+            cellBox.getSize(cellSize);
+            extent = Math.max(extent, cellSize.x, cellSize.y, cellSize.length() * 0.55);
+        }
+        return this.niceGuideSize(extent * 2.4);
+    }
+
+    buildViewportGuides(size = 80) {
+        const guideSize = this.niceGuideSize(size);
+        const half = guideSize / 2;
+        const divisions = this.gridDivisionsForSize(guideSize);
+        const gridGroup = new THREE.Group();
+        const grid = new THREE.GridHelper(guideSize, divisions, 0x5a5d62, 0x42454a);
+        grid.rotation.x = Math.PI / 2;
+        grid.material.transparent = true;
+        grid.material.opacity = 0.58;
+        grid.userData = { guide: true, guideSize, divisions };
+        gridGroup.add(grid);
+
+        const axisGroup = new THREE.Group();
+        const makeLine = (start, end, color, opacity = 0.78) => {
+            const geo = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(...start),
+                new THREE.Vector3(...end)
+            ]);
+            const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
+            return new THREE.Line(geo, mat);
+        };
+        axisGroup.add(makeLine([-half, 0, 0], [half, 0, 0], 0x9a4c4c, 0.42));
+        axisGroup.add(makeLine([0, -half, 0], [0, half, 0], 0x547f42, 0.42));
+        axisGroup.add(makeLine([0, 0, -Math.max(2.5, guideSize * 0.035)], [0, 0, Math.max(2.5, guideSize * 0.035)], 0x4f82d9, 0.35));
+        gridGroup.userData = { guideSize };
+        axisGroup.userData = { guideSize };
+        return { gridGroup, axisGroup };
+    }
+
+    replaceViewportGuides(size) {
+        const showGrid = this.gridGroup?.visible ?? this.displayOptions.showGrid;
+        const showAxes = this.axesHelper?.visible ?? this.displayOptions.showAxes;
+        if (this.gridGroup) {
+            this.scene.remove(this.gridGroup);
+            this.clearGroup(this.gridGroup);
+        }
+        if (this.axesHelper) {
+            this.scene.remove(this.axesHelper);
+            this.clearGroup(this.axesHelper);
+        }
+        this.viewportGuides = this.buildViewportGuides(size);
+        this.gridGroup = this.viewportGuides.gridGroup;
+        this.axesHelper = this.viewportGuides.axisGroup;
+        this.gridGroup.visible = showGrid;
+        this.axesHelper.visible = showAxes;
+        this.scene.add(this.gridGroup);
+        this.scene.add(this.axesHelper);
+    }
+
+    refreshViewportGuidesForStructure() {
+        const desired = this.desiredGuideSize();
+        const current = this.gridGroup?.userData?.guideSize || 0;
+        if (!current || Math.abs(desired - current) / desired > 0.08) {
+            this.replaceViewportGuides(desired);
+        }
+    }
+
+    rebuildAtoms(atoms, customColors) {
+        // Remove existing meshes cleanly
+        while(this.atomMeshes.children.length > 0){ 
+            const child = this.atomMeshes.children[0];
+            this.atomMeshes.remove(child); 
+            if(child.userData.lockMarker && child.geometry) child.geometry.dispose();
+            if(child.userData.lockMarker && child.material) child.material.dispose();
+        }
+        while(this.cellGroup.children.length > 0){
+            const child = this.cellGroup.children[0];
+            this.cellGroup.remove(child);
+            if(child.geometry) child.geometry.dispose();
+            if(child.material) child.material.dispose();
+        }
+        this.clearGroup(this.bondGroup);
+        this.clearGroup(this.strainViolationGroup);
+        this.clearGroup(this.supercellGroup);
+        this.clearGroup(this.constraintGuideGroup);
+        this.clearGroup(this.hookeanGroup);
+        this.clearSelectionOutlines();
+        this.atomMeshByIndex.clear();
+        this.atomsData = atoms;
+        this.customColors = customColors || {};
+        this.refreshViewportGuidesForStructure();
+        
+        if (!atoms || !atoms.symbols) return;
+
+        const fixed = new Set(atoms.constraints?.fixed_indices || []);
+        const segmentCount = this.sphereQualitySegments(atoms.symbols.length);
+        atoms.symbols.forEach((sym, i) => {
+            const radius = this.atomVisualRadius(i);
+            const color = customColors[i] || this.atomVisualColor(i);
+            const isFixed = fixed.has(i);
+
+            const geometryKey = `${radius}:${segmentCount}`;
+            if (!this.geometryCache.has(geometryKey)) {
+                this.geometryCache.set(
+                    geometryKey,
+                    new THREE.SphereGeometry(radius, segmentCount, Math.max(10, Math.floor(segmentCount * 0.65)))
+                );
+            }
+            const materialKey = `${color}:${isFixed}`;
+            if (!this.materialCache.has(materialKey)) {
+                this.materialCache.set(materialKey, new THREE.MeshStandardMaterial({
+                    color,
+                    roughness: 0.42,
+                    metalness: 0.08,
+                    transparent: isFixed,
+                    opacity: isFixed ? 0.45 : 1.0
+                }));
+            }
+            const geo = this.geometryCache.get(geometryKey);
+            const mat = this.materialCache.get(materialKey);
+            const mesh = new THREE.Mesh(geo, mat);
+            
+            const pos = atoms.positions[i];
+            mesh.position.set(pos[0], pos[1], pos[2]);
+            mesh.userData = { index: i, symbol: sym, fixed: isFixed };
+            
+            this.atomMeshes.add(mesh);
+            this.atomMeshByIndex.set(i, mesh);
+
+            if (isFixed) {
+                const lockGeo = new THREE.RingGeometry(radius * 1.12, radius * 1.22, 24);
+                const lockMat = new THREE.MeshBasicMaterial({ color: 0x2c2a27, side: THREE.DoubleSide });
+                const lock = new THREE.Mesh(lockGeo, lockMat);
+                lock.position.copy(mesh.position);
+                lock.lookAt(this.camera.position);
+                lock.userData = { lockMarker: true, index: i };
+                this.atomMeshes.add(lock);
+            }
+        });
+
+        this.rebuildCell(atoms.cell);
+        this.rebuildBonds();
+        this.rebuildHookeanConstraints();
+        this.rebuildSupercell();
+        if (this.needsInitialCameraFit) {
+            this.fitCameraToStructure();
+            this.needsInitialCameraFit = false;
+        }
+    }
+
+    clearGroup(group) {
+        while(group.children.length > 0) {
+            const child = group.children[0];
+            group.remove(child);
+            if(!child.userData?.sharedGeometry && child.geometry) child.geometry.dispose();
+            if(!child.userData?.sharedMaterial && child.material) child.material.dispose();
+        }
+    }
+
+    sphereQualitySegments(atomCount = 0) {
+        const quality = this.displayOptions.sphereQuality || 'auto';
+        if (quality === 'low') return 12;
+        if (quality === 'medium') return 24;
+        if (quality === 'high') return 40;
+        if (quality === 'ultra') return 64;
+        return atomCount > 1500 ? 12 : atomCount > 400 ? 18 : 32;
+    }
+
+    structureBounds() {
+        const points = [];
+        if (this.atomsData?.positions?.length) {
+            this.atomsData.positions.forEach((position, index) => {
+                if (!position || position.length < 3) return;
+                const p = new THREE.Vector3(...position);
+                if (![p.x, p.y, p.z].every(Number.isFinite)) return;
+                const radius = this.atomVisualRadius(index);
+                points.push(
+                    p.clone().add(new THREE.Vector3(radius, radius, radius)),
+                    p.clone().add(new THREE.Vector3(-radius, -radius, -radius))
+                );
+            });
+        }
+
+        if (this.hasValidCell()) {
+            const [a, b, c] = this.atomsData.cell.map(v => new THREE.Vector3(...v));
+            const corners = [
+                new THREE.Vector3(0, 0, 0),
+                a,
+                b,
+                c,
+                a.clone().add(b),
+                a.clone().add(c),
+                b.clone().add(c),
+                a.clone().add(b).add(c)
+            ];
+            points.push(...corners);
+        }
+
+        if (!points.length) return null;
+        const box = new THREE.Box3().setFromPoints(points);
+        if (box.isEmpty()) return null;
+        return box;
+    }
+
+    fitCameraToStructure() {
+        const box = this.structureBounds();
+        if (!box) return;
+        const center = new THREE.Vector3();
+        const size = new THREE.Vector3();
+        box.getCenter(center);
+        box.getSize(size);
+        const radius = Math.max(size.length() * 0.5, 1.0);
+
+        const currentDirection = new THREE.Vector3().subVectors(this.camera.position, this.controls.target);
+        if (currentDirection.lengthSq() < 1e-10) {
+            currentDirection.set(1, 1, 0.8);
+        }
+        currentDirection.normalize();
+
+        const verticalFov = THREE.MathUtils.degToRad(this.camera.fov);
+        const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * Math.max(this.camera.aspect, 1e-6));
+        const fitFov = Math.max(0.1, Math.min(verticalFov, horizontalFov));
+        const distance = Math.max(4.0, (radius / Math.sin(fitFov / 2)) * 1.18);
+
+        this.controls.target.copy(center);
+        this.camera.position.copy(center).addScaledVector(currentDirection, distance);
+        this.camera.near = Math.max(0.01, distance / 1000);
+        this.camera.far = Math.max(1000, distance + radius * 20);
+        this.camera.lookAt(center);
+        this.camera.updateProjectionMatrix();
+        this.controls.update?.();
+    }
+
+    updateRenderQuality() {
+        const ratio = this.displayOptions.antiAliasing === false
+            ? 1
+            : Math.min(window.devicePixelRatio || 1, 2);
+        this.renderer.setPixelRatio(ratio);
+        this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+    }
+
+    rebuildCell(cell) {
+        if (!cell || cell.length !== 3) return;
+        const a = new THREE.Vector3(...cell[0]);
+        const b = new THREE.Vector3(...cell[1]);
+        const c = new THREE.Vector3(...cell[2]);
+        if (a.lengthSq() === 0 && b.lengthSq() === 0 && c.lengthSq() === 0) return;
+
+        const o = new THREE.Vector3(0, 0, 0);
+        const corners = [
+            o, a, b, c,
+            new THREE.Vector3().addVectors(a, b),
+            new THREE.Vector3().addVectors(a, c),
+            new THREE.Vector3().addVectors(b, c),
+            new THREE.Vector3().addVectors(a, b).add(c)
+        ];
+        const edgePairs = [[0,1],[0,2],[0,3],[1,4],[1,5],[2,4],[2,6],[3,5],[3,6],[4,7],[5,7],[6,7]];
+        const points = [];
+        edgePairs.forEach(([i, j]) => {
+            points.push(corners[i], corners[j]);
+        });
+        const geo = new THREE.BufferGeometry().setFromPoints(points);
+        const mat = new THREE.LineBasicMaterial({ color: 0x8b7f6a, transparent: true, opacity: 0.65 });
+        this.cellGroup.add(new THREE.LineSegments(geo, mat));
+        this.cellGroup.visible = this.displayOptions.showCell;
+    }
+
+    updatePositions(positions) {
+        if (this.atomsData) {
+            this.atomsData.positions = positions.map(p => [...p]);
+        }
+        this.atomMeshes.children.forEach(mesh => {
+            const idx = mesh.userData.index;
+            if (idx === undefined || !positions[idx]) return;
+            const p = positions[idx];
+            mesh.position.set(p[0], p[1], p[2]);
+        });
+        this.syncSelectionOutlines();
+        this.syncConstraintGuides();
+        this.updateBondPositions();
+        this.updateSupercellPositions();
+        this.updateHookeanPositions();
+    }
+
+    setDisplayOptions(options) {
+        const previous = this.displayOptions;
+        this.displayOptions = { ...this.displayOptions, ...options };
+        const qualityChanged = previous.antiAliasing !== this.displayOptions.antiAliasing ||
+            previous.sphereQuality !== this.displayOptions.sphereQuality ||
+            previous.atomRadiusScale !== this.displayOptions.atomRadiusScale ||
+            JSON.stringify(previous.elementRadii || {}) !== JSON.stringify(this.displayOptions.elementRadii || {});
+        if (qualityChanged) {
+            this.updateRenderQuality();
+            if (this.atomsData) {
+                this.rebuildAtoms(this.atomsData, this.customColors);
+            }
+            return;
+        }
+        this.cellGroup.visible = this.displayOptions.showCell;
+        if (this.axesHelper) this.axesHelper.visible = this.displayOptions.showAxes;
+        if (this.gridGroup) this.gridGroup.visible = this.displayOptions.showGrid;
+        const bondsChanged = previous.showBonds !== this.displayOptions.showBonds ||
+            previous.bondMode !== this.displayOptions.bondMode ||
+            previous.bondCutoffScale !== this.displayOptions.bondCutoffScale ||
+            previous.manualBondPairs !== this.displayOptions.manualBondPairs ||
+            JSON.stringify(previous.elementBondCutoffs || {}) !== JSON.stringify(this.displayOptions.elementBondCutoffs || {});
+        if (bondsChanged) this.rebuildBonds();
+        this.rebuildSupercell();
+    }
+
+    inferBondPairs() {
+        if (!this.atomsData || !this.atomsData.positions || this.atomsData.positions.length > 2000) return [];
+        const pairs = [];
+        const hookeanExcluded = this.hookeanBondExclusions();
+        const symbols = this.atomsData.symbols;
+        const count = this.atomsData.positions.length;
+        for (let i = 0; i < count; i++) {
+            const pi = this.getAtomPosition(i);
+            for (let j = i + 1; j < count; j++) {
+                if (hookeanExcluded.has(this.hookeanPairKey(i, j))) continue;
+                const ri = this.atomCovalentRadius(i);
+                const rj = this.atomCovalentRadius(j);
+                const cutoff = this.displayOptions.bondMode === 'element'
+                    ? this.elementBondCutoff(symbols[i], symbols[j])
+                    : Math.max(0.55, (ri + rj) * this.displayOptions.bondCutoffScale);
+                if (!Number.isFinite(cutoff) || cutoff <= 0) continue;
+                const d = this.minimumImageDelta(i, j, pi).length();
+                if (d > 0.15 && d <= cutoff) pairs.push([i, j]);
+            }
+        }
+        return pairs;
+    }
+
+    elementPairKey(a, b) {
+        return [a, b].sort().join('-');
+    }
+
+    elementBondCutoff(a, b) {
+        const cutoffs = this.displayOptions.elementBondCutoffs || {};
+        const value = Number(cutoffs[this.elementPairKey(a, b)]);
+        return Number.isFinite(value) ? value : null;
+    }
+
+    rebuildBonds() {
+        this.clearGroup(this.bondGroup);
+        this.bondPairs = [];
+        if (!this.displayOptions.showBonds || !this.atomsData) return;
+        const hookeanExcluded = this.hookeanBondExclusions();
+        this.bondPairs = this.displayOptions.bondMode === 'manual'
+            ? this.displayOptions.manualBondPairs.filter(([i, j]) =>
+                this.atomMeshByIndex.has(i) && this.atomMeshByIndex.has(j) && !hookeanExcluded.has(this.hookeanPairKey(i, j)))
+            : this.inferBondPairs();
+        if (!this.bondPairs.length) return;
+        this.bondPairs.forEach(([i, j]) => {
+            const bond = new THREE.Mesh(this.bondGeometry, this.bondMaterial);
+            bond.userData = { bondPair: [i, j], sharedGeometry: true, sharedMaterial: true };
+            bond.renderOrder = -1;
+            this.bondGroup.add(bond);
+            this.positionBondMesh(bond, i, j);
+        });
+    }
+
+    updateBondPositions() {
+        if (!this.displayOptions.showBonds || !this.bondGroup.children.length || !this.bondPairs?.length) return;
+        this.bondGroup.children.forEach(bond => {
+            const [i, j] = bond.userData.bondPair || [];
+            this.positionBondMesh(bond, i, j);
+        });
+    }
+
+    setStrainViolations(violations = []) {
+        this.clearGroup(this.strainViolationGroup);
+        violations.slice(0, 96).forEach(item => {
+            const start = new THREE.Vector3(...item.start);
+            const end = new THREE.Vector3(...item.end);
+            const delta = new THREE.Vector3().subVectors(end, start);
+            const length = delta.length();
+            if (!Number.isFinite(length) || length < 1e-6) return;
+            const marker = new THREE.Mesh(this.strainViolationGeometry, this.strainViolationMaterial);
+            marker.userData = { sharedGeometry: true, sharedMaterial: true, strainViolation: true, strain: item.strain };
+            marker.renderOrder = 24;
+            marker.position.copy(start).addScaledVector(delta, 0.5);
+            marker.scale.set(1, length, 1);
+            marker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), delta.normalize());
+            this.strainViolationGroup.add(marker);
+        });
+    }
+
+    clearStrainViolations() {
+        this.clearGroup(this.strainViolationGroup);
+    }
+
+    getAtomPosition(index) {
+        const mesh = this.atomMeshByIndex.get(index);
+        if (mesh) return mesh.position.clone();
+        return new THREE.Vector3(...this.atomsData.positions[index]);
+    }
+
+    cellBasis() {
+        if (!this.hasValidCell()) return null;
+        return this.atomsData.cell.map(v => new THREE.Vector3(...v));
+    }
+
+    fracToCart(frac, basis = null) {
+        const cell = basis || this.cellBasis();
+        if (!cell) return new THREE.Vector3();
+        return new THREE.Vector3()
+            .addScaledVector(cell[0], frac.x)
+            .addScaledVector(cell[1], frac.y)
+            .addScaledVector(cell[2], frac.z);
+    }
+
+    cartToFrac(cart, basis = null) {
+        const cell = basis || this.cellBasis();
+        if (!cell) return cart.clone();
+        const det = cell[0].dot(new THREE.Vector3().crossVectors(cell[1], cell[2]));
+        if (Math.abs(det) < 1e-10) return cart.clone();
+        return new THREE.Vector3(
+            cart.dot(new THREE.Vector3().crossVectors(cell[1], cell[2])) / det,
+            cart.dot(new THREE.Vector3().crossVectors(cell[2], cell[0])) / det,
+            cart.dot(new THREE.Vector3().crossVectors(cell[0], cell[1])) / det
+        );
+    }
+
+    minimumImageDelta(i, j, startOverride = null) {
+        const start = startOverride || this.getAtomPosition(i);
+        const end = this.getAtomPosition(j);
+        const delta = new THREE.Vector3().subVectors(end, start);
+        const pbc = this.atomsData?.pbc || [false, false, false];
+        if (!this.hasValidCell() || !pbc.some(Boolean)) return delta;
+        const basis = this.cellBasis();
+        const frac = this.cartToFrac(delta, basis);
+        for (let axis = 0; axis < 3; axis++) {
+            if (pbc[axis]) frac.setComponent(axis, frac.getComponent(axis) - Math.round(frac.getComponent(axis)));
+        }
+        return this.fracToCart(frac, basis);
+    }
+
+    positionBondMesh(bond, i, j) {
+        const a = this.atomMeshByIndex.get(i);
+        const b = this.atomMeshByIndex.get(j);
+        if (!a || !b) {
+            bond.visible = false;
+            return;
+        }
+        const start = a.position;
+        const delta = this.minimumImageDelta(i, j, start);
+        const length = delta.length();
+        if (length < 1e-6) {
+            bond.visible = false;
+            return;
+        }
+        bond.visible = true;
+        bond.position.copy(start).addScaledVector(delta, 0.5);
+        bond.scale.set(1, length, 1);
+        bond.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), delta.normalize());
+    }
+
+    hasValidCell() {
+        if (!this.atomsData?.cell || this.atomsData.cell.length !== 3) return false;
+        return this.atomsData.cell.some(v => new THREE.Vector3(...v).lengthSq() > 1e-12);
+    }
+
+    rebuildSupercell() {
+        this.clearGroup(this.supercellGroup);
+        if (!this.atomsData || !this.hasValidCell()) return;
+        const reps = this.displayOptions.supercell || [1, 1, 1];
+        if (reps.every(v => v <= 1)) return;
+        const cell = this.atomsData.cell.map(v => new THREE.Vector3(...v));
+        this.addSupercellCellPreview(cell, reps);
+        const fixed = new Set(this.atomsData.constraints?.fixed_indices || []);
+        const maxGhostAtoms = 5000;
+        let ghostCount = 0;
+        const ghostSegments = Math.max(10, Math.floor(this.sphereQualitySegments(this.atomsData.symbols.length) * 0.62));
+        for (let ix = 0; ix < reps[0]; ix++) {
+            for (let iy = 0; iy < reps[1]; iy++) {
+                for (let iz = 0; iz < reps[2]; iz++) {
+                    if (ix === 0 && iy === 0 && iz === 0) continue;
+                    const shift = new THREE.Vector3()
+                        .addScaledVector(cell[0], ix)
+                        .addScaledVector(cell[1], iy)
+                        .addScaledVector(cell[2], iz);
+                    this.atomsData.symbols.forEach((sym, i) => {
+                        if (ghostCount >= maxGhostAtoms) return;
+                        const radius = this.atomVisualRadius(i);
+                        const color = this.atomVisualColor(i);
+                        const geometryKey = `${radius}:ghost:${ghostSegments}`;
+                        if (!this.geometryCache.has(geometryKey)) {
+                            this.geometryCache.set(geometryKey, new THREE.SphereGeometry(
+                                radius * 0.88,
+                                ghostSegments,
+                                Math.max(8, Math.floor(ghostSegments * 0.62))
+                            ));
+                        }
+                        const materialKey = `${color}:ghost`;
+                        if (!this.materialCache.has(materialKey)) {
+                            this.materialCache.set(materialKey, new THREE.MeshStandardMaterial({
+                                color,
+                                roughness: 0.54,
+                                transparent: true,
+                                opacity: fixed.has(i) ? 0.32 : 0.48,
+                                depthWrite: false
+                            }));
+                        }
+                        const mesh = new THREE.Mesh(this.geometryCache.get(geometryKey), this.materialCache.get(materialKey));
+                        const p = this.atomMeshByIndex.get(i)?.position || new THREE.Vector3(...this.atomsData.positions[i]);
+                        mesh.position.copy(p).add(shift);
+                        mesh.userData = { ghostFor: i, shift };
+                        this.supercellGroup.add(mesh);
+                        ghostCount++;
+                    });
+                }
+            }
+        }
+    }
+
+    addSupercellCellPreview(cell, reps) {
+        const edgePairs = [[0,1],[0,2],[0,3],[1,4],[1,5],[2,4],[2,6],[3,5],[3,6],[4,7],[5,7],[6,7]];
+        const points = [];
+        const baseCorners = (shift) => {
+            const o = shift.clone();
+            return [
+                o,
+                o.clone().add(cell[0]),
+                o.clone().add(cell[1]),
+                o.clone().add(cell[2]),
+                o.clone().add(cell[0]).add(cell[1]),
+                o.clone().add(cell[0]).add(cell[2]),
+                o.clone().add(cell[1]).add(cell[2]),
+                o.clone().add(cell[0]).add(cell[1]).add(cell[2])
+            ];
+        };
+        for (let ix = 0; ix < reps[0]; ix++) {
+            for (let iy = 0; iy < reps[1]; iy++) {
+                for (let iz = 0; iz < reps[2]; iz++) {
+                    const shift = new THREE.Vector3()
+                        .addScaledVector(cell[0], ix)
+                        .addScaledVector(cell[1], iy)
+                        .addScaledVector(cell[2], iz);
+                    const corners = baseCorners(shift);
+                    edgePairs.forEach(([i, j]) => points.push(corners[i], corners[j]));
+                }
+            }
+        }
+        const geo = new THREE.BufferGeometry().setFromPoints(points);
+        const mat = new THREE.LineBasicMaterial({
+            color: 0xffc65a,
+            transparent: true,
+            opacity: 0.54,
+            depthWrite: false
+        });
+        const lines = new THREE.LineSegments(geo, mat);
+        lines.userData = { supercellCellPreview: true };
+        this.supercellGroup.add(lines);
+    }
+
+    updateSupercellPositions() {
+        if (!this.supercellGroup.children.length) return;
+        this.supercellGroup.children.forEach(mesh => {
+            const atom = this.atomMeshByIndex.get(mesh.userData.ghostFor);
+            if (!atom) return;
+            mesh.position.copy(atom.position).add(mesh.userData.shift);
+        });
+    }
+
+    normalizedVector(values) {
+        const v = new THREE.Vector3(...values);
+        return v.lengthSq() > 1e-12 ? v.normalize() : new THREE.Vector3(1, 0, 0);
+    }
+
+    orientYAxis(object, direction) {
+        object.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.clone().normalize());
+    }
+
+    hookeanPairKey(i, j) {
+        const a = Math.min(i, j);
+        const b = Math.max(i, j);
+        return `${a}-${b}`;
+    }
+
+    hookeanBondExclusions() {
+        const excluded = new Set();
+        (this.atomsData?.constraints?.hookean || []).forEach(item => {
+            if (item.kind === 'two atoms' && item.indices?.length === 2) {
+                excluded.add(this.hookeanPairKey(item.indices[0], item.indices[1]));
+            }
+        });
+        return excluded;
+    }
+
+    rebuildConstraintGuides(selectedIndices = new Set()) {
+        this.clearGroup(this.constraintGuideGroup);
+        if (!this.atomsData?.constraints || !selectedIndices.size) return;
+        const fixedLine = this.atomsData.constraints.fixed_line || {};
+        const fixedPlane = this.atomsData.constraints.fixed_plane || {};
+        selectedIndices.forEach(idx => {
+            const atom = this.atomMeshByIndex.get(idx);
+            if (!atom) return;
+            if (fixedLine[idx] || fixedLine[String(idx)]) {
+                this.addFixedLineGuide(idx, fixedLine[idx] || fixedLine[String(idx)]);
+            }
+            if (fixedPlane[idx] || fixedPlane[String(idx)]) {
+                this.addFixedPlaneGuide(idx, fixedPlane[idx] || fixedPlane[String(idx)]);
+            }
+        });
+    }
+
+    addFixedLineGuide(index, directionValues) {
+        const atom = this.atomMeshByIndex.get(index);
+        if (!atom) return;
+        const direction = this.normalizedVector(directionValues);
+        const group = new THREE.Group();
+        group.userData = { constraintGuideFor: index, kind: 'fixed_line', direction: direction.toArray() };
+
+        const length = 4.2;
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, length, 20), this.constraintMaterials.line);
+        shaft.userData.sharedMaterial = true;
+        group.add(shaft);
+        [-1, 1].forEach(sign => {
+            const cone = new THREE.Mesh(new THREE.ConeGeometry(0.105, 0.28, 24), this.constraintMaterials.line);
+            cone.position.y = sign * (length / 2 + 0.14);
+            if (sign < 0) cone.rotation.x = Math.PI;
+            cone.userData.sharedMaterial = true;
+            group.add(cone);
+        });
+        group.position.copy(atom.position);
+        this.orientYAxis(group, direction);
+        group.renderOrder = 20;
+        this.constraintGuideGroup.add(group);
+    }
+
+    addFixedPlaneGuide(index, normalValues) {
+        const atom = this.atomMeshByIndex.get(index);
+        if (!atom) return;
+        const normal = this.normalizedVector(normalValues);
+        const group = new THREE.Group();
+        group.userData = { constraintGuideFor: index, kind: 'fixed_plane', normal: normal.toArray() };
+
+        const disk = new THREE.Mesh(new THREE.CircleGeometry(1.55, 72), this.constraintMaterials.plane);
+        disk.userData.sharedMaterial = true;
+        group.add(disk);
+        const rim = new THREE.Mesh(new THREE.RingGeometry(1.52, 1.57, 96), this.constraintMaterials.planeEdge);
+        rim.userData.sharedMaterial = true;
+        group.add(rim);
+        group.position.copy(atom.position);
+        group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+        group.renderOrder = 19;
+        this.constraintGuideGroup.add(group);
+    }
+
+    rebuildHookeanConstraints() {
+        this.clearGroup(this.hookeanGroup);
+        const hookeans = this.atomsData?.constraints?.hookean || [];
+        hookeans.forEach(item => {
+            if (item.kind === 'two atoms' && item.indices?.length === 2) {
+                this.addHookeanSpring({ kind: 'two_atoms', i: item.indices[0], j: item.indices[1], item });
+            } else if (item.kind === 'point' && item.origin) {
+                this.addHookeanSpring({ kind: 'point', i: item.index, point: new THREE.Vector3(...item.origin), item });
+            } else if (item.kind === 'plane' && item.plane) {
+                this.addHookeanPlane(item);
+            }
+        });
+        this.updateHookeanPositions();
+    }
+
+    addHookeanSpring(spec) {
+        const group = new THREE.Group();
+        group.userData = { hookean: spec };
+
+        const hookLine = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.hookeanGuide);
+        hookLine.userData = { sharedMaterial: true, hookLine: true };
+        group.add(hookLine);
+
+        const catchLine = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.hookeanThresholdMarker);
+        catchLine.userData = { sharedMaterial: true, catchLine: true };
+        group.add(catchLine);
+
+        const spring = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.hookean);
+        spring.userData = { sharedMaterial: true, springLine: true };
+        group.add(spring);
+
+        const gapLine = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.hookeanSlack);
+        gapLine.userData = { sharedMaterial: true, gapLine: true };
+        group.add(gapLine);
+
+        const lockPin = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.hookeanActiveMarker);
+        lockPin.userData = { sharedMaterial: true, lockPin: true };
+        group.add(lockPin);
+
+        this.hookeanGroup.add(group);
+    }
+
+    addHookeanPlane(item) {
+        const group = new THREE.Group();
+        group.userData = { hookean: { kind: 'plane', item } };
+        const disk = new THREE.Mesh(new THREE.CircleGeometry(1.25, 64), this.constraintMaterials.plane);
+        const rim = new THREE.Mesh(new THREE.RingGeometry(1.21, 1.26, 80), this.constraintMaterials.hookeanRing);
+        disk.userData.sharedMaterial = true;
+        rim.userData.sharedMaterial = true;
+        group.add(disk, rim);
+        this.hookeanGroup.add(group);
+    }
+
+    makeSpringPoints(length, radius = 0.13, turns = 8, samples = 120) {
+        const points = [];
+        const usable = Math.max(0.001, length);
+        for (let i = 0; i <= samples; i++) {
+            const t = i / samples;
+            const angle = t * Math.PI * 2 * turns;
+            points.push(new THREE.Vector3(
+                Math.cos(angle) * radius,
+                (t - 0.5) * usable,
+                Math.sin(angle) * radius
+            ));
+        }
+        return points;
+    }
+
+    makeFlatSpringPoints(startY, endY, amplitude = 0.11, coils = 8, laneOffset = 0) {
+        if (endY - startY < 1e-4) return [
+            new THREE.Vector3(0, startY, laneOffset),
+            new THREE.Vector3(0, endY, laneOffset)
+        ];
+        const points = [new THREE.Vector3(0, startY, laneOffset)];
+        const steps = Math.max(8, coils * 2);
+        for (let i = 1; i < steps; i++) {
+            const t = i / steps;
+            const x = i % 2 === 0 ? -amplitude : amplitude;
+            points.push(new THREE.Vector3(x, THREE.MathUtils.lerp(startY, endY, t), laneOffset));
+        }
+        points.push(new THREE.Vector3(0, endY, laneOffset));
+        return points;
+    }
+
+    setLinePoints(line, points, key, radius = 0.026) {
+        const signature = points
+            .map(p => `${p.x.toFixed(4)},${p.y.toFixed(4)},${p.z.toFixed(4)}`)
+            .join('|') + `:${radius.toFixed(4)}`;
+        if (line.userData[key] === signature) return;
+        line.geometry.dispose();
+        const curve = new THREE.CatmullRomCurve3(points);
+        line.geometry = new THREE.TubeGeometry(curve, Math.max(8, points.length * 5), radius, 8, false);
+        line.userData[key] = signature;
+    }
+
+    hookeanEndpointRadius(spec, endpoint) {
+        if (endpoint === 'a') return this.atomVisualRadius(spec.i);
+        if (endpoint === 'b' && spec.kind === 'two_atoms') return this.atomVisualRadius(spec.j);
+        return 0.18;
+    }
+
+    hookeanState(length, threshold) {
+        if (!Number.isFinite(threshold) || threshold <= 0) return 'active';
+        if (Math.abs(length - threshold) <= Math.max(0.035, threshold * 0.025)) return 'threshold';
+        return length < threshold ? 'inactive' : 'active';
+    }
+
+    hookeanStateMaterial(state) {
+        if (state === 'active') return this.constraintMaterials.hookeanActiveMarker;
+        if (state === 'threshold') return this.constraintMaterials.hookeanThresholdMarker;
+        return this.constraintMaterials.hookeanInactiveMarker;
+    }
+
+    updateHookeanLatchGeometry(group, spec, length) {
+        const threshold = Number(spec.item?.threshold);
+        const state = this.hookeanState(length, threshold);
+        const radiusA = this.hookeanEndpointRadius(spec, 'a');
+        const radiusB = this.hookeanEndpointRadius(spec, 'b');
+        const leftCenter = -length / 2;
+        const rightCenter = length / 2;
+        const left = leftCenter + Math.min(radiusA * 0.55 + 0.04, length * 0.24);
+        const right = rightCenter - Math.min(radiusB * 0.55 + 0.04, length * 0.24);
+        const span = Math.max(0.12, Math.abs(right - left));
+        const gateWidth = THREE.MathUtils.clamp(span * 0.09, 0.12, 0.28);
+        const lockHalf = THREE.MathUtils.clamp(span * 0.045, 0.08, 0.18);
+        const thresholdY = Number.isFinite(threshold) && threshold > 0
+            ? leftCenter + threshold
+            : left + span * 0.52;
+        const springStart = thresholdY;
+        const springEnd = right;
+        const springLength = Math.max(0.001, springEnd - springStart);
+        const coils = Math.max(6, Math.round(5 + springLength * 2.2));
+
+        const hookLine = group.children.find(child => child.userData.hookLine);
+        const catchLine = group.children.find(child => child.userData.catchLine);
+        const springLine = group.children.find(child => child.userData.springLine);
+        const gapLine = group.children.find(child => child.userData.gapLine);
+        const lockPin = group.children.find(child => child.userData.lockPin);
+
+        // Dead-zone rail: the Hookean force is inactive until this exact cutoff.
+        this.setLinePoints(hookLine, [
+            new THREE.Vector3(0, left, 0),
+            new THREE.Vector3(0, thresholdY, 0)
+        ], 'hookSignature', 0.018);
+        hookLine.material = this.constraintMaterials.hookeanGuide;
+        hookLine.userData.sharedMaterial = true;
+
+        // Cutoff gate: a simple crossbar, not a symbolic hook/arrow.
+        this.setLinePoints(catchLine, [
+            new THREE.Vector3(-gateWidth, thresholdY, 0),
+            new THREE.Vector3(gateWidth, thresholdY, 0)
+        ], 'catchSignature', state === 'inactive' ? 0.024 : 0.034);
+        catchLine.material = this.hookeanStateMaterial(state);
+        catchLine.userData.sharedMaterial = true;
+
+        if (lockPin) {
+            lockPin.visible = state !== 'inactive';
+            if (lockPin.visible) {
+                this.setLinePoints(lockPin, [
+                    new THREE.Vector3(0, thresholdY - lockHalf, 0),
+                    new THREE.Vector3(0, thresholdY + lockHalf, 0)
+                ], 'lockSignature', 0.034);
+                lockPin.material = this.hookeanStateMaterial(state);
+                lockPin.userData.sharedMaterial = true;
+            }
+        }
+
+        springLine.visible = state !== 'inactive' && springEnd > springStart;
+        if (springLine.visible) {
+            this.setLinePoints(springLine, this.makeFlatSpringPoints(
+                springStart,
+                springEnd,
+                Math.min(0.16, span * 0.08),
+                coils,
+                0
+            ), 'springSignature', 0.024);
+        }
+        springLine.material = state === 'inactive' ? this.constraintMaterials.hookeanInactive : this.constraintMaterials.hookean;
+        springLine.userData.sharedMaterial = true;
+
+        gapLine.visible = state === 'inactive' && thresholdY > right;
+        if (gapLine.visible) {
+            this.setLinePoints(gapLine, [
+                new THREE.Vector3(0, right, 0),
+                new THREE.Vector3(0, thresholdY, 0)
+            ], 'gapSignature', 0.014);
+        }
+
+        group.userData.hookeanState = state;
+        group.userData.hookeanDistance = length;
+        group.userData.hookeanThreshold = Number.isFinite(threshold) ? threshold : null;
+        group.userData.hookeanExtension = Number.isFinite(threshold) ? Math.max(0, length - threshold) : length;
+    }
+
+    updateHookeanPositions() {
+        this.hookeanGroup.children.forEach(group => {
+            const spec = group.userData.hookean;
+            if (!spec) return;
+            if (spec.kind === 'plane') {
+                const item = spec.item;
+                const atom = this.atomMeshByIndex.get(item.index);
+                if (!atom) return;
+                const [A, B, C, D] = item.plane;
+                const normal = this.normalizedVector([A, B, C]);
+                const signed = (A * atom.position.x + B * atom.position.y + C * atom.position.z + D) /
+                    Math.max(Math.sqrt(A * A + B * B + C * C), 1e-9);
+                group.position.copy(atom.position).addScaledVector(normal, -signed);
+                group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+                group.userData.hookeanState = signed > 0 ? 'active' : 'inactive';
+                group.children.forEach(child => {
+                    if (child.userData?.sharedMaterial) {
+                        child.material = signed > 0
+                            ? this.constraintMaterials.hookeanActiveMarker
+                            : this.constraintMaterials.plane;
+                    }
+                });
+                return;
+            }
+
+            const atom = this.atomMeshByIndex.get(spec.i);
+            if (!atom) return;
+            const start = atom.position.clone();
+            const end = spec.kind === 'two_atoms'
+                ? (this.atomMeshByIndex.has(spec.j) ? start.clone().add(this.minimumImageDelta(spec.i, spec.j, start)) : null)
+                : spec.point?.clone();
+            if (!end) return;
+            const delta = new THREE.Vector3().subVectors(end, start);
+            const length = delta.length();
+            if (length < 1e-6) {
+                group.visible = false;
+                return;
+            }
+            group.visible = true;
+            const center = start.clone().addScaledVector(delta, 0.5);
+            const direction = delta.clone().normalize();
+            group.position.copy(center);
+            this.orientYAxis(group, direction);
+
+            this.updateHookeanLatchGeometry(group, spec, length);
+        });
+    }
+
+    syncConstraintGuides() {
+        this.constraintGuideGroup.children.forEach(group => {
+            const atom = this.atomMeshByIndex.get(group.userData.constraintGuideFor);
+            if (!atom) return;
+            group.position.copy(atom.position);
+        });
+    }
+
+    syncLockMarkers() {
+        this.atomMeshes.children.forEach(marker => {
+            if (!marker.userData.lockMarker) return;
+            const atom = this.atomMeshByIndex.get(marker.userData.index);
+            if (!atom) return;
+            marker.position.copy(atom.position);
+            marker.lookAt(this.camera.position);
+        });
+    }
+
+    clearSelectionOutlines() {
+        while(this.selectionOutlines.children.length > 0) {
+            const child = this.selectionOutlines.children[0];
+            this.selectionOutlines.remove(child);
+            if(child.geometry) child.geometry.dispose();
+            if(child.material) child.material.dispose();
+        }
+    }
+
+    setSelection(selectedIndices) {
+        this.clearSelectionOutlines();
+        const selected = new Set(selectedIndices);
+        this.atomMeshes.children.forEach(mesh => {
+            if (mesh.userData.lockMarker || mesh.userData.index === undefined) return;
+            if (!selected.has(mesh.userData.index)) return;
+
+            const radius = this.atomVisualRadius(mesh.userData.index);
+            const outlineGeo = new THREE.SphereGeometry(radius * 1.18, 32, 18);
+            const outlineMat = new THREE.MeshBasicMaterial({
+                color: 0xffc400,
+                side: THREE.BackSide,
+                transparent: true,
+                opacity: 1.0,
+                depthWrite: false
+            });
+            const outline = new THREE.Mesh(outlineGeo, outlineMat);
+            outline.position.copy(mesh.position);
+            outline.userData = { outlineFor: mesh.userData.index };
+            outline.renderOrder = 10;
+            this.selectionOutlines.add(outline);
+
+            const haloGeo = new THREE.RingGeometry(radius * 1.28, radius * 1.36, 48);
+            const haloMat = new THREE.MeshBasicMaterial({
+                color: 0xffd84d,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.85,
+                depthWrite: false
+            });
+            const halo = new THREE.Mesh(haloGeo, haloMat);
+            halo.position.copy(mesh.position);
+            halo.lookAt(this.camera.position);
+            halo.userData = { outlineFor: mesh.userData.index, billboard: true };
+            halo.renderOrder = 11;
+            this.selectionOutlines.add(halo);
+        });
+        this.rebuildConstraintGuides(selected);
+    }
+
+    syncSelectionOutlines() {
+        this.selectionOutlines.children.forEach(outline => {
+            const idx = outline.userData.outlineFor;
+            const mesh = this.atomMeshByIndex.get(idx);
+            if (!mesh) return;
+            outline.position.copy(mesh.position);
+            if (outline.userData.billboard) {
+                outline.lookAt(this.camera.position);
+            }
+        });
+        this.syncLockMarkers();
+        this.syncConstraintGuides();
+    }
+
+    onResize() {
+        this.camera.aspect = window.innerWidth / window.innerHeight;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    exportPNG(width, height, options = {}) {
+        const transparentBackground = Boolean(options.transparentBackground);
+        const includeGrid = options.includeGrid !== false;
+        const includeAxes = options.includeAxes !== false;
+        const oldSize = new THREE.Vector2();
+        this.renderer.getSize(oldSize);
+        const oldPixelRatio = this.renderer.getPixelRatio();
+        const oldAspect = this.camera.aspect;
+        const oldBackground = this.scene.background;
+        const oldClearColor = this.renderer.getClearColor(new THREE.Color()).clone();
+        const oldClearAlpha = this.renderer.getClearAlpha();
+        const oldGridVisible = this.gridGroup?.visible;
+        const oldAxesVisible = this.axesHelper?.visible;
+
+        try {
+            if (transparentBackground) {
+                this.scene.background = null;
+                this.renderer.setClearColor(0x000000, 0);
+            } else {
+                this.scene.background = oldBackground || new THREE.Color(0x303235);
+                this.renderer.setClearColor(0x303235, 1);
+            }
+            if (this.gridGroup) this.gridGroup.visible = includeGrid && this.displayOptions.showGrid;
+            if (this.axesHelper) this.axesHelper.visible = includeAxes && this.displayOptions.showAxes;
+
+            this.renderer.setPixelRatio(1);
+            this.renderer.setSize(width, height, false);
+            this.camera.aspect = width / height;
+            this.camera.updateProjectionMatrix();
+            this.updateBondPositions();
+            this.syncSelectionOutlines();
+            this.updateHookeanPositions();
+            this.renderer.render(this.scene, this.camera);
+            return this.renderer.domElement.toDataURL('image/png');
+        } finally {
+            this.scene.background = oldBackground;
+            this.renderer.setClearColor(oldClearColor, oldClearAlpha);
+            if (this.gridGroup) this.gridGroup.visible = oldGridVisible;
+            if (this.axesHelper) this.axesHelper.visible = oldAxesVisible;
+            this.renderer.setPixelRatio(oldPixelRatio);
+            this.renderer.setSize(oldSize.x, oldSize.y, false);
+            this.camera.aspect = oldAspect;
+            this.camera.updateProjectionMatrix();
+            this.updateBondPositions();
+            this.syncSelectionOutlines();
+        }
+    }
+
+    animate() {
+        requestAnimationFrame(() => this.animate());
+        this.controls.update();
+        this.updateBondPositions();
+        this.syncSelectionOutlines();
+        this.renderer.render(this.scene, this.camera);
+    }
+}

@@ -1,0 +1,165 @@
+import numpy as np
+import colorsys
+import hashlib
+from ase.data import covalent_radii
+from ase.data.colors import jmol_colors
+from ase.constraints import FixAtoms, FixCartesian, FixedLine, FixedPlane, FixScaled, Hookean
+from v_ase.io import atom_type_labels
+
+try:
+    from ase.gui.defaults import defaults as ase_gui_defaults
+except Exception:
+    ase_gui_defaults = {}
+
+ASE_GUI_RADIUS_SCALE = float(ase_gui_defaults.get("radii_scale", 0.89))
+
+
+def _constraint_indices(constraint, natoms):
+    if not hasattr(constraint, "index"):
+        return []
+    index = constraint.index
+    if isinstance(index, slice):
+        return [int(i) for i in np.arange(natoms)[index]]
+    return [int(i) for i in np.atleast_1d(index)]
+
+
+def _as_float_list(values):
+    return [float(v) for v in np.asarray(values, dtype=float).tolist()]
+
+
+def _ase_gui_jmol_hex(atomic_number):
+    rgb = jmol_colors[int(atomic_number)]
+    channels = [max(0, min(255, int(float(value) * 255))) for value in rgb]
+    return "#{:02X}{:02X}{:02X}".format(*channels)
+
+
+def _type_variant_hex(base_hex, atom_type, chemical_symbol):
+    if atom_type == chemical_symbol:
+        return base_hex
+    digest = hashlib.sha1(atom_type.encode("utf-8")).digest()
+    offset = ((digest[0] / 255.0) - 0.5) * 0.18
+    saturation_boost = 0.08 + (digest[1] / 255.0) * 0.14
+    value_shift = ((digest[2] / 255.0) - 0.5) * 0.18
+    r = int(base_hex[1:3], 16) / 255.0
+    g = int(base_hex[3:5], 16) / 255.0
+    b = int(base_hex[5:7], 16) / 255.0
+    h, s, v = colorsys.rgb_to_hsv(r, g, b)
+    h = (h + offset) % 1.0
+    s = max(0.18, min(1.0, s + saturation_boost))
+    v = max(0.38, min(1.0, v + value_shift))
+    rr, gg, bb = colorsys.hsv_to_rgb(h, s, v)
+    return "#{:02X}{:02X}{:02X}".format(int(rr * 255), int(gg * 255), int(bb * 255))
+
+
+def _ase_gui_radius(atomic_number):
+    return float(covalent_radii[int(atomic_number)] * ASE_GUI_RADIUS_SCALE)
+
+
+def _per_atom_values(atoms, getter, fallback):
+    try:
+        values = getter()
+        if values is not None and len(values) == len(atoms):
+            return np.asarray(values).tolist()
+    except Exception:
+        pass
+    return fallback
+
+
+def atoms_to_json(atoms):
+    """
+    Rich serialization of ASE Atoms for professional visualization.
+    """
+    atomic_numbers = atoms.get_atomic_numbers()
+    chemical_symbols = atoms.get_chemical_symbols()
+    display_symbols = atom_type_labels(atoms)
+    base_colors = [_ase_gui_jmol_hex(number) for number in atomic_numbers]
+    data = {
+        "symbols": display_symbols,
+        "atom_types": display_symbols,
+        "chemical_symbols": chemical_symbols,
+        "atomic_numbers": atomic_numbers.tolist(),
+        "positions": atoms.get_positions().tolist(),
+        "cell": atoms.get_cell().tolist(),
+        "pbc": atoms.get_pbc().tolist(),
+        "tags": atoms.get_tags().tolist(),
+        "charges": _per_atom_values(atoms, atoms.get_initial_charges, [0.0] * len(atoms)),
+        "magmoms": _per_atom_values(atoms, atoms.get_initial_magnetic_moments, [0.0] * len(atoms)),
+        "forces": [None] * len(atoms),
+        "visual": {
+            "color_source": "ase.gui.view.View.colors using ase.data.colors.jmol_colors",
+            "radius_source": "ase.gui.images.Images.get_radii: ase.data.covalent_radii * 0.89",
+            "colors": [
+                _type_variant_hex(color, atom_type, symbol)
+                for color, atom_type, symbol in zip(base_colors, display_symbols, chemical_symbols)
+            ],
+            "base_colors": base_colors,
+            "radii": [_ase_gui_radius(number) for number in atomic_numbers],
+            "covalent_radii": [_ase_gui_radius(number) for number in atomic_numbers],
+            "radius_scale": ASE_GUI_RADIUS_SCALE,
+        },
+        "constraints": {
+            "fixed_indices": [],
+            "fixed_cartesian": {},
+            "fixed_line": {},
+            "fixed_plane": {},
+            "hookean": [],
+        },
+        "metadata": {
+            "natoms": len(atoms),
+            "units": "angstrom",
+            "has_calculator": atoms.calc is not None,
+            "calculator": atoms.calc.__class__.__name__ if atoms.calc else None,
+        }
+    }
+
+    # Extract constraints
+    for c in atoms.constraints:
+        indices = _constraint_indices(c, len(atoms))
+            
+        if isinstance(c, FixAtoms):
+            data["constraints"]["fixed_indices"].extend([int(i) for i in indices])
+        elif isinstance(c, FixCartesian):
+            for idx in indices:
+                data["constraints"]["fixed_cartesian"][str(idx)] = [bool(v) for v in c.mask.tolist()]
+        elif isinstance(c, FixedLine):
+            for idx in indices:
+                data["constraints"]["fixed_line"][str(idx)] = _as_float_list(c.dir)
+        elif isinstance(c, FixedPlane):
+            for idx in indices:
+                normal = getattr(c, "plane_normal", getattr(c, "dir", None))
+                data["constraints"]["fixed_plane"][str(idx)] = _as_float_list(normal)
+        elif isinstance(c, FixScaled):
+            # Scaled constraints are treated as fixed in cartesian for simple visualization
+            data["constraints"]["fixed_indices"].extend([int(i) for i in indices])
+        elif isinstance(c, Hookean):
+            item = {
+                "spring": float(c.spring),
+                "threshold": None if c.threshold is None else float(c.threshold),
+                "kind": getattr(c, "_type", "unknown"),
+            }
+            if c._type == "two atoms":
+                item["indices"] = [int(i) for i in c.indices]
+            elif c._type == "point":
+                item["index"] = int(c.index)
+                item["origin"] = _as_float_list(c.origin)
+            elif c._type == "plane":
+                item["index"] = int(c.index)
+                item["plane"] = _as_float_list(c.plane)
+            data["constraints"]["hookean"].append(item)
+
+    data["constraints"]["fixed_indices"] = list(set(data["constraints"]["fixed_indices"]))
+    
+    # Calculator results if converged/available
+    if atoms.calc is not None:
+        try:
+            data["metadata"]["energy"] = float(atoms.get_potential_energy())
+        except:
+            pass
+        try:
+            data["forces"] = atoms.get_forces().tolist()
+        except:
+            pass
+    elif "forces" in atoms.arrays:
+        data["forces"] = np.asarray(atoms.arrays["forces"], dtype=float).tolist()
+
+    return data
