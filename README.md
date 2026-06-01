@@ -1,7 +1,7 @@
 # v_ase
 
-[![PyPI version](https://img.shields.io/pypi/v/v_ase.svg)](https://pypi.python.org/pypi/v_ase/)
-[![Python versions](https://img.shields.io/pypi/pyversions/v_ase.svg)](https://pypi.python.org/pypi/v_ase/)
+[![PyPI version](https://img.shields.io/pypi/v/v_ase-gui.svg)](https://pypi.python.org/pypi/v_ase-gui/)
+[![Python versions](https://img.shields.io/pypi/pyversions/v_ase-gui.svg)](https://pypi.python.org/pypi/v_ase-gui/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 `v_ase` is an interactive visualizer/editor for
@@ -61,7 +61,7 @@ show playback controls for frame-by-frame movie inspection.
 ### From PyPI
 
 ```bash
-python -m pip install v_ase
+python -m pip install v_ase-gui
 v_ase gui POSCAR
 ```
 

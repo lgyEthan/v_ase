@@ -3,7 +3,7 @@ requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "v_ase"
+name = "v_ase-gui"
 version = "0.0.1"
 description = "v_ase: a Blender-style browser GUI and editor for ASE Atoms objects."
 readme = "README.md"
