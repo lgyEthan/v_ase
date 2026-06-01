@@ -4,11 +4,14 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/v_ase-gui.svg)](https://pypi.python.org/pypi/v_ase-gui/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-`v_ase` is an interactive visualizer/editor for
-[ASE](https://wiki.fysik.dtu.dk/ase/) structures and trajectories. It is built
-for users who want to open a POSCAR/extxyz/traj file, inspect it as a movie when
-it has multiple frames, and manipulate atoms with Blender-like mouse and
-keyboard controls.
+`v_ase` combines the workflow convenience of `ase gui` with the direct 3D
+editing feel of Blender. Open an ASE-readable structure or trajectory from a
+terminal or Python session, then select, move, rotate, copy, delete, wrap, and
+export atoms in an interactive browser viewport.
+
+The goal is simple: keep the low-friction ASE workflow researchers already use,
+but add a Blender-like manipulation layer for atom positions, constraints,
+bonds, supercells, trajectories, and publication/export workflows.
 
 It is intended to replace:
 
@@ -40,10 +43,12 @@ show playback controls for frame-by-frame movie inspection.
 
 ## Highlights
 
-- `v_ase gui FILE` command-line workflow for structures and trajectories.
-- Python API: `from v_ase.visualize import view`.
-- Blender-style selection, camera control, and transforms: click, box select, `G`, `R`,
-  axis locking, numeric input, `Enter`, `Esc`, copy/paste/undo/delete.
+- `v_ase gui FILE` command-line workflow for POSCAR, VASP, extxyz, traj, and
+  other ASE-readable files.
+- Python API for notebooks and scripts: `from v_ase.visualize import view`.
+- Blender-like viewport interaction: middle-mouse orbit, shift-middle pan,
+  wheel zoom, click/box selection, `G` move, `R` rotate, axis locking, numeric
+  transforms, `Enter`, `Esc`, copy/paste/undo/delete.
 - ASE constraint-aware editing and visualization:
   `FixAtoms`, `FixCartesian`, `FixedLine`, `FixedPlane`, `FixScaled`, and
   `Hookean`.
@@ -64,6 +69,9 @@ show playback controls for frame-by-frame movie inspection.
 python -m pip install v_ase-gui
 v_ase gui POSCAR
 ```
+
+The PyPI package is named `v_ase-gui`; the installed command and Python import
+remain `v_ase`.
 
 ### From GitHub
 
@@ -410,8 +418,9 @@ python -m twine upload dist/*
 
 ## Versioning
 
-The initial public release is `0.0.1`. Patch releases increment the last number:
-`0.0.2`, `0.0.3`, and so on. When code changes, update the version in
+The initial public release was `0.0.1`; the current release is `0.0.2`.
+Patch releases increment the last number: `0.0.3`, `0.0.4`, and so on.
+When code or packaged documentation changes, update the version in
 `pyproject.toml`, the fallback version in `v_ase/__init__.py`, and the fallback
 CLI version in `v_ase/cli.py`, then rebuild and push to GitHub before uploading
 to PyPI.

@@ -16,9 +16,9 @@ from v_ase.viewer import view
 
 def package_version() -> str:
     try:
-        return version("v_ase")
+        return version("v_ase-gui")
     except PackageNotFoundError:
-        return "0.0.1"
+        return "0.0.2"
 
 
 def build_parser() -> argparse.ArgumentParser:
