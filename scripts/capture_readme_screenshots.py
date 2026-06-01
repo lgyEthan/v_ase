@@ -228,25 +228,23 @@ def make_hookean_surface_scene() -> tuple[Atoms, dict[str, int]]:
     center = np.mean(positions, axis=0)
     x0, y0 = float(center[0]), float(center[1])
 
-    ads_symbols = ["O", "H", "H", "O", "H"]
+    ads_symbols = ["O", "H", "H"]
     ads_positions = [
-        [x0 - 1.65, y0 - 0.08, top_z + 3.05],
-        [x0 - 2.23, y0 + 0.46, top_z + 3.48],
-        [x0 - 1.20, y0 - 0.70, top_z + 3.43],
-        [x0 + 1.62, y0 + 0.05, top_z + 3.08],
-        [x0 + 2.24, y0 + 0.60, top_z + 3.50],
+        [x0 - 0.55, y0 - 0.10, top_z + 3.05],
+        [x0 + 0.42, y0 - 0.10, top_z + 3.05],
+        [x0 - 0.92, y0 + 0.78, top_z + 3.25],
     ]
     atoms = slab + Atoms(ads_symbols, positions=ads_positions)
     atoms.pbc = [True, True, False]
-    left_o = len(slab)
-    right_o = len(slab) + 3
+    oxygen = len(slab)
+    constrained_h = len(slab) + 1
     bottom = [i for i, p in enumerate(positions) if p[2] < top_z - 0.5]
     atoms.set_constraint([
         FixAtoms(indices=bottom),
-        Hookean(left_o, right_o, rt=3.65, k=5.0),
+        Hookean(oxygen, constrained_h, rt=1.12, k=12.0),
     ])
-    atoms.info["readme_scene"] = "cu111_hookean_water_pair"
-    return atoms, {"left_o": left_o, "right_o": right_o}
+    atoms.info["readme_scene"] = "cu111_hookean_oh_bond"
+    return atoms, {"oxygen": oxygen, "hydrogen": constrained_h}
 
 
 def make_ferrocene_scene() -> tuple[Atoms, dict[str, list[int]]]:
@@ -424,17 +422,20 @@ def main() -> int:
                 "showBonds": True,
                 "showGrid": True
             })
-            set_selection(page, [hidx["left_o"], hidx["right_o"]])
+            set_selection(page, [hidx["oxygen"], hidx["hydrogen"]])
             open_panels(page, ["structure-info", "selection", "view"])
             settle_view(page, target=[5.0, 4.3, 13.1], position=[10.6, -6.1, 17.0], fov=37)
             page.screenshot(path=ASSET_DIR / "readme_hookean.png")
             base = hookean_atoms.get_positions()
-            start = base[hidx["right_o"]].copy()
-            end = start + np.array([1.55, 0.0, 0.0])
+            oxygen_pos = base[hidx["oxygen"]].copy()
+            start = base[hidx["hydrogen"]].copy()
+            direction = start - oxygen_pos
+            direction /= np.linalg.norm(direction)
+            end = oxygen_pos + direction * 1.62
             capture_animation(
                 page,
                 ASSET_DIR / "readme_hookean.gif",
-                hookean_frames(base, hidx["right_o"], start, end),
+                hookean_frames(base, hidx["hydrogen"], start, end),
             )
             page.close()
             editor.close()

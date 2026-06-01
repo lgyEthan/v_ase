@@ -257,12 +257,21 @@ export class ASERenderer {
                 color: 0x82f8df,
                 transparent: true,
                 opacity: 0.58,
+                depthTest: false,
                 depthWrite: false
             }),
             planeTrack: new THREE.MeshBasicMaterial({
                 color: 0xffd35a,
                 transparent: true,
                 opacity: 0.92,
+                depthTest: false,
+                depthWrite: false
+            }),
+            planeAxis: new THREE.MeshBasicMaterial({
+                color: 0x7fffe4,
+                transparent: true,
+                opacity: 0.82,
+                depthTest: false,
                 depthWrite: false
             }),
             hookean: new THREE.MeshBasicMaterial({
@@ -1012,7 +1021,7 @@ export class ASERenderer {
         this.constraintGuideGroup.add(group);
     }
 
-    fixedPlaneGridGeometry(size = 3.6, divisions = 4) {
+    fixedPlaneGridGeometry(size = 120, divisions = 4) {
         const half = size / 2;
         const step = size / divisions;
         const points = [];
@@ -1021,12 +1030,6 @@ export class ASERenderer {
             points.push(-half, v, 0, half, v, 0);
             points.push(v, -half, 0, v, half, 0);
         }
-        points.push(
-            -half, -half, 0, half, -half, 0,
-            half, -half, 0, half, half, 0,
-            half, half, 0, -half, half, 0,
-            -half, half, 0, -half, -half, 0
-        );
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
         return geometry;
@@ -1036,7 +1039,7 @@ export class ASERenderer {
         const atom = this.atomMeshByIndex.get(index);
         if (!atom) return;
         const normal = this.normalizedVector(normalValues);
-        const planeOffset = this.atomVisualRadius(index) * 0.92 + 0.12;
+        const planeOffset = 0.04;
         const group = new THREE.Group();
         group.userData = {
             constraintGuideFor: index,
@@ -1046,15 +1049,28 @@ export class ASERenderer {
             planeOffset
         };
 
-        const patch = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 3.6), this.constraintMaterials.plane);
-        patch.userData.sharedMaterial = true;
-        patch.renderOrder = 18;
-        group.add(patch);
-
-        const grid = new THREE.LineSegments(this.fixedPlaneGridGeometry(3.6, 4), this.constraintMaterials.planeGrid);
+        const grid = new THREE.LineSegments(this.fixedPlaneGridGeometry(), this.constraintMaterials.planeGrid);
         grid.userData.sharedMaterial = true;
-        grid.renderOrder = 19;
+        grid.renderOrder = 18;
         group.add(grid);
+
+        const axisA = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.planeAxis);
+        axisA.userData = { sharedMaterial: true, planeAxis: true };
+        this.setLinePoints(axisA, [
+            new THREE.Vector3(-60, 0, 0),
+            new THREE.Vector3(60, 0, 0)
+        ], 'planeAxisASignature', 0.012);
+        axisA.renderOrder = 19;
+        group.add(axisA);
+
+        const axisB = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.planeAxis);
+        axisB.userData = { sharedMaterial: true, planeAxis: true };
+        this.setLinePoints(axisB, [
+            new THREE.Vector3(0, -60, 0),
+            new THREE.Vector3(0, 60, 0)
+        ], 'planeAxisBSignature', 0.012);
+        axisB.renderOrder = 19;
+        group.add(axisB);
 
         const trail = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.planeTrack);
         trail.userData = { sharedMaterial: true, planeTrail: true };

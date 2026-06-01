@@ -4,14 +4,13 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/v_ase-gui.svg)](https://pypi.python.org/pypi/v_ase-gui/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-`v_ase` is built around convenience and flexibility. It keeps the
-low-friction workflow of `ase gui`: open ASE-readable structures and
-trajectories directly from a terminal or Python session. It adds the flexibility
-of a Blender-like 3D visualizer: select, move, rotate, copy, delete, wrap, and
-export atoms directly in an interactive browser viewport.
-
-The goal is to put the practical convenience of ASE and the hands-on flexibility
-of a 3D molecular editor in the same tool.
+`v_ase` was developed for researchers who want the convenience of ASE and the
+flexibility of Blender in one atomistic workflow. ASE is convenient because
+structures and trajectories can be opened directly from Python or the terminal.
+Blender is flexible because objects can be selected, moved, rotated, inspected,
+and edited in a real 3D scene. `v_ase` combines those two strengths: an
+`ase gui`-style entry point for scientific files, plus direct 3D editing for
+atomic structures.
 
 It is intended to replace:
 
@@ -161,7 +160,9 @@ the allowed line or plane and the backend commit uses
 `Hookean` constraints are drawn with physical meaning. The `rt` threshold is
 placed in Angstroms along the constrained direction. Below the threshold the
 spring is inactive and shows slack. Beyond the threshold the latch engages and
-the spring becomes active.
+the spring becomes active. The example below uses a surface O-H stretch: the
+constraint is quiet near the normal bond length and activates only when the bond
+is pulled beyond the cutoff.
 
 ![Hookean threshold-aware spring](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_hookean.png)
 
