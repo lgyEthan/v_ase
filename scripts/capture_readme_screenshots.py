@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import os
 from io import BytesIO
 from pathlib import Path
 
@@ -18,8 +19,28 @@ from v_ase import view_edit
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSET_DIR = ROOT / "docs" / "assets"
-MEDIA_SIZE = (1920, 1080)
+
+
+def parse_media_size(value: str | None, default: tuple[int, int]) -> tuple[int, int]:
+    if not value:
+        return default
+    try:
+        width, height = value.lower().split("x", 1)
+        return int(width), int(height)
+    except ValueError:
+        return default
+
+
+def configured_asset_dir() -> Path:
+    value = os.environ.get("V_ASE_README_ASSET_DIR")
+    if not value:
+        return ROOT / "docs" / "assets"
+    path = Path(value)
+    return path if path.is_absolute() else ROOT / path
+
+
+ASSET_DIR = configured_asset_dir()
+MEDIA_SIZE = parse_media_size(os.environ.get("V_ASE_README_MEDIA_SIZE"), (1920, 1080))
 
 
 def open_panels(page, panels):
@@ -209,11 +230,11 @@ def make_hookean_surface_scene() -> tuple[Atoms, dict[str, int]]:
 
     ads_symbols = ["O", "H", "H", "O", "H"]
     ads_positions = [
-        [x0 - 1.55, y0, top_z + 1.65],
-        [x0 - 2.20, y0 + 0.45, top_z + 2.10],
-        [x0 - 1.15, y0 - 0.65, top_z + 2.05],
-        [x0 + 2.05, y0, top_z + 1.70],
-        [x0 + 2.65, y0 + 0.55, top_z + 2.15],
+        [x0 - 1.65, y0 - 0.08, top_z + 3.05],
+        [x0 - 2.23, y0 + 0.46, top_z + 3.48],
+        [x0 - 1.20, y0 - 0.70, top_z + 3.43],
+        [x0 + 1.62, y0 + 0.05, top_z + 3.08],
+        [x0 + 2.24, y0 + 0.60, top_z + 3.50],
     ]
     atoms = slab + Atoms(ads_symbols, positions=ads_positions)
     atoms.pbc = [True, True, False]
@@ -222,7 +243,7 @@ def make_hookean_surface_scene() -> tuple[Atoms, dict[str, int]]:
     bottom = [i for i, p in enumerate(positions) if p[2] < top_z - 0.5]
     atoms.set_constraint([
         FixAtoms(indices=bottom),
-        Hookean(left_o, right_o, rt=3.15, k=5.0),
+        Hookean(left_o, right_o, rt=3.65, k=5.0),
     ])
     atoms.info["readme_scene"] = "cu111_hookean_water_pair"
     return atoms, {"left_o": left_o, "right_o": right_o}
@@ -397,15 +418,19 @@ def main() -> int:
 
             hookean_atoms, hidx = make_hookean_surface_scene()
             editor, page = open_scene(browser, hookean_atoms, show_bonds=True)
-            set_display(page, {"atomRadiusScale": 0.58, "showBonds": True, "showGrid": True})
+            set_display(page, {
+                "atomRadiusScale": 0.58,
+                "elementRadii": {"Cu": 0.48, "O": 0.72, "H": 0.34},
+                "showBonds": True,
+                "showGrid": True
+            })
             set_selection(page, [hidx["left_o"], hidx["right_o"]])
             open_panels(page, ["structure-info", "selection", "view"])
-            settle_view(page, target=[5.0, 4.5, 12.1], position=[11.4, -5.3, 17.6], fov=39)
+            settle_view(page, target=[5.0, 4.3, 13.1], position=[10.6, -6.1, 17.0], fov=37)
             page.screenshot(path=ASSET_DIR / "readme_hookean.png")
             base = hookean_atoms.get_positions()
             start = base[hidx["right_o"]].copy()
-            end = start + np.array([1.35, 0.0, 0.0])
-            enter_mode(page, "MOVE", "X")
+            end = start + np.array([1.55, 0.0, 0.0])
             capture_animation(
                 page,
                 ASSET_DIR / "readme_hookean.gif",

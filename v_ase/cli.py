@@ -18,7 +18,7 @@ def package_version() -> str:
     try:
         return version("v_ase-gui")
     except PackageNotFoundError:
-        return "0.0.4"
+        return "0.0.5"
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -253,6 +253,18 @@ export class ASERenderer {
                 opacity: 0.62,
                 depthWrite: false
             }),
+            planeGrid: new THREE.LineBasicMaterial({
+                color: 0x82f8df,
+                transparent: true,
+                opacity: 0.58,
+                depthWrite: false
+            }),
+            planeTrack: new THREE.MeshBasicMaterial({
+                color: 0xffd35a,
+                transparent: true,
+                opacity: 0.92,
+                depthWrite: false
+            }),
             hookean: new THREE.MeshBasicMaterial({
                 color: 0xff9f43,
                 transparent: true,
@@ -1000,23 +1012,76 @@ export class ASERenderer {
         this.constraintGuideGroup.add(group);
     }
 
+    fixedPlaneGridGeometry(size = 3.6, divisions = 4) {
+        const half = size / 2;
+        const step = size / divisions;
+        const points = [];
+        for (let i = 0; i <= divisions; i++) {
+            const v = -half + step * i;
+            points.push(-half, v, 0, half, v, 0);
+            points.push(v, -half, 0, v, half, 0);
+        }
+        points.push(
+            -half, -half, 0, half, -half, 0,
+            half, -half, 0, half, half, 0,
+            half, half, 0, -half, half, 0,
+            -half, half, 0, -half, -half, 0
+        );
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+        return geometry;
+    }
+
     addFixedPlaneGuide(index, normalValues) {
         const atom = this.atomMeshByIndex.get(index);
         if (!atom) return;
         const normal = this.normalizedVector(normalValues);
+        const planeOffset = this.atomVisualRadius(index) * 0.92 + 0.12;
         const group = new THREE.Group();
-        group.userData = { constraintGuideFor: index, kind: 'fixed_plane', normal: normal.toArray() };
+        group.userData = {
+            constraintGuideFor: index,
+            kind: 'fixed_plane',
+            normal: normal.toArray(),
+            anchor: atom.position.toArray(),
+            planeOffset
+        };
 
-        const disk = new THREE.Mesh(new THREE.CircleGeometry(1.55, 72), this.constraintMaterials.plane);
-        disk.userData.sharedMaterial = true;
-        group.add(disk);
-        const rim = new THREE.Mesh(new THREE.RingGeometry(1.52, 1.57, 96), this.constraintMaterials.planeEdge);
-        rim.userData.sharedMaterial = true;
-        group.add(rim);
-        group.position.copy(atom.position);
+        const patch = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 3.6), this.constraintMaterials.plane);
+        patch.userData.sharedMaterial = true;
+        patch.renderOrder = 18;
+        group.add(patch);
+
+        const grid = new THREE.LineSegments(this.fixedPlaneGridGeometry(3.6, 4), this.constraintMaterials.planeGrid);
+        grid.userData.sharedMaterial = true;
+        grid.renderOrder = 19;
+        group.add(grid);
+
+        const trail = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.planeTrack);
+        trail.userData = { sharedMaterial: true, planeTrail: true };
+        trail.visible = false;
+        trail.renderOrder = 21;
+        group.add(trail);
+
+        const trailHead = new THREE.Mesh(new THREE.SphereGeometry(0.07, 16, 10), this.constraintMaterials.planeTrack);
+        trailHead.userData = { sharedMaterial: true, planeTrailHead: true };
+        trailHead.visible = false;
+        trailHead.renderOrder = 22;
+        group.add(trailHead);
+
+        const normalStem = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.line);
+        normalStem.userData = { sharedMaterial: true, planeNormalStem: true };
+        this.setLinePoints(normalStem, [
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(0, 0, planeOffset)
+        ], 'normalStemSignature', 0.012);
+        normalStem.renderOrder = 20;
+        group.add(normalStem);
+
+        group.position.copy(atom.position).addScaledVector(normal, -planeOffset);
         group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
         group.renderOrder = 19;
         this.constraintGuideGroup.add(group);
+        this.updateFixedPlaneGuideMotion(group, atom);
     }
 
     rebuildHookeanConstraints() {
@@ -1265,8 +1330,42 @@ export class ASERenderer {
         this.constraintGuideGroup.children.forEach(group => {
             const atom = this.atomMeshByIndex.get(group.userData.constraintGuideFor);
             if (!atom) return;
-            group.position.copy(atom.position);
+            if (group.userData.kind === 'fixed_plane') {
+                this.updateFixedPlaneGuideMotion(group, atom);
+            } else {
+                group.position.copy(atom.position);
+            }
         });
+    }
+
+    updateFixedPlaneGuideMotion(group, atom) {
+        const anchor = new THREE.Vector3(...group.userData.anchor);
+        const normal = this.normalizedVector(group.userData.normal);
+        const planeOffset = Number(group.userData.planeOffset || 0);
+        group.position.copy(anchor).addScaledVector(normal, -planeOffset);
+        group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+
+        const localEnd = atom.position.clone()
+            .sub(anchor)
+            .applyQuaternion(group.quaternion.clone().invert());
+        localEnd.z = 0;
+
+        const trail = group.children.find(child => child.userData?.planeTrail);
+        const trailHead = group.children.find(child => child.userData?.planeTrailHead);
+        const visible = localEnd.length() > 0.045;
+        if (trail) {
+            trail.visible = visible;
+            if (visible) {
+                this.setLinePoints(trail, [
+                    new THREE.Vector3(0, 0, 0),
+                    localEnd.clone()
+                ], 'planeTrailSignature', 0.018);
+            }
+        }
+        if (trailHead) {
+            trailHead.visible = visible;
+            if (visible) trailHead.position.copy(localEnd);
+        }
     }
 
     syncLockMarkers() {

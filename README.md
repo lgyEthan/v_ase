@@ -127,13 +127,13 @@ movement is visible before committing coordinates.
 `FixedLine` is shown as a Li ion moving along a carbon nanotube channel. The ion
 can slide parallel to the tube axis, but not leave the channel direction:
 
-![FixedLine movement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_fixedline.gif)
+![FixedLine movement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedline.gif)
 
 `FixedPlane` is shown as a Li ion moving over a Cu(111) surface. The motion is
 restricted to the surface-parallel XY plane, so it reads as surface diffusion
 rather than rotation:
 
-![FixedPlane movement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_fixedplane.gif)
+![FixedPlane movement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedplane.gif)
 
 Example:
 
@@ -180,7 +180,7 @@ view(atoms)
 For trajectories, the Hookean graphic updates frame by frame, so inactive,
 near-threshold, and active states can be inspected as a movie.
 
-![Hookean constraint motion](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_hookean.gif)
+![Hookean constraint motion](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_hookean.gif)
 
 ## Case 3: Rotate and Move
 
@@ -209,7 +209,7 @@ Supported behavior:
 Here a ferrocene molecule is used to show a selected cyclopentadienyl ring
 rotating about the X axis while the rest of the molecule remains in place:
 
-![Ferrocene X-axis rotate](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_ferrocene_rotate_x.gif)
+![Ferrocene X-axis rotate](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ferrocene_rotate_x.gif)
 
 For axis-locked rotation, the colored axis guide is drawn through the active
 pivot. If the pivot is the origin, the axis passes through the origin; if the

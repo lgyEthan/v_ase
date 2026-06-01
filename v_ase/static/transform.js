@@ -6,12 +6,6 @@ const AXIS_COLORS = {
     Z: 0x0a84ff
 };
 
-const AXIS_VECTORS = {
-    X: new THREE.Vector3(1, 0, 0),
-    Y: new THREE.Vector3(0, 1, 0),
-    Z: new THREE.Vector3(0, 0, 1)
-};
-
 export class ASETransform {
     constructor(scene) {
         this.scene = scene;
@@ -31,7 +25,6 @@ export class ASETransform {
         this.scene.add(this.guideRoot);
 
         this.axisGuides = {};
-        this.axisRotateRings = {};
         Object.entries(AXIS_COLORS).forEach(([axis, color]) => {
             const group = new THREE.Group();
             const mat = new THREE.MeshBasicMaterial({
@@ -57,21 +50,6 @@ export class ASETransform {
             group.renderOrder = 40;
             this.guideRoot.add(group);
             this.axisGuides[axis] = group;
-
-            const ringMat = new THREE.MeshBasicMaterial({
-                color,
-                side: THREE.DoubleSide,
-                transparent: true,
-                opacity: 0.72,
-                depthTest: false,
-                depthWrite: false
-            });
-            const ring = new THREE.Mesh(new THREE.TorusGeometry(1.35, 0.026, 12, 128), ringMat);
-            ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), AXIS_VECTORS[axis]);
-            ring.visible = false;
-            ring.renderOrder = 41;
-            this.guideRoot.add(ring);
-            this.axisRotateRings[axis] = ring;
         });
 
         const pivotMat = new THREE.MeshBasicMaterial({
@@ -85,29 +63,6 @@ export class ASETransform {
         this.pivotMarker.renderOrder = 42;
         this.guideRoot.add(this.pivotMarker);
 
-        const moveMat = new THREE.MeshBasicMaterial({
-            color: 0xffc400,
-            side: THREE.DoubleSide,
-            transparent: true,
-            opacity: 0.65,
-            depthTest: false,
-            depthWrite: false
-        });
-        this.freeMoveRing = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.018, 12, 96), moveMat);
-        this.freeMoveRing.visible = false;
-        this.guideRoot.add(this.freeMoveRing);
-
-        const rotateMat = new THREE.MeshBasicMaterial({
-            color: 0xbf5af2,
-            side: THREE.DoubleSide,
-            transparent: true,
-            opacity: 0.82,
-            depthTest: false,
-            depthWrite: false
-        });
-        this.rotateRing = new THREE.Mesh(new THREE.TorusGeometry(1.35, 0.024, 12, 128), rotateMat);
-        this.rotateRing.visible = false;
-        this.guideRoot.add(this.rotateRing);
     }
 
     enter(mode, pivot, camera = null) {
@@ -129,28 +84,12 @@ export class ASETransform {
         this.guideRoot.visible = this.mode !== 'IDLE';
         this.guideRoot.position.copy(this.pivot);
         Object.values(this.axisGuides).forEach(g => g.visible = false);
-        Object.values(this.axisRotateRings).forEach(g => g.visible = false);
 
         const cameraScale = camera ? Math.max(this.pivot.distanceTo(camera.position) * 0.08, 0.85) : 1.0;
-        this.freeMoveRing.scale.setScalar(cameraScale);
-        this.rotateRing.scale.setScalar(cameraScale);
         this.pivotMarker.scale.setScalar(Math.max(1, cameraScale * 0.18));
-
-        this.freeMoveRing.visible = this.mode === 'MOVE' && !this.axis;
-        this.rotateRing.visible = this.mode === 'ROTATE' && !this.axis;
-
-        if (camera && (this.freeMoveRing.visible || this.rotateRing.visible)) {
-            this.freeMoveRing.lookAt(camera.position);
-            this.rotateRing.lookAt(camera.position);
-        }
 
         if (this.axis && this.mode !== 'IDLE') {
             this.axisGuides[this.axis].visible = true;
-            if (this.mode === 'ROTATE') {
-                const ring = this.axisRotateRings[this.axis];
-                ring.visible = true;
-                ring.scale.setScalar(cameraScale * 1.15);
-            }
         }
     }
 
@@ -170,8 +109,5 @@ export class ASETransform {
         this.rotationAngle = 0;
         this.guideRoot.visible = false;
         Object.values(this.axisGuides).forEach(g => g.visible = false);
-        Object.values(this.axisRotateRings).forEach(g => g.visible = false);
-        this.freeMoveRing.visible = false;
-        this.rotateRing.visible = false;
     }
 }
