@@ -4,14 +4,14 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/v_ase-gui.svg)](https://pypi.python.org/pypi/v_ase-gui/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-`v_ase` combines the workflow convenience of `ase gui` with the direct 3D
-editing feel of Blender. Open an ASE-readable structure or trajectory from a
-terminal or Python session, then select, move, rotate, copy, delete, wrap, and
-export atoms in an interactive browser viewport.
+`v_ase` is built around convenience and flexibility. It keeps the
+low-friction workflow of `ase gui`: open ASE-readable structures and
+trajectories directly from a terminal or Python session. It adds the flexibility
+of a Blender-like 3D visualizer: select, move, rotate, copy, delete, wrap, and
+export atoms directly in an interactive browser viewport.
 
-The goal is simple: keep the low-friction ASE workflow researchers already use,
-but add a Blender-like manipulation layer for atom positions, constraints,
-bonds, supercells, trajectories, and publication/export workflows.
+The goal is to put the practical convenience of ASE and the hands-on flexibility
+of a 3D molecular editor in the same tool.
 
 It is intended to replace:
 
@@ -180,6 +180,17 @@ movement is visible before committing coordinates.
 
 ![FixedLine and FixedPlane visualization](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_constraints.png)
 
+The examples below use a Cu(111) slab with adsorbates, so the constraint guides
+are shown in a real structure context instead of as isolated atoms.
+
+`FixedLine` restricts movement to the allowed line:
+
+![FixedLine movement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_fixedline.gif)
+
+`FixedPlane` keeps motion inside the allowed plane:
+
+![FixedPlane movement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_fixedplane.gif)
+
 Example:
 
 ```python
@@ -225,6 +236,8 @@ view(atoms)
 For trajectories, the Hookean graphic updates frame by frame, so inactive,
 near-threshold, and active states can be inspected as a movie.
 
+![Hookean constraint motion](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_hookean.gif)
+
 ## Case 3: Rotate and Move
 
 Transforms follow Blender-style keyboard flow:
@@ -248,6 +261,11 @@ Supported behavior:
 - Optional bond-strain guard for rejecting excessive periodic bond distortion.
 
 ![Rotate mode](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_rotate.png)
+
+Here a ferrocene molecule is used to show a selected cyclopentadienyl ring
+rotating about the X axis while the rest of the molecule remains in place:
+
+![Ferrocene X-axis rotate](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_ferrocene_rotate_x.gif)
 
 ## Case 4: Bonds, Periodicity, and Supercells
 
@@ -394,7 +412,7 @@ Open the all-in-one manual showcase:
 python tests/manual_showcase.py
 ```
 
-Regenerate README screenshots:
+Regenerate README screenshots and GIFs:
 
 ```bash
 python scripts/capture_readme_screenshots.py
@@ -418,8 +436,8 @@ python -m twine upload dist/*
 
 ## Versioning
 
-The initial public release was `0.0.1`; the current release is `0.0.2`.
-Patch releases increment the last number: `0.0.3`, `0.0.4`, and so on.
+The initial public release was `0.0.1`; the current release is `0.0.3`.
+Patch releases increment the last number: `0.0.4`, `0.0.5`, and so on.
 When code or packaged documentation changes, update the version in
 `pyproject.toml`, the fallback version in `v_ase/__init__.py`, and the fallback
 CLI version in `v_ase/cli.py`, then rebuild and push to GitHub before uploading
