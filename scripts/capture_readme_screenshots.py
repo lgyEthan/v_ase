@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 from ase import Atoms
-from ase.build import fcc111
+from ase.build import fcc111, nanotube
 from ase.constraints import FixAtoms, FixedLine, FixedPlane, Hookean
 from PIL import Image
 from playwright.sync_api import sync_playwright
@@ -19,7 +19,7 @@ from v_ase import view_edit
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSET_DIR = ROOT / "docs" / "assets"
-GIF_SIZE = (960, 600)
+MEDIA_SIZE = (1920, 1080)
 
 
 def open_panels(page, panels):
@@ -39,9 +39,13 @@ def set_display(page, options):
     page.evaluate(
         """(options) => {
             const app = window.__V_ASE_APP__;
-            app.state.display = { ...app.state.display, ...options };
-            app.renderer.setDisplayOptions(app.state.display);
-            app.updateUI();
+            if (app.applyDesignSettings) {
+                app.applyDesignSettings({ display: options }, { render: true });
+            } else {
+                app.state.display = { ...app.state.display, ...options };
+                app.renderer.setDisplayOptions(app.state.display);
+                app.updateUI();
+            }
             app.renderer.renderer.render(app.renderer.scene, app.renderer.camera);
         }""",
         options,
@@ -129,7 +133,9 @@ def update_positions(page, positions):
 def screenshot_frame(page) -> Image.Image:
     raw = page.screenshot(type="png")
     image = Image.open(BytesIO(raw)).convert("RGB")
-    return image.resize(GIF_SIZE, Image.Resampling.LANCZOS)
+    if image.size != MEDIA_SIZE:
+        image = image.resize(MEDIA_SIZE, Image.Resampling.LANCZOS)
+    return image
 
 
 def save_gif(frames: list[Image.Image], path: Path, duration=85):
@@ -139,7 +145,8 @@ def save_gif(frames: list[Image.Image], path: Path, duration=85):
         append_images=frames[1:],
         duration=duration,
         loop=0,
-        optimize=True,
+        optimize=False,
+        disposal=2,
     )
 
 
@@ -152,40 +159,45 @@ def capture_animation(page, path: Path, position_frames: list[np.ndarray], durat
     save_gif(frames, path, duration=duration)
 
 
-def make_surface_constraint_scene() -> tuple[Atoms, dict[str, int]]:
+def make_cnt_fixedline_scene() -> tuple[Atoms, dict[str, int]]:
+    tube = nanotube(8, 0, length=4, bond=1.42)
+    tube.positions[:, 0] += 7.0
+    tube.positions[:, 1] += 7.0
+    z_length = float(tube.cell.lengths()[2])
+    tube.cell = [14.0, 14.0, z_length]
+    tube.pbc = [False, False, True]
+    ion = Atoms("Li", positions=[[7.0, 7.0, z_length * 0.5]])
+    atoms = tube + ion
+    ion_idx = len(tube)
+    atoms.set_constraint(FixedLine(ion_idx, [0, 0, 1]))
+    atoms.info["readme_scene"] = "li_in_cnt_fixed_line"
+    return atoms, {"ion": ion_idx, "z_length": z_length}
+
+
+def make_surface_fixedplane_scene() -> tuple[Atoms, dict[str, int]]:
     slab = fcc111("Cu", size=(4, 4, 2), vacuum=7.0, orthogonal=True)
     positions = slab.get_positions()
     top_z = float(np.max(positions[:, 2]))
     center = np.mean(positions, axis=0)
     x0, y0 = float(center[0]), float(center[1])
 
-    ads_symbols = ["C", "O", "N", "H"]
+    ads_symbols = ["Li", "O", "H"]
     ads_positions = [
-        [x0 - 2.0, y0 - 0.2, top_z + 1.55],  # CO carbon, constrained to a line
-        [x0 - 0.9, y0 - 0.2, top_z + 1.95],  # CO oxygen
-        [x0 + 1.4, y0 + 0.45, top_z + 1.45],  # adsorbate N, constrained to a plane
-        [x0 + 2.2, y0 + 0.95, top_z + 1.90],
+        [x0 + 0.35, y0 + 0.25, top_z + 1.55],  # mobile ion in the surface plane
+        [x0 - 1.45, y0 - 0.35, top_z + 1.60],
+        [x0 - 2.05, y0 + 0.25, top_z + 2.00],
     ]
     atoms = slab + Atoms(ads_symbols, positions=ads_positions)
     atoms.pbc = [True, True, False]
 
-    line_idx = len(slab)
-    oxygen_idx = len(slab) + 1
-    plane_idx = len(slab) + 2
-    hydrogen_idx = len(slab) + 3
+    ion_idx = len(slab)
     bottom = [i for i, p in enumerate(positions) if p[2] < top_z - 0.5]
     atoms.set_constraint([
         FixAtoms(indices=bottom),
-        FixedLine(line_idx, [1, 0, 0]),
-        FixedPlane(plane_idx, [0, 0, 1]),
+        FixedPlane(ion_idx, [0, 0, 1]),
     ])
-    atoms.info["readme_scene"] = "cu111_fixed_line_fixed_plane"
-    return atoms, {
-        "line": line_idx,
-        "oxygen": oxygen_idx,
-        "plane": plane_idx,
-        "hydrogen": hydrogen_idx,
-    }
+    atoms.info["readme_scene"] = "li_on_cu111_fixed_plane"
+    return atoms, {"ion": ion_idx}
 
 
 def make_hookean_surface_scene() -> tuple[Atoms, dict[str, int]]:
@@ -261,7 +273,10 @@ def open_scene(browser, atoms_or_frames, *, show_bonds=False):
         allow_relax=False,
     )
     url = f"http://127.0.0.1:{editor.port}/?session_id={editor.session_id}"
-    page = browser.new_page(viewport={"width": 1440, "height": 900}, device_scale_factor=1)
+    page = browser.new_page(
+        viewport={"width": MEDIA_SIZE[0], "height": MEDIA_SIZE[1]},
+        device_scale_factor=1,
+    )
     page.goto(url)
     page.wait_for_function("window.__V_ASE_APP__ && window.__V_ASE_APP__.state.atoms")
     return editor, page
@@ -277,12 +292,23 @@ def sinusoidal_frames(base: np.ndarray, index: int, delta_fn, count=34) -> list[
     return frames
 
 
-def plane_orbit_frames(base: np.ndarray, index: int, count=38) -> list[np.ndarray]:
+def plane_sweep_frames(base: np.ndarray, index: int, count=38) -> list[np.ndarray]:
+    offsets = [
+        np.array([-1.25, -0.65, 0.0]),
+        np.array([1.25, -0.45, 0.0]),
+        np.array([0.95, 0.90, 0.0]),
+        np.array([-1.10, 0.72, 0.0]),
+        np.array([-1.25, -0.65, 0.0]),
+    ]
     frames = []
     for step in range(count):
-        angle = 2 * math.pi * step / count
+        t = step / max(1, count - 1)
+        scaled = t * (len(offsets) - 1)
+        seg = min(int(scaled), len(offsets) - 2)
+        local = scaled - seg
+        smooth = 0.5 - 0.5 * math.cos(math.pi * local)
         positions = base.copy()
-        positions[index] = base[index] + np.array([0.95 * math.cos(angle), 0.55 * math.sin(angle), 0.0])
+        positions[index] = base[index] + offsets[seg] * (1 - smooth) + offsets[seg + 1] * smooth
         frames.append(positions)
     return frames
 
@@ -328,28 +354,43 @@ def main() -> int:
             page.close()
             editor.close()
 
-            constraint_atoms, cidx = make_surface_constraint_scene()
-            editor, page = open_scene(browser, constraint_atoms, show_bonds=True)
-            set_display(page, {"atomRadiusScale": 0.62, "showBonds": True, "showGrid": True})
-            set_selection(page, [cidx["line"], cidx["plane"]])
+            fixedline_atoms, line_idx = make_cnt_fixedline_scene()
+            editor, page = open_scene(browser, fixedline_atoms, show_bonds=True)
+            set_display(page, {"atomRadiusScale": 0.54, "showBonds": True, "showGrid": True})
+            set_selection(page, [line_idx["ion"]])
             open_panels(page, ["structure-info", "selection", "view", "transform"])
-            settle_view(page, target=[5.2, 4.6, 12.1], position=[11.5, -5.0, 17.4], fov=39)
+            settle_view(
+                page,
+                target=[7.0, 7.0, line_idx["z_length"] * 0.52],
+                position=[16.5, -6.2, line_idx["z_length"] * 0.72],
+                fov=38,
+            )
             page.screenshot(path=ASSET_DIR / "readme_constraints.png")
 
-            base = constraint_atoms.get_positions()
-            set_selection(page, [cidx["line"]])
-            enter_mode(page, "MOVE", "X")
+            base = fixedline_atoms.get_positions()
+            set_selection(page, [line_idx["ion"]])
+            enter_mode(page, "MOVE", "Z")
             capture_animation(
                 page,
                 ASSET_DIR / "readme_fixedline.gif",
-                sinusoidal_frames(base, cidx["line"], lambda phase: [1.25 * phase, 0, 0]),
+                sinusoidal_frames(base, line_idx["ion"], lambda phase: [0, 0, 2.2 * phase]),
             )
-            set_selection(page, [cidx["plane"]])
+            page.close()
+            editor.close()
+
+            fixedplane_atoms, plane_idx = make_surface_fixedplane_scene()
+            editor, page = open_scene(browser, fixedplane_atoms, show_bonds=True)
+            set_display(page, {"atomRadiusScale": 0.60, "showBonds": True, "showGrid": True})
+            set_selection(page, [plane_idx["ion"]])
+            open_panels(page, ["structure-info", "selection", "view", "transform"])
+            settle_view(page, target=[5.1, 4.5, 11.6], position=[11.6, -5.5, 17.2], fov=39)
+            base = fixedplane_atoms.get_positions()
+            set_selection(page, [plane_idx["ion"]])
             enter_mode(page, "MOVE", None)
             capture_animation(
                 page,
                 ASSET_DIR / "readme_fixedplane.gif",
-                plane_orbit_frames(base, cidx["plane"]),
+                plane_sweep_frames(base, plane_idx["ion"]),
             )
             page.close()
             editor.close()
@@ -375,7 +416,12 @@ def main() -> int:
 
             ferrocene, fidx = make_ferrocene_scene()
             editor, page = open_scene(browser, ferrocene, show_bonds=True)
-            set_display(page, {"atomRadiusScale": 0.72, "showBonds": True, "showGrid": True})
+            set_display(page, {
+                "atomRadiusScale": 0.72,
+                "showBonds": True,
+                "showGrid": True,
+                "rotatePivot": "origin"
+            })
             set_selection(page, fidx["top_ring"])
             open_panels(page, ["structure-info", "selection", "transform", "view"])
             settle_view(page, target=[0, 0, 0], position=[6.2, -7.8, 4.6], fov=36)

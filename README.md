@@ -67,11 +67,7 @@ show playback controls for frame-by-frame movie inspection.
 
 ```bash
 python -m pip install v_ase-gui
-v_ase gui POSCAR
 ```
-
-The PyPI package is named `v_ase-gui`; the installed command and Python import
-remain `v_ase`.
 
 ### From GitHub
 
@@ -79,60 +75,10 @@ remain `v_ase`.
 git clone https://github.com/lgyEthan/v_ase.git
 cd v_ase
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
 python -m pip install -e .
 ```
 
 No conda and no Node.js are required. Three.js is vendored inside the package.
-
-### macOS
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python -m pip install -e .
-```
-
-### Windows PowerShell
-
-```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python -m pip install -e .
-```
-
-If activation is blocked:
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
-
-### Linux
-
-Ubuntu/Debian:
-
-```bash
-sudo apt update
-sudo apt install python3 python3-venv python3-pip
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python -m pip install -e .
-```
-
-### Optional Conda
-
-```bash
-conda create -n v_ase python=3.11
-conda activate v_ase
-python -m pip install -r requirements.txt
-python -m pip install -e .
-```
 
 ## Quick Start
 
@@ -178,16 +124,14 @@ Selected atoms get yellow Blender-style outlines. Fixed atoms are dimmed, and
 selected `FixedLine` / `FixedPlane` atoms show geometric guides so the allowed
 movement is visible before committing coordinates.
 
-![FixedLine and FixedPlane visualization](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_constraints.png)
-
-The examples below use a Cu(111) slab with adsorbates, so the constraint guides
-are shown in a real structure context instead of as isolated atoms.
-
-`FixedLine` restricts movement to the allowed line:
+`FixedLine` is shown as a Li ion moving along a carbon nanotube channel. The ion
+can slide parallel to the tube axis, but not leave the channel direction:
 
 ![FixedLine movement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_fixedline.gif)
 
-`FixedPlane` keeps motion inside the allowed plane:
+`FixedPlane` is shown as a Li ion moving over a Cu(111) surface. The motion is
+restricted to the surface-parallel XY plane, so it reads as surface diffusion
+rather than rotation:
 
 ![FixedPlane movement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_fixedplane.gif)
 
@@ -266,6 +210,10 @@ Here a ferrocene molecule is used to show a selected cyclopentadienyl ring
 rotating about the X axis while the rest of the molecule remains in place:
 
 ![Ferrocene X-axis rotate](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_ferrocene_rotate_x.gif)
+
+For axis-locked rotation, the colored axis guide is drawn through the active
+pivot. If the pivot is the origin, the axis passes through the origin; if the
+pivot is the selection center of mass, it passes through that COM.
 
 ## Case 4: Bonds, Periodicity, and Supercells
 
@@ -391,71 +339,6 @@ view_file("trajectory.extxyz")
 | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
 | `Delete` / `Backspace` | Delete selected atoms |
 | `Space` | Play/pause trajectory |
-
-## Development
-
-Install development tools:
-
-```bash
-python -m pip install -r requirements-dev.txt
-```
-
-Run tests:
-
-```bash
-python -m pytest tests -q
-```
-
-Open the all-in-one manual showcase:
-
-```bash
-python tests/manual_showcase.py
-```
-
-Regenerate README screenshots and GIFs:
-
-```bash
-python scripts/capture_readme_screenshots.py
-```
-
-## Build for PyPI
-
-Build only:
-
-```bash
-python -m pip install -r requirements-dev.txt
-python -m build
-python -m twine check dist/*
-```
-
-Upload:
-
-```bash
-python -m twine upload dist/*
-```
-
-## Versioning
-
-The initial public release was `0.0.1`; the current release is `0.0.3`.
-Patch releases increment the last number: `0.0.4`, `0.0.5`, and so on.
-When code or packaged documentation changes, update the version in
-`pyproject.toml`, the fallback version in `v_ase/__init__.py`, and the fallback
-CLI version in `v_ase/cli.py`, then rebuild and push to GitHub before uploading
-to PyPI.
-
-## Repository Layout
-
-```text
-v_ase/               Python package, CLI, server, and browser UI
-v_ase/static/        Three.js browser application and vendored Three.js
-docs/                Feature notes and README screenshots
-examples/            User examples
-scripts/             Release and documentation helper scripts
-tests/               Unit tests, regression tests, and manual showcase assets
-requirements.txt     Runtime dependencies
-requirements-dev.txt Development, test, and build dependencies
-pyproject.toml       Packaging metadata
-```
 
 ## Notes
 
