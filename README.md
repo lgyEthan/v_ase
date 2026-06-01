@@ -1,8 +1,16 @@
 # v_ase
 
-`v_ase` is a browser-based, Blender-style visual editor for
-[ASE](https://wiki.fysik.dtu.dk/ase/) `Atoms` objects. It is designed as a
-practical replacement for:
+[![PyPI version](https://img.shields.io/pypi/v/v_ase.svg)](https://pypi.python.org/pypi/v_ase/)
+[![Python versions](https://img.shields.io/pypi/pyversions/v_ase.svg)](https://pypi.python.org/pypi/v_ase/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+`v_ase` is an interactive visualizer/editor for
+[ASE](https://wiki.fysik.dtu.dk/ase/) structures and trajectories. It is built
+for users who want to open a POSCAR/extxyz/traj file, inspect it as a movie when
+it has multiple frames, and manipulate atoms with Blender-like mouse and
+keyboard controls.
+
+It is intended to replace:
 
 ```bash
 ase gui FILE
@@ -14,18 +22,27 @@ with:
 v_ase gui FILE
 ```
 
-It opens a local Three.js viewer, supports interactive atom selection and
-transforms, understands ASE constraints, works with trajectories, and returns
-edited ASE structures back to Python.
+For example:
 
-![v_ase overview](docs/assets/readme_overview.png)
+```bash
+v_ase gui POSCAR
+v_ase gui structure.vasp
+v_ase gui movie.extxyz
+v_ase gui relaxation.traj
+```
+
+The viewer opens locally in your browser. Middle mouse tumbles the camera,
+left click and box drag select atoms, `G` moves atoms, `R` rotates atoms,
+`X/Y/Z` lock axes, numeric input gives exact transforms, and trajectory files
+show playback controls for frame-by-frame movie inspection.
+
+![v_ase overview](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_overview.png)
 
 ## Highlights
 
-- `v_ase gui POSCAR`, `v_ase gui structure.vasp`, `v_ase gui movie.extxyz`,
-  and `v_ase gui trajectory.traj`.
+- `v_ase gui FILE` command-line workflow for structures and trajectories.
 - Python API: `from v_ase.visualize import view`.
-- Blender-style selection and transforms: click, box select, `G`, `R`,
+- Blender-style selection, camera control, and transforms: click, box select, `G`, `R`,
   axis locking, numeric input, `Enter`, `Esc`, copy/paste/undo/delete.
 - ASE constraint-aware editing and visualization:
   `FixAtoms`, `FixCartesian`, `FixedLine`, `FixedPlane`, `FixScaled`, and
@@ -40,6 +57,13 @@ edited ASE structures back to Python.
 - Export POSCAR, pickle, PNG image, WebM video, and Blender Python scene script.
 
 ## Installation
+
+### From PyPI
+
+```bash
+python -m pip install v_ase
+v_ase gui POSCAR
+```
 
 ### From GitHub
 
@@ -146,7 +170,7 @@ Selected atoms get yellow Blender-style outlines. Fixed atoms are dimmed, and
 selected `FixedLine` / `FixedPlane` atoms show geometric guides so the allowed
 movement is visible before committing coordinates.
 
-![FixedLine and FixedPlane visualization](docs/assets/readme_constraints.png)
+![FixedLine and FixedPlane visualization](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_constraints.png)
 
 Example:
 
@@ -176,7 +200,7 @@ placed in Angstroms along the constrained direction. Below the threshold the
 spring is inactive and shows slack. Beyond the threshold the latch engages and
 the spring becomes active.
 
-![Hookean threshold-aware spring](docs/assets/readme_hookean.png)
+![Hookean threshold-aware spring](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_hookean.png)
 
 Example:
 
@@ -215,7 +239,7 @@ Supported behavior:
 - Rotate pivots: selection center, global origin, or unit-cell center.
 - Optional bond-strain guard for rejecting excessive periodic bond distortion.
 
-![Rotate mode](docs/assets/readme_rotate.png)
+![Rotate mode](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_rotate.png)
 
 ## Case 4: Bonds, Periodicity, and Supercells
 
@@ -378,12 +402,19 @@ python -m build
 python -m twine check dist/*
 ```
 
-This repository is prepared for PyPI upload, but upload is intentionally left to
-the package owner:
+Upload:
 
 ```bash
 python -m twine upload dist/*
 ```
+
+## Versioning
+
+The initial public release is `0.0.1`. Patch releases increment the last number:
+`0.0.2`, `0.0.3`, and so on. When code changes, update the version in
+`pyproject.toml`, the fallback version in `v_ase/__init__.py`, and the fallback
+CLI version in `v_ase/cli.py`, then rebuild and push to GitHub before uploading
+to PyPI.
 
 ## Repository Layout
 
