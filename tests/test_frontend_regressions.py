@@ -188,6 +188,11 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "atomVisualColor" in renderer_js
     assert "exportBlender" in api_js
     assert "btn-export-blender" in index_html
+    assert "selected-measure" in index_html
+    assert "getSelectionMeasureText" in main_js
+    assert "selectionAngle" in main_js
+    assert "currentCameraForExport" in main_js
+    assert "camera) body.camera = camera" in api_js
     assert "threshold: 4.80" in api_js
 
 

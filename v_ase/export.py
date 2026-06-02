@@ -71,6 +71,7 @@ from mathutils import Vector
 
 DATA = {repr(data)}
 FRAMES = DATA.get("frames", [])
+CAMERA = DATA.get("camera", {{}})
 
 VISUAL = DATA.get("visual", {{}})
 ATOM_COLORS = VISUAL.get("colors", [])
@@ -149,6 +150,38 @@ def look_at_axis(obj, direction):
         return
     quat = direction.to_track_quat("Z", "Y")
     obj.rotation_euler = quat.to_euler()
+
+def look_at_camera(obj, target):
+    direction = Vector(target) - obj.location
+    if direction.length == 0:
+        return
+    obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+
+def add_scene_camera():
+    position = CAMERA.get("position")
+    target = CAMERA.get("target")
+    if isinstance(position, (list, tuple)) and len(position) == 3 and isinstance(target, (list, tuple)) and len(target) == 3:
+        bpy.ops.object.camera_add(location=position)
+        obj = bpy.context.object
+        obj.name = "v_ase_view_camera"
+        look_at_camera(obj, target)
+        try:
+            obj.data.angle = math.radians(float(CAMERA.get("fov", 50.0)))
+        except (TypeError, ValueError):
+            pass
+        try:
+            obj.data.clip_start = max(0.001, float(CAMERA.get("near", obj.data.clip_start)))
+            obj.data.clip_end = max(obj.data.clip_start + 1.0, float(CAMERA.get("far", obj.data.clip_end)))
+        except (TypeError, ValueError):
+            pass
+        bpy.context.scene.camera = obj
+        return obj
+
+    bpy.ops.object.camera_add(location=(8, -9, 6), rotation=(math.radians(60), 0, math.radians(42)))
+    obj = bpy.context.object
+    obj.name = "v_ase_view_camera"
+    bpy.context.scene.camera = obj
+    return obj
 
 def add_cylinder_between(name, start, end, radius, mat):
     start = Vector(start); end = Vector(end)
@@ -354,8 +387,7 @@ bpy.ops.object.light_add(type="AREA", location=(5, -6, 8))
 bpy.context.object.name = "v_ase_area_light"
 bpy.context.object.data.energy = 450
 bpy.context.object.data.size = 5
-bpy.ops.object.camera_add(location=(8, -9, 6), rotation=(math.radians(60), 0, math.radians(42)))
-bpy.context.scene.camera = bpy.context.object
+add_scene_camera()
 '''
 
 
@@ -367,6 +399,8 @@ def export_blender_response(session, payload: Dict[str, Any]):
     frames = _trajectory_frames_json(session)
     if frames:
         data["frames"] = frames
+    if payload.get("camera"):
+        data["camera"] = payload["camera"]
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix="_v_ase_blender.py", mode="w", encoding="utf-8")
     tmp.write(_blender_script(data))
     tmp.close()

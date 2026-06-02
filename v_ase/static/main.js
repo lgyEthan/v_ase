@@ -128,6 +128,7 @@ class VAseApp {
         setHtml('selected-indices', selectedIndices.join(', ') || '-');
         setHtml('selected-elements', selectedIndices.map(i => this.state.atoms.symbols[i]).join(', ') || '-');
         setHtml('selected-center', this.getSelectionCenterText());
+        setHtml('selected-measure', this.getSelectionMeasureText(selectedIndices));
         this.updateTrajectoryUI();
 
         const relaxBtn = document.getElementById('btn-relax');
@@ -405,18 +406,73 @@ class VAseApp {
         return positions;
     }
 
+    currentCameraForExport() {
+        const camera = this.renderer.camera;
+        const controls = this.renderer.controls;
+        camera.updateMatrixWorld();
+        return {
+            position: [camera.position.x, camera.position.y, camera.position.z],
+            target: [controls.target.x, controls.target.y, controls.target.z],
+            up: [camera.up.x, camera.up.y, camera.up.z],
+            fov: camera.fov,
+            near: camera.near,
+            far: camera.far
+        };
+    }
+
     getSelectionCenterText() {
         if (!this.state.atoms || this.state.selected.size === 0) return '-';
         const center = [0, 0, 0];
         let count = 0;
         this.state.selected.forEach(i => {
-            const p = this.state.atoms.positions[i];
+            const p = this.currentAtomPosition(i);
             if (!p) return;
             center[0] += p[0]; center[1] += p[1]; center[2] += p[2];
             count++;
         });
         if (!count) return '-';
         return center.map(v => (v / count).toFixed(3)).join(', ');
+    }
+
+    selectionDelta(i, j) {
+        const start = this.renderer.getAtomPosition?.(i);
+        if (start && this.renderer.minimumImageDelta) {
+            return this.renderer.minimumImageDelta(i, j, start);
+        }
+        const pi = this.currentAtomPosition(i);
+        const pj = this.currentAtomPosition(j);
+        if (!pi || !pj) return null;
+        return new THREE.Vector3(pj[0] - pi[0], pj[1] - pi[1], pj[2] - pi[2]);
+    }
+
+    selectionDistance(i, j) {
+        const delta = this.selectionDelta(i, j);
+        return delta ? delta.length() : NaN;
+    }
+
+    selectionAngle(i, j, k) {
+        const ji = this.selectionDelta(j, i);
+        const jk = this.selectionDelta(j, k);
+        if (!ji || !jk || ji.lengthSq() < 1e-12 || jk.lengthSq() < 1e-12) return NaN;
+        return THREE.MathUtils.radToDeg(ji.angleTo(jk));
+    }
+
+    getSelectionMeasureText(selectedIndices = [...this.state.selected]) {
+        if (!this.state.atoms || selectedIndices.length < 2) return '-';
+        if (selectedIndices.length === 2) {
+            const [i, j] = selectedIndices;
+            const distance = this.selectionDistance(i, j);
+            return Number.isFinite(distance) ? `d(${i}-${j}) = ${this.formatNumber(distance, 4)} A` : '-';
+        }
+        if (selectedIndices.length === 3) {
+            const [i, j, k] = selectedIndices;
+            const left = this.selectionDistance(i, j);
+            const right = this.selectionDistance(j, k);
+            const angle = this.selectionAngle(i, j, k);
+            if (![left, right, angle].every(Number.isFinite)) return '-';
+            return `d(${i}-${j}) = ${this.formatNumber(left, 4)} A | d(${j}-${k}) = ${this.formatNumber(right, 4)} A | angle(${i}-${j}-${k}) = ${this.formatNumber(angle, 2)} deg`;
+        }
+        return `${selectedIndices.length} atoms selected`;
     }
 
     worldToScreen(vec) {
@@ -621,6 +677,8 @@ class VAseApp {
         this.renderer.updateBondPositions();
         this.renderer.updateSupercellPositions();
         this.renderer.updateHookeanPositions();
+        const measure = document.getElementById('selected-measure');
+        if (measure) measure.innerText = this.getSelectionMeasureText();
         if (this.transform.mode === 'ROTATE') {
             this.validateRotationStrain();
         }
@@ -653,6 +711,8 @@ class VAseApp {
                 this.renderer.updateBondPositions();
                 this.renderer.updateSupercellPositions();
                 this.renderer.updateHookeanPositions();
+                const measure = document.getElementById('selected-measure');
+                if (measure) measure.innerText = this.getSelectionMeasureText();
             }
         } catch (err) {
             console.error("Constraint preview error:", err);
@@ -1888,7 +1948,11 @@ class VAseApp {
         };
         document.getElementById('btn-export-blender').onclick = async () => {
             try {
-                const blob = await this.api.exportBlender(this.currentPositionsFromScene(), this.state.applyConstraints);
+                const blob = await this.api.exportBlender(
+                    this.currentPositionsFromScene(),
+                    this.state.applyConstraints,
+                    this.currentCameraForExport()
+                );
                 this.downloadBlob(blob, 'v_ase_blender_scene.py', 'text/x-python');
                 this.toast('Blender export script started.', 'success');
             } catch (err) {

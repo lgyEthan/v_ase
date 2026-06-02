@@ -48,6 +48,8 @@ show playback controls for frame-by-frame movie inspection.
 - Blender-like viewport interaction: middle-mouse orbit, shift-middle pan,
   wheel zoom, click/box selection, `G` move, `R` rotate, axis locking, numeric
   transforms, `Enter`, `Esc`, copy/paste/undo/delete.
+- Selection measurements: two selected atoms show distance, and three selected
+  atoms show two distances plus the central angle.
 - ASE constraint-aware editing and visualization:
   `FixAtoms`, `FixCartesian`, `FixedLine`, `FixedPlane`, `FixScaled`, and
   `Hookean`.
@@ -59,6 +61,7 @@ show playback controls for frame-by-frame movie inspection.
 - Custom extxyz atom type labels such as `H_type5` are preserved for GUI type
   settings even when ASE cannot parse them as real elements.
 - Export POSCAR, pickle, PNG image, WebM video, and Blender Python scene script.
+  Blender export includes a camera matching the current v_ase viewport.
 
 ## Installation
 
@@ -125,6 +128,25 @@ v_ase gui POSCAR --no-block
 `--format` forces the input reader when the filename is ambiguous. It accepts
 common aliases such as `POSCAR`, `XDATCAR`, `vasprun.xml`, `lammpstrj`, `traj`,
 `xyz`, `extxyz`, and `data`, plus raw ASE format names.
+
+## Example Structures
+
+The README and demo structures can be regenerated from source:
+
+```bash
+python examples/readme_scenes.py
+```
+
+This writes single-structure `.traj` files under `examples/readme_scene_assets/`.
+Open them with normal v_ase commands:
+
+```bash
+v_ase gui examples/readme_scene_assets/fixedline.traj --show-bonds
+v_ase gui examples/readme_scene_assets/fixedplane.traj --show-bonds
+v_ase gui examples/readme_scene_assets/hookean.traj --show-bonds
+v_ase gui examples/readme_scene_assets/ferrocene.traj --show-bonds
+v_ase gui examples/readme_scene_assets/showcase.traj --show-bonds
+```
 
 ## Case 1: Selection, FixedLine, and FixedPlane
 

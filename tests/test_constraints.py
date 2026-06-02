@@ -154,7 +154,17 @@ def test_blender_export_includes_constraints_and_hookean_spring():
     ])
     session = EditorSession("blender-export", atoms.copy(), atoms.copy())
 
-    response = export_blender_response(session, {"positions": atoms.positions.tolist()})
+    response = export_blender_response(session, {
+        "positions": atoms.positions.tolist(),
+        "camera": {
+            "position": [4.0, -5.0, 6.0],
+            "target": [0.0, 0.0, 0.0],
+            "up": [0.0, 0.0, 1.0],
+            "fov": 38.0,
+            "near": 0.05,
+            "far": 500.0,
+        },
+    })
     with open(response.path, "r", encoding="utf-8") as handle:
         script = handle.read()
 
@@ -169,6 +179,10 @@ def test_blender_export_includes_constraints_and_hookean_spring():
     assert "_cutoff_gate" in script
     assert "_lock_pin" in script
     assert "'indices': [1, 2]" in script
+    assert "CAMERA = DATA.get(\"camera\", {})" in script
+    assert "'position': [4.0, -5.0, 6.0]" in script
+    assert "add_scene_camera()" in script
+    assert "look_at_camera(obj, target)" in script
 
 
 def test_blender_export_includes_trajectory_keyframes_when_frames_match():
