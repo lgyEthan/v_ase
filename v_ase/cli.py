@@ -14,11 +14,46 @@ from v_ase.io import read_custom_extxyz
 from v_ase.viewer import view
 
 
+INPUT_FORMAT_ALIASES = {
+    "poscar": "vasp",
+    "contcar": "vasp",
+    "vasp": "vasp",
+    "xdatcar": "vasp-xdatcar",
+    "vasp-xdatcar": "vasp-xdatcar",
+    "vasp_xdatcar": "vasp-xdatcar",
+    "vasprun": "vasp-xml",
+    "vasprun.xml": "vasp-xml",
+    "vasp-xml": "vasp-xml",
+    "vasp_xml": "vasp-xml",
+    "lammpstrj": "lammps-dump-text",
+    "lammpsdump": "lammps-dump-text",
+    "lammps-dump": "lammps-dump-text",
+    "lammps_dump": "lammps-dump-text",
+    "lammps-dump-text": "lammps-dump-text",
+    "lammps_dump_text": "lammps-dump-text",
+    "traj": "traj",
+    "trajectory": "traj",
+    "xyz": "xyz",
+    "extxyz": "extxyz",
+    "extendedxyz": "extxyz",
+    "data": "lammps-data",
+    "lammps-data": "lammps-data",
+    "lammps_data": "lammps-data",
+}
+
+
 def package_version() -> str:
     try:
         return version("v_ase-gui")
     except PackageNotFoundError:
-        return "0.0.7"
+        return "0.0.8"
+
+
+def resolve_input_format(fmt: str | None) -> str | None:
+    if not fmt:
+        return None
+    key = fmt.strip().lower()
+    return INPUT_FORMAT_ALIASES.get(key, fmt)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -42,7 +77,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="ASE read index. Use ':' for all frames, '-1' for last frame, or an integer frame index. Default: :",
     )
     gui.add_argument("-o", "--output", help="write the edited structure to this file after Done")
-    gui.add_argument("--format", help="ASE input format override")
+    gui.add_argument(
+        "--format",
+        "--input-format",
+        dest="format",
+        metavar="FORMAT",
+        help=(
+            "force the input file format when the filename is ambiguous. "
+            "Common aliases: POSCAR, XDATCAR, vasprun.xml, lammpstrj, traj, xyz, extxyz, data. "
+            "Raw ASE format names such as vasp-xml and lammps-data also work."
+        ),
+    )
     gui.add_argument("--output-format", help="ASE output format override")
     gui.add_argument("--port", type=int, help="local browser server port")
     gui.add_argument(
@@ -60,8 +105,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _read_frames(path: Path, index: str, fmt: str | None):
     read_kwargs = {"index": index}
-    if fmt:
-        read_kwargs["format"] = fmt
+    resolved_format = resolve_input_format(fmt)
+    if resolved_format:
+        read_kwargs["format"] = resolved_format
     try:
         loaded = read(path, **read_kwargs)
     except KeyError as exc:

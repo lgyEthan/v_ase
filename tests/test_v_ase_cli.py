@@ -1,7 +1,7 @@
 from ase.build import molecule
 from ase.io import write
 
-from v_ase.cli import _read_frames, build_parser, normalize_argv
+from v_ase.cli import _read_frames, build_parser, normalize_argv, resolve_input_format
 from v_ase.io import atom_type_labels
 from v_ase.serialization import atoms_to_json
 
@@ -19,6 +19,26 @@ def test_v_ase_accepts_direct_file_argument_as_gui_alias():
     assert normalize_argv(["POSCAR"]) == ["gui", "POSCAR"]
 
 
+def test_format_aliases_resolve_to_ase_format_names():
+    assert resolve_input_format("POSCAR") == "vasp"
+    assert resolve_input_format("CONTCAR") == "vasp"
+    assert resolve_input_format("XDATCAR") == "vasp-xdatcar"
+    assert resolve_input_format("vasprun.xml") == "vasp-xml"
+    assert resolve_input_format("lammpstrj") == "lammps-dump-text"
+    assert resolve_input_format("traj") == "traj"
+    assert resolve_input_format("xyz") == "xyz"
+    assert resolve_input_format("data") == "lammps-data"
+    assert resolve_input_format("espresso-in") == "espresso-in"
+
+
+def test_v_ase_gui_parser_accepts_input_format_alias():
+    parser = build_parser()
+    args = parser.parse_args(["gui", "ABCD", "--format", "vasprun.xml"])
+
+    assert args.file == "ABCD"
+    assert args.format == "vasprun.xml"
+
+
 def test_v_ase_visualize_import_path_exposes_view():
     from v_ase.visualize import view
 
@@ -33,6 +53,19 @@ def test_read_frames_supports_single_structure_files(tmp_path):
     write(path, atoms, format="vasp")
 
     frames = _read_frames(path, "-1", None)
+
+    assert len(frames) == 1
+    assert frames[0].get_chemical_formula() == "H2O"
+
+
+def test_read_frames_uses_format_alias_for_extensionless_poscar(tmp_path):
+    path = tmp_path / "ABCD"
+    atoms = molecule("H2O")
+    atoms.set_cell([8, 8, 8])
+    atoms.set_pbc([True, True, True])
+    write(path, atoms, format="vasp")
+
+    frames = _read_frames(path, "-1", "POSCAR")
 
     assert len(frames) == 1
     assert frames[0].get_chemical_formula() == "H2O"

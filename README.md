@@ -113,9 +113,18 @@ Useful CLI options:
 v_ase gui structure.vasp --show-bonds
 v_ase gui trajectory.extxyz --index :
 v_ase gui trajectory.extxyz --index -1
+v_ase gui ABCD --format POSCAR
+v_ase gui ABCD --format XDATCAR
+v_ase gui ABCD --format vasprun.xml
+v_ase gui ABCD --format lammpstrj
+v_ase gui ABCD --format data
 v_ase gui POSCAR --output edited.vasp
 v_ase gui POSCAR --no-block
 ```
+
+`--format` forces the input reader when the filename is ambiguous. It accepts
+common aliases such as `POSCAR`, `XDATCAR`, `vasprun.xml`, `lammpstrj`, `traj`,
+`xyz`, `extxyz`, and `data`, plus raw ASE format names.
 
 ## Case 1: Selection, FixedLine, and FixedPlane
 
