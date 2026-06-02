@@ -9,6 +9,7 @@ export class ASEApi {
     }
 
     mockElementVisual(symbol) {
+        const base = this.baseSymbolForLabel(symbol);
         const table = {
             H: { color: '#FFFFFF', radius: 0.2759 },
             C: { color: '#909090', radius: 0.6764 },
@@ -20,7 +21,16 @@ export class ASEApi {
             Na: { color: '#AB5CF1', radius: 1.4774 },
             Cl: { color: '#1FEF1F', radius: 0.9078 }
         };
-        return table[symbol] || { color: '#cccccc', radius: 0.75 };
+        return table[base] || { color: '#cccccc', radius: 0.75 };
+    }
+
+    baseSymbolForLabel(label) {
+        const text = String(label || '').trim();
+        if (!text) return 'X';
+        const known = new Set(['H', 'He', 'Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne', 'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'Ar', 'K', 'Ca', 'Fe', 'Co', 'Ni', 'Cu', 'Zn', 'Br', 'I']);
+        if (known.has(text)) return text;
+        const match = text.match(/^([A-Z][a-z]?)/);
+        return match && known.has(match[1]) ? match[1] : 'X';
     }
 
     mockVisualForSymbols(symbols) {
@@ -51,6 +61,7 @@ export class ASEApi {
             charges: [0, 0, 0],
             magmoms: [0, 0, 0],
             visual: this.mockVisualForSymbols(symbols),
+            chemical_symbols: symbols.map(symbol => this.baseSymbolForLabel(symbol)),
             constraints: {
                 fixed_indices: [0],
                 fixed_cartesian: {},
@@ -212,6 +223,7 @@ export class ASEApi {
             this.mockState.atoms.charges = charges;
             this.mockState.atoms.magmoms = magmoms;
             this.mockState.atoms.visual = this.mockVisualForSymbols(symbols);
+            this.mockState.atoms.chemical_symbols = symbols.map(symbol => this.baseSymbolForLabel(symbol));
             this.mockState.atoms.cell = [
                 source.cell[0].map(v => v * reps[0]),
                 source.cell[1].map(v => v * reps[1]),
@@ -273,6 +285,7 @@ export class ASEApi {
                 this.mockState.atoms.magmoms.push(0);
             });
             this.mockState.atoms.visual = this.mockVisualForSymbols(this.mockState.atoms.symbols);
+            this.mockState.atoms.chemical_symbols = this.mockState.atoms.symbols.map(symbol => this.baseSymbolForLabel(symbol));
             this.mockState.atoms.metadata.natoms = this.mockState.atoms.positions.length;
             return await this.mockResponse(this.mockState.atoms);
         }
@@ -294,6 +307,7 @@ export class ASEApi {
             this.mockState.atoms.charges = (this.mockState.atoms.charges || []).filter(keep);
             this.mockState.atoms.magmoms = (this.mockState.atoms.magmoms || []).filter(keep);
             this.mockState.atoms.visual = this.mockVisualForSymbols(this.mockState.atoms.symbols);
+            this.mockState.atoms.chemical_symbols = this.mockState.atoms.symbols.map(symbol => this.baseSymbolForLabel(symbol));
             const constraints = this.mockState.atoms.constraints || {};
             constraints.fixed_indices = (constraints.fixed_indices || [])
                 .filter(idx => indexMap.has(idx))
@@ -316,6 +330,21 @@ export class ASEApi {
                 return [];
             });
             this.mockState.atoms.metadata.natoms = this.mockState.atoms.positions.length;
+            return await this.mockResponse(this.mockState.atoms);
+        }
+        if (path.includes('/api/atom-types/')) {
+            const payload = JSON.parse(options.body || '{}');
+            const indices = (payload.indices || []).map(Number);
+            const label = String(payload.label || '').trim();
+            if (!indices.length || !label) return await this.mockResponse(this.mockState.atoms);
+            this.mockPushHistory();
+            indices.forEach(idx => {
+                if (idx >= 0 && idx < this.mockState.atoms.symbols.length) {
+                    this.mockState.atoms.symbols[idx] = label;
+                }
+            });
+            this.mockState.atoms.visual = this.mockVisualForSymbols(this.mockState.atoms.symbols);
+            this.mockState.atoms.chemical_symbols = this.mockState.atoms.symbols.map(symbol => this.baseSymbolForLabel(symbol));
             return await this.mockResponse(this.mockState.atoms);
         }
         if (path.includes('/api/wrap/')) {
@@ -394,6 +423,12 @@ export class ASEApi {
 
     async deleteAtoms(indices) {
         return await this.jsonPost(`/api/delete/{session_id}`, { indices });
+    }
+
+    async updateAtomTypes(indices, label, positions = null, applyConstraint = true) {
+        const payload = { indices, label, apply_constraint: applyConstraint };
+        if (positions) payload.positions = positions;
+        return await this.jsonPost(`/api/atom-types/{session_id}`, payload);
     }
 
     async undo() {

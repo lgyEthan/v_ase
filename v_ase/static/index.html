@@ -82,6 +82,18 @@
                 <span class="p-label">Center</span><span id="selected-center" class="p-val">-</span>
                 <span class="p-label">Measure</span><span id="selected-measure" class="p-val">-</span>
             </div>
+            <div class="selected-type-editor">
+                <div class="mini-table-head selected-type-head">
+                    <span>Selected type</span>
+                    <span>Color</span>
+                    <span></span>
+                </div>
+                <div class="selected-type-row">
+                    <input type="text" id="selected-type-name" placeholder="Select atoms first">
+                    <input type="color" id="selected-type-color" value="#cccccc">
+                    <button id="btn-apply-selected-type">Apply</button>
+                </div>
+            </div>
             <button id="btn-delete-selection" class="btn-block danger-soft">Delete Selected</button>
         </details>
 
@@ -168,8 +180,11 @@
             </div>
             <div id="element-radius-panel" class="element-radius-panel">
                 <div class="mini-table-head">
-                    <span>Element</span>
+                    <span>Type</span>
+                    <span>Name</span>
+                    <span>Color</span>
                     <span>Radius / A</span>
+                    <span>Select</span>
                 </div>
                 <div id="element-radius-list"></div>
             </div>
@@ -223,21 +238,6 @@
             </div>
         </details>
 
-        <details id="trajectory-panel" class="panel-section hidden" open>
-            <summary class="section-header">Trajectory</summary>
-            <div class="timeline-head">
-                <button id="btn-frame-prev" title="Previous frame">‹</button>
-                <button id="btn-play" title="Play/Pause">▶</button>
-                <button id="btn-frame-next" title="Next frame">›</button>
-                <span id="frame-label">1 / 1</span>
-            </div>
-            <input type="range" id="frame-slider" min="0" max="0" value="0">
-            <div class="prop-row">
-                <label for="movie-fps">FPS</label>
-                <input type="number" id="movie-fps" value="12" min="1" max="60">
-            </div>
-        </details>
-
         <details class="panel-section" data-panel="scientific-tools">
             <summary class="section-header">Scientific Tools</summary>
             <div class="relax-grid">
@@ -273,6 +273,19 @@
 
     <!-- Bottom Command Overlay -->
     <footer id="command-bar">
+        <div id="trajectory-panel" class="trajectory-strip" aria-label="Trajectory controls">
+            <div class="timeline-head">
+                <button id="btn-frame-prev" title="Previous frame">‹</button>
+                <button id="btn-play" title="Play/Pause">▶</button>
+                <button id="btn-frame-next" title="Next frame">›</button>
+                <span id="frame-label">1 / 1</span>
+            </div>
+            <input type="range" id="frame-slider" min="0" max="0" value="0">
+            <div class="timeline-fps">
+                <label for="movie-fps">FPS</label>
+                <input type="number" id="movie-fps" value="12" min="1" max="60">
+            </div>
+        </div>
         <div id="cmd-buffer" class="hidden">
             <span id="cmd-mode">MOVE</span> | <span id="cmd-axis">-</span> | <span id="cmd-val"></span>
         </div>

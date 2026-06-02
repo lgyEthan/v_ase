@@ -209,6 +209,7 @@ export class ASERenderer {
             elementBondCutoffs: {},
             atomRadiusScale: 1.0,
             elementRadii: {},
+            elementColors: {},
             rotatePivot: 'selection',
             unitCellAwareRotate: false,
             rotateStrainCutoff: 0.15,
@@ -363,8 +364,17 @@ export class ASERenderer {
         return Number.isFinite(radius) && radius > 0 ? radius : FALLBACK_COVALENT_RADIUS;
     }
 
-    atomVisualColor(index) {
-        return this.atomsData?.visual?.colors?.[index] || FALLBACK_ATOM_COLOR;
+    validHexColor(value) {
+        return typeof value === 'string' && /^#[0-9A-Fa-f]{6}$/.test(value);
+    }
+
+    atomVisualColor(index, explicitColor = null) {
+        const symbol = this.atomsData?.symbols?.[index];
+        const elementColor = this.displayOptions?.elementColors?.[symbol];
+        if (this.validHexColor(elementColor)) return elementColor;
+        if (this.validHexColor(explicitColor)) return explicitColor;
+        const color = this.atomsData?.visual?.colors?.[index];
+        return this.validHexColor(color) ? color : FALLBACK_ATOM_COLOR;
     }
 
     gridDivisionsForSize(size) {
@@ -503,7 +513,7 @@ export class ASERenderer {
         const segmentCount = this.sphereQualitySegments(atoms.symbols.length);
         atoms.symbols.forEach((sym, i) => {
             const radius = this.atomVisualRadius(i);
-            const color = customColors[i] || this.atomVisualColor(i);
+            const color = this.atomVisualColor(i, customColors[i]);
             const isFixed = fixed.has(i);
 
             const geometryKey = `${radius}:${segmentCount}`;
@@ -695,7 +705,8 @@ export class ASERenderer {
         const qualityChanged = previous.antiAliasing !== this.displayOptions.antiAliasing ||
             previous.sphereQuality !== this.displayOptions.sphereQuality ||
             previous.atomRadiusScale !== this.displayOptions.atomRadiusScale ||
-            JSON.stringify(previous.elementRadii || {}) !== JSON.stringify(this.displayOptions.elementRadii || {});
+            JSON.stringify(previous.elementRadii || {}) !== JSON.stringify(this.displayOptions.elementRadii || {}) ||
+            JSON.stringify(previous.elementColors || {}) !== JSON.stringify(this.displayOptions.elementColors || {});
         if (qualityChanged) {
             this.updateRenderQuality();
             if (this.atomsData) {

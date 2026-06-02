@@ -38,6 +38,7 @@ class VAseApp {
                 elementBondCutoffs: {},
                 atomRadiusScale: 1.0,
                 elementRadii: {},
+                elementColors: {},
                 rotatePivot: 'selection',
                 unitCellAwareRotate: false,
                 rotateStrainCutoff: 0.15,
@@ -130,6 +131,7 @@ class VAseApp {
         setHtml('selected-center', this.getSelectionCenterText());
         setHtml('selected-measure', this.getSelectionMeasureText(selectedIndices));
         this.updateTrajectoryUI();
+        this.updateSelectedTypeControls();
 
         const relaxBtn = document.getElementById('btn-relax');
         if (relaxBtn) relaxBtn.disabled = !meta.has_calculator || this.state.isRelaxing;
@@ -310,6 +312,7 @@ class VAseApp {
         this.state.sphereQuality = config.sphere_quality || 'auto';
         this.state.display.atomRadiusScale = Number(config.atom_radius_scale || 1.0);
         this.state.display.elementRadii = config.element_radii || {};
+        this.state.display.elementColors = config.element_colors || {};
         this.state.display.rotatePivot = config.rotate_pivot || this.state.display.rotatePivot;
         this.state.display.unitCellAwareRotate = Boolean(config.unit_cell_aware_rotate);
         this.state.display.rotateStrainCutoff = Number(config.rotate_strain_cutoff || this.state.display.rotateStrainCutoff);
@@ -334,16 +337,26 @@ class VAseApp {
         const count = meta.frame_count || 1;
         const index = meta.current_frame || 0;
         const panel = document.getElementById('trajectory-panel');
-        if (panel) panel.classList.toggle('hidden', count <= 1);
+        if (panel) panel.classList.remove('hidden');
         const slider = document.getElementById('frame-slider');
         if (slider) {
             slider.max = Math.max(0, count - 1);
             slider.value = index;
+            slider.disabled = count <= 1;
         }
         const label = document.getElementById('frame-label');
         if (label) label.innerText = `${Math.min(index + 1, count)} / ${count}`;
         const play = document.getElementById('btn-play');
-        if (play) play.innerText = this.state.trajectoryTimer ? '⏸' : '▶';
+        if (play) {
+            play.innerText = this.state.trajectoryTimer ? '⏸' : '▶';
+            play.disabled = count <= 1;
+        }
+        const prev = document.getElementById('btn-frame-prev');
+        const next = document.getElementById('btn-frame-next');
+        if (prev) prev.disabled = count <= 1;
+        if (next) next.disabled = count <= 1;
+        const fps = document.getElementById('movie-fps');
+        if (fps) fps.disabled = count <= 1;
         const exportVideo = document.getElementById('btn-export-video');
         if (exportVideo) {
             exportVideo.disabled = count <= 1;
@@ -831,6 +844,44 @@ class VAseApp {
         return [...new Set(this.state.atoms?.symbols || [])].sort();
     }
 
+    elementIndices(symbol) {
+        return (this.state.atoms?.symbols || [])
+            .map((value, index) => value === symbol ? index : -1)
+            .filter(index => index >= 0);
+    }
+
+    safeControlId(prefix, value) {
+        return `${prefix}-${String(value).replace(/[^A-Za-z0-9_-]/g, '_')}`;
+    }
+
+    validHexColor(value) {
+        return typeof value === 'string' && /^#[0-9A-Fa-f]{6}$/.test(value);
+    }
+
+    elementVisualColor(symbol) {
+        const override = this.state.display.elementColors?.[symbol];
+        if (this.validHexColor(override)) return override;
+        const symbols = this.state.atoms?.symbols || [];
+        const colors = this.state.atoms?.visual?.colors || [];
+        const index = symbols.findIndex(item => item === symbol);
+        const color = colors[index];
+        return this.validHexColor(color) ? color : '#cccccc';
+    }
+
+    normalizedTypeLabel(value) {
+        return String(value || '').trim();
+    }
+
+    transferElementDisplaySettings(oldSymbol, newSymbol) {
+        if (!oldSymbol || !newSymbol || oldSymbol === newSymbol) return;
+        const maps = [this.state.display.elementRadii, this.state.display.elementColors];
+        maps.forEach(map => {
+            if (!map || !(oldSymbol in map) || (newSymbol in map)) return;
+            map[newSymbol] = map[oldSymbol];
+            delete map[oldSymbol];
+        });
+    }
+
     uniqueElementPairs() {
         const elements = this.uniqueElements();
         const pairs = [];
@@ -874,20 +925,57 @@ class VAseApp {
     renderElementRadiusControls() {
         const root = document.getElementById('element-radius-list');
         if (!root || !this.state.atoms?.symbols) return;
-        const existingFocus = document.activeElement?.dataset?.elementRadius;
+        const active = document.activeElement;
+        const existingFocus = {
+            radius: active?.dataset?.elementRadius,
+            name: active?.dataset?.elementName,
+            color: active?.dataset?.elementColor
+        };
         root.innerHTML = '';
         this.uniqueElements().forEach(symbol => {
             if (!(symbol in this.state.display.elementRadii)) {
                 this.state.display.elementRadii[symbol] = Number(this.elementVisualRadius(symbol).toFixed(4));
             }
             const row = document.createElement('div');
-            row.className = 'element-radius-row';
+            row.className = 'element-radius-row element-appearance-row';
             const label = document.createElement('label');
-            label.htmlFor = `element-radius-${symbol}`;
+            label.htmlFor = this.safeControlId('element-name', symbol);
             label.innerText = symbol;
+            label.title = `${this.elementIndices(symbol).length} atom${this.elementIndices(symbol).length === 1 ? '' : 's'}`;
+
+            const nameInput = document.createElement('input');
+            nameInput.type = 'text';
+            nameInput.id = this.safeControlId('element-name', symbol);
+            nameInput.className = 'element-name-input';
+            nameInput.dataset.elementName = symbol;
+            nameInput.value = symbol;
+            nameInput.addEventListener('keydown', event => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    this.renameElementType(symbol, nameInput.value);
+                }
+            });
+
+            const color = document.createElement('input');
+            color.type = 'color';
+            color.className = 'element-color-input';
+            color.dataset.elementColor = symbol;
+            color.value = this.elementVisualColor(symbol);
+            color.title = `Color for ${symbol}`;
+            color.addEventListener('input', () => {
+                this.state.display.elementColors[symbol] = color.value;
+                this.safeApplyDisplayOptions();
+                this.updateSelectedTypeControls();
+            });
+            color.addEventListener('change', () => {
+                this.state.display.elementColors[symbol] = color.value;
+                this.safeApplyDisplayOptions();
+                this.updateSelectedTypeControls();
+            });
+
             const input = document.createElement('input');
             input.type = 'number';
-            input.id = `element-radius-${symbol}`;
+            input.id = this.safeControlId('element-radius', symbol);
             input.className = 'element-radius-input';
             input.dataset.elementRadius = symbol;
             input.min = '0.05';
@@ -895,12 +983,36 @@ class VAseApp {
             input.value = this.state.display.elementRadii[symbol];
             input.addEventListener('change', () => this.safeApplyDisplayOptions());
             input.addEventListener('input', () => this.safeApplyDisplayOptions());
-            row.append(label, input);
+
+            const selectButton = document.createElement('button');
+            selectButton.type = 'button';
+            selectButton.className = 'element-select-button';
+            selectButton.dataset.elementSelect = symbol;
+            selectButton.innerText = 'All';
+            selectButton.title = `Select every ${symbol} atom`;
+            selectButton.addEventListener('click', () => this.selectElement(symbol));
+
+            const applyButton = document.createElement('button');
+            applyButton.type = 'button';
+            applyButton.className = 'element-rename-button';
+            applyButton.innerText = 'Rename';
+            applyButton.title = `Rename all ${symbol} atoms`;
+            applyButton.addEventListener('click', () => this.renameElementType(symbol, nameInput.value));
+
+            const nameGroup = document.createElement('div');
+            nameGroup.className = 'element-name-group';
+            nameGroup.append(nameInput, applyButton);
+
+            row.append(label, nameGroup, color, input, selectButton);
             root.appendChild(row);
         });
-        if (existingFocus) {
-            root.querySelector(`[data-element-radius="${existingFocus}"]`)?.focus();
-        }
+        const focusMatch = [...root.querySelectorAll('[data-element-radius], [data-element-name], [data-element-color]')]
+            .find(el => (
+                (existingFocus.radius && el.dataset.elementRadius === existingFocus.radius) ||
+                (existingFocus.name && el.dataset.elementName === existingFocus.name) ||
+                (existingFocus.color && el.dataset.elementColor === existingFocus.color)
+            ));
+        focusMatch?.focus();
     }
 
     parseElementRadii() {
@@ -912,6 +1024,108 @@ class VAseApp {
             }
         });
         return radii;
+    }
+
+    parseElementColors() {
+        const colors = {};
+        document.querySelectorAll('.element-color-input').forEach(input => {
+            if (this.validHexColor(input.value)) {
+                colors[input.dataset.elementColor] = input.value;
+            }
+        });
+        Object.entries(this.state.display.elementColors || {}).forEach(([symbol, color]) => {
+            if (this.validHexColor(color) && !(symbol in colors)) colors[symbol] = color;
+        });
+        return colors;
+    }
+
+    selectElement(symbol) {
+        this.state.selected.clear();
+        this.elementIndices(symbol).forEach(index => this.state.selected.add(index));
+        this.updateSelectionVisuals();
+        this.updateUI();
+    }
+
+    async renameElementType(oldSymbol, nextLabel) {
+        const label = this.normalizedTypeLabel(nextLabel);
+        if (!label) {
+            this.toast('Atom type name cannot be empty.', 'warning');
+            return;
+        }
+        const indices = this.elementIndices(oldSymbol);
+        if (!indices.length) {
+            this.toast(`No ${oldSymbol} atoms found.`, 'warning');
+            return;
+        }
+        try {
+            const data = await this.withBusy(
+                `Renaming ${indices.length} ${oldSymbol} atom${indices.length === 1 ? '' : 's'}...`,
+                () => this.api.updateAtomTypes(indices, label, this.currentPositionsFromScene(), this.state.applyConstraints)
+            );
+            this.transferElementDisplaySettings(oldSymbol, label);
+            this.setAtomsData(data);
+            this.toast(`Renamed ${oldSymbol} to ${label}.`, 'success');
+        } catch (err) {
+            this.toast(`Rename failed: ${err.message}`, 'error');
+        }
+    }
+
+    selectedTypeLabel() {
+        const selected = [...this.state.selected].filter(index => this.state.atoms?.symbols?.[index]);
+        if (!selected.length) return '';
+        const labels = [...new Set(selected.map(index => this.state.atoms.symbols[index]))];
+        return labels.length === 1 ? labels[0] : '';
+    }
+
+    updateSelectedTypeControls() {
+        const name = document.getElementById('selected-type-name');
+        const color = document.getElementById('selected-type-color');
+        const apply = document.getElementById('btn-apply-selected-type');
+        if (!name || !color || !apply) return;
+        const hasSelection = this.state.selected.size > 0;
+        const label = this.selectedTypeLabel();
+        name.disabled = !hasSelection;
+        color.disabled = !hasSelection;
+        apply.disabled = !hasSelection;
+        name.placeholder = hasSelection ? 'Mixed selected types' : 'Select atoms first';
+        if (!document.activeElement || document.activeElement !== name) {
+            name.value = hasSelection ? label : '';
+        }
+        const colorSymbol = label || [...this.state.selected].map(i => this.state.atoms?.symbols?.[i]).find(Boolean);
+        color.value = colorSymbol ? this.elementVisualColor(colorSymbol) : '#cccccc';
+    }
+
+    async applySelectedTypeEdit() {
+        const indices = [...this.state.selected].sort((a, b) => a - b);
+        if (!indices.length) {
+            this.toast('Select atoms before changing atom type.', 'warning');
+            return;
+        }
+        const input = document.getElementById('selected-type-name');
+        const color = document.getElementById('selected-type-color');
+        const label = this.normalizedTypeLabel(input?.value);
+        if (!label) {
+            this.toast('Atom type name cannot be empty.', 'warning');
+            return;
+        }
+        const previousLabels = [...new Set(indices.map(index => this.state.atoms.symbols[index]))];
+        if (this.validHexColor(color?.value)) {
+            this.state.display.elementColors[label] = color.value;
+        }
+        try {
+            const data = await this.withBusy(
+                `Changing ${indices.length} selected atom${indices.length === 1 ? '' : 's'} to ${label}...`,
+                () => this.api.updateAtomTypes(indices, label, this.currentPositionsFromScene(), this.state.applyConstraints)
+            );
+            if (previousLabels.length === 1) this.transferElementDisplaySettings(previousLabels[0], label);
+            this.setAtomsData(data);
+            indices.forEach(index => this.state.selected.add(index));
+            this.updateSelectionVisuals();
+            this.updateUI();
+            this.toast(`Updated selected atoms to ${label}.`, 'success');
+        } catch (err) {
+            this.toast(`Selected atom type update failed: ${err.message}`, 'error');
+        }
     }
 
     renderElementBondControls() {
@@ -979,7 +1193,7 @@ class VAseApp {
         const seen = new Set();
         const tokens = text.split(/[\n,;]+/).map(v => v.trim()).filter(Boolean);
         tokens.forEach(token => {
-            const elementMatch = token.match(/^([A-Z][a-z]?)\s*[-:]\s*([A-Z][a-z]?)\s*(?:[:=]\s*)?([0-9]*\.?[0-9]+)$/);
+            const elementMatch = token.match(/^([A-Za-z][A-Za-z0-9_+]*)\s*[-:]\s*([A-Za-z][A-Za-z0-9_+]*)\s*(?:[:=]\s*)?([0-9]*\.?[0-9]+)$/);
             if (elementMatch) {
                 const key = this.elementPairKey(elementMatch[1], elementMatch[2]);
                 this.state.display.elementBondCutoffs[key] = parseFloat(elementMatch[3]);
@@ -1025,6 +1239,7 @@ class VAseApp {
         const radiusScale = parseFloat(document.getElementById('atom-radius-scale')?.value || '1');
         this.state.display.atomRadiusScale = Number.isFinite(radiusScale) && radiusScale > 0 ? radiusScale : 1.0;
         this.state.display.elementRadii = this.parseElementRadii();
+        this.state.display.elementColors = this.parseElementColors();
         if (this.state.display.bondMode === 'manual') {
             this.state.display.manualBondPairs = this.parseBondPairs();
         }
@@ -1135,6 +1350,7 @@ class VAseApp {
             manualBondPairs: this.clonePlain(nextDisplay.manualBondPairs || []),
             elementBondCutoffs: this.clonePlain(nextDisplay.elementBondCutoffs || {}),
             elementRadii: this.clonePlain(nextDisplay.elementRadii || {}),
+            elementColors: this.clonePlain(nextDisplay.elementColors || {}),
             supercell: this.clonePlain(nextDisplay.supercell || [1, 1, 1])
         };
         if ('applyConstraints' in source) this.state.applyConstraints = Boolean(source.applyConstraints);
@@ -1526,20 +1742,71 @@ class VAseApp {
     }
 
     downloadBlob(blob, filename, mimeType = 'application/octet-stream') {
-        const fileBlob = blob.type === mimeType ? blob : new Blob([blob], { type: mimeType });
+        const fileBlob = blob?.type === mimeType ? blob : new Blob([blob], { type: mimeType });
         const url = URL.createObjectURL(fileBlob);
         const a = document.createElement('a');
         a.href = url;
         a.download = filename;
+        a.rel = 'noopener';
+        a.style.display = 'none';
+        document.body.appendChild(a);
         a.click();
-        URL.revokeObjectURL(url);
+        setTimeout(() => {
+            URL.revokeObjectURL(url);
+            a.remove();
+        }, 1200);
     }
 
     downloadDataUrl(dataUrl, filename) {
         const a = document.createElement('a');
         a.href = dataUrl;
         a.download = filename;
+        a.rel = 'noopener';
+        a.style.display = 'none';
+        document.body.appendChild(a);
         a.click();
+        setTimeout(() => a.remove(), 1200);
+    }
+
+    filePickerTypes(filename, mimeType) {
+        const lower = filename.toLowerCase();
+        if (lower.endsWith('.py')) {
+            return [{ description: 'Python script', accept: { 'text/x-python': ['.py'] } }];
+        }
+        if (lower.endsWith('.pkl') || lower.endsWith('.pickle')) {
+            return [{ description: 'Pickle file', accept: { 'application/octet-stream': ['.pkl', '.pickle'] } }];
+        }
+        if (lower.endsWith('.webm')) {
+            return [{ description: 'WebM video', accept: { 'video/webm': ['.webm'] } }];
+        }
+        if (lower.endsWith('.png')) {
+            return [{ description: 'PNG image', accept: { 'image/png': ['.png'] } }];
+        }
+        return [{ description: 'v_ase export', accept: { [mimeType]: ['.vasp', '.poscar', '.txt'] } }];
+    }
+
+    async saveBlobFromAction(action, filename, mimeType = 'application/octet-stream', busyMessage = 'Preparing export...') {
+        let writable = null;
+        if (window.showSaveFilePicker && window.isSecureContext) {
+            try {
+                const handle = await window.showSaveFilePicker({
+                    suggestedName: filename,
+                    types: this.filePickerTypes(filename, mimeType)
+                });
+                writable = await handle.createWritable();
+            } catch (err) {
+                if (err?.name === 'AbortError') return false;
+                console.warn('showSaveFilePicker failed; falling back to browser download.', err);
+            }
+        }
+        const blob = await this.withBusy(busyMessage, action);
+        if (writable) {
+            await writable.write(blob);
+            await writable.close();
+            return true;
+        }
+        this.downloadBlob(blob, filename, mimeType);
+        return true;
     }
 
     closeModal() {
@@ -1910,6 +2177,19 @@ class VAseApp {
             }
         };
         document.getElementById('btn-delete-selection').onclick = () => this.deleteSelection();
+        document.getElementById('btn-apply-selected-type').onclick = () => this.applySelectedTypeEdit();
+        document.getElementById('selected-type-name')?.addEventListener('keydown', event => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                this.applySelectedTypeEdit();
+            }
+        });
+        document.getElementById('selected-type-color')?.addEventListener('input', event => {
+            const label = this.selectedTypeLabel();
+            if (!label || !this.validHexColor(event.target.value)) return;
+            this.state.display.elementColors[label] = event.target.value;
+            this.safeApplyDisplayOptions();
+        });
         document.getElementById('btn-undo').onclick = async () => {
             try {
                 const data = await this.api.undo();
@@ -1930,31 +2210,43 @@ class VAseApp {
         };
         document.getElementById('btn-export-poscar').onclick = async () => {
             try {
-                const blob = await this.api.exportPoscar(this.currentPositionsFromScene(), this.state.applyConstraints);
-                this.downloadBlob(blob, 'POSCAR');
-                this.toast('POSCAR export started.', 'success');
+                const saved = await this.saveBlobFromAction(
+                    () => this.api.exportPoscar(this.currentPositionsFromScene(), this.state.applyConstraints),
+                    'POSCAR',
+                    'application/octet-stream',
+                    'Preparing POSCAR export...'
+                );
+                if (saved) this.toast('POSCAR export saved.', 'success');
             } catch (err) {
                 this.toast(`POSCAR export failed: ${err.message}`, 'error');
             }
         };
         document.getElementById('btn-export-pickle').onclick = async () => {
             try {
-                const blob = await this.api.exportPickle(this.currentPositionsFromScene(), false, this.state.applyConstraints);
-                this.downloadBlob(blob, 'atoms.pkl');
-                this.toast('Pickle export started.', 'success');
+                const saved = await this.saveBlobFromAction(
+                    () => this.api.exportPickle(this.currentPositionsFromScene(), false, this.state.applyConstraints),
+                    'atoms.pkl',
+                    'application/octet-stream',
+                    'Preparing Pickle export...'
+                );
+                if (saved) this.toast('Pickle export saved.', 'success');
             } catch (err) {
                 this.toast(`Pickle export failed: ${err.message}`, 'error');
             }
         };
         document.getElementById('btn-export-blender').onclick = async () => {
             try {
-                const blob = await this.api.exportBlender(
-                    this.currentPositionsFromScene(),
-                    this.state.applyConstraints,
-                    this.currentCameraForExport()
+                const saved = await this.saveBlobFromAction(
+                    () => this.api.exportBlender(
+                        this.currentPositionsFromScene(),
+                        this.state.applyConstraints,
+                        this.currentCameraForExport()
+                    ),
+                    'v_ase_blender_scene.py',
+                    'text/x-python',
+                    'Preparing Blender export...'
                 );
-                this.downloadBlob(blob, 'v_ase_blender_scene.py', 'text/x-python');
-                this.toast('Blender export script started.', 'success');
+                if (saved) this.toast('Blender export script saved.', 'success');
             } catch (err) {
                 this.toast(`Blender export failed: ${err.message}`, 'error');
             }

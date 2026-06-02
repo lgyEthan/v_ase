@@ -414,6 +414,30 @@ def delete_indices_from_atoms(atoms, delete_indices):
         new_atoms.calc = atoms.calc
     return new_atoms
 
+
+def update_atom_type_labels(atoms, indices, label):
+    indices = sorted({int(i) for i in indices})
+    if not indices:
+        return atoms.copy()
+    if indices[0] < 0 or indices[-1] >= len(atoms):
+        raise HTTPException(status_code=400, detail="Atom type indices are out of range.")
+    normalized = str(label).strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Atom type label cannot be empty.")
+
+    updated = atoms.copy()
+    symbols = updated.get_chemical_symbols()
+    type_labels = atom_type_labels(updated)
+    base_symbol = base_symbol_for_atom_type(normalized)
+    for idx in indices:
+        symbols[idx] = base_symbol
+        type_labels[idx] = normalized
+    updated.set_chemical_symbols(symbols)
+    set_atom_type_labels(updated, type_labels)
+    if atoms.calc:
+        updated.calc = atoms.calc
+    return updated
+
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(ws_manager.broadcaster_task())
@@ -580,6 +604,20 @@ async def delete_atoms(session_id: str, payload: Dict[str, Any]):
     session.working_atoms = delete_indices_from_atoms(session.working_atoms, indices)
     session.selection.clear()
     session.sync_current_frame()
+    return session_atoms_to_json(session)
+
+
+@app.post("/api/atom-types/{session_id}")
+async def update_atom_types(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    indices = payload.get("indices", [])
+    label = payload.get("label", "")
+    if not indices:
+        return session_atoms_to_json(session)
+
+    session.push_history()
+    set_current_payload_positions(session, payload)
+    apply_all_frames(session, lambda atoms: update_atom_type_labels(atoms, indices, label))
     return session_atoms_to_json(session)
 
 

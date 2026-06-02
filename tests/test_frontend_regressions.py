@@ -3,7 +3,7 @@ import asyncio
 
 from ase.build import molecule
 
-from v_ase.server import apply_positions, delete_atoms, get_atoms, reset, undo, value_error_handler
+from v_ase.server import apply_positions, delete_atoms, get_atoms, reset, undo, update_atom_types, value_error_handler
 from v_ase.export import export_pickle_response, export_poscar_response
 from v_ase.session import EditorSession, sessions
 
@@ -21,6 +21,9 @@ def test_ui_button_api_endpoints_respond_without_network_server():
     assert asyncio.run(apply_positions(session.session_id, {"positions": positions}))["metadata"]["natoms"] == 3
     assert asyncio.run(delete_atoms(session.session_id, {"indices": [2]}))["metadata"]["natoms"] == 2
     assert asyncio.run(undo(session.session_id))["metadata"]["natoms"] == 3
+    renamed = asyncio.run(update_atom_types(session.session_id, {"indices": [0], "label": "O_surface"}))
+    assert renamed["symbols"][0] == "O_surface"
+    assert renamed["chemical_symbols"][0] == "O"
     assert asyncio.run(reset(session.session_id))["metadata"]["natoms"] == 3
     assert export_poscar_response(session, {"positions": positions}).filename == "POSCAR"
     assert export_pickle_response(session, {
@@ -210,11 +213,18 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "element-radius-list" in index_html
     assert "renderElementRadiusControls" in main_js
     assert "parseElementRadii" in main_js
+    assert "element-color-input" in main_js
+    assert "renameElementType" in main_js
+    assert "selectElement(symbol)" in main_js
+    assert "btn-apply-selected-type" in index_html
+    assert "updateAtomTypes" in (ROOT / "v_ase/static/api.js").read_text()
     assert "atomRadiusScale" in renderer_js
     assert "elementRadii" in renderer_js
+    assert "elementColors" in renderer_js
     assert "previous.atomRadiusScale" in renderer_js
     assert "#inspector .panel-section" in style_css
     assert ".element-radius-panel" in style_css
+    assert ".element-appearance-row" in style_css
     assert ".busy-spinner" in style_css
 
 
@@ -247,9 +257,15 @@ def test_frontend_reset_video_and_visual_settings_controls_are_wired():
 
 def test_trajectory_controls_update_live_and_space_toggles_playback():
     main_js = (ROOT / "v_ase/static/main.js").read_text()
+    index_html = (ROOT / "v_ase/static/index.html").read_text()
+    style_css = (ROOT / "v_ase/static/style.css").read_text()
 
     assert "queueFrameLoad" in main_js
     assert "flushFrameLoadQueue" in main_js
+    assert '<div id="trajectory-panel" class="trajectory-strip"' in index_html
+    assert 'frame-label">1 / 1' in index_html
+    assert "panel.classList.remove('hidden')" in main_js
+    assert "slider.disabled = count <= 1" in main_js
     assert "frame-slider').oninput" in main_js
     assert "movie-fps').oninput" in main_js
     assert "restartPlayback" in main_js
@@ -257,6 +273,18 @@ def test_trajectory_controls_update_live_and_space_toggles_playback():
     assert "setTimeout(tick, 1000 / this.currentPlaybackFps())" in main_js
     assert "e.code === 'Space'" in main_js
     assert "Play or pause trajectory" in main_js
+    assert ".trajectory-strip" in style_css
+
+
+def test_export_downloads_use_save_picker_and_fallback_anchor():
+    main_js = (ROOT / "v_ase/static/main.js").read_text()
+
+    assert "saveBlobFromAction" in main_js
+    assert "showSaveFilePicker" in main_js
+    assert "document.body.appendChild(a)" in main_js
+    assert "Preparing POSCAR export" in main_js
+    assert "Preparing Pickle export" in main_js
+    assert "Preparing Blender export" in main_js
 
 
 def test_control_panel_uses_collapsible_default_hierarchy():
