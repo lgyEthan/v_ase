@@ -53,12 +53,20 @@ def test_milestone_2_proof():
         page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
         print("Atoms loaded in UI.")
         
-        # 1. Click O (Select Oxygen)
-        # Assuming the camera centers the O atom roughly in the middle of the screen
-        # We can just simulate picking by clicking the center.
+        # 1. Click O (Select Oxygen). Use the actual projected mesh position
+        # instead of assuming the atom sits at the window center.
         viewport = page.locator("#app-viewport")
         box = viewport.bounding_box()
-        page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        oxygen_screen = page.evaluate("""() => {
+            const app = window.__ASE_APP__;
+            const mesh = app.renderer.atomMeshByIndex.get(0);
+            const p = mesh.position.clone().project(app.renderer.camera);
+            return {
+                x: (p.x + 1) * window.innerWidth / 2,
+                y: (-p.y + 1) * window.innerHeight / 2
+            };
+        }""")
+        page.mouse.click(oxygen_screen["x"], oxygen_screen["y"])
         
         # Check if selected count becomes 1
         # It might take a moment

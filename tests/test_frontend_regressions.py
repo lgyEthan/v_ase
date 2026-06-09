@@ -3,6 +3,8 @@ import asyncio
 import tomllib
 
 from ase.build import molecule
+from fastapi import HTTPException
+import pytest
 
 from v_ase.server import (
     apply_positions,
@@ -14,7 +16,7 @@ from v_ase.server import (
     update_atom_types,
     value_error_handler,
 )
-from v_ase.export import export_pickle_response, export_poscar_response
+from v_ase.export import export_blender_response, export_pickle_response, export_poscar_response
 from v_ase.session import EditorSession, sessions
 
 
@@ -52,6 +54,18 @@ def test_ui_button_api_endpoints_respond_without_network_server():
         "positions": positions,
         "include_calculator": False,
     }).filename == "atoms.pkl"
+
+
+def test_viz_only_session_blocks_atom_editing_api_calls():
+    atoms = molecule("H2O")
+    session = EditorSession("viz-only-api-test", atoms.copy(), atoms.copy(), config={"viz_only": True})
+    sessions[session.session_id] = session
+
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(apply_positions(session.session_id, {"positions": atoms.positions.tolist()}))
+
+    assert excinfo.value.status_code == 403
+    assert "--viz-only mode" in excinfo.value.detail
 
 
 def test_missing_session_is_reported_as_404_json():
@@ -133,6 +147,9 @@ def test_viewer_uses_packaged_three_and_initial_camera_fit():
     assert "needsInitialCameraFit" in renderer_js
     assert "fitCameraToStructure" in renderer_js
     assert "structureBounds" in renderer_js
+    assert "OrthographicCamera" in renderer_js
+    assert "setProjectionMode" in renderer_js
+    assert "updateCameraProjection" in renderer_js
 
 
 def test_frontend_handles_missing_calculator_forces_without_aborting_refresh():
@@ -251,6 +268,8 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "selectionAngle" in main_js
     assert "currentCameraForExport" in main_js
     assert "camera) body.camera = camera" in api_js
+    assert "display) body.display = display" in api_js
+    assert "bondPairs) body.bond_pairs = bondPairs" in api_js
     assert "threshold: 4.80" in api_js
 
 
@@ -273,6 +292,12 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "selectElement(symbol)" in main_js
     assert "btn-apply-selected-type" in index_html
     assert "updateAtomTypes" in (ROOT / "v_ase/static/api.js").read_text()
+    assert 'id="projection-mode"' in index_html
+    assert 'id="inspector-resizer"' in index_html
+    assert 'data-edit-only' in index_html
+    assert "--viz-only" in main_js
+    assert "updateEditingAvailability" in main_js
+    assert "setupInspectorResizer" in main_js
     assert "atomRadiusScale" in renderer_js
     assert "elementRadii" in renderer_js
     assert "elementColors" in renderer_js
@@ -280,6 +305,9 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "#inspector .panel-section" in style_css
     assert ".element-radius-panel" in style_css
     assert ".element-appearance-row" in style_css
+    assert "--inspector-width" in style_css
+    assert "body.inspector-wide #inspector .element-appearance-row" in style_css
+    assert 'body[data-viz-only="true"] [data-edit-only]' in style_css
     assert ".busy-spinner" in style_css
 
 
@@ -296,6 +324,10 @@ def test_frontend_reset_video_and_visual_settings_controls_are_wired():
     assert "Resetting coordinates and original unit cell" in main_js
     assert "Visual settings were kept" in main_js
     assert "btn-export-video" in index_html
+    assert '<section class="panel-section export-section"' in index_html
+    assert '<section class="panel-section utility-section"' in index_html
+    assert "Scientific Tools" not in index_html
+    assert "Relaxation" in index_html
     assert "Export Video is available for trajectory files only" in main_js
     assert "exportTrajectoryVideo" in main_js
     assert "canvas.captureStream" in main_js
@@ -342,6 +374,38 @@ def test_export_downloads_use_save_picker_and_fallback_anchor():
     assert "Preparing Blender export" in main_js
 
 
+def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_projection():
+    atoms = molecule("H2")
+    atoms.set_cell([6, 6, 6])
+    atoms.set_pbc([True, True, True])
+    session = EditorSession("blender-export-regression", atoms.copy(), atoms.copy())
+    sessions[session.session_id] = session
+
+    response = export_blender_response(session, {
+        "positions": atoms.positions.tolist(),
+        "display": {
+            "showBonds": True,
+            "bondMode": "manual",
+            "manualBondPairs": [[0, 1]],
+        },
+        "bond_pairs": [[0, 1]],
+        "camera": {
+            "position": [5, -6, 4],
+            "target": [0, 0, 0],
+            "projection": "orthographic",
+            "ortho_scale": 8,
+        },
+    })
+    script = Path(response.path).read_text(encoding="utf-8")
+
+    assert "BONDS = DATA.get(\"bonds\", [])" in script
+    assert "MAT_BOND" in script
+    assert "add_unit_cell(CELL)" in script
+    assert "polygon.use_smooth = True" in script
+    assert "obj.data.type = \"ORTHO\"" in script
+    assert "bond_{bond.get('i', 0)}" in script
+
+
 def test_control_panel_uses_collapsible_default_hierarchy():
     index_html = (ROOT / "v_ase/static/index.html").read_text()
     style_css = (ROOT / "v_ase/static/style.css").read_text()
@@ -349,7 +413,7 @@ def test_control_panel_uses_collapsible_default_hierarchy():
     assert '<details class="panel-section" open data-panel="structure-info">' in index_html
     assert '<details class="panel-section" open data-panel="selection">' in index_html
     assert '<details class="panel-section" open data-panel="view">' in index_html
-    assert '<details class="panel-section" data-panel="transform">' in index_html
+    assert '<details class="panel-section" data-panel="transform" data-edit-only>' in index_html
     assert '<details class="panel-section" data-panel="appearance">' in index_html
     assert '<details class="panel-section" data-panel="cell-transform">' in index_html
     assert '<details class="panel-section" data-panel="scientific-tools">' in index_html
@@ -364,7 +428,7 @@ def test_grid_guides_scale_to_large_unit_cells():
     assert "replaceViewportGuides" in renderer_js
     assert "refreshViewportGuidesForStructure" in renderer_js
     assert "new THREE.GridHelper(guideSize, divisions" in renderer_js
-    assert "guideSize * 0.035" in renderer_js
+    assert "[0, 0, -half], [0, 0, half]" in renderer_js
 
 
 def test_rotate_pivot_and_unit_cell_aware_validation_are_wired():

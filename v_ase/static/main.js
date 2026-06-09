@@ -42,11 +42,13 @@ class VAseApp {
                 rotatePivot: 'selection',
                 unitCellAwareRotate: false,
                 rotateStrainCutoff: 0.15,
-                supercell: [1, 1, 1]
+                supercell: [1, 1, 1],
+                projectionMode: 'perspective'
             },
             antiAliasing: true,
             sphereQuality: 'auto',
             applyConstraints: true,
+            vizOnly: false,
             moveIncrement: 0,
             rotateIncrementDeg: 0,
             transformReadout: '',
@@ -74,12 +76,83 @@ class VAseApp {
                 this.api.sessionId = this.sessionId;
             }
             this.setupWebSocket();
+            this.setupInspectorResizer();
             this.setupEventListeners();
             await this.refresh();
         } catch (err) {
             console.error("v_ase initialization failed:", err);
             this.toast(`Initialization failed: ${err.message}`, 'error');
         }
+    }
+
+    canEditAtoms() {
+        return !this.state.vizOnly;
+    }
+
+    updateEditingAvailability() {
+        document.body.dataset.vizOnly = this.state.vizOnly ? 'true' : 'false';
+        document.querySelectorAll('[data-edit-only]').forEach(el => {
+            el.hidden = this.state.vizOnly;
+            if ('disabled' in el) el.disabled = this.state.vizOnly;
+        });
+        if (this.state.vizOnly && this.transform.mode !== 'IDLE') {
+            this.cancelTransform();
+        }
+    }
+
+    editOnlyToast() {
+        this.toast('--viz-only is a lightweight visualizer mode; atom editing is disabled.', 'warning');
+    }
+
+    clampInspectorWidth(width) {
+        const minWidth = 356;
+        const maxWidth = Math.max(minWidth, Math.min(760, window.innerWidth - 260));
+        return Math.max(minWidth, Math.min(maxWidth, Math.round(width)));
+    }
+
+    setInspectorWidth(width, persist = false) {
+        const clamped = this.clampInspectorWidth(width);
+        document.documentElement.style.setProperty('--inspector-width', `${clamped}px`);
+        document.body.classList.toggle('inspector-wide', clamped >= 520);
+        if (persist) {
+            try {
+                window.localStorage?.setItem('v_ase.inspectorWidth', String(clamped));
+            } catch {
+                // Local storage may be unavailable in restricted browser contexts.
+            }
+        }
+        this.renderer?.onResize?.();
+    }
+
+    setupInspectorResizer() {
+        const resizer = document.getElementById('inspector-resizer');
+        if (!resizer) return;
+        let savedWidth = null;
+        try {
+            savedWidth = Number(window.localStorage?.getItem('v_ase.inspectorWidth'));
+        } catch {
+            savedWidth = null;
+        }
+        this.setInspectorWidth(Number.isFinite(savedWidth) && savedWidth > 0 ? savedWidth : 416);
+        const onMove = event => {
+            this.setInspectorWidth(window.innerWidth - event.clientX, false);
+        };
+        const onUp = event => {
+            document.body.classList.remove('resizing-inspector');
+            this.setInspectorWidth(window.innerWidth - event.clientX, true);
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
+        };
+        resizer.addEventListener('pointerdown', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            document.body.classList.add('resizing-inspector');
+            resizer.setPointerCapture?.(event.pointerId);
+            window.addEventListener('pointermove', onMove);
+            window.addEventListener('pointerup', onUp);
+            window.addEventListener('pointercancel', onUp);
+        });
     }
 
     async refresh() {
@@ -92,6 +165,7 @@ class VAseApp {
             this.applyInitialDisplayConfig(data);
             this.renderElementBondControls();
             this.renderElementRadiusControls();
+            this.updateEditingAvailability();
             if (!this.initialDesignSettings) this.initialDesignSettings = this.designSettingsSnapshot();
             this.updateUI();
             
@@ -112,7 +186,7 @@ class VAseApp {
         
         setHtml('prop-natoms', meta.natoms);
         setHtml('val-calc', meta.calculator || "NONE");
-        setHtml('val-mode', this.transform.mode === 'IDLE' ? 'SELECT' : this.transform.mode);
+        setHtml('val-mode', this.transform.mode === 'IDLE' ? (this.state.vizOnly ? 'VIEW' : 'SELECT') : this.transform.mode);
         setHtml('val-energy', typeof meta.energy === 'number' ? meta.energy.toFixed(4) : "-");
         const validForces = (this.state.atoms.forces || [])
             .filter(f => Array.isArray(f) && f.length >= 3 && f.slice(0, 3).every(v => Number.isFinite(Number(v))));
@@ -134,7 +208,7 @@ class VAseApp {
         this.updateSelectedTypeControls();
 
         const relaxBtn = document.getElementById('btn-relax');
-        if (relaxBtn) relaxBtn.disabled = !meta.has_calculator || this.state.isRelaxing;
+        if (relaxBtn) relaxBtn.disabled = this.state.vizOnly || !meta.has_calculator || this.state.isRelaxing;
         const stopRelaxBtn = document.getElementById('btn-stop-relax');
         if (stopRelaxBtn) stopRelaxBtn.disabled = !this.state.isRelaxing;
 
@@ -288,6 +362,7 @@ class VAseApp {
         this.renderer.setDisplayOptions(this.state.display);
         this.renderElementBondControls();
         this.renderElementRadiusControls();
+        this.updateEditingAvailability();
         this.setHoveredAtom(null);
         this.updateSelectionVisuals();
         this.updateUI();
@@ -316,6 +391,8 @@ class VAseApp {
         this.state.display.rotatePivot = config.rotate_pivot || this.state.display.rotatePivot;
         this.state.display.unitCellAwareRotate = Boolean(config.unit_cell_aware_rotate);
         this.state.display.rotateStrainCutoff = Number(config.rotate_strain_cutoff || this.state.display.rotateStrainCutoff);
+        this.state.display.projectionMode = config.projection_mode || this.state.display.projectionMode;
+        this.state.vizOnly = Boolean(config.viz_only);
         document.getElementById('chk-bonds').checked = this.state.display.showBonds;
         document.getElementById('chk-cell').checked = this.state.display.showCell;
         document.getElementById('chk-axes').checked = this.state.display.showAxes;
@@ -328,7 +405,10 @@ class VAseApp {
         document.getElementById('rotate-pivot').value = this.state.display.rotatePivot;
         document.getElementById('chk-unit-aware-rotate').checked = this.state.display.unitCellAwareRotate;
         document.getElementById('rotate-strain-cutoff').value = this.state.display.rotateStrainCutoff;
+        const projectionMode = document.getElementById('projection-mode');
+        if (projectionMode) projectionMode.value = this.state.display.projectionMode;
         this.updateRadiusScaleLabel();
+        this.updateEditingAvailability();
         this.state.displayConfigLoaded = true;
     }
 
@@ -427,7 +507,10 @@ class VAseApp {
             position: [camera.position.x, camera.position.y, camera.position.z],
             target: [controls.target.x, controls.target.y, controls.target.z],
             up: [camera.up.x, camera.up.y, camera.up.z],
-            fov: camera.fov,
+            projection: this.state.display.projectionMode || this.renderer.projectionMode || 'perspective',
+            fov: camera.fov || this.renderer.perspectiveCamera?.fov || 50,
+            zoom: camera.zoom || 1,
+            ortho_scale: camera.isOrthographicCamera ? (camera.top - camera.bottom) / Math.max(camera.zoom || 1, 1e-6) : null,
             near: camera.near,
             far: camera.far
         };
@@ -616,10 +699,13 @@ class VAseApp {
         camera.getWorldDirection(viewAxis).normalize();
         const dist = Math.max(this.transform.pivot.distanceTo(camera.position), 1e-6);
         
-        // FOV factor
-        const fov = camera.fov * Math.PI / 180;
-        const heightPlane = 2 * Math.tan(fov / 2) * dist;
-        const widthPlane = heightPlane * camera.aspect;
+        const zoom = Math.max(camera.zoom || 1, 1e-6);
+        const heightPlane = camera.isOrthographicCamera
+            ? (camera.top - camera.bottom) / zoom
+            : 2 * Math.tan((camera.fov || 50) * Math.PI / 360) * dist;
+        const widthPlane = camera.isOrthographicCamera
+            ? (camera.right - camera.left) / zoom
+            : heightPlane * (camera.aspect || this.renderer.viewportAspect?.() || 1);
         
         const moveDelta = new THREE.Vector3();
         if (this.transform.mode === 'MOVE') {
@@ -734,6 +820,11 @@ class VAseApp {
 
     commitTransform() {
         if (this.transform.mode === 'IDLE' || this.state.selected.size === 0) return;
+        if (!this.canEditAtoms()) {
+            this.cancelTransform();
+            this.editOnlyToast();
+            return;
+        }
         if (this.constraintTimeout) clearTimeout(this.constraintTimeout);
         if (this.transform.mode === 'ROTATE' && this.state.rotationInvalid) {
             this.toast(
@@ -771,6 +862,10 @@ class VAseApp {
     }
 
     enterTransformMode(mode) {
+        if (!this.canEditAtoms()) {
+            this.editOnlyToast();
+            return;
+        }
         const editableSelection = [...this.state.selected].filter(idx => this.isEditableIndex(idx));
         if (editableSelection.length === 0) return;
 
@@ -949,12 +1044,22 @@ class VAseApp {
             nameInput.className = 'element-name-input';
             nameInput.dataset.elementName = symbol;
             nameInput.value = symbol;
+            const commitRename = () => {
+                const next = this.normalizedTypeLabel(nameInput.value);
+                if (next && next !== symbol) this.renameElementType(symbol, next);
+            };
             nameInput.addEventListener('keydown', event => {
                 if (event.key === 'Enter') {
                     event.preventDefault();
-                    this.renameElementType(symbol, nameInput.value);
+                    commitRename();
+                    nameInput.blur();
+                } else if (event.key === 'Escape') {
+                    event.preventDefault();
+                    nameInput.value = symbol;
+                    nameInput.blur();
                 }
             });
+            nameInput.addEventListener('change', commitRename);
 
             const color = document.createElement('input');
             color.type = 'color';
@@ -992,18 +1097,7 @@ class VAseApp {
             selectButton.title = `Select every ${symbol} atom`;
             selectButton.addEventListener('click', () => this.selectElement(symbol));
 
-            const applyButton = document.createElement('button');
-            applyButton.type = 'button';
-            applyButton.className = 'element-rename-button';
-            applyButton.innerText = 'Rename';
-            applyButton.title = `Rename all ${symbol} atoms`;
-            applyButton.addEventListener('click', () => this.renameElementType(symbol, nameInput.value));
-
-            const nameGroup = document.createElement('div');
-            nameGroup.className = 'element-name-group';
-            nameGroup.append(nameInput, applyButton);
-
-            row.append(label, nameGroup, color, input, selectButton);
+            row.append(label, nameInput, color, input, selectButton);
             root.appendChild(row);
         });
         const focusMatch = [...root.querySelectorAll('[data-element-radius], [data-element-name], [data-element-color]')]
@@ -1047,6 +1141,10 @@ class VAseApp {
     }
 
     async renameElementType(oldSymbol, nextLabel) {
+        if (!this.canEditAtoms()) {
+            this.editOnlyToast();
+            return;
+        }
         const label = this.normalizedTypeLabel(nextLabel);
         if (!label) {
             this.toast('Atom type name cannot be empty.', 'warning');
@@ -1084,9 +1182,9 @@ class VAseApp {
         if (!name || !color || !apply) return;
         const hasSelection = this.state.selected.size > 0;
         const label = this.selectedTypeLabel();
-        name.disabled = !hasSelection;
-        color.disabled = !hasSelection;
-        apply.disabled = !hasSelection;
+        name.disabled = this.state.vizOnly || !hasSelection;
+        color.disabled = this.state.vizOnly || !hasSelection;
+        apply.disabled = this.state.vizOnly || !hasSelection;
         name.placeholder = hasSelection ? 'Mixed selected types' : 'Select atoms first';
         if (!document.activeElement || document.activeElement !== name) {
             name.value = hasSelection ? label : '';
@@ -1096,6 +1194,10 @@ class VAseApp {
     }
 
     async applySelectedTypeEdit() {
+        if (!this.canEditAtoms()) {
+            this.editOnlyToast();
+            return;
+        }
         const indices = [...this.state.selected].sort((a, b) => a - b);
         if (!indices.length) {
             this.toast('Select atoms before changing atom type.', 'warning');
@@ -1226,6 +1328,7 @@ class VAseApp {
         this.state.display.showCell = document.getElementById('chk-cell').checked;
         this.state.display.showAxes = document.getElementById('chk-axes').checked;
         this.state.display.showGrid = document.getElementById('chk-grid').checked;
+        this.state.display.projectionMode = document.getElementById('projection-mode')?.value || 'perspective';
         this.state.applyConstraints = document.getElementById('chk-constraints').checked;
         this.state.antiAliasing = document.getElementById('chk-antialias').checked;
         this.state.sphereQuality = document.getElementById('sphere-quality').value;
@@ -1324,6 +1427,7 @@ class VAseApp {
         setChecked('chk-cell', display.showCell);
         setChecked('chk-axes', display.showAxes);
         setChecked('chk-grid', display.showGrid);
+        setValue('projection-mode', display.projectionMode || 'perspective');
         setChecked('chk-constraints', this.state.applyConstraints);
         setChecked('chk-antialias', this.state.antiAliasing);
         setValue('sphere-quality', this.state.sphereQuality);
@@ -1494,6 +1598,10 @@ class VAseApp {
     }
 
     copySelection() {
+        if (!this.canEditAtoms()) {
+            this.editOnlyToast();
+            return;
+        }
         if (!this.state.selected.size) {
             this.toast('No atoms selected to copy.', 'warning');
             return;
@@ -1516,6 +1624,10 @@ class VAseApp {
     }
 
     async pasteSelection() {
+        if (!this.canEditAtoms()) {
+            this.editOnlyToast();
+            return;
+        }
         if (!this.state.clipboard) {
             this.toast('Clipboard is empty.', 'warning');
             return;
@@ -1541,6 +1653,10 @@ class VAseApp {
     }
 
     async deleteSelection() {
+        if (!this.canEditAtoms()) {
+            this.editOnlyToast();
+            return;
+        }
         if (!this.state.selected.size) {
             this.toast('No atoms selected to delete.', 'warning');
             return;
@@ -1787,7 +1903,9 @@ class VAseApp {
 
     async saveBlobFromAction(action, filename, mimeType = 'application/octet-stream', busyMessage = 'Preparing export...') {
         let writable = null;
-        if (window.showSaveFilePicker && window.isSecureContext) {
+        const blob = await this.withBusy(busyMessage, action);
+        const canUseSavePicker = window.showSaveFilePicker && window.isSecureContext && !navigator.webdriver;
+        if (canUseSavePicker) {
             try {
                 const handle = await window.showSaveFilePicker({
                     suggestedName: filename,
@@ -1799,7 +1917,6 @@ class VAseApp {
                 console.warn('showSaveFilePicker failed; falling back to browser download.', err);
             }
         }
-        const blob = await this.withBusy(busyMessage, action);
         if (writable) {
             await writable.write(blob);
             await writable.close();
@@ -1957,7 +2074,13 @@ class VAseApp {
         const oldSize = new THREE.Vector2();
         this.renderer.renderer.getSize(oldSize);
         const oldPixelRatio = this.renderer.renderer.getPixelRatio();
-        const oldAspect = this.renderer.camera.aspect;
+        const oldPerspectiveAspect = this.renderer.perspectiveCamera?.aspect;
+        const oldOrtho = this.renderer.orthographicCamera ? {
+            left: this.renderer.orthographicCamera.left,
+            right: this.renderer.orthographicCamera.right,
+            top: this.renderer.orthographicCamera.top,
+            bottom: this.renderer.orthographicCamera.bottom
+        } : null;
         const oldGridVisible = this.renderer.gridGroup?.visible;
         const oldAxesVisible = this.renderer.axesHelper?.visible;
         const chunks = [];
@@ -1985,8 +2108,7 @@ class VAseApp {
         try {
             this.renderer.renderer.setPixelRatio(1);
             this.renderer.renderer.setSize(width, height, false);
-            this.renderer.camera.aspect = width / height;
-            this.renderer.camera.updateProjectionMatrix();
+            this.renderer.updateCameraProjection(width / height);
             for (let frame = 0; frame < frameCount; frame++) {
                 await this.loadFrame(frame);
                 applyExportVisibility();
@@ -2005,7 +2127,12 @@ class VAseApp {
             if (recorder.state !== 'inactive') recorder.stop();
             this.renderer.renderer.setPixelRatio(oldPixelRatio);
             this.renderer.renderer.setSize(oldSize.x, oldSize.y, false);
-            this.renderer.camera.aspect = oldAspect;
+            if (this.renderer.perspectiveCamera && Number.isFinite(oldPerspectiveAspect)) {
+                this.renderer.perspectiveCamera.aspect = oldPerspectiveAspect;
+            }
+            if (this.renderer.orthographicCamera && oldOrtho) {
+                Object.assign(this.renderer.orthographicCamera, oldOrtho);
+            }
             this.renderer.camera.updateProjectionMatrix();
             if (this.renderer.gridGroup) this.renderer.gridGroup.visible = oldGridVisible;
             if (this.renderer.axesHelper) this.renderer.axesHelper.visible = oldAxesVisible;
@@ -2255,11 +2382,14 @@ class VAseApp {
         };
         document.getElementById('btn-export-blender').onclick = async () => {
             try {
+                this.safeApplyDisplayOptions();
                 const saved = await this.saveBlobFromAction(
                     () => this.api.exportBlender(
                         this.currentPositionsFromScene(),
                         this.state.applyConstraints,
-                        this.currentCameraForExport()
+                        this.currentCameraForExport(),
+                        this.clonePlain(this.state.display),
+                        this.renderer.bondPairs || []
                     ),
                     'v_ase_blender_scene.py',
                     'text/x-python',
@@ -2333,6 +2463,7 @@ class VAseApp {
         document.getElementById('chk-cell').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('chk-axes').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('chk-grid').onchange = () => this.safeApplyDisplayOptions();
+        document.getElementById('projection-mode').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('chk-antialias').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('sphere-quality').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('atom-radius-scale').oninput = () => this.safeApplyDisplayOptions();
@@ -2559,16 +2690,22 @@ class VAseApp {
             if ((e.ctrlKey || e.metaKey) && this.transform.mode === 'IDLE') {
                 if (this.isPhysicalKey(e, 'KeyC', ['c'])) {
                     e.preventDefault();
-                    this.copySelection();
+                    if (this.canEditAtoms()) this.copySelection();
+                    else this.editOnlyToast();
                     return;
                 }
                 if (this.isPhysicalKey(e, 'KeyV', ['v'])) {
                     e.preventDefault();
-                    this.pasteSelection();
+                    if (this.canEditAtoms()) this.pasteSelection();
+                    else this.editOnlyToast();
                     return;
                 }
                 if (this.isPhysicalKey(e, 'KeyZ', ['z'])) {
                     e.preventDefault();
+                    if (!this.canEditAtoms()) {
+                        this.editOnlyToast();
+                        return;
+                    }
                     (e.shiftKey ? this.api.redo() : this.api.undo())
                         .then(data => {
                             this.setAtomsData(data);
@@ -2632,10 +2769,11 @@ class VAseApp {
                 }
                 if ((e.code === 'Delete' || e.key === 'Delete' || e.code === 'Backspace' || e.key === 'Backspace') && this.state.selected.size > 0) {
                     e.preventDefault();
-                    this.deleteSelection();
+                    if (this.canEditAtoms()) this.deleteSelection();
+                    else this.editOnlyToast();
                     return;
                 }
-                if (this.state.selected.size > 0) {
+                if (this.state.selected.size > 0 && this.canEditAtoms()) {
                     if (this.isPhysicalKey(e, 'KeyG', ['g']) || this.isPhysicalKey(e, 'KeyR', ['r'])) {
                         e.preventDefault();
                         const mode = this.isPhysicalKey(e, 'KeyR', ['r']) ? 'ROTATE' : 'MOVE';

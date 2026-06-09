@@ -39,6 +39,14 @@ def test_v_ase_gui_parser_accepts_input_format_alias():
     assert args.format == "vasprun.xml"
 
 
+def test_v_ase_gui_parser_accepts_viz_only_mode():
+    parser = build_parser()
+    args = parser.parse_args(["gui", "movie.extxyz", "--viz-only"])
+
+    assert args.file == "movie.extxyz"
+    assert args.viz_only is True
+
+
 def test_v_ase_visualize_import_path_exposes_view():
     from v_ase.visualize import view
 

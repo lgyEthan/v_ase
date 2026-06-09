@@ -17,6 +17,8 @@ class BlenderTumbleControls {
         this.lastWheelTime = 0;
         this.wheelSpeedHistory = [];
         this.isCurrentGestureMouse = true;
+        this.smoothedWheelDelta = new THREE.Vector2();
+        this.trackpadRotateScale = 0.42;
 
         this.onContextMenu = (event) => event.preventDefault();
         this.onAuxClick = (event) => {
@@ -86,6 +88,7 @@ class BlenderTumbleControls {
         // 2. Lock gesture type at the start of the scroll sequence to prevent "hybrid" behavior
         if (dt > 150) {
             this.wheelSpeedHistory = [];
+            this.smoothedWheelDelta.set(0, 0);
 
             if (event.deltaMode > 0) {
                 this.isCurrentGestureMouse = true;
@@ -109,36 +112,47 @@ class BlenderTumbleControls {
             }
         } else {
             // Trackpad: 2-finger swipe = Orbit (View Rotation)
-
-            // Native OS Momentum Detection (Strict 5-frame decay check)
             const currentSpeed = Math.sqrt(event.deltaX * event.deltaX + event.deltaY * event.deltaY);
             this.wheelSpeedHistory.push(currentSpeed);
             if (this.wheelSpeedHistory.length > 5) {
                 this.wheelSpeedHistory.shift();
             }
 
-            let isMomentum = false;
+            let isMomentumTail = false;
             if (this.wheelSpeedHistory.length === 5) {
-                isMomentum = true;
+                let monotonicDecay = true;
                 for (let i = 1; i < 5; i++) {
-                    if (this.wheelSpeedHistory[i] > this.wheelSpeedHistory[i-1]) {
-                        isMomentum = false;
+                    if (this.wheelSpeedHistory[i] > this.wheelSpeedHistory[i - 1] + 0.01) {
+                        monotonicDecay = false;
                         break;
                     }
                 }
+                const strongDecay = this.wheelSpeedHistory[0] > currentSpeed * 1.65;
+                isMomentumTail = monotonicDecay && strongDecay && currentSpeed < 3.0;
             }
 
-            if (isMomentum) {
-                return; // Kill the OS momentum immediately to behave like middle-click drag
-            }
+            if (isMomentumTail) return;
 
-            this.rotate(-event.deltaX * 0.5, -event.deltaY * 0.5);
+            const alpha = dt > 80 ? 1.0 : 0.62;
+            this.smoothedWheelDelta.set(
+                event.deltaX * alpha + this.smoothedWheelDelta.x * (1 - alpha),
+                event.deltaY * alpha + this.smoothedWheelDelta.y * (1 - alpha)
+            );
+            this.rotate(
+                -this.smoothedWheelDelta.x * this.trackpadRotateScale,
+                -this.smoothedWheelDelta.y * this.trackpadRotateScale
+            );
         }
     }
 
     doZoom(deltaY) {
-        const offset = new THREE.Vector3().subVectors(this.camera.position, this.target);
         const factor = Math.exp(deltaY * this.zoomSpeed);
+        if (this.camera.isOrthographicCamera) {
+            this.camera.zoom = Math.max(0.05, Math.min(80, this.camera.zoom / factor));
+            this.camera.updateProjectionMatrix();
+            return;
+        }
+        const offset = new THREE.Vector3().subVectors(this.camera.position, this.target);
         offset.multiplyScalar(Math.min(8, Math.max(0.125, factor)));
         this.camera.position.copy(this.target).add(offset);
         this.camera.lookAt(this.target);
@@ -162,8 +176,9 @@ class BlenderTumbleControls {
     pan(dx, dy) {
         const offset = new THREE.Vector3().subVectors(this.camera.position, this.target);
         const distance = Math.max(offset.length(), 1);
-        const fov = THREE.MathUtils.degToRad(this.camera.fov);
-        const worldPerPixel = (2 * Math.tan(fov / 2) * distance) / Math.max(1, this.domElement.clientHeight);
+        const worldPerPixel = this.camera.isOrthographicCamera
+            ? (this.camera.top - this.camera.bottom) / Math.max(1, this.domElement.clientHeight * (this.camera.zoom || 1))
+            : (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2) * distance) / Math.max(1, this.domElement.clientHeight);
         this.camera.updateMatrixWorld();
         const localRight = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0).normalize();
         const localUp = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1).normalize();
@@ -206,9 +221,15 @@ export class ASERenderer {
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x303235);
         
-        this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 10000);
-        this.camera.up.set(0, 0, 1);
-        this.camera.position.set(10, 10, 10);
+        const aspect = window.innerWidth / Math.max(1, window.innerHeight);
+        this.perspectiveCamera = new THREE.PerspectiveCamera(50, aspect, 0.1, 10000);
+        this.orthographicCamera = new THREE.OrthographicCamera(-10 * aspect, 10 * aspect, 10, -10, 0.1, 10000);
+        [this.perspectiveCamera, this.orthographicCamera].forEach(camera => {
+            camera.up.set(0, 0, 1);
+            camera.position.set(10, 10, 10);
+        });
+        this.camera = this.perspectiveCamera;
+        this.projectionMode = 'perspective';
 
         this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
         this.renderer.setClearColor(0x303235, 1);
@@ -280,6 +301,7 @@ export class ASERenderer {
             rotatePivot: 'selection',
             unitCellAwareRotate: false,
             rotateStrainCutoff: 0.15,
+            projectionMode: 'perspective',
             supercell: [1, 1, 1],
             antiAliasing: true,
             sphereQuality: 'auto'
@@ -513,9 +535,9 @@ export class ASERenderer {
             const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
             return new THREE.Line(geo, mat);
         };
-        axisGroup.add(makeLine([-half, 0, 0], [half, 0, 0], 0x9a4c4c, 0.42));
-        axisGroup.add(makeLine([0, -half, 0], [0, half, 0], 0x547f42, 0.42));
-        axisGroup.add(makeLine([0, 0, -Math.max(2.5, guideSize * 0.035)], [0, 0, Math.max(2.5, guideSize * 0.035)], 0x4f82d9, 0.35));
+        axisGroup.add(makeLine([-half, 0, 0], [half, 0, 0], 0xff5a52, 0.68));
+        axisGroup.add(makeLine([0, -half, 0], [0, half, 0], 0x44d665, 0.68));
+        axisGroup.add(makeLine([0, 0, -half], [0, 0, half], 0x4da0ff, 0.62));
         gridGroup.userData = { guideSize };
         axisGroup.userData = { guideSize };
         return { gridGroup, axisGroup };
@@ -701,8 +723,9 @@ export class ASERenderer {
         }
         currentDirection.normalize();
 
-        const verticalFov = THREE.MathUtils.degToRad(this.camera.fov);
-        const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * Math.max(this.camera.aspect, 1e-6));
+        const aspect = this.viewportAspect();
+        const verticalFov = THREE.MathUtils.degToRad(this.perspectiveCamera?.fov || this.camera.fov || 50);
+        const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * Math.max(aspect, 1e-6));
         const fitFov = Math.max(0.1, Math.min(verticalFov, horizontalFov));
         const distance = Math.max(4.0, (radius / Math.sin(fitFov / 2)) * 1.18);
 
@@ -711,7 +734,19 @@ export class ASERenderer {
         this.camera.near = Math.max(0.01, distance / 1000);
         this.camera.far = Math.max(1000, distance + radius * 20);
         this.camera.lookAt(center);
-        this.camera.updateProjectionMatrix();
+        if (this.camera !== this.perspectiveCamera) {
+            this.perspectiveCamera.position.copy(this.camera.position);
+            this.perspectiveCamera.up.copy(this.camera.up);
+        }
+        if (this.camera !== this.orthographicCamera) {
+            this.orthographicCamera.position.copy(this.camera.position);
+            this.orthographicCamera.up.copy(this.camera.up);
+        }
+        this.perspectiveCamera.near = this.camera.near;
+        this.perspectiveCamera.far = this.camera.far;
+        this.orthographicCamera.near = this.camera.near;
+        this.orthographicCamera.far = this.camera.far;
+        this.updateCameraProjection(aspect);
         this.controls.update?.();
     }
 
@@ -721,6 +756,53 @@ export class ASERenderer {
             : Math.min(window.devicePixelRatio || 1, 2);
         this.renderer.setPixelRatio(ratio);
         this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+    }
+
+    viewportAspect() {
+        const rect = this.container?.getBoundingClientRect?.();
+        const width = rect?.width || window.innerWidth || 1;
+        const height = rect?.height || window.innerHeight || 1;
+        return width / Math.max(1, height);
+    }
+
+    updateCameraProjection(aspect = this.viewportAspect()) {
+        if (this.perspectiveCamera) {
+            this.perspectiveCamera.aspect = aspect;
+            this.perspectiveCamera.updateProjectionMatrix();
+        }
+        if (this.orthographicCamera) {
+            const distance = Math.max(
+                1,
+                this.orthographicCamera.position.distanceTo(this.controls?.target || new THREE.Vector3())
+            );
+            const fov = THREE.MathUtils.degToRad(this.perspectiveCamera?.fov || 50);
+            const halfHeight = Math.max(1.0, distance * Math.tan(fov / 2));
+            this.orthographicCamera.left = -halfHeight * aspect;
+            this.orthographicCamera.right = halfHeight * aspect;
+            this.orthographicCamera.top = halfHeight;
+            this.orthographicCamera.bottom = -halfHeight;
+            this.orthographicCamera.updateProjectionMatrix();
+        }
+    }
+
+    setProjectionMode(mode = 'perspective') {
+        const nextMode = mode === 'orthographic' ? 'orthographic' : 'perspective';
+        if (nextMode === this.projectionMode) {
+            this.updateCameraProjection();
+            return;
+        }
+        const source = this.camera;
+        const target = nextMode === 'orthographic' ? this.orthographicCamera : this.perspectiveCamera;
+        target.position.copy(source.position);
+        target.up.copy(source.up);
+        target.quaternion.copy(source.quaternion);
+        target.near = source.near;
+        target.far = source.far;
+        this.camera = target;
+        this.projectionMode = nextMode;
+        this.controls.camera = target;
+        this.updateCameraProjection();
+        this.camera.lookAt(this.controls.target);
     }
 
     rebuildCell(cell) {
@@ -774,6 +856,9 @@ export class ASERenderer {
             previous.atomRadiusScale !== this.displayOptions.atomRadiusScale ||
             JSON.stringify(previous.elementRadii || {}) !== JSON.stringify(this.displayOptions.elementRadii || {}) ||
             JSON.stringify(previous.elementColors || {}) !== JSON.stringify(this.displayOptions.elementColors || {});
+        if (previous.projectionMode !== this.displayOptions.projectionMode) {
+            this.setProjectionMode(this.displayOptions.projectionMode);
+        }
         if (qualityChanged) {
             this.updateRenderQuality();
             if (this.atomsData) {
@@ -1569,8 +1654,7 @@ export class ASERenderer {
     }
 
     onResize() {
-        this.camera.aspect = window.innerWidth / window.innerHeight;
-        this.camera.updateProjectionMatrix();
+        this.updateCameraProjection();
         this.renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
@@ -1581,7 +1665,13 @@ export class ASERenderer {
         const oldSize = new THREE.Vector2();
         this.renderer.getSize(oldSize);
         const oldPixelRatio = this.renderer.getPixelRatio();
-        const oldAspect = this.camera.aspect;
+        const oldPerspectiveAspect = this.perspectiveCamera?.aspect;
+        const oldOrtho = this.orthographicCamera ? {
+            left: this.orthographicCamera.left,
+            right: this.orthographicCamera.right,
+            top: this.orthographicCamera.top,
+            bottom: this.orthographicCamera.bottom
+        } : null;
         const oldBackground = this.scene.background;
         const oldClearColor = this.renderer.getClearColor(new THREE.Color()).clone();
         const oldClearAlpha = this.renderer.getClearAlpha();
@@ -1601,8 +1691,7 @@ export class ASERenderer {
 
             this.renderer.setPixelRatio(1);
             this.renderer.setSize(width, height, false);
-            this.camera.aspect = width / height;
-            this.camera.updateProjectionMatrix();
+            this.updateCameraProjection(width / height);
             this.updateBondPositions();
             this.syncSelectionOutlines();
             this.updateHookeanPositions();
@@ -1615,7 +1704,12 @@ export class ASERenderer {
             if (this.axesHelper) this.axesHelper.visible = oldAxesVisible;
             this.renderer.setPixelRatio(oldPixelRatio);
             this.renderer.setSize(oldSize.x, oldSize.y, false);
-            this.camera.aspect = oldAspect;
+            if (this.perspectiveCamera && Number.isFinite(oldPerspectiveAspect)) {
+                this.perspectiveCamera.aspect = oldPerspectiveAspect;
+            }
+            if (this.orthographicCamera && oldOrtho) {
+                Object.assign(this.orthographicCamera, oldOrtho);
+            }
             this.camera.updateProjectionMatrix();
             this.updateBondPositions();
             this.syncSelectionOutlines();

@@ -48,6 +48,9 @@ show playback controls for frame-by-frame movie inspection.
 - Blender-like viewport interaction: middle-mouse orbit, shift-middle pan,
   wheel zoom, click/box selection, `G` move, `R` rotate, axis locking, numeric
   transforms, `Enter`, `Esc`, copy/paste/undo/delete.
+- Lightweight OVITO-style inspection mode with `--viz-only`, keeping bonds,
+  supercell, appearance, measurements, projection, and export controls while
+  disabling coordinate/type edits.
 - Selection measurements: two selected atoms show distance, and three selected
   atoms show two distances plus the central angle.
 - ASE constraint-aware editing and visualization:
@@ -61,7 +64,7 @@ show playback controls for frame-by-frame movie inspection.
 - Custom extxyz atom type labels such as `H_type5` are preserved for GUI type
   settings even when ASE cannot parse them as real elements.
 - Export POSCAR, pickle, PNG image, WebM video, and Blender Python scene script.
-  Blender export includes a camera matching the current v_ase viewport.
+  Blender export includes viewport camera, unit cell, bonds, and smooth atoms.
 
 ## Installation
 
@@ -121,6 +124,7 @@ v_ase gui ABCD --format XDATCAR
 v_ase gui ABCD --format vasprun.xml
 v_ase gui ABCD --format lammpstrj
 v_ase gui ABCD --format data
+v_ase gui movie.extxyz --viz-only
 v_ase gui POSCAR --output edited.vasp
 v_ase gui POSCAR --no-block
 ```

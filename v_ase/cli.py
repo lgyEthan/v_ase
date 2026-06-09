@@ -46,7 +46,7 @@ def package_version() -> str:
     try:
         return version("v_ase-gui")
     except PackageNotFoundError:
-        return "0.0.11"
+        return "0.0.12"
 
 
 def resolve_input_format(fmt: str | None) -> str | None:
@@ -98,6 +98,11 @@ def build_parser() -> argparse.ArgumentParser:
     gui.add_argument("--show-bonds", action="store_true", help="show inferred bonds on startup")
     gui.add_argument("--hide-cell", action="store_true", help="hide the unit cell on startup")
     gui.add_argument("--hide-axes", action="store_true", help="hide axes on startup")
+    gui.add_argument(
+        "--viz-only",
+        action="store_true",
+        help="open a lighter OVITO-style visualization mode; atom editing, deletion, relaxation, and type edits are disabled",
+    )
     gui.set_defaults(func=run_gui)
 
     return parser
@@ -140,6 +145,7 @@ def run_gui(args: argparse.Namespace) -> int:
         show_cell=not args.hide_cell,
         show_axes=not args.hide_axes,
         show_bonds=args.show_bonds,
+        viz_only=args.viz_only,
     )
 
     if args.no_block:

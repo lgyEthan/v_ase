@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.11">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.12">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.11';
+            : '/static/vendor/three.module.js?v=0.0.12';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -34,7 +34,7 @@
 
     <!-- Top Status Bar -->
     <header id="top-bar" class="glass-panel">
-        <div class="logo">v_ase<span class="version">0.0.11</span></div>
+        <div class="logo">v_ase<span class="version">0.0.12</span></div>
         <div class="status-group">
             <div class="status-item">
                 <span class="label">MODE</span>
@@ -54,9 +54,9 @@
             </div>
         </div>
         <div class="action-group">
-            <button id="btn-apply" class="btn primary">APPLY</button>
-            <button id="btn-reset" class="btn">RESET</button>
-            <button id="btn-reset-coords" class="btn">RESET COORDS</button>
+            <button id="btn-apply" class="btn primary" data-edit-only>APPLY</button>
+            <button id="btn-reset" class="btn" data-edit-only>RESET</button>
+            <button id="btn-reset-coords" class="btn" data-edit-only>RESET COORDS</button>
             <button id="btn-done" class="btn primary success">DONE</button>
             <button id="btn-cancel" class="btn danger">CANCEL</button>
             <button id="btn-shortcuts" class="btn icon-btn" title="Shortcuts">?</button>
@@ -65,6 +65,7 @@
 
     <!-- Right Inspector -->
     <aside id="inspector" class="glass-panel">
+        <div id="inspector-resizer" role="separator" aria-label="Resize control panel" aria-orientation="vertical" title="Drag to resize panel"></div>
         <details class="panel-section" open data-panel="structure-info">
             <summary class="section-header">Structure Info</summary>
             <div class="prop-grid">
@@ -82,7 +83,7 @@
                 <span class="p-label">Center</span><span id="selected-center" class="p-val">-</span>
                 <span class="p-label">Measure</span><span id="selected-measure" class="p-val">-</span>
             </div>
-            <div class="selected-type-editor">
+            <div class="selected-type-editor" data-edit-only>
                 <div class="mini-table-head selected-type-head">
                     <span>Selected type</span>
                     <span>Color</span>
@@ -94,11 +95,18 @@
                     <button id="btn-apply-selected-type">Apply</button>
                 </div>
             </div>
-            <button id="btn-delete-selection" class="btn-block danger-soft">Delete Selected</button>
+            <button id="btn-delete-selection" class="btn-block danger-soft" data-edit-only>Delete Selected</button>
         </details>
 
         <details class="panel-section" open data-panel="view">
             <summary class="section-header">View</summary>
+            <div class="prop-row">
+                <label for="projection-mode">Projection</label>
+                <select id="projection-mode">
+                    <option value="perspective">Perspective</option>
+                    <option value="orthographic">Orthographic</option>
+                </select>
+            </div>
             <div class="prop-row">
                 <label for="chk-cell">Unit Cell</label>
                 <input type="checkbox" id="chk-cell" checked>
@@ -124,10 +132,10 @@
                 </div>
             </div>
             <button id="btn-set-supercell" class="btn-block">Set Supercell as Cell</button>
-            <button id="btn-wrap" class="btn-block">Wrap Atoms Into Cell</button>
+            <button id="btn-wrap" class="btn-block" data-edit-only>Wrap Atoms Into Cell</button>
         </details>
 
-        <details class="panel-section" data-panel="transform">
+        <details class="panel-section" data-panel="transform" data-edit-only>
             <summary class="section-header">Transform</summary>
             <div class="prop-row">
                 <label for="rotate-pivot">Rotate pivot</label>
@@ -179,7 +187,7 @@
                 <input type="range" id="atom-radius-scale" value="1" min="0.25" max="2.5" step="0.05">
             </div>
             <div id="element-radius-panel" class="element-radius-panel">
-                <div class="mini-table-head">
+                <div class="mini-table-head element-appearance-head">
                     <span>Type</span>
                     <span>Name</span>
                     <span>Color</span>
@@ -239,7 +247,7 @@
         </details>
 
         <details class="panel-section" data-panel="scientific-tools">
-            <summary class="section-header">Scientific Tools</summary>
+            <summary class="section-header">Relaxation</summary>
             <div class="relax-grid">
                 <label>fmax</label>
                 <input type="number" id="relax-fmax" value="0.05" step="0.01" min="0">
@@ -248,6 +256,10 @@
             </div>
             <button id="btn-relax" class="btn-block">Relax</button>
             <button id="btn-stop-relax" class="btn-block">Stop Relax</button>
+        </details>
+
+        <section class="panel-section export-section" data-panel="export">
+            <div class="section-header static-header">Export</div>
             <button id="btn-export-poscar" class="btn-block">Export POSCAR</button>
             <button id="btn-export-pickle" class="btn-block">Export Pickle</button>
             <button id="btn-export-blender" class="btn-block">Export Blender</button>
@@ -259,16 +271,20 @@
             </div>
             <button id="btn-export-image" class="btn-block">Export Image</button>
             <button id="btn-export-video" class="btn-block" disabled>Export Video</button>
+        </section>
+
+        <section class="panel-section utility-section" data-panel="settings">
+            <div class="section-header static-header">Settings</div>
             <div class="btn-stack-row two">
                 <button id="btn-save-settings">Save Settings</button>
                 <button id="btn-load-settings">Load Settings</button>
             </div>
             <input type="file" id="settings-file" class="hidden" accept=".pkl,.pickle,.vase,.vase.pkl">
-            <div class="btn-stack-row">
+            <div class="btn-stack-row" data-edit-only>
                 <button id="btn-undo" title="Undo (Ctrl+Z)">↺</button>
                 <button id="btn-redo" title="Redo (Ctrl+Shift+Z)">↻</button>
             </div>
-        </details>
+        </section>
     </aside>
 
     <!-- Bottom Command Overlay -->
@@ -327,7 +343,7 @@
     <div id="toast-container" aria-live="polite"></div>
 
     <script type="module">
-        const modulePath = window.location.protocol === 'file:' ? './main.js' : './static/main.js?v=0.0.11';
+        const modulePath = window.location.protocol === 'file:' ? './main.js' : './static/main.js?v=0.0.12';
         import(modulePath);
     </script>
 </body>

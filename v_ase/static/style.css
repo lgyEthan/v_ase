@@ -15,6 +15,7 @@
     --danger: #ff675f;
     --viewport-bg: #303235;
     --panel-shadow: 0 18px 50px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.16);
+    --inspector-width: 416px;
 }
 
 * { box-sizing: border-box; }
@@ -76,12 +77,50 @@ textarea {
     top: 88px;
     right: 14px;
     bottom: 82px;
-    width: 344px;
+    width: var(--inspector-width);
     padding: 14px;
     display: flex;
     flex-direction: column;
     gap: 14px;
     overflow-y: auto;
+}
+
+#inspector-resizer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 12px;
+    cursor: ew-resize;
+    z-index: 2;
+}
+
+#inspector-resizer::before {
+    content: "";
+    position: absolute;
+    top: 18px;
+    bottom: 18px;
+    left: 2px;
+    width: 2px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    opacity: 0;
+    transition: opacity 120ms ease, background 120ms ease;
+}
+
+#inspector-resizer:hover::before,
+body.resizing-inspector #inspector-resizer::before {
+    opacity: 1;
+    background: rgba(88, 211, 187, 0.72);
+}
+
+body.resizing-inspector {
+    cursor: ew-resize;
+    user-select: none;
+}
+
+body[data-viz-only="true"] [data-edit-only] {
+    display: none !important;
 }
 
 #command-bar {
@@ -724,7 +763,7 @@ body[data-mode="rotate"] #app-viewport {
 
 /* Inspector: Blender/OVITO-style property sheet, not stacked cards. */
 #inspector {
-    width: 372px;
+    width: var(--inspector-width);
     padding: 0;
     gap: 0;
     background: rgba(28, 29, 32, 0.98);
@@ -967,7 +1006,7 @@ body[data-mode="rotate"] #app-viewport {
     top: 52px;
     right: 0;
     bottom: 0;
-    width: 382px;
+    width: var(--inspector-width);
     padding: 0;
     gap: 0;
     border-width: 0 0 0 1px;
@@ -1281,7 +1320,7 @@ textarea {
 
 #inspector {
     top: 54px;
-    width: 416px;
+    width: var(--inspector-width);
     background: var(--inspector-bg);
     color: var(--inspector-text);
     scrollbar-color: rgba(240, 189, 90, 0.5) rgba(255, 255, 255, 0.055);
@@ -1400,11 +1439,16 @@ textarea {
 
 #inspector .prop-row,
 #inspector .supercell-row {
-    grid-template-columns: minmax(138px, 1fr) minmax(156px, 178px);
+    grid-template-columns: minmax(132px, 1fr) minmax(150px, 178px);
     gap: 14px;
     min-height: 38px;
     margin-bottom: 9px;
     padding: 3px 0;
+}
+
+body.inspector-wide #inspector .prop-row,
+body.inspector-wide #inspector .supercell-row {
+    grid-template-columns: minmax(170px, 0.9fr) minmax(220px, 1.25fr);
 }
 
 #inspector input,
@@ -1491,6 +1535,10 @@ textarea {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
     margin: 2px 0 12px;
+    padding: 9px;
+    border: 1px solid rgba(255, 255, 255, 0.075);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.13);
 }
 
 #inspector .matrix-grid input {
@@ -1771,9 +1819,15 @@ body[data-rotate-invalid="true"] #cmd-buffer {
 #inspector #element-radius-panel .mini-table-head,
 #inspector .element-appearance-row {
     display: grid;
-    grid-template-columns: minmax(48px, 0.72fr) minmax(118px, 1.4fr) 42px 82px 56px;
-    gap: 8px;
+    grid-template-columns: minmax(42px, 0.58fr) minmax(82px, 1.55fr) 42px minmax(68px, 0.86fr) 52px;
+    gap: 9px;
     align-items: center;
+}
+
+body.inspector-wide #inspector #element-radius-panel .mini-table-head,
+body.inspector-wide #inspector .element-appearance-row {
+    grid-template-columns: minmax(58px, 0.52fr) minmax(150px, 1.55fr) 48px minmax(98px, 0.9fr) 72px;
+    gap: 12px;
 }
 
 #inspector .element-appearance-row label {
@@ -1781,13 +1835,6 @@ body[data-rotate-invalid="true"] #cmd-buffer {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-#inspector .element-name-group {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 58px;
-    gap: 6px;
-    min-width: 0;
 }
 
 #inspector .element-name-input,
@@ -1806,17 +1853,20 @@ body[data-rotate-invalid="true"] #cmd-buffer {
 
 #inspector .element-color-input {
     width: 42px;
+    min-width: 42px;
+    padding: 2px;
 }
 
 #inspector .element-select-button,
 #inspector .element-rename-button {
     width: 100%;
+    min-width: 0;
     padding: 0 6px;
 }
 
 #command-bar {
     left: 22px;
-    right: 440px;
+    right: calc(var(--inspector-width) + 32px);
     bottom: 16px;
     transform: none;
     width: auto;

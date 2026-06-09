@@ -503,9 +503,11 @@ export class ASEApi {
         }, { expect: 'blob' });
     }
 
-    async exportBlender(positions, applyConstraint = true, camera = null) {
+    async exportBlender(positions, applyConstraint = true, camera = null, display = null, bondPairs = null) {
         const body = { positions, apply_constraint: applyConstraint };
         if (camera) body.camera = camera;
+        if (display) body.display = display;
+        if (bondPairs) body.bond_pairs = bondPairs;
         return await this.request(`/api/export/blender/{session_id}`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},

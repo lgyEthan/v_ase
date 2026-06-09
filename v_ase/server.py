@@ -117,6 +117,15 @@ def payload_apply_constraint(payload: Dict[str, Any] | None) -> bool:
     return bool(payload.get("apply_constraint", True))
 
 
+def is_viz_only(session: EditorSession) -> bool:
+    return bool((session.config or {}).get("viz_only", False))
+
+
+def require_editable(session: EditorSession, action: str = "This operation"):
+    if is_viz_only(session):
+        raise HTTPException(status_code=403, detail=f"{action} is disabled in --viz-only mode.")
+
+
 def validate_supercell_atoms(atoms, reps: List[int]):
     if len(reps) != 3 or any(v < 1 for v in reps):
         raise HTTPException(status_code=400, detail="Supercell repetitions must be three positive integers.")
@@ -505,6 +514,7 @@ async def constrain_positions(session_id: str, payload: Dict[str, Any]):
 async def apply_positions(session_id: str, payload: Dict[str, Any]):
     """COMMIT: Backend state update with authoritative constraints."""
     session = get_session(session_id)
+    require_editable(session, "Atom coordinate editing")
     session.push_history()
     
     positions = np.array(payload["positions"])
@@ -518,6 +528,7 @@ async def apply_positions(session_id: str, payload: Dict[str, Any]):
 @app.post("/api/reset/{session_id}")
 async def reset(session_id: str):
     session = get_session(session_id)
+    require_editable(session, "Full reset")
     session.push_history()
     session.reset_all_frames()
     session.selection.clear()
@@ -527,6 +538,7 @@ async def reset(session_id: str):
 @app.post("/api/reset-coordinates/{session_id}")
 async def reset_coordinates(session_id: str):
     session = get_session(session_id)
+    require_editable(session, "Coordinate reset")
     session.push_history()
     session.reset_all_frames()
     session.selection.clear()
@@ -570,6 +582,7 @@ async def load_visual_settings(session_id: str, request: Request):
 @app.post("/api/wrap/{session_id}")
 async def wrap(session_id: str, payload: Dict[str, Any] | None = None):
     session = get_session(session_id)
+    require_editable(session, "Wrap atoms")
     session.push_history()
     set_current_payload_positions(session, payload or {})
 
@@ -587,6 +600,7 @@ async def wrap(session_id: str, payload: Dict[str, Any] | None = None):
 @app.post("/api/undo/{session_id}")
 async def undo(session_id: str):
     session = get_session(session_id)
+    require_editable(session, "Undo")
     atoms = session.undo()
     if atoms is not None:
         session.sync_current_frame()
@@ -596,6 +610,7 @@ async def undo(session_id: str):
 @app.post("/api/redo/{session_id}")
 async def redo(session_id: str):
     session = get_session(session_id)
+    require_editable(session, "Redo")
     atoms = session.redo()
     if atoms is not None:
         session.sync_current_frame()
@@ -605,6 +620,7 @@ async def redo(session_id: str):
 @app.post("/api/add/{session_id}")
 async def add_atoms(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
+    require_editable(session, "Adding atoms")
     symbols = payload.get("symbols")
     positions = payload.get("positions")
     if symbols is None and "symbol" in payload:
@@ -626,6 +642,7 @@ async def add_atoms(session_id: str, payload: Dict[str, Any]):
 @app.post("/api/delete/{session_id}")
 async def delete_atoms(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
+    require_editable(session, "Deleting atoms")
     indices = payload.get("indices", [])
     if not indices:
         return session_atoms_to_json(session)
@@ -640,6 +657,7 @@ async def delete_atoms(session_id: str, payload: Dict[str, Any]):
 @app.post("/api/atom-types/{session_id}")
 async def update_atom_types(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
+    require_editable(session, "Atom type editing")
     indices = payload.get("indices", [])
     label = payload.get("label", "")
     if not indices:
@@ -664,11 +682,10 @@ async def set_frame(session_id: str, payload: Dict[str, Any]):
 @app.post("/api/done/{session_id}")
 async def done(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
-    positions = np.array(payload["positions"])
-    
-    # Final enforcement
-    session.working_atoms.set_positions(positions, apply_constraint=payload_apply_constraint(payload))
-    session.sync_current_frame()
+    if not is_viz_only(session):
+        positions = np.array(payload["positions"])
+        session.working_atoms.set_positions(positions, apply_constraint=payload_apply_constraint(payload))
+        session.sync_current_frame()
     session.result_atoms = session.working_atoms.copy()
     if session.working_atoms.calc:
         session.result_atoms.calc = session.working_atoms.calc
@@ -737,6 +754,7 @@ if FASTAPI_AVAILABLE:
     @app.post("/api/relax/start/{session_id}")
     async def api_relax_start(session_id: str, payload: Dict[str, Any], bt: BackgroundTasks):
         session = get_session(session_id)
+        require_editable(session, "Relaxation")
         return await start_relaxation(session, payload, bt)
 
     @app.post("/api/relax/stop/{session_id}")

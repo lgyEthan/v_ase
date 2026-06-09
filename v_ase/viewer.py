@@ -99,6 +99,7 @@ def view(
     show_bonds: bool = False,
     respect_constraints: bool = True,
     allow_relax: bool = True,
+    viz_only: bool = False,
     theme: str = "auto",
     return_mode: str = "atoms"
 ) -> Union[Atoms, ASEEditor, None]:
@@ -136,6 +137,7 @@ def view(
             "show_bonds": show_bonds,
             "apply_constraint": respect_constraints,
             "allow_relax": allow_relax,
+            "viz_only": viz_only,
             "theme": theme
         }
     )
