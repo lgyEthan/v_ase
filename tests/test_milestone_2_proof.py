@@ -12,12 +12,13 @@ import numpy as np
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from v_ase.viewer import view
+from v_ase.viewer import find_free_port, view
 
 def test_milestone_2_proof():
     print("Initializing H2O molecule with EMT calculator...")
     atoms = molecule("H2O")
     atoms.calc = EMT()
+    port = find_free_port()
     
     original_positions = atoms.positions.copy()
     print(f"Original O atom position: {original_positions[0]}")
@@ -28,7 +29,7 @@ def test_milestone_2_proof():
     def run_viewer():
         # block=True returns the edited atoms after Done/Cancel
         # We run it in a thread so Playwright can interact with it
-        result["edited"] = view(atoms, block=True, port=8000)
+        result["edited"] = view(atoms, block=True, port=port)
     
     viewer_thread = threading.Thread(target=run_viewer, daemon=True)
     viewer_thread.start()
@@ -45,10 +46,11 @@ def test_milestone_2_proof():
         page = browser.new_page()
         
         # Load the viewer
-        page.goto("http://localhost:8000")
+        page.goto(f"http://127.0.0.1:{port}")
         
         # Wait for atoms to load.
         page.wait_for_selector("#prop-natoms:text-is('3')")
+        page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
         print("Atoms loaded in UI.")
         
         # 1. Click O (Select Oxygen)

@@ -73,11 +73,41 @@ if FASTAPI_AVAILABLE:
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
+MAX_TRAJECTORY_CACHE_VALUES = 750_000
+
+
+def trajectory_position_cache(session: EditorSession):
+    if session.frame_count <= 1:
+        return None
+    natoms = len(session.working_atoms)
+    if session.frame_count * natoms * 3 > MAX_TRAJECTORY_CACHE_VALUES:
+        return None
+    base_labels = atom_type_labels(session.working_atoms)
+    base_cell = np.asarray(session.working_atoms.cell.array)
+    base_pbc = np.asarray(session.working_atoms.pbc, dtype=bool)
+    positions = []
+    for frame in session.trajectory_frames:
+        if len(frame) != natoms:
+            return None
+        if atom_type_labels(frame) != base_labels:
+            return None
+        if not np.array_equal(np.asarray(frame.pbc, dtype=bool), base_pbc):
+            return None
+        if not np.allclose(np.asarray(frame.cell.array), base_cell):
+            return None
+        positions.append(frame.get_positions().tolist())
+    return positions
+
+
 def session_atoms_to_json(session: EditorSession):
     data = atoms_to_json(session.working_atoms)
     data["metadata"]["config"] = session.config
     data["metadata"]["frame_count"] = session.frame_count
     data["metadata"]["current_frame"] = session.current_frame
+    trajectory_positions = trajectory_position_cache(session)
+    data["metadata"]["trajectory_positions_cached"] = trajectory_positions is not None
+    if trajectory_positions is not None:
+        data["trajectory_positions"] = trajectory_positions
     return data
 
 

@@ -14,6 +14,9 @@ class BlenderTumbleControls {
         this.state = 'idle';
         this.activePointerId = null;
         this.lastPointer = new THREE.Vector2();
+        this.lastWheelTime = 0;
+        this.wheelSpeedHistory = [];
+        this.isCurrentGestureMouse = true;
 
         this.onContextMenu = (event) => event.preventDefault();
         this.onAuxClick = (event) => {
@@ -70,8 +73,72 @@ class BlenderTumbleControls {
     handleWheel(event) {
         if (!this.enabled) return;
         event.preventDefault();
+
+        // 1. Pinch Zoom (Trackpad pinch always sets ctrlKey = true in Chrome/Safari)
+        if (event.ctrlKey) {
+            this.doZoom(event.deltaY);
+            return;
+        }
+
+        const now = performance.now();
+        const dt = now - (this.lastWheelTime || 0);
+
+        // 2. Lock gesture type at the start of the scroll sequence to prevent "hybrid" behavior
+        if (dt > 150) {
+            this.wheelSpeedHistory = [];
+
+            if (event.deltaMode > 0) {
+                this.isCurrentGestureMouse = true;
+            } else if (event.deltaX === 0 && Math.abs(event.deltaY) > 2) {
+                // Physical mouse wheels strictly have deltaX === 0 and larger step sizes.
+                this.isCurrentGestureMouse = true;
+            } else {
+                // Trackpads usually have non-zero deltaX or start with tiny deltaY (e.g., 0.5, 1.2).
+                this.isCurrentGestureMouse = false;
+            }
+        }
+        this.lastWheelTime = now;
+
+        // 3. Execute the locked gesture
+        if (this.isCurrentGestureMouse) {
+            // Physical Mouse: Scroll = Zoom/Pan
+            if (event.shiftKey) {
+                this.pan(0, event.deltaY * 0.5);
+            } else {
+                this.doZoom(event.deltaY);
+            }
+        } else {
+            // Trackpad: 2-finger swipe = Orbit (View Rotation)
+
+            // Native OS Momentum Detection (Strict 5-frame decay check)
+            const currentSpeed = Math.sqrt(event.deltaX * event.deltaX + event.deltaY * event.deltaY);
+            this.wheelSpeedHistory.push(currentSpeed);
+            if (this.wheelSpeedHistory.length > 5) {
+                this.wheelSpeedHistory.shift();
+            }
+
+            let isMomentum = false;
+            if (this.wheelSpeedHistory.length === 5) {
+                isMomentum = true;
+                for (let i = 1; i < 5; i++) {
+                    if (this.wheelSpeedHistory[i] > this.wheelSpeedHistory[i-1]) {
+                        isMomentum = false;
+                        break;
+                    }
+                }
+            }
+
+            if (isMomentum) {
+                return; // Kill the OS momentum immediately to behave like middle-click drag
+            }
+
+            this.rotate(-event.deltaX * 0.5, -event.deltaY * 0.5);
+        }
+    }
+
+    doZoom(deltaY) {
         const offset = new THREE.Vector3().subVectors(this.camera.position, this.target);
-        const factor = Math.exp(event.deltaY * this.zoomSpeed);
+        const factor = Math.exp(deltaY * this.zoomSpeed);
         offset.multiplyScalar(Math.min(8, Math.max(0.125, factor)));
         this.camera.position.copy(this.target).add(offset);
         this.camera.lookAt(this.target);

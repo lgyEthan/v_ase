@@ -1,14 +1,36 @@
 from pathlib import Path
 import asyncio
+import tomllib
 
 from ase.build import molecule
 
-from v_ase.server import apply_positions, delete_atoms, get_atoms, reset, undo, update_atom_types, value_error_handler
+from v_ase.server import (
+    apply_positions,
+    delete_atoms,
+    get_atoms,
+    reset,
+    session_atoms_to_json,
+    undo,
+    update_atom_types,
+    value_error_handler,
+)
 from v_ase.export import export_pickle_response, export_poscar_response
 from v_ase.session import EditorSession, sessions
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_static_version_strings_match_package_version():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    version = pyproject["project"]["version"]
+    index_html = (ROOT / "v_ase/static/index.html").read_text(encoding="utf-8")
+
+    assert f'style.css?v={version}' in index_html
+    assert f'three.module.js?v={version}' in index_html
+    assert f'main.js?v={version}' in index_html
+    assert f'<span class="version">{version}</span>' in index_html
+    assert "0.0.15" not in index_html
 
 
 def test_ui_button_api_endpoints_respond_without_network_server():
@@ -37,6 +59,39 @@ def test_missing_session_is_reported_as_404_json():
 
     assert response.status_code == 404
     assert response.body == b'{"detail":"Session missing-session not found"}'
+
+
+def test_trajectory_position_cache_is_only_sent_for_same_topology_frames():
+    first = molecule("H2O")
+    second = molecule("H2O")
+    second.positions += [0.25, 0.0, 0.0]
+    session = EditorSession(
+        "trajectory-cache",
+        first.copy(),
+        first.copy(),
+        original_frames=[first.copy(), second.copy()],
+        trajectory_frames=[first.copy(), second.copy()],
+    )
+
+    data = session_atoms_to_json(session)
+
+    assert data["metadata"]["trajectory_positions_cached"] is True
+    assert len(data["trajectory_positions"]) == 2
+    assert data["trajectory_positions"][1][0][0] == first.positions[0, 0] + 0.25
+
+    different_topology = molecule("CO")
+    session.trajectory_frames[1] = different_topology
+    data = session_atoms_to_json(session)
+
+    assert data["metadata"]["trajectory_positions_cached"] is False
+    assert "trajectory_positions" not in data
+
+    session.trajectory_frames[1] = second.copy()
+    session.trajectory_frames[1].set_cell([5, 5, 6])
+    data = session_atoms_to_json(session)
+
+    assert data["metadata"]["trajectory_positions_cached"] is False
+    assert "trajectory_positions" not in data
 
 
 def test_frontend_uses_physical_keys_for_layout_independent_shortcuts():

@@ -2016,6 +2016,22 @@ class VAseApp {
 
     async loadFrame(index) {
         if (this.transform.mode !== 'IDLE') this.cancelTransform();
+
+        if (this.state.atoms?.trajectory_positions && this.state.trajectoryTimer) {
+            const count = this.state.atoms.metadata.frame_count || 1;
+            const normalized = Math.max(0, Math.min(count - 1, parseInt(index, 10) || 0));
+            this.state.atoms.metadata.current_frame = normalized;
+            this.state.atoms.positions = this.state.atoms.trajectory_positions[normalized].map(p => [...p]);
+            this.state.originalPositions = this.state.atoms.positions.map(p => [...p]);
+            this.renderer.updatePositions(this.state.atoms.positions);
+            this.updateUI();
+            const label = document.getElementById('frame-label');
+            if (label) label.innerText = `${normalized + 1} / ${count}`;
+            const slider = document.getElementById('frame-slider');
+            if (slider) slider.value = normalized;
+            return;
+        }
+
         const data = await this.api.setFrame(index);
         this.setAtomsData(data, { clearSelection: true });
     }
@@ -2063,6 +2079,9 @@ class VAseApp {
             clearTimeout(this.state.trajectoryTimer);
             this.state.trajectoryTimer = null;
             this.updateTrajectoryUI();
+            if (this.state.atoms?.metadata?.current_frame !== undefined) {
+                this.api.setFrame(this.state.atoms.metadata.current_frame).catch(err => console.warn("Failed to sync frame", err));
+            }
         }
     }
 
