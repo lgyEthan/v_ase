@@ -305,7 +305,8 @@ export class ASERenderer {
             projectionMode: 'perspective',
             supercell: [1, 1, 1],
             antiAliasing: true,
-            sphereQuality: 'auto'
+            sphereQuality: 'auto',
+            vizOnly: false
         };
         this.bondPairs = [];
         this.bondGeometry = new THREE.CylinderGeometry(0.055, 0.055, 1, 16);
@@ -627,7 +628,7 @@ export class ASERenderer {
         
         if (!atoms || !atoms.symbols) return;
 
-        const fixed = new Set(atoms.constraints?.fixed_indices || []);
+        const fixed = this.displayOptions.vizOnly ? new Set() : new Set(atoms.constraints?.fixed_indices || []);
         const segmentCount = this.sphereQualitySegments(atoms.symbols.length);
         atoms.symbols.forEach((sym, i) => {
             const radius = this.atomVisualRadius(i);
@@ -905,6 +906,7 @@ export class ASERenderer {
             JSON.stringify(previous.elementRadii || {}) !== JSON.stringify(this.displayOptions.elementRadii || {}) ||
             JSON.stringify(previous.elementColors || {}) !== JSON.stringify(this.displayOptions.elementColors || {});
         const visibilityChanged = JSON.stringify(previous.elementVisible || {}) !== JSON.stringify(this.displayOptions.elementVisible || {});
+        const supercellChanged = JSON.stringify(previous.supercell || [1, 1, 1]) !== JSON.stringify(this.displayOptions.supercell || [1, 1, 1]);
         if (previous.projectionMode !== this.displayOptions.projectionMode) {
             this.setProjectionMode(this.displayOptions.projectionMode);
         }
@@ -925,8 +927,67 @@ export class ASERenderer {
             JSON.stringify(previous.elementBondCutoffs || {}) !== JSON.stringify(this.displayOptions.elementBondCutoffs || {}) ||
             visibilityChanged;
         if (bondsChanged) this.rebuildBonds();
-        this.rebuildSupercell();
+        if (supercellChanged) this.rebuildSupercell();
         if (visibilityChanged) this.applyAtomVisibility();
+    }
+
+    renameAtomType(oldSymbol, label, indices = [], displayOptions = null) {
+        if (!this.atomsData?.symbols) return;
+        indices.forEach(index => {
+            if (this.atomsData.symbols[index] === oldSymbol) {
+                this.atomsData.symbols[index] = label;
+            }
+            const mesh = this.atomMeshByIndex.get(index);
+            if (mesh?.userData) mesh.userData.symbol = label;
+        });
+        if (displayOptions) {
+            this.displayOptions = {
+                ...this.displayOptions,
+                ...displayOptions,
+                manualBondPairs: [...(displayOptions.manualBondPairs || this.displayOptions.manualBondPairs || [])],
+                elementBondCutoffs: { ...(displayOptions.elementBondCutoffs || this.displayOptions.elementBondCutoffs || {}) },
+                elementRadii: { ...(displayOptions.elementRadii || this.displayOptions.elementRadii || {}) },
+                elementColors: { ...(displayOptions.elementColors || this.displayOptions.elementColors || {}) },
+                elementVisible: { ...(displayOptions.elementVisible || this.displayOptions.elementVisible || {}) },
+                supercell: [...(displayOptions.supercell || this.displayOptions.supercell || [1, 1, 1])]
+            };
+        }
+        this.refreshAtomAppearance(indices);
+        this.rebuildBonds();
+        this.rebuildSupercell();
+        this.applyAtomVisibility();
+    }
+
+    refreshAtomAppearance(indices = []) {
+        if (!this.atomsData?.symbols) return;
+        const segmentCount = this.sphereQualitySegments(this.atomsData.symbols.length);
+        indices.forEach(index => {
+            const mesh = this.atomMeshByIndex.get(index);
+            if (!mesh) return;
+            const radius = this.atomVisualRadius(index);
+            const color = this.atomVisualColor(index, this.customColors[index]);
+            const isFixed = Boolean(mesh.userData.fixed) && !this.displayOptions.vizOnly;
+            const geometryKey = `${radius}:${segmentCount}`;
+            if (!this.geometryCache.has(geometryKey)) {
+                this.geometryCache.set(
+                    geometryKey,
+                    new THREE.SphereGeometry(radius, segmentCount, Math.max(10, Math.floor(segmentCount * 0.65)))
+                );
+            }
+            const materialKey = `${color}:${isFixed}`;
+            if (!this.materialCache.has(materialKey)) {
+                this.materialCache.set(materialKey, new THREE.MeshStandardMaterial({
+                    color,
+                    roughness: 0.42,
+                    metalness: 0.08,
+                    transparent: isFixed,
+                    opacity: isFixed ? 0.45 : 1.0
+                }));
+            }
+            mesh.geometry = this.geometryCache.get(geometryKey);
+            mesh.material = this.materialCache.get(materialKey);
+            mesh.visible = this.atomTypeVisible(index);
+        });
     }
 
     inferBondPairs() {
@@ -1106,7 +1167,6 @@ export class ASERenderer {
                         .addScaledVector(cell[1], iy)
                         .addScaledVector(cell[2], iz);
                     this.atomsData.symbols.forEach((sym, i) => {
-                        if (!this.atomTypeVisible(i)) return;
                         if (ghostCount >= maxGhostAtoms) return;
                         const radius = this.atomVisualRadius(i);
                         const color = this.atomVisualColor(i);
@@ -1132,6 +1192,7 @@ export class ASERenderer {
                         const p = this.atomMeshByIndex.get(i)?.position || new THREE.Vector3(...this.atomsData.positions[i]);
                         mesh.position.copy(p).add(shift);
                         mesh.userData = { ghostFor: i, shift };
+                        mesh.visible = this.atomTypeVisible(i);
                         this.supercellGroup.add(mesh);
                         ghostCount++;
                     });

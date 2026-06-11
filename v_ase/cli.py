@@ -46,7 +46,7 @@ def package_version() -> str:
     try:
         return version("v_ase-gui")
     except PackageNotFoundError:
-        return "0.0.14"
+        return "0.0.15"
 
 
 def resolve_input_format(fmt: str | None) -> str | None:
@@ -101,7 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
     gui.add_argument(
         "--viz-only",
         action="store_true",
-        help="open a lighter OVITO-style visualization mode; atom editing, deletion, relaxation, and type edits are disabled",
+        help="open a lighter OVITO-style visualization mode; atom coordinate editing, deletion, and relaxation are disabled, while visual labels and display settings remain editable",
     )
     gui.set_defaults(func=run_gui)
 

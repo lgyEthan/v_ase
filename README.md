@@ -49,8 +49,8 @@ show playback controls for frame-by-frame movie inspection.
   wheel zoom, click/box selection, `G` move, `R` rotate, axis locking, numeric
   transforms, `Enter`, `Esc`, copy/paste/undo/delete.
 - Lightweight OVITO-style inspection mode with `--viz-only`, keeping bonds,
-  supercell, appearance, measurements, projection, and export controls while
-  disabling coordinate/type edits.
+  supercell, appearance, visual type labels, measurements, projection, and
+  export controls while disabling coordinate edits.
 - Selection measurements: two selected atoms show distance, and three selected
   atoms show two distances plus the central angle.
 - ASE constraint-aware editing and visualization:

@@ -32,7 +32,7 @@ def test_static_version_strings_match_package_version():
     assert f'three.module.js?v={version}' in index_html
     assert f'main.js?v={version}' in index_html
     assert f'<span class="version">{version}</span>' in index_html
-    assert "0.0.15" not in index_html
+    assert "0.0.16" not in index_html
 
 
 def test_ui_button_api_endpoints_respond_without_network_server():
@@ -296,10 +296,20 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "element-select-checkbox" in main_js
     assert "indeterminate" in main_js
     assert "renameElementType" in main_js
+    assert "renameElementTypeForVisualization" in main_js
+    assert "nameInput.disabled = this.state.vizOnly" not in main_js
+    assert "canViewportSelectAtoms()" in main_js
+    assert "this.canViewportSelectAtoms() && this.transform.mode === 'IDLE'" in main_js
+    assert "this.renderer.renameAtomType(oldSymbol, label, indices, this.state.display)" in main_js
     assert "selectElement(symbol)" in main_js
     assert "toggleElementSelection" in main_js
     assert "elementVisible" in renderer_js
     assert "atomTypeVisible" in renderer_js
+    assert "renameAtomType(oldSymbol, label, indices = [], displayOptions = null)" in renderer_js
+    assert "refreshAtomAppearance(indices)" in renderer_js
+    assert "this.displayOptions.vizOnly ? new Set()" in renderer_js
+    assert "const supercellChanged" in renderer_js
+    assert "if (supercellChanged) this.rebuildSupercell()" in renderer_js
     assert "elementVisible: { ...(options.elementVisible" in renderer_js
     assert "mesh.visible === false" in (ROOT / "v_ase/static/selection.js").read_text()
     assert "btn-apply-selected-type" in index_html

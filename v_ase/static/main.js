@@ -90,6 +90,10 @@ class VAseApp {
         return !this.state.vizOnly;
     }
 
+    canViewportSelectAtoms() {
+        return !this.state.vizOnly;
+    }
+
     updateEditingAvailability() {
         document.body.dataset.vizOnly = this.state.vizOnly ? 'true' : 'false';
         document.querySelectorAll('[data-edit-only]').forEach(el => {
@@ -170,6 +174,8 @@ class VAseApp {
             if (!this.initialDesignSettings) this.initialDesignSettings = this.designSettingsSnapshot();
             this.updateUI();
             
+            this.state.display.vizOnly = this.state.vizOnly;
+            this.renderer.setDisplayOptions(this.state.display);
             this.renderer.rebuildAtoms(data, data.metadata.custom_colors || {});
             this.renderer.setDisplayOptions(this.state.display);
             
@@ -360,6 +366,8 @@ class VAseApp {
         } else {
             this.pruneSelection();
         }
+        this.state.display.vizOnly = this.state.vizOnly;
+        this.renderer.setDisplayOptions(this.state.display);
         this.renderer.rebuildAtoms(data, data.metadata.custom_colors || {});
         this.renderer.setDisplayOptions(this.state.display);
         this.renderElementBondControls();
@@ -397,6 +405,7 @@ class VAseApp {
         this.state.display.rotateStrainCutoff = Number(config.rotate_strain_cutoff || this.state.display.rotateStrainCutoff);
         this.state.display.projectionMode = config.projection_mode || this.state.display.projectionMode;
         this.state.vizOnly = Boolean(config.viz_only);
+        this.state.display.vizOnly = this.state.vizOnly;
         document.getElementById('chk-bonds').checked = this.state.display.showBonds;
         document.getElementById('chk-cell').checked = this.state.display.showCell;
         document.getElementById('chk-axes').checked = this.state.display.showAxes;
@@ -449,6 +458,10 @@ class VAseApp {
     }
 
     updateSelectionVisuals() {
+        if (this.state.vizOnly) {
+            this.renderer.setSelection([]);
+            return;
+        }
         this.renderer.setSelection(this.state.selected);
     }
 
@@ -1007,9 +1020,18 @@ class VAseApp {
         if (!oldSymbol || !newSymbol || oldSymbol === newSymbol) return;
         const maps = [this.state.display.elementRadii, this.state.display.elementColors, this.state.display.elementVisible];
         maps.forEach(map => {
-            if (!map || !(oldSymbol in map) || (newSymbol in map)) return;
-            map[newSymbol] = map[oldSymbol];
+            if (!map || !(oldSymbol in map)) return;
+            if (!(newSymbol in map)) map[newSymbol] = map[oldSymbol];
             delete map[oldSymbol];
+        });
+        const cutoffs = this.state.display.elementBondCutoffs || {};
+        Object.entries({ ...cutoffs }).forEach(([key, value]) => {
+            const parts = key.split('-');
+            if (parts.length !== 2 || !parts.includes(oldSymbol)) return;
+            const nextParts = parts.map(part => part === oldSymbol ? newSymbol : part);
+            const nextKey = this.elementPairKey(nextParts[0], nextParts[1]);
+            if (!(nextKey in cutoffs)) cutoffs[nextKey] = value;
+            delete cutoffs[key];
         });
     }
 
@@ -1111,7 +1133,6 @@ class VAseApp {
             nameInput.className = 'element-name-input';
             nameInput.dataset.elementName = symbol;
             nameInput.value = symbol;
-            nameInput.disabled = this.state.vizOnly;
             const commitRename = () => {
                 const next = this.normalizedTypeLabel(nameInput.value);
                 if (next && next !== symbol) this.renameElementType(symbol, next);
@@ -1230,10 +1251,6 @@ class VAseApp {
     }
 
     async renameElementType(oldSymbol, nextLabel) {
-        if (!this.canEditAtoms()) {
-            this.editOnlyToast();
-            return;
-        }
         const label = this.normalizedTypeLabel(nextLabel);
         if (!label) {
             this.toast('Atom type name cannot be empty.', 'warning');
@@ -1242,6 +1259,10 @@ class VAseApp {
         const indices = this.elementIndices(oldSymbol);
         if (!indices.length) {
             this.toast(`No ${oldSymbol} atoms found.`, 'warning');
+            return;
+        }
+        if (!this.canEditAtoms()) {
+            this.renameElementTypeForVisualization(oldSymbol, label, indices);
             return;
         }
         try {
@@ -1255,6 +1276,28 @@ class VAseApp {
         } catch (err) {
             this.toast(`Rename failed: ${err.message}`, 'error');
         }
+    }
+
+    renameElementTypeForVisualization(oldSymbol, label, indices = this.elementIndices(oldSymbol)) {
+        if (!this.state.atoms || !indices.length) return;
+        indices.forEach(index => {
+            this.state.atoms.symbols[index] = label;
+            if (Array.isArray(this.state.atoms.atom_types)) {
+                this.state.atoms.atom_types[index] = label;
+            }
+        });
+        const selected = new Set();
+        this.state.selected.forEach(index => {
+            if (this.isElementVisible(this.state.atoms.symbols[index])) selected.add(index);
+        });
+        this.state.selected = selected;
+        this.transferElementDisplaySettings(oldSymbol, label);
+        this.renderer.renameAtomType(oldSymbol, label, indices, this.state.display);
+        this.renderElementBondControls();
+        this.renderElementRadiusControls();
+        this.updateElementSelectionControls();
+        this.updateUI();
+        this.toast(`Renamed ${oldSymbol} to ${label} for this visualization.`, 'success');
     }
 
     selectedTypeLabel() {
@@ -1439,6 +1482,7 @@ class VAseApp {
         this.state.display.supercell = this.normalizeSupercellInputs();
         this.state.display.antiAliasing = this.state.antiAliasing;
         this.state.display.sphereQuality = this.state.sphereQuality;
+        this.state.display.vizOnly = this.state.vizOnly;
         this.updateRadiusScaleLabel();
         this.pruneHiddenSelection();
         this.renderer.setDisplayOptions(this.state.display);
@@ -2672,7 +2716,7 @@ class VAseApp {
         const canvas = this.renderer.domElement;
         canvas.addEventListener('pointermove', (e) => {
             this.state.lastPointer.set(e.clientX, e.clientY);
-            if (this.transform.mode === 'IDLE' && !this.state.isDragging) {
+            if (this.canViewportSelectAtoms() && this.transform.mode === 'IDLE' && !this.state.isDragging) {
                 this.setHoveredAtom(this.selection.pick(e, this.renderer.atomMeshes));
             } else {
                 this.setHoveredAtom(null);
@@ -2681,6 +2725,10 @@ class VAseApp {
 
         canvas.addEventListener('pointerdown', (e) => {
             if (e.button !== 0) return; // Left click only
+            if (!this.canViewportSelectAtoms()) {
+                this.setHoveredAtom(null);
+                return;
+            }
             if (this.transform.mode !== 'IDLE') {
                 e.preventDefault();
                 this.state.suppressNextPointerUp = true;
@@ -2706,7 +2754,7 @@ class VAseApp {
                 return;
             }
             
-            if (this.state.isDragging) {
+            if (this.canViewportSelectAtoms() && this.state.isDragging) {
                 const left = Math.min(this.selection.startPoint.x, e.clientX);
                 const top = Math.min(this.selection.startPoint.y, e.clientY);
                 const width = Math.abs(e.clientX - this.selection.startPoint.x);
@@ -2722,6 +2770,12 @@ class VAseApp {
 
         canvas.addEventListener('pointerup', (e) => {
             if (e.button !== 0) return;
+            if (!this.canViewportSelectAtoms()) {
+                this.state.isDragging = false;
+                this.renderer.controls.enabled = true;
+                this.hideMarquee();
+                return;
+            }
             if (this.state.suppressNextPointerUp) {
                 this.state.suppressNextPointerUp = false;
                 this.state.isDragging = false;
