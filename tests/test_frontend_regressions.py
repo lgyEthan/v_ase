@@ -300,6 +300,7 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "toggleElementSelection" in main_js
     assert "elementVisible" in renderer_js
     assert "atomTypeVisible" in renderer_js
+    assert "elementVisible: { ...(options.elementVisible" in renderer_js
     assert "mesh.visible === false" in (ROOT / "v_ase/static/selection.js").read_text()
     assert "btn-apply-selected-type" in index_html
     assert "updateAtomTypes" in (ROOT / "v_ase/static/api.js").read_text()

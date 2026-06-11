@@ -880,8 +880,25 @@ export class ASERenderer {
     }
 
     setDisplayOptions(options) {
-        const previous = this.displayOptions;
-        this.displayOptions = { ...this.displayOptions, ...options };
+        const previous = {
+            ...this.displayOptions,
+            manualBondPairs: [...(this.displayOptions.manualBondPairs || [])],
+            elementBondCutoffs: { ...(this.displayOptions.elementBondCutoffs || {}) },
+            elementRadii: { ...(this.displayOptions.elementRadii || {}) },
+            elementColors: { ...(this.displayOptions.elementColors || {}) },
+            elementVisible: { ...(this.displayOptions.elementVisible || {}) },
+            supercell: [...(this.displayOptions.supercell || [1, 1, 1])]
+        };
+        this.displayOptions = {
+            ...this.displayOptions,
+            ...options,
+            manualBondPairs: [...(options.manualBondPairs || this.displayOptions.manualBondPairs || [])],
+            elementBondCutoffs: { ...(options.elementBondCutoffs || this.displayOptions.elementBondCutoffs || {}) },
+            elementRadii: { ...(options.elementRadii || this.displayOptions.elementRadii || {}) },
+            elementColors: { ...(options.elementColors || this.displayOptions.elementColors || {}) },
+            elementVisible: { ...(options.elementVisible || this.displayOptions.elementVisible || {}) },
+            supercell: [...(options.supercell || this.displayOptions.supercell || [1, 1, 1])]
+        };
         const qualityChanged = previous.antiAliasing !== this.displayOptions.antiAliasing ||
             previous.sphereQuality !== this.displayOptions.sphereQuality ||
             previous.atomRadiusScale !== this.displayOptions.atomRadiusScale ||

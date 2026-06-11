@@ -123,6 +123,91 @@ def _select_frames(frames: list[Atoms], index: str | int | slice | None) -> list
     return frames
 
 
+def _lammps_position(row: dict[str, str], cell: np.ndarray) -> list[float]:
+    if all(key in row for key in ("x", "y", "z")):
+        return [float(row["x"]), float(row["y"]), float(row["z"])]
+    if all(key in row for key in ("xu", "yu", "zu")):
+        return [float(row["xu"]), float(row["yu"]), float(row["zu"])]
+    if all(key in row for key in ("xs", "ys", "zs")):
+        scaled = np.asarray([float(row["xs"]), float(row["ys"]), float(row["zs"])], dtype=float)
+        return (scaled @ cell).tolist()
+    if all(key in row for key in ("xsu", "ysu", "zsu")):
+        scaled = np.asarray([float(row["xsu"]), float(row["ysu"]), float(row["zsu"])], dtype=float)
+        return (scaled @ cell).tolist()
+    raise ValueError("LAMMPS dump must contain x/y/z, xu/yu/zu, xs/ys/zs, or xsu/ysu/zsu columns.")
+
+
+def _parse_lammps_box(bounds_header: str, lines: list[str]) -> tuple[np.ndarray, list[bool]]:
+    tokens = bounds_header.split()[3:]
+    pbc = [token.startswith("p") for token in tokens[:3]]
+    bounds = [[float(v) for v in line.split()[:2]] for line in lines[:3]]
+    lengths = [hi - lo for lo, hi in bounds]
+    cell = np.diag(lengths)
+    return cell, pbc if len(pbc) == 3 else [True, True, True]
+
+
+def read_custom_lammps_dump(path: str | Path, index: str | int | slice | None = ":") -> list[Atoms]:
+    """Read LAMMPS text dumps while preserving integer atom types as v_ase labels."""
+    frames: list[Atoms] = []
+    lines = Path(path).read_text(encoding="utf-8").splitlines()
+    cursor = 0
+    while cursor < len(lines):
+        if not lines[cursor].startswith("ITEM: TIMESTEP"):
+            cursor += 1
+            continue
+        cursor += 1
+        timestep = int(float(lines[cursor].strip()))
+        cursor += 1
+        if cursor >= len(lines) or not lines[cursor].startswith("ITEM: NUMBER OF ATOMS"):
+            raise ValueError("LAMMPS dump is missing NUMBER OF ATOMS after TIMESTEP.")
+        cursor += 1
+        natoms = int(lines[cursor].strip())
+        cursor += 1
+        if cursor >= len(lines) or not lines[cursor].startswith("ITEM: BOX BOUNDS"):
+            raise ValueError("LAMMPS dump is missing BOX BOUNDS.")
+        bounds_header = lines[cursor]
+        cursor += 1
+        cell, pbc = _parse_lammps_box(bounds_header, lines[cursor:cursor + 3])
+        cursor += 3
+        if cursor >= len(lines) or not lines[cursor].startswith("ITEM: ATOMS"):
+            raise ValueError("LAMMPS dump is missing ATOMS columns.")
+        columns = lines[cursor].split()[2:]
+        cursor += 1
+
+        rows = []
+        for _ in range(natoms):
+            values = lines[cursor].split()
+            cursor += 1
+            rows.append(dict(zip(columns, values)))
+        if "id" in columns:
+            rows.sort(key=lambda row: int(float(row["id"])))
+
+        raw_types = [row.get("type") or row.get("element") or row.get("mol") or "1" for row in rows]
+        raw_masses = [row.get("mass") for row in rows]
+        masses = raw_masses if any(value is not None for value in raw_masses) else [None] * len(rows)
+        labels = [display_label_for_atom_type(raw_type, mass) for raw_type, mass in zip(raw_types, masses)]
+        symbols = [base_symbol_for_atom_type(label, mass) for label, mass in zip(labels, masses)]
+        positions = [_lammps_position(row, cell) for row in rows]
+        atoms = Atoms(symbols=symbols, positions=np.asarray(positions, dtype=float), cell=cell, pbc=pbc)
+        atoms.info["timestep"] = timestep
+        set_atom_type_labels(atoms, labels)
+        if any(value is not None for value in raw_masses):
+            atoms.set_masses([float(value) if value is not None else atomic_masses[atomic_numbers[symbol]]
+                              for value, symbol in zip(raw_masses, symbols)])
+        if "id" in columns:
+            atoms.set_array("lammps_id", np.asarray([int(float(row["id"])) for row in rows], dtype=int))
+        if "mol" in columns:
+            atoms.set_array("mol", np.asarray([int(float(row["mol"])) for row in rows], dtype=int))
+        if "q" in columns:
+            atoms.set_initial_charges(np.asarray([float(row["q"]) for row in rows], dtype=float))
+        if all(key in columns for key in ("fx", "fy", "fz")):
+            atoms.set_array("forces", np.asarray([[float(row["fx"]), float(row["fy"]), float(row["fz"])] for row in rows], dtype=float))
+        frames.append(atoms)
+    if not frames:
+        raise ValueError("No frames found in LAMMPS dump.")
+    return _select_frames(frames, index)
+
+
 def read_custom_extxyz(path: str | Path, index: str | int | slice | None = ":") -> list[Atoms]:
     """Read extended XYZ files with non-ASE atom type labels such as H_type5."""
     frames: list[Atoms] = []

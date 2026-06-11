@@ -1084,7 +1084,10 @@ class VAseApp {
             visibleBox.checked = this.isElementVisible(symbol);
             visibleBox.title = `Show ${symbol} atoms in the viewport`;
             visibleBox.addEventListener('change', () => {
-                this.state.display.elementVisible[symbol] = visibleBox.checked;
+                this.state.display.elementVisible = {
+                    ...(this.state.display.elementVisible || {}),
+                    [symbol]: visibleBox.checked
+                };
                 if (!visibleBox.checked) this.elementIndices(symbol).forEach(index => this.state.selected.delete(index));
                 this.safeApplyDisplayOptions();
                 this.updateElementSelectionControls();

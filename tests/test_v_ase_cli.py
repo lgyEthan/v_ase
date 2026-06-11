@@ -152,3 +152,55 @@ def test_read_frames_uses_mass_to_guess_integer_atom_type_base_symbol(tmp_path):
 
     assert frames[0].get_chemical_symbols() == ["O", "Si"]
     assert atom_type_labels(frames[0]) == ["O_1", "Si_2"]
+
+
+def test_lammpstrj_integer_types_are_labels_not_atomic_numbers(tmp_path):
+    path = tmp_path / "water.lammpstrj"
+    path.write_text(
+        "\n".join([
+            "ITEM: TIMESTEP",
+            "0",
+            "ITEM: NUMBER OF ATOMS",
+            "3",
+            "ITEM: BOX BOUNDS pp pp pp",
+            "0 10",
+            "0 10",
+            "0 10",
+            "ITEM: ATOMS id type x y z",
+            "1 8 0.0 0.0 0.0",
+            "2 1 0.9 0.0 0.0",
+            "3 1 -0.3 0.8 0.0",
+            "",
+        ])
+    )
+
+    frames = _read_frames(path, ":", None)
+
+    assert frames[0].get_chemical_symbols() == ["H", "H", "H"]
+    assert atom_type_labels(frames[0]) == ["H_8", "H_1", "H_1"]
+
+
+def test_lammpstrj_mass_column_guesses_integer_type_base_symbol(tmp_path):
+    path = tmp_path / "water_mass.lammpstrj"
+    path.write_text(
+        "\n".join([
+            "ITEM: TIMESTEP",
+            "0",
+            "ITEM: NUMBER OF ATOMS",
+            "3",
+            "ITEM: BOX BOUNDS pp pp pp",
+            "0 10",
+            "0 10",
+            "0 10",
+            "ITEM: ATOMS id type mass x y z",
+            "1 8 15.999 0.0 0.0 0.0",
+            "2 1 1.008 0.9 0.0 0.0",
+            "3 1 1.008 -0.3 0.8 0.0",
+            "",
+        ])
+    )
+
+    frames = _read_frames(path, ":", None)
+
+    assert frames[0].get_chemical_symbols() == ["O", "H", "H"]
+    assert atom_type_labels(frames[0]) == ["O_8", "H_1", "H_1"]
