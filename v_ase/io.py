@@ -8,26 +8,73 @@ from typing import Iterable
 
 import numpy as np
 from ase import Atoms
-from ase.data import atomic_numbers
+from ase.data import atomic_masses, atomic_numbers, chemical_symbols
 from ase.io.extxyz import key_val_str_to_dict
 from ase.io.formats import string2index
 
 ATOM_TYPE_ARRAY = "v_ase_atom_type"
 
 
+def _integer_type_suffix(label: object) -> str | None:
+    text = str(label).strip()
+    if re.fullmatch(r"[+-]?\d+", text):
+        return str(int(text))
+    if isinstance(label, (float, np.floating)) and float(label).is_integer():
+        return str(int(label))
+    return None
+
+
+def _guess_symbol_from_mass(mass: object | None) -> str | None:
+    if mass is None:
+        return None
+    try:
+        value = float(mass)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(value) or value <= 0:
+        return None
+    candidates = []
+    for number in range(1, len(chemical_symbols)):
+        symbol = chemical_symbols[number]
+        reference = float(atomic_masses[number])
+        if not symbol or not np.isfinite(reference) or reference <= 0:
+            continue
+        candidates.append((abs(reference - value), symbol, reference))
+    if not candidates:
+        return None
+    delta, symbol, reference = min(candidates, key=lambda item: item[0])
+    tolerance = max(0.35, reference * 0.04)
+    return symbol if delta <= tolerance else None
+
+
 def normalize_atom_type_label(label: object) -> str:
-    return str(label).strip()
+    text = str(label).strip()
+    suffix = _integer_type_suffix(label)
+    if suffix is not None:
+        return f"H_{suffix}"
+    return text
 
 
-def base_symbol_for_atom_type(label: object) -> str:
+def display_label_for_atom_type(label: object, mass: object | None = None) -> str:
+    """Return a visible v_ase atom type label for raw file metadata."""
+    suffix = _integer_type_suffix(label)
+    if suffix is not None:
+        return f"{_guess_symbol_from_mass(mass) or 'H'}_{suffix}"
+    return normalize_atom_type_label(label)
+
+
+def base_symbol_for_atom_type(label: object, mass: object | None = None) -> str:
     """Return an ASE-valid symbol for a possibly custom atom type label."""
     text = normalize_atom_type_label(label)
     if text in atomic_numbers:
         return text
+    prefix = text.split("_", 1)[0]
+    if prefix in atomic_numbers:
+        return prefix
     match = re.match(r"^([A-Z][a-z]?)", text)
     if match and match.group(1) in atomic_numbers:
         return match.group(1)
-    return "X"
+    return _guess_symbol_from_mass(mass) or "H"
 
 
 def atom_type_labels(atoms: Atoms) -> list[str]:
@@ -103,9 +150,21 @@ def read_custom_extxyz(path: str | Path, index: str | int | slice | None = ":") 
                     cursor += cols
                     columns[name].append(_convert_values(raw_values, kind, cols))
 
-            labels = [normalize_atom_type_label(v) for v in columns.get("species", columns.get("symbols", []))]
-            symbols = [base_symbol_for_atom_type(label) for label in labels]
             positions = columns.get("pos", columns.get("positions"))
+            raw_labels = (
+                columns.get("species")
+                or columns.get("symbols")
+                or columns.get("atom_type")
+                or columns.get("type")
+                or columns.get("element")
+                or []
+            )
+            if not raw_labels and positions is not None:
+                raw_labels = ["H"] * len(positions)
+            raw_masses = columns.get("mass") or columns.get("masses") or []
+            masses = raw_masses if len(raw_masses) == len(raw_labels) else [None] * len(raw_labels)
+            labels = [display_label_for_atom_type(value, mass) for value, mass in zip(raw_labels, masses)]
+            symbols = [base_symbol_for_atom_type(label, mass) for label, mass in zip(labels, masses)]
             atoms = Atoms(symbols=symbols, positions=np.asarray(positions, dtype=float))
             if labels:
                 set_atom_type_labels(atoms, labels)
@@ -122,7 +181,7 @@ def read_custom_extxyz(path: str | Path, index: str | int | slice | None = ":") 
                     atoms.info[key] = value
 
             for name, values in columns.items():
-                if name in {"species", "symbols", "pos", "positions"}:
+                if name in {"species", "symbols", "atom_type", "type", "element", "pos", "positions"}:
                     continue
                 array = np.asarray(values)
                 if name in {"force", "forces"}:
@@ -137,4 +196,3 @@ def read_custom_extxyz(path: str | Path, index: str | int | slice | None = ":") 
                     atoms.set_array(name, array)
             frames.append(atoms)
     return _select_frames(frames, index)
-

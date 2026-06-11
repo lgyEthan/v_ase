@@ -6,7 +6,7 @@ from typing import Dict, Any, List
 from .session import EditorSession, get_session, sessions
 from .serialization import atoms_to_json
 from .websocket_manager import ws_manager
-from .io import atom_type_labels, base_symbol_for_atom_type, set_atom_type_labels
+from .io import atom_type_labels, base_symbol_for_atom_type, normalize_atom_type_label, set_atom_type_labels
 import numpy as np
 from ase import Atom
 from ase.build import make_supercell
@@ -460,7 +460,7 @@ def update_atom_type_labels(atoms, indices, label):
         return atoms.copy()
     if indices[0] < 0 or indices[-1] >= len(atoms):
         raise HTTPException(status_code=400, detail="Atom type indices are out of range.")
-    normalized = str(label).strip()
+    normalized = normalize_atom_type_label(label)
     if not normalized:
         raise HTTPException(status_code=400, detail="Atom type label cannot be empty.")
 

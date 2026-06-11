@@ -48,6 +48,9 @@ def test_ui_button_api_endpoints_respond_without_network_server():
     renamed = asyncio.run(update_atom_types(session.session_id, {"indices": [0], "label": "O_surface"}))
     assert renamed["symbols"][0] == "O_surface"
     assert renamed["chemical_symbols"][0] == "O"
+    numeric = asyncio.run(update_atom_types(session.session_id, {"indices": [1], "label": "2"}))
+    assert numeric["symbols"][1] == "H_2"
+    assert numeric["chemical_symbols"][1] == "H"
     assert asyncio.run(reset(session.session_id))["metadata"]["natoms"] == 3
     assert export_poscar_response(session, {"positions": positions}).filename == "POSCAR"
     assert export_pickle_response(session, {
@@ -287,9 +290,17 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "element-radius-list" in index_html
     assert "renderElementRadiusControls" in main_js
     assert "parseElementRadii" in main_js
+    assert "parseElementVisibility" in main_js
     assert "element-color-input" in main_js
+    assert "element-visible-checkbox" in main_js
+    assert "element-select-checkbox" in main_js
+    assert "indeterminate" in main_js
     assert "renameElementType" in main_js
     assert "selectElement(symbol)" in main_js
+    assert "toggleElementSelection" in main_js
+    assert "elementVisible" in renderer_js
+    assert "atomTypeVisible" in renderer_js
+    assert "mesh.visible === false" in (ROOT / "v_ase/static/selection.js").read_text()
     assert "btn-apply-selected-type" in index_html
     assert "updateAtomTypes" in (ROOT / "v_ase/static/api.js").read_text()
     assert 'id="projection-mode"' in index_html
@@ -304,6 +315,8 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "previous.atomRadiusScale" in renderer_js
     assert "#inspector .panel-section" in style_css
     assert ".element-radius-panel" in style_css
+    assert "overflow-x: auto" in style_css
+    assert ".element-check:indeterminate" in style_css
     assert ".element-appearance-row" in style_css
     assert "--inspector-width" in style_css
     assert "body.inspector-wide #inspector .element-appearance-row" in style_css
@@ -415,7 +428,7 @@ def test_control_panel_uses_collapsible_default_hierarchy():
     assert '<details class="panel-section" open data-panel="view">' in index_html
     assert '<details class="panel-section" data-panel="transform" data-edit-only>' in index_html
     assert '<details class="panel-section" data-panel="appearance">' in index_html
-    assert '<details class="panel-section" data-panel="cell-transform">' in index_html
+    assert '<details class="panel-section" data-panel="cell-transform" data-edit-only>' in index_html
     assert '<details class="panel-section" data-panel="scientific-tools">' in index_html
     assert "details:not([open]) > summary.section-header" in style_css
     assert "summary.section-header::after" in style_css

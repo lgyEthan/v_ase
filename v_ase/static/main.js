@@ -39,6 +39,7 @@ class VAseApp {
                 atomRadiusScale: 1.0,
                 elementRadii: {},
                 elementColors: {},
+                elementVisible: {},
                 rotatePivot: 'selection',
                 unitCellAwareRotate: false,
                 rotateStrainCutoff: 0.15,
@@ -206,6 +207,7 @@ class VAseApp {
         setHtml('selected-measure', this.getSelectionMeasureText(selectedIndices));
         this.updateTrajectoryUI();
         this.updateSelectedTypeControls();
+        this.updateElementSelectionControls();
 
         const relaxBtn = document.getElementById('btn-relax');
         if (relaxBtn) relaxBtn.disabled = this.state.vizOnly || !meta.has_calculator || this.state.isRelaxing;
@@ -372,6 +374,7 @@ class VAseApp {
         const count = this.state.atoms?.positions?.length || 0;
         this.state.selected.forEach(idx => {
             if (idx < 0 || idx >= count) this.state.selected.delete(idx);
+            else if (!this.isAtomVisible(idx)) this.state.selected.delete(idx);
         });
     }
 
@@ -388,6 +391,7 @@ class VAseApp {
         this.state.display.atomRadiusScale = Number(config.atom_radius_scale || 1.0);
         this.state.display.elementRadii = config.element_radii || {};
         this.state.display.elementColors = config.element_colors || {};
+        this.state.display.elementVisible = config.element_visible || {};
         this.state.display.rotatePivot = config.rotate_pivot || this.state.display.rotatePivot;
         this.state.display.unitCellAwareRotate = Boolean(config.unit_cell_aware_rotate);
         this.state.display.rotateStrainCutoff = Number(config.rotate_strain_cutoff || this.state.display.rotateStrainCutoff);
@@ -497,6 +501,10 @@ class VAseApp {
             positions[idx] = [mesh.position.x, mesh.position.y, mesh.position.z];
         });
         return positions;
+    }
+
+    backendPositionsPayload() {
+        return this.state.vizOnly ? null : this.currentPositionsFromScene();
     }
 
     currentCameraForExport() {
@@ -945,6 +953,34 @@ class VAseApp {
             .filter(index => index >= 0);
     }
 
+    isElementVisible(symbol) {
+        return this.state.display.elementVisible?.[symbol] !== false;
+    }
+
+    isAtomVisible(index) {
+        const symbol = this.state.atoms?.symbols?.[index];
+        return !symbol || this.isElementVisible(symbol);
+    }
+
+    visibleElementIndices(symbol) {
+        if (!this.isElementVisible(symbol)) return [];
+        return this.elementIndices(symbol);
+    }
+
+    pruneHiddenSelection() {
+        this.state.selected.forEach(index => {
+            if (!this.isAtomVisible(index)) this.state.selected.delete(index);
+        });
+    }
+
+    elementSelectionState(symbol) {
+        const indices = this.elementIndices(symbol);
+        if (!indices.length) return 'none';
+        const selected = indices.filter(index => this.state.selected.has(index)).length;
+        if (selected === 0) return 'none';
+        return selected === indices.length ? 'all' : 'partial';
+    }
+
     safeControlId(prefix, value) {
         return `${prefix}-${String(value).replace(/[^A-Za-z0-9_-]/g, '_')}`;
     }
@@ -969,7 +1005,7 @@ class VAseApp {
 
     transferElementDisplaySettings(oldSymbol, newSymbol) {
         if (!oldSymbol || !newSymbol || oldSymbol === newSymbol) return;
-        const maps = [this.state.display.elementRadii, this.state.display.elementColors];
+        const maps = [this.state.display.elementRadii, this.state.display.elementColors, this.state.display.elementVisible];
         maps.forEach(map => {
             if (!map || !(oldSymbol in map) || (newSymbol in map)) return;
             map[newSymbol] = map[oldSymbol];
@@ -1031,6 +1067,9 @@ class VAseApp {
             if (!(symbol in this.state.display.elementRadii)) {
                 this.state.display.elementRadii[symbol] = Number(this.elementVisualRadius(symbol).toFixed(4));
             }
+            if (!(symbol in this.state.display.elementVisible)) {
+                this.state.display.elementVisible[symbol] = true;
+            }
             const row = document.createElement('div');
             row.className = 'element-radius-row element-appearance-row';
             const label = document.createElement('label');
@@ -1038,12 +1077,38 @@ class VAseApp {
             label.innerText = symbol;
             label.title = `${this.elementIndices(symbol).length} atom${this.elementIndices(symbol).length === 1 ? '' : 's'}`;
 
+            const visibleBox = document.createElement('input');
+            visibleBox.type = 'checkbox';
+            visibleBox.className = 'element-check element-visible-checkbox';
+            visibleBox.dataset.elementVisible = symbol;
+            visibleBox.checked = this.isElementVisible(symbol);
+            visibleBox.title = `Show ${symbol} atoms in the viewport`;
+            visibleBox.addEventListener('change', () => {
+                this.state.display.elementVisible[symbol] = visibleBox.checked;
+                if (!visibleBox.checked) this.elementIndices(symbol).forEach(index => this.state.selected.delete(index));
+                this.safeApplyDisplayOptions();
+                this.updateElementSelectionControls();
+                this.updateUI();
+            });
+
+            const selectBox = document.createElement('input');
+            selectBox.type = 'checkbox';
+            selectBox.className = 'element-check element-select-checkbox';
+            selectBox.dataset.elementSelect = symbol;
+            selectBox.disabled = !this.isElementVisible(symbol);
+            selectBox.title = `Select all visible ${symbol} atoms`;
+            const selectionState = this.elementSelectionState(symbol);
+            selectBox.checked = selectionState === 'all';
+            selectBox.indeterminate = selectionState === 'partial';
+            selectBox.addEventListener('change', () => this.toggleElementSelection(symbol, selectBox.checked));
+
             const nameInput = document.createElement('input');
             nameInput.type = 'text';
             nameInput.id = this.safeControlId('element-name', symbol);
             nameInput.className = 'element-name-input';
             nameInput.dataset.elementName = symbol;
             nameInput.value = symbol;
+            nameInput.disabled = this.state.vizOnly;
             const commitRename = () => {
                 const next = this.normalizedTypeLabel(nameInput.value);
                 if (next && next !== symbol) this.renameElementType(symbol, next);
@@ -1089,15 +1154,7 @@ class VAseApp {
             input.addEventListener('change', () => this.safeApplyDisplayOptions());
             input.addEventListener('input', () => this.safeApplyDisplayOptions());
 
-            const selectButton = document.createElement('button');
-            selectButton.type = 'button';
-            selectButton.className = 'element-select-button';
-            selectButton.dataset.elementSelect = symbol;
-            selectButton.innerText = 'All';
-            selectButton.title = `Select every ${symbol} atom`;
-            selectButton.addEventListener('click', () => this.selectElement(symbol));
-
-            row.append(label, nameInput, color, input, selectButton);
+            row.append(label, visibleBox, selectBox, nameInput, color, input);
             root.appendChild(row);
         });
         const focusMatch = [...root.querySelectorAll('[data-element-radius], [data-element-name], [data-element-color]')]
@@ -1133,11 +1190,40 @@ class VAseApp {
         return colors;
     }
 
-    selectElement(symbol) {
-        this.state.selected.clear();
-        this.elementIndices(symbol).forEach(index => this.state.selected.add(index));
+    parseElementVisibility() {
+        const visible = { ...(this.state.display.elementVisible || {}) };
+        document.querySelectorAll('.element-visible-checkbox').forEach(input => {
+            visible[input.dataset.elementVisible] = input.checked;
+        });
+        return visible;
+    }
+
+    updateElementSelectionControls() {
+        document.querySelectorAll('.element-select-checkbox').forEach(input => {
+            const symbol = input.dataset.elementSelect;
+            input.disabled = !this.isElementVisible(symbol);
+            const state = this.elementSelectionState(symbol);
+            input.checked = state === 'all';
+            input.indeterminate = state === 'partial';
+        });
+        document.querySelectorAll('.element-visible-checkbox').forEach(input => {
+            input.checked = this.isElementVisible(input.dataset.elementVisible);
+        });
+    }
+
+    toggleElementSelection(symbol, checked) {
+        const targets = this.visibleElementIndices(symbol);
+        targets.forEach(index => {
+            if (checked) this.state.selected.add(index);
+            else this.state.selected.delete(index);
+        });
         this.updateSelectionVisuals();
+        this.updateElementSelectionControls();
         this.updateUI();
+    }
+
+    selectElement(symbol) {
+        this.toggleElementSelection(symbol, true);
     }
 
     async renameElementType(oldSymbol, nextLabel) {
@@ -1158,7 +1244,7 @@ class VAseApp {
         try {
             const data = await this.withBusy(
                 `Renaming ${indices.length} ${oldSymbol} atom${indices.length === 1 ? '' : 's'}...`,
-                () => this.api.updateAtomTypes(indices, label, this.currentPositionsFromScene(), this.state.applyConstraints)
+                () => this.api.updateAtomTypes(indices, label, this.backendPositionsPayload(), this.state.applyConstraints)
             );
             this.transferElementDisplaySettings(oldSymbol, label);
             this.setAtomsData(data);
@@ -1217,7 +1303,7 @@ class VAseApp {
         try {
             const data = await this.withBusy(
                 `Changing ${indices.length} selected atom${indices.length === 1 ? '' : 's'} to ${label}...`,
-                () => this.api.updateAtomTypes(indices, label, this.currentPositionsFromScene(), this.state.applyConstraints)
+                () => this.api.updateAtomTypes(indices, label, this.backendPositionsPayload(), this.state.applyConstraints)
             );
             if (previousLabels.length === 1) this.transferElementDisplaySettings(previousLabels[0], label);
             this.setAtomsData(data);
@@ -1343,6 +1429,7 @@ class VAseApp {
         this.state.display.atomRadiusScale = Number.isFinite(radiusScale) && radiusScale > 0 ? radiusScale : 1.0;
         this.state.display.elementRadii = this.parseElementRadii();
         this.state.display.elementColors = this.parseElementColors();
+        this.state.display.elementVisible = this.parseElementVisibility();
         if (this.state.display.bondMode === 'manual') {
             this.state.display.manualBondPairs = this.parseBondPairs();
         }
@@ -1350,8 +1437,10 @@ class VAseApp {
         this.state.display.antiAliasing = this.state.antiAliasing;
         this.state.display.sphereQuality = this.state.sphereQuality;
         this.updateRadiusScaleLabel();
+        this.pruneHiddenSelection();
         this.renderer.setDisplayOptions(this.state.display);
         this.updateSelectionVisuals();
+        this.updateElementSelectionControls();
         this.updateBondModeUI();
     }
 
@@ -1455,6 +1544,7 @@ class VAseApp {
             elementBondCutoffs: this.clonePlain(nextDisplay.elementBondCutoffs || {}),
             elementRadii: this.clonePlain(nextDisplay.elementRadii || {}),
             elementColors: this.clonePlain(nextDisplay.elementColors || {}),
+            elementVisible: this.clonePlain(nextDisplay.elementVisible || {}),
             supercell: this.clonePlain(nextDisplay.supercell || [1, 1, 1])
         };
         if ('applyConstraints' in source) this.state.applyConstraints = Boolean(source.applyConstraints);
@@ -1565,7 +1655,7 @@ class VAseApp {
             }
             const data = await this.withBusy(
                 `Applying ${reps.join(' x ')} supercell to ${this.state.atoms.metadata.frame_count || 1} frame${(this.state.atoms.metadata.frame_count || 1) > 1 ? 's' : ''}...`,
-                () => this.api.applySupercell(this.currentPositionsFromScene(), reps, this.state.applyConstraints)
+                () => this.api.applySupercell(this.backendPositionsPayload(), reps, this.state.applyConstraints)
             );
             this.setAtomsData(data, { clearSelection: true });
             ['super-x', 'super-y', 'super-z'].forEach(id => { document.getElementById(id).value = '1'; });
@@ -1587,7 +1677,7 @@ class VAseApp {
             const frameCount = this.state.atoms.metadata.frame_count || 1;
             const data = await this.withBusy(
                 `Applying make_supercell matrix to ${frameCount} frame${frameCount > 1 ? 's' : ''}...`,
-                () => this.api.applySupercellMatrix(this.currentPositionsFromScene(), matrix, this.state.applyConstraints)
+                () => this.api.applySupercellMatrix(this.backendPositionsPayload(), matrix, this.state.applyConstraints)
             );
             this.setAtomsData(data, { clearSelection: true });
             this.setSupercellMatrixInputs();
@@ -2252,7 +2342,7 @@ class VAseApp {
         document.getElementById('btn-done').onclick = async () => {
             try {
                 await this.pendingApply;
-                await this.api.done(this.currentPositionsFromScene(), this.state.applyConstraints);
+                await this.api.done(this.backendPositionsPayload(), this.state.applyConstraints);
                 this.toast('Done. Python return value is ready.', 'success');
             } catch (err) {
                 this.toast(`Done failed: ${err.message}`, 'error');
@@ -2268,7 +2358,7 @@ class VAseApp {
         };
         document.getElementById('btn-apply').onclick = async () => {
             try {
-                const data = await this.api.applyPositions(this.currentPositionsFromScene(), this.state.applyConstraints);
+                const data = await this.api.applyPositions(this.backendPositionsPayload(), this.state.applyConstraints);
                 this.setAtomsData(data);
                 this.toast(this.state.applyConstraints ? 'Applied constraints and positions.' : 'Applied positions without constraints.', 'success');
             } catch (err) {
@@ -2314,7 +2404,7 @@ class VAseApp {
                 const frameCount = this.state.atoms.metadata.frame_count || 1;
                 const data = await this.withBusy(
                     `Wrapping ${frameCount} frame${frameCount > 1 ? 's' : ''} into the unit cell...`,
-                    () => this.api.wrap(this.currentPositionsFromScene(), this.state.applyConstraints)
+                    () => this.api.wrap(this.backendPositionsPayload(), this.state.applyConstraints)
                 );
                 this.setAtomsData(data);
                 this.toast('Wrapped atoms into the unit cell for all frames.', 'success');
@@ -2357,7 +2447,7 @@ class VAseApp {
         document.getElementById('btn-export-poscar').onclick = async () => {
             try {
                 const saved = await this.saveBlobFromAction(
-                    () => this.api.exportPoscar(this.currentPositionsFromScene(), this.state.applyConstraints),
+                    () => this.api.exportPoscar(this.backendPositionsPayload(), this.state.applyConstraints),
                     'POSCAR',
                     'application/octet-stream',
                     'Preparing POSCAR export...'
@@ -2370,7 +2460,7 @@ class VAseApp {
         document.getElementById('btn-export-pickle').onclick = async () => {
             try {
                 const saved = await this.saveBlobFromAction(
-                    () => this.api.exportPickle(this.currentPositionsFromScene(), false, this.state.applyConstraints),
+                    () => this.api.exportPickle(this.backendPositionsPayload(), false, this.state.applyConstraints),
                     'atoms.pkl',
                     'application/octet-stream',
                     'Preparing Pickle export...'
@@ -2385,7 +2475,7 @@ class VAseApp {
                 this.safeApplyDisplayOptions();
                 const saved = await this.saveBlobFromAction(
                     () => this.api.exportBlender(
-                        this.currentPositionsFromScene(),
+                        this.backendPositionsPayload(),
                         this.state.applyConstraints,
                         this.currentCameraForExport(),
                         this.clonePlain(this.state.display),
@@ -2439,7 +2529,7 @@ class VAseApp {
             const fmax = parseFloat(document.getElementById('relax-fmax').value || '0.05');
             const steps = parseInt(document.getElementById('relax-steps').value || '200', 10);
             try {
-                const response = await this.api.relaxStart(this.currentPositionsFromScene(), fmax, steps, this.state.applyConstraints);
+                const response = await this.api.relaxStart(this.backendPositionsPayload(), fmax, steps, this.state.applyConstraints);
                 if (response.status === 'started') {
                     this.state.isRelaxing = true;
                     this.toast('Relaxation started.', 'success');

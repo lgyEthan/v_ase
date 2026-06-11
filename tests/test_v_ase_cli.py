@@ -112,3 +112,43 @@ def test_read_frames_preserves_custom_extxyz_atom_types(tmp_path):
     assert data["symbols"] == ["H_type5", "H_type7", "O_type2"]
     assert data["chemical_symbols"] == ["H", "H", "O"]
     assert data["visual"]["colors"][0] != data["visual"]["colors"][1]
+
+
+def test_read_frames_maps_integer_atom_types_to_h_labels_when_mass_is_missing(tmp_path):
+    path = tmp_path / "typed_integer.extxyz"
+    path.write_text(
+        "\n".join([
+            "3",
+            "Properties=atom_type:I:1:pos:R:3",
+            "1 0.0 0.0 0.0",
+            "2 1.0 0.0 0.0",
+            "3 0.0 1.0 0.0",
+            "",
+        ])
+    )
+
+    frames = _read_frames(path, ":", None)
+    data = atoms_to_json(frames[0])
+
+    assert frames[0].get_chemical_symbols() == ["H", "H", "H"]
+    assert atom_type_labels(frames[0]) == ["H_1", "H_2", "H_3"]
+    assert data["symbols"] == ["H_1", "H_2", "H_3"]
+    assert data["chemical_symbols"] == ["H", "H", "H"]
+
+
+def test_read_frames_uses_mass_to_guess_integer_atom_type_base_symbol(tmp_path):
+    path = tmp_path / "typed_integer_mass.extxyz"
+    path.write_text(
+        "\n".join([
+            "2",
+            "Properties=atom_type:I:1:mass:R:1:pos:R:3",
+            "1 15.999 0.0 0.0 0.0",
+            "2 28.085 1.0 0.0 0.0",
+            "",
+        ])
+    )
+
+    frames = _read_frames(path, ":", None)
+
+    assert frames[0].get_chemical_symbols() == ["O", "Si"]
+    assert atom_type_labels(frames[0]) == ["O_1", "Si_2"]

@@ -46,7 +46,7 @@ def package_version() -> str:
     try:
         return version("v_ase-gui")
     except PackageNotFoundError:
-        return "0.0.12"
+        return "0.0.13"
 
 
 def resolve_input_format(fmt: str | None) -> str | None:
@@ -113,13 +113,24 @@ def _read_frames(path: Path, index: str, fmt: str | None):
     resolved_format = resolve_input_format(fmt)
     if resolved_format:
         read_kwargs["format"] = resolved_format
+    def should_use_custom_extxyz(frames):
+        if fmt not in {None, "extxyz", "xyz"} or path.suffix.lower() not in {".xyz", ".extxyz"}:
+            return False
+        for atoms in frames:
+            if "atom_type" in atoms.arrays and any(symbol == "X" for symbol in atoms.get_chemical_symbols()):
+                return True
+        return False
+
     try:
         loaded = read(path, **read_kwargs)
-    except KeyError as exc:
+    except (KeyError, TypeError, ValueError):
         if fmt not in {None, "extxyz", "xyz"} or path.suffix.lower() not in {".xyz", ".extxyz"}:
             raise
         loaded = read_custom_extxyz(path, index)
-    return loaded if isinstance(loaded, list) else [loaded]
+    frames = loaded if isinstance(loaded, list) else [loaded]
+    if should_use_custom_extxyz(frames):
+        return read_custom_extxyz(path, index)
+    return frames
 
 
 def normalize_argv(argv: list[str] | None) -> list[str]:

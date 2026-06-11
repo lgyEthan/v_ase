@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.12">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.13">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.12';
+            : '/static/vendor/three.module.js?v=0.0.13';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -34,7 +34,7 @@
 
     <!-- Top Status Bar -->
     <header id="top-bar" class="glass-panel">
-        <div class="logo">v_ase<span class="version">0.0.12</span></div>
+        <div class="logo">v_ase<span class="version">0.0.13</span></div>
         <div class="status-group">
             <div class="status-item">
                 <span class="label">MODE</span>
@@ -131,7 +131,7 @@
                     <input type="number" id="super-z" value="1" min="1">
                 </div>
             </div>
-            <button id="btn-set-supercell" class="btn-block">Set Supercell as Cell</button>
+            <button id="btn-set-supercell" class="btn-block" data-edit-only>Set Supercell as Cell</button>
             <button id="btn-wrap" class="btn-block" data-edit-only>Wrap Atoms Into Cell</button>
         </details>
 
@@ -189,16 +189,17 @@
             <div id="element-radius-panel" class="element-radius-panel">
                 <div class="mini-table-head element-appearance-head">
                     <span>Type</span>
+                    <span>Visible</span>
+                    <span>Select</span>
                     <span>Name</span>
                     <span>Color</span>
                     <span>Radius / A</span>
-                    <span>Select</span>
                 </div>
                 <div id="element-radius-list"></div>
             </div>
         </details>
 
-        <details class="panel-section" data-panel="cell-transform">
+        <details class="panel-section" data-panel="cell-transform" data-edit-only>
             <summary class="section-header">Cell Transform</summary>
             <div class="matrix-grid" id="make-supercell-matrix">
                 <input type="number" id="matrix-00" value="1" step="1">
@@ -343,7 +344,7 @@
     <div id="toast-container" aria-live="polite"></div>
 
     <script type="module">
-        const modulePath = window.location.protocol === 'file:' ? './main.js' : './static/main.js?v=0.0.12';
+        const modulePath = window.location.protocol === 'file:' ? './main.js' : './static/main.js?v=0.0.13';
         import(modulePath);
     </script>
 </body>

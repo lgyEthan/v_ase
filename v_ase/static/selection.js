@@ -20,10 +20,31 @@ export class ASESelection {
         this.raycaster.setFromCamera(mouse, this.renderer.camera);
         
         const intersects = this.raycaster.intersectObjects(atomGroup.children)
-            .filter(hit => hit.object.userData.index !== undefined && !hit.object.userData.lockMarker);
+            .filter(hit => hit.object.visible !== false && hit.object.userData.index !== undefined && !hit.object.userData.lockMarker);
         if (intersects.length > 0) {
             return intersects[0].object.userData.index;
         }
+        return this.nearestProjectedAtom(e, atomGroup);
+    }
+
+    nearestProjectedAtom(e, atomGroup) {
+        let best = null;
+        const tolerance = 24;
+        atomGroup.children.forEach(mesh => {
+            if (mesh.userData.index === undefined || mesh.userData.lockMarker) return;
+            if (mesh.visible === false) return;
+            const pos = new THREE.Vector3();
+            mesh.getWorldPosition(pos);
+            const screenPos = pos.project(this.renderer.camera);
+            if (screenPos.z > 1 || screenPos.z < -1) return;
+            const x = (screenPos.x + 1) / 2 * window.innerWidth;
+            const y = -(screenPos.y - 1) / 2 * window.innerHeight;
+            const dist = Math.hypot(e.clientX - x, e.clientY - y);
+            if (dist <= tolerance && (!best || dist < best.dist)) {
+                best = { index: mesh.userData.index, dist };
+            }
+        });
+        if (best) return best.index;
         return null;
     }
 
@@ -32,6 +53,7 @@ export class ASESelection {
         
         atomGroup.children.forEach(mesh => {
             if (mesh.userData.index === undefined || mesh.userData.lockMarker) return;
+            if (mesh.visible === false) return;
             const pos = new THREE.Vector3();
             mesh.getWorldPosition(pos);
             
