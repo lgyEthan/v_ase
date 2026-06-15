@@ -1971,9 +1971,9 @@ body.inspector-wide #inspector #element-radius-list {
 }
 
 .trajectory-strip {
-    width: min(820px, 100%);
+    width: min(900px, 100%);
     display: grid;
-    grid-template-columns: 172px minmax(220px, 1fr) 96px;
+    grid-template-columns: 172px minmax(220px, 1fr) 168px;
     gap: 12px;
     align-items: center;
     padding: 9px 12px;
@@ -2031,7 +2031,7 @@ body.inspector-wide #inspector #element-radius-list {
 
 .timeline-fps {
     display: grid;
-    grid-template-columns: 28px minmax(0, 1fr);
+    grid-template-columns: 28px minmax(42px, 1fr) 34px minmax(42px, 1fr);
     gap: 8px;
     align-items: center;
     color: var(--muted);
@@ -2059,7 +2059,7 @@ body.inspector-wide #inspector #element-radius-list {
     }
 
     .trajectory-strip {
-        grid-template-columns: 164px minmax(130px, 1fr) 86px;
+        grid-template-columns: 164px minmax(130px, 1fr) 154px;
     }
 }
 

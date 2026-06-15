@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.16">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.17">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.16';
+            : '/static/vendor/three.module.js?v=0.0.17';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -34,7 +34,7 @@
 
     <!-- Top Status Bar -->
     <header id="top-bar" class="glass-panel">
-        <div class="logo">v_ase<span class="version">0.0.16</span></div>
+        <div class="logo">v_ase<span class="version">0.0.17</span></div>
         <div class="status-group">
             <div class="status-item">
                 <span class="label">MODE</span>
@@ -301,6 +301,8 @@
             <div class="timeline-fps">
                 <label for="movie-fps">FPS</label>
                 <input type="number" id="movie-fps" value="12" min="1" max="60">
+                <label for="movie-skip">Skip</label>
+                <input type="number" id="movie-skip" value="0" min="0" max="999">
             </div>
         </div>
         <div id="cmd-buffer" class="hidden">
@@ -344,7 +346,7 @@
     <div id="toast-container" aria-live="polite"></div>
 
     <script type="module">
-        const modulePath = window.location.protocol === 'file:' ? './main.js' : './static/main.js?v=0.0.16';
+        const modulePath = window.location.protocol === 'file:' ? './main.js' : './static/main.js?v=0.0.17';
         import(modulePath);
     </script>
 </body>

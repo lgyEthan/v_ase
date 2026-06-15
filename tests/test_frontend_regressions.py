@@ -34,7 +34,7 @@ def test_static_version_strings_match_package_version():
     assert f'three.module.js?v={version}' in index_html
     assert f'main.js?v={version}' in index_html
     assert f'<span class="version">{version}</span>' in index_html
-    assert "0.0.17" not in index_html
+    assert "0.0.18" not in index_html
 
 
 def test_ui_button_api_endpoints_respond_without_network_server():
@@ -51,7 +51,7 @@ def test_ui_button_api_endpoints_respond_without_network_server():
     assert renamed["symbols"][0] == "O_surface"
     assert renamed["chemical_symbols"][0] == "O"
     numeric = asyncio.run(update_atom_types(session.session_id, {"indices": [1], "label": "2"}))
-    assert numeric["symbols"][1] == "H_2"
+    assert numeric["symbols"][1] == "2"
     assert numeric["chemical_symbols"][1] == "H"
     assert asyncio.run(reset(session.session_id))["metadata"]["natoms"] == 3
     assert export_poscar_response(session, {"positions": positions}).filename == "POSCAR"
@@ -408,8 +408,13 @@ def test_trajectory_controls_update_live_and_space_toggles_playback():
     assert "slider.disabled = count <= 1" in main_js
     assert "frame-slider').oninput" in main_js
     assert "movie-fps').oninput" in main_js
+    assert 'label for="movie-skip">Skip' in index_html
+    assert "movie-skip" in main_js
     assert "restartPlayback" in main_js
     assert "currentPlaybackFps" in main_js
+    assert "currentPlaybackSkip" in main_js
+    assert "currentPlaybackStep" in main_js
+    assert "this.stepFrame(this.currentPlaybackStep())" in main_js
     assert "setTimeout(tick, 1000 / this.currentPlaybackFps())" in main_js
     assert "e.code === 'Space'" in main_js
     assert "Play or pause trajectory" in main_js

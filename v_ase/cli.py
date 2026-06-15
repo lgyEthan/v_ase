@@ -10,7 +10,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from ase.io import read, write
 
-from v_ase.io import read_custom_extxyz, read_custom_lammps_dump
+from v_ase.io import read_custom_extxyz, read_custom_lammps_data, read_custom_lammps_dump
 from v_ase.viewer import view
 
 
@@ -46,7 +46,7 @@ def package_version() -> str:
     try:
         return version("v_ase-gui")
     except PackageNotFoundError:
-        return "0.0.16"
+        return "0.0.17"
 
 
 def resolve_input_format(fmt: str | None) -> str | None:
@@ -117,6 +117,8 @@ def _read_frames(path: Path, index: str, fmt: str | None):
     suffix = path.suffix.lower()
     if resolved_format == "lammps-dump-text" or (fmt is None and suffix in {".lammpstrj", ".dump"}):
         return read_custom_lammps_dump(path, index)
+    if resolved_format == "lammps-data" or (fmt is None and suffix == ".data"):
+        return read_custom_lammps_data(path, index)
 
     def should_use_custom_extxyz(frames):
         if fmt not in {None, "extxyz", "xyz"} or suffix not in {".xyz", ".extxyz"}:

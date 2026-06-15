@@ -114,7 +114,7 @@ def test_read_frames_preserves_custom_extxyz_atom_types(tmp_path):
     assert data["visual"]["colors"][0] != data["visual"]["colors"][1]
 
 
-def test_read_frames_maps_integer_atom_types_to_h_labels_when_mass_is_missing(tmp_path):
+def test_read_frames_keeps_integer_atom_types_as_raw_labels_when_mass_is_missing(tmp_path):
     path = tmp_path / "typed_integer.extxyz"
     path.write_text(
         "\n".join([
@@ -131,8 +131,8 @@ def test_read_frames_maps_integer_atom_types_to_h_labels_when_mass_is_missing(tm
     data = atoms_to_json(frames[0])
 
     assert frames[0].get_chemical_symbols() == ["H", "H", "H"]
-    assert atom_type_labels(frames[0]) == ["H_1", "H_2", "H_3"]
-    assert data["symbols"] == ["H_1", "H_2", "H_3"]
+    assert atom_type_labels(frames[0]) == ["1", "2", "3"]
+    assert data["symbols"] == ["1", "2", "3"]
     assert data["chemical_symbols"] == ["H", "H", "H"]
 
 
@@ -151,7 +151,7 @@ def test_read_frames_uses_mass_to_guess_integer_atom_type_base_symbol(tmp_path):
     frames = _read_frames(path, ":", None)
 
     assert frames[0].get_chemical_symbols() == ["O", "Si"]
-    assert atom_type_labels(frames[0]) == ["O_1", "Si_2"]
+    assert atom_type_labels(frames[0]) == ["1", "2"]
 
 
 def test_lammpstrj_integer_types_are_labels_not_atomic_numbers(tmp_path):
@@ -177,7 +177,7 @@ def test_lammpstrj_integer_types_are_labels_not_atomic_numbers(tmp_path):
     frames = _read_frames(path, ":", None)
 
     assert frames[0].get_chemical_symbols() == ["H", "H", "H"]
-    assert atom_type_labels(frames[0]) == ["H_8", "H_1", "H_1"]
+    assert atom_type_labels(frames[0]) == ["8", "1", "1"]
 
 
 def test_lammpstrj_mass_column_guesses_integer_type_base_symbol(tmp_path):
@@ -203,4 +203,92 @@ def test_lammpstrj_mass_column_guesses_integer_type_base_symbol(tmp_path):
     frames = _read_frames(path, ":", None)
 
     assert frames[0].get_chemical_symbols() == ["O", "H", "H"]
-    assert atom_type_labels(frames[0]) == ["O_8", "H_1", "H_1"]
+    assert atom_type_labels(frames[0]) == ["8", "1", "1"]
+
+
+def test_lammps_data_reads_type_labels_and_mass_guessed_symbols(tmp_path):
+    path = tmp_path / "water.data"
+    path.write_text(
+        "\n".join([
+            "LAMMPS data file",
+            "",
+            "3 atoms",
+            "2 atom types",
+            "",
+            "0.0 10.0 xlo xhi",
+            "0.0 10.0 ylo yhi",
+            "0.0 10.0 zlo zhi",
+            "",
+            "Masses",
+            "",
+            "1 15.999",
+            "2 1.008",
+            "",
+            "Atoms # full",
+            "",
+            "1 1 1 -0.8 0.0 0.0 0.0",
+            "2 1 2 0.4 0.9 0.0 0.0",
+            "3 1 2 0.4 -0.3 0.8 0.0",
+            "",
+        ])
+    )
+
+    frames = _read_frames(path, ":", None)
+
+    assert frames[0].get_chemical_symbols() == ["O", "H", "H"]
+    assert atom_type_labels(frames[0]) == ["1", "2", "2"]
+    assert frames[0].get_initial_charges().tolist() == [-0.8, 0.4, 0.4]
+
+
+def test_lammps_data_without_masses_does_not_treat_type_as_atomic_number(tmp_path):
+    path = tmp_path / "bare_types.data"
+    path.write_text(
+        "\n".join([
+            "LAMMPS data file",
+            "",
+            "2 atoms",
+            "8 atom types",
+            "",
+            "0.0 10.0 xlo xhi",
+            "0.0 10.0 ylo yhi",
+            "0.0 10.0 zlo zhi",
+            "",
+            "Atoms # atomic",
+            "",
+            "1 8 0.0 0.0 0.0",
+            "2 1 1.0 0.0 0.0",
+            "",
+        ])
+    )
+
+    frames = _read_frames(path, ":", None)
+
+    assert frames[0].get_chemical_symbols() == ["H", "H"]
+    assert atom_type_labels(frames[0]) == ["8", "1"]
+
+
+def test_lammps_data_arbitrary_type_ids_fall_back_to_raw_labels(tmp_path):
+    path = tmp_path / "large_type_id.data"
+    path.write_text(
+        "\n".join([
+            "LAMMPS data file",
+            "",
+            "2 atoms",
+            "999 atom types",
+            "",
+            "0.0 10.0 xlo xhi",
+            "0.0 10.0 ylo yhi",
+            "0.0 10.0 zlo zhi",
+            "",
+            "Atoms # atomic",
+            "",
+            "1 999 0.0 0.0 0.0",
+            "2 118 1.0 0.0 0.0",
+            "",
+        ])
+    )
+
+    frames = _read_frames(path, ":", None)
+
+    assert frames[0].get_chemical_symbols() == ["H", "H"]
+    assert atom_type_labels(frames[0]) == ["999", "118"]

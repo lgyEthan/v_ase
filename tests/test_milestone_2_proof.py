@@ -61,9 +61,10 @@ def test_milestone_2_proof():
             const app = window.__ASE_APP__;
             const mesh = app.renderer.atomMeshByIndex.get(0);
             const p = mesh.position.clone().project(app.renderer.camera);
+            const rect = app.renderer.domElement.getBoundingClientRect();
             return {
-                x: (p.x + 1) * window.innerWidth / 2,
-                y: (-p.y + 1) * window.innerHeight / 2
+                x: rect.left + (p.x + 1) * rect.width / 2,
+                y: rect.top + (-p.y + 1) * rect.height / 2
             };
         }""")
         page.mouse.click(oxygen_screen["x"], oxygen_screen["y"])

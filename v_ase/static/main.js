@@ -502,6 +502,8 @@ class VAseApp {
         if (next) next.disabled = count <= 1;
         const fps = document.getElementById('movie-fps');
         if (fps) fps.disabled = count <= 1;
+        const skip = document.getElementById('movie-skip');
+        if (skip) skip.disabled = count <= 1;
         const exportVideo = document.getElementById('btn-export-video');
         if (exportVideo) {
             exportVideo.disabled = count <= 1;
@@ -2478,6 +2480,16 @@ class VAseApp {
         return Math.min(60, Math.max(1, parseFloat(document.getElementById('movie-fps').value || '12')));
     }
 
+    currentPlaybackSkip() {
+        const input = document.getElementById('movie-skip');
+        const value = Math.floor(Number(input?.value || 0));
+        return Math.min(999, Math.max(0, Number.isFinite(value) ? value : 0));
+    }
+
+    currentPlaybackStep() {
+        return this.currentPlaybackSkip() + 1;
+    }
+
     stopPlayback() {
         if (this.state.trajectoryTimer) {
             clearTimeout(this.state.trajectoryTimer);
@@ -2502,7 +2514,7 @@ class VAseApp {
         const tick = async () => {
             if (!this.state.trajectoryTimer) return;
             try {
-                await this.stepFrame(1);
+                await this.stepFrame(this.currentPlaybackStep());
             } catch (err) {
                 this.toast(`Movie playback failed: ${err.message}`, 'error');
                 this.stopPlayback();
@@ -2827,6 +2839,9 @@ class VAseApp {
         document.getElementById('movie-fps').onchange = () => {
             this.restartPlayback().catch(err => this.toast(`Movie playback failed: ${err.message}`, 'error'));
         };
+        const movieSkip = document.getElementById('movie-skip');
+        movieSkip.oninput = () => this.currentPlaybackSkip();
+        movieSkip.onchange = () => this.currentPlaybackSkip();
         document.getElementById('tool-select')?.addEventListener('click', () => {
             if (this.transform.mode !== 'IDLE') this.cancelTransform();
         });
