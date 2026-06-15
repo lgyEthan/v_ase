@@ -85,16 +85,27 @@ def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs
         return []
 
     positions = np.asarray(data.get("positions") or [], dtype=float)
-    symbols = list(data.get("symbols") or [])
+    labels = list(data.get("symbols") or [])
+    symbols = list(data.get("chemical_symbols") or labels)
     if len(positions) != len(symbols):
         return []
 
     cell = data.get("cell") or []
     pbc = data.get("pbc") or [False, False, False]
     visual = data.get("visual") or {}
-    covalent = [float(value) if value is not None else 0.75 for value in visual.get("covalent_radii", [])]
+    covalent_source = visual.get("bond_radii") or visual.get("covalent_radii") or []
+    covalent = [float(value) if value is not None else 0.75 for value in covalent_source]
     if len(covalent) < len(symbols):
         covalent.extend([0.75] * (len(symbols) - len(covalent)))
+    vdw = []
+    for value in visual.get("vdw_radii", []):
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            parsed = 0.0
+        vdw.append(parsed if np.isfinite(parsed) and parsed > 0 else 0.0)
+    if len(vdw) < len(symbols):
+        vdw.extend([0.0] * (len(symbols) - len(vdw)))
 
     def pair_key(i, j):
         return "-".join(sorted((str(symbols[i]), str(symbols[j]))))
@@ -107,8 +118,10 @@ def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs
                 return max(0.0, float(element_cutoffs[key]))
             except (TypeError, ValueError):
                 pass
-        scale = float(display.get("bondCutoffScale") or 1.25)
-        return max(0.55, (covalent[i] + covalent[j]) * scale)
+        scale = float(display.get("bondCutoffScale") or 1.0)
+        if vdw[i] > 0 and vdw[j] > 0:
+            return 0.6 * (vdw[i] + vdw[j]) * scale
+        return (covalent[i] + covalent[j] + 0.4) * scale
 
     raw_pairs = explicit_pairs
     if not raw_pairs and display.get("bondMode") == "manual":

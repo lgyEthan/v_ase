@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.15">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.16">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.15';
+            : '/static/vendor/three.module.js?v=0.0.16';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -34,7 +34,7 @@
 
     <!-- Top Status Bar -->
     <header id="top-bar" class="glass-panel">
-        <div class="logo">v_ase<span class="version">0.0.15</span></div>
+        <div class="logo">v_ase<span class="version">0.0.16</span></div>
         <div class="status-group">
             <div class="status-item">
                 <span class="label">MODE</span>
@@ -83,7 +83,7 @@
                 <span class="p-label">Center</span><span id="selected-center" class="p-val">-</span>
                 <span class="p-label">Measure</span><span id="selected-measure" class="p-val">-</span>
             </div>
-            <div class="selected-type-editor" data-edit-only>
+            <div class="selected-type-editor">
                 <div class="mini-table-head selected-type-head">
                     <span>Selected type</span>
                     <span>Color</span>
@@ -191,7 +191,7 @@
                     <span>Type</span>
                     <span>Visible</span>
                     <span>Select</span>
-                    <span>Name</span>
+                    <span>Label</span>
                     <span>Color</span>
                     <span>Radius / A</span>
                 </div>
@@ -231,7 +231,7 @@
             </div>
             <div class="prop-row">
                 <label for="bond-cutoff">Cutoff scale</label>
-                <input type="number" id="bond-cutoff" value="1.25" min="0.5" max="3.0" step="0.05">
+                <input type="number" id="bond-cutoff" value="1.00" min="0.5" max="3.0" step="0.05">
             </div>
             <div id="element-bond-panel" class="bond-element-panel hidden">
                 <div class="mini-table-head">
@@ -344,7 +344,7 @@
     <div id="toast-container" aria-live="polite"></div>
 
     <script type="module">
-        const modulePath = window.location.protocol === 'file:' ? './main.js' : './static/main.js?v=0.0.15';
+        const modulePath = window.location.protocol === 'file:' ? './main.js' : './static/main.js?v=0.0.16';
         import(modulePath);
     </script>
 </body>

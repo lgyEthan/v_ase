@@ -33,7 +33,7 @@ class VAseApp {
                 showAxes: true,
                 showGrid: true,
                 bondMode: 'auto',
-                bondCutoffScale: 1.25,
+                bondCutoffScale: 1.0,
                 manualBondPairs: [],
                 elementBondCutoffs: {},
                 atomRadiusScale: 1.0,
@@ -63,6 +63,8 @@ class VAseApp {
             rotationMaxStrain: 0,
             rotationViolationCount: 0,
             trajectoryTimer: null,
+            trajectoryBinaryCache: null,
+            trajectoryBinaryPromise: null,
             isRelaxing: false
         };
 
@@ -91,7 +93,7 @@ class VAseApp {
     }
 
     canViewportSelectAtoms() {
-        return !this.state.vizOnly;
+        return true;
     }
 
     updateEditingAvailability() {
@@ -167,6 +169,9 @@ class VAseApp {
 
             this.state.atoms = data;
             this.state.originalPositions = data.positions.map(p => [...p]);
+            if (data.metadata?.trajectory_positions_binary && !data.trajectory_positions) {
+                this.loadTrajectoryCache({ background: true });
+            }
             this.applyInitialDisplayConfig(data);
             this.renderElementBondControls();
             this.renderElementRadiusControls();
@@ -361,6 +366,15 @@ class VAseApp {
     setAtomsData(data, { clearSelection = false } = {}) {
         this.state.atoms = data;
         this.state.originalPositions = data.positions.map(p => [...p]);
+        if (data.trajectory_positions) {
+            this.state.trajectoryBinaryCache = null;
+            this.state.trajectoryBinaryPromise = null;
+        } else if (!data.metadata?.trajectory_positions_binary) {
+            this.state.trajectoryBinaryCache = null;
+            this.state.trajectoryBinaryPromise = null;
+        } else if (!this.state.trajectoryBinaryCache && !this.state.trajectoryBinaryPromise) {
+            this.loadTrajectoryCache({ background: true });
+        }
         if (clearSelection) {
             this.state.selected.clear();
         } else {
@@ -376,6 +390,44 @@ class VAseApp {
         this.setHoveredAtom(null);
         this.updateSelectionVisuals();
         this.updateUI();
+    }
+
+    async loadTrajectoryCache({ background = false } = {}) {
+        if (this.state.atoms?.trajectory_positions?.length) return null;
+        if (this.state.trajectoryBinaryCache) return this.state.trajectoryBinaryCache;
+        if (!this.state.atoms?.metadata?.trajectory_positions_binary) return null;
+        if (this.state.trajectoryBinaryPromise) return this.state.trajectoryBinaryPromise;
+
+        const load = async () => {
+            const cache = await this.api.fetchTrajectoryPositions();
+            const expectedFrames = this.state.atoms?.metadata?.frame_count || 0;
+            const expectedAtoms = this.state.atoms?.positions?.length || 0;
+            if (cache.frames !== expectedFrames || cache.atoms !== expectedAtoms) {
+                throw new Error('Trajectory cache shape does not match the loaded structure.');
+            }
+            this.state.trajectoryBinaryCache = cache;
+            return cache;
+        };
+
+        const promise = load().catch(err => {
+            if (!background) throw err;
+            this.toast(`Trajectory cache failed: ${err.message}`, 'warning');
+            return null;
+        }).finally(() => {
+            this.state.trajectoryBinaryPromise = null;
+        });
+        this.state.trajectoryBinaryPromise = promise;
+        return promise;
+    }
+
+    materializeBinaryFrame(cache, frameIndex) {
+        const positions = new Array(cache.atoms);
+        const offset = frameIndex * cache.atoms * 3;
+        for (let i = 0; i < cache.atoms; i++) {
+            const base = offset + i * 3;
+            positions[i] = [cache.values[base], cache.values[base + 1], cache.values[base + 2]];
+        }
+        return positions;
     }
 
     pruneSelection() {
@@ -458,10 +510,6 @@ class VAseApp {
     }
 
     updateSelectionVisuals() {
-        if (this.state.vizOnly) {
-            this.renderer.setSelection([]);
-            return;
-        }
         this.renderer.setSelection(this.state.selected);
     }
 
@@ -507,13 +555,7 @@ class VAseApp {
     }
 
     currentPositionsFromScene() {
-        const positions = this.state.atoms.positions.map(p => [...p]);
-        this.renderer.atomMeshes.children.forEach(mesh => {
-            const idx = mesh.userData.index;
-            if (idx === undefined || mesh.userData.lockMarker) return;
-            positions[idx] = [mesh.position.x, mesh.position.y, mesh.position.z];
-        });
-        return positions;
+        return this.renderer.currentPositions();
     }
 
     backendPositionsPayload() {
@@ -771,9 +813,8 @@ class VAseApp {
             }
         }
 
-        this.renderer.atomMeshes.children.forEach(mesh => {
-            const idx = mesh.userData.index;
-            if (mesh.userData.lockMarker || idx === undefined) return;
+        const changed = [];
+        this.renderer.forEachAtomProxy((mesh, idx) => {
             if (this.state.selected.has(idx) && this.isEditableIndex(idx)) {
                 const orig = this.state.originalPositions[idx];
                 if (!orig || orig.some(v => !Number.isFinite(v))) return;
@@ -791,8 +832,10 @@ class VAseApp {
                 if (![mesh.position.x, mesh.position.y, mesh.position.z].every(Number.isFinite)) {
                     mesh.position.copy(origVec);
                 }
+                changed.push(idx);
             }
         });
+        this.renderer.flushAtomInstances(changed);
         this.renderer.syncSelectionOutlines();
         this.renderer.updateBondPositions();
         this.renderer.updateSupercellPositions();
@@ -820,13 +863,15 @@ class VAseApp {
         try {
             const data = await this.api.getConstrainedPositions(newPositions, this.state.applyConstraints);
             if (data.positions && this.transform.mode !== 'IDLE') {
-                this.renderer.atomMeshes.children.forEach(mesh => {
-                    if (mesh.userData.lockMarker || mesh.userData.index === undefined) return;
-                    if (this.state.selected.has(mesh.userData.index)) {
-                        const p = data.positions[mesh.userData.index];
+                const changed = [];
+                this.renderer.forEachAtomProxy((mesh, index) => {
+                    if (this.state.selected.has(index)) {
+                        const p = data.positions[index];
                         if (p && p.every(Number.isFinite)) mesh.position.set(p[0], p[1], p[2]);
+                        changed.push(index);
                     }
                 });
+                this.renderer.flushAtomInstances(changed);
                 this.renderer.syncSelectionOutlines();
                 this.renderer.updateBondPositions();
                 this.renderer.updateSupercellPositions();
@@ -1016,6 +1061,38 @@ class VAseApp {
         return String(value || '').trim();
     }
 
+    chemicalElementOptions() {
+        return [
+            'H','He','Li','Be','B','C','N','O','F','Ne',
+            'Na','Mg','Al','Si','P','S','Cl','Ar','K','Ca',
+            'Sc','Ti','V','Cr','Mn','Fe','Co','Ni','Cu','Zn',
+            'Ga','Ge','As','Se','Br','Kr','Rb','Sr','Y','Zr',
+            'Nb','Mo','Tc','Ru','Rh','Pd','Ag','Cd','In','Sn',
+            'Sb','Te','I','Xe','Cs','Ba','La','Ce','Pr','Nd',
+            'Pm','Sm','Eu','Gd','Tb','Dy','Ho','Er','Tm','Yb',
+            'Lu','Hf','Ta','W','Re','Os','Ir','Pt','Au','Hg',
+            'Tl','Pb','Bi','Po','At','Rn','Fr','Ra','Ac','Th',
+            'Pa','U','Np','Pu','Am','Cm','Bk','Cf','Es','Fm',
+            'Md','No','Lr','Rf','Db','Sg','Bh','Hs','Mt','Ds',
+            'Rg','Cn','Nh','Fl','Mc','Lv','Ts','Og'
+        ];
+    }
+
+    baseElementForLabel(label, fallback = 'H') {
+        const text = this.normalizedTypeLabel(label);
+        const known = new Set(this.chemicalElementOptions());
+        if (known.has(text)) return text;
+        const prefix = text.split('_', 1)[0];
+        if (known.has(prefix)) return prefix;
+        const match = text.match(/^([A-Z][a-z]?)/);
+        return match && known.has(match[1]) ? match[1] : fallback;
+    }
+
+    chemicalSymbolForLabel(label) {
+        const index = (this.state.atoms?.symbols || []).findIndex(symbol => symbol === label);
+        return this.state.atoms?.chemical_symbols?.[index] || this.baseElementForLabel(label);
+    }
+
     transferElementDisplaySettings(oldSymbol, newSymbol) {
         if (!oldSymbol || !newSymbol || oldSymbol === newSymbol) return;
         const maps = [this.state.display.elementRadii, this.state.display.elementColors, this.state.display.elementVisible];
@@ -1036,7 +1113,7 @@ class VAseApp {
     }
 
     uniqueElementPairs() {
-        const elements = this.uniqueElements();
+        const elements = [...new Set(this.state.atoms?.chemical_symbols || [])].filter(Boolean).sort();
         const pairs = [];
         for (let i = 0; i < elements.length; i++) {
             for (let j = i; j < elements.length; j++) {
@@ -1047,16 +1124,24 @@ class VAseApp {
     }
 
     defaultElementCutoff(a, b) {
-        const ri = this.elementCovalentRadius(a);
-        const rj = this.elementCovalentRadius(b);
-        const scale = Math.max(0.5, parseFloat(document.getElementById('bond-cutoff')?.value || '1.25'));
-        return Math.max(0.55, (ri + rj) * scale);
+        const ri = this.elementVdwRadius(a);
+        const rj = this.elementVdwRadius(b);
+        if (Number.isFinite(ri) && Number.isFinite(rj)) return Number((0.6 * (ri + rj)).toFixed(3));
+        return Number((this.elementCovalentRadius(a) + this.elementCovalentRadius(b) + 0.4).toFixed(3));
     }
 
-    elementCovalentRadius(symbol) {
-        const radii = this.state.atoms?.visual?.covalent_radii || [];
-        const symbols = this.state.atoms?.symbols || [];
-        const values = radii.filter((_, index) => symbols[index] === symbol).map(Number).filter(Number.isFinite);
+    elementVdwRadius(element) {
+        const radii = this.state.atoms?.visual?.vdw_radii || [];
+        const symbols = this.state.atoms?.chemical_symbols || [];
+        const values = radii.filter((_, index) => symbols[index] === element).map(Number).filter(Number.isFinite);
+        if (!values.length) return null;
+        return values.reduce((sum, value) => sum + value, 0) / values.length;
+    }
+
+    elementCovalentRadius(element) {
+        const radii = this.state.atoms?.visual?.bond_radii || this.state.atoms?.visual?.covalent_radii || [];
+        const symbols = this.state.atoms?.chemical_symbols || [];
+        const values = radii.filter((_, index) => symbols[index] === element).map(Number).filter(Number.isFinite);
         if (!values.length) return 0.75;
         return values.reduce((sum, value) => sum + value, 0) / values.length;
     }
@@ -1065,7 +1150,7 @@ class VAseApp {
         const radii = this.state.atoms?.visual?.radii || [];
         const symbols = this.state.atoms?.symbols || [];
         const values = radii.filter((_, index) => symbols[index] === symbol).map(Number).filter(Number.isFinite);
-        if (!values.length) return this.elementCovalentRadius(symbol);
+        if (!values.length) return this.elementCovalentRadius(this.chemicalSymbolForLabel(symbol));
         return values.reduce((sum, value) => sum + value, 0) / values.length;
     }
 
@@ -1082,7 +1167,8 @@ class VAseApp {
         const existingFocus = {
             radius: active?.dataset?.elementRadius,
             name: active?.dataset?.elementName,
-            color: active?.dataset?.elementColor
+            color: active?.dataset?.elementColor,
+            type: active?.dataset?.elementType
         };
         root.innerHTML = '';
         this.uniqueElements().forEach(symbol => {
@@ -1094,10 +1180,18 @@ class VAseApp {
             }
             const row = document.createElement('div');
             row.className = 'element-radius-row element-appearance-row';
-            const label = document.createElement('label');
-            label.htmlFor = this.safeControlId('element-name', symbol);
-            label.innerText = symbol;
-            label.title = `${this.elementIndices(symbol).length} atom${this.elementIndices(symbol).length === 1 ? '' : 's'}`;
+            const currentElement = this.chemicalSymbolForLabel(symbol);
+            const typeSelect = document.createElement('select');
+            typeSelect.className = 'element-type-select';
+            typeSelect.dataset.elementType = symbol;
+            typeSelect.title = `${this.elementIndices(symbol).length} atom${this.elementIndices(symbol).length === 1 ? '' : 's'} with label ${symbol}`;
+            this.chemicalElementOptions().forEach(element => {
+                const option = document.createElement('option');
+                option.value = element;
+                option.innerText = element;
+                option.selected = element === currentElement;
+                typeSelect.appendChild(option);
+            });
 
             const visibleBox = document.createElement('input');
             visibleBox.type = 'checkbox';
@@ -1133,10 +1227,13 @@ class VAseApp {
             nameInput.className = 'element-name-input';
             nameInput.dataset.elementName = symbol;
             nameInput.value = symbol;
-            const commitRename = () => {
+            const commitRename = (baseOverride = null) => {
                 const next = this.normalizedTypeLabel(nameInput.value);
-                if (next && next !== symbol) this.renameElementType(symbol, next);
+                const inferredBase = this.baseElementForLabel(next, typeSelect.value || currentElement);
+                const base = baseOverride || inferredBase;
+                if (next && (next !== symbol || base !== currentElement)) this.renameElementType(symbol, next, base);
             };
+            typeSelect.addEventListener('change', () => commitRename(typeSelect.value));
             nameInput.addEventListener('keydown', event => {
                 if (event.key === 'Enter') {
                     event.preventDefault();
@@ -1178,14 +1275,15 @@ class VAseApp {
             input.addEventListener('change', () => this.safeApplyDisplayOptions());
             input.addEventListener('input', () => this.safeApplyDisplayOptions());
 
-            row.append(label, visibleBox, selectBox, nameInput, color, input);
+            row.append(typeSelect, visibleBox, selectBox, nameInput, color, input);
             root.appendChild(row);
         });
-        const focusMatch = [...root.querySelectorAll('[data-element-radius], [data-element-name], [data-element-color]')]
+        const focusMatch = [...root.querySelectorAll('[data-element-radius], [data-element-name], [data-element-color], [data-element-type]')]
             .find(el => (
                 (existingFocus.radius && el.dataset.elementRadius === existingFocus.radius) ||
                 (existingFocus.name && el.dataset.elementName === existingFocus.name) ||
-                (existingFocus.color && el.dataset.elementColor === existingFocus.color)
+                (existingFocus.color && el.dataset.elementColor === existingFocus.color) ||
+                (existingFocus.type && el.dataset.elementType === existingFocus.type)
             ));
         focusMatch?.focus();
     }
@@ -1250,7 +1348,7 @@ class VAseApp {
         this.toggleElementSelection(symbol, true);
     }
 
-    async renameElementType(oldSymbol, nextLabel) {
+    async renameElementType(oldSymbol, nextLabel, baseSymbol = null) {
         const label = this.normalizedTypeLabel(nextLabel);
         if (!label) {
             this.toast('Atom type name cannot be empty.', 'warning');
@@ -1261,14 +1359,15 @@ class VAseApp {
             this.toast(`No ${oldSymbol} atoms found.`, 'warning');
             return;
         }
+        const base = baseSymbol || this.baseElementForLabel(label, this.chemicalSymbolForLabel(oldSymbol));
         if (!this.canEditAtoms()) {
-            this.renameElementTypeForVisualization(oldSymbol, label, indices);
+            this.renameElementTypeForVisualization(oldSymbol, label, indices, base);
             return;
         }
         try {
             const data = await this.withBusy(
                 `Renaming ${indices.length} ${oldSymbol} atom${indices.length === 1 ? '' : 's'}...`,
-                () => this.api.updateAtomTypes(indices, label, this.backendPositionsPayload(), this.state.applyConstraints)
+                () => this.api.updateAtomTypes(indices, label, this.backendPositionsPayload(), this.state.applyConstraints, base)
             );
             this.transferElementDisplaySettings(oldSymbol, label);
             this.setAtomsData(data);
@@ -1278,12 +1377,16 @@ class VAseApp {
         }
     }
 
-    renameElementTypeForVisualization(oldSymbol, label, indices = this.elementIndices(oldSymbol)) {
+    renameElementTypeForVisualization(oldSymbol, label, indices = this.elementIndices(oldSymbol), baseSymbol = null) {
         if (!this.state.atoms || !indices.length) return;
+        const base = baseSymbol || this.baseElementForLabel(label, this.chemicalSymbolForLabel(oldSymbol));
         indices.forEach(index => {
             this.state.atoms.symbols[index] = label;
             if (Array.isArray(this.state.atoms.atom_types)) {
                 this.state.atoms.atom_types[index] = label;
+            }
+            if (Array.isArray(this.state.atoms.chemical_symbols)) {
+                this.state.atoms.chemical_symbols[index] = base;
             }
         });
         const selected = new Set();
@@ -1292,7 +1395,7 @@ class VAseApp {
         });
         this.state.selected = selected;
         this.transferElementDisplaySettings(oldSymbol, label);
-        this.renderer.renameAtomType(oldSymbol, label, indices, this.state.display);
+        this.renderer.renameAtomType(oldSymbol, label, indices, this.state.display, base);
         this.renderElementBondControls();
         this.renderElementRadiusControls();
         this.updateElementSelectionControls();
@@ -1314,9 +1417,9 @@ class VAseApp {
         if (!name || !color || !apply) return;
         const hasSelection = this.state.selected.size > 0;
         const label = this.selectedTypeLabel();
-        name.disabled = this.state.vizOnly || !hasSelection;
-        color.disabled = this.state.vizOnly || !hasSelection;
-        apply.disabled = this.state.vizOnly || !hasSelection;
+        name.disabled = !hasSelection;
+        color.disabled = !hasSelection;
+        apply.disabled = !hasSelection;
         name.placeholder = hasSelection ? 'Mixed selected types' : 'Select atoms first';
         if (!document.activeElement || document.activeElement !== name) {
             name.value = hasSelection ? label : '';
@@ -1326,10 +1429,6 @@ class VAseApp {
     }
 
     async applySelectedTypeEdit() {
-        if (!this.canEditAtoms()) {
-            this.editOnlyToast();
-            return;
-        }
         const indices = [...this.state.selected].sort((a, b) => a - b);
         if (!indices.length) {
             this.toast('Select atoms before changing atom type.', 'warning');
@@ -1342,14 +1441,19 @@ class VAseApp {
             this.toast('Atom type name cannot be empty.', 'warning');
             return;
         }
+        const base = this.baseElementForLabel(label, this.selectedTypeLabel() ? this.chemicalSymbolForLabel(this.selectedTypeLabel()) : 'H');
         const previousLabels = [...new Set(indices.map(index => this.state.atoms.symbols[index]))];
         if (this.validHexColor(color?.value)) {
             this.state.display.elementColors[label] = color.value;
         }
+        if (!this.canEditAtoms()) {
+            this.applySelectedTypeForVisualization(indices, label, base);
+            return;
+        }
         try {
             const data = await this.withBusy(
                 `Changing ${indices.length} selected atom${indices.length === 1 ? '' : 's'} to ${label}...`,
-                () => this.api.updateAtomTypes(indices, label, this.backendPositionsPayload(), this.state.applyConstraints)
+                () => this.api.updateAtomTypes(indices, label, this.backendPositionsPayload(), this.state.applyConstraints, base)
             );
             if (previousLabels.length === 1) this.transferElementDisplaySettings(previousLabels[0], label);
             this.setAtomsData(data);
@@ -1360,6 +1464,22 @@ class VAseApp {
         } catch (err) {
             this.toast(`Selected atom type update failed: ${err.message}`, 'error');
         }
+    }
+
+    applySelectedTypeForVisualization(indices, label, baseSymbol) {
+        if (!this.state.atoms || !indices.length) return;
+        indices.forEach(index => {
+            this.state.atoms.symbols[index] = label;
+            if (Array.isArray(this.state.atoms.atom_types)) this.state.atoms.atom_types[index] = label;
+            if (Array.isArray(this.state.atoms.chemical_symbols)) this.state.atoms.chemical_symbols[index] = baseSymbol;
+        });
+        this.renderer.rebuildAtoms(this.state.atoms, this.state.atoms.metadata?.custom_colors || {});
+        this.renderer.setSelection(this.state.selected);
+        this.renderElementBondControls();
+        this.renderElementRadiusControls();
+        this.updateElementSelectionControls();
+        this.updateUI();
+        this.toast(`Updated selected atoms to ${label} for this visualization.`, 'success');
     }
 
     renderElementBondControls() {
@@ -1469,7 +1589,7 @@ class VAseApp {
         const strainCutoff = parseFloat(document.getElementById('rotate-strain-cutoff')?.value || '0.15');
         this.state.display.rotateStrainCutoff = Number.isFinite(strainCutoff) && strainCutoff >= 0 ? strainCutoff : 0.15;
         this.state.display.bondMode = document.getElementById('bond-mode').value;
-        this.state.display.bondCutoffScale = Math.max(0.5, parseFloat(document.getElementById('bond-cutoff').value || '1.25'));
+        this.state.display.bondCutoffScale = Math.max(0.5, parseFloat(document.getElementById('bond-cutoff').value || '1.0'));
         this.state.display.elementBondCutoffs = this.parseElementBondCutoffs();
         const radiusScale = parseFloat(document.getElementById('atom-radius-scale')?.value || '1');
         this.state.display.atomRadiusScale = Number.isFinite(radiusScale) && radiusScale > 0 ? radiusScale : 1.0;
@@ -1571,7 +1691,7 @@ class VAseApp {
         setChecked('chk-unit-aware-rotate', display.unitCellAwareRotate);
         setValue('rotate-strain-cutoff', display.rotateStrainCutoff ?? 0.15);
         setValue('bond-mode', display.bondMode || 'auto');
-        setValue('bond-cutoff', display.bondCutoffScale || 1.25);
+        setValue('bond-cutoff', display.bondCutoffScale || 1.0);
         setValue('atom-radius-scale', display.atomRadiusScale || 1);
         setValue('move-increment', this.state.moveIncrement || 0);
         setValue('rotate-increment', this.state.rotateIncrementDeg || 0);
@@ -2281,18 +2401,38 @@ class VAseApp {
     async loadFrame(index) {
         if (this.transform.mode !== 'IDLE') this.cancelTransform();
 
-        if (this.state.atoms?.trajectory_positions && this.state.trajectoryTimer) {
+        if (this.state.atoms?.trajectory_positions) {
             const count = this.state.atoms.metadata.frame_count || 1;
             const normalized = Math.max(0, Math.min(count - 1, parseInt(index, 10) || 0));
+            const framePositions = this.state.atoms.trajectory_positions[normalized];
+            if (!Array.isArray(framePositions)) return;
             this.state.atoms.metadata.current_frame = normalized;
-            this.state.atoms.positions = this.state.atoms.trajectory_positions[normalized].map(p => [...p]);
-            this.state.originalPositions = this.state.atoms.positions.map(p => [...p]);
+            this.state.atoms.positions = framePositions;
+            this.state.originalPositions = this.state.vizOnly ? framePositions : framePositions.map(p => [...p]);
             this.renderer.updatePositions(this.state.atoms.positions);
-            this.updateUI();
-            const label = document.getElementById('frame-label');
-            if (label) label.innerText = `${normalized + 1} / ${count}`;
-            const slider = document.getElementById('frame-slider');
-            if (slider) slider.value = normalized;
+            if (this.state.trajectoryTimer) {
+                this.updateTrajectoryUI();
+            } else {
+                this.updateUI();
+            }
+            return;
+        }
+
+        const binaryCache = this.state.trajectoryBinaryCache || await this.loadTrajectoryCache({ background: false });
+        if (binaryCache) {
+            const count = this.state.atoms.metadata.frame_count || 1;
+            const normalized = Math.max(0, Math.min(count - 1, parseInt(index, 10) || 0));
+            const offset = normalized * binaryCache.atoms * 3;
+            this.state.atoms.metadata.current_frame = normalized;
+            this.renderer.updatePositionsFlat(binaryCache.values, offset, binaryCache.atoms);
+            if (this.state.trajectoryTimer) {
+                this.updateTrajectoryUI();
+            } else {
+                const framePositions = this.materializeBinaryFrame(binaryCache, normalized);
+                this.state.atoms.positions = framePositions;
+                this.state.originalPositions = this.state.vizOnly ? framePositions : framePositions.map(p => [...p]);
+                this.updateUI();
+            }
             return;
         }
 
@@ -2349,9 +2489,16 @@ class VAseApp {
         }
     }
 
-    startPlayback() {
+    async startPlayback() {
         const meta = this.state.atoms?.metadata || {};
         if ((meta.frame_count || 1) <= 1 || this.state.trajectoryTimer) return;
+        if (meta.trajectory_positions_binary && !this.state.trajectoryBinaryCache) {
+            const cache = await this.withBusy(
+                'Loading trajectory cache...',
+                () => this.loadTrajectoryCache({ background: false })
+            );
+            if (!cache) return;
+        }
         const tick = async () => {
             if (!this.state.trajectoryTimer) return;
             try {
@@ -2368,18 +2515,18 @@ class VAseApp {
         this.updateTrajectoryUI();
     }
 
-    restartPlayback() {
+    async restartPlayback() {
         if (!this.state.trajectoryTimer) return;
         this.stopPlayback();
-        this.startPlayback();
+        await this.startPlayback();
     }
 
-    togglePlayback() {
+    async togglePlayback() {
         if (this.state.trajectoryTimer) {
             this.stopPlayback();
             return;
         }
-        this.startPlayback();
+        await this.startPlayback();
         this.updateTrajectoryUI();
     }
 
@@ -2667,7 +2814,7 @@ class VAseApp {
         });
         document.getElementById('btn-frame-prev').onclick = () => this.stepFrame(-1).catch(err => this.toast(err.message, 'error'));
         document.getElementById('btn-frame-next').onclick = () => this.stepFrame(1).catch(err => this.toast(err.message, 'error'));
-        document.getElementById('btn-play').onclick = () => this.togglePlayback();
+        document.getElementById('btn-play').onclick = () => this.togglePlayback().catch(err => this.toast(`Movie playback failed: ${err.message}`, 'error'));
         document.getElementById('frame-slider').oninput = (e) => {
             this.queueFrameLoad(e.target.value);
         };
@@ -2675,10 +2822,10 @@ class VAseApp {
             this.queueFrameLoad(e.target.value);
         };
         document.getElementById('movie-fps').oninput = () => {
-            this.restartPlayback();
+            this.restartPlayback().catch(err => this.toast(`Movie playback failed: ${err.message}`, 'error'));
         };
         document.getElementById('movie-fps').onchange = () => {
-            this.restartPlayback();
+            this.restartPlayback().catch(err => this.toast(`Movie playback failed: ${err.message}`, 'error'));
         };
         document.getElementById('tool-select')?.addEventListener('click', () => {
             if (this.transform.mode !== 'IDLE') this.cancelTransform();
@@ -2892,7 +3039,7 @@ class VAseApp {
                     const frameCount = this.state.atoms?.metadata?.frame_count || 1;
                     if (frameCount > 1) {
                         e.preventDefault();
-                        this.togglePlayback();
+                        this.togglePlayback().catch(err => this.toast(`Movie playback failed: ${err.message}`, 'error'));
                         return;
                     }
                 }

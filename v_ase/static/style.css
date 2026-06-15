@@ -1819,44 +1819,72 @@ body[data-rotate-invalid="true"] #cmd-buffer {
 #inspector #element-radius-panel .mini-table-head,
 #inspector .element-appearance-row {
     display: grid;
-    min-width: 680px;
-    grid-template-columns: minmax(74px, 0.72fr) 70px 70px minmax(160px, 1.45fr) 56px minmax(110px, 0.9fr);
-    gap: 12px;
+    min-width: 900px;
+    grid-template-columns: 128px 80px 80px minmax(240px, 1fr) 64px 140px;
+    gap: 14px;
     align-items: center;
 }
 
 body.inspector-wide #inspector #element-radius-panel .mini-table-head,
 body.inspector-wide #inspector .element-appearance-row {
-    min-width: 760px;
-    grid-template-columns: minmax(92px, 0.78fr) 78px 78px minmax(190px, 1.6fr) 60px minmax(130px, 0.92fr);
-    gap: 14px;
+    min-width: 940px;
+    grid-template-columns: 132px 82px 82px minmax(260px, 1fr) 66px 148px;
+    gap: 16px;
 }
 
 #inspector #element-radius-panel {
     overflow-x: auto;
-    overflow-y: hidden;
+    overflow-y: visible;
     scrollbar-width: thin;
+    padding: 2px 0 8px;
+    border: 1px solid rgba(255, 255, 255, 0.075);
+    border-radius: 8px;
+    background: rgba(4, 6, 8, 0.18);
 }
 
 #inspector #element-radius-list {
-    min-width: 680px;
+    min-width: 900px;
+    display: grid;
+    gap: 6px;
+    padding: 0 10px 10px;
 }
 
 body.inspector-wide #inspector #element-radius-list {
-    min-width: 760px;
+    min-width: 940px;
 }
 
-#inspector .element-appearance-row label {
+#inspector #element-radius-panel .mini-table-head {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    padding: 10px;
+    margin: 0;
+    color: rgba(232, 236, 240, 0.72);
+    font-size: 0.68rem;
+    letter-spacing: 0;
+    text-transform: uppercase;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.075);
+    background: rgba(21, 24, 27, 0.96);
+}
+
+#inspector .element-appearance-row {
+    padding: 8px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.075);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.035);
+}
+
+#inspector .element-type-select {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    width: 100%;
+    height: 34px;
 }
 
 #inspector .element-name-input,
 #inspector .element-radius-input {
     min-width: 0;
     width: 100%;
+    height: 34px;
 }
 
 #inspector .element-name-input {
@@ -1868,9 +1896,11 @@ body.inspector-wide #inspector #element-radius-list {
 }
 
 #inspector .element-color-input {
-    width: 42px;
-    min-width: 42px;
-    padding: 2px;
+    width: 44px;
+    min-width: 44px;
+    height: 34px;
+    padding: 3px;
+    justify-self: center;
 }
 
 #inspector .element-radius-row input.element-check,
@@ -2046,7 +2076,7 @@ body.inspector-wide #inspector #element-radius-list {
 
     #inspector #element-radius-panel .mini-table-head,
     #inspector .element-appearance-row {
-        min-width: 680px;
-        grid-template-columns: minmax(74px, 0.72fr) 70px 70px minmax(160px, 1.45fr) 56px minmax(110px, 0.9fr);
+        min-width: 840px;
+        grid-template-columns: 116px 74px 74px minmax(220px, 1fr) 58px 124px;
     }
 }

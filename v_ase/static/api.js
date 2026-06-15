@@ -11,17 +11,17 @@ export class ASEApi {
     mockElementVisual(symbol) {
         const base = this.baseSymbolForLabel(symbol);
         const table = {
-            H: { color: '#FFFFFF', radius: 0.2759 },
-            C: { color: '#909090', radius: 0.6764 },
-            N: { color: '#2F50F8', radius: 0.6319 },
-            O: { color: '#FF0D0D', radius: 0.5874 },
-            F: { color: '#90DF50', radius: 0.5073 },
-            Si: { color: '#EFC79F', radius: 0.9879 },
-            S: { color: '#FFFF2F', radius: 0.9345 },
-            Na: { color: '#AB5CF1', radius: 1.4774 },
-            Cl: { color: '#1FEF1F', radius: 0.9078 }
+            H: { color: '#FFFFFF', radius: 0.2759, bond: 0.31, vdw: 1.20 },
+            C: { color: '#909090', radius: 0.6764, bond: 0.76, vdw: 1.70 },
+            N: { color: '#2F50F8', radius: 0.6319, bond: 0.71, vdw: 1.55 },
+            O: { color: '#FF0D0D', radius: 0.5874, bond: 0.66, vdw: 1.52 },
+            F: { color: '#90DF50', radius: 0.5073, bond: 0.57, vdw: 1.47 },
+            Si: { color: '#EFC79F', radius: 0.9879, bond: 1.11, vdw: 2.10 },
+            S: { color: '#FFFF2F', radius: 0.9345, bond: 1.05, vdw: 1.80 },
+            Na: { color: '#AB5CF1', radius: 1.4774, bond: 1.66, vdw: 2.27 },
+            Cl: { color: '#1FEF1F', radius: 0.9078, bond: 1.02, vdw: 1.75 }
         };
-        return table[base] || { color: '#cccccc', radius: 0.75 };
+        return table[base] || { color: '#cccccc', radius: 0.75, bond: 0.75, vdw: null };
     }
 
     baseSymbolForLabel(label) {
@@ -41,6 +41,8 @@ export class ASEApi {
             colors: entries.map(item => item.color),
             radii: entries.map(item => item.radius),
             covalent_radii: entries.map(item => item.radius),
+            bond_radii: entries.map(item => item.bond),
+            vdw_radii: entries.map(item => item.vdw),
             radius_scale: 0.89
         };
     }
@@ -336,15 +338,16 @@ export class ASEApi {
             const payload = JSON.parse(options.body || '{}');
             const indices = (payload.indices || []).map(Number);
             const label = String(payload.label || '').trim();
+            const baseSymbol = payload.base_symbol || this.baseSymbolForLabel(label);
             if (!indices.length || !label) return await this.mockResponse(this.mockState.atoms);
             this.mockPushHistory();
             indices.forEach(idx => {
                 if (idx >= 0 && idx < this.mockState.atoms.symbols.length) {
                     this.mockState.atoms.symbols[idx] = label;
+                    this.mockState.atoms.chemical_symbols[idx] = baseSymbol;
                 }
             });
             this.mockState.atoms.visual = this.mockVisualForSymbols(this.mockState.atoms.symbols);
-            this.mockState.atoms.chemical_symbols = this.mockState.atoms.symbols.map(symbol => this.baseSymbolForLabel(symbol));
             return await this.mockResponse(this.mockState.atoms);
         }
         if (path.includes('/api/wrap/')) {
@@ -397,6 +400,29 @@ export class ASEApi {
         return await this.request(`/api/atoms/{session_id}`);
     }
 
+    async fetchTrajectoryPositions() {
+        const apiPath = this.sessionPath(`/api/trajectory/positions/{session_id}`);
+        const res = await fetch(new URL(apiPath, this.baseUrl));
+        if (!res.ok) {
+            let message = '';
+            try {
+                const data = await res.json();
+                message = data.detail || JSON.stringify(data);
+            } catch {
+                message = await res.text().catch(() => '');
+            }
+            throw new Error(message || `Trajectory cache request failed (${res.status})`);
+        }
+        const frames = parseInt(res.headers.get('X-V-Ase-Frames') || '0', 10);
+        const atoms = parseInt(res.headers.get('X-V-Ase-Atoms') || '0', 10);
+        const buffer = await res.arrayBuffer();
+        const values = new Float32Array(buffer);
+        if (!frames || !atoms || values.length !== frames * atoms * 3) {
+            throw new Error('Trajectory cache shape does not match the received binary payload.');
+        }
+        return { frames, atoms, values };
+    }
+
     async fetchActiveSession() {
         const data = await this.request('/api/session/active', {}, { needsSession: false });
         if (!data.session_id) {
@@ -425,8 +451,9 @@ export class ASEApi {
         return await this.jsonPost(`/api/delete/{session_id}`, { indices });
     }
 
-    async updateAtomTypes(indices, label, positions = null, applyConstraint = true) {
+    async updateAtomTypes(indices, label, positions = null, applyConstraint = true, baseSymbol = null) {
         const payload = { indices, label, apply_constraint: applyConstraint };
+        if (baseSymbol) payload.base_symbol = baseSymbol;
         if (positions) payload.positions = positions;
         return await this.jsonPost(`/api/atom-types/{session_id}`, payload);
     }

@@ -1,7 +1,7 @@
 import numpy as np
 import colorsys
 import hashlib
-from ase.data import covalent_radii
+from ase.data import covalent_radii, vdw_radii
 from ase.data.colors import jmol_colors
 from ase.constraints import FixAtoms, FixCartesian, FixedLine, FixedPlane, FixScaled, Hookean
 from v_ase.io import atom_type_labels
@@ -95,6 +95,11 @@ def atoms_to_json(atoms):
             "base_colors": base_colors,
             "radii": [_ase_gui_radius(number) for number in atomic_numbers],
             "covalent_radii": [_ase_gui_radius(number) for number in atomic_numbers],
+            "bond_radii": [float(covalent_radii[int(number)]) for number in atomic_numbers],
+            "vdw_radii": [
+                None if not np.isfinite(float(vdw_radii[int(number)])) else float(vdw_radii[int(number)])
+                for number in atomic_numbers
+            ],
             "radius_scale": ASE_GUI_RADIUS_SCALE,
         },
         "constraints": {

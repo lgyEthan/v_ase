@@ -281,6 +281,9 @@ export class ASERenderer {
         this.hookeanGroup = new THREE.Group();
         this.scene.add(this.hookeanGroup);
         this.atomMeshByIndex = new Map();
+        this.atomInstanceRefs = new Map();
+        this.useInstancedAtoms = false;
+        this.instanceDummy = new THREE.Object3D();
         this.geometryCache = new Map();
         this.materialCache = new Map();
         this.atomsData = null;
@@ -292,7 +295,7 @@ export class ASERenderer {
             showGrid: true,
             showBonds: false,
             bondMode: 'auto',
-            bondCutoffScale: 1.25,
+            bondCutoffScale: 1.0,
             manualBondPairs: [],
             elementBondCutoffs: {},
             atomRadiusScale: 1.0,
@@ -451,8 +454,17 @@ export class ASERenderer {
     }
 
     atomCovalentRadius(index) {
-        const radius = Number(this.atomsData?.visual?.covalent_radii?.[index]);
+        const radius = Number(this.atomsData?.visual?.bond_radii?.[index] ?? this.atomsData?.visual?.covalent_radii?.[index]);
         return Number.isFinite(radius) && radius > 0 ? radius : FALLBACK_COVALENT_RADIUS;
+    }
+
+    atomVdwRadius(index) {
+        const radius = Number(this.atomsData?.visual?.vdw_radii?.[index]);
+        return Number.isFinite(radius) && radius > 0 ? radius : null;
+    }
+
+    atomChemicalSymbol(index) {
+        return this.atomsData?.chemical_symbols?.[index] || this.atomsData?.symbols?.[index] || '';
     }
 
     validHexColor(value) {
@@ -474,6 +486,27 @@ export class ASERenderer {
     }
 
     applyAtomVisibility() {
+        if (this.useInstancedAtoms) {
+            this.atomMeshByIndex.forEach((proxy, index) => {
+                proxy.visible = this.atomTypeVisible(index);
+                this.updateAtomInstanceMatrix(index);
+            });
+            this.atomInstanceRefs.forEach(({ mesh }) => {
+                mesh.instanceMatrix.needsUpdate = true;
+            });
+            this.selectionOutlines.children.forEach(outline => {
+                const idx = outline.userData.outlineFor;
+                outline.visible = this.atomTypeVisible(idx);
+            });
+            this.constraintGuideGroup.children.forEach(group => {
+                const idx = group.userData.constraintGuideFor;
+                group.visible = this.atomTypeVisible(idx);
+            });
+            this.updateBondPositions();
+            this.updateSupercellPositions();
+            this.updateHookeanPositions();
+            return;
+        }
         this.atomMeshes.children.forEach(mesh => {
             const index = mesh.userData.index;
             if (index === undefined) return;
@@ -622,6 +655,7 @@ export class ASERenderer {
         this.clearGroup(this.hookeanGroup);
         this.clearSelectionOutlines();
         this.atomMeshByIndex.clear();
+        this.atomInstanceRefs.clear();
         this.atomsData = atoms;
         this.customColors = customColors || {};
         this.refreshViewportGuidesForStructure();
@@ -630,6 +664,19 @@ export class ASERenderer {
 
         const fixed = this.displayOptions.vizOnly ? new Set() : new Set(atoms.constraints?.fixed_indices || []);
         const segmentCount = this.sphereQualitySegments(atoms.symbols.length);
+        this.useInstancedAtoms = this.shouldUseInstancedAtoms(atoms);
+        if (this.useInstancedAtoms) {
+            this.rebuildInstancedAtoms(atoms, this.customColors, fixed, segmentCount);
+            this.rebuildCell(atoms.cell);
+            this.rebuildBonds();
+            this.rebuildHookeanConstraints();
+            this.rebuildSupercell();
+            if (this.needsInitialCameraFit) {
+                this.fitCameraToStructure();
+                this.needsInitialCameraFit = false;
+            }
+            return;
+        }
         atoms.symbols.forEach((sym, i) => {
             const radius = this.atomVisualRadius(i);
             const color = this.atomVisualColor(i, customColors[i]);
@@ -684,6 +731,107 @@ export class ASERenderer {
             this.fitCameraToStructure();
             this.needsInitialCameraFit = false;
         }
+    }
+
+    shouldUseInstancedAtoms(atoms) {
+        const count = atoms?.symbols?.length || 0;
+        return count >= 2000 || (this.displayOptions.vizOnly && count >= 500);
+    }
+
+    atomProxy(index, position, symbol, fixed = false) {
+        return {
+            position: position.clone(),
+            visible: this.atomTypeVisible(index),
+            userData: { index, symbol, fixed }
+        };
+    }
+
+    rebuildInstancedAtoms(atoms, customColors, fixed, segmentCount) {
+        const groups = new Map();
+        atoms.symbols.forEach((sym, i) => {
+            const radius = this.atomVisualRadius(i);
+            const color = this.atomVisualColor(i, customColors[i]);
+            const geometryKey = `${radius}:${segmentCount}`;
+            const materialKey = `${color}:instanced`;
+            const key = `${geometryKey}|${materialKey}`;
+            if (!groups.has(key)) groups.set(key, { radius, color, geometryKey, materialKey, indices: [] });
+            groups.get(key).indices.push(i);
+        });
+
+        groups.forEach(group => {
+            if (!this.geometryCache.has(group.geometryKey)) {
+                this.geometryCache.set(
+                    group.geometryKey,
+                    new THREE.SphereGeometry(group.radius, segmentCount, Math.max(10, Math.floor(segmentCount * 0.65)))
+                );
+            }
+            if (!this.materialCache.has(group.materialKey)) {
+                this.materialCache.set(group.materialKey, new THREE.MeshStandardMaterial({
+                    color: group.color,
+                    roughness: 0.42,
+                    metalness: 0.08
+                }));
+            }
+            const mesh = new THREE.InstancedMesh(
+                this.geometryCache.get(group.geometryKey),
+                this.materialCache.get(group.materialKey),
+                group.indices.length
+            );
+            mesh.userData = { instancedAtoms: true, atomIndices: group.indices, sharedGeometry: true, sharedMaterial: true };
+            mesh.frustumCulled = false;
+            this.atomMeshes.add(mesh);
+
+            group.indices.forEach((index, instanceId) => {
+                const position = new THREE.Vector3(...atoms.positions[index]);
+                const proxy = this.atomProxy(index, position, atoms.symbols[index], fixed.has(index));
+                this.atomMeshByIndex.set(index, proxy);
+                this.atomInstanceRefs.set(index, { mesh, instanceId });
+                this.updateAtomInstanceMatrix(index);
+            });
+            mesh.instanceMatrix.needsUpdate = true;
+        });
+    }
+
+    updateAtomInstanceMatrix(index) {
+        const ref = this.atomInstanceRefs.get(index);
+        const proxy = this.atomMeshByIndex.get(index);
+        if (!ref || !proxy) return;
+        this.instanceDummy.position.copy(proxy.position);
+        const visible = proxy.visible !== false && this.atomTypeVisible(index);
+        const scale = visible ? 1 : 0;
+        this.instanceDummy.scale.setScalar(scale);
+        this.instanceDummy.rotation.set(0, 0, 0);
+        this.instanceDummy.updateMatrix();
+        ref.mesh.setMatrixAt(ref.instanceId, this.instanceDummy.matrix);
+    }
+
+    flushAtomInstances(indices = null) {
+        if (!this.useInstancedAtoms) return;
+        if (indices) {
+            indices.forEach(index => this.updateAtomInstanceMatrix(index));
+        }
+        this.atomInstanceRefs.forEach(({ mesh }) => {
+            mesh.instanceMatrix.needsUpdate = true;
+        });
+    }
+
+    forEachAtomProxy(callback) {
+        if (this.useInstancedAtoms) {
+            this.atomMeshByIndex.forEach((proxy, index) => callback(proxy, index));
+            return;
+        }
+        this.atomMeshes.children.forEach(mesh => {
+            if (mesh.userData.lockMarker || mesh.userData.index === undefined) return;
+            callback(mesh, mesh.userData.index);
+        });
+    }
+
+    currentPositions() {
+        const positions = (this.atomsData?.positions || []).map(p => [...p]);
+        this.atomMeshByIndex.forEach((proxy, index) => {
+            positions[index] = [proxy.position.x, proxy.position.y, proxy.position.z];
+        });
+        return positions;
     }
 
     clearGroup(group) {
@@ -867,11 +1015,63 @@ export class ASERenderer {
         if (this.atomsData) {
             this.atomsData.positions = positions.map(p => [...p]);
         }
+        if (this.useInstancedAtoms) {
+            positions.forEach((p, idx) => {
+                const proxy = this.atomMeshByIndex.get(idx);
+                if (!proxy || !p) return;
+                proxy.position.set(p[0], p[1], p[2]);
+                proxy.visible = this.atomTypeVisible(idx);
+                this.updateAtomInstanceMatrix(idx);
+            });
+            this.flushAtomInstances();
+            this.syncSelectionOutlines();
+            this.syncConstraintGuides();
+            this.updateBondPositions();
+            this.updateSupercellPositions();
+            this.updateHookeanPositions();
+            return;
+        }
         this.atomMeshes.children.forEach(mesh => {
             const idx = mesh.userData.index;
             if (idx === undefined || !positions[idx]) return;
             const p = positions[idx];
             mesh.position.set(p[0], p[1], p[2]);
+        });
+        this.atomMeshByIndex.forEach((proxy, idx) => {
+            const p = positions[idx];
+            if (p) proxy.position.set(p[0], p[1], p[2]);
+        });
+        this.syncSelectionOutlines();
+        this.syncConstraintGuides();
+        this.updateBondPositions();
+        this.updateSupercellPositions();
+        this.updateHookeanPositions();
+    }
+
+    updatePositionsFlat(values, offset = 0, count = this.atomsData?.positions?.length || 0) {
+        if (!values || !count) return;
+        if (this.useInstancedAtoms) {
+            for (let idx = 0; idx < count; idx++) {
+                const base = offset + idx * 3;
+                const proxy = this.atomMeshByIndex.get(idx);
+                if (!proxy) continue;
+                proxy.position.set(values[base], values[base + 1], values[base + 2]);
+                proxy.visible = this.atomTypeVisible(idx);
+                this.updateAtomInstanceMatrix(idx);
+            }
+            this.flushAtomInstances();
+            this.syncSelectionOutlines();
+            this.syncConstraintGuides();
+            this.updateBondPositions();
+            this.updateSupercellPositions();
+            this.updateHookeanPositions();
+            return;
+        }
+        this.atomMeshes.children.forEach(mesh => {
+            const idx = mesh.userData.index;
+            if (idx === undefined || idx >= count) return;
+            const base = offset + idx * 3;
+            mesh.position.set(values[base], values[base + 1], values[base + 2]);
         });
         this.syncSelectionOutlines();
         this.syncConstraintGuides();
@@ -931,11 +1131,14 @@ export class ASERenderer {
         if (visibilityChanged) this.applyAtomVisibility();
     }
 
-    renameAtomType(oldSymbol, label, indices = [], displayOptions = null) {
+    renameAtomType(oldSymbol, label, indices = [], displayOptions = null, baseSymbol = null) {
         if (!this.atomsData?.symbols) return;
         indices.forEach(index => {
             if (this.atomsData.symbols[index] === oldSymbol) {
                 this.atomsData.symbols[index] = label;
+            }
+            if (baseSymbol && Array.isArray(this.atomsData.chemical_symbols)) {
+                this.atomsData.chemical_symbols[index] = baseSymbol;
             }
             const mesh = this.atomMeshByIndex.get(index);
             if (mesh?.userData) mesh.userData.symbol = label;
@@ -960,6 +1163,10 @@ export class ASERenderer {
 
     refreshAtomAppearance(indices = []) {
         if (!this.atomsData?.symbols) return;
+        if (this.useInstancedAtoms) {
+            this.rebuildAtoms(this.atomsData, this.customColors);
+            return;
+        }
         const segmentCount = this.sphereQualitySegments(this.atomsData.symbols.length);
         indices.forEach(index => {
             const mesh = this.atomMeshByIndex.get(index);
@@ -991,10 +1198,10 @@ export class ASERenderer {
     }
 
     inferBondPairs() {
-        if (!this.atomsData || !this.atomsData.positions || this.atomsData.positions.length > 2000) return [];
+        if (!this.atomsData || !this.atomsData.positions) return [];
+        if (this.atomsData.positions.length > 2000) return this.inferBondPairsCellList();
         const pairs = [];
         const hookeanExcluded = this.hookeanBondExclusions();
-        const symbols = this.atomsData.symbols;
         const count = this.atomsData.positions.length;
         for (let i = 0; i < count; i++) {
             if (!this.atomTypeVisible(i)) continue;
@@ -1002,17 +1209,20 @@ export class ASERenderer {
             for (let j = i + 1; j < count; j++) {
                 if (!this.atomTypeVisible(j)) continue;
                 if (hookeanExcluded.has(this.hookeanPairKey(i, j))) continue;
-                const ri = this.atomCovalentRadius(i);
-                const rj = this.atomCovalentRadius(j);
-                const cutoff = this.displayOptions.bondMode === 'element'
-                    ? this.elementBondCutoff(symbols[i], symbols[j])
-                    : Math.max(0.55, (ri + rj) * this.displayOptions.bondCutoffScale);
+                const cutoff = this.bondCutoffForPair(i, j);
                 if (!Number.isFinite(cutoff) || cutoff <= 0) continue;
                 const d = this.minimumImageDelta(i, j, pi).length();
                 if (d > 0.15 && d <= cutoff) pairs.push([i, j]);
             }
         }
         return pairs;
+    }
+
+    bondCutoffForPair(i, j) {
+        if (this.displayOptions.bondMode === 'element') {
+            return this.elementBondCutoff(this.atomChemicalSymbol(i), this.atomChemicalSymbol(j));
+        }
+        return this.autoBondCutoff(i, j);
     }
 
     elementPairKey(a, b) {
@@ -1023,6 +1233,151 @@ export class ASERenderer {
         const cutoffs = this.displayOptions.elementBondCutoffs || {};
         const value = Number(cutoffs[this.elementPairKey(a, b)]);
         return Number.isFinite(value) ? value : null;
+    }
+
+    autoBondCutoff(i, j) {
+        const vi = this.atomVdwRadius(i);
+        const vj = this.atomVdwRadius(j);
+        const scale = Math.max(0.1, Number(this.displayOptions.bondCutoffScale || 1));
+        if (Number.isFinite(vi) && Number.isFinite(vj)) {
+            return 0.6 * (vi + vj) * scale;
+        }
+        return (this.atomCovalentRadius(i) + this.atomCovalentRadius(j) + 0.4) * scale;
+    }
+
+    maxPossibleBondCutoff() {
+        if (!this.atomsData?.positions?.length) return 0;
+        if (this.displayOptions.bondMode === 'element') {
+            const values = Object.values(this.displayOptions.elementBondCutoffs || {})
+                .map(Number)
+                .filter(value => Number.isFinite(value) && value > 0);
+            return values.length ? Math.max(...values) : 0;
+        }
+        const scale = Math.max(0.1, Number(this.displayOptions.bondCutoffScale || 1));
+        let maxVdw = 0;
+        let maxCovalent = 0;
+        for (let i = 0; i < this.atomsData.positions.length; i++) {
+            if (!this.atomTypeVisible(i)) continue;
+            const vdw = this.atomVdwRadius(i);
+            if (Number.isFinite(vdw)) maxVdw = Math.max(maxVdw, vdw);
+            maxCovalent = Math.max(maxCovalent, this.atomCovalentRadius(i));
+        }
+        if (maxVdw > 0) return 1.2 * maxVdw * scale;
+        return (2 * maxCovalent + 0.4) * scale;
+    }
+
+    inferBondPairsCellList() {
+        const count = this.atomsData?.positions?.length || 0;
+        if (!count) return [];
+        const maxCutoff = this.maxPossibleBondCutoff();
+        if (!Number.isFinite(maxCutoff) || maxCutoff <= 0) return [];
+
+        const pairs = [];
+        const hookeanExcluded = this.hookeanBondExclusions();
+        const pbc = this.atomsData?.pbc || [false, false, false];
+        const basis = this.hasValidCell() ? this.cellBasis() : null;
+        const useFractionalGrid = Boolean(basis && pbc.some(Boolean));
+        const positions = new Array(count);
+        const sortable = [];
+
+        if (useFractionalGrid) {
+            const lengths = basis.map(v => Math.max(1e-6, v.length()));
+            const bins = lengths.map(length => Math.max(1, Math.floor(length / maxCutoff)));
+            for (let i = 0; i < count; i++) {
+                if (!this.atomTypeVisible(i)) continue;
+                const pos = this.getAtomPosition(i);
+                positions[i] = pos;
+                const frac = this.cartToFrac(pos, basis);
+                for (let axis = 0; axis < 3; axis++) {
+                    if (pbc[axis]) {
+                        const value = frac.getComponent(axis);
+                        frac.setComponent(axis, value - Math.floor(value));
+                    }
+                }
+                const ix = Math.floor(frac.x * bins[0]);
+                const iy = Math.floor(frac.y * bins[1]);
+                const iz = Math.floor(frac.z * bins[2]);
+                sortable.push({ index: i, ix, iy, iz });
+            }
+            this.collectBondPairsFromCells(sortable, bins, positions, hookeanExcluded, pairs, pbc);
+            return pairs;
+        }
+
+        const box = new THREE.Box3();
+        for (let i = 0; i < count; i++) {
+            if (!this.atomTypeVisible(i)) continue;
+            const pos = this.getAtomPosition(i);
+            positions[i] = pos;
+            box.expandByPoint(pos);
+        }
+        if (box.isEmpty()) return [];
+        const min = box.min;
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const bins = [
+            Math.max(1, Math.ceil(size.x / maxCutoff)),
+            Math.max(1, Math.ceil(size.y / maxCutoff)),
+            Math.max(1, Math.ceil(size.z / maxCutoff))
+        ];
+        for (let i = 0; i < count; i++) {
+            const pos = positions[i];
+            if (!pos) continue;
+            const ix = Math.max(0, Math.min(bins[0] - 1, Math.floor((pos.x - min.x) / maxCutoff)));
+            const iy = Math.max(0, Math.min(bins[1] - 1, Math.floor((pos.y - min.y) / maxCutoff)));
+            const iz = Math.max(0, Math.min(bins[2] - 1, Math.floor((pos.z - min.z) / maxCutoff)));
+            sortable.push({
+                index: i,
+                ix,
+                iy,
+                iz
+            });
+        }
+        this.collectBondPairsFromCells(sortable, bins, positions, hookeanExcluded, pairs, [false, false, false]);
+        return pairs;
+    }
+
+    collectBondPairsFromCells(items, bins, positions, hookeanExcluded, pairs, periodicAxes = [false, false, false]) {
+        const cells = new Map();
+        const keyOf = (ix, iy, iz) => `${ix}|${iy}|${iz}`;
+        const wrap = (value, size, axis) => {
+            if (!periodicAxes[axis]) return value;
+            return ((value % size) + size) % size;
+        };
+        items.forEach(item => {
+            const key = keyOf(item.ix, item.iy, item.iz);
+            if (!cells.has(key)) cells.set(key, []);
+            cells.get(key).push(item.index);
+        });
+        items.forEach(item => {
+            const i = item.index;
+            const pi = positions[i];
+            if (!pi) return;
+            const visitedCells = new Set();
+            for (let dx = -1; dx <= 1; dx++) {
+                const ix = wrap(item.ix + dx, bins[0], 0);
+                if (!periodicAxes[0] && (ix < 0 || ix >= bins[0])) continue;
+                for (let dy = -1; dy <= 1; dy++) {
+                    const iy = wrap(item.iy + dy, bins[1], 1);
+                    if (!periodicAxes[1] && (iy < 0 || iy >= bins[1])) continue;
+                    for (let dz = -1; dz <= 1; dz++) {
+                        const iz = wrap(item.iz + dz, bins[2], 2);
+                        if (!periodicAxes[2] && (iz < 0 || iz >= bins[2])) continue;
+                        const cellKey = keyOf(ix, iy, iz);
+                        if (visitedCells.has(cellKey)) continue;
+                        visitedCells.add(cellKey);
+                        const bucket = cells.get(cellKey);
+                        if (!bucket) continue;
+                        bucket.forEach(j => {
+                            if (j <= i || hookeanExcluded.has(this.hookeanPairKey(i, j))) return;
+                            const cutoff = this.bondCutoffForPair(i, j);
+                            if (!Number.isFinite(cutoff) || cutoff <= 0) return;
+                            const d = this.minimumImageDelta(i, j, pi).length();
+                            if (d > 0.15 && d <= cutoff) pairs.push([i, j]);
+                        });
+                    }
+                }
+            }
+        });
     }
 
     rebuildBonds() {
@@ -1714,6 +2069,7 @@ export class ASERenderer {
     }
 
     syncLockMarkers() {
+        if (this.useInstancedAtoms) return;
         this.atomMeshes.children.forEach(marker => {
             if (!marker.userData.lockMarker) return;
             const atom = this.atomMeshByIndex.get(marker.userData.index);
@@ -1736,12 +2092,10 @@ export class ASERenderer {
     setSelection(selectedIndices) {
         this.clearSelectionOutlines();
         const selected = new Set(selectedIndices);
-        this.atomMeshes.children.forEach(mesh => {
-            if (mesh.userData.lockMarker || mesh.userData.index === undefined) return;
-            if (!this.atomTypeVisible(mesh.userData.index)) return;
-            if (!selected.has(mesh.userData.index)) return;
-
-            const radius = this.atomVisualRadius(mesh.userData.index);
+        selected.forEach(idx => {
+            const mesh = this.atomMeshByIndex.get(idx);
+            if (!mesh || !this.atomTypeVisible(idx)) return;
+            const radius = this.atomVisualRadius(idx);
             const outlineGeo = new THREE.SphereGeometry(radius * 1.18, 32, 18);
             const outlineMat = new THREE.MeshBasicMaterial({
                 color: 0xffc400,
@@ -1752,7 +2106,7 @@ export class ASERenderer {
             });
             const outline = new THREE.Mesh(outlineGeo, outlineMat);
             outline.position.copy(mesh.position);
-            outline.userData = { outlineFor: mesh.userData.index };
+            outline.userData = { outlineFor: idx };
             outline.renderOrder = 10;
             this.selectionOutlines.add(outline);
 
@@ -1767,7 +2121,7 @@ export class ASERenderer {
             const halo = new THREE.Mesh(haloGeo, haloMat);
             halo.position.copy(mesh.position);
             halo.lookAt(this.camera.position);
-            halo.userData = { outlineFor: mesh.userData.index, billboard: true };
+            halo.userData = { outlineFor: idx, billboard: true };
             halo.renderOrder = 11;
             this.selectionOutlines.add(halo);
         });

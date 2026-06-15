@@ -73,41 +73,66 @@ if FASTAPI_AVAILABLE:
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
-MAX_TRAJECTORY_CACHE_VALUES = 750_000
+MAX_INLINE_TRAJECTORY_CACHE_VALUES = 750_000
+MAX_BINARY_TRAJECTORY_CACHE_VALUES = 30_000_000
 
 
-def trajectory_position_cache(session: EditorSession):
+def trajectory_cacheable(session: EditorSession) -> bool:
     if session.frame_count <= 1:
-        return None
+        return False
     natoms = len(session.working_atoms)
-    if session.frame_count * natoms * 3 > MAX_TRAJECTORY_CACHE_VALUES:
-        return None
     base_labels = atom_type_labels(session.working_atoms)
     base_cell = np.asarray(session.working_atoms.cell.array)
     base_pbc = np.asarray(session.working_atoms.pbc, dtype=bool)
-    positions = []
     for frame in session.trajectory_frames:
         if len(frame) != natoms:
-            return None
+            return False
         if atom_type_labels(frame) != base_labels:
-            return None
+            return False
         if not np.array_equal(np.asarray(frame.pbc, dtype=bool), base_pbc):
-            return None
+            return False
         if not np.allclose(np.asarray(frame.cell.array), base_cell):
-            return None
+            return False
+    return True
+
+
+def trajectory_position_cache(session: EditorSession):
+    natoms = len(session.working_atoms)
+    if session.frame_count * natoms * 3 > MAX_INLINE_TRAJECTORY_CACHE_VALUES:
+        return None
+    if not trajectory_cacheable(session):
+        return None
+    positions = []
+    for frame in session.trajectory_frames:
         positions.append(frame.get_positions().tolist())
     return positions
 
 
-def session_atoms_to_json(session: EditorSession):
+def trajectory_position_array(session: EditorSession):
+    natoms = len(session.working_atoms)
+    value_count = session.frame_count * natoms * 3
+    if value_count > MAX_BINARY_TRAJECTORY_CACHE_VALUES:
+        return None
+    if not trajectory_cacheable(session):
+        return None
+    return np.asarray([frame.get_positions() for frame in session.trajectory_frames], dtype=np.float32)
+
+
+def session_atoms_to_json(session: EditorSession, include_inline_trajectory: bool = True):
     data = atoms_to_json(session.working_atoms)
     data["metadata"]["config"] = session.config
     data["metadata"]["frame_count"] = session.frame_count
     data["metadata"]["current_frame"] = session.current_frame
-    trajectory_positions = trajectory_position_cache(session)
+    trajectory_positions = trajectory_position_cache(session) if include_inline_trajectory else None
     data["metadata"]["trajectory_positions_cached"] = trajectory_positions is not None
     if trajectory_positions is not None:
         data["trajectory_positions"] = trajectory_positions
+    data["metadata"]["trajectory_positions_binary"] = (
+        trajectory_positions is None
+        and session.frame_count > 1
+        and session.frame_count * len(session.working_atoms) * 3 <= MAX_BINARY_TRAJECTORY_CACHE_VALUES
+        and trajectory_cacheable(session)
+    )
     return data
 
 
@@ -454,7 +479,7 @@ def delete_indices_from_atoms(atoms, delete_indices):
     return new_atoms
 
 
-def update_atom_type_labels(atoms, indices, label):
+def update_atom_type_labels(atoms, indices, label, base_symbol=None):
     indices = sorted({int(i) for i in indices})
     if not indices:
         return atoms.copy()
@@ -467,7 +492,7 @@ def update_atom_type_labels(atoms, indices, label):
     updated = atoms.copy()
     symbols = updated.get_chemical_symbols()
     type_labels = atom_type_labels(updated)
-    base_symbol = base_symbol_for_atom_type(normalized)
+    base_symbol = base_symbol_for_atom_type(base_symbol or normalized)
     for idx in indices:
         symbols[idx] = base_symbol
         type_labels[idx] = normalized
@@ -490,6 +515,23 @@ async def get_index():
 async def get_atoms(session_id: str):
     session = get_session(session_id)
     return session_atoms_to_json(session)
+
+
+@app.get("/api/trajectory/positions/{session_id}")
+async def get_trajectory_positions(session_id: str):
+    session = get_session(session_id)
+    array = trajectory_position_array(session)
+    if array is None:
+        raise HTTPException(status_code=404, detail="Trajectory position cache is not available for this session.")
+    return Response(
+        content=array.tobytes(order="C"),
+        media_type="application/octet-stream",
+        headers={
+            "X-V-Ase-Frames": str(array.shape[0]),
+            "X-V-Ase-Atoms": str(array.shape[1]),
+            "X-V-Ase-Dtype": "float32",
+        },
+    )
 
 
 @app.get("/api/session/active")
@@ -665,7 +707,8 @@ async def update_atom_types(session_id: str, payload: Dict[str, Any]):
 
     session.push_history()
     set_current_payload_positions(session, payload)
-    apply_all_frames(session, lambda atoms: update_atom_type_labels(atoms, indices, label))
+    base_symbol = payload.get("base_symbol")
+    apply_all_frames(session, lambda atoms: update_atom_type_labels(atoms, indices, label, base_symbol))
     return session_atoms_to_json(session)
 
 
@@ -677,7 +720,7 @@ async def set_frame(session_id: str, payload: Dict[str, Any]):
         session.set_frame(frame_index)
     except IndexError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return session_atoms_to_json(session)
+    return session_atoms_to_json(session, include_inline_trajectory=False)
 
 @app.post("/api/done/{session_id}")
 async def done(session_id: str, payload: Dict[str, Any]):

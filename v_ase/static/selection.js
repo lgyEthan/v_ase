@@ -20,9 +20,13 @@ export class ASESelection {
         this.raycaster.setFromCamera(mouse, this.renderer.camera);
         
         const intersects = this.raycaster.intersectObjects(atomGroup.children)
-            .filter(hit => hit.object.visible !== false && hit.object.userData.index !== undefined && !hit.object.userData.lockMarker);
+            .filter(hit => hit.object.visible !== false && !hit.object.userData.lockMarker);
         if (intersects.length > 0) {
-            return intersects[0].object.userData.index;
+            const hit = intersects[0];
+            if (hit.object.userData.instancedAtoms) {
+                return hit.object.userData.atomIndices?.[hit.instanceId] ?? null;
+            }
+            return hit.object.userData.index;
         }
         return this.nearestProjectedAtom(e, atomGroup);
     }
@@ -30,18 +34,17 @@ export class ASESelection {
     nearestProjectedAtom(e, atomGroup) {
         let best = null;
         const tolerance = 24;
-        atomGroup.children.forEach(mesh => {
-            if (mesh.userData.index === undefined || mesh.userData.lockMarker) return;
-            if (mesh.visible === false) return;
+        this.renderer.forEachAtomProxy((mesh, index) => {
+            if (mesh.visible === false || !this.renderer.atomTypeVisible(index)) return;
             const pos = new THREE.Vector3();
-            mesh.getWorldPosition(pos);
+            pos.copy(mesh.position);
             const screenPos = pos.project(this.renderer.camera);
             if (screenPos.z > 1 || screenPos.z < -1) return;
             const x = (screenPos.x + 1) / 2 * window.innerWidth;
             const y = -(screenPos.y - 1) / 2 * window.innerHeight;
             const dist = Math.hypot(e.clientX - x, e.clientY - y);
             if (dist <= tolerance && (!best || dist < best.dist)) {
-                best = { index: mesh.userData.index, dist };
+                best = { index, dist };
             }
         });
         if (best) return best.index;
@@ -51,11 +54,10 @@ export class ASESelection {
     boxSelect(rect, atomGroup, camera) {
         const selected = new Set();
         
-        atomGroup.children.forEach(mesh => {
-            if (mesh.userData.index === undefined || mesh.userData.lockMarker) return;
-            if (mesh.visible === false) return;
+        this.renderer.forEachAtomProxy((mesh, index) => {
+            if (mesh.visible === false || !this.renderer.atomTypeVisible(index)) return;
             const pos = new THREE.Vector3();
-            mesh.getWorldPosition(pos);
+            pos.copy(mesh.position);
             
             // Project to screen space
             const screenPos = pos.project(camera);
@@ -68,7 +70,7 @@ export class ASESelection {
             const y = -(screenPos.y - 1) / 2 * window.innerHeight;
 
             if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
-                selected.add(mesh.userData.index);
+                selected.add(index);
             }
         });
 

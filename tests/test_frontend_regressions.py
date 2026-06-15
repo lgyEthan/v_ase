@@ -12,10 +12,12 @@ from v_ase.server import (
     get_atoms,
     reset,
     session_atoms_to_json,
+    trajectory_position_array,
     undo,
     update_atom_types,
     value_error_handler,
 )
+import v_ase.server as server_module
 from v_ase.export import export_blender_response, export_pickle_response, export_poscar_response
 from v_ase.session import EditorSession, sessions
 
@@ -32,7 +34,7 @@ def test_static_version_strings_match_package_version():
     assert f'three.module.js?v={version}' in index_html
     assert f'main.js?v={version}' in index_html
     assert f'<span class="version">{version}</span>' in index_html
-    assert "0.0.16" not in index_html
+    assert "0.0.17" not in index_html
 
 
 def test_ui_button_api_endpoints_respond_without_network_server():
@@ -102,6 +104,29 @@ def test_trajectory_position_cache_is_only_sent_for_same_topology_frames():
 
     assert data["metadata"]["trajectory_positions_cached"] is False
     assert "trajectory_positions" not in data
+
+
+def test_large_trajectory_uses_binary_position_cache_metadata(monkeypatch):
+    monkeypatch.setattr(server_module, "MAX_INLINE_TRAJECTORY_CACHE_VALUES", 9)
+    first = molecule("H2O")
+    second = molecule("H2O")
+    second.positions += [0.25, 0.0, 0.0]
+    session = EditorSession(
+        "trajectory-binary-cache",
+        first.copy(),
+        first.copy(),
+        original_frames=[first.copy(), second.copy()],
+        trajectory_frames=[first.copy(), second.copy()],
+    )
+
+    data = session_atoms_to_json(session)
+    array = trajectory_position_array(session)
+
+    assert data["metadata"]["trajectory_positions_cached"] is False
+    assert data["metadata"]["trajectory_positions_binary"] is True
+    assert "trajectory_positions" not in data
+    assert array.shape == (2, len(first), 3)
+    assert array.dtype.name == "float32"
 
     session.trajectory_frames[1] = second.copy()
     session.trajectory_frames[1].set_cell([5, 5, 6])
@@ -300,13 +325,17 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "nameInput.disabled = this.state.vizOnly" not in main_js
     assert "canViewportSelectAtoms()" in main_js
     assert "this.canViewportSelectAtoms() && this.transform.mode === 'IDLE'" in main_js
-    assert "this.renderer.renameAtomType(oldSymbol, label, indices, this.state.display)" in main_js
+    assert "this.renderer.renameAtomType(oldSymbol, label, indices, this.state.display, base)" in main_js
+    assert "applySelectedTypeForVisualization" in main_js
     assert "selectElement(symbol)" in main_js
     assert "toggleElementSelection" in main_js
     assert "elementVisible" in renderer_js
     assert "atomTypeVisible" in renderer_js
-    assert "renameAtomType(oldSymbol, label, indices = [], displayOptions = null)" in renderer_js
+    assert "renameAtomType(oldSymbol, label, indices = [], displayOptions = null, baseSymbol = null)" in renderer_js
     assert "refreshAtomAppearance(indices)" in renderer_js
+    assert "rebuildInstancedAtoms" in renderer_js
+    assert "inferBondPairsCellList" in renderer_js
+    assert "0.6 * (vi + vj)" in renderer_js
     assert "this.displayOptions.vizOnly ? new Set()" in renderer_js
     assert "const supercellChanged" in renderer_js
     assert "if (supercellChanged) this.rebuildSupercell()" in renderer_js
