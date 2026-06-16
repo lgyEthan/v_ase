@@ -14,6 +14,7 @@ class EditorSession:
     result_atoms: Optional[Atoms] = None
     original_frames: List[Atoms] = field(default_factory=list)
     trajectory_frames: List[Atoms] = field(default_factory=list)
+    trajectory_source: Any = None
     current_frame: int = 0
     
     # State
@@ -48,14 +49,15 @@ class EditorSession:
             self.original_frames = [self.original_atoms.copy()]
             if self.original_atoms.calc:
                 self.original_frames[0].calc = copy_calculator(self.original_atoms.calc)
-        if not self.trajectory_frames:
+        if self.trajectory_source is None and not self.trajectory_frames:
             self.trajectory_frames = [self.working_atoms.copy()]
             if self.working_atoms.calc:
                 self.trajectory_frames[0].calc = copy_calculator(self.working_atoms.calc)
         for frame in self.original_frames:
             ensure_default_calculator(frame)
-        for frame in self.trajectory_frames:
-            ensure_default_calculator(frame)
+        if self.trajectory_source is None:
+            for frame in self.trajectory_frames:
+                ensure_default_calculator(frame)
 
     def push_history(self):
         """Save current state to history for Undo."""
@@ -105,9 +107,13 @@ class EditorSession:
 
     @property
     def frame_count(self) -> int:
+        if self.trajectory_source is not None:
+            return int(self.trajectory_source.frame_count)
         return len(self.trajectory_frames)
 
     def sync_current_frame(self):
+        if self.trajectory_source is not None:
+            return
         if not self.trajectory_frames:
             return
         self.trajectory_frames[self.current_frame] = self.working_atoms.copy()
@@ -115,6 +121,16 @@ class EditorSession:
             self.trajectory_frames[self.current_frame].calc = copy_calculator(self.working_atoms.calc)
 
     def set_frame(self, frame_index: int) -> Atoms:
+        if self.trajectory_source is not None:
+            if frame_index < 0 or frame_index >= self.frame_count:
+                raise IndexError(f"Frame index {frame_index} is out of range")
+            self.current_frame = frame_index
+            self.working_atoms = self.trajectory_source.read_atoms(frame_index)
+            if self.original_atoms.calc:
+                self.working_atoms.calc = copy_calculator(self.original_atoms.calc)
+            else:
+                ensure_default_calculator(self.working_atoms)
+            return self.working_atoms
         if not self.trajectory_frames:
             return self.working_atoms
         if frame_index < 0 or frame_index >= len(self.trajectory_frames):
@@ -128,6 +144,9 @@ class EditorSession:
         return self.working_atoms
 
     def reset_current_frame(self):
+        if self.trajectory_source is not None:
+            self.set_frame(self.current_frame)
+            return
         source = self.original_frames[self.current_frame] if self.current_frame < len(self.original_frames) else self.original_atoms
         self.working_atoms = source.copy()
         if source.calc:
@@ -138,6 +157,9 @@ class EditorSession:
 
     def reset_all_frames(self):
         """Restore every trajectory frame to the originally loaded coordinates/cell."""
+        if self.trajectory_source is not None:
+            self.set_frame(self.current_frame)
+            return
         if self.original_frames:
             self.trajectory_frames = [copy_atoms_with_calc(frame) for frame in self.original_frames]
         else:

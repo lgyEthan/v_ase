@@ -57,6 +57,11 @@ OVITO-style timeline panel with previous/next, play/pause, frame slider, FPS,
 and frame skip controls. Skip advances by `skip + 1` frames per playback tick,
 so `0` means no skipped frames.
 
+In `--viz-only`, large numeric LAMMPS text dumps use an offset-indexed virtual
+trajectory path. v_ase parses the first frame into ASE, keeps the remaining
+frames as file offsets, and serves frame changes as binary float32 coordinates
+instead of rebuilding every frame as a full ASE object.
+
 ### File Type and Label Handling
 The CLI accepts ASE-readable formats plus v_ase-specific helpers for custom
 labels. extxyz labels such as `H_type5` are preserved as GUI labels while being
@@ -74,8 +79,8 @@ blindly copied.
 
 ### ASE Constraint Compatibility
 The visualizer respects ASE constraints:
-- **FixAtoms**: Atoms marked as fixed cannot be moved or rotated and are shown by a darker matte material on the atom itself, with normal depth occlusion and no extra see-through marker.
-- **FixedLine / FixedPlane**: Selected atoms move only along the line or inside the plane. Guides are selected-only: FixedLine uses a thin fading axis, and FixedPlane uses a translucent soft-edge plane.
+- **FixAtoms**: Atoms marked as fixed cannot be moved or rotated and are shown by a micro-etched atom material shader on the atom itself, with normal depth occlusion and no extra see-through marker.
+- **FixedLine / FixedPlane**: Selected atoms move only along the line or inside the plane. Guides are selected-only: FixedLine uses a thin fading axis, and FixedPlane uses a translucent plane with perimeter, crosshair, and normal tick.
 - **Show Overlays**: A viewport toggle hides selection outlines, selected constraint guides, Hookean overlays, and fixed-atom material marking when users need a clean structure view.
 - **Interactive constraints**: The Constraints panel can apply or clear `FixAtoms`, `FixedLine`, and `FixedPlane` for the selected atoms.
 - **Set Positions**: The backend uses `atoms.set_positions(..., apply_constraint=True)`, ensuring that even if the UI sends a move, ASE will enforce the physical constraints.
@@ -85,6 +90,7 @@ The visualizer respects ASE constraints:
 - **Frontend**: A single-page application built with **Three.js**. It uses `Raycaster` for selection and a state-machine for transformations.
 - **Communication**: JSON-over-HTTP for editing/export plus WebSockets for live relaxation updates.
     - `GET /api/atoms/{session_id}`: Fetches the current atoms state.
+    - `GET /api/frame/positions/{session_id}/{frame_index}`: Fetches one virtual LAMMPS trajectory frame as binary float32 positions.
     - `POST /api/apply/{session_id}`: Applies new coordinates through ASE constraint logic.
     - `POST /api/add/{session_id}`: Appends atoms for paste operations.
     - `POST /api/delete/{session_id}`: Deletes selected atoms and remaps constraints.

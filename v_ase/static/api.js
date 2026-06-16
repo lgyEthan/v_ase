@@ -490,6 +490,34 @@ export class ASEApi {
         return { frames, atoms, values };
     }
 
+    async fetchFramePositions(index) {
+        const apiPath = this.sessionPath(`/api/frame/positions/{session_id}/${index}`);
+        const res = await fetch(new URL(apiPath, this.baseUrl));
+        if (!res.ok) {
+            let message = '';
+            try {
+                const data = await res.json();
+                message = data.detail || JSON.stringify(data);
+            } catch {
+                message = await res.text().catch(() => '');
+            }
+            throw new Error(message || `Frame position request failed (${res.status})`);
+        }
+        const frame = parseInt(res.headers.get('X-V-Ase-Frame') || `${index}`, 10);
+        const frames = parseInt(res.headers.get('X-V-Ase-Frames') || '0', 10);
+        const atoms = parseInt(res.headers.get('X-V-Ase-Atoms') || '0', 10);
+        let cell = null;
+        let pbc = null;
+        try { cell = JSON.parse(res.headers.get('X-V-Ase-Cell') || 'null'); } catch { cell = null; }
+        try { pbc = JSON.parse(res.headers.get('X-V-Ase-Pbc') || 'null'); } catch { pbc = null; }
+        const buffer = await res.arrayBuffer();
+        const values = new Float32Array(buffer);
+        if (!atoms || values.length !== atoms * 3) {
+            throw new Error('Frame position payload shape does not match the loaded structure.');
+        }
+        return { frame, frames, atoms, values, cell, pbc };
+    }
+
     async fetchActiveSession() {
         const data = await this.request('/api/session/active', {}, { needsSession: false });
         if (!data.session_id) {

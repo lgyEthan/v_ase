@@ -106,7 +106,9 @@ def view(
     allow_relax: bool = True,
     viz_only: bool = False,
     theme: str = "auto",
-    return_mode: str = "atoms"
+    return_mode: str = "atoms",
+    trajectory_source=None,
+    initial_frame: int = 0,
 ) -> Union[Atoms, ASEEditor, None]:
     """
     Open the v_ase structure viewer/editor.
@@ -136,6 +138,8 @@ def view(
         working_atoms=working_atoms,
         original_frames=original_frames,
         trajectory_frames=working_frames,
+        trajectory_source=trajectory_source,
+        current_frame=int(initial_frame),
         config={
             "show_cell": show_cell,
             "show_axes": show_axes,

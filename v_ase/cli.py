@@ -10,7 +10,12 @@ from importlib.metadata import PackageNotFoundError, version
 
 from ase.io import read, write
 
-from v_ase.io import read_custom_extxyz, read_custom_lammps_data, read_custom_lammps_dump
+from v_ase.io import (
+    read_custom_extxyz,
+    read_custom_lammps_data,
+    read_custom_lammps_dump,
+    read_fast_lammps_dump,
+)
 from v_ase.viewer import view
 
 
@@ -46,7 +51,7 @@ def package_version() -> str:
     try:
         return version("v_ase-gui")
     except PackageNotFoundError:
-        return "0.0.26"
+        return "0.0.28"
 
 
 def resolve_input_format(fmt: str | None) -> str | None:
@@ -152,7 +157,22 @@ def run_gui(args: argparse.Namespace) -> int:
     if not path.exists():
         raise SystemExit(f"v_ase: file not found: {path}")
 
-    frames = _read_frames(path, args.index, args.format)
+    resolved_format = resolve_input_format(args.format)
+    suffix = path.suffix.lower()
+    trajectory_source = None
+    initial_frame = 0
+    is_lammps_dump = resolved_format == "lammps-dump-text" or (args.format is None and suffix in {".lammpstrj", ".dump"})
+    if args.viz_only and is_lammps_dump:
+        try:
+            fast = read_fast_lammps_dump(path, args.index)
+            frames = [fast.atoms]
+            trajectory_source = fast.trajectory
+            initial_frame = fast.initial_frame
+        except ValueError as exc:
+            print(f"v_ase: fast LAMMPS loader unavailable ({exc}); falling back to ASE-compatible loader.", file=sys.stderr)
+            frames = _read_frames(path, args.index, args.format)
+    else:
+        frames = _read_frames(path, args.index, args.format)
     if not frames:
         raise SystemExit(f"v_ase: no frames found in {path}")
 
@@ -164,6 +184,8 @@ def run_gui(args: argparse.Namespace) -> int:
         show_axes=not args.hide_axes,
         show_bonds=args.show_bonds,
         viz_only=args.viz_only,
+        trajectory_source=trajectory_source,
+        initial_frame=initial_frame,
     )
 
     if args.no_block:

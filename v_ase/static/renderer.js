@@ -381,6 +381,27 @@ export class ASERenderer {
                     }
                 `
             }),
+            planePerimeter: new THREE.MeshBasicMaterial({
+                color: 0x66f2d5,
+                transparent: true,
+                opacity: 0.58,
+                depthTest: true,
+                depthWrite: false
+            }),
+            planeCrosshair: new THREE.MeshBasicMaterial({
+                color: 0xd7fff5,
+                transparent: true,
+                opacity: 0.62,
+                depthTest: true,
+                depthWrite: false
+            }),
+            planeNormal: new THREE.MeshBasicMaterial({
+                color: 0xffc857,
+                transparent: true,
+                opacity: 0.92,
+                depthTest: true,
+                depthWrite: false
+            }),
             hookean: new THREE.MeshBasicMaterial({
                 color: 0xff9f43,
                 transparent: true,
@@ -486,8 +507,54 @@ export class ASERenderer {
         if (!isFixed) {
             return { color: base, roughness: 0.42, metalness: 0.08 };
         }
-        const matte = base.clone().multiplyScalar(0.80);
-        return { color: matte, roughness: 0.96, metalness: 0.0 };
+        return { color: base, roughness: 0.92, metalness: 0.0 };
+    }
+
+    createAtomMaterial(color, isFixed = false) {
+        const spec = this.atomMaterialSpec(color, isFixed);
+        const material = new THREE.MeshStandardMaterial({
+            color: spec.color,
+            roughness: spec.roughness,
+            metalness: spec.metalness,
+            transparent: false,
+            opacity: 1.0
+        });
+        if (isFixed) this.applyFixedAtomEtchedShader(material);
+        return material;
+    }
+
+    applyFixedAtomEtchedShader(material) {
+        if (!material || material.userData?.fixedEtchedApplied) return material;
+        material.userData.fixedEtchedApplied = true;
+        material.onBeforeCompile = (shader) => {
+            shader.fragmentShader = shader.fragmentShader.replace(
+                '#include <color_fragment>',
+                `
+                #include <color_fragment>
+                vec3 etchedN = normalize(vNormal);
+                float etchedTheta = atan(etchedN.z, etchedN.x) / 6.28318530718 + 0.5;
+                float etchedPhi = asin(clamp(etchedN.y, -1.0, 1.0)) / 3.14159265359 + 0.5;
+                float etchedLineA = abs(fract(etchedTheta * 18.0) - 0.5);
+                float etchedLineB = abs(fract(etchedPhi * 13.0 + etchedTheta * 0.5) - 0.5);
+                float etchedGrid = 1.0 - smoothstep(0.018, 0.052, min(etchedLineA, etchedLineB));
+                vec2 etchedCell = fract(vec2(etchedTheta * 12.0 + etchedPhi * 2.0, etchedPhi * 14.0) + vec2(0.5, 0.0)) - 0.5;
+                float etchedDimple = 1.0 - smoothstep(0.10, 0.23, length(etchedCell));
+                float etchedMask = clamp(etchedGrid * 0.72 + etchedDimple * 0.22, 0.0, 1.0);
+                diffuseColor.rgb *= mix(1.0, 0.58, etchedMask);
+                diffuseColor.rgb += vec3(0.035) * (1.0 - etchedMask);
+                `
+            );
+            shader.fragmentShader = shader.fragmentShader.replace(
+                '#include <roughnessmap_fragment>',
+                `
+                #include <roughnessmap_fragment>
+                roughnessFactor = min(1.0, roughnessFactor + 0.18);
+                `
+            );
+        };
+        material.customProgramCacheKey = () => 'v-ase-fixed-micro-etched-v1';
+        material.needsUpdate = true;
+        return material;
     }
 
     fixedAdjustedColor(color, isFixed = false) {
@@ -710,14 +777,7 @@ export class ASERenderer {
             }
             const materialKey = `${color}:${isFixed ? 'fixed' : 'normal'}:${segmentCount}`;
             if (!this.materialCache.has(materialKey)) {
-                const spec = this.atomMaterialSpec(color, isFixed);
-                this.materialCache.set(materialKey, new THREE.MeshStandardMaterial({
-                    color: spec.color,
-                    roughness: spec.roughness,
-                    metalness: spec.metalness,
-                    transparent: false,
-                    opacity: 1.0
-                }));
+                this.materialCache.set(materialKey, this.createAtomMaterial(color, isFixed));
             }
             const geo = this.geometryCache.get(geometryKey);
             const mat = this.materialCache.get(materialKey);
@@ -777,11 +837,13 @@ export class ASERenderer {
                 );
             }
             if (!this.materialCache.has(group.materialKey)) {
-                this.materialCache.set(group.materialKey, new THREE.MeshStandardMaterial({
+                const material = new THREE.MeshStandardMaterial({
                     color: 0xffffff,
                     roughness: group.fixed ? 0.96 : 0.54,
                     metalness: group.fixed ? 0.0 : 0.04
-                }));
+                });
+                if (group.fixed) this.applyFixedAtomEtchedShader(material);
+                this.materialCache.set(group.materialKey, material);
             }
             const mesh = new THREE.InstancedMesh(
                 this.geometryCache.get(group.geometryKey),
@@ -1207,14 +1269,7 @@ export class ASERenderer {
             }
             const materialKey = `${color}:${isFixed ? 'fixed' : 'normal'}:${segmentCount}`;
             if (!this.materialCache.has(materialKey)) {
-                const spec = this.atomMaterialSpec(color, isFixed);
-                this.materialCache.set(materialKey, new THREE.MeshStandardMaterial({
-                    color: spec.color,
-                    roughness: spec.roughness,
-                    metalness: spec.metalness,
-                    transparent: false,
-                    opacity: 1.0
-                }));
+                this.materialCache.set(materialKey, this.createAtomMaterial(color, isFixed));
             }
             mesh.geometry = this.geometryCache.get(geometryKey);
             mesh.material = this.materialCache.get(materialKey);
@@ -1727,6 +1782,46 @@ export class ASERenderer {
         plane.userData.sharedMaterial = true;
         plane.renderOrder = 16;
         group.add(plane);
+
+        const half = guideSize * 0.5;
+        const cross = guideSize * 0.34;
+        const edgeRadius = Math.max(0.008, guideSize * 0.0016);
+        const crossRadius = Math.max(0.010, guideSize * 0.0018);
+        const normalRadius = Math.max(0.012, guideSize * 0.0021);
+        const edges = [
+            [[-half, -half, 0.002], [half, -half, 0.002]],
+            [[half, -half, 0.002], [half, half, 0.002]],
+            [[half, half, 0.002], [-half, half, 0.002]],
+            [[-half, half, 0.002], [-half, -half, 0.002]]
+        ];
+        edges.forEach((edge, edgeIndex) => {
+            const line = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.planePerimeter);
+            line.userData = { sharedMaterial: true, fixedPlanePerimeter: true };
+            this.setLinePoints(line, edge.map(p => new THREE.Vector3(...p)), `fixedPlaneEdge${edgeIndex}`, edgeRadius);
+            line.renderOrder = 18;
+            group.add(line);
+        });
+
+        [
+            [[-cross, 0, 0.006], [cross, 0, 0.006]],
+            [[0, -cross, 0.006], [0, cross, 0.006]]
+        ].forEach((axis, axisIndex) => {
+            const line = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.planeCrosshair);
+            line.userData = { sharedMaterial: true, fixedPlaneCrosshair: true };
+            this.setLinePoints(line, axis.map(p => new THREE.Vector3(...p)), `fixedPlaneCrosshair${axisIndex}`, crossRadius);
+            line.renderOrder = 19;
+            group.add(line);
+        });
+
+        const tickLength = Math.max(0.9, Math.min(2.4, guideSize * 0.085));
+        const normalTick = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.planeNormal);
+        normalTick.userData = { sharedMaterial: true, fixedPlaneNormalTick: true };
+        this.setLinePoints(normalTick, [
+            new THREE.Vector3(0, 0, 0.08),
+            new THREE.Vector3(0, 0, tickLength)
+        ], 'fixedPlaneNormalTick', normalRadius);
+        normalTick.renderOrder = 20;
+        group.add(normalTick);
 
         group.position.copy(atom.position).addScaledVector(normal, -planeOffset);
         group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);

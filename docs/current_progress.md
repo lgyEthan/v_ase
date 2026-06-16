@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.26`.
+Last synchronized with implementation: `v_ase-gui 0.0.28`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -112,9 +112,9 @@ Structures are serialized into a rich JSON format:
 
 ## 7. ASE Constraints
 The editor currently supports:
-1.  **FixAtoms**: Visualized by changing the atom material itself to a darker, high-roughness matte state; movement blocked.
+1.  **FixAtoms**: Visualized by changing the atom material itself to a micro-etched shader texture; movement blocked.
 2.  **FixCartesian**: Backend-enforced during movement.
-3.  **FixedLine / FixedPlane**: Backend-enforced via `set_positions(apply_constraint=True)`. These constraints keep the viewport clean until selected, then show minimal CAD-style line/soft-plane guides.
+3.  **FixedLine / FixedPlane**: Backend-enforced via `set_positions(apply_constraint=True)`. These constraints keep the viewport clean until selected, then show minimal CAD-style line/plane guides. FixedPlane uses a soft transparent plane plus perimeter, crosshair, and normal tick.
 4.  **FixScaled**: Serialized and handled as an ASE constraint in backend coordinate application.
 5.  **Hookean**: Visualized as a threshold-aware latch/spring; inactive and active states are shown based on current distance and `rt`.
 
@@ -132,10 +132,10 @@ The editor currently supports:
 ## 9. Fixed Atom Visualization
 Fixed atoms use the atom mesh itself as the visual carrier; no separate hatch,
 ring, or always-on overlay geometry is drawn.
-*   **Material State**: Fixed atoms keep their radius and base hue, but render darker with high roughness and no metallic highlight. This reads as immobile matter without looking like selection.
+*   **Material State**: Fixed atoms keep their radius and base hue, but use a micro-etched shader pattern with increased roughness. This reads as a material/constraint state without looking like selection.
 *   **Depth Behavior**: The fixed-atom state is not a see-through overlay and is occluded normally by other atoms.
 *   **Constraint Integrity**: Fixed atoms can be selected, but transform previews and final backend application do not move them.
-*   **Selected Guides Only**: FixedLine and FixedPlane guides are drawn only for selected atoms. FixedLine uses a thin fading axis; FixedPlane uses a translucent soft-edge plane.
+*   **Selected Guides Only**: FixedLine and FixedPlane guides are drawn only for selected atoms. FixedLine uses a thin fading axis; FixedPlane uses a translucent soft-edge plane, thin bounding perimeter, central crosshair, and short normal marker.
 *   **Global Overlay Toggle**: `Show Overlays` hides selection outlines, selected constraint guides, Hookean overlays, and fixed-atom material marking for clean structure inspection or figure capture.
 
 ---
@@ -264,8 +264,21 @@ possible, and update the frontend state. This behavior is covered by
 
 ---
 
-## 24. Backend Endpoints
+## 24. Large Viz-Only Trajectories
+For `--viz-only` LAMMPS text dumps (`.lammpstrj` / `.dump`), v_ase does not build an ASE `Atoms` object for every frame during startup. The optimized path:
+*   Builds a compact byte-offset index for all frames.
+*   Parses the first visible frame into a normal ASE `Atoms` object.
+*   Keeps the remaining frames as a virtual trajectory source.
+*   Serves frame changes through a binary float32 position endpoint instead of JSON arrays.
+
+This preserves the ASE bridge for the current frame while avoiding the startup and memory cost of materializing thousands of full ASE frames. The benchmark case
+`side_project/bigger_atoms/efield_all.lammpstrj` (15,333 atoms, 1,051 frames, 1.1 GB) opens in under 5 seconds on the local test machine.
+
+---
+
+## 25. Backend Endpoints
 *   `GET /api/atoms/{session_id}`: Fetch structure + metadata.
+*   `GET /api/frame/positions/{session_id}/{frame_index}`: Fetch one virtual trajectory frame as binary float32 positions.
 *   `POST /api/constrain/{session_id}`: Calculate constraint-corrected positions.
 *   `POST /api/apply/{session_id}`: Commit positions to history.
 *   `POST /api/add/{session_id}`: Append atoms for paste operations.
@@ -282,27 +295,28 @@ possible, and update the frontend state. This behavior is covered by
 
 ---
 
-## 25. Session Management
+## 26. Session Management
 Each editor instance is assigned a unique `UUID` session. Multiple editors can run simultaneously on different ports/endpoints without state collision.
 
 ---
 
-## 26. Implementation Status
+## 27. Implementation Status
 *   [x] **Phase 1-3**: Basic Viewer, Editing, Constraints (Completed).
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (updated for 0.0.26).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (updated for 0.0.28).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, `--viz-only`, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
 *   [x] **Phase 14**: Public ASE calculator import API for the default repulsion model.
 *   [x] **Phase 15**: Top-bar cleanup and interactive selected-atom constraint editing.
+*   [x] **Phase 16**: Micro-etched FixAtoms material, bounded FixedPlane guide, and fast virtual LAMMPS trajectory loading for `--viz-only`.
 *   [ ] **Planned**: Click-to-place atom insertion.
 
 ---
 
-## 27. Prohibited Implementations
+## 28. Prohibited Implementations
 *   **NO** camera rotation on Left Drag.
 *   **NO** client-side-only constraints (always sync with ASE backend).
 *   **NO** continuous bond recalculation during movement (must stretch).

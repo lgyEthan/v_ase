@@ -35,7 +35,7 @@ def test_static_version_strings_match_package_version():
     assert f'three.module.js?v={version}' in index_html
     assert f'main.js?v={version}' in index_html
     assert f'<span class="version">{version}</span>' in index_html
-    assert "0.0.27" not in index_html
+    assert "0.0.29" not in index_html
 
 
 def test_ui_button_api_endpoints_respond_without_network_server():

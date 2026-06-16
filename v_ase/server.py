@@ -2,6 +2,7 @@ import os
 import threading
 import asyncio
 import pickle
+import json
 from typing import Dict, Any, List
 from .session import EditorSession, get_session, sessions
 from .serialization import atoms_to_json
@@ -80,6 +81,8 @@ MAX_BINARY_TRAJECTORY_CACHE_VALUES = 30_000_000
 
 
 def trajectory_cacheable(session: EditorSession) -> bool:
+    if session.trajectory_source is not None:
+        return False
     if session.frame_count <= 1:
         return False
     natoms = len(session.working_atoms)
@@ -125,6 +128,7 @@ def session_atoms_to_json(session: EditorSession, include_inline_trajectory: boo
     data["metadata"]["config"] = session.config
     data["metadata"]["frame_count"] = session.frame_count
     data["metadata"]["current_frame"] = session.current_frame
+    data["metadata"]["virtual_trajectory"] = session.trajectory_source is not None
     data["metadata"]["calculator_details"] = repulsion_metadata(session.working_atoms.calc)
     if is_vase_repulsion_calculator(session.working_atoms.calc):
         data["metadata"]["calculator"] = "Repulsion"
@@ -321,6 +325,9 @@ def set_current_payload_positions(session: EditorSession, payload: Dict[str, Any
 
 
 def refresh_working_frame(session: EditorSession):
+    if session.trajectory_source is not None:
+        session.set_frame(session.current_frame)
+        return
     session.working_atoms = session.trajectory_frames[session.current_frame].copy()
     if session.trajectory_frames[session.current_frame].calc:
         session.working_atoms.calc = copy_calculator(session.trajectory_frames[session.current_frame].calc)
@@ -625,6 +632,35 @@ async def get_trajectory_positions(session_id: str):
     )
 
 
+@app.get("/api/frame/positions/{session_id}/{frame_index}")
+async def get_frame_positions(session_id: str, frame_index: int):
+    session = get_session(session_id)
+    if session.trajectory_source is None:
+        raise HTTPException(status_code=404, detail="Virtual trajectory positions are not available for this session.")
+    try:
+        positions = session.trajectory_source.read_positions(frame_index)
+    except IndexError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    session.current_frame = int(frame_index)
+    session.working_atoms.set_positions(positions, apply_constraint=False)
+    cell = np.asarray(session.trajectory_source.cells[frame_index], dtype=float)
+    pbc = np.asarray(session.trajectory_source.pbc[frame_index], dtype=bool)
+    session.working_atoms.set_cell(cell)
+    session.working_atoms.set_pbc(pbc)
+    return Response(
+        content=np.asarray(positions, dtype=np.float32).tobytes(order="C"),
+        media_type="application/octet-stream",
+        headers={
+            "X-V-Ase-Frame": str(frame_index),
+            "X-V-Ase-Frames": str(session.frame_count),
+            "X-V-Ase-Atoms": str(len(session.working_atoms)),
+            "X-V-Ase-Dtype": "float32",
+            "X-V-Ase-Cell": json.dumps(cell.tolist(), separators=(",", ":")),
+            "X-V-Ase-Pbc": json.dumps(pbc.tolist(), separators=(",", ":")),
+        },
+    )
+
+
 @app.get("/api/session/active")
 async def active_session():
     if len(sessions) != 1:
@@ -854,6 +890,18 @@ async def set_frame(session_id: str, payload: Dict[str, Any]):
         session.set_frame(frame_index)
     except IndexError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if session.trajectory_source is not None:
+        return {
+            "positions": session.working_atoms.get_positions().astype(float).tolist(),
+            "cell": np.asarray(session.working_atoms.cell.array, dtype=float).tolist(),
+            "pbc": np.asarray(session.working_atoms.pbc, dtype=bool).tolist(),
+            "metadata": {
+                "positions_only": True,
+                "frame_count": session.frame_count,
+                "current_frame": session.current_frame,
+                "virtual_trajectory": True,
+            },
+        }
     return session_atoms_to_json(session, include_inline_trajectory=False)
 
 @app.post("/api/done/{session_id}")

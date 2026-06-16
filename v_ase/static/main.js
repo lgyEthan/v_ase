@@ -513,6 +513,15 @@ class VAseApp {
         return positions;
     }
 
+    materializeFlatFrame(values, atoms) {
+        const positions = new Array(atoms);
+        for (let i = 0; i < atoms; i++) {
+            const base = i * 3;
+            positions[i] = [values[base], values[base + 1], values[base + 2]];
+        }
+        return positions;
+    }
+
     pruneSelection() {
         const count = this.state.atoms?.positions?.length || 0;
         this.state.selected.forEach(idx => {
@@ -2735,6 +2744,39 @@ class VAseApp {
 
     async loadFrame(index) {
         if (this.transform.mode !== 'IDLE') this.cancelTransform();
+        const meta = this.state.atoms?.metadata || {};
+
+        if (meta.virtual_trajectory) {
+            const count = meta.frame_count || 1;
+            const normalized = Math.max(0, Math.min(count - 1, parseInt(index, 10) || 0));
+            const frame = await this.api.fetchFramePositions(normalized);
+            if (frame.atoms !== this.state.atoms.positions.length) {
+                throw new Error('Frame atom count does not match the loaded structure.');
+            }
+            this.state.atoms.metadata.current_frame = frame.frame;
+            this.state.atoms.metadata.frame_count = frame.frames || count;
+            if (Array.isArray(frame.cell)) {
+                const oldCell = JSON.stringify(this.state.atoms.cell || []);
+                const newCell = JSON.stringify(frame.cell);
+                this.state.atoms.cell = frame.cell;
+                this.renderer.atomsData.cell = frame.cell;
+                if (oldCell !== newCell) {
+                    this.renderer.rebuildCell(frame.cell);
+                    this.renderer.rebuildSupercell();
+                }
+            }
+            if (Array.isArray(frame.pbc)) this.state.atoms.pbc = frame.pbc;
+            this.renderer.updatePositionsFlat(frame.values, 0, frame.atoms);
+            if (this.state.trajectoryTimer) {
+                this.updateTrajectoryUI();
+            } else {
+                const positions = this.materializeFlatFrame(frame.values, frame.atoms);
+                this.state.atoms.positions = positions;
+                this.state.originalPositions = this.state.vizOnly ? positions : positions.map(p => [...p]);
+                this.updateUI();
+            }
+            return;
+        }
 
         if (this.state.atoms?.trajectory_positions) {
             const count = this.state.atoms.metadata.frame_count || 1;
@@ -2772,6 +2814,30 @@ class VAseApp {
         }
 
         const data = await this.api.setFrame(index);
+        if (data?.metadata?.positions_only && Array.isArray(data.positions)) {
+            this.state.atoms.metadata.current_frame = data.metadata.current_frame;
+            this.state.atoms.metadata.frame_count = data.metadata.frame_count || this.state.atoms.metadata.frame_count;
+            this.state.atoms.positions = data.positions;
+            this.state.originalPositions = this.state.vizOnly ? data.positions : data.positions.map(p => [...p]);
+            if (Array.isArray(data.cell)) {
+                const oldCell = JSON.stringify(this.state.atoms.cell || []);
+                const newCell = JSON.stringify(data.cell);
+                this.state.atoms.cell = data.cell;
+                this.renderer.atomsData.cell = data.cell;
+                if (oldCell !== newCell) {
+                    this.renderer.rebuildCell(data.cell);
+                    this.renderer.rebuildSupercell();
+                }
+            }
+            if (Array.isArray(data.pbc)) this.state.atoms.pbc = data.pbc;
+            this.renderer.updatePositions(this.state.atoms.positions);
+            if (this.state.trajectoryTimer) {
+                this.updateTrajectoryUI();
+            } else {
+                this.updateUI();
+            }
+            return;
+        }
         this.setAtomsData(data, { clearSelection: true });
     }
 
@@ -2829,7 +2895,11 @@ class VAseApp {
             this.state.trajectoryTimer = null;
             this.updateTrajectoryUI();
             if (this.state.atoms?.metadata?.current_frame !== undefined) {
-                this.api.setFrame(this.state.atoms.metadata.current_frame).catch(err => console.warn("Failed to sync frame", err));
+                if (this.state.atoms.metadata.virtual_trajectory) {
+                    this.loadFrame(this.state.atoms.metadata.current_frame).catch(err => console.warn("Failed to sync frame", err));
+                } else {
+                    this.api.setFrame(this.state.atoms.metadata.current_frame).catch(err => console.warn("Failed to sync frame", err));
+                }
             }
         }
     }

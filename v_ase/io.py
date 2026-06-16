@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
@@ -14,6 +15,122 @@ from ase.io.formats import string2index
 from ase.io.lammpsdata import read_lammps_data
 
 ATOM_TYPE_ARRAY = "v_ase_atom_type"
+
+
+@dataclass
+class FastLammpsDumpTrajectory:
+    """Offset-indexed LAMMPS dump reader for large viz-only trajectories."""
+
+    path: str
+    natoms: int
+    columns: list[str]
+    atom_offsets: list[int]
+    timesteps: list[int]
+    cells: np.ndarray
+    pbc: np.ndarray
+    position_columns: tuple[int, int, int]
+    scaled_positions: bool = False
+    template_atoms: Atoms | None = None
+    id_column: int | None = None
+    type_column: int | None = None
+    mol_column: int | None = None
+    charge_column: int | None = None
+    force_columns: tuple[int, int, int] | None = None
+    mass_column: int | None = None
+    _id_order: np.ndarray | None = field(default=None, repr=False)
+    _ids_are_sorted: bool = True
+
+    @property
+    def frame_count(self) -> int:
+        return len(self.atom_offsets)
+
+    def _read_numeric_table(self, frame_index: int) -> np.ndarray:
+        if frame_index < 0 or frame_index >= self.frame_count:
+            raise IndexError(f"Frame index {frame_index} is out of range")
+        with open(self.path, "rb", buffering=1024 * 1024) as handle:
+            handle.seek(self.atom_offsets[frame_index])
+            block = b"".join(handle.readline() for _ in range(self.natoms))
+        values = np.fromstring(block, sep=" ", dtype=np.float32)
+        expected = self.natoms * len(self.columns)
+        if values.size != expected:
+            raise ValueError(
+                f"Fast LAMMPS parser expected {expected} numeric values in frame {frame_index}, "
+                f"got {values.size}."
+            )
+        table = values.reshape(self.natoms, len(self.columns))
+        if self.id_column is not None:
+            ids = table[:, self.id_column].astype(np.int64, copy=False)
+            if self._id_order is None:
+                self._ids_are_sorted = bool(np.all(ids[:-1] <= ids[1:]))
+                if not self._ids_are_sorted:
+                    order = np.argsort(ids, kind="stable")
+                    table = table[order]
+                    ids = table[:, self.id_column].astype(np.int64, copy=False)
+                self._id_order = ids.copy()
+            elif not self._ids_are_sorted or not np.array_equal(ids, self._id_order):
+                order = np.argsort(ids, kind="stable")
+                table = table[order]
+                ids = table[:, self.id_column].astype(np.int64, copy=False)
+                if not np.array_equal(ids, self._id_order):
+                    raise ValueError("LAMMPS dump atom ids changed between frames; virtual trajectory cannot preserve atom identity.")
+        return table
+
+    def _positions_from_table(self, table: np.ndarray, frame_index: int) -> np.ndarray:
+        raw = table[:, self.position_columns].astype(np.float32, copy=True)
+        if self.scaled_positions:
+            raw = raw @ self.cells[frame_index].astype(np.float32, copy=False)
+        return raw
+
+    def read_positions(self, frame_index: int) -> np.ndarray:
+        return self._positions_from_table(self._read_numeric_table(frame_index), frame_index)
+
+    def read_atoms(self, frame_index: int) -> Atoms:
+        if self.template_atoms is None:
+            raise ValueError("Fast LAMMPS trajectory has no template Atoms object.")
+        atoms = self.template_atoms.copy()
+        atoms.set_positions(self.read_positions(frame_index), apply_constraint=False)
+        atoms.set_cell(self.cells[frame_index])
+        atoms.set_pbc(self.pbc[frame_index])
+        atoms.info["timestep"] = int(self.timesteps[frame_index])
+        return atoms
+
+    def build_template(self, frame_index: int = 0) -> Atoms:
+        table = self._read_numeric_table(frame_index)
+        labels: list[str]
+        symbols: list[str]
+        if self.type_column is not None:
+            raw_types = [str(int(value)) for value in table[:, self.type_column]]
+        else:
+            raw_types = ["1"] * self.natoms
+        if self.mass_column is not None:
+            masses = [float(value) for value in table[:, self.mass_column]]
+        else:
+            masses = [None] * self.natoms
+        labels = [display_label_for_atom_type(raw_type, mass) for raw_type, mass in zip(raw_types, masses)]
+        symbols = [base_symbol_for_lammps_type(raw_type, mass) for raw_type, mass in zip(raw_types, masses)]
+        positions = self._positions_from_table(table, frame_index)
+        atoms = Atoms(symbols=symbols, positions=positions, cell=self.cells[frame_index], pbc=self.pbc[frame_index])
+        atoms.info["timestep"] = int(self.timesteps[frame_index])
+        set_atom_type_labels(atoms, labels)
+        if self.id_column is not None:
+            atoms.set_array("lammps_id", table[:, self.id_column].astype(np.int64))
+        if self.mol_column is not None:
+            atoms.set_array("mol", table[:, self.mol_column].astype(np.int64))
+        if self.charge_column is not None:
+            atoms.set_initial_charges(table[:, self.charge_column].astype(float))
+        if self.force_columns is not None:
+            atoms.set_array("forces", table[:, self.force_columns].astype(float))
+        if self.mass_column is not None:
+            atoms.set_masses(table[:, self.mass_column].astype(float))
+        self.template_atoms = atoms.copy()
+        return atoms
+
+
+@dataclass
+class FastLammpsDumpResult:
+    atoms: Atoms
+    trajectory: FastLammpsDumpTrajectory
+    initial_frame: int = 0
 
 
 def _integer_type_suffix(label: object) -> str | None:
@@ -158,6 +275,127 @@ def _parse_lammps_box(bounds_header: str, lines: list[str]) -> tuple[np.ndarray,
     lengths = [hi - lo for lo, hi in bounds]
     cell = np.diag(lengths)
     return cell, pbc if len(pbc) == 3 else [True, True, True]
+
+
+def _parse_lammps_box_bytes(bounds_header: bytes, lines: list[bytes]) -> tuple[np.ndarray, list[bool]]:
+    return _parse_lammps_box(
+        bounds_header.decode("utf-8", errors="replace"),
+        [line.decode("utf-8", errors="replace") for line in lines],
+    )
+
+
+def _fast_lammps_position_columns(columns: list[str]) -> tuple[tuple[int, int, int], bool]:
+    column_map = {name: idx for idx, name in enumerate(columns)}
+    for names, scaled in (
+        (("x", "y", "z"), False),
+        (("xu", "yu", "zu"), False),
+        (("xs", "ys", "zs"), True),
+        (("xsu", "ysu", "zsu"), True),
+    ):
+        if all(name in column_map for name in names):
+            return (column_map[names[0]], column_map[names[1]], column_map[names[2]]), scaled
+    raise ValueError("LAMMPS dump must contain x/y/z, xu/yu/zu, xs/ys/zs, or xsu/ysu/zsu columns.")
+
+
+def _fast_lammps_selected_initial_frame(index: str | int | slice | None, frame_count: int) -> int:
+    parsed = string2index(":") if index is None else string2index(index) if isinstance(index, str) else index
+    if isinstance(parsed, int):
+        frame = parsed if parsed >= 0 else frame_count + parsed
+        if frame < 0 or frame >= frame_count:
+            raise IndexError(f"Frame index {parsed} is out of range")
+        return frame
+    if isinstance(parsed, slice):
+        start = 0 if parsed.start is None else parsed.start
+        frame = start if start >= 0 else frame_count + start
+        return max(0, min(frame_count - 1, frame))
+    return 0
+
+
+def index_lammps_dump(path: str | Path) -> FastLammpsDumpTrajectory:
+    """Build a compact frame-offset index for numeric LAMMPS text dumps."""
+    path = Path(path)
+    atom_offsets: list[int] = []
+    timesteps: list[int] = []
+    cells: list[np.ndarray] = []
+    pbc_values: list[list[bool]] = []
+    columns: list[str] | None = None
+    natoms: int | None = None
+
+    with path.open("rb", buffering=1024 * 1024) as handle:
+        while True:
+            line = handle.readline()
+            if not line:
+                break
+            if not line.startswith(b"ITEM: TIMESTEP"):
+                continue
+            timestep_line = handle.readline()
+            if not timestep_line:
+                break
+            timestep = int(float(timestep_line.strip()))
+            if not handle.readline().startswith(b"ITEM: NUMBER OF ATOMS"):
+                raise ValueError("LAMMPS dump is missing NUMBER OF ATOMS after TIMESTEP.")
+            frame_natoms = int(handle.readline().strip())
+            bounds_header = handle.readline()
+            if not bounds_header.startswith(b"ITEM: BOX BOUNDS"):
+                raise ValueError("LAMMPS dump is missing BOX BOUNDS.")
+            bounds_lines = [handle.readline(), handle.readline(), handle.readline()]
+            cell, pbc = _parse_lammps_box_bytes(bounds_header, bounds_lines)
+            atom_header = handle.readline()
+            if not atom_header.startswith(b"ITEM: ATOMS"):
+                raise ValueError("LAMMPS dump is missing ATOMS columns.")
+            frame_columns = [token.decode("utf-8", errors="replace") for token in atom_header.split()[2:]]
+            if "element" in frame_columns:
+                raise ValueError("Fast LAMMPS parser supports numeric dump columns; element-string dumps use the safe parser.")
+            if natoms is None:
+                natoms = frame_natoms
+                columns = frame_columns
+                _fast_lammps_position_columns(columns)
+            elif frame_natoms != natoms:
+                raise ValueError("Fast LAMMPS trajectory requires a constant atom count.")
+            elif frame_columns != columns:
+                raise ValueError("Fast LAMMPS trajectory requires constant ATOMS columns.")
+
+            atom_offsets.append(handle.tell())
+            timesteps.append(timestep)
+            cells.append(cell)
+            pbc_values.append(pbc)
+            for _ in range(frame_natoms):
+                handle.readline()
+
+    if natoms is None or columns is None or not atom_offsets:
+        raise ValueError("No frames found in LAMMPS dump.")
+
+    column_map = {name: idx for idx, name in enumerate(columns)}
+    position_columns, scaled = _fast_lammps_position_columns(columns)
+    force_columns = None
+    if all(name in column_map for name in ("fx", "fy", "fz")):
+        force_columns = (column_map["fx"], column_map["fy"], column_map["fz"])
+    return FastLammpsDumpTrajectory(
+        path=str(path),
+        natoms=natoms,
+        columns=columns,
+        atom_offsets=atom_offsets,
+        timesteps=timesteps,
+        cells=np.asarray(cells, dtype=float),
+        pbc=np.asarray(pbc_values, dtype=bool),
+        position_columns=position_columns,
+        scaled_positions=scaled,
+        id_column=column_map.get("id"),
+        type_column=column_map.get("type"),
+        mol_column=column_map.get("mol"),
+        charge_column=column_map.get("q"),
+        force_columns=force_columns,
+        mass_column=column_map.get("mass"),
+    )
+
+
+def read_fast_lammps_dump(path: str | Path, index: str | int | slice | None = ":") -> FastLammpsDumpResult:
+    """Read a large numeric LAMMPS dump as a first-frame Atoms plus virtual trajectory."""
+    trajectory = index_lammps_dump(path)
+    initial_frame = _fast_lammps_selected_initial_frame(index, trajectory.frame_count)
+    trajectory.build_template(0)
+    atoms = trajectory.read_atoms(initial_frame)
+    return FastLammpsDumpResult(atoms=atoms, trajectory=trajectory, initial_frame=initial_frame)
 
 
 def read_custom_lammps_dump(path: str | Path, index: str | int | slice | None = ":") -> list[Atoms]:
