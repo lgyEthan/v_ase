@@ -1004,7 +1004,7 @@ class VAseApp {
     }
 
     uniqueElements() {
-        return [...new Set(this.state.atoms?.symbols || [])].sort();
+        return [...new Set(this.state.atoms?.symbols || [])];
     }
 
     elementIndices(symbol) {
@@ -1095,9 +1095,12 @@ class VAseApp {
         return this.state.atoms?.chemical_symbols?.[index] || this.baseElementForLabel(label);
     }
 
-    transferElementDisplaySettings(oldSymbol, newSymbol) {
+    transferElementDisplaySettings(oldSymbol, newSymbol, { appearance = true } = {}) {
         if (!oldSymbol || !newSymbol || oldSymbol === newSymbol) return;
-        const maps = [this.state.display.elementRadii, this.state.display.elementColors, this.state.display.elementVisible];
+        const maps = [
+            ...(appearance ? [this.state.display.elementRadii, this.state.display.elementColors] : []),
+            this.state.display.elementVisible
+        ];
         maps.forEach(map => {
             if (!map || !(oldSymbol in map)) return;
             if (!(newSymbol in map)) map[newSymbol] = map[oldSymbol];
@@ -1154,6 +1157,34 @@ class VAseApp {
         const values = radii.filter((_, index) => symbols[index] === symbol).map(Number).filter(Number.isFinite);
         if (!values.length) return this.elementCovalentRadius(this.chemicalSymbolForLabel(symbol));
         return values.reduce((sum, value) => sum + value, 0) / values.length;
+    }
+
+    defaultElementRadius(element) {
+        const value = Number(this.state.atoms?.visual?.element_radii?.[element]);
+        if (Number.isFinite(value) && value > 0) return value;
+        return this.elementCovalentRadius(element);
+    }
+
+    defaultElementColor(element) {
+        const color = this.state.atoms?.visual?.element_colors?.[element];
+        return this.validHexColor(color) ? color : null;
+    }
+
+    setElementBaseDefaults(label, baseSymbol, { color = false } = {}) {
+        if (!label || !baseSymbol) return;
+        const radius = this.defaultElementRadius(baseSymbol);
+        if (Number.isFinite(radius) && radius > 0) {
+            this.state.display.elementRadii[label] = Number(radius.toFixed(4));
+        } else {
+            delete this.state.display.elementRadii[label];
+        }
+        if (color) {
+            const nextColor = this.defaultElementColor(baseSymbol);
+            if (nextColor) this.state.display.elementColors[label] = nextColor;
+            else delete this.state.display.elementColors[label];
+        } else {
+            delete this.state.display.elementColors[label];
+        }
     }
 
     updateRadiusScaleLabel() {
@@ -1229,13 +1260,24 @@ class VAseApp {
             nameInput.className = 'element-name-input';
             nameInput.dataset.elementName = symbol;
             nameInput.value = symbol;
+            const previewDetectedBase = () => {
+                const next = this.normalizedTypeLabel(nameInput.value);
+                const inferredBase = this.baseElementForLabel(next, typeSelect.value || currentElement);
+                if (inferredBase && typeSelect.value !== inferredBase) typeSelect.value = inferredBase;
+                const radius = this.defaultElementRadius(inferredBase);
+                if (Number.isFinite(radius) && radius > 0) input.value = Number(radius.toFixed(4));
+            };
             const commitRename = (baseOverride = null) => {
                 const next = this.normalizedTypeLabel(nameInput.value);
                 const inferredBase = this.baseElementForLabel(next, typeSelect.value || currentElement);
                 const base = baseOverride || inferredBase;
                 if (next && (next !== symbol || base !== currentElement)) this.renameElementType(symbol, next, base);
             };
-            typeSelect.addEventListener('change', () => commitRename(typeSelect.value));
+            typeSelect.addEventListener('change', () => {
+                const radius = this.defaultElementRadius(typeSelect.value);
+                if (Number.isFinite(radius) && radius > 0) input.value = Number(radius.toFixed(4));
+                commitRename(typeSelect.value);
+            });
             nameInput.addEventListener('keydown', event => {
                 if (event.key === 'Enter') {
                     event.preventDefault();
@@ -1247,6 +1289,7 @@ class VAseApp {
                     nameInput.blur();
                 }
             });
+            nameInput.addEventListener('input', previewDetectedBase);
             nameInput.addEventListener('change', commitRename);
 
             const color = document.createElement('input');
@@ -1362,8 +1405,10 @@ class VAseApp {
             return;
         }
         const base = baseSymbol || this.baseElementForLabel(label, this.chemicalSymbolForLabel(oldSymbol));
+        const oldBase = this.chemicalSymbolForLabel(oldSymbol);
+        const preserveAppearance = base === oldBase;
         if (!this.canEditAtoms()) {
-            this.renameElementTypeForVisualization(oldSymbol, label, indices, base);
+            this.renameElementTypeForVisualization(oldSymbol, label, indices, base, { preserveAppearance });
             return;
         }
         try {
@@ -1371,7 +1416,8 @@ class VAseApp {
                 `Renaming ${indices.length} ${oldSymbol} atom${indices.length === 1 ? '' : 's'}...`,
                 () => this.api.updateAtomTypes(indices, label, this.backendPositionsPayload(), this.state.applyConstraints, base)
             );
-            this.transferElementDisplaySettings(oldSymbol, label);
+            this.transferElementDisplaySettings(oldSymbol, label, { appearance: preserveAppearance });
+            if (!preserveAppearance) this.setElementBaseDefaults(label, base);
             this.setAtomsData(data);
             this.toast(`Renamed ${oldSymbol} to ${label}.`, 'success');
         } catch (err) {
@@ -1379,9 +1425,11 @@ class VAseApp {
         }
     }
 
-    renameElementTypeForVisualization(oldSymbol, label, indices = this.elementIndices(oldSymbol), baseSymbol = null) {
+    renameElementTypeForVisualization(oldSymbol, label, indices = this.elementIndices(oldSymbol), baseSymbol = null, { preserveAppearance = true } = {}) {
         if (!this.state.atoms || !indices.length) return;
         const base = baseSymbol || this.baseElementForLabel(label, this.chemicalSymbolForLabel(oldSymbol));
+        const radius = this.defaultElementRadius(base);
+        const color = this.defaultElementColor(base);
         indices.forEach(index => {
             this.state.atoms.symbols[index] = label;
             if (Array.isArray(this.state.atoms.atom_types)) {
@@ -1390,13 +1438,23 @@ class VAseApp {
             if (Array.isArray(this.state.atoms.chemical_symbols)) {
                 this.state.atoms.chemical_symbols[index] = base;
             }
+            if (!preserveAppearance && Number.isFinite(radius) && radius > 0 && Array.isArray(this.state.atoms.visual?.radii)) {
+                this.state.atoms.visual.radii[index] = radius;
+            }
+            if (!preserveAppearance && Number.isFinite(radius) && radius > 0 && Array.isArray(this.state.atoms.visual?.covalent_radii)) {
+                this.state.atoms.visual.covalent_radii[index] = radius;
+            }
+            if (!preserveAppearance && color && Array.isArray(this.state.atoms.visual?.colors)) {
+                this.state.atoms.visual.colors[index] = color;
+            }
         });
         const selected = new Set();
         this.state.selected.forEach(index => {
             if (this.isElementVisible(this.state.atoms.symbols[index])) selected.add(index);
         });
         this.state.selected = selected;
-        this.transferElementDisplaySettings(oldSymbol, label);
+        this.transferElementDisplaySettings(oldSymbol, label, { appearance: preserveAppearance });
+        if (!preserveAppearance) this.setElementBaseDefaults(label, base, { color: true });
         this.renderer.renameAtomType(oldSymbol, label, indices, this.state.display, base);
         this.renderElementBondControls();
         this.renderElementRadiusControls();
@@ -1445,11 +1503,13 @@ class VAseApp {
         }
         const base = this.baseElementForLabel(label, this.selectedTypeLabel() ? this.chemicalSymbolForLabel(this.selectedTypeLabel()) : 'H');
         const previousLabels = [...new Set(indices.map(index => this.state.atoms.symbols[index]))];
-        if (this.validHexColor(color?.value)) {
+        const previousBase = previousLabels.length === 1 ? this.chemicalSymbolForLabel(previousLabels[0]) : null;
+        const preserveAppearance = previousLabels.length === 1 && previousBase === base;
+        if (preserveAppearance && this.validHexColor(color?.value)) {
             this.state.display.elementColors[label] = color.value;
         }
         if (!this.canEditAtoms()) {
-            this.applySelectedTypeForVisualization(indices, label, base);
+            this.applySelectedTypeForVisualization(indices, label, base, { preserveAppearance });
             return;
         }
         try {
@@ -1457,7 +1517,10 @@ class VAseApp {
                 `Changing ${indices.length} selected atom${indices.length === 1 ? '' : 's'} to ${label}...`,
                 () => this.api.updateAtomTypes(indices, label, this.backendPositionsPayload(), this.state.applyConstraints, base)
             );
-            if (previousLabels.length === 1) this.transferElementDisplaySettings(previousLabels[0], label);
+            if (previousLabels.length === 1) {
+                this.transferElementDisplaySettings(previousLabels[0], label, { appearance: preserveAppearance });
+            }
+            if (!preserveAppearance) this.setElementBaseDefaults(label, base);
             this.setAtomsData(data);
             indices.forEach(index => this.state.selected.add(index));
             this.updateSelectionVisuals();
@@ -1468,13 +1531,25 @@ class VAseApp {
         }
     }
 
-    applySelectedTypeForVisualization(indices, label, baseSymbol) {
+    applySelectedTypeForVisualization(indices, label, baseSymbol, { preserveAppearance = true } = {}) {
         if (!this.state.atoms || !indices.length) return;
+        const radius = this.defaultElementRadius(baseSymbol);
+        const color = this.defaultElementColor(baseSymbol);
         indices.forEach(index => {
             this.state.atoms.symbols[index] = label;
             if (Array.isArray(this.state.atoms.atom_types)) this.state.atoms.atom_types[index] = label;
             if (Array.isArray(this.state.atoms.chemical_symbols)) this.state.atoms.chemical_symbols[index] = baseSymbol;
+            if (!preserveAppearance && Number.isFinite(radius) && radius > 0 && Array.isArray(this.state.atoms.visual?.radii)) {
+                this.state.atoms.visual.radii[index] = radius;
+            }
+            if (!preserveAppearance && Number.isFinite(radius) && radius > 0 && Array.isArray(this.state.atoms.visual?.covalent_radii)) {
+                this.state.atoms.visual.covalent_radii[index] = radius;
+            }
+            if (!preserveAppearance && color && Array.isArray(this.state.atoms.visual?.colors)) {
+                this.state.atoms.visual.colors[index] = color;
+            }
         });
+        if (!preserveAppearance) this.setElementBaseDefaults(label, baseSymbol, { color: true });
         this.renderer.rebuildAtoms(this.state.atoms, this.state.atoms.metadata?.custom_colors || {});
         this.renderer.setSelection(this.state.selected);
         this.renderElementBondControls();

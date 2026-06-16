@@ -34,7 +34,7 @@ def test_static_version_strings_match_package_version():
     assert f'three.module.js?v={version}' in index_html
     assert f'main.js?v={version}' in index_html
     assert f'<span class="version">{version}</span>' in index_html
-    assert "0.0.19" not in index_html
+    assert "0.0.20" not in index_html
 
 
 def test_ui_button_api_endpoints_respond_without_network_server():
@@ -314,6 +314,13 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "atom-radius-scale" in index_html
     assert "element-radius-list" in index_html
     assert "renderElementRadiusControls" in main_js
+    assert "return [...new Set(this.state.atoms?.symbols || [])];" in main_js
+    assert "previewDetectedBase" in main_js
+    assert "typeSelect.value = inferredBase" in main_js
+    assert "setElementBaseDefaults" in main_js
+    assert "appearance: preserveAppearance" in main_js
+    assert "element_radii" in main_js
+    assert "element_colors" in main_js
     assert "parseElementRadii" in main_js
     assert "parseElementVisibility" in main_js
     assert "element-color-input" in main_js

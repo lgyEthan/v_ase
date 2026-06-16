@@ -1,7 +1,7 @@
 import numpy as np
 import colorsys
 import hashlib
-from ase.data import covalent_radii, vdw_radii
+from ase.data import chemical_symbols as ase_chemical_symbols, covalent_radii, vdw_radii
 from ase.data.colors import jmol_colors
 from ase.constraints import FixAtoms, FixCartesian, FixedLine, FixedPlane, FixScaled, Hookean
 from v_ase.io import atom_type_labels
@@ -28,7 +28,10 @@ def _as_float_list(values):
 
 
 def _ase_gui_jmol_hex(atomic_number):
-    rgb = jmol_colors[int(atomic_number)]
+    number = int(atomic_number)
+    if number >= len(jmol_colors):
+        return "#CCCCCC"
+    rgb = jmol_colors[number]
     channels = [max(0, min(255, int(float(value) * 255))) for value in rgb]
     return "#{:02X}{:02X}{:02X}".format(*channels)
 
@@ -65,6 +68,17 @@ def _per_atom_values(atoms, getter, fallback):
     return fallback
 
 
+def _element_visual_defaults():
+    colors = {}
+    radii = {}
+    for number, symbol in enumerate(ase_chemical_symbols):
+        if number <= 0 or not symbol:
+            continue
+        colors[symbol] = _ase_gui_jmol_hex(number)
+        radii[symbol] = _ase_gui_radius(number)
+    return colors, radii
+
+
 def atoms_to_json(atoms):
     """
     Rich serialization of ASE Atoms for professional visualization.
@@ -73,6 +87,7 @@ def atoms_to_json(atoms):
     chemical_symbols = atoms.get_chemical_symbols()
     display_symbols = atom_type_labels(atoms)
     base_colors = [_ase_gui_jmol_hex(number) for number in atomic_numbers]
+    element_colors, element_radii = _element_visual_defaults()
     data = {
         "symbols": display_symbols,
         "atom_types": display_symbols,
@@ -93,6 +108,8 @@ def atoms_to_json(atoms):
                 for color, atom_type, symbol in zip(base_colors, display_symbols, chemical_symbols)
             ],
             "base_colors": base_colors,
+            "element_colors": element_colors,
+            "element_radii": element_radii,
             "radii": [_ase_gui_radius(number) for number in atomic_numbers],
             "covalent_radii": [_ase_gui_radius(number) for number in atomic_numbers],
             "bond_radii": [float(covalent_radii[int(number)]) for number in atomic_numbers],
