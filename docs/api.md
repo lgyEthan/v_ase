@@ -75,6 +75,20 @@ attached, v_ase attaches its default soft repulsion calculator. This default
 calculator can use torch CPU or CUDA when torch is installed, but torch is not a
 package dependency; NumPy is used automatically when torch is absent.
 
+The same model can be loaded directly and used like any other ASE calculator:
+
+```python
+from v_ase.calculators import RepulsionCalculator
+
+atoms.calc = RepulsionCalculator(device="cpu", cpu_threads=4)
+energy = atoms.get_potential_energy()
+forces = atoms.get_forces()
+```
+
+`from v_ase import RepulsionCalculator`, `from v_ase.calculator import
+RepulsionCalculator`, and `from v_ase.repulsion import RepulsionCalculator` are
+also supported. `Conditioner` is an alias for the same class.
+
 The browser exposes `DEVICE` and `CPU` controls only for the default repulsion
 calculator. These controls do not affect user-provided ASE calculators.
 

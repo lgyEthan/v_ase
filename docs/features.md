@@ -29,6 +29,18 @@ The top-right `DEVICE` and `CPU` controls apply only to this default repulsion
 calculator. User-provided calculators are expected to manage their own execution
 backend and are not modified by these controls.
 
+The default model is available through the public calculator API:
+
+```python
+from v_ase.calculators import RepulsionCalculator
+
+atoms.calc = RepulsionCalculator(device="cpu", cpu_threads=4)
+```
+
+`Conditioner`, `DefaultRepulsionCalculator`, `from v_ase import
+RepulsionCalculator`, and the compatibility module `v_ase.calculator` all point
+to the same ASE calculator class.
+
 ### Display Tools
 Bonds are rendered as live cylinder objects and update during transform previews,
 relaxation updates, and trajectory frame changes. Bonding can use covalent-radius

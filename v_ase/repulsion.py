@@ -357,6 +357,11 @@ class VAseRepulsionCalculator(Calculator):
         self.results = {"energy": float(energy), "forces": forces}
 
 
+RepulsionCalculator = VAseRepulsionCalculator
+DefaultRepulsionCalculator = VAseRepulsionCalculator
+Conditioner = VAseRepulsionCalculator
+
+
 def ensure_default_calculator(atoms: Atoms) -> Atoms:
     if atoms.calc is None:
         atoms.calc = VAseRepulsionCalculator()

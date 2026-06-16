@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.21`.
+Last synchronized with implementation: `v_ase-gui 0.0.22`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -68,6 +68,8 @@ v_ase/
   server.py         # FastAPI application and session endpoints
   session.py        # EditorSession state model
   serialization.py  # Atoms -> JSON conversion
+  calculators.py    # Public ASE calculator exports
+  calculator.py     # Compatibility import module for calculators
   repulsion.py      # Default optional-torch/NumPy ASE repulsion calculator
   relax.py          # WebSocket optimization logic
   export.py         # POSCAR, Pickle, Blender, image, and video export handlers
@@ -234,6 +236,7 @@ possible, and update the frontend state. This behavior is covered by
 *   **Model**: The default model uses harmonic repulsion below covalent-radius contact thresholds, with optional region penalties available in the calculator implementation.
 *   **Torch Optional**: `torch` is not a package dependency. When present, the repulsion calculator can use torch CPU or CUDA; otherwise it falls back to NumPy.
 *   **Device Controls**: Top-right `DEVICE` and `CPU` controls are enabled only for the default repulsion calculator. CPU defaults to 4 threads, capped by host CPU count.
+*   **Public Calculator API**: The default model can be used directly with `from v_ase.calculators import RepulsionCalculator`. `Conditioner`, `DefaultRepulsionCalculator`, `from v_ase import RepulsionCalculator`, `v_ase.calculator`, and `v_ase.repulsion` are supported aliases for the same ASE calculator class.
 *   **Future Calculators**: Device/thread controls do not modify user-defined calculators; those calculators must manage their own backend settings.
 
 ---
@@ -281,10 +284,11 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, and Browser-Flow Tests (70 collected as of 0.0.21).
+*   [x] **Phase 10**: Focused Unit, API, and Browser-Flow Tests (71 collected as of 0.0.22).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, `--viz-only`, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
+*   [x] **Phase 14**: Public ASE calculator import API for the default repulsion model.
 *   [ ] **Planned**: Click-to-place atom insertion and optional technical hatching shader for fixed atoms.
 
 ---

@@ -16,7 +16,12 @@ from fastapi import HTTPException
 
 from v_ase.export import export_pickle_response, export_poscar_response
 from v_ase.relax import start_relaxation, stop_relaxation
-from v_ase.repulsion import VAseRepulsionCalculator, is_vase_repulsion_calculator
+from v_ase import DefaultRepulsionCalculator as RootDefaultRepulsionCalculator
+from v_ase import RepulsionCalculator as RootRepulsionCalculator
+from v_ase.calculator import RepulsionCalculator as SingularRepulsionCalculator
+from v_ase.calculators import Conditioner, DefaultRepulsionCalculator, RepulsionCalculator
+from v_ase.repulsion import RepulsionCalculator as ImplementationRepulsionCalculator
+from v_ase.repulsion import is_vase_repulsion_calculator
 from v_ase.serialization import atoms_to_json
 from v_ase.server import (
     apply_positions,
@@ -168,6 +173,20 @@ def test_default_repulsion_calculator_is_attached_when_missing():
     assert data["metadata"]["has_calculator"] is True
     assert data["metadata"]["calculator_details"]["is_default_repulsion"] is True
     assert np.asarray(data["forces"]).shape == (len(atoms), 3)
+
+
+def test_repulsion_calculator_public_api_imports():
+    atoms = Atoms("HH", positions=[[0, 0, 0], [0.25, 0, 0]])
+    atoms.calc = RepulsionCalculator(device="cpu", cpu_threads=1)
+
+    assert Conditioner is RepulsionCalculator
+    assert DefaultRepulsionCalculator is RepulsionCalculator
+    assert RootRepulsionCalculator is RepulsionCalculator
+    assert RootDefaultRepulsionCalculator is RepulsionCalculator
+    assert SingularRepulsionCalculator is RepulsionCalculator
+    assert ImplementationRepulsionCalculator is RepulsionCalculator
+    assert atoms.get_potential_energy() > 0
+    assert np.asarray(atoms.get_forces()).shape == (2, 3)
 
 
 def test_existing_singlepoint_calculator_is_not_replaced():

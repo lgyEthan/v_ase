@@ -359,6 +359,27 @@ the repulsion calculator uses a NumPy implementation. Installing torch can make
 the default repulsion model faster, especially with CUDA hardware, but other ASE
 calculators remain fully user-defined and are not affected by these controls.
 
+The repulsion calculator is also available as a normal ASE calculator from the
+public Python API:
+
+```python
+from v_ase.calculators import RepulsionCalculator
+
+atoms.calc = RepulsionCalculator(device="cpu", cpu_threads=4)
+```
+
+Convenience aliases are also provided for scripts that prefer shorter or
+compatibility-oriented imports:
+
+```python
+from v_ase import RepulsionCalculator
+from v_ase.calculator import RepulsionCalculator
+from v_ase.repulsion import RepulsionCalculator
+```
+
+`Conditioner` is kept as an alias for the same calculator class, matching the
+reference model naming while still behaving like an ASE `Calculator`.
+
 During relaxation, structure updates stream to the browser. In interactive mode,
 if atoms are moved while relaxation is running, the current relaxation is stopped
 and restarted from the edited coordinates. In `--viz-only`, atom editing remains

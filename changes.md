@@ -5,6 +5,8 @@ This project is now packaged under the single public name `v_ase`.
 ## Current Public Surface
 - Python API: `from v_ase.visualize import view`
 - Convenience imports: `from v_ase import view, view_edit, view_file`
+- Calculator API: `from v_ase.calculators import RepulsionCalculator`
+- Calculator aliases: `from v_ase import RepulsionCalculator`, `from v_ase.calculator import RepulsionCalculator`, and `from v_ase.repulsion import RepulsionCalculator`
 - CLI: `v_ase gui FILE`
 - ASE-style shortcut: `v_ase FILE`
 

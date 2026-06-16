@@ -8,6 +8,7 @@
 - [x] **Phase 5: Relax** (Real-time sync via WebSockets, fmax/energy monitoring)
 - [x] **Phase 6: Jupyter** (IFrame support, non-blocking handle)
 - [x] **Phase 7: Default calculator** (Repulsion fallback, optional torch/CUDA, CPU thread controls)
+- [x] **Phase 8: Calculator API** (`from v_ase.calculators import RepulsionCalculator`)
 
 ## Core Documentation
 - [Shortcuts & Controls](shortcuts.md)
