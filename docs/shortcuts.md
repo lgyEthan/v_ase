@@ -30,6 +30,8 @@ Press these keys to enter transformation mode:
 | **Ctrl+V** | **Paste** | Paste copied atoms near the selected center. |
 | **Ctrl+Z** | **Undo** | Restore the previous structure state. |
 | **Ctrl+Shift+Z** | **Redo** | Restore the next structure state after undo. |
+| **Delete / Backspace** | **Delete** | Delete selected atoms through the backend and remap supported constraints. |
+| **Space** | **Play/Pause** | Toggle trajectory playback when a multi-frame structure is loaded. |
 
 Move and rotate snapping can be set in the right-side Transform section. A zero
 increment keeps motion continuous; non-zero increments make mouse transforms step
@@ -38,3 +40,10 @@ in Angstrom or degree units.
 ## Constraint Behavior
 - Atoms constrained with `FixAtoms` in ASE will appear as "Fixed" in the UI.
 - Even if selected, these atoms will not move when transformations are applied.
+
+## Calculator Controls
+- The top-right `DEVICE` and `CPU` controls are active only for the default
+  v_ase repulsion calculator.
+- `CPU` is the default device. `CUDA` is enabled only when torch and CUDA are
+  available in the Python environment.
+- Torch is optional; NumPy fallback is used when torch is not installed.

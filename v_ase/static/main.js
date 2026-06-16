@@ -197,7 +197,11 @@ class VAseApp {
         const setHtml = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
         
         setHtml('prop-natoms', meta.natoms);
-        setHtml('val-calc', meta.calculator || "NONE");
+        const calcDetails = meta.calculator_details || {};
+        const calcLabel = meta.calculator || "NONE";
+        setHtml('val-calc', calcDetails.is_default_repulsion && calcDetails.effective_device
+            ? `${calcLabel}/${calcDetails.effective_device}`
+            : calcLabel);
         setHtml('val-mode', this.transform.mode === 'IDLE' ? (this.state.vizOnly ? 'VIEW' : 'SELECT') : this.transform.mode);
         setHtml('val-energy', typeof meta.energy === 'number' ? meta.energy.toFixed(4) : "-");
         const validForces = (this.state.atoms.forces || [])
@@ -220,14 +224,91 @@ class VAseApp {
         this.updateSelectedTypeControls();
         this.updateElementSelectionControls();
 
+        this.updateCalculatorControls(meta);
+
         const relaxBtn = document.getElementById('btn-relax');
-        if (relaxBtn) relaxBtn.disabled = this.state.vizOnly || !meta.has_calculator || this.state.isRelaxing;
+        if (relaxBtn) relaxBtn.disabled = !meta.has_calculator || this.state.isRelaxing;
         const stopRelaxBtn = document.getElementById('btn-stop-relax');
         if (stopRelaxBtn) stopRelaxBtn.disabled = !this.state.isRelaxing;
 
         this.updateCommandReadout();
 
         document.body.dataset.mode = this.transform.mode.toLowerCase();
+    }
+
+    repulsionCalculatorDetails() {
+        return this.state.atoms?.metadata?.calculator_details || {};
+    }
+
+    currentCalculatorPayload() {
+        const details = this.repulsionCalculatorDetails();
+        if (!details.is_default_repulsion) return null;
+        const device = document.getElementById('calc-device')?.value || details.requested_device || 'cpu';
+        const cpuThreads = parseInt(document.getElementById('calc-cpus')?.value || details.cpu_threads || '4', 10);
+        return {
+            device,
+            cpu_threads: Number.isFinite(cpuThreads) ? cpuThreads : 4
+        };
+    }
+
+    cpuThreadChoices(details) {
+        const fromBackend = Array.isArray(details.cpu_thread_options) && details.cpu_thread_options.length
+            ? details.cpu_thread_options
+            : [];
+        if (fromBackend.length) return fromBackend;
+        const count = Math.max(1, Number(navigator.hardwareConcurrency || 4));
+        return Array.from({ length: count }, (_, idx) => idx + 1);
+    }
+
+    updateCalculatorControls(meta) {
+        const details = meta?.calculator_details || {};
+        const controls = document.getElementById('calc-controls');
+        const device = document.getElementById('calc-device');
+        const cpus = document.getElementById('calc-cpus');
+        if (!controls || !device || !cpus) return;
+
+        const isRepulsion = Boolean(details.is_default_repulsion);
+        controls.classList.toggle('disabled', !isRepulsion);
+        controls.title = isRepulsion
+            ? 'Default repulsion calculator settings'
+            : 'Device settings are only used by the default repulsion calculator.';
+
+        const cpuValue = String(details.cpu_threads || 4);
+        const choices = this.cpuThreadChoices(details);
+        if (cpus.dataset.options !== choices.join(',')) {
+            cpus.innerHTML = '';
+            choices.forEach(value => {
+                const option = document.createElement('option');
+                option.value = String(value);
+                option.innerText = String(value);
+                cpus.appendChild(option);
+            });
+            cpus.dataset.options = choices.join(',');
+        }
+        cpus.value = choices.includes(Number(cpuValue)) ? cpuValue : String(Math.min(4, choices[choices.length - 1] || 1));
+
+        const requested = details.requested_device || 'cpu';
+        device.value = requested === 'cuda' ? 'cuda' : 'cpu';
+        const cudaOption = [...device.options].find(option => option.value === 'cuda');
+        if (cudaOption) cudaOption.disabled = !details.cuda_available;
+        device.disabled = !isRepulsion || this.state.isRelaxing;
+        cpus.disabled = !isRepulsion || this.state.isRelaxing || device.value !== 'cpu';
+    }
+
+    async applyCalculatorControls() {
+        const payload = this.currentCalculatorPayload();
+        if (!payload) return;
+        try {
+            const data = await this.api.updateCalculatorConfig(payload);
+            this.setAtomsData(data);
+            const details = data.metadata?.calculator_details || {};
+            const suffix = details.backend === 'torch'
+                ? `torch/${details.effective_device}`
+                : 'numpy';
+            this.toast(`Repulsion calculator set to ${suffix}.`, 'success');
+        } catch (err) {
+            this.toast(`Calculator settings failed: ${err.message}`, 'error');
+        }
     }
 
     toast(message, type = 'info') {
@@ -2810,10 +2891,16 @@ class VAseApp {
             const fmax = parseFloat(document.getElementById('relax-fmax').value || '0.05');
             const steps = parseInt(document.getElementById('relax-steps').value || '200', 10);
             try {
-                const response = await this.api.relaxStart(this.backendPositionsPayload(), fmax, steps, this.state.applyConstraints);
-                if (response.status === 'started') {
+                const response = await this.api.relaxStart(
+                    this.backendPositionsPayload(),
+                    fmax,
+                    steps,
+                    this.state.applyConstraints,
+                    this.currentCalculatorPayload()
+                );
+                if (response.status === 'started' || response.status === 'restarting') {
                     this.state.isRelaxing = true;
-                    this.toast('Relaxation started.', 'success');
+                    this.toast(response.status === 'restarting' ? 'Relaxation restarting.' : 'Relaxation started.', 'success');
                 } else {
                     this.toast(response.message || 'Relaxation did not start.', 'warning');
                 }
@@ -2830,6 +2917,12 @@ class VAseApp {
                 this.toast(`Stop relax failed: ${err.message}`, 'error');
             }
         };
+        document.getElementById('calc-device')?.addEventListener('change', () => {
+            const cpus = document.getElementById('calc-cpus');
+            if (cpus) cpus.disabled = document.getElementById('calc-device')?.value !== 'cpu';
+            this.applyCalculatorControls();
+        });
+        document.getElementById('calc-cpus')?.addEventListener('change', () => this.applyCalculatorControls());
         document.getElementById('chk-bonds').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('chk-cell').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('chk-axes').onchange = () => this.safeApplyDisplayOptions();

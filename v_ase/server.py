@@ -7,6 +7,7 @@ from .session import EditorSession, get_session, sessions
 from .serialization import atoms_to_json
 from .websocket_manager import ws_manager
 from .io import atom_type_labels, base_symbol_for_atom_type, normalize_atom_type_label, set_atom_type_labels
+from .repulsion import copy_calculator, is_vase_repulsion_calculator, repulsion_metadata
 import numpy as np
 from ase import Atom
 from ase.build import make_supercell
@@ -123,6 +124,10 @@ def session_atoms_to_json(session: EditorSession, include_inline_trajectory: boo
     data["metadata"]["config"] = session.config
     data["metadata"]["frame_count"] = session.frame_count
     data["metadata"]["current_frame"] = session.current_frame
+    data["metadata"]["calculator_details"] = repulsion_metadata(session.working_atoms.calc)
+    if is_vase_repulsion_calculator(session.working_atoms.calc):
+        data["metadata"]["calculator"] = "Repulsion"
+        data["metadata"]["has_calculator"] = True
     trajectory_positions = trajectory_position_cache(session) if include_inline_trajectory else None
     data["metadata"]["trajectory_positions_cached"] = trajectory_positions is not None
     if trajectory_positions is not None:
@@ -178,7 +183,7 @@ def repeat_atoms_as_supercell(atoms, reps: List[int]):
     if new_constraints:
         repeated.set_constraint(new_constraints)
     if atoms.calc:
-        repeated.calc = atoms.calc
+        repeated.calc = copy_calculator(atoms.calc)
     return repeated
 
 
@@ -301,7 +306,7 @@ def make_supercell_atoms(atoms, matrix):
     if new_constraints:
         transformed.set_constraint(new_constraints)
     if atoms.calc:
-        transformed.calc = atoms.calc
+        transformed.calc = copy_calculator(atoms.calc)
     return transformed
 
 
@@ -317,7 +322,7 @@ def set_current_payload_positions(session: EditorSession, payload: Dict[str, Any
 def refresh_working_frame(session: EditorSession):
     session.working_atoms = session.trajectory_frames[session.current_frame].copy()
     if session.trajectory_frames[session.current_frame].calc:
-        session.working_atoms.calc = session.trajectory_frames[session.current_frame].calc
+        session.working_atoms.calc = copy_calculator(session.trajectory_frames[session.current_frame].calc)
 
 
 def apply_all_frames(session: EditorSession, transform):
@@ -475,7 +480,7 @@ def delete_indices_from_atoms(atoms, delete_indices):
     if new_constraints:
         new_atoms.set_constraint(new_constraints)
     if atoms.calc:
-        new_atoms.calc = atoms.calc
+        new_atoms.calc = copy_calculator(atoms.calc)
     return new_atoms
 
 
@@ -499,8 +504,18 @@ def update_atom_type_labels(atoms, indices, label, base_symbol=None):
     updated.set_chemical_symbols(symbols)
     set_atom_type_labels(updated, type_labels)
     if atoms.calc:
-        updated.calc = atoms.calc
+        updated.calc = copy_calculator(atoms.calc)
     return updated
+
+
+def configure_repulsion_calculators(session: EditorSession, *, device=None, cpu_threads=None):
+    configured = False
+    frames = [session.working_atoms, *session.trajectory_frames, *session.original_frames]
+    for atoms in frames:
+        if is_vase_repulsion_calculator(atoms.calc):
+            atoms.calc.configure(device=device, cpu_threads=cpu_threads)
+            configured = True
+    return configured
 
 @app.on_event("startup")
 async def startup_event():
@@ -563,6 +578,9 @@ async def apply_positions(session_id: str, payload: Dict[str, Any]):
     # Enforcement: Final coordinates MUST respect ASE constraints
     session.working_atoms.set_positions(positions, apply_constraint=payload_apply_constraint(payload))
     session.sync_current_frame()
+    if session.is_relaxing:
+        from .relax import request_relax_restart
+        request_relax_restart(session)
     
     return session_atoms_to_json(session)
 
@@ -632,7 +650,7 @@ async def wrap(session_id: str, payload: Dict[str, Any] | None = None):
         wrapped = atoms.copy()
         wrapped.wrap()
         if atoms.calc:
-            wrapped.calc = atoms.calc
+            wrapped.calc = copy_calculator(atoms.calc)
         return wrapped
 
     apply_all_frames(session, wrap_frame)
@@ -712,6 +730,20 @@ async def update_atom_types(session_id: str, payload: Dict[str, Any]):
     return session_atoms_to_json(session)
 
 
+@app.post("/api/calculator/{session_id}")
+async def update_calculator(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    if not is_vase_repulsion_calculator(session.working_atoms.calc):
+        raise HTTPException(status_code=400, detail="Calculator device settings are only available for the default repulsion calculator.")
+    configure_repulsion_calculators(
+        session,
+        device=payload.get("device"),
+        cpu_threads=payload.get("cpu_threads"),
+    )
+    session.sync_current_frame()
+    return session_atoms_to_json(session)
+
+
 @app.post("/api/frame/{session_id}")
 async def set_frame(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
@@ -731,7 +763,7 @@ async def done(session_id: str, payload: Dict[str, Any]):
         session.sync_current_frame()
     session.result_atoms = session.working_atoms.copy()
     if session.working_atoms.calc:
-        session.result_atoms.calc = session.working_atoms.calc
+        session.result_atoms.calc = copy_calculator(session.working_atoms.calc)
         
     session.done_event.set()
     return {"status": "ok"}
@@ -797,7 +829,6 @@ if FASTAPI_AVAILABLE:
     @app.post("/api/relax/start/{session_id}")
     async def api_relax_start(session_id: str, payload: Dict[str, Any], bt: BackgroundTasks):
         session = get_session(session_id)
-        require_editable(session, "Relaxation")
         return await start_relaxation(session, payload, bt)
 
     @app.post("/api/relax/stop/{session_id}")

@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.20`.
+Last synchronized with implementation: `v_ase-gui 0.0.21`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -13,7 +13,7 @@ Unlike the default ASE viewer, this tool supports:
 *   **Structural Modification**: Copy/paste appends atoms through the backend.
 *   **Scientific Visualization**: Fixed-atom markers, selection outlines, interactive/manual bonds, unit-cell/axes/grid toggles, POSCAR/pickle/PNG/WebM/Blender export, wrap, and supercell preview.
 *   **Trajectory Playback**: Multi-frame `Atoms` inputs and ASE-readable trajectory files expose a movie timeline with live scrubbing, FPS, and frame skip controls.
-*   **Live Simulation**: Real-time relaxation visualization using attached ASE calculators via WebSockets.
+*   **Live Simulation**: Real-time relaxation visualization using attached ASE calculators or the default v_ase repulsion calculator via WebSockets.
 
 The final interface is usable directly from Python:
 ```python
@@ -68,6 +68,7 @@ v_ase/
   server.py         # FastAPI application and session endpoints
   session.py        # EditorSession state model
   serialization.py  # Atoms -> JSON conversion
+  repulsion.py      # Default optional-torch/NumPy ASE repulsion calculator
   relax.py          # WebSocket optimization logic
   export.py         # POSCAR, Pickle, Blender, image, and video export handlers
   static/
@@ -227,25 +228,38 @@ possible, and update the frontend state. This behavior is covered by
 
 ---
 
-## 21. Relaxation with Attached Calculator
+## 21. Calculator Handling and Default Repulsion
+*   **Preserve Existing Calculators**: `SinglePointCalculator` and other user-attached ASE calculators are kept and used as-is.
+*   **Default Calculator**: If an `Atoms` object has no calculator, v_ase attaches a default soft pair-repulsion ASE calculator.
+*   **Model**: The default model uses harmonic repulsion below covalent-radius contact thresholds, with optional region penalties available in the calculator implementation.
+*   **Torch Optional**: `torch` is not a package dependency. When present, the repulsion calculator can use torch CPU or CUDA; otherwise it falls back to NumPy.
+*   **Device Controls**: Top-right `DEVICE` and `CPU` controls are enabled only for the default repulsion calculator. CPU defaults to 4 threads, capped by host CPU count.
+*   **Future Calculators**: Device/thread controls do not modify user-defined calculators; those calculators must manage their own backend settings.
+
+---
+
+## 22. Relaxation
 *   **Optimizer**: `ase.optimize.QuasiNewton`.
 *   **Live Feedback**: Step-by-step WebSocket updates of Energy, Fmax, and Positions.
 *   **Interactivity**: Real-time updates of bonds and markers during trajectory.
 *   **Movie Mode**: Multi-frame structures expose frame slider, previous/next, play/pause, FPS, and frame skip controls.
+*   **Interactive Restart**: In interactive mode, coordinate edits during relaxation stop the active optimizer and restart from the edited coordinates.
+*   **Viz-Only Tracking**: In `--viz-only`, atom editing remains disabled, but relaxation can be watched as streamed structure updates.
 
 ---
 
-## 22. Calculator Preservation
+## 23. Calculator Preservation
 **Mandatory Preservation:** Calculators are explicitly re-attached to the working atoms object after structural changes to ensure the "Relax" feature remains available.
 
 ---
 
-## 23. Backend Endpoints
+## 24. Backend Endpoints
 *   `GET /api/atoms/{session_id}`: Fetch structure + metadata.
 *   `POST /api/constrain/{session_id}`: Calculate constraint-corrected positions.
 *   `POST /api/apply/{session_id}`: Commit positions to history.
 *   `POST /api/add/{session_id}`: Append atoms for paste operations.
 *   `POST /api/delete/{session_id}`: Delete selected atoms with constraint remapping.
+*   `POST /api/calculator/{session_id}`: Update default repulsion calculator device/thread settings.
 *   `POST /api/frame/{session_id}`: Switch the active trajectory frame.
 *   `POST /api/wrap/{session_id}`: Wrap atoms into the current unit cell.
 *   `POST /api/export/poscar/{session_id}`: Export POSCAR.
@@ -257,32 +271,35 @@ possible, and update the frontend state. This behavior is covered by
 
 ---
 
-## 24. Session Management
+## 25. Session Management
 Each editor instance is assigned a unique `UUID` session. Multiple editors can run simultaneously on different ports/endpoints without state collision.
 
 ---
 
-## 25. Implementation Status
+## 26. Implementation Status
 *   [x] **Phase 1-3**: Basic Viewer, Editing, Constraints (Completed).
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, and Browser-Flow Tests (67 passing as of 0.0.20).
+*   [x] **Phase 10**: Focused Unit, API, and Browser-Flow Tests (70 collected as of 0.0.21).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, `--viz-only`, Appearance panel editing, frame skip, and PyPI packaging.
+*   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
 *   [ ] **Planned**: Click-to-place atom insertion and optional technical hatching shader for fixed atoms.
 
 ---
 
-## 26. Prohibited Implementations
+## 27. Prohibited Implementations
 *   **NO** camera rotation on Left Drag.
 *   **NO** client-side-only constraints (always sync with ASE backend).
 *   **NO** continuous bond recalculation during movement (must stretch).
 *   **NO** silent calculator loss.
+*   **NO** mandatory torch dependency for the default repulsion model.
+*   **NO** device/thread controls applied to user-provided calculators.
 
 ---
 
-## 27. Known Limitations
+## 28. Known Limitations
 1.  Bonds are visualization-only (not stored in `Atoms.topology`).
 2.  Some heavy calculators may lag during real-time constraint dragging.
 3.  Supercell images are rendered as display ghosts and are not directly editable.

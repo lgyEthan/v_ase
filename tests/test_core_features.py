@@ -1,6 +1,7 @@
 import asyncio
 import os
 import pickle
+import time
 
 import numpy as np
 import pytest
@@ -10,10 +11,12 @@ from ase.data.colors import jmol_colors
 from ase.io import write
 from ase.build import molecule
 from ase.calculators.emt import EMT
+from ase.calculators.singlepoint import SinglePointCalculator
 from fastapi import HTTPException
 
 from v_ase.export import export_pickle_response, export_poscar_response
-from v_ase.relax import start_relaxation
+from v_ase.relax import start_relaxation, stop_relaxation
+from v_ase.repulsion import VAseRepulsionCalculator, is_vase_repulsion_calculator
 from v_ase.serialization import atoms_to_json
 from v_ase.server import (
     apply_positions,
@@ -27,6 +30,7 @@ from v_ase.server import (
     save_visual_settings,
     set_frame,
     undo,
+    update_calculator,
     wrap,
 )
 from v_ase.session import EditorSession, sessions
@@ -153,16 +157,68 @@ def test_export_poscar_and_pickle_without_calculator():
     assert len(loaded) == len(atoms)
 
 
-def test_relax_requires_calculator():
+def test_default_repulsion_calculator_is_attached_when_missing():
     atoms = molecule("H2O")
     session = make_session(atoms)
 
-    class BackgroundTasks:
-        def add_task(self, *args, **kwargs):
-            raise AssertionError("Relaxation should not start without a calculator")
+    data = asyncio.run(get_atoms(session.session_id))
 
-    response = asyncio.run(start_relaxation(session, {}, BackgroundTasks()))
-    assert response["status"] == "error"
+    assert is_vase_repulsion_calculator(session.working_atoms.calc)
+    assert data["metadata"]["calculator"] == "Repulsion"
+    assert data["metadata"]["has_calculator"] is True
+    assert data["metadata"]["calculator_details"]["is_default_repulsion"] is True
+    assert np.asarray(data["forces"]).shape == (len(atoms), 3)
+
+
+def test_existing_singlepoint_calculator_is_not_replaced():
+    atoms = molecule("H2O")
+    atoms.calc = SinglePointCalculator(
+        atoms,
+        energy=-1.23,
+        forces=np.zeros((len(atoms), 3)),
+    )
+    original = atoms.copy()
+    original.calc = atoms.calc
+    working = atoms.copy()
+    working.calc = atoms.calc
+    session = EditorSession("singlepoint-calc", original, working)
+    sessions[session.session_id] = session
+
+    data = asyncio.run(get_atoms(session.session_id))
+
+    assert not is_vase_repulsion_calculator(session.working_atoms.calc)
+    assert data["metadata"]["calculator"] == "SinglePointCalculator"
+    assert data["metadata"]["calculator_details"]["is_default_repulsion"] is False
+
+
+def test_default_repulsion_calculator_device_settings_are_configurable():
+    atoms = Atoms("HH", positions=[[0, 0, 0], [0.25, 0, 0]])
+    session = make_session(atoms)
+
+    data = asyncio.run(update_calculator(session.session_id, {
+        "device": "cpu",
+        "cpu_threads": 2,
+    }))
+
+    details = data["metadata"]["calculator_details"]
+    assert details["is_default_repulsion"] is True
+    assert details["requested_device"] == "cpu"
+    assert details["cpu_threads"] == 2
+    assert 1 in details["cpu_thread_options"]
+
+
+def test_relaxation_starts_with_default_repulsion_calculator():
+    atoms = Atoms("HH", positions=[[0, 0, 0], [0.25, 0, 0]])
+    session = make_session(atoms)
+
+    response = asyncio.run(start_relaxation(session, {"steps": 0}, None))
+
+    assert response["status"] == "started"
+    for _ in range(50):
+        if not session.is_relaxing:
+            break
+        time.sleep(0.01)
+    asyncio.run(stop_relaxation(session))
 
 
 def test_atoms_endpoint_includes_view_config():

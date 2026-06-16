@@ -75,12 +75,22 @@ export class ASEApi {
             },
             metadata: {
                 natoms: 3,
-                calculator: 'MOCK',
-                has_calculator: false,
+                calculator: 'Repulsion',
+                has_calculator: true,
                 energy: null,
                 current_frame: 0,
                 frame_count: 1,
                 custom_colors: {},
+                calculator_details: {
+                    is_default_repulsion: true,
+                    backend: 'numpy',
+                    requested_device: 'cpu',
+                    effective_device: 'cpu',
+                    cpu_threads: 4,
+                    cpu_thread_options: [1, 2, 3, 4],
+                    torch_available: false,
+                    cuda_available: false
+                },
                 config: {
                     show_cell: true,
                     show_axes: true,
@@ -350,6 +360,26 @@ export class ASEApi {
             this.mockState.atoms.visual = this.mockVisualForSymbols(this.mockState.atoms.symbols);
             return await this.mockResponse(this.mockState.atoms);
         }
+        if (path.includes('/api/calculator/')) {
+            const payload = JSON.parse(options.body || '{}');
+            const details = this.mockState.atoms.metadata.calculator_details || {
+                is_default_repulsion: true,
+                requested_device: 'cpu',
+                effective_device: 'cpu',
+                backend: 'numpy',
+                cpu_threads: 4,
+                cpu_thread_options: [1, 2, 3, 4],
+                torch_available: false,
+                cuda_available: false
+            };
+            details.requested_device = payload.device || details.requested_device || 'cpu';
+            details.effective_device = details.requested_device === 'cuda' && details.cuda_available ? 'cuda' : 'cpu';
+            details.cpu_threads = payload.cpu_threads || details.cpu_threads || 4;
+            this.mockState.atoms.metadata.has_calculator = true;
+            this.mockState.atoms.metadata.calculator = 'Repulsion';
+            this.mockState.atoms.metadata.calculator_details = details;
+            return await this.mockResponse(this.mockState.atoms);
+        }
         if (path.includes('/api/wrap/')) {
             const payload = JSON.parse(options.body || '{}');
             const positions = payload.positions || this.mockState.atoms.positions;
@@ -367,7 +397,7 @@ export class ASEApi {
             return await this.mockResponse(this.mockState.atoms);
         }
         if (path.includes('/api/relax/start/')) {
-            return { status: 'error', message: 'Mock session has no calculator.' };
+            return { status: 'started' };
         }
         if (path.includes('/api/relax/stop/')) {
             return { status: 'stopped' };
@@ -458,6 +488,10 @@ export class ASEApi {
         return await this.jsonPost(`/api/atom-types/{session_id}`, payload);
     }
 
+    async updateCalculatorConfig(config = {}) {
+        return await this.jsonPost(`/api/calculator/{session_id}`, config);
+    }
+
     async undo() {
         return await this.post(`/api/undo/{session_id}`);
     }
@@ -502,11 +536,13 @@ export class ASEApi {
         return await this.jsonPost(`/api/frame/{session_id}`, { index });
     }
 
-    async relaxStart(positions, fmax, steps, applyConstraint = true) {
+    async relaxStart(positions, fmax, steps, applyConstraint = true, calculator = null) {
+        const body = { positions, fmax, steps, apply_constraint: applyConstraint };
+        if (calculator) body.calculator = calculator;
         return await this.request(`/api/relax/start/{session_id}`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ positions, fmax, steps, apply_constraint: applyConstraint })
+            body: JSON.stringify(body)
         });
     }
 

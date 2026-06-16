@@ -53,6 +53,12 @@ show playback controls for frame-by-frame movie inspection.
   export controls while disabling coordinate edits.
 - Selection measurements: two selected atoms show distance, and three selected
   atoms show two distances plus the central angle.
+- Calculator handling preserves existing ASE calculators, including
+  `SinglePointCalculator`. If no calculator is attached, v_ase adds a default
+  soft repulsion calculator for relaxation.
+- Torch is optional, not a package dependency. When torch is installed, the
+  default repulsion calculator can use torch CPU or CUDA; otherwise it falls
+  back to NumPy.
 - ASE constraint-aware editing and visualization:
   `FixAtoms`, `FixCartesian`, `FixedLine`, `FixedPlane`, `FixScaled`, and
   `Hookean`.
@@ -330,7 +336,35 @@ colors and radii:
 If a type id is outside the periodic table range, v_ase keeps the raw label and
 uses ASE-valid `H` internally so the structure can still be opened.
 
-## Case 7: Export
+## Case 7: Default Repulsion Calculator
+
+If an input `Atoms` object already has a calculator, v_ase preserves and uses
+that calculator. This includes `SinglePointCalculator` results loaded from
+trajectory-style files and any calculator attached by the user before calling
+`view()`.
+
+If no calculator is attached, v_ase installs a default soft repulsion
+calculator. The model applies harmonic pair repulsion below covalent-radius
+contact thresholds, so Relax can remove close contacts without requiring an
+external calculator. The top-right calculator controls are enabled only for
+this default calculator:
+
+- `DEVICE`: `CPU` by default; `CUDA` is available when torch and CUDA are
+  available in the current Python environment.
+- `CPU`: number of CPU threads for torch CPU execution. The default is 4, capped
+  by the machine CPU count.
+
+Torch is intentionally not listed as a required dependency. If torch is absent,
+the repulsion calculator uses a NumPy implementation. Installing torch can make
+the default repulsion model faster, especially with CUDA hardware, but other ASE
+calculators remain fully user-defined and are not affected by these controls.
+
+During relaxation, structure updates stream to the browser. In interactive mode,
+if atoms are moved while relaxation is running, the current relaxation is stopped
+and restarted from the edited coordinates. In `--viz-only`, atom editing remains
+disabled, but relaxation updates can still be tracked.
+
+## Case 8: Export
 
 From the right panel:
 
@@ -399,7 +433,10 @@ view_file("trajectory.extxyz")
 ## Notes
 
 - The local editor server binds to `127.0.0.1`.
-- Relaxation uses the calculator already attached to the `Atoms` object.
+- Relaxation uses the calculator already attached to the `Atoms` object. If no
+  calculator is attached, v_ase uses its default soft repulsion calculator.
+- Torch is optional. It is never required by `pip install v_ase-gui`, but when
+  available it can accelerate the default repulsion calculator on CPU or CUDA.
 - POSCAR export stores structural data. Pickle export can include the ASE object;
   calculators may not always be pickleable.
 - The bundled browser UI is local-first; no Node.js build step is required.

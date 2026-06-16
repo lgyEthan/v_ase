@@ -18,6 +18,17 @@ reset, wrap, Done/Cancel, POSCAR export, pickle export, viewport PNG image
 export, WebM video export, Blender scene export, and calculator-backed
 relaxation controls.
 
+### Calculator Handling
+Existing ASE calculators are preserved, including `SinglePointCalculator`.
+When no calculator is attached, v_ase installs a default soft repulsion
+calculator so Relax can still remove close contacts. The default calculator uses
+NumPy when torch is unavailable. If torch is installed, it can run on CPU or
+CUDA; torch is optional and is not a package dependency.
+
+The top-right `DEVICE` and `CPU` controls apply only to this default repulsion
+calculator. User-provided calculators are expected to manage their own execution
+backend and are not modified by these controls.
+
 ### Display Tools
 Bonds are rendered as live cylinder objects and update during transform previews,
 relaxation updates, and trajectory frame changes. Bonding can use covalent-radius
@@ -61,6 +72,7 @@ The visualizer respects ASE constraints:
     - `POST /api/apply/{session_id}`: Applies new coordinates through ASE constraint logic.
     - `POST /api/add/{session_id}`: Appends atoms for paste operations.
     - `POST /api/delete/{session_id}`: Deletes selected atoms and remaps constraints.
+    - `POST /api/calculator/{session_id}`: Updates default repulsion calculator CPU/CUDA settings.
     - `POST /api/frame/{session_id}`: Switches the active trajectory frame.
     - `POST /api/wrap/{session_id}`: Wraps atoms into the unit cell.
     - `POST /api/export/poscar/{session_id}`: Exports the current structure as POSCAR.

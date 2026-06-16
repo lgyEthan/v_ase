@@ -6,6 +6,7 @@ import os
 from typing import Optional, Sequence, Union
 from ase import Atoms
 from .session import EditorSession, sessions
+from .repulsion import copy_calculator, ensure_default_calculator
 
 def find_free_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -16,7 +17,9 @@ def find_free_port():
 def _copy_atoms_with_calc(atoms: Atoms) -> Atoms:
     copied = atoms.copy()
     if atoms.calc:
-        copied.calc = atoms.calc
+        copied.calc = copy_calculator(atoms.calc)
+    else:
+        ensure_default_calculator(copied)
     return copied
 
 
@@ -45,7 +48,7 @@ class ASEEditor:
 
     def get_atoms(self) -> Optional[Atoms]:
         if self.session_id in sessions:
-            return sessions[self.session_id].working_atoms.copy()
+            return _copy_atoms_with_calc(sessions[self.session_id].working_atoms)
         return None
 
     def get_positions(self):
@@ -57,7 +60,9 @@ class ASEEditor:
             sessions[self.session_id].push_history()
             sessions[self.session_id].working_atoms = atoms.copy()
             if atoms.calc:
-                sessions[self.session_id].working_atoms.calc = atoms.calc
+                sessions[self.session_id].working_atoms.calc = copy_calculator(atoms.calc)
+            else:
+                ensure_default_calculator(sessions[self.session_id].working_atoms)
 
     def close(self):
         if self.session_id in sessions:
@@ -191,10 +196,10 @@ def view(
                 pass
             
             if session.cancelled:
-                res = session.original_atoms.copy()
+                res = _copy_atoms_with_calc(session.original_atoms)
             else:
                 res = session.result_atoms if session.result_atoms else session.working_atoms
-                res = res.copy()
+                res = _copy_atoms_with_calc(res)
 
             if return_mode == "atoms":
                 output = res

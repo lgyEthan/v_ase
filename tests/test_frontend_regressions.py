@@ -34,7 +34,7 @@ def test_static_version_strings_match_package_version():
     assert f'three.module.js?v={version}' in index_html
     assert f'main.js?v={version}' in index_html
     assert f'<span class="version">{version}</span>' in index_html
-    assert "0.0.21" not in index_html
+    assert "0.0.22" not in index_html
 
 
 def test_ui_button_api_endpoints_respond_without_network_server():
@@ -44,6 +44,7 @@ def test_ui_button_api_endpoints_respond_without_network_server():
 
     positions = atoms.positions.tolist()
     assert asyncio.run(get_atoms(session.session_id))["metadata"]["natoms"] == 3
+    assert asyncio.run(get_atoms(session.session_id))["metadata"]["calculator"] == "Repulsion"
     assert asyncio.run(apply_positions(session.session_id, {"positions": positions}))["metadata"]["natoms"] == 3
     assert asyncio.run(delete_atoms(session.session_id, {"indices": [2]}))["metadata"]["natoms"] == 2
     assert asyncio.run(undo(session.session_id))["metadata"]["natoms"] == 3
@@ -250,6 +251,8 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "btn-wrap" in index_html
     assert "Wrap Atoms Into Cell" in index_html
     assert "btn-delete-selection" in index_html
+    assert "calc-device" in index_html
+    assert "calc-cpus" in index_html
     assert "hover-readout" in index_html
     assert "move-increment" in index_html
     assert "rotate-increment" in index_html
@@ -259,6 +262,8 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "Element cutoffs" in index_html
     assert "deleteSelection" in main_js
     assert "api.deleteAtoms" in main_js
+    assert "updateCalculatorConfig" in api_js
+    assert "currentCalculatorPayload" in main_js
     assert "e.code === 'Delete'" in main_js
     assert "renderElementBondControls" in main_js
     assert "parseElementBondCutoffs" in main_js

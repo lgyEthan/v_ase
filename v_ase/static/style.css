@@ -202,6 +202,35 @@ body[data-viz-only="true"] [data-edit-only] {
     align-items: center;
 }
 
+.calc-control-group {
+    display: grid;
+    grid-template-columns: max-content 76px max-content 58px;
+    gap: 4px 6px;
+    align-items: center;
+    padding: 6px 8px;
+    border: 1px solid var(--stroke);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.048);
+}
+
+.calc-control-group label {
+    color: var(--muted);
+    font-size: 0.58rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+}
+
+.calc-control-group select {
+    width: 100%;
+    min-width: 0;
+    padding: 4px 6px;
+    font-size: 0.7rem;
+}
+
+.calc-control-group.disabled {
+    opacity: 0.55;
+}
+
 .section-header {
     margin-bottom: 10px;
     padding-bottom: 6px;

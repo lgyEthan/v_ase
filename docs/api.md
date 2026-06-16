@@ -68,6 +68,16 @@ LAMMPS dump/data integer types are preserved as raw GUI labels. Valid type ids
 are interpreted as atomic numbers for default visualization; out-of-range ids
 fall back to internal `H` while keeping the raw label.
 
+## Calculator Behavior
+
+Existing ASE calculators are preserved and used directly. If no calculator is
+attached, v_ase attaches its default soft repulsion calculator. This default
+calculator can use torch CPU or CUDA when torch is installed, but torch is not a
+package dependency; NumPy is used automatically when torch is absent.
+
+The browser exposes `DEVICE` and `CPU` controls only for the default repulsion
+calculator. These controls do not affect user-provided ASE calculators.
+
 ## Local Editing Endpoints
 
 The browser UI talks to a local FastAPI server bound to `127.0.0.1`.
@@ -77,6 +87,7 @@ The browser UI talks to a local FastAPI server bound to `127.0.0.1`.
 - `POST /api/constrain/{session_id}`: Previews constraint-corrected coordinates.
 - `POST /api/add/{session_id}`: Appends atoms for paste operations.
 - `POST /api/delete/{session_id}`: Deletes atoms and remaps constraints.
+- `POST /api/calculator/{session_id}`: Updates default repulsion calculator device/thread settings.
 - `POST /api/frame/{session_id}`: Switches the active trajectory frame.
 - `POST /api/wrap/{session_id}`: Wraps atoms into the unit cell.
 - `POST /api/export/poscar/{session_id}`: Exports POSCAR.

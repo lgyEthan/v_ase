@@ -13,6 +13,11 @@ This project is now packaged under the single public name `v_ase`.
 - Blender-style selection and modal transforms.
 - Constraint-aware editing for ASE constraints including `FixAtoms`, `FixCartesian`, `FixedLine`, `FixedPlane`, `FixScaled`, and `Hookean`.
 - Hookean constraint visualization with inactive cutoff gap, threshold gate, lock marker, and active spring.
+- Existing ASE calculators are preserved. Missing calculators are filled with a
+  default soft repulsion calculator with optional torch CPU/CUDA acceleration
+  and NumPy fallback.
+- Relaxation can restart from newly edited coordinates while it is already
+  running in interactive mode.
 - Periodic bond inference, element-pair cutoff controls, supercell preview, and supercell-to-cell conversion.
 - Viewport image export, POSCAR export, pickle export, and Blender Python scene export.
 - Optional relaxation when an ASE calculator is attached.
