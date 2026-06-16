@@ -13,8 +13,9 @@ The visualizer adopts the modal operator pattern from Blender:
 5. Click or press `Enter` to confirm, or `Esc` to cancel.
 
 ### Editor Actions
-The current editor supports copy/paste, undo/redo, reset, wrap, Done/Cancel,
-POSCAR export, pickle export, viewport PNG image export, and calculator-backed
+The current editor supports copy/paste, undo/redo, Delete/Backspace deletion,
+reset, wrap, Done/Cancel, POSCAR export, pickle export, viewport PNG image
+export, WebM video export, Blender scene export, and calculator-backed
 relaxation controls.
 
 ### Display Tools
@@ -28,8 +29,24 @@ direction; otherwise the UI shows a warning and resets the invalid multiplier.
 ### Trajectory/Movie Playback
 `view()` and `view_edit()` accept an `Atoms` object, a sequence of `Atoms`
 frames, or an ASE-readable trajectory path. Multi-frame inputs expose an
-OVITO-style timeline panel with previous/next, play/pause, frame slider, and FPS
-controls.
+OVITO-style timeline panel with previous/next, play/pause, frame slider, FPS,
+and frame skip controls. Skip advances by `skip + 1` frames per playback tick,
+so `0` means no skipped frames.
+
+### File Type and Label Handling
+The CLI accepts ASE-readable formats plus v_ase-specific helpers for custom
+labels. extxyz labels such as `H_type5` are preserved as GUI labels while being
+mapped to ASE-valid base elements. LAMMPS dump/data integer types are preserved
+as raw GUI labels; valid integer ids are also interpreted as atomic numbers for
+default color/radius distinction, while out-of-range ids fall back to internal
+`H`.
+
+### Appearance Editing
+The Appearance table is label-oriented and stable under edits. Changing a label
+does not reorder rows. If a label prefix names a real element, for example
+`O_bridge`, the TYPE dropdown and default radius follow that element. When the
+base element changes, stale radius/color overrides from the old label are not
+blindly copied.
 
 ### ASE Constraint Compatibility
 The visualizer respects ASE constraints:
@@ -43,9 +60,12 @@ The visualizer respects ASE constraints:
     - `GET /api/atoms/{session_id}`: Fetches the current atoms state.
     - `POST /api/apply/{session_id}`: Applies new coordinates through ASE constraint logic.
     - `POST /api/add/{session_id}`: Appends atoms for paste operations.
+    - `POST /api/delete/{session_id}`: Deletes selected atoms and remaps constraints.
     - `POST /api/frame/{session_id}`: Switches the active trajectory frame.
+    - `POST /api/wrap/{session_id}`: Wraps atoms into the unit cell.
     - `POST /api/export/poscar/{session_id}`: Exports the current structure as POSCAR.
     - `POST /api/export/pickle/{session_id}`: Exports the current structure as a pickle.
+    - `POST /api/export/blender/{session_id}`: Exports a Blender Python scene.
     - `POST /api/relax/start/{session_id}`: Starts geometry optimization.
     - `POST /api/relax/stop/{session_id}`: Requests geometry optimization stop.
     - `WS /ws/{session_id}`: Streams relaxation positions, energy, and fmax.

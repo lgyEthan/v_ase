@@ -57,12 +57,17 @@ show playback controls for frame-by-frame movie inspection.
   `FixAtoms`, `FixCartesian`, `FixedLine`, `FixedPlane`, `FixScaled`, and
   `Hookean`.
 - Hookean constraints are visualized as threshold-aware hook/latch springs.
-- Trajectory playback with live frame slider, FPS control, image export, and
-  video export.
+- Trajectory playback with live frame slider, FPS control, frame skip, image
+  export, and video export.
 - Periodic bonds, element-pair cutoff tables, manual bond pairs, supercell
   preview, `make_supercell(P)` cell transform, and wrap atoms into cell.
 - Custom extxyz atom type labels such as `H_type5` are preserved for GUI type
   settings even when ASE cannot parse them as real elements.
+- LAMMPS `lammpstrj` and `.data` integer types stay visible as labels. Valid
+  integer type ids are also used as atomic numbers for color/radius distinction;
+  out-of-range ids fall back to ASE-valid `H` while preserving the raw label.
+- Appearance label edits keep row order stable. Labels with element prefixes
+  such as `O_bridge` automatically update the TYPE dropdown and default radius.
 - Export POSCAR, pickle, PNG image, WebM video, and Blender Python scene script.
   Blender export includes viewport camera, unit cell, bonds, and smooth atoms.
 
@@ -289,9 +294,11 @@ Controls:
 - play/pause button
 - `Space`: play or pause
 - FPS control updates immediately while playback is running
+- Skip control advances by `skip + 1` frames per playback tick while preserving
+  the selected FPS
 - export image and export video
 
-## Case 6: Custom Atom Types in extxyz
+## Case 6: Custom Atom Types in extxyz and LAMMPS
 
 Some workflows store type labels such as `H_type5`, `O_type2`, or `Si_type1`
 inside the `species` column. ASE itself cannot treat these strings as chemical
@@ -311,6 +318,17 @@ In v_ase:
 - type-specific color variants are generated.
 - Appearance radius controls are grouped by `H_type5`, `O_type2`, etc.
 - Bond cutoff pair tables also use the preserved type labels.
+
+For LAMMPS dump/data files, integer type ids are kept as GUI labels. If the type
+id is a valid atomic number, v_ase uses that element internally for default
+colors and radii:
+
+- `type=1` -> backend `H`, GUI label `1`
+- `type=8` -> backend `O`, GUI label `8`
+- `type=14` -> backend `Si`, GUI label `14`
+
+If a type id is outside the periodic table range, v_ase keeps the raw label and
+uses ASE-valid `H` internally so the structure can still be opened.
 
 ## Case 7: Export
 

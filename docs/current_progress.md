@@ -1,5 +1,7 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
+Last synchronized with implementation: `v_ase-gui 0.0.20`.
+
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
 It is intended to work like an extended version of `ase.visualize.view(atoms)`, but with professional-grade editing capabilities.
@@ -9,8 +11,8 @@ Unlike the default ASE viewer, this tool supports:
 *   **Blender-Style Transforms**: G (Move), R (Rotate) with X/Y/Z axis locking and numeric input.
 *   **Constraint-Aware Editing**: Real-time backend synchronization using `set_positions(..., apply_constraint=True)`.
 *   **Structural Modification**: Copy/paste appends atoms through the backend.
-*   **Scientific Visualization**: Fixed-atom markers, selection outlines, interactive/manual bonds, unit-cell/axes/grid toggles, image export, and supercell preview.
-*   **Trajectory Playback**: Multi-frame `Atoms` inputs and ASE-readable trajectory files expose a movie timeline.
+*   **Scientific Visualization**: Fixed-atom markers, selection outlines, interactive/manual bonds, unit-cell/axes/grid toggles, POSCAR/pickle/PNG/WebM/Blender export, wrap, and supercell preview.
+*   **Trajectory Playback**: Multi-frame `Atoms` inputs and ASE-readable trajectory files expose a movie timeline with live scrubbing, FPS, and frame skip controls.
 *   **Live Simulation**: Real-time relaxation visualization using attached ASE calculators via WebSockets.
 
 The final interface is usable directly from Python:
@@ -67,7 +69,7 @@ v_ase/
   session.py        # EditorSession state model
   serialization.py  # Atoms -> JSON conversion
   relax.py          # WebSocket optimization logic
-  export.py         # POSCAR and Pickle export handlers
+  export.py         # POSCAR, Pickle, Blender, image, and video export handlers
   static/
     index.html      # UI layout
     main.js         # Application orchestration
@@ -103,7 +105,9 @@ Structures are serialized into a rich JSON format:
 The editor currently supports:
 1.  **FixAtoms**: Visualized via a translucent atom and lock ring; movement blocked.
 2.  **FixCartesian**: Backend-enforced during movement.
-3.  **FixedLine / FixedPlane**: Backend-enforced via `set_positions(apply_constraint=True)`.
+3.  **FixedLine / FixedPlane**: Backend-enforced via `set_positions(apply_constraint=True)` and visualized with line/plane guides on selected atoms.
+4.  **FixScaled**: Serialized and handled as an ASE constraint in backend coordinate application.
+5.  **Hookean**: Visualized as a threshold-aware latch/spring; inactive and active states are shown based on current distance and `rt`.
 
 ---
 
@@ -124,9 +128,21 @@ Fixed atoms are rendered as translucent atoms with a lock ring marker.
 
 ---
 
-## 10. Per-Atom Color Customization
-The renderer accepts `metadata.custom_colors` when supplied by the backend.
-An in-app color picker is not exposed in the current verified UI.
+## 10. Appearance and Atom-Type Editing
+The Appearance panel exposes per-label controls for:
+*   **TYPE**: ASE-valid base element dropdown.
+*   **VISIBLE**: Hide/show the label group; hidden atoms are not selectable.
+*   **SELECT**: Checkbox with all/partial/none selection state.
+*   **LABEL**: GUI label editing, including custom labels such as `O_bridge`.
+*   **COLOR**: Per-label color picker.
+*   **RADIUS / A**: Per-label radius override.
+
+Rows keep the first-seen atom-label order and do not jump to alphabetical order
+during label edits. When a label prefix maps to a real element, for example
+`O_bridge` or `Si_type3`, the TYPE dropdown follows that element immediately and
+the default radius is taken from the corresponding ASE GUI radius. If the base
+element changes, old label-specific radius/color overrides are not blindly
+copied to the new label.
 
 ---
 
@@ -172,6 +188,7 @@ The frontend manages modes: `IDLE`, `MOVE`, `ROTATE`. Transitions are triggered 
 ## 16. Bond Visualization
 *   **Inference**: Initially created based on covalent radii + scale factor.
 *   **Interactive**: Once enabled, cylinder bonds **stretch and rotate** to follow atom movement in real time.
+*   **Element/Type Pairs**: Element-pair cutoff rows are exposed in the Bonding panel.
 *   **Manual Pairs**: Explicit pair lists such as `0-1, 1-2` can be supplied in the Bonding panel.
 *   **Recalculation**: Cutoff logic is only reapplied when inference is requested or auto settings change.
 
@@ -185,9 +202,10 @@ The frontend manages modes: `IDLE`, `MOVE`, `ROTATE`. Transitions are triggered 
 ---
 
 ## 18. Atom Deletion
-Direct atom deletion is not exposed in the current verified UI. This should be
-implemented with backend index/constraint updates before documenting a keyboard
-shortcut for it.
+Direct atom deletion is implemented. `Delete` and `Backspace` remove selected
+atoms through the backend, remap constraints, preserve calculators where
+possible, and update the frontend state. This behavior is covered by
+`tests/test_complete_workflow_showcase.py` and frontend regression tests.
 
 ---
 
@@ -203,6 +221,9 @@ shortcut for it.
 ## 20. Export
 *   **VASP POSCAR**: Exported using `ase.io.write`.
 *   **Pickle**: The UI exports a structure-only pickle. The Python handle can export with or without a calculator.
+*   **PNG Image**: Export options include transparent background, grid, and axes.
+*   **WebM Video**: Available for trajectories.
+*   **Blender Script**: Exports atoms, unit cell, bonds, constraints where practical, and the current camera.
 
 ---
 
@@ -210,7 +231,7 @@ shortcut for it.
 *   **Optimizer**: `ase.optimize.QuasiNewton`.
 *   **Live Feedback**: Step-by-step WebSocket updates of Energy, Fmax, and Positions.
 *   **Interactivity**: Real-time updates of bonds and markers during trajectory.
-*   **Movie Mode**: Multi-frame structures expose frame slider, previous/next, play/pause, and FPS controls.
+*   **Movie Mode**: Multi-frame structures expose frame slider, previous/next, play/pause, FPS, and frame skip controls.
 
 ---
 
@@ -220,12 +241,16 @@ shortcut for it.
 ---
 
 ## 23. Backend Endpoints
-*   `GET /api/atoms`: Fetch structure + metadata.
-*   `POST /api/constrain`: Calculate constraint-corrected positions.
-*   `POST /api/apply`: Commit positions to history.
+*   `GET /api/atoms/{session_id}`: Fetch structure + metadata.
+*   `POST /api/constrain/{session_id}`: Calculate constraint-corrected positions.
+*   `POST /api/apply/{session_id}`: Commit positions to history.
 *   `POST /api/add/{session_id}`: Append atoms for paste operations.
+*   `POST /api/delete/{session_id}`: Delete selected atoms with constraint remapping.
+*   `POST /api/frame/{session_id}`: Switch the active trajectory frame.
+*   `POST /api/wrap/{session_id}`: Wrap atoms into the current unit cell.
 *   `POST /api/export/poscar/{session_id}`: Export POSCAR.
 *   `POST /api/export/pickle/{session_id}`: Export pickle.
+*   `POST /api/export/blender/{session_id}`: Export a Blender Python scene.
 *   `POST /api/relax/start/{session_id}`: Start relaxation.
 *   `POST /api/relax/stop/{session_id}`: Request relaxation stop.
 *   `WS /ws/{session_id}`: Trajectory stream.
@@ -242,9 +267,10 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, and Browser-Flow Tests (15 passing).
+*   [x] **Phase 10**: Focused Unit, API, and Browser-Flow Tests (67 passing as of 0.0.20).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
-*   [ ] **Planned**: Click-to-place atom insertion, direct deletion, and in-app color picker.
+*   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, `--viz-only`, Appearance panel editing, frame skip, and PyPI packaging.
+*   [ ] **Planned**: Click-to-place atom insertion and optional technical hatching shader for fixed atoms.
 
 ---
 
