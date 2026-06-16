@@ -167,9 +167,12 @@ v_ase gui examples/readme_scene_assets/showcase.traj --show-bonds
 
 ## Case 1: Selection, FixedLine, and FixedPlane
 
-Selected atoms get yellow Blender-style outlines. Fixed atoms are dimmed, and
-selected `FixedLine` / `FixedPlane` atoms show geometric guides so the allowed
-movement is visible before committing coordinates.
+Selected atoms get yellow Blender-style outlines. `FixAtoms` entries keep their
+atom shape but switch to a darker matte material, so they read as immobile
+without looking selected. `FixedLine` and `FixedPlane` guides stay hidden until
+the constrained atom is selected, then appear as a thin fading axis or a
+translucent soft-edge plane. `Show Overlays` can hide all of these guides for a
+clean structure view.
 
 `FixedLine` is shown as a Li ion moving along a carbon nanotube channel. The ion
 can slide parallel to the tube axis, but not leave the channel direction:

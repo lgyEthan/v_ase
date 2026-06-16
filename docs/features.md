@@ -74,8 +74,9 @@ blindly copied.
 
 ### ASE Constraint Compatibility
 The visualizer respects ASE constraints:
-- **FixAtoms**: Atoms marked as fixed cannot be moved or rotated and are shown with a surface hatch overlay instead of a dimmed atom.
-- **FixedLine / FixedPlane**: Selected atoms move only along the line or inside the plane. FixedPlane also has a persistent plane marker before selection.
+- **FixAtoms**: Atoms marked as fixed cannot be moved or rotated and are shown by a darker matte material on the atom itself, with normal depth occlusion and no extra see-through marker.
+- **FixedLine / FixedPlane**: Selected atoms move only along the line or inside the plane. Guides are selected-only: FixedLine uses a thin fading axis, and FixedPlane uses a translucent soft-edge plane.
+- **Show Overlays**: A viewport toggle hides selection outlines, selected constraint guides, Hookean overlays, and fixed-atom material marking when users need a clean structure view.
 - **Interactive constraints**: The Constraints panel can apply or clear `FixAtoms`, `FixedLine`, and `FixedPlane` for the selected atoms.
 - **Set Positions**: The backend uses `atoms.set_positions(..., apply_constraint=True)`, ensuring that even if the UI sends a move, ASE will enforce the physical constraints.
 

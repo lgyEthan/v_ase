@@ -32,6 +32,7 @@ class VAseApp {
                 showCell: true,
                 showAxes: true,
                 showGrid: true,
+                showOverlays: true,
                 bondMode: 'auto',
                 bondCutoffScale: 1.0,
                 manualBondPairs: [],
@@ -527,6 +528,7 @@ class VAseApp {
         this.state.display.showCell = config.show_cell !== false;
         this.state.display.showAxes = config.show_axes !== false;
         this.state.display.showGrid = config.show_grid !== false;
+        this.state.display.showOverlays = config.show_overlays !== false;
         this.state.applyConstraints = config.apply_constraint !== false;
         this.state.antiAliasing = config.anti_aliasing !== false;
         this.state.sphereQuality = config.sphere_quality || 'auto';
@@ -544,6 +546,7 @@ class VAseApp {
         document.getElementById('chk-cell').checked = this.state.display.showCell;
         document.getElementById('chk-axes').checked = this.state.display.showAxes;
         document.getElementById('chk-grid').checked = this.state.display.showGrid;
+        document.getElementById('chk-overlays').checked = this.state.display.showOverlays;
         document.getElementById('chk-constraints').checked = this.state.applyConstraints;
         document.getElementById('chk-antialias').checked = this.state.antiAliasing;
         document.getElementById('sphere-quality').value = this.state.sphereQuality;
@@ -1910,6 +1913,7 @@ class VAseApp {
         this.state.display.showCell = document.getElementById('chk-cell').checked;
         this.state.display.showAxes = document.getElementById('chk-axes').checked;
         this.state.display.showGrid = document.getElementById('chk-grid').checked;
+        this.state.display.showOverlays = document.getElementById('chk-overlays')?.checked !== false;
         this.state.display.projectionMode = document.getElementById('projection-mode')?.value || 'perspective';
         this.state.applyConstraints = document.getElementById('chk-constraints').checked;
         this.state.antiAliasing = document.getElementById('chk-antialias').checked;
@@ -2013,6 +2017,7 @@ class VAseApp {
         setChecked('chk-cell', display.showCell);
         setChecked('chk-axes', display.showAxes);
         setChecked('chk-grid', display.showGrid);
+        setChecked('chk-overlays', display.showOverlays !== false);
         setValue('projection-mode', display.projectionMode || 'perspective');
         setChecked('chk-constraints', this.state.applyConstraints);
         setChecked('chk-antialias', this.state.antiAliasing);
@@ -3088,6 +3093,7 @@ class VAseApp {
         document.getElementById('chk-cell').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('chk-axes').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('chk-grid').onchange = () => this.safeApplyDisplayOptions();
+        document.getElementById('chk-overlays').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('projection-mode').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('chk-antialias').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('sphere-quality').onchange = () => this.safeApplyDisplayOptions();

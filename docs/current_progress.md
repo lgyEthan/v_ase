@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.25`.
+Last synchronized with implementation: `v_ase-gui 0.0.26`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -11,7 +11,7 @@ Unlike the default ASE viewer, this tool supports:
 *   **Blender-Style Transforms**: G (Move), R (Rotate) with X/Y/Z axis locking and numeric input.
 *   **Constraint-Aware Editing**: Real-time backend synchronization using `set_positions(..., apply_constraint=True)`.
 *   **Structural Modification**: Copy/paste appends atoms through the backend.
-*   **Scientific Visualization**: Fixed-atom markers, selection outlines, interactive/manual bonds, unit-cell/axes/grid toggles, POSCAR/pickle/PNG/WebM/Blender export, wrap, and supercell preview.
+*   **Scientific Visualization**: Material-state fixed atoms, selection outlines, selected-constraint guides, interactive/manual bonds, unit-cell/axes/grid/overlay toggles, POSCAR/pickle/PNG/WebM/Blender export, wrap, and supercell preview.
 *   **Trajectory Playback**: Multi-frame `Atoms` inputs and ASE-readable trajectory files expose a movie timeline with live scrubbing, FPS, and frame skip controls.
 *   **Live Simulation**: Real-time relaxation visualization using attached ASE calculators or the default v_ase repulsion calculator via WebSockets.
 
@@ -29,7 +29,7 @@ edited_atoms = view(atoms)
 3.  **Constraint Integrity**: ASE constraints are strictly respected during all coordinate updates via the backend.
 4.  **Blender UX**: Mouse and keyboard patterns follow Blender (e.g., Left-drag for selection, G/R for transform).
 5.  **Calculator Inheritance**: Calculators are preserved across structural changes (Addition/Deletion/Relaxation).
-6.  **Interactive Visualization**: Bonds, selection outlines, fixed-atom markers, and supercell ghosts update dynamically without scene resets.
+6.  **Interactive Visualization**: Bonds, selection outlines, selected-constraint guides, and supercell ghosts update dynamically without scene resets.
 
 ---
 
@@ -112,9 +112,9 @@ Structures are serialized into a rich JSON format:
 
 ## 7. ASE Constraints
 The editor currently supports:
-1.  **FixAtoms**: Visualized with surface hatch markers while preserving the normal atom color/radius; movement blocked.
+1.  **FixAtoms**: Visualized by changing the atom material itself to a darker, high-roughness matte state; movement blocked.
 2.  **FixCartesian**: Backend-enforced during movement.
-3.  **FixedLine / FixedPlane**: Backend-enforced via `set_positions(apply_constraint=True)`. FixedPlane markers remain visible before selection, and selected atoms show detailed line/plane guides.
+3.  **FixedLine / FixedPlane**: Backend-enforced via `set_positions(apply_constraint=True)`. These constraints keep the viewport clean until selected, then show minimal CAD-style line/soft-plane guides.
 4.  **FixScaled**: Serialized and handled as an ASE constraint in backend coordinate application.
 5.  **Hookean**: Visualized as a threshold-aware latch/spring; inactive and active states are shown based on current distance and `rt`.
 
@@ -130,10 +130,13 @@ The editor currently supports:
 ---
 
 ## 9. Fixed Atom Visualization
-Fixed atoms keep their normal atom color/radius and receive a surface hatch overlay.
-*   **Visibility**: The hatch marker tracks the atom and remains visible during camera rotation.
+Fixed atoms use the atom mesh itself as the visual carrier; no separate hatch,
+ring, or always-on overlay geometry is drawn.
+*   **Material State**: Fixed atoms keep their radius and base hue, but render darker with high roughness and no metallic highlight. This reads as immobile matter without looking like selection.
+*   **Depth Behavior**: The fixed-atom state is not a see-through overlay and is occluded normally by other atoms.
 *   **Constraint Integrity**: Fixed atoms can be selected, but transform previews and final backend application do not move them.
-*   **FixedPlane Context**: FixedPlane atoms also show a persistent plane marker before selection; selecting the atom expands the detailed plane guide.
+*   **Selected Guides Only**: FixedLine and FixedPlane guides are drawn only for selected atoms. FixedLine uses a thin fading axis; FixedPlane uses a translucent soft-edge plane.
+*   **Global Overlay Toggle**: `Show Overlays` hides selection outlines, selected constraint guides, Hookean overlays, and fixed-atom material marking for clean structure inspection or figure capture.
 
 ---
 
@@ -289,13 +292,13 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (updated for 0.0.25).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (updated for 0.0.26).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, `--viz-only`, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
 *   [x] **Phase 14**: Public ASE calculator import API for the default repulsion model.
 *   [x] **Phase 15**: Top-bar cleanup and interactive selected-atom constraint editing.
-*   [ ] **Planned**: Click-to-place atom insertion and optional technical hatching shader for fixed atoms.
+*   [ ] **Planned**: Click-to-place atom insertion.
 
 ---
 

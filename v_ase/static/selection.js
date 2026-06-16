@@ -20,7 +20,7 @@ export class ASESelection {
         this.raycaster.setFromCamera(mouse, this.renderer.camera);
         
         const intersects = this.raycaster.intersectObjects(atomGroup.children)
-            .filter(hit => hit.object.visible !== false && !hit.object.userData.lockMarker);
+            .filter(hit => hit.object.visible !== false);
         if (intersects.length > 0) {
             const hit = intersects[0];
             if (hit.object.userData.instancedAtoms) {

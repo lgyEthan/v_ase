@@ -95,6 +95,7 @@ export class ASEApi {
                     show_cell: true,
                     show_axes: true,
                     show_grid: true,
+                    show_overlays: true,
                     show_bonds: true,
                     apply_constraint: true
                 }

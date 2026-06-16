@@ -35,7 +35,7 @@ def test_static_version_strings_match_package_version():
     assert f'three.module.js?v={version}' in index_html
     assert f'main.js?v={version}' in index_html
     assert f'<span class="version">{version}</span>' in index_html
-    assert "0.0.26" not in index_html
+    assert "0.0.27" not in index_html
 
 
 def test_ui_button_api_endpoints_respond_without_network_server():
@@ -252,11 +252,14 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
     api_js = (ROOT / "v_ase/static/api.js").read_text()
     index_html = (ROOT / "v_ase/static/index.html").read_text()
+    selection_js = (ROOT / "v_ase/static/selection.js").read_text()
 
     assert "constrainedMoveDelta" in main_js
     assert "fixed_line" in main_js
     assert "fixed_plane" in main_js
     assert "chk-constraints" in index_html
+    assert "chk-overlays" in index_html
+    assert "Show Overlays" in index_html
     assert "Apply constraints" in index_html
     assert "apply_constraint</label>" not in index_html
     assert "btn-done" not in index_html
@@ -264,6 +267,7 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert 'id="btn-apply"' not in index_html
     assert "apply_constraint" in main_js
     assert "state.applyConstraints" in main_js
+    assert "showOverlays" in main_js
     assert "applySupercell" in api_js
     assert "btn-set-supercell" in index_html
     assert "Set Supercell as Cell" in index_html
@@ -296,9 +300,21 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "setHoveredAtom" in main_js
     assert "elementCovalentRadius" in main_js
     assert "rebuildConstraintGuides" in renderer_js
-    assert "rebuildPersistentConstraintMarks" in renderer_js
-    assert "addFixedAtomHatch" in renderer_js
-    assert "addFixedPlaneMark" in renderer_js
+    assert "applyOverlayVisibility" in renderer_js
+    assert "atomMaterialSpec" in renderer_js
+    assert "fixedAdjustedColor" in renderer_js
+    assert "lineFade" in renderer_js
+    assert "planeSoft" in renderer_js
+    assert "rebuildPersistentConstraintMarks" not in renderer_js
+    assert "addFixedAtomHatch" not in renderer_js
+    assert "addFixedPlaneMark" not in renderer_js
+    assert "fixedHatch" not in renderer_js
+    assert "planeGrid" not in renderer_js
+    assert "planeVeil" not in renderer_js
+    assert "planeTrail" not in renderer_js
+    assert "lockMarker" not in renderer_js
+    assert "lockMarker" not in selection_js
+    assert "ConeGeometry" not in renderer_js
     assert "constraintMarkGroup" in renderer_js
     assert "addFixedLineGuide" in renderer_js
     assert "addFixedPlaneGuide" in renderer_js
@@ -381,7 +397,7 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "rebuildInstancedAtoms" in renderer_js
     assert "inferBondPairsCellList" in renderer_js
     assert "0.6 * (vi + vj)" in renderer_js
-    assert "this.displayOptions.vizOnly ? new Set()" in renderer_js
+    assert "fixedAtomDisplayEnabled()" in renderer_js
     assert "const supercellChanged" in renderer_js
     assert "if (supercellChanged) this.rebuildSupercell()" in renderer_js
     assert "elementVisible: { ...(options.elementVisible" in renderer_js

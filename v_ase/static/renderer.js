@@ -308,6 +308,7 @@ export class ASERenderer {
             unitCellAwareRotate: false,
             rotateStrainCutoff: 0.15,
             projectionMode: 'perspective',
+            showOverlays: true,
             supercell: [1, 1, 1],
             antiAliasing: true,
             sphereQuality: 'auto',
@@ -331,9 +332,17 @@ export class ASERenderer {
         });
         this.constraintMaterials = {
             line: new THREE.MeshBasicMaterial({
-                color: 0x66d9ff,
+                color: 0x76d7f2,
                 transparent: true,
-                opacity: 0.58,
+                opacity: 0.46,
+                depthTest: true,
+                depthWrite: false
+            }),
+            lineFade: new THREE.MeshBasicMaterial({
+                color: 0x76d7f2,
+                transparent: true,
+                opacity: 0.16,
+                depthTest: true,
                 depthWrite: false
             }),
             plane: new THREE.MeshBasicMaterial({
@@ -341,79 +350,36 @@ export class ASERenderer {
                 side: THREE.DoubleSide,
                 transparent: true,
                 opacity: 0.18,
+                depthTest: true,
                 depthWrite: false
             }),
-            planeEdge: new THREE.MeshBasicMaterial({
-                color: 0x72ffe0,
+            planeSoft: new THREE.ShaderMaterial({
+                transparent: true,
                 side: THREE.DoubleSide,
-                transparent: true,
-                opacity: 0.62,
-                depthWrite: false
-            }),
-            planeGrid: new THREE.LineBasicMaterial({
-                color: 0x82f8df,
-                transparent: true,
-                opacity: 0.32,
-                depthTest: false,
-                depthWrite: false
-            }),
-            planeGridMajor: new THREE.LineBasicMaterial({
-                color: 0xb5fff1,
-                transparent: true,
-                opacity: 0.50,
-                depthTest: false,
-                depthWrite: false
-            }),
-            planeVeil: new THREE.MeshBasicMaterial({
-                color: 0x30c7a7,
-                side: THREE.DoubleSide,
-                transparent: true,
-                opacity: 0.055,
-                depthTest: false,
-                depthWrite: false
-            }),
-            planeTrack: new THREE.MeshBasicMaterial({
-                color: 0xffd35a,
-                transparent: true,
-                opacity: 0.86,
-                depthTest: false,
-                depthWrite: false
-            }),
-            planeAxis: new THREE.MeshBasicMaterial({
-                color: 0x7fffe4,
-                transparent: true,
-                opacity: 0.72,
-                depthTest: false,
-                depthWrite: false
-            }),
-            fixedHatch: new THREE.MeshBasicMaterial({
-                color: 0xffd35a,
-                transparent: true,
-                opacity: 0.92,
-                depthTest: false,
-                depthWrite: false
-            }),
-            fixedHatchShadow: new THREE.MeshBasicMaterial({
-                color: 0x191a1b,
-                transparent: true,
-                opacity: 0.68,
-                depthTest: false,
-                depthWrite: false
-            }),
-            planeMark: new THREE.MeshBasicMaterial({
-                color: 0x38d8b8,
-                side: THREE.DoubleSide,
-                transparent: true,
-                opacity: 0.16,
-                depthTest: false,
-                depthWrite: false
-            }),
-            planeMarkGrid: new THREE.LineBasicMaterial({
-                color: 0x9effed,
-                transparent: true,
-                opacity: 0.54,
-                depthTest: false,
-                depthWrite: false
+                depthTest: true,
+                depthWrite: false,
+                uniforms: {
+                    color: { value: new THREE.Color(0x3dd6b0) },
+                    opacity: { value: 0.14 }
+                },
+                vertexShader: `
+                    varying vec2 vUv;
+                    void main() {
+                        vUv = uv;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform vec3 color;
+                    uniform float opacity;
+                    varying vec2 vUv;
+                    void main() {
+                        vec2 centered = abs(vUv - vec2(0.5)) * 2.0;
+                        float edge = max(centered.x, centered.y);
+                        float alpha = opacity * (1.0 - smoothstep(0.58, 1.0, edge));
+                        gl_FragColor = vec4(color, alpha);
+                    }
+                `
             }),
             hookean: new THREE.MeshBasicMaterial({
                 color: 0xff9f43,
@@ -511,6 +477,23 @@ export class ASERenderer {
         return this.validHexColor(color) ? color : FALLBACK_ATOM_COLOR;
     }
 
+    fixedAtomDisplayEnabled() {
+        return !this.displayOptions.vizOnly && this.displayOptions.showOverlays !== false;
+    }
+
+    atomMaterialSpec(color, isFixed = false) {
+        const base = new THREE.Color(color);
+        if (!isFixed) {
+            return { color: base, roughness: 0.42, metalness: 0.08 };
+        }
+        const matte = base.clone().multiplyScalar(0.80);
+        return { color: matte, roughness: 0.96, metalness: 0.0 };
+    }
+
+    fixedAdjustedColor(color, isFixed = false) {
+        return this.atomMaterialSpec(color, isFixed).color;
+    }
+
     atomTypeVisible(index) {
         const symbol = this.atomsData?.symbols?.[index];
         return !symbol || this.displayOptions?.elementVisible?.[symbol] !== false;
@@ -547,9 +530,6 @@ export class ASERenderer {
             if (index === undefined) return;
             const visible = this.atomTypeVisible(index);
             mesh.visible = visible;
-            if (mesh.userData.lockMarker) {
-                mesh.visible = visible;
-            }
         });
         this.selectionOutlines.children.forEach(outline => {
             const idx = outline.userData.outlineFor;
@@ -678,8 +658,6 @@ export class ASERenderer {
         while(this.atomMeshes.children.length > 0){ 
             const child = this.atomMeshes.children[0];
             this.atomMeshes.remove(child); 
-            if(child.userData.lockMarker && child.geometry) child.geometry.dispose();
-            if(child.userData.lockMarker && child.material) child.material.dispose();
         }
         while(this.cellGroup.children.length > 0){
             const child = this.cellGroup.children[0];
@@ -702,16 +680,16 @@ export class ASERenderer {
         
         if (!atoms || !atoms.symbols) return;
 
-        const fixed = this.displayOptions.vizOnly ? new Set() : new Set(atoms.constraints?.fixed_indices || []);
+        const fixed = this.fixedAtomDisplayEnabled() ? new Set(atoms.constraints?.fixed_indices || []) : new Set();
         const segmentCount = this.sphereQualitySegments(atoms.symbols.length);
         this.useInstancedAtoms = this.shouldUseInstancedAtoms(atoms);
         if (this.useInstancedAtoms) {
             this.rebuildInstancedAtoms(atoms, this.customColors, fixed, segmentCount);
             this.rebuildCell(atoms.cell);
             this.rebuildBonds();
-            this.rebuildPersistentConstraintMarks();
             this.rebuildHookeanConstraints();
             this.rebuildSupercell();
+            this.applyOverlayVisibility();
             if (this.needsInitialCameraFit) {
                 this.fitCameraToStructure();
                 this.needsInitialCameraFit = false;
@@ -730,12 +708,13 @@ export class ASERenderer {
                     new THREE.SphereGeometry(radius, segmentCount, Math.max(10, Math.floor(segmentCount * 0.65)))
                 );
             }
-            const materialKey = `${color}:${isFixed}`;
+            const materialKey = `${color}:${isFixed ? 'fixed' : 'normal'}:${segmentCount}`;
             if (!this.materialCache.has(materialKey)) {
+                const spec = this.atomMaterialSpec(color, isFixed);
                 this.materialCache.set(materialKey, new THREE.MeshStandardMaterial({
-                    color,
-                    roughness: 0.42,
-                    metalness: 0.08,
+                    color: spec.color,
+                    roughness: spec.roughness,
+                    metalness: spec.metalness,
                     transparent: false,
                     opacity: 1.0
                 }));
@@ -756,9 +735,9 @@ export class ASERenderer {
 
         this.rebuildCell(atoms.cell);
         this.rebuildBonds();
-        this.rebuildPersistentConstraintMarks();
         this.rebuildHookeanConstraints();
         this.rebuildSupercell();
+        this.applyOverlayVisibility();
         if (this.needsInitialCameraFit) {
             this.fitCameraToStructure();
             this.needsInitialCameraFit = false;
@@ -782,11 +761,11 @@ export class ASERenderer {
         const groups = new Map();
         atoms.symbols.forEach((sym, i) => {
             const radius = this.atomVisualRadius(i);
-            const color = this.atomVisualColor(i, customColors[i]);
+            const isFixed = fixed.has(i);
             const geometryKey = `${radius}:${segmentCount}`;
-            const materialKey = `${color}:instanced`;
+            const materialKey = `${geometryKey}:${isFixed ? 'fixed' : 'normal'}:instanced`;
             const key = `${geometryKey}|${materialKey}`;
-            if (!groups.has(key)) groups.set(key, { radius, color, geometryKey, materialKey, indices: [] });
+            if (!groups.has(key)) groups.set(key, { radius, geometryKey, materialKey, fixed: isFixed, indices: [] });
             groups.get(key).indices.push(i);
         });
 
@@ -799,9 +778,9 @@ export class ASERenderer {
             }
             if (!this.materialCache.has(group.materialKey)) {
                 this.materialCache.set(group.materialKey, new THREE.MeshStandardMaterial({
-                    color: group.color,
-                    roughness: 0.42,
-                    metalness: 0.08
+                    color: 0xffffff,
+                    roughness: group.fixed ? 0.96 : 0.54,
+                    metalness: group.fixed ? 0.0 : 0.04
                 }));
             }
             const mesh = new THREE.InstancedMesh(
@@ -818,9 +797,11 @@ export class ASERenderer {
                 const proxy = this.atomProxy(index, position, atoms.symbols[index], fixed.has(index));
                 this.atomMeshByIndex.set(index, proxy);
                 this.atomInstanceRefs.set(index, { mesh, instanceId });
+                mesh.setColorAt(instanceId, this.fixedAdjustedColor(this.atomVisualColor(index, customColors[index]), fixed.has(index)));
                 this.updateAtomInstanceMatrix(index);
             });
             mesh.instanceMatrix.needsUpdate = true;
+            if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
         });
     }
 
@@ -853,7 +834,7 @@ export class ASERenderer {
             return;
         }
         this.atomMeshes.children.forEach(mesh => {
-            if (mesh.userData.lockMarker || mesh.userData.index === undefined) return;
+            if (mesh.userData.index === undefined) return;
             callback(mesh, mesh.userData.index);
         });
     }
@@ -1057,7 +1038,6 @@ export class ASERenderer {
             });
             this.flushAtomInstances();
             this.syncSelectionOutlines();
-            this.syncPersistentConstraintMarks();
             this.syncConstraintGuides();
             this.updateBondPositions();
             this.updateSupercellPositions();
@@ -1075,7 +1055,6 @@ export class ASERenderer {
             if (p) proxy.position.set(p[0], p[1], p[2]);
         });
         this.syncSelectionOutlines();
-        this.syncPersistentConstraintMarks();
         this.syncConstraintGuides();
         this.updateBondPositions();
         this.updateSupercellPositions();
@@ -1095,7 +1074,6 @@ export class ASERenderer {
             }
             this.flushAtomInstances();
             this.syncSelectionOutlines();
-            this.syncPersistentConstraintMarks();
             this.syncConstraintGuides();
             this.updateBondPositions();
             this.updateSupercellPositions();
@@ -1109,7 +1087,6 @@ export class ASERenderer {
             mesh.position.set(values[base], values[base + 1], values[base + 2]);
         });
         this.syncSelectionOutlines();
-        this.syncPersistentConstraintMarks();
         this.syncConstraintGuides();
         this.updateBondPositions();
         this.updateSupercellPositions();
@@ -1141,21 +1118,24 @@ export class ASERenderer {
             previous.atomRadiusScale !== this.displayOptions.atomRadiusScale ||
             JSON.stringify(previous.elementRadii || {}) !== JSON.stringify(this.displayOptions.elementRadii || {}) ||
             JSON.stringify(previous.elementColors || {}) !== JSON.stringify(this.displayOptions.elementColors || {});
+        const overlayChanged = previous.showOverlays !== this.displayOptions.showOverlays;
         const visibilityChanged = JSON.stringify(previous.elementVisible || {}) !== JSON.stringify(this.displayOptions.elementVisible || {});
         const supercellChanged = JSON.stringify(previous.supercell || [1, 1, 1]) !== JSON.stringify(this.displayOptions.supercell || [1, 1, 1]);
         if (previous.projectionMode !== this.displayOptions.projectionMode) {
             this.setProjectionMode(this.displayOptions.projectionMode);
         }
-        if (qualityChanged) {
-            this.updateRenderQuality();
+        if (qualityChanged || overlayChanged) {
+            if (qualityChanged) this.updateRenderQuality();
             if (this.atomsData) {
                 this.rebuildAtoms(this.atomsData, this.customColors);
             }
+            this.applyOverlayVisibility();
             return;
         }
         this.cellGroup.visible = this.displayOptions.showCell;
         if (this.axesHelper) this.axesHelper.visible = this.displayOptions.showAxes;
         if (this.gridGroup) this.gridGroup.visible = this.displayOptions.showGrid;
+        this.applyOverlayVisibility();
         const bondsChanged = previous.showBonds !== this.displayOptions.showBonds ||
             previous.bondMode !== this.displayOptions.bondMode ||
             previous.bondCutoffScale !== this.displayOptions.bondCutoffScale ||
@@ -1165,6 +1145,14 @@ export class ASERenderer {
         if (bondsChanged) this.rebuildBonds();
         if (supercellChanged) this.rebuildSupercell();
         if (visibilityChanged) this.applyAtomVisibility();
+    }
+
+    applyOverlayVisibility() {
+        const visible = this.displayOptions.showOverlays !== false;
+        if (this.selectionOutlines) this.selectionOutlines.visible = visible;
+        if (this.constraintGuideGroup) this.constraintGuideGroup.visible = visible;
+        if (this.constraintMarkGroup) this.constraintMarkGroup.visible = visible;
+        if (this.hookeanGroup) this.hookeanGroup.visible = visible;
     }
 
     renameAtomType(oldSymbol, label, indices = [], displayOptions = null, baseSymbol = null) {
@@ -1209,7 +1197,7 @@ export class ASERenderer {
             if (!mesh) return;
             const radius = this.atomVisualRadius(index);
             const color = this.atomVisualColor(index, this.customColors[index]);
-            const isFixed = Boolean(mesh.userData.fixed) && !this.displayOptions.vizOnly;
+            const isFixed = Boolean(mesh.userData.fixed) && this.fixedAtomDisplayEnabled();
             const geometryKey = `${radius}:${segmentCount}`;
             if (!this.geometryCache.has(geometryKey)) {
                 this.geometryCache.set(
@@ -1217,14 +1205,15 @@ export class ASERenderer {
                     new THREE.SphereGeometry(radius, segmentCount, Math.max(10, Math.floor(segmentCount * 0.65)))
                 );
             }
-            const materialKey = `${color}:${isFixed}`;
+            const materialKey = `${color}:${isFixed ? 'fixed' : 'normal'}:${segmentCount}`;
             if (!this.materialCache.has(materialKey)) {
+                const spec = this.atomMaterialSpec(color, isFixed);
                 this.materialCache.set(materialKey, new THREE.MeshStandardMaterial({
-                    color,
-                    roughness: 0.42,
-                    metalness: 0.08,
-                    transparent: isFixed,
-                    opacity: isFixed ? 0.45 : 1.0
+                    color: spec.color,
+                    roughness: spec.roughness,
+                    metalness: spec.metalness,
+                    transparent: false,
+                    opacity: 1.0
                 }));
             }
             mesh.geometry = this.geometryCache.get(geometryKey);
@@ -1671,104 +1660,9 @@ export class ASERenderer {
         return excluded;
     }
 
-    rebuildPersistentConstraintMarks() {
-        this.clearGroup(this.constraintMarkGroup);
-        if (!this.atomsData?.constraints) return;
-        const fixed = new Set(this.atomsData.constraints.fixed_indices || []);
-        fixed.forEach(index => this.addFixedAtomHatch(Number(index)));
-        Object.entries(this.atomsData.constraints.fixed_line || {}).forEach(([index, direction]) => {
-            this.addFixedLineMark(Number(index), direction);
-        });
-        Object.entries(this.atomsData.constraints.fixed_plane || {}).forEach(([index, normal]) => {
-            this.addFixedPlaneMark(Number(index), normal);
-        });
-        this.syncPersistentConstraintMarks();
-    }
-
-    addFixedAtomHatch(index) {
-        const atom = this.atomMeshByIndex.get(index);
-        if (!atom) return;
-        const radius = this.atomVisualRadius(index);
-        const group = new THREE.Group();
-        group.userData = { constraintGuideFor: index, kind: 'fix_atoms' };
-        const major = radius * 1.075;
-        const tube = Math.max(0.012, radius * 0.018);
-        const rotations = [
-            [0, 0, Math.PI / 4],
-            [Math.PI / 2, 0, -Math.PI / 4],
-            [0, Math.PI / 2, Math.PI / 4],
-            [Math.PI / 3, Math.PI / 5, 0]
-        ];
-        rotations.forEach((rotation, idx) => {
-            const ring = new THREE.Mesh(
-                new THREE.TorusGeometry(major + idx * tube * 0.18, tube, 6, 72),
-                idx % 2 === 0 ? this.constraintMaterials.fixedHatch : this.constraintMaterials.fixedHatchShadow
-            );
-            ring.rotation.set(rotation[0], rotation[1], rotation[2]);
-            ring.userData.sharedMaterial = true;
-            ring.renderOrder = 24;
-            group.add(ring);
-        });
-        group.position.copy(atom.position);
-        group.visible = this.atomTypeVisible(index);
-        group.renderOrder = 24;
-        this.constraintMarkGroup.add(group);
-    }
-
-    addFixedLineMark(index, directionValues) {
-        const atom = this.atomMeshByIndex.get(index);
-        if (!atom) return;
-        const radius = this.atomVisualRadius(index);
-        const direction = this.normalizedVector(directionValues);
-        const length = Math.max(1.1, radius * 3.4);
-        const group = new THREE.Group();
-        group.userData = { constraintGuideFor: index, kind: 'fixed_line_mark', direction: direction.toArray() };
-        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, length, 12), this.constraintMaterials.line);
-        shaft.userData.sharedMaterial = true;
-        shaft.renderOrder = 22;
-        group.add(shaft);
-        group.position.copy(atom.position);
-        this.orientYAxis(group, direction);
-        group.visible = this.atomTypeVisible(index);
-        this.constraintMarkGroup.add(group);
-    }
-
-    addFixedPlaneMark(index, normalValues) {
-        const atom = this.atomMeshByIndex.get(index);
-        if (!atom) return;
-        const normal = this.normalizedVector(normalValues);
-        const radius = this.atomVisualRadius(index);
-        const size = Math.max(1.6, Math.min(8.0, radius * 7.0));
-        const group = new THREE.Group();
-        group.userData = {
-            constraintGuideFor: index,
-            kind: 'fixed_plane_mark',
-            normal: normal.toArray(),
-            planeOffset: Math.max(0.025, radius * 0.035)
-        };
-
-        const plane = new THREE.Mesh(new THREE.PlaneGeometry(size, size), this.constraintMaterials.planeMark);
-        plane.userData.sharedMaterial = true;
-        plane.renderOrder = 17;
-        group.add(plane);
-
-        const grid = new THREE.LineSegments(
-            this.fixedPlaneGridGeometry(size, 6, 1),
-            this.constraintMaterials.planeMarkGrid
-        );
-        grid.userData.sharedMaterial = true;
-        grid.renderOrder = 18;
-        group.add(grid);
-
-        group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
-        group.position.copy(atom.position).addScaledVector(normal, -group.userData.planeOffset);
-        group.visible = this.atomTypeVisible(index);
-        this.constraintMarkGroup.add(group);
-    }
-
     rebuildConstraintGuides(selectedIndices = new Set()) {
         this.clearGroup(this.constraintGuideGroup);
-        if (!this.atomsData?.constraints || !selectedIndices.size) return;
+        if (!this.atomsData?.constraints || !selectedIndices.size || this.displayOptions.showOverlays === false) return;
         const fixedLine = this.atomsData.constraints.fixed_line || {};
         const fixedPlane = this.atomsData.constraints.fixed_plane || {};
         selectedIndices.forEach(idx => {
@@ -1790,38 +1684,28 @@ export class ASERenderer {
         const group = new THREE.Group();
         group.userData = { constraintGuideFor: index, kind: 'fixed_line', direction: direction.toArray() };
 
-        const length = 4.2;
-        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, length, 20), this.constraintMaterials.line);
-        shaft.userData.sharedMaterial = true;
-        group.add(shaft);
+        const length = Math.max(6.0, Math.min(18.0, (this.desiredGuideSize?.() || 12) * 0.22));
+        const center = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.line);
+        center.userData = { sharedMaterial: true, lineGuideSegment: true };
+        this.setLinePoints(center, [
+            new THREE.Vector3(0, -length * 0.32, 0),
+            new THREE.Vector3(0, length * 0.32, 0)
+        ], 'lineGuideCenter', 0.014);
+        group.add(center);
+
         [-1, 1].forEach(sign => {
-            const cone = new THREE.Mesh(new THREE.ConeGeometry(0.105, 0.28, 24), this.constraintMaterials.line);
-            cone.position.y = sign * (length / 2 + 0.14);
-            if (sign < 0) cone.rotation.x = Math.PI;
-            cone.userData.sharedMaterial = true;
-            group.add(cone);
+            const fade = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.lineFade);
+            fade.userData = { sharedMaterial: true, lineGuideFade: true };
+            this.setLinePoints(fade, [
+                new THREE.Vector3(0, sign * length * 0.32, 0),
+                new THREE.Vector3(0, sign * length * 0.50, 0)
+            ], `lineGuideFade${sign}`, 0.010);
+            group.add(fade);
         });
         group.position.copy(atom.position);
         this.orientYAxis(group, direction);
         group.renderOrder = 20;
         this.constraintGuideGroup.add(group);
-    }
-
-    fixedPlaneGridGeometry(size = 160, divisions = 16, every = 1) {
-        const half = size / 2;
-        const step = size / divisions;
-        const points = [];
-        const center = divisions / 2;
-        for (let i = 1; i < divisions; i++) {
-            if (Math.abs(i - center) < 1e-6) continue;
-            if (every > 1 && i % every !== 0) continue;
-            const v = -half + step * i;
-            points.push(-half, v, 0, half, v, 0);
-            points.push(v, -half, 0, v, half, 0);
-        }
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
-        return geometry;
     }
 
     addFixedPlaneGuide(index, normalValues) {
@@ -1838,64 +1722,11 @@ export class ASERenderer {
             planeOffset
         };
 
-        const guideSize = Math.max(120, this.desiredGuideSize?.() || 160);
-        let divisions = Math.max(14, Math.min(30, Math.round(guideSize / 8)));
-        if (divisions % 2 !== 0) divisions += 1;
-        const half = guideSize / 2;
-
-        const veil = new THREE.Mesh(new THREE.PlaneGeometry(guideSize, guideSize), this.constraintMaterials.planeVeil);
-        veil.userData.sharedMaterial = true;
-        veil.renderOrder = 16;
-        group.add(veil);
-
-        const grid = new THREE.LineSegments(
-            this.fixedPlaneGridGeometry(guideSize, divisions, 1),
-            this.constraintMaterials.planeGrid
-        );
-        grid.userData.sharedMaterial = true;
-        grid.renderOrder = 18;
-        group.add(grid);
-
-        const majorGrid = new THREE.LineSegments(
-            this.fixedPlaneGridGeometry(guideSize, divisions, 4),
-            this.constraintMaterials.planeGridMajor
-        );
-        majorGrid.userData.sharedMaterial = true;
-        majorGrid.renderOrder = 18;
-        group.add(majorGrid);
-
-        const axisA = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.planeAxis);
-        axisA.userData = { sharedMaterial: true, planeAxis: true };
-        this.setLinePoints(axisA, [
-            new THREE.Vector3(-half, 0, 0),
-            new THREE.Vector3(half, 0, 0)
-        ], 'planeAxisASignature', 0.014);
-        axisA.renderOrder = 19;
-        group.add(axisA);
-
-        const axisB = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.planeAxis);
-        axisB.userData = { sharedMaterial: true, planeAxis: true };
-        this.setLinePoints(axisB, [
-            new THREE.Vector3(0, -half, 0),
-            new THREE.Vector3(0, half, 0)
-        ], 'planeAxisBSignature', 0.014);
-        axisB.renderOrder = 19;
-        group.add(axisB);
-
-        const trail = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.planeTrack);
-        trail.userData = { sharedMaterial: true, planeTrail: true };
-        trail.visible = false;
-        trail.renderOrder = 21;
-        group.add(trail);
-
-        const normalStem = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.line);
-        normalStem.userData = { sharedMaterial: true, planeNormalStem: true };
-        this.setLinePoints(normalStem, [
-            new THREE.Vector3(0, 0, 0),
-            new THREE.Vector3(0, 0, planeOffset)
-        ], 'normalStemSignature', 0.012);
-        normalStem.renderOrder = 20;
-        group.add(normalStem);
+        const guideSize = Math.max(8, Math.min(80, (this.desiredGuideSize?.() || 24) * 0.52));
+        const plane = new THREE.Mesh(new THREE.PlaneGeometry(guideSize, guideSize), this.constraintMaterials.planeSoft);
+        plane.userData.sharedMaterial = true;
+        plane.renderOrder = 16;
+        group.add(plane);
 
         group.position.copy(atom.position).addScaledVector(normal, -planeOffset);
         group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
@@ -2169,70 +2000,11 @@ export class ASERenderer {
         });
     }
 
-    syncPersistentConstraintMarks() {
-        this.constraintMarkGroup.children.forEach(group => {
-            const index = group.userData.constraintGuideFor;
-            const atom = this.atomMeshByIndex.get(index);
-            if (!atom || !this.atomTypeVisible(index)) {
-                group.visible = false;
-                return;
-            }
-            group.visible = true;
-            const kind = group.userData.kind;
-            if (kind === 'fixed_plane_mark') {
-                const normal = this.normalizedVector(group.userData.normal);
-                const planeOffset = Number(group.userData.planeOffset || 0);
-                group.position.copy(atom.position).addScaledVector(normal, -planeOffset);
-                group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
-            } else if (kind === 'fixed_line_mark') {
-                group.position.copy(atom.position);
-                this.orientYAxis(group, this.normalizedVector(group.userData.direction));
-            } else {
-                group.position.copy(atom.position);
-            }
-        });
-    }
-
     updateFixedPlaneGuideMotion(group, atom) {
-        const anchor = new THREE.Vector3(...group.userData.anchor);
         const normal = this.normalizedVector(group.userData.normal);
         const planeOffset = Number(group.userData.planeOffset || 0);
-        group.position.copy(anchor).addScaledVector(normal, -planeOffset);
+        group.position.copy(atom.position).addScaledVector(normal, -planeOffset);
         group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
-
-        const localEnd = atom.position.clone()
-            .sub(anchor)
-            .applyQuaternion(group.quaternion.clone().invert());
-        localEnd.z = 0;
-
-        const trail = group.children.find(child => child.userData?.planeTrail);
-        const trailHead = group.children.find(child => child.userData?.planeTrailHead);
-        const visible = localEnd.length() > 0.045;
-        if (trail) {
-            trail.visible = visible;
-            if (visible) {
-                this.setLinePoints(trail, [
-                    new THREE.Vector3(0, 0, 0),
-                    localEnd.clone()
-                ], 'planeTrailSignature', 0.018);
-            }
-        }
-        if (trailHead) {
-            trailHead.visible = visible;
-            if (visible) trailHead.position.copy(localEnd);
-        }
-    }
-
-    syncLockMarkers() {
-        if (this.useInstancedAtoms) return;
-        this.atomMeshes.children.forEach(marker => {
-            if (!marker.userData.lockMarker) return;
-            const atom = this.atomMeshByIndex.get(marker.userData.index);
-            if (!atom) return;
-            marker.visible = this.atomTypeVisible(marker.userData.index);
-            marker.position.copy(atom.position);
-            marker.lookAt(this.camera.position);
-        });
     }
 
     clearSelectionOutlines() {
@@ -2281,6 +2053,7 @@ export class ASERenderer {
             this.selectionOutlines.add(halo);
         });
         this.rebuildConstraintGuides(selected);
+        this.applyOverlayVisibility();
     }
 
     syncSelectionOutlines() {
@@ -2297,8 +2070,6 @@ export class ASERenderer {
                 outline.lookAt(this.camera.position);
             }
         });
-        this.syncLockMarkers();
-        this.syncPersistentConstraintMarks();
         this.syncConstraintGuides();
     }
 
