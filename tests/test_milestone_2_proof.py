@@ -27,7 +27,7 @@ def test_milestone_2_proof():
     result = {"edited": None}
     
     def run_viewer():
-        # block=True returns the edited atoms after Done/Cancel
+        # block=True returns when the session is finalized through the API.
         # We run it in a thread so Playwright can interact with it
         result["edited"] = view(atoms, block=True, port=port)
     
@@ -97,9 +97,15 @@ def test_milestone_2_proof():
         page.wait_for_function("window.__ASE_APP__.transform.mode === 'IDLE'")
         print("Committed movement to backend via left click.")
         
-        # 6. Click Done
-        page.click("#btn-done")
-        print("Clicked DONE to finalize session.")
+        # 6. Top-level Done/Cancel buttons are intentionally not exposed.
+        assert page.locator("#btn-done").count() == 0
+        assert page.locator("#btn-cancel").count() == 0
+        page.evaluate("""async () => {
+            const app = window.__ASE_APP__;
+            await app.pendingApply;
+            await app.api.done(app.backendPositionsPayload(), app.state.applyConstraints);
+        }""")
+        print("Finalized session through API.")
         
         browser.close()
         

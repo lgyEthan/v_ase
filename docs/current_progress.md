@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.22`.
+Last synchronized with implementation: `v_ase-gui 0.0.24`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -106,9 +106,9 @@ Structures are serialized into a rich JSON format:
 
 ## 7. ASE Constraints
 The editor currently supports:
-1.  **FixAtoms**: Visualized via a translucent atom and lock ring; movement blocked.
+1.  **FixAtoms**: Visualized with surface hatch markers while preserving the normal atom color/radius; movement blocked.
 2.  **FixCartesian**: Backend-enforced during movement.
-3.  **FixedLine / FixedPlane**: Backend-enforced via `set_positions(apply_constraint=True)` and visualized with line/plane guides on selected atoms.
+3.  **FixedLine / FixedPlane**: Backend-enforced via `set_positions(apply_constraint=True)`. FixedPlane markers remain visible before selection, and selected atoms show detailed line/plane guides.
 4.  **FixScaled**: Serialized and handled as an ASE constraint in backend coordinate application.
 5.  **Hookean**: Visualized as a threshold-aware latch/spring; inactive and active states are shown based on current distance and `rt`.
 
@@ -124,10 +124,10 @@ The editor currently supports:
 ---
 
 ## 9. Fixed Atom Visualization
-Fixed atoms are rendered as translucent atoms with a lock ring marker.
-*   **Visibility**: The marker tracks the atom and remains visible during camera rotation.
+Fixed atoms keep their normal atom color/radius and receive a surface hatch overlay.
+*   **Visibility**: The hatch marker tracks the atom and remains visible during camera rotation.
 *   **Constraint Integrity**: Fixed atoms can be selected, but transform previews and final backend application do not move them.
-*   **Planned Upgrade**: A technical hatching shader can be added later, but it is not part of the current verified implementation.
+*   **FixedPlane Context**: FixedPlane atoms also show a persistent plane marker before selection; selecting the atom expands the detailed plane guide.
 
 ---
 
@@ -212,12 +212,11 @@ possible, and update the frontend state. This behavior is covered by
 
 ---
 
-## 19. Apply, Done, Cancel, Reset
-*   **Apply**: Sync current positions and constraints to backend history.
-*   **Done**: Finalize and return structure to Python.
-*   **Cancel**: Discard all changes.
+## 19. Top Bar, Reset, and Constraint Editing
+*   **Apply / Done / Cancel buttons**: Removed from the visible top bar to avoid accidental session shutdown. Coordinate commits happen directly from viewport transform confirmation; backend finalization endpoints still exist for API-driven blocking workflows.
 *   **Reset**: Revert to original input structure (preserving calculator).
 *   **Wrap**: Explicitly call `Atoms.wrap()`.
+*   **Constraint Panel**: Interactive mode can apply or clear `FixAtoms`, `FixedLine`, and `FixedPlane` on selected atoms. FixAtoms uses tri-state selection semantics; partial selections clear first, then can be applied to all selected atoms.
 
 ---
 
@@ -284,11 +283,12 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, and Browser-Flow Tests (71 collected as of 0.0.22).
+*   [x] **Phase 10**: Focused Unit, API, and Browser-Flow Tests (updated for 0.0.24).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, `--viz-only`, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
 *   [x] **Phase 14**: Public ASE calculator import API for the default repulsion model.
+*   [x] **Phase 15**: Top-bar cleanup and interactive selected-atom constraint editing.
 *   [ ] **Planned**: Click-to-place atom insertion and optional technical hatching shader for fixed atoms.
 
 ---

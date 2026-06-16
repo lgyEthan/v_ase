@@ -14,6 +14,7 @@ from v_ase.server import (
     session_atoms_to_json,
     trajectory_position_array,
     undo,
+    update_constraints,
     update_atom_types,
     value_error_handler,
 )
@@ -34,7 +35,7 @@ def test_static_version_strings_match_package_version():
     assert f'three.module.js?v={version}' in index_html
     assert f'main.js?v={version}' in index_html
     assert f'<span class="version">{version}</span>' in index_html
-    assert "0.0.23" not in index_html
+    assert "0.0.25" not in index_html
 
 
 def test_ui_button_api_endpoints_respond_without_network_server():
@@ -51,9 +52,24 @@ def test_ui_button_api_endpoints_respond_without_network_server():
     renamed = asyncio.run(update_atom_types(session.session_id, {"indices": [0], "label": "O_surface"}))
     assert renamed["symbols"][0] == "O_surface"
     assert renamed["chemical_symbols"][0] == "O"
+    unknown = asyncio.run(update_atom_types(session.session_id, {"indices": [0], "label": "surface_site"}))
+    assert unknown["symbols"][0] == "surface_site"
+    assert unknown["chemical_symbols"][0] == "O"
+    typed = asyncio.run(update_atom_types(session.session_id, {"indices": [1], "label": "Si", "base_symbol": "Si"}))
+    assert typed["symbols"][1] == "Si"
+    assert typed["chemical_symbols"][1] == "Si"
     numeric = asyncio.run(update_atom_types(session.session_id, {"indices": [1], "label": "2"}))
     assert numeric["symbols"][1] == "2"
-    assert numeric["chemical_symbols"][1] == "H"
+    assert numeric["chemical_symbols"][1] == "Si"
+    constrained = asyncio.run(update_constraints(session.session_id, {
+        "indices": [1, 2],
+        "fix_atoms": True,
+        "directional_kind": "fixed_plane",
+        "vector": [0, 0, 1],
+    }))
+    assert sorted(constrained["constraints"]["fixed_indices"]) == [1, 2]
+    assert constrained["constraints"]["fixed_plane"]["1"] == [0.0, 0.0, 1.0]
+    assert constrained["constraints"]["fixed_plane"]["2"] == [0.0, 0.0, 1.0]
     assert asyncio.run(reset(session.session_id))["metadata"]["natoms"] == 3
     assert export_poscar_response(session, {"positions": positions}).filename == "POSCAR"
     assert export_pickle_response(session, {
@@ -243,6 +259,9 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "chk-constraints" in index_html
     assert "Apply constraints" in index_html
     assert "apply_constraint</label>" not in index_html
+    assert "btn-done" not in index_html
+    assert "btn-cancel" not in index_html
+    assert 'id="btn-apply"' not in index_html
     assert "apply_constraint" in main_js
     assert "state.applyConstraints" in main_js
     assert "applySupercell" in api_js
@@ -253,6 +272,12 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "btn-delete-selection" in index_html
     assert "calc-device" in index_html
     assert "calc-cpus" in index_html
+    assert "constraint-kind" in index_html
+    assert "constraint-fixatoms" in index_html
+    assert "btn-apply-constraint" in index_html
+    assert "updateConstraints" in api_js
+    assert "selectedFixAtomsState" in main_js
+    assert "applySelectedDirectionalConstraint" in main_js
     assert "hover-readout" in index_html
     assert "move-increment" in index_html
     assert "rotate-increment" in index_html
@@ -271,6 +296,10 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "setHoveredAtom" in main_js
     assert "elementCovalentRadius" in main_js
     assert "rebuildConstraintGuides" in renderer_js
+    assert "rebuildPersistentConstraintMarks" in renderer_js
+    assert "addFixedAtomHatch" in renderer_js
+    assert "addFixedPlaneMark" in renderer_js
+    assert "constraintMarkGroup" in renderer_js
     assert "addFixedLineGuide" in renderer_js
     assert "addFixedPlaneGuide" in renderer_js
     assert "rebuildHookeanConstraints" in renderer_js
@@ -322,6 +351,10 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "return [...new Set(this.state.atoms?.symbols || [])];" in main_js
     assert "previewDetectedBase" in main_js
     assert "typeSelect.value = inferredBase" in main_js
+    assert "nameInput.value = typeSelect.value" in main_js
+    assert "nameInput.addEventListener('change', () => commitRename())" in main_js
+    assert "nameInput.addEventListener('change', commitRename)" not in main_js
+    assert "detectedElementForLabel" in main_js
     assert "setElementBaseDefaults" in main_js
     assert "appearance: preserveAppearance" in main_js
     assert "element_radii" in main_js

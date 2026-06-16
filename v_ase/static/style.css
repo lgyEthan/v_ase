@@ -1615,6 +1615,33 @@ body.inspector-wide #inspector .supercell-row {
     color: #ffd9d4;
 }
 
+#inspector .btn-block.subtle {
+    border-color: rgba(255, 255, 255, 0.105);
+    background: rgba(255, 255, 255, 0.028);
+    color: rgba(235, 239, 242, 0.78);
+}
+
+#inspector .constraint-hint {
+    margin: 0 0 10px;
+    padding: 9px 10px;
+    border: 1px solid rgba(88, 211, 187, 0.18);
+    border-radius: 8px;
+    background: rgba(88, 211, 187, 0.055);
+    color: rgba(232, 238, 240, 0.78);
+    font-size: 0.78rem;
+    line-height: 1.35;
+}
+
+#inspector .constraint-vector-inputs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+#inspector .constraint-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+}
+
 #inspector textarea {
     width: 100%;
     min-height: 84px;

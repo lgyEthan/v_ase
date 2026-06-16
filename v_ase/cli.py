@@ -46,7 +46,7 @@ def package_version() -> str:
     try:
         return version("v_ase-gui")
     except PackageNotFoundError:
-        return "0.0.20"
+        return "0.0.24"
 
 
 def resolve_input_format(fmt: str | None) -> str | None:
@@ -76,7 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=":",
         help="ASE read index. Use ':' for all frames, '-1' for last frame, or an integer frame index. Default: :",
     )
-    gui.add_argument("-o", "--output", help="write the edited structure to this file after Done")
+    gui.add_argument("-o", "--output", help="write the edited structure to this file when the session is finalized")
     gui.add_argument(
         "--format",
         "--input-format",
@@ -93,7 +93,7 @@ def build_parser() -> argparse.ArgumentParser:
     gui.add_argument(
         "--no-block",
         action="store_true",
-        help="open without waiting for Done/Cancel; keep the local server alive until Ctrl+C",
+        help="open without waiting for session finalization; keep the local server alive until Ctrl+C",
     )
     gui.add_argument("--show-bonds", action="store_true", help="show inferred bonds on startup")
     gui.add_argument("--hide-cell", action="store_true", help="hide the unit cell on startup")

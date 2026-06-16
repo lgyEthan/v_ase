@@ -348,16 +348,52 @@ export class ASEApi {
             const payload = JSON.parse(options.body || '{}');
             const indices = (payload.indices || []).map(Number);
             const label = String(payload.label || '').trim();
-            const baseSymbol = payload.base_symbol || this.baseSymbolForLabel(label);
+            const baseSymbol = payload.base_symbol || null;
             if (!indices.length || !label) return await this.mockResponse(this.mockState.atoms);
             this.mockPushHistory();
             indices.forEach(idx => {
                 if (idx >= 0 && idx < this.mockState.atoms.symbols.length) {
                     this.mockState.atoms.symbols[idx] = label;
-                    this.mockState.atoms.chemical_symbols[idx] = baseSymbol;
+                    if (baseSymbol) this.mockState.atoms.chemical_symbols[idx] = baseSymbol;
                 }
             });
             this.mockState.atoms.visual = this.mockVisualForSymbols(this.mockState.atoms.symbols);
+            return await this.mockResponse(this.mockState.atoms);
+        }
+        if (path.includes('/api/constraints/')) {
+            const payload = JSON.parse(options.body || '{}');
+            const indices = new Set((payload.indices || []).map(Number));
+            const constraints = this.mockState.atoms.constraints || {
+                fixed_indices: [],
+                fixed_cartesian: {},
+                fixed_line: {},
+                fixed_plane: {},
+                hookean: []
+            };
+            this.mockPushHistory();
+            if (payload.fix_atoms !== undefined && payload.fix_atoms !== null) {
+                const fixed = new Set((constraints.fixed_indices || []).map(Number));
+                indices.forEach(idx => {
+                    if (payload.fix_atoms) fixed.add(idx);
+                    else fixed.delete(idx);
+                });
+                constraints.fixed_indices = [...fixed].sort((a, b) => a - b);
+            }
+            if (payload.directional_kind !== undefined && payload.directional_kind !== null) {
+                indices.forEach(idx => {
+                    delete constraints.fixed_line[String(idx)];
+                    delete constraints.fixed_line[idx];
+                    delete constraints.fixed_plane[String(idx)];
+                    delete constraints.fixed_plane[idx];
+                });
+                const vector = payload.vector || [1, 0, 0];
+                if (payload.directional_kind === 'fixed_line') {
+                    indices.forEach(idx => { constraints.fixed_line[String(idx)] = vector; });
+                } else if (payload.directional_kind === 'fixed_plane') {
+                    indices.forEach(idx => { constraints.fixed_plane[String(idx)] = vector; });
+                }
+            }
+            this.mockState.atoms.constraints = constraints;
             return await this.mockResponse(this.mockState.atoms);
         }
         if (path.includes('/api/calculator/')) {
@@ -486,6 +522,12 @@ export class ASEApi {
         if (baseSymbol) payload.base_symbol = baseSymbol;
         if (positions) payload.positions = positions;
         return await this.jsonPost(`/api/atom-types/{session_id}`, payload);
+    }
+
+    async updateConstraints(indices, options = {}, positions = null, applyConstraint = true) {
+        const payload = { indices, apply_constraint: applyConstraint, ...options };
+        if (positions) payload.positions = positions;
+        return await this.jsonPost(`/api/constraints/{session_id}`, payload);
     }
 
     async updateCalculatorConfig(config = {}) {

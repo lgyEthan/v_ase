@@ -32,7 +32,7 @@ def view_edit(
 ### Parameters
 - **atoms**: An ASE `Atoms` object, a sequence of `Atoms` frames, or an ASE-readable trajectory file path.
 - **notebook**: Set to `True` when using in Jupyter. Renders as an IFrame.
-- **block**: If `True`, the function waits until the user clicks "Done" or "Cancel".
+- **block**: If `True`, the function waits until the local session is finalized through the API. The visible top-bar Done/Cancel buttons are intentionally not shown to avoid accidental closure during editing.
 - **port**: Optional port for the local server.
 - **respect_constraints**: If `True`, prevents moving atoms marked as fixed in ASE.
 - **allow_relax**: Enables the "Relax" button if a calculator is attached.
@@ -101,6 +101,7 @@ The browser UI talks to a local FastAPI server bound to `127.0.0.1`.
 - `POST /api/constrain/{session_id}`: Previews constraint-corrected coordinates.
 - `POST /api/add/{session_id}`: Appends atoms for paste operations.
 - `POST /api/delete/{session_id}`: Deletes atoms and remaps constraints.
+- `POST /api/constraints/{session_id}`: Applies or clears selected-atom `FixAtoms`, `FixedLine`, and `FixedPlane` constraints.
 - `POST /api/calculator/{session_id}`: Updates default repulsion calculator device/thread settings.
 - `POST /api/frame/{session_id}`: Switches the active trajectory frame.
 - `POST /api/wrap/{session_id}`: Wraps atoms into the unit cell.

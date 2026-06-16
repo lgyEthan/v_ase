@@ -62,6 +62,8 @@ show playback controls for frame-by-frame movie inspection.
 - ASE constraint-aware editing and visualization:
   `FixAtoms`, `FixCartesian`, `FixedLine`, `FixedPlane`, `FixScaled`, and
   `Hookean`.
+- Interactive constraint editing for selected atoms: apply or clear `FixAtoms`,
+  `FixedLine`, and `FixedPlane` from the Constraints panel.
 - Hookean constraints are visualized as threshold-aware hook/latch springs.
 - Trajectory playback with live frame slider, FPS control, frame skip, image
   export, and video export.

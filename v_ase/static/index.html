@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.22">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.24">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.22';
+            : '/static/vendor/three.module.js?v=0.0.24';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -18,7 +18,7 @@
             }
         });
         document.currentScript.after(importMap);
-        if (window.location.protocol === 'file:') {
+        if (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html')) {
             document.getElementById('app-style').href = './style.css';
         }
     </script>
@@ -34,7 +34,7 @@
 
     <!-- Top Status Bar -->
     <header id="top-bar" class="glass-panel">
-        <div class="logo">v_ase<span class="version">0.0.22</span></div>
+        <div class="logo">v_ase<span class="version">0.0.24</span></div>
         <div class="status-group">
             <div class="status-item">
                 <span class="label">MODE</span>
@@ -63,11 +63,8 @@
                 <label for="calc-cpus">CPU</label>
                 <select id="calc-cpus"></select>
             </div>
-            <button id="btn-apply" class="btn primary" data-edit-only>APPLY</button>
             <button id="btn-reset" class="btn" data-edit-only>RESET</button>
             <button id="btn-reset-coords" class="btn" data-edit-only>RESET COORDS</button>
-            <button id="btn-done" class="btn primary success">DONE</button>
-            <button id="btn-cancel" class="btn danger">CANCEL</button>
             <button id="btn-shortcuts" class="btn icon-btn" title="Shortcuts">?</button>
         </div>
     </header>
@@ -105,6 +102,36 @@
                 </div>
             </div>
             <button id="btn-delete-selection" class="btn-block danger-soft" data-edit-only>Delete Selected</button>
+        </details>
+
+        <details class="panel-section" open data-panel="constraints" data-edit-only>
+            <summary class="section-header">Constraints</summary>
+            <div id="constraint-selection-state" class="constraint-hint">Select atoms to edit constraints.</div>
+            <div class="prop-row">
+                <label for="constraint-fixatoms">FixAtoms</label>
+                <input type="checkbox" id="constraint-fixatoms">
+            </div>
+            <div class="prop-row">
+                <label for="constraint-kind">Directional</label>
+                <select id="constraint-kind">
+                    <option value="none">None</option>
+                    <option value="mixed" disabled>Mixed</option>
+                    <option value="fixed_line">FixedLine</option>
+                    <option value="fixed_plane">FixedPlane</option>
+                </select>
+            </div>
+            <div class="prop-row constraint-vector-row">
+                <label>Vector</label>
+                <div class="num-group constraint-vector-inputs">
+                    <input type="number" id="constraint-x" value="1" step="0.1" aria-label="constraint vector x">
+                    <input type="number" id="constraint-y" value="0" step="0.1" aria-label="constraint vector y">
+                    <input type="number" id="constraint-z" value="0" step="0.1" aria-label="constraint vector z">
+                </div>
+            </div>
+            <div class="constraint-actions">
+                <button id="btn-apply-constraint" class="btn-block">Apply Direction</button>
+                <button id="btn-clear-directional-constraint" class="btn-block subtle">Clear Direction</button>
+            </div>
         </details>
 
         <details class="panel-section" open data-panel="view">
@@ -355,7 +382,9 @@
     <div id="toast-container" aria-live="polite"></div>
 
     <script type="module">
-        const modulePath = window.location.protocol === 'file:' ? './main.js' : './static/main.js?v=0.0.22';
+        const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
+            ? './main.js'
+            : './static/main.js?v=0.0.24';
         import(modulePath);
     </script>
 </body>

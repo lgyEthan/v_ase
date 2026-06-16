@@ -223,6 +223,7 @@ class VAseApp {
         this.updateTrajectoryUI();
         this.updateSelectedTypeControls();
         this.updateElementSelectionControls();
+        this.updateSelectionConstraintControls();
 
         this.updateCalculatorControls(meta);
 
@@ -598,6 +599,166 @@ class VAseApp {
 
     getFixedIndices() {
         return new Set(this.state.atoms?.constraints?.fixed_indices || []);
+    }
+
+    vectorAlmostEqual(a, b, tol = 1e-6) {
+        return Array.isArray(a) && Array.isArray(b) && a.length === 3 && b.length === 3 &&
+            a.every((value, index) => Math.abs(Number(value) - Number(b[index])) <= tol);
+    }
+
+    constraintVector(kind, index) {
+        const constraints = this.state.atoms?.constraints || {};
+        const table = kind === 'fixed_line' ? constraints.fixed_line : constraints.fixed_plane;
+        return table?.[index] || table?.[String(index)] || null;
+    }
+
+    selectedDirectionalConstraintState(indices = [...this.state.selected]) {
+        if (!indices.length) return { kind: 'none', vector: null };
+        const states = indices.map(index => {
+            const line = this.constraintVector('fixed_line', index);
+            const plane = this.constraintVector('fixed_plane', index);
+            if (line && plane) return { kind: 'mixed', vector: null };
+            if (line) return { kind: 'fixed_line', vector: line };
+            if (plane) return { kind: 'fixed_plane', vector: plane };
+            return { kind: 'none', vector: null };
+        });
+        const first = states[0];
+        if (states.some(state => state.kind !== first.kind)) return { kind: 'mixed', vector: null };
+        if (first.kind === 'none' || first.kind === 'mixed') return { kind: first.kind, vector: null };
+        const sameVector = states.every(state => this.vectorAlmostEqual(state.vector, first.vector));
+        return { kind: sameVector ? first.kind : 'mixed', vector: sameVector ? first.vector : null };
+    }
+
+    selectedFixAtomsState(indices = [...this.state.selected]) {
+        if (!indices.length) return 'none';
+        const fixed = this.getFixedIndices();
+        const count = indices.filter(index => fixed.has(index)).length;
+        if (count === 0) return 'none';
+        return count === indices.length ? 'all' : 'partial';
+    }
+
+    readConstraintVector(kind = document.getElementById('constraint-kind')?.value || 'fixed_line') {
+        const ids = ['constraint-x', 'constraint-y', 'constraint-z'];
+        const vector = ids.map(id => Number(document.getElementById(id)?.value));
+        if (vector.some(value => !Number.isFinite(value))) {
+            throw new Error('Constraint vector must contain three numeric values.');
+        }
+        const length = Math.hypot(vector[0], vector[1], vector[2]);
+        if (length <= 1e-12) {
+            throw new Error(kind === 'fixed_plane' ? 'FixedPlane normal cannot be zero.' : 'FixedLine direction cannot be zero.');
+        }
+        return vector.map(value => value / length);
+    }
+
+    setConstraintVectorInputs(vector) {
+        const fallback = vector || [1, 0, 0];
+        ['constraint-x', 'constraint-y', 'constraint-z'].forEach((id, index) => {
+            const input = document.getElementById(id);
+            if (input) {
+                const value = Number(fallback[index] || 0);
+                input.value = Number.isFinite(value) ? String(Number(value.toFixed(3))) : '0';
+            }
+        });
+    }
+
+    updateSelectionConstraintControls() {
+        const indices = [...this.state.selected].sort((a, b) => a - b);
+        const fixBox = document.getElementById('constraint-fixatoms');
+        const kindSelect = document.getElementById('constraint-kind');
+        const stateText = document.getElementById('constraint-selection-state');
+        const applyButton = document.getElementById('btn-apply-constraint');
+        const clearButton = document.getElementById('btn-clear-directional-constraint');
+        const inputs = ['constraint-x', 'constraint-y', 'constraint-z']
+            .map(id => document.getElementById(id))
+            .filter(Boolean);
+        if (!fixBox || !kindSelect) return;
+
+        const hasSelection = indices.length > 0;
+        const fixedState = this.selectedFixAtomsState(indices);
+        fixBox.disabled = !hasSelection || this.state.vizOnly;
+        fixBox.checked = fixedState === 'all';
+        fixBox.indeterminate = fixedState === 'partial';
+        fixBox.dataset.fixAtomsState = fixedState;
+
+        const directional = this.selectedDirectionalConstraintState(indices);
+        if (document.activeElement !== kindSelect) {
+            kindSelect.value = directional.kind;
+        }
+        kindSelect.disabled = !hasSelection || this.state.vizOnly;
+        if (directional.vector && !inputs.includes(document.activeElement)) {
+            this.setConstraintVectorInputs(directional.vector);
+        } else if (!hasSelection && !inputs.includes(document.activeElement)) {
+            this.setConstraintVectorInputs([1, 0, 0]);
+        }
+        const vectorEnabled = hasSelection && !this.state.vizOnly && ['fixed_line', 'fixed_plane'].includes(kindSelect.value);
+        inputs.forEach(input => { input.disabled = !vectorEnabled; });
+        if (applyButton) applyButton.disabled = !vectorEnabled;
+        if (clearButton) clearButton.disabled = !hasSelection || this.state.vizOnly || directional.kind === 'none';
+        if (stateText) {
+            const fixedLabel = fixedState === 'all' ? 'FixAtoms' : fixedState === 'partial' ? 'partial FixAtoms' : 'free';
+            const dirLabel = directional.kind === 'fixed_line' ? 'FixedLine'
+                : directional.kind === 'fixed_plane' ? 'FixedPlane'
+                : directional.kind === 'mixed' ? 'mixed directional constraints'
+                : 'no directional constraint';
+            stateText.innerText = hasSelection
+                ? `${indices.length} selected: ${fixedLabel}, ${dirLabel}.`
+                : 'Select atoms to edit constraints.';
+        }
+    }
+
+    async updateSelectedConstraints(options, message = 'Updating constraints...') {
+        const indices = [...this.state.selected].sort((a, b) => a - b);
+        if (!indices.length) {
+            this.toast('Select atoms before editing constraints.', 'warning');
+            return;
+        }
+        try {
+            const data = await this.withBusy(
+                message,
+                () => this.api.updateConstraints(indices, options, this.backendPositionsPayload(), this.state.applyConstraints)
+            );
+            this.setAtomsData(data);
+            indices.forEach(index => this.state.selected.add(index));
+            this.updateSelectionVisuals();
+            this.updateUI();
+            this.toast('Constraints updated.', 'success');
+        } catch (err) {
+            this.toast(`Constraint update failed: ${err.message}`, 'error');
+        }
+    }
+
+    async toggleSelectedFixAtoms() {
+        const box = document.getElementById('constraint-fixatoms');
+        const current = box?.dataset?.fixAtomsState || this.selectedFixAtomsState();
+        const next = current === 'none';
+        if (box) {
+            box.indeterminate = false;
+            box.checked = next;
+        }
+        await this.updateSelectedConstraints({ fix_atoms: next }, next ? 'Applying FixAtoms...' : 'Clearing FixAtoms...');
+    }
+
+    async applySelectedDirectionalConstraint() {
+        const kind = document.getElementById('constraint-kind')?.value || 'none';
+        if (!['fixed_line', 'fixed_plane'].includes(kind)) {
+            this.toast('Choose FixedLine or FixedPlane before applying a directional constraint.', 'warning');
+            return;
+        }
+        let vector;
+        try {
+            vector = this.readConstraintVector(kind);
+        } catch (err) {
+            this.toast(err.message, 'error');
+            return;
+        }
+        await this.updateSelectedConstraints(
+            { directional_kind: kind, vector },
+            kind === 'fixed_line' ? 'Applying FixedLine...' : 'Applying FixedPlane...'
+        );
+    }
+
+    async clearSelectedDirectionalConstraint() {
+        await this.updateSelectedConstraints({ directional_kind: 'none' }, 'Clearing directional constraints...');
     }
 
     isEditableIndex(idx) {
@@ -1162,13 +1323,17 @@ class VAseApp {
     }
 
     baseElementForLabel(label, fallback = 'H') {
+        return this.detectedElementForLabel(label) || fallback;
+    }
+
+    detectedElementForLabel(label) {
         const text = this.normalizedTypeLabel(label);
         const known = new Set(this.chemicalElementOptions());
         if (known.has(text)) return text;
         const prefix = text.split('_', 1)[0];
         if (known.has(prefix)) return prefix;
         const match = text.match(/^([A-Z][a-z]?)/);
-        return match && known.has(match[1]) ? match[1] : fallback;
+        return match && known.has(match[1]) ? match[1] : null;
     }
 
     chemicalSymbolForLabel(label) {
@@ -1343,20 +1508,23 @@ class VAseApp {
             nameInput.value = symbol;
             const previewDetectedBase = () => {
                 const next = this.normalizedTypeLabel(nameInput.value);
-                const inferredBase = this.baseElementForLabel(next, typeSelect.value || currentElement);
-                if (inferredBase && typeSelect.value !== inferredBase) typeSelect.value = inferredBase;
-                const radius = this.defaultElementRadius(inferredBase);
-                if (Number.isFinite(radius) && radius > 0) input.value = Number(radius.toFixed(4));
+                const inferredBase = this.detectedElementForLabel(next);
+                if (inferredBase) {
+                    if (typeSelect.value !== inferredBase) typeSelect.value = inferredBase;
+                    const radius = this.defaultElementRadius(inferredBase);
+                    if (Number.isFinite(radius) && radius > 0) input.value = Number(radius.toFixed(4));
+                }
             };
             const commitRename = (baseOverride = null) => {
                 const next = this.normalizedTypeLabel(nameInput.value);
-                const inferredBase = this.baseElementForLabel(next, typeSelect.value || currentElement);
+                const inferredBase = this.detectedElementForLabel(next);
                 const base = baseOverride || inferredBase;
                 if (next && (next !== symbol || base !== currentElement)) this.renameElementType(symbol, next, base);
             };
             typeSelect.addEventListener('change', () => {
                 const radius = this.defaultElementRadius(typeSelect.value);
                 if (Number.isFinite(radius) && radius > 0) input.value = Number(radius.toFixed(4));
+                nameInput.value = typeSelect.value;
                 commitRename(typeSelect.value);
             });
             nameInput.addEventListener('keydown', event => {
@@ -1371,7 +1539,7 @@ class VAseApp {
                 }
             });
             nameInput.addEventListener('input', previewDetectedBase);
-            nameInput.addEventListener('change', commitRename);
+            nameInput.addEventListener('change', () => commitRename());
 
             const color = document.createElement('input');
             color.type = 'color';
@@ -1485,11 +1653,14 @@ class VAseApp {
             this.toast(`No ${oldSymbol} atoms found.`, 'warning');
             return;
         }
-        const base = baseSymbol || this.baseElementForLabel(label, this.chemicalSymbolForLabel(oldSymbol));
+        const base = baseSymbol === null || baseSymbol === undefined
+            ? this.detectedElementForLabel(label)
+            : baseSymbol;
         const oldBase = this.chemicalSymbolForLabel(oldSymbol);
-        const preserveAppearance = base === oldBase;
+        const effectiveBase = base || oldBase;
+        const preserveAppearance = effectiveBase === oldBase;
         if (!this.canEditAtoms()) {
-            this.renameElementTypeForVisualization(oldSymbol, label, indices, base, { preserveAppearance });
+            this.renameElementTypeForVisualization(oldSymbol, label, indices, effectiveBase, { preserveAppearance });
             return;
         }
         try {
@@ -1498,7 +1669,7 @@ class VAseApp {
                 () => this.api.updateAtomTypes(indices, label, this.backendPositionsPayload(), this.state.applyConstraints, base)
             );
             this.transferElementDisplaySettings(oldSymbol, label, { appearance: preserveAppearance });
-            if (!preserveAppearance) this.setElementBaseDefaults(label, base);
+            if (!preserveAppearance) this.setElementBaseDefaults(label, effectiveBase);
             this.setAtomsData(data);
             this.toast(`Renamed ${oldSymbol} to ${label}.`, 'success');
         } catch (err) {
@@ -1508,7 +1679,7 @@ class VAseApp {
 
     renameElementTypeForVisualization(oldSymbol, label, indices = this.elementIndices(oldSymbol), baseSymbol = null, { preserveAppearance = true } = {}) {
         if (!this.state.atoms || !indices.length) return;
-        const base = baseSymbol || this.baseElementForLabel(label, this.chemicalSymbolForLabel(oldSymbol));
+        const base = baseSymbol || this.chemicalSymbolForLabel(oldSymbol);
         const radius = this.defaultElementRadius(base);
         const color = this.defaultElementColor(base);
         indices.forEach(index => {
@@ -1582,10 +1753,11 @@ class VAseApp {
             this.toast('Atom type name cannot be empty.', 'warning');
             return;
         }
-        const base = this.baseElementForLabel(label, this.selectedTypeLabel() ? this.chemicalSymbolForLabel(this.selectedTypeLabel()) : 'H');
         const previousLabels = [...new Set(indices.map(index => this.state.atoms.symbols[index]))];
         const previousBase = previousLabels.length === 1 ? this.chemicalSymbolForLabel(previousLabels[0]) : null;
-        const preserveAppearance = previousLabels.length === 1 && previousBase === base;
+        const detectedBase = this.detectedElementForLabel(label);
+        const base = detectedBase || previousBase || 'H';
+        const preserveAppearance = !detectedBase || (previousLabels.length === 1 && previousBase === detectedBase);
         if (preserveAppearance && this.validHexColor(color?.value)) {
             this.state.display.elementColors[label] = color.value;
         }
@@ -1596,7 +1768,7 @@ class VAseApp {
         try {
             const data = await this.withBusy(
                 `Changing ${indices.length} selected atom${indices.length === 1 ? '' : 's'} to ${label}...`,
-                () => this.api.updateAtomTypes(indices, label, this.backendPositionsPayload(), this.state.applyConstraints, base)
+                () => this.api.updateAtomTypes(indices, label, this.backendPositionsPayload(), this.state.applyConstraints, detectedBase)
             );
             if (previousLabels.length === 1) {
                 this.transferElementDisplaySettings(previousLabels[0], label, { appearance: preserveAppearance });
@@ -2701,32 +2873,6 @@ class VAseApp {
     setupEventListeners() {
         window.addEventListener('resize', () => this.renderer.onResize());
         
-        document.getElementById('btn-done').onclick = async () => {
-            try {
-                await this.pendingApply;
-                await this.api.done(this.backendPositionsPayload(), this.state.applyConstraints);
-                this.toast('Done. Python return value is ready.', 'success');
-            } catch (err) {
-                this.toast(`Done failed: ${err.message}`, 'error');
-            }
-        };
-        document.getElementById('btn-cancel').onclick = async () => {
-            try {
-                await this.api.cancel();
-                this.toast('Cancelled.', 'success');
-            } catch (err) {
-                this.toast(`Cancel failed: ${err.message}`, 'error');
-            }
-        };
-        document.getElementById('btn-apply').onclick = async () => {
-            try {
-                const data = await this.api.applyPositions(this.backendPositionsPayload(), this.state.applyConstraints);
-                this.setAtomsData(data);
-                this.toast(this.state.applyConstraints ? 'Applied constraints and positions.' : 'Applied positions without constraints.', 'success');
-            } catch (err) {
-                this.toast(`Apply failed: ${err.message}`, 'error');
-            }
-        };
         document.getElementById('btn-reset').onclick = async () => {
             try {
                 if (!await this.confirmFullReset()) return;
@@ -2776,6 +2922,21 @@ class VAseApp {
         };
         document.getElementById('btn-delete-selection').onclick = () => this.deleteSelection();
         document.getElementById('btn-apply-selected-type').onclick = () => this.applySelectedTypeEdit();
+        document.getElementById('constraint-fixatoms')?.addEventListener('change', (event) => {
+            event.preventDefault();
+            this.toggleSelectedFixAtoms();
+        });
+        document.getElementById('constraint-kind')?.addEventListener('change', () => {
+            const kind = document.getElementById('constraint-kind')?.value || 'none';
+            if (kind === 'fixed_line') this.setConstraintVectorInputs([1, 0, 0]);
+            if (kind === 'fixed_plane') this.setConstraintVectorInputs([0, 0, 1]);
+            this.updateSelectionConstraintControls();
+        });
+        ['constraint-x', 'constraint-y', 'constraint-z'].forEach(id => {
+            document.getElementById(id)?.addEventListener('input', () => this.updateSelectionConstraintControls());
+        });
+        document.getElementById('btn-apply-constraint')?.addEventListener('click', () => this.applySelectedDirectionalConstraint());
+        document.getElementById('btn-clear-directional-constraint')?.addEventListener('click', () => this.clearSelectedDirectionalConstraint());
         document.getElementById('selected-type-name')?.addEventListener('keydown', event => {
             if (event.key === 'Enter') {
                 event.preventDefault();

@@ -9,6 +9,7 @@
 - [x] **Phase 6: Jupyter** (IFrame support, non-blocking handle)
 - [x] **Phase 7: Default calculator** (Repulsion fallback, optional torch/CUDA, CPU thread controls)
 - [x] **Phase 8: Calculator API** (`from v_ase.calculators import RepulsionCalculator`)
+- [x] **Phase 9: Interactive constraints** (selected-atom FixAtoms, FixedLine, FixedPlane editing)
 
 ## Core Documentation
 - [Shortcuts & Controls](shortcuts.md)

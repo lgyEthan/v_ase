@@ -276,6 +276,8 @@ export class ASERenderer {
         this.scene.add(this.strainViolationGroup);
         this.supercellGroup = new THREE.Group();
         this.scene.add(this.supercellGroup);
+        this.constraintMarkGroup = new THREE.Group();
+        this.scene.add(this.constraintMarkGroup);
         this.constraintGuideGroup = new THREE.Group();
         this.scene.add(this.constraintGuideGroup);
         this.hookeanGroup = new THREE.Group();
@@ -381,6 +383,35 @@ export class ASERenderer {
                 color: 0x7fffe4,
                 transparent: true,
                 opacity: 0.72,
+                depthTest: false,
+                depthWrite: false
+            }),
+            fixedHatch: new THREE.MeshBasicMaterial({
+                color: 0xffd35a,
+                transparent: true,
+                opacity: 0.92,
+                depthTest: false,
+                depthWrite: false
+            }),
+            fixedHatchShadow: new THREE.MeshBasicMaterial({
+                color: 0x191a1b,
+                transparent: true,
+                opacity: 0.68,
+                depthTest: false,
+                depthWrite: false
+            }),
+            planeMark: new THREE.MeshBasicMaterial({
+                color: 0x38d8b8,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.16,
+                depthTest: false,
+                depthWrite: false
+            }),
+            planeMarkGrid: new THREE.LineBasicMaterial({
+                color: 0x9effed,
+                transparent: true,
+                opacity: 0.54,
                 depthTest: false,
                 depthWrite: false
             }),
@@ -498,6 +529,10 @@ export class ASERenderer {
                 const idx = outline.userData.outlineFor;
                 outline.visible = this.atomTypeVisible(idx);
             });
+            this.constraintMarkGroup.children.forEach(group => {
+                const idx = group.userData.constraintGuideFor;
+                group.visible = this.atomTypeVisible(idx);
+            });
             this.constraintGuideGroup.children.forEach(group => {
                 const idx = group.userData.constraintGuideFor;
                 group.visible = this.atomTypeVisible(idx);
@@ -519,6 +554,10 @@ export class ASERenderer {
         this.selectionOutlines.children.forEach(outline => {
             const idx = outline.userData.outlineFor;
             outline.visible = this.atomTypeVisible(idx);
+        });
+        this.constraintMarkGroup.children.forEach(group => {
+            const idx = group.userData.constraintGuideFor;
+            group.visible = this.atomTypeVisible(idx);
         });
         this.constraintGuideGroup.children.forEach(group => {
             const idx = group.userData.constraintGuideFor;
@@ -651,6 +690,7 @@ export class ASERenderer {
         this.clearGroup(this.bondGroup);
         this.clearGroup(this.strainViolationGroup);
         this.clearGroup(this.supercellGroup);
+        this.clearGroup(this.constraintMarkGroup);
         this.clearGroup(this.constraintGuideGroup);
         this.clearGroup(this.hookeanGroup);
         this.clearSelectionOutlines();
@@ -669,6 +709,7 @@ export class ASERenderer {
             this.rebuildInstancedAtoms(atoms, this.customColors, fixed, segmentCount);
             this.rebuildCell(atoms.cell);
             this.rebuildBonds();
+            this.rebuildPersistentConstraintMarks();
             this.rebuildHookeanConstraints();
             this.rebuildSupercell();
             if (this.needsInitialCameraFit) {
@@ -695,8 +736,8 @@ export class ASERenderer {
                     color,
                     roughness: 0.42,
                     metalness: 0.08,
-                    transparent: isFixed,
-                    opacity: isFixed ? 0.45 : 1.0
+                    transparent: false,
+                    opacity: 1.0
                 }));
             }
             const geo = this.geometryCache.get(geometryKey);
@@ -711,20 +752,11 @@ export class ASERenderer {
             this.atomMeshes.add(mesh);
             this.atomMeshByIndex.set(i, mesh);
 
-            if (isFixed) {
-                const lockGeo = new THREE.RingGeometry(radius * 1.12, radius * 1.22, 24);
-                const lockMat = new THREE.MeshBasicMaterial({ color: 0x2c2a27, side: THREE.DoubleSide });
-                const lock = new THREE.Mesh(lockGeo, lockMat);
-                lock.position.copy(mesh.position);
-                lock.lookAt(this.camera.position);
-                lock.userData = { lockMarker: true, index: i };
-                lock.visible = mesh.visible;
-                this.atomMeshes.add(lock);
-            }
         });
 
         this.rebuildCell(atoms.cell);
         this.rebuildBonds();
+        this.rebuildPersistentConstraintMarks();
         this.rebuildHookeanConstraints();
         this.rebuildSupercell();
         if (this.needsInitialCameraFit) {
@@ -1025,6 +1057,7 @@ export class ASERenderer {
             });
             this.flushAtomInstances();
             this.syncSelectionOutlines();
+            this.syncPersistentConstraintMarks();
             this.syncConstraintGuides();
             this.updateBondPositions();
             this.updateSupercellPositions();
@@ -1042,6 +1075,7 @@ export class ASERenderer {
             if (p) proxy.position.set(p[0], p[1], p[2]);
         });
         this.syncSelectionOutlines();
+        this.syncPersistentConstraintMarks();
         this.syncConstraintGuides();
         this.updateBondPositions();
         this.updateSupercellPositions();
@@ -1061,6 +1095,7 @@ export class ASERenderer {
             }
             this.flushAtomInstances();
             this.syncSelectionOutlines();
+            this.syncPersistentConstraintMarks();
             this.syncConstraintGuides();
             this.updateBondPositions();
             this.updateSupercellPositions();
@@ -1074,6 +1109,7 @@ export class ASERenderer {
             mesh.position.set(values[base], values[base + 1], values[base + 2]);
         });
         this.syncSelectionOutlines();
+        this.syncPersistentConstraintMarks();
         this.syncConstraintGuides();
         this.updateBondPositions();
         this.updateSupercellPositions();
@@ -1635,6 +1671,101 @@ export class ASERenderer {
         return excluded;
     }
 
+    rebuildPersistentConstraintMarks() {
+        this.clearGroup(this.constraintMarkGroup);
+        if (!this.atomsData?.constraints) return;
+        const fixed = new Set(this.atomsData.constraints.fixed_indices || []);
+        fixed.forEach(index => this.addFixedAtomHatch(Number(index)));
+        Object.entries(this.atomsData.constraints.fixed_line || {}).forEach(([index, direction]) => {
+            this.addFixedLineMark(Number(index), direction);
+        });
+        Object.entries(this.atomsData.constraints.fixed_plane || {}).forEach(([index, normal]) => {
+            this.addFixedPlaneMark(Number(index), normal);
+        });
+        this.syncPersistentConstraintMarks();
+    }
+
+    addFixedAtomHatch(index) {
+        const atom = this.atomMeshByIndex.get(index);
+        if (!atom) return;
+        const radius = this.atomVisualRadius(index);
+        const group = new THREE.Group();
+        group.userData = { constraintGuideFor: index, kind: 'fix_atoms' };
+        const major = radius * 1.075;
+        const tube = Math.max(0.012, radius * 0.018);
+        const rotations = [
+            [0, 0, Math.PI / 4],
+            [Math.PI / 2, 0, -Math.PI / 4],
+            [0, Math.PI / 2, Math.PI / 4],
+            [Math.PI / 3, Math.PI / 5, 0]
+        ];
+        rotations.forEach((rotation, idx) => {
+            const ring = new THREE.Mesh(
+                new THREE.TorusGeometry(major + idx * tube * 0.18, tube, 6, 72),
+                idx % 2 === 0 ? this.constraintMaterials.fixedHatch : this.constraintMaterials.fixedHatchShadow
+            );
+            ring.rotation.set(rotation[0], rotation[1], rotation[2]);
+            ring.userData.sharedMaterial = true;
+            ring.renderOrder = 24;
+            group.add(ring);
+        });
+        group.position.copy(atom.position);
+        group.visible = this.atomTypeVisible(index);
+        group.renderOrder = 24;
+        this.constraintMarkGroup.add(group);
+    }
+
+    addFixedLineMark(index, directionValues) {
+        const atom = this.atomMeshByIndex.get(index);
+        if (!atom) return;
+        const radius = this.atomVisualRadius(index);
+        const direction = this.normalizedVector(directionValues);
+        const length = Math.max(1.1, radius * 3.4);
+        const group = new THREE.Group();
+        group.userData = { constraintGuideFor: index, kind: 'fixed_line_mark', direction: direction.toArray() };
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, length, 12), this.constraintMaterials.line);
+        shaft.userData.sharedMaterial = true;
+        shaft.renderOrder = 22;
+        group.add(shaft);
+        group.position.copy(atom.position);
+        this.orientYAxis(group, direction);
+        group.visible = this.atomTypeVisible(index);
+        this.constraintMarkGroup.add(group);
+    }
+
+    addFixedPlaneMark(index, normalValues) {
+        const atom = this.atomMeshByIndex.get(index);
+        if (!atom) return;
+        const normal = this.normalizedVector(normalValues);
+        const radius = this.atomVisualRadius(index);
+        const size = Math.max(1.6, Math.min(8.0, radius * 7.0));
+        const group = new THREE.Group();
+        group.userData = {
+            constraintGuideFor: index,
+            kind: 'fixed_plane_mark',
+            normal: normal.toArray(),
+            planeOffset: Math.max(0.025, radius * 0.035)
+        };
+
+        const plane = new THREE.Mesh(new THREE.PlaneGeometry(size, size), this.constraintMaterials.planeMark);
+        plane.userData.sharedMaterial = true;
+        plane.renderOrder = 17;
+        group.add(plane);
+
+        const grid = new THREE.LineSegments(
+            this.fixedPlaneGridGeometry(size, 6, 1),
+            this.constraintMaterials.planeMarkGrid
+        );
+        grid.userData.sharedMaterial = true;
+        grid.renderOrder = 18;
+        group.add(grid);
+
+        group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+        group.position.copy(atom.position).addScaledVector(normal, -group.userData.planeOffset);
+        group.visible = this.atomTypeVisible(index);
+        this.constraintMarkGroup.add(group);
+    }
+
     rebuildConstraintGuides(selectedIndices = new Set()) {
         this.clearGroup(this.constraintGuideGroup);
         if (!this.atomsData?.constraints || !selectedIndices.size) return;
@@ -2038,6 +2169,30 @@ export class ASERenderer {
         });
     }
 
+    syncPersistentConstraintMarks() {
+        this.constraintMarkGroup.children.forEach(group => {
+            const index = group.userData.constraintGuideFor;
+            const atom = this.atomMeshByIndex.get(index);
+            if (!atom || !this.atomTypeVisible(index)) {
+                group.visible = false;
+                return;
+            }
+            group.visible = true;
+            const kind = group.userData.kind;
+            if (kind === 'fixed_plane_mark') {
+                const normal = this.normalizedVector(group.userData.normal);
+                const planeOffset = Number(group.userData.planeOffset || 0);
+                group.position.copy(atom.position).addScaledVector(normal, -planeOffset);
+                group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+            } else if (kind === 'fixed_line_mark') {
+                group.position.copy(atom.position);
+                this.orientYAxis(group, this.normalizedVector(group.userData.direction));
+            } else {
+                group.position.copy(atom.position);
+            }
+        });
+    }
+
     updateFixedPlaneGuideMotion(group, atom) {
         const anchor = new THREE.Vector3(...group.userData.anchor);
         const normal = this.normalizedVector(group.userData.normal);
@@ -2143,6 +2298,7 @@ export class ASERenderer {
             }
         });
         this.syncLockMarkers();
+        this.syncPersistentConstraintMarks();
         this.syncConstraintGuides();
     }
 

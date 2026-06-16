@@ -13,6 +13,7 @@ from ase import Atom
 from ase.build import make_supercell
 from ase.build.supercells import lattice_points_in_supercell
 from ase.constraints import FixAtoms, FixCartesian, FixedLine, FixedPlane, FixScaled, Hookean
+from ase.data import atomic_numbers
 
 try:
     from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks, HTTPException, Request
@@ -484,6 +485,20 @@ def delete_indices_from_atoms(atoms, delete_indices):
     return new_atoms
 
 
+def inferred_base_symbol_for_label(label) -> str | None:
+    normalized = normalize_atom_type_label(label)
+    if normalized in atomic_numbers:
+        return normalized
+    prefix = normalized.split("_", 1)[0]
+    if prefix in atomic_numbers:
+        return prefix
+    import re
+    match = re.match(r"^([A-Z][a-z]?)", normalized)
+    if match and match.group(1) in atomic_numbers:
+        return match.group(1)
+    return None
+
+
 def update_atom_type_labels(atoms, indices, label, base_symbol=None):
     indices = sorted({int(i) for i in indices})
     if not indices:
@@ -497,12 +512,73 @@ def update_atom_type_labels(atoms, indices, label, base_symbol=None):
     updated = atoms.copy()
     symbols = updated.get_chemical_symbols()
     type_labels = atom_type_labels(updated)
-    base_symbol = base_symbol_for_atom_type(base_symbol or normalized)
+    base_symbol = base_symbol_for_atom_type(base_symbol) if base_symbol else inferred_base_symbol_for_label(normalized)
     for idx in indices:
-        symbols[idx] = base_symbol
+        if base_symbol:
+            symbols[idx] = base_symbol
         type_labels[idx] = normalized
     updated.set_chemical_symbols(symbols)
     set_atom_type_labels(updated, type_labels)
+    if atoms.calc:
+        updated.calc = copy_calculator(atoms.calc)
+    return updated
+
+
+def validate_constraint_vector(values, name="Constraint vector"):
+    try:
+        vector = np.array(values, dtype=float)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"{name} must be three numeric values.") from exc
+    if vector.shape != (3,) or not np.all(np.isfinite(vector)):
+        raise HTTPException(status_code=400, detail=f"{name} must be three finite numeric values.")
+    norm = float(np.linalg.norm(vector))
+    if norm <= 1e-12:
+        raise HTTPException(status_code=400, detail=f"{name} cannot be zero.")
+    return (vector / norm).tolist()
+
+
+def update_atom_constraints(atoms, indices, *, fix_atoms=None, directional_kind=None, vector=None):
+    selected = sorted({int(i) for i in indices})
+    if not selected:
+        return atoms.copy()
+    if selected[0] < 0 or selected[-1] >= len(atoms):
+        raise HTTPException(status_code=400, detail="Constraint indices are out of range.")
+
+    selected_set = set(selected)
+    edit_directional = directional_kind is not None
+    directional_kind = (directional_kind or "none").lower()
+    if edit_directional and directional_kind not in {"none", "fixed_line", "fixed_plane"}:
+        raise HTTPException(status_code=400, detail="Directional constraint must be none, fixed_line, or fixed_plane.")
+    direction = validate_constraint_vector(vector, "FixedLine direction" if directional_kind == "fixed_line" else "FixedPlane normal") \
+        if directional_kind in {"fixed_line", "fixed_plane"} else None
+
+    remapped = []
+    for constraint in atoms.constraints or []:
+        indices_for_constraint = _constraint_indices(constraint, len(atoms))
+        if isinstance(constraint, FixAtoms):
+            remaining = [idx for idx in indices_for_constraint if idx not in selected_set] if fix_atoms is not None else indices_for_constraint
+            if remaining:
+                remapped.append(FixAtoms(indices=remaining))
+        elif isinstance(constraint, FixedLine):
+            remaining = [idx for idx in indices_for_constraint if idx not in selected_set] if edit_directional else indices_for_constraint
+            if remaining:
+                remapped.append(FixedLine(remaining, constraint.dir.tolist()))
+        elif isinstance(constraint, FixedPlane):
+            remaining = [idx for idx in indices_for_constraint if idx not in selected_set] if edit_directional else indices_for_constraint
+            if remaining:
+                remapped.append(FixedPlane(remaining, constraint.dir.tolist()))
+        else:
+            remapped.append(constraint)
+
+    if fix_atoms is True:
+        remapped.append(FixAtoms(indices=selected))
+    if directional_kind == "fixed_line":
+        remapped.append(FixedLine(selected, direction))
+    elif directional_kind == "fixed_plane":
+        remapped.append(FixedPlane(selected, direction))
+
+    updated = atoms.copy()
+    updated.set_constraint(remapped)
     if atoms.calc:
         updated.calc = copy_calculator(atoms.calc)
     return updated
@@ -727,6 +803,32 @@ async def update_atom_types(session_id: str, payload: Dict[str, Any]):
     set_current_payload_positions(session, payload)
     base_symbol = payload.get("base_symbol")
     apply_all_frames(session, lambda atoms: update_atom_type_labels(atoms, indices, label, base_symbol))
+    return session_atoms_to_json(session)
+
+
+@app.post("/api/constraints/{session_id}")
+async def update_constraints(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(session, "Constraint editing")
+    indices = payload.get("indices", [])
+    if not indices:
+        return session_atoms_to_json(session)
+
+    session.push_history()
+    set_current_payload_positions(session, payload)
+    fix_atoms = payload.get("fix_atoms", None)
+    directional_kind = payload.get("directional_kind", None)
+    vector = payload.get("vector", None)
+    apply_all_frames(
+        session,
+        lambda atoms: update_atom_constraints(
+            atoms,
+            indices,
+            fix_atoms=fix_atoms,
+            directional_kind=directional_kind,
+            vector=vector,
+        )
+    )
     return session_atoms_to_json(session)
 
 

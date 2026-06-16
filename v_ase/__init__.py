@@ -8,7 +8,7 @@ from v_ase.viewer import ASEEditor, view, view_edit, view_file
 try:
     __version__ = version("v_ase-gui")
 except PackageNotFoundError:
-    __version__ = "0.0.22"
+    __version__ = "0.0.24"
 
 __all__ = [
     "ASEEditor",

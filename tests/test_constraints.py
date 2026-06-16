@@ -4,7 +4,7 @@ from ase.build import molecule
 from ase.constraints import FixAtoms, FixedLine, FixedPlane, Hookean
 from v_ase.export import export_blender_response
 from v_ase.serialization import atoms_to_json
-from v_ase.server import apply_positions, apply_supercell
+from v_ase.server import apply_positions, apply_supercell, update_constraints
 from v_ase.server import EditorSession
 
 def test_fix_atoms_enforcement():
@@ -125,6 +125,43 @@ def test_apply_endpoint_can_disable_constraints_for_free_editing():
     }))
 
     assert np.allclose(data["positions"], proposed)
+
+
+def test_constraint_editor_endpoint_sets_and_clears_selected_constraints():
+    atoms = molecule("H2O")
+    atoms.set_constraint([
+        FixAtoms(indices=[0]),
+        FixedLine(1, [1, 0, 0]),
+        FixedPlane(2, [0, 0, 1]),
+        Hookean(1, 2, rt=1.4, k=5.0),
+    ])
+    session = EditorSession("constraint-editor", atoms.copy(), atoms.copy())
+    from v_ase.session import sessions
+    sessions[session.session_id] = session
+
+    edited = asyncio.run(update_constraints(session.session_id, {
+        "indices": [1, 2],
+        "fix_atoms": True,
+        "directional_kind": "fixed_plane",
+        "vector": [0, 1, 0],
+    }))
+
+    assert sorted(edited["constraints"]["fixed_indices"]) == [0, 1, 2]
+    assert "1" not in edited["constraints"]["fixed_line"]
+    assert edited["constraints"]["fixed_plane"]["1"] == [0.0, 1.0, 0.0]
+    assert edited["constraints"]["fixed_plane"]["2"] == [0.0, 1.0, 0.0]
+    assert edited["constraints"]["hookean"][0]["indices"] == [1, 2]
+
+    cleared = asyncio.run(update_constraints(session.session_id, {
+        "indices": [1, 2],
+        "fix_atoms": False,
+        "directional_kind": "none",
+    }))
+
+    assert cleared["constraints"]["fixed_indices"] == [0]
+    assert cleared["constraints"]["fixed_line"] == {}
+    assert cleared["constraints"]["fixed_plane"] == {}
+    assert cleared["constraints"]["hookean"][0]["indices"] == [1, 2]
 
 
 def test_apply_supercell_sets_repeated_structure_as_editable_cell():

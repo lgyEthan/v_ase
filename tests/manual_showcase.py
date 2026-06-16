@@ -168,7 +168,7 @@ def write_assets(frames: list[Atoms]) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Open the manual v_ase all-in-one showcase.")
-    parser.add_argument("--no-block", action="store_true", help="open the GUI without waiting for Done/Cancel; keep the server alive until Ctrl+C")
+    parser.add_argument("--no-block", action="store_true", help="open the GUI without waiting for session finalization; keep the server alive until Ctrl+C")
     parser.add_argument("--write-assets", action="store_true", help="write .traj/.extxyz/.vasp assets and checklist")
     parser.add_argument("--print-checklist", action="store_true", help="print the manual checklist and exit")
     parser.add_argument("--no-open", action="store_true", help="prepare assets/checklist without opening the GUI")

@@ -14,7 +14,7 @@ The visualizer adopts the modal operator pattern from Blender:
 
 ### Editor Actions
 The current editor supports copy/paste, undo/redo, Delete/Backspace deletion,
-reset, wrap, Done/Cancel, POSCAR export, pickle export, viewport PNG image
+reset, wrap, POSCAR export, pickle export, viewport PNG image
 export, WebM video export, Blender scene export, and calculator-backed
 relaxation controls.
 
@@ -26,8 +26,9 @@ NumPy when torch is unavailable. If torch is installed, it can run on CPU or
 CUDA; torch is optional and is not a package dependency.
 
 The top-right `DEVICE` and `CPU` controls apply only to this default repulsion
-calculator. User-provided calculators are expected to manage their own execution
-backend and are not modified by these controls.
+calculator and are applied immediately when changed. User-provided calculators
+are expected to manage their own execution backend and are not modified by these
+controls.
 
 The default model is available through the public calculator API:
 
@@ -73,7 +74,9 @@ blindly copied.
 
 ### ASE Constraint Compatibility
 The visualizer respects ASE constraints:
-- **FixAtoms**: Atoms marked as fixed cannot be moved or rotated.
+- **FixAtoms**: Atoms marked as fixed cannot be moved or rotated and are shown with a surface hatch overlay instead of a dimmed atom.
+- **FixedLine / FixedPlane**: Selected atoms move only along the line or inside the plane. FixedPlane also has a persistent plane marker before selection.
+- **Interactive constraints**: The Constraints panel can apply or clear `FixAtoms`, `FixedLine`, and `FixedPlane` for the selected atoms.
 - **Set Positions**: The backend uses `atoms.set_positions(..., apply_constraint=True)`, ensuring that even if the UI sends a move, ASE will enforce the physical constraints.
 
 ## Architecture
@@ -84,6 +87,7 @@ The visualizer respects ASE constraints:
     - `POST /api/apply/{session_id}`: Applies new coordinates through ASE constraint logic.
     - `POST /api/add/{session_id}`: Appends atoms for paste operations.
     - `POST /api/delete/{session_id}`: Deletes selected atoms and remaps constraints.
+    - `POST /api/constraints/{session_id}`: Applies or clears selected-atom FixAtoms, FixedLine, and FixedPlane constraints.
     - `POST /api/calculator/{session_id}`: Updates default repulsion calculator CPU/CUDA settings.
     - `POST /api/frame/{session_id}`: Switches the active trajectory frame.
     - `POST /api/wrap/{session_id}`: Wraps atoms into the unit cell.
