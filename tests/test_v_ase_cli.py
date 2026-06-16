@@ -1,9 +1,14 @@
+import tomllib
+from pathlib import Path
+
 from ase.build import molecule
 from ase.io import write
 
 from v_ase.cli import _read_frames, build_parser, normalize_argv, resolve_input_format
 from v_ase.io import atom_type_labels
 from v_ase.serialization import atoms_to_json
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_v_ase_gui_parser_accepts_ase_gui_style_file_argument():
@@ -51,6 +56,13 @@ def test_v_ase_visualize_import_path_exposes_view():
     from v_ase.visualize import view
 
     assert callable(view)
+
+
+def test_pyproject_exposes_v_ase_console_script():
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text())
+
+    assert config["project"]["scripts"]["v_ase"] == "v_ase.cli:main"
+    assert config["project"]["name"] == "v_ase-gui"
 
 
 def test_read_frames_supports_single_structure_files(tmp_path):

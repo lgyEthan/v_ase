@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.24`.
+Last synchronized with implementation: `v_ase-gui 0.0.25`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -81,6 +81,12 @@ v_ase/
     transform.js    # Modal transform state
     style.css       # UI theme
 ```
+
+Packaging hygiene:
+*   The PyPI distribution is `v_ase-gui`; the import package and console command are both `v_ase`.
+*   `pyproject.toml` owns the console entry point: `v_ase = v_ase.cli:main`.
+*   Root-level generated `*.egg-info/` metadata is ignored and must not be committed or left in place before validating `pip install v_ase-gui` from the project root. Otherwise `pip` can treat the source tree as an already installed distribution and skip console-script generation.
+*   PyPI install smoke tests should run from outside the repository root, for example under `/private/tmp`.
 
 ---
 
@@ -283,7 +289,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, and Browser-Flow Tests (updated for 0.0.24).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (updated for 0.0.25).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, `--viz-only`, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
