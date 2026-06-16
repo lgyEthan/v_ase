@@ -78,6 +78,19 @@ def base_symbol_for_atom_type(label: object, mass: object | None = None) -> str:
     return _guess_symbol_from_mass(mass) or "H"
 
 
+def base_symbol_for_lammps_type(label: object, mass: object | None = None) -> str:
+    """Return a symbol for LAMMPS type ids, using valid integer ids as Z."""
+    guessed = _guess_symbol_from_mass(mass)
+    if guessed:
+        return guessed
+    suffix = _integer_type_suffix(label)
+    if suffix is not None:
+        number = int(suffix)
+        if 1 <= number < len(chemical_symbols) and chemical_symbols[number]:
+            return chemical_symbols[number]
+    return base_symbol_for_atom_type(label, mass)
+
+
 def atom_type_labels(atoms: Atoms) -> list[str]:
     labels = atoms.arrays.get(ATOM_TYPE_ARRAY)
     if labels is None or len(labels) != len(atoms):
@@ -187,7 +200,7 @@ def read_custom_lammps_dump(path: str | Path, index: str | int | slice | None = 
         raw_masses = [row.get("mass") for row in rows]
         masses = raw_masses if any(value is not None for value in raw_masses) else [None] * len(rows)
         labels = [display_label_for_atom_type(raw_type, mass) for raw_type, mass in zip(raw_types, masses)]
-        symbols = [base_symbol_for_atom_type(label, mass) for label, mass in zip(labels, masses)]
+        symbols = [base_symbol_for_lammps_type(raw_type, mass) for raw_type, mass in zip(raw_types, masses)]
         positions = [_lammps_position(row, cell) for row in rows]
         atoms = Atoms(symbols=symbols, positions=np.asarray(positions, dtype=float), cell=cell, pbc=pbc)
         atoms.info["timestep"] = timestep
@@ -345,7 +358,7 @@ def _read_lammps_data_minimal(path: Path) -> Atoms:
     masses = [masses_by_type.get(str(int(float(raw_type)))) if _integer_type_suffix(raw_type) is not None else None
               for raw_type in raw_types]
     labels = [display_label_for_atom_type(raw_type, mass) for raw_type, mass in zip(raw_types, masses)]
-    symbols = [base_symbol_for_atom_type(label, mass) for label, mass in zip(labels, masses)]
+    symbols = [base_symbol_for_lammps_type(label, mass) for label, mass in zip(labels, masses)]
     positions = np.asarray([row["position"] for row in atom_rows], dtype=float)
     atoms = Atoms(symbols=symbols, positions=positions, cell=cell, pbc=[True, True, True])
     set_atom_type_labels(atoms, labels)
@@ -407,7 +420,7 @@ def read_custom_lammps_data(
         )
         labels = [display_label_for_atom_type(raw_type, mass) for raw_type, mass in zip(raw_types, masses)]
 
-    symbols = [base_symbol_for_atom_type(label, mass) for label, mass in zip(labels, masses)]
+    symbols = [base_symbol_for_lammps_type(label, mass) for label, mass in zip(labels, masses)]
     atoms.set_chemical_symbols(symbols)
     set_atom_type_labels(atoms, labels)
     return _select_frames([atoms], index)

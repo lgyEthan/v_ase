@@ -154,7 +154,7 @@ def test_read_frames_uses_mass_to_guess_integer_atom_type_base_symbol(tmp_path):
     assert atom_type_labels(frames[0]) == ["1", "2"]
 
 
-def test_lammpstrj_integer_types_are_labels_not_atomic_numbers(tmp_path):
+def test_lammpstrj_integer_types_are_raw_labels_and_valid_atomic_numbers(tmp_path):
     path = tmp_path / "water.lammpstrj"
     path.write_text(
         "\n".join([
@@ -176,7 +176,7 @@ def test_lammpstrj_integer_types_are_labels_not_atomic_numbers(tmp_path):
 
     frames = _read_frames(path, ":", None)
 
-    assert frames[0].get_chemical_symbols() == ["H", "H", "H"]
+    assert frames[0].get_chemical_symbols() == ["O", "H", "H"]
     assert atom_type_labels(frames[0]) == ["8", "1", "1"]
 
 
@@ -240,7 +240,7 @@ def test_lammps_data_reads_type_labels_and_mass_guessed_symbols(tmp_path):
     assert frames[0].get_initial_charges().tolist() == [-0.8, 0.4, 0.4]
 
 
-def test_lammps_data_without_masses_does_not_treat_type_as_atomic_number(tmp_path):
+def test_lammps_data_without_masses_uses_valid_type_ids_as_atomic_numbers(tmp_path):
     path = tmp_path / "bare_types.data"
     path.write_text(
         "\n".join([
@@ -263,7 +263,7 @@ def test_lammps_data_without_masses_does_not_treat_type_as_atomic_number(tmp_pat
 
     frames = _read_frames(path, ":", None)
 
-    assert frames[0].get_chemical_symbols() == ["H", "H"]
+    assert frames[0].get_chemical_symbols() == ["O", "H"]
     assert atom_type_labels(frames[0]) == ["8", "1"]
 
 
@@ -283,7 +283,7 @@ def test_lammps_data_arbitrary_type_ids_fall_back_to_raw_labels(tmp_path):
             "Atoms # atomic",
             "",
             "1 999 0.0 0.0 0.0",
-            "2 118 1.0 0.0 0.0",
+            "2 119 1.0 0.0 0.0",
             "",
         ])
     )
@@ -291,4 +291,4 @@ def test_lammps_data_arbitrary_type_ids_fall_back_to_raw_labels(tmp_path):
     frames = _read_frames(path, ":", None)
 
     assert frames[0].get_chemical_symbols() == ["H", "H"]
-    assert atom_type_labels(frames[0]) == ["999", "118"]
+    assert atom_type_labels(frames[0]) == ["999", "119"]
