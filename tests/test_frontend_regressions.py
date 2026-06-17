@@ -408,6 +408,8 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "data-copy-target=\"selected-indices\"" in index_html
     assert "Center (unwrapped)" in index_html
     assert "orientation-widget" in index_html
+    assert "Repulsion Calc" in index_html
+    assert "Repulsion calculator settings only" in index_html
     assert "updateAtomTypes" in (ROOT / "v_ase/static/api.js").read_text()
     assert 'id="projection-mode"' in index_html
     assert 'id="inspector-resizer"' in index_html
@@ -420,6 +422,8 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "atomRadiusScale" in renderer_js
     assert "elementRadii" in renderer_js
     assert "elementColors" in renderer_js
+    assert "const materialKey = `supercell:viz:${geometryKey}:${color}`" in renderer_js
+    assert "color: group.color" in renderer_js
     assert "previous.atomRadiusScale" in renderer_js
     assert "#inspector .panel-section" in style_css
     assert ".element-radius-panel" in style_css
@@ -431,6 +435,7 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert 'body[data-viz-only="true"] [data-edit-only]' in style_css
     assert ".busy-spinner" in style_css
     assert ".orientation-widget" in style_css
+    assert ".calc-control-title" in style_css
 
 
 def test_frontend_reset_video_and_visual_settings_controls_are_wired():

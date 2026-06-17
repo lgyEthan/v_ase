@@ -250,19 +250,30 @@ body[data-viz-only="true"] [data-edit-only] {
 .calc-control-group {
     display: grid;
     grid-template-columns: max-content 76px max-content 58px;
-    gap: 4px 6px;
+    gap: 4px 7px;
     align-items: center;
-    padding: 6px 8px;
-    border: 1px solid var(--stroke);
+    padding: 5px 8px 7px;
+    border: 1px solid rgba(255, 196, 0, 0.24);
     border-radius: 7px;
-    background: rgba(255, 255, 255, 0.048);
+    background: linear-gradient(180deg, rgba(255, 196, 0, 0.105), rgba(255, 255, 255, 0.045));
+}
+
+.calc-control-title {
+    grid-column: 1 / -1;
+    color: var(--accent);
+    font-size: 0.57rem;
+    line-height: 1;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
 }
 
 .calc-control-group label {
     color: var(--muted);
-    font-size: 0.58rem;
+    font-size: 0.56rem;
     font-weight: 800;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
 }
 
 .calc-control-group select {
@@ -274,6 +285,8 @@ body[data-viz-only="true"] [data-edit-only] {
 
 .calc-control-group.disabled {
     opacity: 0.55;
+    border-color: rgba(255, 255, 255, 0.11);
+    background: rgba(255, 255, 255, 0.04);
 }
 
 .section-header {

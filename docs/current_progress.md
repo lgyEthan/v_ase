@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.29`.
+Last synchronized with implementation: `v_ase-gui 0.0.30`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -306,7 +306,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (updated for 0.0.29).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (updated for 0.0.30).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -314,6 +314,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 15**: Top-bar cleanup and interactive selected-atom constraint editing.
 *   [x] **Phase 16**: Micro-etched FixAtoms material, bounded FixedPlane guide, and fast virtual LAMMPS trajectory loading for default visualization mode.
 *   [x] **Phase 17**: `--interactive` edit-mode opt-in, bounded/copyable selection fields, orientation widget, visualization-mode wrap, and instanced full-opacity supercell repeats.
+*   [x] **Phase 18**: Repulsion calculator device controls relabeled in the top bar, and visualization-mode supercell repeats use same color material grouping as original atoms.
 *   [ ] **Planned**: Click-to-place atom insertion.
 
 ---

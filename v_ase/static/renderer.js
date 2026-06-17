@@ -1663,9 +1663,12 @@ export class ASERenderer {
         const groups = new Map();
         this.atomsData.symbols.forEach((sym, index) => {
             const radius = this.atomVisualRadius(index);
+            const color = this.atomVisualColor(index, this.customColors[index]);
             const geometryKey = `${radius}:supercell:${segmentCount}`;
-            if (!groups.has(geometryKey)) groups.set(geometryKey, { radius, geometryKey, indices: [] });
-            groups.get(geometryKey).indices.push(index);
+            const materialKey = `supercell:viz:${geometryKey}:${color}`;
+            const key = `${geometryKey}|${materialKey}`;
+            if (!groups.has(key)) groups.set(key, { radius, color, geometryKey, materialKey, indices: [] });
+            groups.get(key).indices.push(index);
         });
 
         groups.forEach(group => {
@@ -1675,19 +1678,17 @@ export class ASERenderer {
                     new THREE.SphereGeometry(group.radius, segmentCount, Math.max(10, Math.floor(segmentCount * 0.65)))
                 );
             }
-            const materialKey = `supercell:viz:${group.geometryKey}`;
-            if (!this.materialCache.has(materialKey)) {
-                this.materialCache.set(materialKey, new THREE.MeshStandardMaterial({
-                    color: 0xffffff,
+            if (!this.materialCache.has(group.materialKey)) {
+                this.materialCache.set(group.materialKey, new THREE.MeshStandardMaterial({
+                    color: group.color,
                     roughness: 0.54,
-                    metalness: 0.04,
-                    vertexColors: true
+                    metalness: 0.04
                 }));
             }
             const total = group.indices.length * shifts.length;
             const mesh = new THREE.InstancedMesh(
                 this.geometryCache.get(group.geometryKey),
-                this.materialCache.get(materialKey),
+                this.materialCache.get(group.materialKey),
                 total
             );
             mesh.frustumCulled = false;
@@ -1697,13 +1698,11 @@ export class ASERenderer {
                 group.indices.forEach(index => {
                     const entry = { index, shift: shift.clone(), instanceId };
                     mesh.userData.entries.push(entry);
-                    mesh.setColorAt(instanceId, new THREE.Color(this.atomVisualColor(index, this.customColors[index])));
                     this.setSupercellInstanceMatrix(mesh, entry);
                     instanceId++;
                 });
             });
             mesh.instanceMatrix.needsUpdate = true;
-            if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
             this.supercellGroup.add(mesh);
         });
     }

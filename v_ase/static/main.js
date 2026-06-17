@@ -307,8 +307,8 @@ class VAseApp {
         const isRepulsion = Boolean(details.is_default_repulsion);
         controls.classList.toggle('disabled', !isRepulsion);
         controls.title = isRepulsion
-            ? 'Default repulsion calculator settings'
-            : 'Device settings are only used by the default repulsion calculator.';
+            ? 'Repulsion calculator settings only'
+            : 'Device and CPU thread settings are only used by the default repulsion calculator.';
 
         const cpuValue = String(details.cpu_threads || 4);
         const choices = this.cpuThreadChoices(details);
