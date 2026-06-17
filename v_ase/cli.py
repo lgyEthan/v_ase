@@ -51,7 +51,7 @@ def package_version() -> str:
     try:
         return version("v_ase-gui")
     except PackageNotFoundError:
-        return "0.0.28"
+        return "0.0.29"
 
 
 def resolve_input_format(fmt: str | None) -> str | None:
@@ -104,9 +104,9 @@ def build_parser() -> argparse.ArgumentParser:
     gui.add_argument("--hide-cell", action="store_true", help="hide the unit cell on startup")
     gui.add_argument("--hide-axes", action="store_true", help="hide axes on startup")
     gui.add_argument(
-        "--viz-only",
+        "--interactive",
         action="store_true",
-        help="open a lighter OVITO-style visualization mode; atom coordinate editing, deletion, and relaxation are disabled, while visual labels and display settings remain editable",
+        help="enable Blender-style atom editing, deletion, constraints editing, relaxation, undo, copy, and paste. By default v_ase opens in lightweight visualization mode.",
     )
     gui.set_defaults(func=run_gui)
 
@@ -162,7 +162,8 @@ def run_gui(args: argparse.Namespace) -> int:
     trajectory_source = None
     initial_frame = 0
     is_lammps_dump = resolved_format == "lammps-dump-text" or (args.format is None and suffix in {".lammpstrj", ".dump"})
-    if args.viz_only and is_lammps_dump:
+    viz_only = not args.interactive
+    if viz_only and is_lammps_dump:
         try:
             fast = read_fast_lammps_dump(path, args.index)
             frames = [fast.atoms]
@@ -183,7 +184,7 @@ def run_gui(args: argparse.Namespace) -> int:
         show_cell=not args.hide_cell,
         show_axes=not args.hide_axes,
         show_bonds=args.show_bonds,
-        viz_only=args.viz_only,
+        viz_only=viz_only,
         trajectory_source=trajectory_source,
         initial_frame=initial_frame,
     )

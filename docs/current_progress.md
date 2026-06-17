@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.28`.
+Last synchronized with implementation: `v_ase-gui 0.0.29`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -12,6 +12,7 @@ Unlike the default ASE viewer, this tool supports:
 *   **Constraint-Aware Editing**: Real-time backend synchronization using `set_positions(..., apply_constraint=True)`.
 *   **Structural Modification**: Copy/paste appends atoms through the backend.
 *   **Scientific Visualization**: Material-state fixed atoms, selection outlines, selected-constraint guides, interactive/manual bonds, unit-cell/axes/grid/overlay toggles, POSCAR/pickle/PNG/WebM/Blender export, wrap, and supercell preview.
+*   **Default Lightweight CLI Viewer**: `v_ase gui FILE` opens in visualization mode by default; `--interactive` enables atom coordinate editing.
 *   **Trajectory Playback**: Multi-frame `Atoms` inputs and ASE-readable trajectory files expose a movie timeline with live scrubbing, FPS, and frame skip controls.
 *   **Live Simulation**: Real-time relaxation visualization using attached ASE calculators or the default v_ase repulsion calculator via WebSockets.
 
@@ -255,7 +256,7 @@ possible, and update the frontend state. This behavior is covered by
 *   **Interactivity**: Real-time updates of bonds and markers during trajectory.
 *   **Movie Mode**: Multi-frame structures expose frame slider, previous/next, play/pause, FPS, and frame skip controls.
 *   **Interactive Restart**: In interactive mode, coordinate edits during relaxation stop the active optimizer and restart from the edited coordinates.
-*   **Viz-Only Tracking**: In `--viz-only`, atom editing remains disabled, but relaxation can be watched as streamed structure updates.
+*   **Visualization Tracking**: In the default CLI visualization mode, atom editing remains disabled, but relaxation can be watched as streamed structure updates. Use `--interactive` for coordinate edits.
 
 ---
 
@@ -264,8 +265,8 @@ possible, and update the frontend state. This behavior is covered by
 
 ---
 
-## 24. Large Viz-Only Trajectories
-For `--viz-only` LAMMPS text dumps (`.lammpstrj` / `.dump`), v_ase does not build an ASE `Atoms` object for every frame during startup. The optimized path:
+## 24. Large Visualization-Mode Trajectories
+For default visualization-mode LAMMPS text dumps (`.lammpstrj` / `.dump`), v_ase does not build an ASE `Atoms` object for every frame during startup. The optimized path:
 *   Builds a compact byte-offset index for all frames.
 *   Parses the first visible frame into a normal ASE `Atoms` object.
 *   Keeps the remaining frames as a virtual trajectory source.
@@ -305,13 +306,14 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (updated for 0.0.28).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (updated for 0.0.29).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
-*   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, `--viz-only`, Appearance panel editing, frame skip, and PyPI packaging.
+*   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
 *   [x] **Phase 14**: Public ASE calculator import API for the default repulsion model.
 *   [x] **Phase 15**: Top-bar cleanup and interactive selected-atom constraint editing.
-*   [x] **Phase 16**: Micro-etched FixAtoms material, bounded FixedPlane guide, and fast virtual LAMMPS trajectory loading for `--viz-only`.
+*   [x] **Phase 16**: Micro-etched FixAtoms material, bounded FixedPlane guide, and fast virtual LAMMPS trajectory loading for default visualization mode.
+*   [x] **Phase 17**: `--interactive` edit-mode opt-in, bounded/copyable selection fields, orientation widget, visualization-mode wrap, and instanced full-opacity supercell repeats.
 *   [ ] **Planned**: Click-to-place atom insertion.
 
 ---

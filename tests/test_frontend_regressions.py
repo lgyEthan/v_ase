@@ -35,7 +35,7 @@ def test_static_version_strings_match_package_version():
     assert f'three.module.js?v={version}' in index_html
     assert f'main.js?v={version}' in index_html
     assert f'<span class="version">{version}</span>' in index_html
-    assert "0.0.29" not in index_html
+    assert "0.0.28" not in index_html
 
 
 def test_ui_button_api_endpoints_respond_without_network_server():
@@ -87,7 +87,8 @@ def test_viz_only_session_blocks_atom_editing_api_calls():
         asyncio.run(apply_positions(session.session_id, {"positions": atoms.positions.tolist()}))
 
     assert excinfo.value.status_code == 403
-    assert "--viz-only mode" in excinfo.value.detail
+    assert "default visualization mode" in excinfo.value.detail
+    assert "--interactive" in excinfo.value.detail
 
 
 def test_missing_session_is_reported_as_404_json():
@@ -402,13 +403,19 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "if (supercellChanged) this.rebuildSupercell()" in renderer_js
     assert "elementVisible: { ...(options.elementVisible" in renderer_js
     assert "mesh.visible === false" in (ROOT / "v_ase/static/selection.js").read_text()
-    assert "btn-apply-selected-type" in index_html
+    assert "btn-apply-selected-type" not in index_html
+    assert "selection-textbox" in index_html
+    assert "data-copy-target=\"selected-indices\"" in index_html
+    assert "Center (unwrapped)" in index_html
+    assert "orientation-widget" in index_html
     assert "updateAtomTypes" in (ROOT / "v_ase/static/api.js").read_text()
     assert 'id="projection-mode"' in index_html
     assert 'id="inspector-resizer"' in index_html
     assert 'data-edit-only' in index_html
-    assert "--viz-only" in main_js
+    assert "--interactive" in (ROOT / "v_ase/cli.py").read_text()
     assert "updateEditingAvailability" in main_js
+    assert "wrapVisibleAtomsIntoCell" in main_js
+    assert "updateOrientationWidget" in main_js
     assert "setupInspectorResizer" in main_js
     assert "atomRadiusScale" in renderer_js
     assert "elementRadii" in renderer_js
@@ -423,6 +430,7 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "body.inspector-wide #inspector .element-appearance-row" in style_css
     assert 'body[data-viz-only="true"] [data-edit-only]' in style_css
     assert ".busy-spinner" in style_css
+    assert ".orientation-widget" in style_css
 
 
 def test_frontend_reset_video_and_visual_settings_controls_are_wired():

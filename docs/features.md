@@ -57,10 +57,10 @@ OVITO-style timeline panel with previous/next, play/pause, frame slider, FPS,
 and frame skip controls. Skip advances by `skip + 1` frames per playback tick,
 so `0` means no skipped frames.
 
-In `--viz-only`, large numeric LAMMPS text dumps use an offset-indexed virtual
-trajectory path. v_ase parses the first frame into ASE, keeps the remaining
-frames as file offsets, and serves frame changes as binary float32 coordinates
-instead of rebuilding every frame as a full ASE object.
+In the default visualization mode, large numeric LAMMPS text dumps use an
+offset-indexed virtual trajectory path. v_ase parses the first frame into ASE,
+keeps the remaining frames as file offsets, and serves frame changes as binary
+float32 coordinates instead of rebuilding every frame as a full ASE object.
 
 ### File Type and Label Handling
 The CLI accepts ASE-readable formats plus v_ase-specific helpers for custom

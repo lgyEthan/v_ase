@@ -57,12 +57,16 @@ v_ase FILE
 v_ase gui ABCD --format POSCAR
 v_ase gui ABCD --format lammpstrj
 v_ase gui ABCD --format data
-v_ase gui movie.extxyz --viz-only
+v_ase gui POSCAR --interactive
 ```
 
 `--format` is used when the filename is ambiguous. Common aliases include
 `POSCAR`, `XDATCAR`, `vasprun.xml`, `lammpstrj`, `traj`, `xyz`, `extxyz`, and
 `data`.
+
+`v_ase gui FILE` opens in lightweight visualization mode by default. Use
+`--interactive` when atom coordinate edits, deletion, copy/paste, constraints
+editing, or interactive relaxation restart are needed.
 
 LAMMPS dump/data integer types are preserved as raw GUI labels. Valid type ids
 are interpreted as atomic numbers for default visualization; out-of-range ids

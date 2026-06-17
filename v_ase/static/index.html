@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.28">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.29">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.28';
+            : '/static/vendor/three.module.js?v=0.0.29';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -34,7 +34,7 @@
 
     <!-- Top Status Bar -->
     <header id="top-bar" class="glass-panel">
-        <div class="logo">v_ase<span class="version">0.0.28</span></div>
+        <div class="logo">v_ase<span class="version">0.0.29</span></div>
         <div class="status-group">
             <div class="status-item">
                 <span class="label">MODE</span>
@@ -69,6 +69,14 @@
         </div>
     </header>
 
+    <div id="orientation-widget" class="orientation-widget" aria-label="Viewport orientation">
+        <svg viewBox="-58 -58 116 116" role="img" aria-hidden="true">
+            <g id="ow-neg-group"></g>
+            <g id="ow-line-group"></g>
+            <g id="ow-pos-group"></g>
+        </svg>
+    </div>
+
     <!-- Right Inspector -->
     <aside id="inspector" class="glass-panel">
         <div id="inspector-resizer" role="separator" aria-label="Resize control panel" aria-orientation="vertical" title="Drag to resize panel"></div>
@@ -84,22 +92,18 @@
         <details class="panel-section" open data-panel="selection">
             <summary class="section-header">Selection</summary>
             <div class="prop-grid">
-                <span class="p-label">Indices</span><span id="selected-indices" class="p-val">-</span>
-                <span class="p-label">Elements</span><span id="selected-elements" class="p-val">-</span>
-                <span class="p-label">Center</span><span id="selected-center" class="p-val">-</span>
+                <span class="p-label">Indices</span>
+                <span class="selection-copy-row">
+                    <span id="selected-indices" class="p-val selection-textbox">-</span>
+                    <button type="button" class="copy-mini" data-copy-target="selected-indices" aria-label="Copy selected atom indices" title="Copy indices"><span aria-hidden="true"></span></button>
+                </span>
+                <span class="p-label">Elements</span>
+                <span class="selection-copy-row">
+                    <span id="selected-elements" class="p-val selection-textbox">-</span>
+                    <button type="button" class="copy-mini" data-copy-target="selected-elements" aria-label="Copy selected elements" title="Copy elements"><span aria-hidden="true"></span></button>
+                </span>
+                <span class="p-label">Center (unwrapped)</span><span id="selected-center" class="p-val">-</span>
                 <span class="p-label">Measure</span><span id="selected-measure" class="p-val">-</span>
-            </div>
-            <div class="selected-type-editor">
-                <div class="mini-table-head selected-type-head">
-                    <span>Selected type</span>
-                    <span>Color</span>
-                    <span></span>
-                </div>
-                <div class="selected-type-row">
-                    <input type="text" id="selected-type-name" placeholder="Select atoms first">
-                    <input type="color" id="selected-type-color" value="#cccccc">
-                    <button id="btn-apply-selected-type">Apply</button>
-                </div>
             </div>
             <button id="btn-delete-selection" class="btn-block danger-soft" data-edit-only>Delete Selected</button>
         </details>
@@ -172,7 +176,7 @@
                 </div>
             </div>
             <button id="btn-set-supercell" class="btn-block" data-edit-only>Set Supercell as Cell</button>
-            <button id="btn-wrap" class="btn-block" data-edit-only>Wrap Atoms Into Cell</button>
+            <button id="btn-wrap" class="btn-block">Wrap Atoms Into Cell</button>
         </details>
 
         <details class="panel-section" data-panel="transform" data-edit-only>
@@ -388,7 +392,7 @@
     <script type="module">
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.28';
+            : './static/main.js?v=0.0.29';
         import(modulePath);
     </script>
 </body>

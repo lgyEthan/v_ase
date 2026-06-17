@@ -1589,6 +1589,10 @@ export class ASERenderer {
         if (reps.every(v => v <= 1)) return;
         const cell = this.atomsData.cell.map(v => new THREE.Vector3(...v));
         this.addSupercellCellPreview(cell, reps);
+        if (this.displayOptions.vizOnly) {
+            this.rebuildVizOnlySupercellAtoms(cell, reps);
+            return;
+        }
         const fixed = new Set(this.atomsData.constraints?.fixed_indices || []);
         const maxGhostAtoms = 5000;
         let ghostCount = 0;
@@ -1636,6 +1640,87 @@ export class ASERenderer {
         }
     }
 
+    supercellShifts(cell, reps) {
+        const shifts = [];
+        for (let ix = 0; ix < reps[0]; ix++) {
+            for (let iy = 0; iy < reps[1]; iy++) {
+                for (let iz = 0; iz < reps[2]; iz++) {
+                    if (ix === 0 && iy === 0 && iz === 0) continue;
+                    shifts.push(new THREE.Vector3()
+                        .addScaledVector(cell[0], ix)
+                        .addScaledVector(cell[1], iy)
+                        .addScaledVector(cell[2], iz));
+                }
+            }
+        }
+        return shifts;
+    }
+
+    rebuildVizOnlySupercellAtoms(cell, reps) {
+        const shifts = this.supercellShifts(cell, reps);
+        if (!shifts.length) return;
+        const segmentCount = this.sphereQualitySegments(this.atomsData.symbols.length);
+        const groups = new Map();
+        this.atomsData.symbols.forEach((sym, index) => {
+            const radius = this.atomVisualRadius(index);
+            const geometryKey = `${radius}:supercell:${segmentCount}`;
+            if (!groups.has(geometryKey)) groups.set(geometryKey, { radius, geometryKey, indices: [] });
+            groups.get(geometryKey).indices.push(index);
+        });
+
+        groups.forEach(group => {
+            if (!this.geometryCache.has(group.geometryKey)) {
+                this.geometryCache.set(
+                    group.geometryKey,
+                    new THREE.SphereGeometry(group.radius, segmentCount, Math.max(10, Math.floor(segmentCount * 0.65)))
+                );
+            }
+            const materialKey = `supercell:viz:${group.geometryKey}`;
+            if (!this.materialCache.has(materialKey)) {
+                this.materialCache.set(materialKey, new THREE.MeshStandardMaterial({
+                    color: 0xffffff,
+                    roughness: 0.54,
+                    metalness: 0.04,
+                    vertexColors: true
+                }));
+            }
+            const total = group.indices.length * shifts.length;
+            const mesh = new THREE.InstancedMesh(
+                this.geometryCache.get(group.geometryKey),
+                this.materialCache.get(materialKey),
+                total
+            );
+            mesh.frustumCulled = false;
+            mesh.userData = { supercellInstanced: true, entries: [], sharedGeometry: true, sharedMaterial: true };
+            let instanceId = 0;
+            shifts.forEach(shift => {
+                group.indices.forEach(index => {
+                    const entry = { index, shift: shift.clone(), instanceId };
+                    mesh.userData.entries.push(entry);
+                    mesh.setColorAt(instanceId, new THREE.Color(this.atomVisualColor(index, this.customColors[index])));
+                    this.setSupercellInstanceMatrix(mesh, entry);
+                    instanceId++;
+                });
+            });
+            mesh.instanceMatrix.needsUpdate = true;
+            if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+            this.supercellGroup.add(mesh);
+        });
+    }
+
+    setSupercellInstanceMatrix(mesh, entry) {
+        const atom = this.atomMeshByIndex.get(entry.index);
+        const visible = atom && this.atomTypeVisible(entry.index);
+        const position = visible
+            ? atom.position.clone().add(entry.shift)
+            : new THREE.Vector3(0, 0, 0);
+        this.instanceDummy.position.copy(position);
+        this.instanceDummy.rotation.set(0, 0, 0);
+        this.instanceDummy.scale.setScalar(visible ? 1 : 0);
+        this.instanceDummy.updateMatrix();
+        mesh.setMatrixAt(entry.instanceId, this.instanceDummy.matrix);
+    }
+
     addSupercellCellPreview(cell, reps) {
         const edgePairs = [[0,1],[0,2],[0,3],[1,4],[1,5],[2,4],[2,6],[3,5],[3,6],[4,7],[5,7],[6,7]];
         const points = [];
@@ -1680,6 +1765,11 @@ export class ASERenderer {
         if (!this.supercellGroup.children.length) return;
         this.supercellGroup.children.forEach(mesh => {
             if (mesh.userData.supercellCellPreview) return;
+            if (mesh.userData.supercellInstanced) {
+                mesh.userData.entries.forEach(entry => this.setSupercellInstanceMatrix(mesh, entry));
+                mesh.instanceMatrix.needsUpdate = true;
+                return;
+            }
             const atom = this.atomMeshByIndex.get(mesh.userData.ghostFor);
             if (!atom || !this.atomTypeVisible(mesh.userData.ghostFor)) {
                 mesh.visible = false;
@@ -2236,6 +2326,7 @@ export class ASERenderer {
         this.controls.update();
         this.updateBondPositions();
         this.syncSelectionOutlines();
+        this.onFrame?.();
         this.renderer.render(this.scene, this.camera);
     }
 }

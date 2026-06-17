@@ -33,10 +33,12 @@ v_ase gui movie.extxyz
 v_ase gui relaxation.traj
 ```
 
-The viewer opens locally in your browser. Middle mouse tumbles the camera,
-left click and box drag select atoms, `G` moves atoms, `R` rotates atoms,
-`X/Y/Z` lock axes, numeric input gives exact transforms, and trajectory files
-show playback controls for frame-by-frame movie inspection.
+The viewer opens locally in your browser. By default, `v_ase gui FILE` starts in
+a lightweight visualization mode for fast inspection, trajectory playback,
+bonding, supercell preview, appearance edits, wrapping, and export. Add
+`--interactive` when you want Blender-style atom editing: left click and box
+drag select atoms, `G` moves atoms, `R` rotates atoms, `X/Y/Z` lock axes, and
+numeric input gives exact transforms.
 
 ![v_ase overview](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_overview.png)
 
@@ -45,12 +47,12 @@ show playback controls for frame-by-frame movie inspection.
 - `v_ase gui FILE` command-line workflow for POSCAR, VASP, extxyz, traj, and
   other ASE-readable files.
 - Python API for notebooks and scripts: `from v_ase.visualize import view`.
-- Blender-like viewport interaction: middle-mouse orbit, shift-middle pan,
-  wheel zoom, click/box selection, `G` move, `R` rotate, axis locking, numeric
-  transforms, `Enter`, `Esc`, copy/paste/undo/delete.
-- Lightweight OVITO-style inspection mode with `--viz-only`, keeping bonds,
-  supercell, appearance, visual type labels, measurements, projection, and
-  export controls while disabling coordinate edits.
+- Lightweight OVITO-style inspection is the default CLI mode, keeping bonds,
+  supercell, appearance, visual type labels, measurements, projection, wrapping,
+  and export controls responsive for large structures.
+- Add `--interactive` for Blender-like atom editing: middle-mouse orbit,
+  shift-middle pan, wheel zoom, click/box selection, `G` move, `R` rotate, axis
+  locking, numeric transforms, `Enter`, `Esc`, copy/paste/undo/delete.
 - Selection measurements: two selected atoms show distance, and three selected
   atoms show two distances plus the central angle.
 - Calculator handling preserves existing ASE calculators, including
@@ -137,7 +139,7 @@ v_ase gui ABCD --format XDATCAR
 v_ase gui ABCD --format vasprun.xml
 v_ase gui ABCD --format lammpstrj
 v_ase gui ABCD --format data
-v_ase gui movie.extxyz --viz-only
+v_ase gui POSCAR --interactive
 v_ase gui POSCAR --output edited.vasp
 v_ase gui POSCAR --no-block
 ```
@@ -385,10 +387,10 @@ from v_ase.repulsion import RepulsionCalculator
 `Conditioner` is kept as an alias for the same calculator class, matching the
 reference model naming while still behaving like an ASE `Calculator`.
 
-During relaxation, structure updates stream to the browser. In interactive mode,
+During relaxation, structure updates stream to the browser. In `--interactive`,
 if atoms are moved while relaxation is running, the current relaxation is stopped
-and restarted from the edited coordinates. In `--viz-only`, atom editing remains
-disabled, but relaxation updates can still be tracked.
+and restarted from the edited coordinates. In the default visualization mode,
+atom editing remains disabled, but relaxation updates can still be tracked.
 
 ## Case 8: Export
 

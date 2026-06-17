@@ -158,7 +158,7 @@ def is_viz_only(session: EditorSession) -> bool:
 
 def require_editable(session: EditorSession, action: str = "This operation"):
     if is_viz_only(session):
-        raise HTTPException(status_code=403, detail=f"{action} is disabled in --viz-only mode.")
+        raise HTTPException(status_code=403, detail=f"{action} is disabled in the default visualization mode. Start v_ase with --interactive to edit atoms.")
 
 
 def validate_supercell_atoms(atoms, reps: List[int]):

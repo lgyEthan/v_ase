@@ -44,12 +44,15 @@ def test_v_ase_gui_parser_accepts_input_format_alias():
     assert args.format == "vasprun.xml"
 
 
-def test_v_ase_gui_parser_accepts_viz_only_mode():
+def test_v_ase_gui_parser_defaults_to_visualization_mode_and_accepts_interactive_mode():
     parser = build_parser()
-    args = parser.parse_args(["gui", "movie.extxyz", "--viz-only"])
+    args = parser.parse_args(["gui", "movie.extxyz"])
 
     assert args.file == "movie.extxyz"
-    assert args.viz_only is True
+    assert args.interactive is False
+
+    interactive = parser.parse_args(["gui", "movie.extxyz", "--interactive"])
+    assert interactive.interactive is True
 
 
 def test_v_ase_visualize_import_path_exposes_view():

@@ -123,6 +123,51 @@ body[data-viz-only="true"] [data-edit-only] {
     display: none !important;
 }
 
+.orientation-widget {
+    position: absolute;
+    top: 90px;
+    right: calc(var(--inspector-width) + 24px);
+    width: 118px;
+    height: 118px;
+    z-index: 68;
+    pointer-events: none;
+    filter: drop-shadow(0 12px 22px rgba(0, 0, 0, 0.26));
+}
+
+.orientation-widget svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.orientation-line {
+    stroke-linecap: round;
+    stroke-width: 3.2;
+    opacity: 0.94;
+}
+
+.orientation-dot {
+    stroke-width: 2.6;
+}
+
+.orientation-dot.negative {
+    fill: rgba(48, 50, 53, 0.34);
+    opacity: 0.68;
+}
+
+.orientation-dot.positive {
+    stroke: rgba(255, 255, 255, 0.12);
+}
+
+.orientation-label {
+    fill: #141619;
+    font-size: 14px;
+    font-weight: 850;
+    text-anchor: middle;
+    dominant-baseline: central;
+    pointer-events: none;
+}
+
 #command-bar {
     position: absolute;
     left: 50%;
@@ -272,6 +317,70 @@ body[data-viz-only="true"] [data-edit-only] {
     line-height: 1.25;
     font-weight: 720;
     text-align: right;
+}
+
+.selection-copy-row {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 28px;
+    gap: 6px;
+    align-items: stretch;
+}
+
+.selection-textbox {
+    display: block;
+    max-height: 72px;
+    min-height: 28px;
+    padding: 6px 8px;
+    overflow: auto;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 7px;
+    background: rgba(0, 0, 0, 0.18);
+    color: rgba(245, 242, 234, 0.92);
+    text-align: left;
+    white-space: normal;
+    word-break: break-word;
+    line-height: 1.35;
+}
+
+.copy-mini {
+    position: relative;
+    min-width: 28px;
+    width: 28px;
+    min-height: 28px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.055);
+    color: var(--text);
+    cursor: pointer;
+}
+
+.copy-mini:hover {
+    border-color: rgba(88, 211, 187, 0.64);
+    background: rgba(88, 211, 187, 0.16);
+}
+
+.copy-mini span,
+.copy-mini span::after {
+    position: absolute;
+    display: block;
+    width: 11px;
+    height: 13px;
+    border: 1.7px solid currentColor;
+    border-radius: 2px;
+    content: "";
+}
+
+.copy-mini span {
+    top: 8px;
+    left: 10px;
+}
+
+.copy-mini span::after {
+    top: -5px;
+    left: -5px;
+    opacity: 0.58;
 }
 
 .badge {

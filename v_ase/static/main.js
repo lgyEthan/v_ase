@@ -16,6 +16,7 @@ class VAseApp {
         this.initialDesignSettings = null;
         this.frameLoadInFlight = false;
         this.pendingFrameIndex = null;
+        this.renderer.onFrame = () => this.updateOrientationWidget();
         
         this.state = {
             atoms: null,
@@ -109,7 +110,7 @@ class VAseApp {
     }
 
     editOnlyToast() {
-        this.toast('--viz-only is a lightweight visualizer mode; atom editing is disabled.', 'warning');
+        this.toast('Visualization mode is lightweight; use --interactive to enable atom editing.', 'warning');
     }
 
     clampInspectorWidth(width) {
@@ -217,12 +218,11 @@ class VAseApp {
         const pbc = this.state.atoms.pbc.map(p => p ? 'T' : 'F').join('');
         setHtml('prop-pbc', pbc);
         setHtml('prop-selected', this.state.selected.size);
-        setHtml('selected-indices', selectedIndices.join(', ') || '-');
-        setHtml('selected-elements', selectedIndices.map(i => this.state.atoms.symbols[i]).join(', ') || '-');
+        this.setCopyableSelectionText('selected-indices', selectedIndices.join(', ') || '-');
+        this.setCopyableSelectionText('selected-elements', selectedIndices.map(i => this.state.atoms.symbols[i]).join(', ') || '-');
         setHtml('selected-center', this.getSelectionCenterText());
         setHtml('selected-measure', this.getSelectionMeasureText(selectedIndices));
         this.updateTrajectoryUI();
-        this.updateSelectedTypeControls();
         this.updateElementSelectionControls();
         this.updateSelectionConstraintControls();
 
@@ -236,6 +236,41 @@ class VAseApp {
         this.updateCommandReadout();
 
         document.body.dataset.mode = this.transform.mode.toLowerCase();
+    }
+
+    setCopyableSelectionText(id, value) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.innerText = value;
+        el.dataset.copyValue = value === '-' ? '' : value;
+        el.title = value;
+    }
+
+    async copySelectionField(targetId) {
+        const el = document.getElementById(targetId);
+        const text = el?.dataset.copyValue || el?.innerText || '';
+        if (!text || text === '-') {
+            this.toast('Nothing to copy.', 'warning');
+            return;
+        }
+        try {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(text);
+            } else {
+                const area = document.createElement('textarea');
+                area.value = text;
+                area.style.position = 'fixed';
+                area.style.opacity = '0';
+                document.body.appendChild(area);
+                area.focus();
+                area.select();
+                document.execCommand('copy');
+                document.body.removeChild(area);
+            }
+            this.toast('Copied selection field.', 'success');
+        } catch (err) {
+            this.toast(`Copy failed: ${err.message}`, 'error');
+        }
     }
 
     repulsionCalculatorDetails() {
@@ -846,7 +881,12 @@ class VAseApp {
             count++;
         });
         if (!count) return '-';
-        return center.map(v => (v / count).toFixed(3)).join(', ');
+        const cart = center.map(v => v / count);
+        const cartText = cart.map(v => v.toFixed(3)).join(', ');
+        if (!this.renderer?.hasValidCell?.()) return `${cartText} A`;
+        const frac = this.renderer.cartToFrac(new THREE.Vector3(cart[0], cart[1], cart[2]));
+        const fracText = [frac.x, frac.y, frac.z].map(v => v.toFixed(4)).join(', ');
+        return `${cartText} A (frac ${fracText})`;
     }
 
     selectionDelta(i, j) {
@@ -924,12 +964,19 @@ class VAseApp {
             Y: new THREE.Vector3(0, 1, 0),
             Z: new THREE.Vector3(0, 0, 1)
         };
-        const dir = axisVectors[axis];
-        if (!dir) return;
+        const baseDir = axisVectors[axis];
+        if (!baseDir) return 1;
         const camera = this.renderer.camera;
         const controls = this.renderer.controls;
         const target = controls.target.clone();
         const distance = Math.max(camera.position.distanceTo(target), 4.0);
+        const viewDir = new THREE.Vector3().subVectors(camera.position, target);
+        const currentSign = viewDir.lengthSq() > 1e-12
+            ? Math.sign(viewDir.normalize().dot(baseDir))
+            : 0;
+        const perfectlyAligned = Math.abs(viewDir.dot(baseDir)) > 0.99995;
+        const sign = perfectlyAligned && currentSign > 0 ? -1 : 1;
+        const dir = baseDir.clone().multiplyScalar(sign);
         camera.up.copy(axis === 'Z' ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1));
         camera.position.copy(target).add(dir.clone().multiplyScalar(distance));
         camera.lookAt(target);
@@ -938,6 +985,102 @@ class VAseApp {
         controls.update?.();
         this.renderer.syncSelectionOutlines();
         this.transform.updateGuides(camera);
+        this.updateOrientationWidget();
+        return sign;
+    }
+
+    ensureOrientationWidget() {
+        const posGroup = document.getElementById('ow-pos-group');
+        const negGroup = document.getElementById('ow-neg-group');
+        const lineGroup = document.getElementById('ow-line-group');
+        if (!posGroup || !negGroup || !lineGroup || posGroup.dataset.ready === 'true') return Boolean(posGroup);
+        const axes = [
+            { id: 'x', label: 'X', color: getComputedStyle(document.documentElement).getPropertyValue('--axis-x').trim() || '#ff4f46' },
+            { id: 'y', label: 'Y', color: getComputedStyle(document.documentElement).getPropertyValue('--axis-y').trim() || '#30d158' },
+            { id: 'z', label: 'Z', color: getComputedStyle(document.documentElement).getPropertyValue('--axis-z').trim() || '#0a84ff' }
+        ];
+        axes.forEach(axis => {
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.id = `ow-line-${axis.id}`;
+            line.classList.add('orientation-line');
+            line.setAttribute('stroke', axis.color);
+            line.setAttribute('x1', '0');
+            line.setAttribute('y1', '0');
+            lineGroup.appendChild(line);
+
+            const neg = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            neg.id = `ow-neg-${axis.id}`;
+            neg.classList.add('orientation-dot', 'negative');
+            neg.setAttribute('stroke', axis.color);
+            neg.setAttribute('r', '9');
+            negGroup.appendChild(neg);
+
+            const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            dot.id = `ow-pos-${axis.id}`;
+            dot.classList.add('orientation-dot', 'positive');
+            dot.setAttribute('fill', axis.color);
+            dot.setAttribute('r', '14');
+            posGroup.appendChild(dot);
+
+            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text.id = `ow-label-${axis.id}`;
+            text.classList.add('orientation-label');
+            text.textContent = axis.label;
+            posGroup.appendChild(text);
+        });
+        posGroup.dataset.ready = 'true';
+        return true;
+    }
+
+    updateOrientationWidget() {
+        if (!this.ensureOrientationWidget()) return;
+        const camera = this.renderer?.camera;
+        if (!camera) return;
+        camera.updateMatrixWorld();
+        const inverse = camera.quaternion.clone().invert();
+        const axes = {
+            x: new THREE.Vector3(1, 0, 0),
+            y: new THREE.Vector3(0, 1, 0),
+            z: new THREE.Vector3(0, 0, 1)
+        };
+        Object.entries(axes).forEach(([id, world]) => {
+            const positive = world.clone().applyQuaternion(inverse);
+            const negative = world.clone().multiplyScalar(-1).applyQuaternion(inverse);
+            const positiveScale = 39;
+            const negativeScale = 33;
+            const px = positive.x * positiveScale;
+            const py = -positive.y * positiveScale;
+            const nx = negative.x * negativeScale;
+            const ny = -negative.y * negativeScale;
+            const front = THREE.MathUtils.clamp(0.58 + positive.z * 0.32, 0.28, 0.95);
+
+            const line = document.getElementById(`ow-line-${id}`);
+            if (line) {
+                line.setAttribute('x2', px.toFixed(2));
+                line.setAttribute('y2', py.toFixed(2));
+                line.style.opacity = String(front);
+            }
+            const dot = document.getElementById(`ow-pos-${id}`);
+            if (dot) {
+                dot.setAttribute('cx', px.toFixed(2));
+                dot.setAttribute('cy', py.toFixed(2));
+                dot.setAttribute('r', (13.2 + positive.z * 1.8).toFixed(2));
+                dot.style.opacity = String(THREE.MathUtils.clamp(0.72 + positive.z * 0.24, 0.46, 1));
+            }
+            const label = document.getElementById(`ow-label-${id}`);
+            if (label) {
+                label.setAttribute('x', px.toFixed(2));
+                label.setAttribute('y', py.toFixed(2));
+                label.style.opacity = dot?.style.opacity || '1';
+            }
+            const neg = document.getElementById(`ow-neg-${id}`);
+            if (neg) {
+                neg.setAttribute('cx', nx.toFixed(2));
+                neg.setAttribute('cy', ny.toFixed(2));
+                neg.setAttribute('r', (8.0 + negative.z * 1.1).toFixed(2));
+                neg.style.opacity = String(THREE.MathUtils.clamp(0.32 + negative.z * 0.26, 0.18, 0.64));
+            }
+        });
     }
 
     currentAtomPosition(index) {
@@ -1229,6 +1372,30 @@ class VAseApp {
 
     hasUsableCell() {
         return this.state.atoms?.cell?.some(v => new THREE.Vector3(...v).lengthSq() > 1e-12);
+    }
+
+    wrapVisibleAtomsIntoCell() {
+        if (!this.hasUsableCell() || !this.renderer?.cartToFrac || !this.renderer?.fracToCart) {
+            throw new Error('Wrap requires a defined unit cell.');
+        }
+        const pbc = this.state.atoms?.pbc || [true, true, true];
+        const shouldWrap = pbc.some(Boolean) ? pbc : [true, true, true];
+        const wrapped = this.state.atoms.positions.map((pos, index) => {
+            const current = this.currentAtomPosition(index) || pos;
+            const frac = this.renderer.cartToFrac(new THREE.Vector3(current[0], current[1], current[2]));
+            ['x', 'y', 'z'].forEach((component, axis) => {
+                if (!shouldWrap[axis]) return;
+                const value = frac[component];
+                frac[component] = value - Math.floor(value);
+            });
+            const cart = this.renderer.fracToCart(frac);
+            return [cart.x, cart.y, cart.z];
+        });
+        this.state.atoms.positions = wrapped.map(p => [...p]);
+        this.state.originalPositions = wrapped;
+        this.renderer.updatePositions(wrapped);
+        this.updateSelectionVisuals();
+        this.updateUI();
     }
 
     normalizeSupercellInputs() {
@@ -2984,6 +3151,11 @@ class VAseApp {
                     this.toast('Wrap requires a defined unit cell.', 'warning');
                     return;
                 }
+                if (this.state.vizOnly) {
+                    this.wrapVisibleAtomsIntoCell();
+                    this.toast('Wrapped the visible frame into the unit cell.', 'success');
+                    return;
+                }
                 const frameCount = this.state.atoms.metadata.frame_count || 1;
                 const data = await this.withBusy(
                     `Wrapping ${frameCount} frame${frameCount > 1 ? 's' : ''} into the unit cell...`,
@@ -2996,7 +3168,13 @@ class VAseApp {
             }
         };
         document.getElementById('btn-delete-selection').onclick = () => this.deleteSelection();
-        document.getElementById('btn-apply-selected-type').onclick = () => this.applySelectedTypeEdit();
+        document.querySelectorAll('[data-copy-target]').forEach(button => {
+            button.addEventListener('click', event => {
+                event.preventDefault();
+                event.stopPropagation();
+                this.copySelectionField(button.dataset.copyTarget);
+            });
+        });
         document.getElementById('constraint-fixatoms')?.addEventListener('change', (event) => {
             event.preventDefault();
             this.toggleSelectedFixAtoms();
@@ -3012,18 +3190,6 @@ class VAseApp {
         });
         document.getElementById('btn-apply-constraint')?.addEventListener('click', () => this.applySelectedDirectionalConstraint());
         document.getElementById('btn-clear-directional-constraint')?.addEventListener('click', () => this.clearSelectedDirectionalConstraint());
-        document.getElementById('selected-type-name')?.addEventListener('keydown', event => {
-            if (event.key === 'Enter') {
-                event.preventDefault();
-                this.applySelectedTypeEdit();
-            }
-        });
-        document.getElementById('selected-type-color')?.addEventListener('input', event => {
-            const label = this.selectedTypeLabel();
-            if (!label || !this.validHexColor(event.target.value)) return;
-            this.state.display.elementColors[label] = event.target.value;
-            this.safeApplyDisplayOptions();
-        });
         document.getElementById('btn-undo').onclick = async () => {
             try {
                 const data = await this.api.undo();
@@ -3477,8 +3643,8 @@ class VAseApp {
                 const axis = this.axisFromKey(e);
                 if (axis) {
                     e.preventDefault();
-                    this.alignViewToAxis(axis);
-                    this.toast(`View aligned to ${axis}.`, 'success');
+                    const sign = this.alignViewToAxis(axis);
+                    this.toast(`View aligned to ${sign > 0 ? '+' : '-'}${axis}.`, 'success');
                     return;
                 }
                 if ((e.code === 'Delete' || e.key === 'Delete' || e.code === 'Backspace' || e.key === 'Backspace') && this.state.selected.size > 0) {
