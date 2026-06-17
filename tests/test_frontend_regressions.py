@@ -205,6 +205,10 @@ def test_viewer_uses_packaged_three_and_initial_camera_fit():
     assert "OrthographicCamera" in renderer_js
     assert "setProjectionMode" in renderer_js
     assert "updateCameraProjection" in renderer_js
+    assert "this.camera = this.orthographicCamera" in renderer_js
+    assert "projectionMode = 'orthographic'" in renderer_js
+    assert "this.cameraFillLight = new THREE.PointLight" in renderer_js
+    assert "updateViewLighting()" in renderer_js
 
 
 def test_frontend_handles_missing_calculator_forces_without_aborting_refresh():
@@ -374,7 +378,7 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "atom-radius-scale" in index_html
     assert "element-radius-list" in index_html
     assert "renderElementRadiusControls" in main_js
-    assert "return [...new Set(this.state.atoms?.symbols || [])];" in main_js
+    assert "return this.reconcileTypeOrder(this.state.atoms?.symbols || []);" in main_js
     assert "previewDetectedBase" in main_js
     assert "typeSelect.value = inferredBase" in main_js
     assert "nameInput.value = typeSelect.value" in main_js
@@ -422,6 +426,7 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert 'id="calc-controls" class="calc-control-group" title="Repulsion calculator settings only" data-edit-only' in index_html
     assert "updateAtomTypes" in (ROOT / "v_ase/static/api.js").read_text()
     assert 'id="projection-mode"' in index_html
+    assert '<option value="orthographic" selected>Orthographic</option>' in index_html
     assert 'id="inspector-resizer"' in index_html
     assert 'data-edit-only' in index_html
     assert "--interactive" in (ROOT / "v_ase/cli.py").read_text()
@@ -435,6 +440,8 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "const materialKey = `supercell:viz:${geometryKey}:${color}`" in renderer_js
     assert "color: group.color" in renderer_js
     assert "previous.atomRadiusScale" in renderer_js
+    assert "reconcileTypeOrder" in main_js
+    assert "replaceTypeOrder(oldSymbol, label)" in main_js
     assert "#inspector .panel-section" in style_css
     assert ".element-radius-panel" in style_css
     assert "overflow-x: auto" in style_css
@@ -503,6 +510,10 @@ def test_trajectory_controls_update_live_and_space_toggles_playback():
     assert "e.code === 'Space'" in main_js
     assert "Play or pause trajectory" in main_js
     assert ".trajectory-strip" in style_css
+    renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
+    assert "refreshBondsForCurrentPositions" in renderer_js
+    assert "const nextPairs = this.inferBondPairs()" in renderer_js
+    assert "this.refreshBondsForCurrentPositions()" in renderer_js
 
 
 def test_export_downloads_use_save_picker_and_fallback_anchor():

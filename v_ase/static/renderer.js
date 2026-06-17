@@ -228,8 +228,8 @@ export class ASERenderer {
             camera.up.set(0, 0, 1);
             camera.position.set(10, 10, 10);
         });
-        this.camera = this.perspectiveCamera;
-        this.projectionMode = 'perspective';
+        this.camera = this.orthographicCamera;
+        this.projectionMode = 'orthographic';
 
         this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
         this.renderer.setClearColor(0x303235, 1);
@@ -241,20 +241,27 @@ export class ASERenderer {
 
         this.controls = new BlenderTumbleControls(this.camera, this.renderer.domElement);
 
-        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x2b2b2f, 0.75);
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x3c4046, 1.05);
         this.scene.add(hemiLight);
 
         // Lighting
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.28);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.46);
         this.scene.add(ambientLight);
         
-        const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+        const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.62);
         dirLight1.position.set(10, 20, 10);
         this.scene.add(dirLight1);
 
-        const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
-        dirLight2.position.set(-10, -10, -10);
+        const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.48);
+        dirLight2.position.set(-12, -18, 8);
         this.scene.add(dirLight2);
+
+        const dirLight3 = new THREE.DirectionalLight(0xffffff, 0.34);
+        dirLight3.position.set(12, -14, -8);
+        this.scene.add(dirLight3);
+
+        this.cameraFillLight = new THREE.PointLight(0xffffff, 0.55, 0, 1.8);
+        this.scene.add(this.cameraFillLight);
 
         this.viewportGuides = this.buildViewportGuides();
         this.gridGroup = this.viewportGuides.gridGroup;
@@ -307,7 +314,7 @@ export class ASERenderer {
             rotatePivot: 'selection',
             unitCellAwareRotate: false,
             rotateStrainCutoff: 0.15,
-            projectionMode: 'perspective',
+            projectionMode: 'orthographic',
             showOverlays: true,
             supercell: [1, 1, 1],
             antiAliasing: true,
@@ -587,7 +594,7 @@ export class ASERenderer {
                 const idx = group.userData.constraintGuideFor;
                 group.visible = this.atomTypeVisible(idx);
             });
-            this.updateBondPositions();
+            this.refreshBondsForCurrentPositions();
             this.updateSupercellPositions();
             this.updateHookeanPositions();
             return;
@@ -610,7 +617,7 @@ export class ASERenderer {
             const idx = group.userData.constraintGuideFor;
             group.visible = this.atomTypeVisible(idx);
         });
-        this.updateBondPositions();
+        this.refreshBondsForCurrentPositions();
         this.updateSupercellPositions();
         this.updateHookeanPositions();
     }
@@ -1060,6 +1067,11 @@ export class ASERenderer {
         this.camera.lookAt(this.controls.target);
     }
 
+    updateViewLighting() {
+        if (!this.cameraFillLight || !this.camera) return;
+        this.cameraFillLight.position.copy(this.camera.position);
+    }
+
     rebuildCell(cell) {
         if (!cell || cell.length !== 3) return;
         const a = new THREE.Vector3(...cell[0]);
@@ -1101,7 +1113,7 @@ export class ASERenderer {
             this.flushAtomInstances();
             this.syncSelectionOutlines();
             this.syncConstraintGuides();
-            this.updateBondPositions();
+            this.refreshBondsForCurrentPositions();
             this.updateSupercellPositions();
             this.updateHookeanPositions();
             return;
@@ -1118,7 +1130,7 @@ export class ASERenderer {
         });
         this.syncSelectionOutlines();
         this.syncConstraintGuides();
-        this.updateBondPositions();
+        this.refreshBondsForCurrentPositions();
         this.updateSupercellPositions();
         this.updateHookeanPositions();
     }
@@ -1460,17 +1472,39 @@ export class ASERenderer {
         });
     }
 
-    rebuildBonds() {
+    bondPairsEqual(a = [], b = []) {
+        if (a.length !== b.length) return false;
+        for (let index = 0; index < a.length; index++) {
+            if (a[index][0] !== b[index][0] || a[index][1] !== b[index][1]) return false;
+        }
+        return true;
+    }
+
+    refreshBondsForCurrentPositions() {
+        if (!this.displayOptions.showBonds) return;
+        if (this.displayOptions.bondMode === 'manual') {
+            this.updateBondPositions();
+            return;
+        }
+        const nextPairs = this.inferBondPairs();
+        if (this.bondPairsEqual(nextPairs, this.bondPairs || [])) {
+            this.updateBondPositions();
+        } else {
+            this.rebuildBonds(nextPairs);
+        }
+    }
+
+    rebuildBonds(precomputedPairs = null) {
         this.clearGroup(this.bondGroup);
         this.bondPairs = [];
         if (!this.displayOptions.showBonds || !this.atomsData) return;
         const hookeanExcluded = this.hookeanBondExclusions();
-        this.bondPairs = this.displayOptions.bondMode === 'manual'
+        this.bondPairs = precomputedPairs || (this.displayOptions.bondMode === 'manual'
             ? this.displayOptions.manualBondPairs.filter(([i, j]) =>
                 this.atomMeshByIndex.has(i) && this.atomMeshByIndex.has(j) &&
                 this.atomTypeVisible(i) && this.atomTypeVisible(j) &&
                 !hookeanExcluded.has(this.hookeanPairKey(i, j)))
-            : this.inferBondPairs();
+            : this.inferBondPairs());
         if (!this.bondPairs.length) return;
         this.bondPairs.forEach(([i, j]) => {
             const bond = new THREE.Mesh(this.bondGeometry, this.bondMaterial);
@@ -2299,6 +2333,7 @@ export class ASERenderer {
             this.updateBondPositions();
             this.syncSelectionOutlines();
             this.updateHookeanPositions();
+            this.updateViewLighting();
             this.renderer.render(this.scene, this.camera);
             return this.renderer.domElement.toDataURL('image/png');
         } finally {
@@ -2326,6 +2361,7 @@ export class ASERenderer {
         this.updateBondPositions();
         this.syncSelectionOutlines();
         this.onFrame?.();
+        this.updateViewLighting();
         this.renderer.render(this.scene, this.camera);
     }
 }

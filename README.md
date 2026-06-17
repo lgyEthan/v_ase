@@ -50,6 +50,8 @@ numeric input gives exact transforms.
 - Lightweight OVITO-style inspection is the default CLI mode, keeping bonds,
   supercell, appearance, visual type labels, measurements, projection, wrapping,
   and export controls responsive for large structures.
+- Orthographic projection is the default view, with perspective available from
+  the View panel.
 - Add `--interactive` for Blender-like atom editing: middle-mouse orbit,
   shift-middle pan, wheel zoom, click/box selection, `G` move, `R` rotate, axis
   locking, numeric transforms, `Enter`, `Esc`, copy/paste/undo/delete.
@@ -71,7 +73,8 @@ numeric input gives exact transforms.
 - Trajectory playback with live frame slider, FPS control, frame skip, image
   export, and video export.
 - Periodic bonds, element-pair cutoff tables, manual bond pairs, supercell
-  preview, `make_supercell(P)` cell transform, and wrap atoms into cell.
+  preview, `make_supercell(P)` cell transform, and wrap atoms into cell. Auto
+  and element-cutoff bonds are re-inferred for each trajectory frame.
 - Custom extxyz atom type labels such as `H_type5` are preserved for GUI type
   settings even when ASE cannot parse them as real elements.
 - LAMMPS `lammpstrj` and `.data` integer types stay visible as labels. Valid

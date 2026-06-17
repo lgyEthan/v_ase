@@ -46,7 +46,7 @@ class VAseApp {
                 unitCellAwareRotate: false,
                 rotateStrainCutoff: 0.15,
                 supercell: [1, 1, 1],
-                projectionMode: 'perspective'
+                projectionMode: 'orthographic'
             },
             antiAliasing: true,
             sphereQuality: 'auto',
@@ -67,6 +67,7 @@ class VAseApp {
             trajectoryTimer: null,
             trajectoryBinaryCache: null,
             trajectoryBinaryPromise: null,
+            typeOrder: [],
             isRelaxing: false
         };
 
@@ -483,6 +484,7 @@ class VAseApp {
 
     setAtomsData(data, { clearSelection = false } = {}) {
         this.state.atoms = data;
+        this.reconcileTypeOrder(data.symbols || []);
         this.state.originalPositions = data.positions.map(p => [...p]);
         if (data.trajectory_positions) {
             this.state.trajectoryBinaryCache = null;
@@ -1425,7 +1427,38 @@ class VAseApp {
     }
 
     uniqueElements() {
-        return [...new Set(this.state.atoms?.symbols || [])];
+        return this.reconcileTypeOrder(this.state.atoms?.symbols || []);
+    }
+
+    reconcileTypeOrder(symbols = []) {
+        const present = new Set(symbols.filter(Boolean));
+        const ordered = [];
+        (this.state.typeOrder || []).forEach(symbol => {
+            if (present.has(symbol) && !ordered.includes(symbol)) {
+                ordered.push(symbol);
+            }
+        });
+        symbols.forEach(symbol => {
+            if (symbol && present.has(symbol) && !ordered.includes(symbol)) {
+                ordered.push(symbol);
+            }
+        });
+        this.state.typeOrder = ordered;
+        return ordered;
+    }
+
+    replaceTypeOrder(oldSymbol, newSymbol) {
+        if (!newSymbol) return;
+        const order = [...(this.state.typeOrder || [])];
+        const existing = order.indexOf(newSymbol);
+        const index = order.indexOf(oldSymbol);
+        if (index >= 0) {
+            order[index] = newSymbol;
+            if (existing >= 0 && existing !== index) order.splice(existing, 1);
+        } else if (existing < 0) {
+            order.push(newSymbol);
+        }
+        this.state.typeOrder = [...new Set(order)];
     }
 
     elementIndices(symbol) {
@@ -1849,6 +1882,7 @@ class VAseApp {
             );
             this.transferElementDisplaySettings(oldSymbol, label, { appearance: preserveAppearance });
             if (!preserveAppearance) this.setElementBaseDefaults(label, effectiveBase);
+            this.replaceTypeOrder(oldSymbol, label);
             this.setAtomsData(data);
             this.toast(`Renamed ${oldSymbol} to ${label}.`, 'success');
         } catch (err) {
@@ -1886,6 +1920,7 @@ class VAseApp {
         this.state.selected = selected;
         this.transferElementDisplaySettings(oldSymbol, label, { appearance: preserveAppearance });
         if (!preserveAppearance) this.setElementBaseDefaults(label, base, { color: true });
+        this.replaceTypeOrder(oldSymbol, label);
         this.renderer.renameAtomType(oldSymbol, label, indices, this.state.display, base);
         this.renderElementBondControls();
         this.renderElementRadiusControls();

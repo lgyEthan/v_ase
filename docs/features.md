@@ -46,8 +46,11 @@ to the same ASE calculator class.
 
 ### Display Tools
 Bonds are rendered as live cylinder objects and update during transform previews,
-relaxation updates, and trajectory frame changes. Bonding can use covalent-radius
-inference, element-pair cutoff rows, or an explicit pair list such as `0-1, 1-2`. Unit cell, axes, grid, and
+relaxation updates, and trajectory frame changes. Auto and element-cutoff bonds
+are re-inferred for each trajectory frame, so bonds break or form when distances
+cross the active cutoff. Bonding can use covalent-radius inference, element-pair
+cutoff rows, or an explicit pair list such as `0-1, 1-2`. Orthographic
+projection is the default view, with perspective available as a viewport option. Unit cell, axes, grid, and
 supercell preview controls are exposed in the inspector. Supercell preview is
 only enabled when a valid unit cell exists and PBC is true in the requested
 direction; otherwise the UI shows a warning and resets the invalid multiplier.
