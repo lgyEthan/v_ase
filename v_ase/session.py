@@ -39,25 +39,31 @@ class EditorSession:
     websockets: List[Any] = field(default_factory=list)
     config: Dict[str, Any] = field(default_factory=dict)
 
+    def _attach_default_calculator(self) -> bool:
+        return not bool((self.config or {}).get("viz_only", False))
+
+    def _ensure_session_calculator(self, atoms: Atoms):
+        if atoms.calc is None and self._attach_default_calculator():
+            ensure_default_calculator(atoms)
+
+    def _copy_atoms(self, atoms: Atoms) -> Atoms:
+        return copy_atoms_with_calc(atoms, attach_default=self._attach_default_calculator())
+
     def __post_init__(self):
-        ensure_default_calculator(self.original_atoms)
-        ensure_default_calculator(self.working_atoms)
+        self._ensure_session_calculator(self.original_atoms)
+        self._ensure_session_calculator(self.working_atoms)
         # Ensure working atoms has the calculator
         if self.original_atoms.calc:
             self.working_atoms.calc = copy_calculator(self.original_atoms.calc)
         if not self.original_frames:
-            self.original_frames = [self.original_atoms.copy()]
-            if self.original_atoms.calc:
-                self.original_frames[0].calc = copy_calculator(self.original_atoms.calc)
+            self.original_frames = [self._copy_atoms(self.original_atoms)]
         if self.trajectory_source is None and not self.trajectory_frames:
-            self.trajectory_frames = [self.working_atoms.copy()]
-            if self.working_atoms.calc:
-                self.trajectory_frames[0].calc = copy_calculator(self.working_atoms.calc)
+            self.trajectory_frames = [self._copy_atoms(self.working_atoms)]
         for frame in self.original_frames:
-            ensure_default_calculator(frame)
+            self._ensure_session_calculator(frame)
         if self.trajectory_source is None:
             for frame in self.trajectory_frames:
-                ensure_default_calculator(frame)
+                self._ensure_session_calculator(frame)
 
     def push_history(self):
         """Save current state to history for Undo."""
@@ -103,6 +109,8 @@ class EditorSession:
         """Helper to ensure calculator follows structure changes."""
         if self.working_atoms.calc:
             new_atoms.calc = copy_calculator(self.working_atoms.calc)
+        else:
+            self._ensure_session_calculator(new_atoms)
         self.working_atoms = new_atoms
 
     @property
@@ -129,7 +137,7 @@ class EditorSession:
             if self.original_atoms.calc:
                 self.working_atoms.calc = copy_calculator(self.original_atoms.calc)
             else:
-                ensure_default_calculator(self.working_atoms)
+                self._ensure_session_calculator(self.working_atoms)
             return self.working_atoms
         if not self.trajectory_frames:
             return self.working_atoms
@@ -140,7 +148,7 @@ class EditorSession:
         if self.trajectory_frames[frame_index].calc:
             self.working_atoms.calc = copy_calculator(self.trajectory_frames[frame_index].calc)
         else:
-            ensure_default_calculator(self.working_atoms)
+            self._ensure_session_calculator(self.working_atoms)
         return self.working_atoms
 
     def reset_current_frame(self):
@@ -152,7 +160,7 @@ class EditorSession:
         if source.calc:
             self.working_atoms.calc = copy_calculator(source.calc)
         else:
-            ensure_default_calculator(self.working_atoms)
+            self._ensure_session_calculator(self.working_atoms)
         self.sync_current_frame()
 
     def reset_all_frames(self):
@@ -161,19 +169,19 @@ class EditorSession:
             self.set_frame(self.current_frame)
             return
         if self.original_frames:
-            self.trajectory_frames = [copy_atoms_with_calc(frame) for frame in self.original_frames]
+            self.trajectory_frames = [self._copy_atoms(frame) for frame in self.original_frames]
         else:
-            self.trajectory_frames = [copy_atoms_with_calc(self.original_atoms)]
+            self.trajectory_frames = [self._copy_atoms(self.original_atoms)]
         self.current_frame = min(self.current_frame, len(self.trajectory_frames) - 1)
-        self.working_atoms = copy_atoms_with_calc(self.trajectory_frames[self.current_frame])
+        self.working_atoms = self._copy_atoms(self.trajectory_frames[self.current_frame])
 
 sessions: Dict[str, EditorSession] = {}
 
-def copy_atoms_with_calc(atoms: Atoms) -> Atoms:
+def copy_atoms_with_calc(atoms: Atoms, attach_default: bool = True) -> Atoms:
     copied = atoms.copy()
     if atoms.calc:
         copied.calc = copy_calculator(atoms.calc)
-    else:
+    elif attach_default:
         ensure_default_calculator(copied)
     return copied
 

@@ -56,8 +56,9 @@ numeric input gives exact transforms.
 - Selection measurements: two selected atoms show distance, and three selected
   atoms show two distances plus the central angle.
 - Calculator handling preserves existing ASE calculators, including
-  `SinglePointCalculator`. If no calculator is attached, v_ase adds a default
-  soft repulsion calculator for relaxation.
+  `SinglePointCalculator`. The default lightweight visualization mode does not
+  attach a fallback calculator; `--interactive` enables the soft repulsion
+  fallback used for built-in relaxation.
 - Torch is optional, not a package dependency. When torch is installed, the
   default repulsion calculator can use torch CPU or CUDA; otherwise it falls
   back to NumPy.
@@ -350,11 +351,16 @@ that calculator. This includes `SinglePointCalculator` results loaded from
 trajectory-style files and any calculator attached by the user before calling
 `view()`.
 
-If no calculator is attached, v_ase installs a default soft repulsion
-calculator. The model applies harmonic pair repulsion below covalent-radius
-contact thresholds, so Relax can remove close contacts without requiring an
-external calculator. The top-right calculator controls are enabled only for
-this default calculator:
+In the default lightweight visualization mode, v_ase does not attach a fallback
+calculator and does not show calculator device controls. This keeps large-file
+inspection focused on rendering, bonding, supercell preview, wrapping, and
+export.
+
+In `--interactive`, if no calculator is attached, v_ase installs a default soft
+repulsion calculator. The model applies harmonic pair repulsion below
+covalent-radius contact thresholds, so Relax can remove close contacts without
+requiring an external calculator. The top-right calculator controls are enabled
+only for this default calculator:
 
 - `DEVICE`: `CPU` by default; `CUDA` is available when torch and CUDA are
   available in the current Python environment.
@@ -389,8 +395,8 @@ reference model naming while still behaving like an ASE `Calculator`.
 
 During relaxation, structure updates stream to the browser. In `--interactive`,
 if atoms are moved while relaxation is running, the current relaxation is stopped
-and restarted from the edited coordinates. In the default visualization mode,
-atom editing remains disabled, but relaxation updates can still be tracked.
+and restarted from the edited coordinates. The default visualization mode keeps
+atom editing and repulsion-calculator controls out of the UI.
 
 ## Case 8: Export
 
@@ -409,7 +415,8 @@ blender --python v_ase_blender_scene.py
 ```
 
 The generated scene keeps atoms and constraint graphics as editable Blender
-objects where practical.
+objects where practical. Atom objects reuse shared sphere meshes by radius/color
+so large exports avoid duplicating mesh geometry for every atom.
 
 ## Python API
 

@@ -14,16 +14,16 @@ def find_free_port():
         return s.getsockname()[1]
 
 
-def _copy_atoms_with_calc(atoms: Atoms) -> Atoms:
+def _copy_atoms_with_calc(atoms: Atoms, attach_default: bool = True) -> Atoms:
     copied = atoms.copy()
     if atoms.calc:
         copied.calc = copy_calculator(atoms.calc)
-    else:
+    elif attach_default:
         ensure_default_calculator(copied)
     return copied
 
 
-def normalize_atoms_input(atoms_or_frames) -> list[Atoms]:
+def normalize_atoms_input(atoms_or_frames, *, attach_default: bool = True) -> list[Atoms]:
     """Accept an Atoms object, an Atoms sequence, or an ASE-readable trajectory file."""
     if isinstance(atoms_or_frames, (str, os.PathLike)):
         from ase.io import read
@@ -38,7 +38,7 @@ def normalize_atoms_input(atoms_or_frames) -> list[Atoms]:
 
     if not frames or not all(isinstance(frame, Atoms) for frame in frames):
         raise TypeError("Trajectory input must contain one or more ase.Atoms objects")
-    return [_copy_atoms_with_calc(frame) for frame in frames]
+    return [_copy_atoms_with_calc(frame, attach_default=attach_default) for frame in frames]
 
 class ASEEditor:
     """Handle for non-blocking viewer sessions."""
@@ -48,7 +48,9 @@ class ASEEditor:
 
     def get_atoms(self) -> Optional[Atoms]:
         if self.session_id in sessions:
-            return _copy_atoms_with_calc(sessions[self.session_id].working_atoms)
+            session = sessions[self.session_id]
+            attach_default = not bool((session.config or {}).get("viz_only", False))
+            return _copy_atoms_with_calc(session.working_atoms, attach_default=attach_default)
         return None
 
     def get_positions(self):
@@ -57,12 +59,15 @@ class ASEEditor:
 
     def set_atoms(self, atoms: Atoms):
         if self.session_id in sessions:
-            sessions[self.session_id].push_history()
-            sessions[self.session_id].working_atoms = atoms.copy()
+            session = sessions[self.session_id]
+            session.push_history()
+            session.working_atoms = atoms.copy()
             if atoms.calc:
-                sessions[self.session_id].working_atoms.calc = copy_calculator(atoms.calc)
+                session.working_atoms.calc = copy_calculator(atoms.calc)
             else:
-                ensure_default_calculator(sessions[self.session_id].working_atoms)
+                attach_default = not bool((session.config or {}).get("viz_only", False))
+                if attach_default:
+                    ensure_default_calculator(session.working_atoms)
 
     def close(self):
         if self.session_id in sessions:
@@ -124,11 +129,12 @@ def view(
     ...
     """
     session_id = str(uuid.uuid4())
-    frames = normalize_atoms_input(atoms)
+    attach_default = not viz_only
+    frames = normalize_atoms_input(atoms, attach_default=attach_default)
     
     # Create independent copies and preserve the calculator reference explicitly.
-    original_frames = [_copy_atoms_with_calc(frame) for frame in frames]
-    working_frames = [_copy_atoms_with_calc(frame) for frame in frames]
+    original_frames = [_copy_atoms_with_calc(frame, attach_default=attach_default) for frame in frames]
+    working_frames = [_copy_atoms_with_calc(frame, attach_default=attach_default) for frame in frames]
     original_atoms = original_frames[0]
     working_atoms = working_frames[0]
         
@@ -200,10 +206,10 @@ def view(
                 pass
             
             if session.cancelled:
-                res = _copy_atoms_with_calc(session.original_atoms)
+                res = _copy_atoms_with_calc(session.original_atoms, attach_default=attach_default)
             else:
                 res = session.result_atoms if session.result_atoms else session.working_atoms
-                res = _copy_atoms_with_calc(res)
+                res = _copy_atoms_with_calc(res, attach_default=attach_default)
 
             if return_mode == "atoms":
                 output = res
@@ -245,6 +251,7 @@ def view_edit(
         show_bonds=show_bonds,
         respect_constraints=respect_constraints,
         allow_relax=allow_relax,
+        viz_only=False,
         return_mode=return_mode,
     )
 

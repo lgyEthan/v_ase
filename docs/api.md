@@ -74,10 +74,12 @@ fall back to internal `H` while keeping the raw label.
 
 ## Calculator Behavior
 
-Existing ASE calculators are preserved and used directly. If no calculator is
-attached, v_ase attaches its default soft repulsion calculator. This default
-calculator can use torch CPU or CUDA when torch is installed, but torch is not a
-package dependency; NumPy is used automatically when torch is absent.
+Existing ASE calculators are preserved and used directly. In the default
+lightweight visualization mode, v_ase does not attach a fallback calculator.
+When `--interactive` is enabled and no calculator is attached, v_ase attaches
+its default soft repulsion calculator. This default calculator can use torch CPU
+or CUDA when torch is installed, but torch is not a package dependency; NumPy is
+used automatically when torch is absent.
 
 The same model can be loaded directly and used like any other ASE calculator:
 

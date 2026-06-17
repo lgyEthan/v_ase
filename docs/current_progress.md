@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.30`.
+Last synchronized with implementation: `v_ase-gui 0.0.31`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -241,10 +241,11 @@ possible, and update the frontend state. This behavior is covered by
 
 ## 21. Calculator Handling and Default Repulsion
 *   **Preserve Existing Calculators**: `SinglePointCalculator` and other user-attached ASE calculators are kept and used as-is.
-*   **Default Calculator**: If an `Atoms` object has no calculator, v_ase attaches a default soft pair-repulsion ASE calculator.
+*   **Visualization Mode**: The default lightweight viewer preserves an existing calculator but does not attach a fallback calculator or show repulsion device controls.
+*   **Interactive Default Calculator**: In `--interactive`, if an `Atoms` object has no calculator, v_ase attaches a default soft pair-repulsion ASE calculator.
 *   **Model**: The default model uses harmonic repulsion below covalent-radius contact thresholds, with optional region penalties available in the calculator implementation.
 *   **Torch Optional**: `torch` is not a package dependency. When present, the repulsion calculator can use torch CPU or CUDA; otherwise it falls back to NumPy.
-*   **Device Controls**: Top-right `DEVICE` and `CPU` controls are enabled only for the default repulsion calculator. CPU defaults to 4 threads, capped by host CPU count.
+*   **Device Controls**: Top-right `DEVICE` and `CPU` controls are visible only in interactive mode and enabled only for the default repulsion calculator. CPU defaults to 4 threads, capped by host CPU count.
 *   **Public Calculator API**: The default model can be used directly with `from v_ase.calculators import RepulsionCalculator`. `Conditioner`, `DefaultRepulsionCalculator`, `from v_ase import RepulsionCalculator`, `v_ase.calculator`, and `v_ase.repulsion` are supported aliases for the same ASE calculator class.
 *   **Future Calculators**: Device/thread controls do not modify user-defined calculators; those calculators must manage their own backend settings.
 
@@ -261,7 +262,7 @@ possible, and update the frontend state. This behavior is covered by
 ---
 
 ## 23. Calculator Preservation
-**Mandatory Preservation:** Calculators are explicitly re-attached to the working atoms object after structural changes to ensure the "Relax" feature remains available.
+**Mandatory Preservation:** Existing calculators are explicitly re-attached to the working atoms object after structural changes. In interactive mode, structures without a calculator receive the default repulsion fallback so "Relax" remains available. In visualization mode, no fallback calculator is attached unless the input already had one.
 
 ---
 
@@ -306,7 +307,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (updated for 0.0.30).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (updated for 0.0.31).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -315,6 +316,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 16**: Micro-etched FixAtoms material, bounded FixedPlane guide, and fast virtual LAMMPS trajectory loading for default visualization mode.
 *   [x] **Phase 17**: `--interactive` edit-mode opt-in, bounded/copyable selection fields, orientation widget, visualization-mode wrap, and instanced full-opacity supercell repeats.
 *   [x] **Phase 18**: Repulsion calculator device controls relabeled in the top bar, and visualization-mode supercell repeats use same color material grouping as original atoms.
+*   [x] **Phase 19**: Visualization mode no longer attaches or displays the default repulsion calculator; Blender export reuses shared sphere meshes per radius/color material to reduce import cost for large structures.
 *   [ ] **Planned**: Click-to-place atom insertion.
 
 ---

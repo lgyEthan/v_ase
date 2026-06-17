@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.30">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.31">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.30';
+            : '/static/vendor/three.module.js?v=0.0.31';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -34,7 +34,7 @@
 
     <!-- Top Status Bar -->
     <header id="top-bar" class="glass-panel">
-        <div class="logo">v_ase<span class="version">0.0.30</span></div>
+        <div class="logo">v_ase<span class="version">0.0.31</span></div>
         <div class="status-group">
             <div class="status-item">
                 <span class="label">MODE</span>
@@ -54,7 +54,7 @@
             </div>
         </div>
         <div class="action-group">
-            <div id="calc-controls" class="calc-control-group" title="Repulsion calculator settings only">
+            <div id="calc-controls" class="calc-control-group" title="Repulsion calculator settings only" data-edit-only>
                 <span class="calc-control-title">Repulsion Calc</span>
                 <label for="calc-device">Device</label>
                 <select id="calc-device">
@@ -393,7 +393,7 @@
     <script type="module">
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.30';
+            : './static/main.js?v=0.0.31';
         import(modulePath);
     </script>
 </body>

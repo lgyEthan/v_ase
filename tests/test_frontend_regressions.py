@@ -14,6 +14,7 @@ from v_ase.server import (
     session_atoms_to_json,
     trajectory_position_array,
     undo,
+    update_calculator,
     update_constraints,
     update_atom_types,
     value_error_handler,
@@ -83,12 +84,20 @@ def test_viz_only_session_blocks_atom_editing_api_calls():
     session = EditorSession("viz-only-api-test", atoms.copy(), atoms.copy(), config={"viz_only": True})
     sessions[session.session_id] = session
 
+    assert session.working_atoms.calc is None
+    assert asyncio.run(get_atoms(session.session_id))["metadata"]["calculator"] is None
+
     with pytest.raises(HTTPException) as excinfo:
         asyncio.run(apply_positions(session.session_id, {"positions": atoms.positions.tolist()}))
 
     assert excinfo.value.status_code == 403
     assert "default visualization mode" in excinfo.value.detail
     assert "--interactive" in excinfo.value.detail
+
+    with pytest.raises(HTTPException) as calc_excinfo:
+        asyncio.run(update_calculator(session.session_id, {"device": "cpu"}))
+
+    assert calc_excinfo.value.status_code == 403
 
 
 def test_missing_session_is_reported_as_404_json():
@@ -410,6 +419,7 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "orientation-widget" in index_html
     assert "Repulsion Calc" in index_html
     assert "Repulsion calculator settings only" in index_html
+    assert 'id="calc-controls" class="calc-control-group" title="Repulsion calculator settings only" data-edit-only' in index_html
     assert "updateAtomTypes" in (ROOT / "v_ase/static/api.js").read_text()
     assert 'id="projection-mode"' in index_html
     assert 'id="inspector-resizer"' in index_html
@@ -533,6 +543,8 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
     assert "BONDS = DATA.get(\"bonds\", [])" in script
     assert "MAT_BOND" in script
     assert "add_unit_cell(CELL)" in script
+    assert "ATOM_MESHES" in script
+    assert "bpy.data.objects.new" in script
     assert "polygon.use_smooth = True" in script
     assert "obj.data.type = \"ORTHO\"" in script
     assert "bond_{bond.get('i', 0)}" in script

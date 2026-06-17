@@ -871,6 +871,7 @@ async def update_constraints(session_id: str, payload: Dict[str, Any]):
 @app.post("/api/calculator/{session_id}")
 async def update_calculator(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
+    require_editable(session, "Calculator device settings")
     if not is_vase_repulsion_calculator(session.working_atoms.calc):
         raise HTTPException(status_code=400, detail="Calculator device settings are only available for the default repulsion calculator.")
     configure_repulsion_calculators(

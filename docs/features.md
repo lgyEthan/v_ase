@@ -20,7 +20,9 @@ relaxation controls.
 
 ### Calculator Handling
 Existing ASE calculators are preserved, including `SinglePointCalculator`.
-When no calculator is attached, v_ase installs a default soft repulsion
+In the default lightweight visualization mode, v_ase does not attach a fallback
+calculator and hides repulsion calculator controls. When `--interactive` is
+enabled and no calculator is attached, v_ase installs a default soft repulsion
 calculator so Relax can still remove close contacts. The default calculator uses
 NumPy when torch is unavailable. If torch is installed, it can run on CPU or
 CUDA; torch is optional and is not a package dependency.

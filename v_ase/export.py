@@ -228,6 +228,7 @@ def material(name, color, alpha=1.0):
     return mat
 
 ATOM_MATS = {{}}
+ATOM_MESHES = {{}}
 MAT_LINE = material("v_ase fixed line", (0.3, 0.8, 1.0, 0.55), 0.55)
 MAT_PLANE = material("v_ase fixed plane", (0.25, 1.0, 0.78, 0.22), 0.22)
 MAT_HOOKEAN = material("v_ase Hookean active spring", (1.0, 0.58, 0.18, 1.0), 1.0)
@@ -247,6 +248,24 @@ def get_atom_mat(index, symbol):
     if key not in ATOM_MATS:
         ATOM_MATS[key] = material(f"atom {{symbol}}", color, 1.0)
     return ATOM_MATS[key]
+
+def get_atom_mesh(index, symbol):
+    color = get_atom_color(index)
+    radius = get_atom_radius(index)
+    material_key = f"{{symbol}}_{{color[0]:.4f}}_{{color[1]:.4f}}_{{color[2]:.4f}}"
+    mesh_key = f"r{{radius:.4f}}_{{material_key}}"
+    if mesh_key not in ATOM_MESHES:
+        bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, radius=radius, location=(0, 0, 0))
+        source = bpy.context.object
+        source.name = f"v_ase_atom_mesh_source_{{mesh_key}}"
+        mesh = source.data
+        mesh.name = f"v_ase_atom_mesh_{{mesh_key}}"
+        mesh.materials.append(get_atom_mat(index, symbol))
+        for polygon in mesh.polygons:
+            polygon.use_smooth = True
+        bpy.data.objects.remove(source, do_unlink=True)
+        ATOM_MESHES[mesh_key] = mesh
+    return ATOM_MESHES[mesh_key]
 
 def look_at_axis(obj, direction):
     direction = Vector(direction)
@@ -444,12 +463,10 @@ positions = DATA["positions"]
 symbols = DATA["symbols"]
 atoms = []
 for idx, (symbol, pos) in enumerate(zip(symbols, positions)):
-    bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, radius=get_atom_radius(idx), location=pos)
-    obj = bpy.context.object
+    obj = bpy.data.objects.new(f"atom_{{idx:04d}}_{{symbol}}", get_atom_mesh(idx, symbol))
     obj.name = f"atom_{{idx:04d}}_{{symbol}}"
-    obj.data.materials.append(get_atom_mat(idx, symbol))
-    for polygon in obj.data.polygons:
-        polygon.use_smooth = True
+    obj.location = pos
+    bpy.context.collection.objects.link(obj)
     atoms.append(obj)
 
 add_unit_cell(CELL)
