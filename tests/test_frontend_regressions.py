@@ -426,6 +426,9 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "btn-apply-selected-type" not in index_html
     assert "selection-textbox" in index_html
     assert "data-copy-target=\"selected-indices\"" in index_html
+    assert "align-items: start" in style_css
+    assert "max-height: 28px" in style_css
+    assert "align-self: start" in style_css
     assert "Center (unwrapped)" in index_html
     assert "orientation-widget" in index_html
     assert "Repulsion Calc" in index_html
@@ -519,8 +522,11 @@ def test_trajectory_controls_update_live_and_space_toggles_playback():
     assert "setupNumberInputHoldGuards" in main_js
     assert "bindNumberInputHoldGuard" in main_js
     assert "data-hold-guarded" in main_js
-    assert "hold.inputCount === 1" in main_js
-    assert "input.value = hold.acceptedValue" in main_js
+    assert "nativeNumberSpinDirection" in main_js
+    assert "stepNumberInputOnce" in main_js
+    assert "event.preventDefault()" in main_js
+    assert "event.stopImmediatePropagation()" in main_js
+    assert "input.dispatchEvent(new Event('change', { bubbles: true }))" in main_js
     assert "window.addEventListener('blur', stop, true)" in main_js
     assert "number-stepper" not in main_js
     assert "number-stepper" not in style_css

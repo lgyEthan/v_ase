@@ -337,7 +337,7 @@ body[data-viz-only="true"] [data-edit-only] {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 28px;
     gap: 6px;
-    align-items: stretch;
+    align-items: start;
 }
 
 .selection-textbox {
@@ -360,8 +360,14 @@ body[data-viz-only="true"] [data-edit-only] {
     position: relative;
     min-width: 28px;
     width: 28px;
+    max-width: 28px;
     min-height: 28px;
+    height: 28px;
+    max-height: 28px;
+    align-self: start;
     padding: 0;
+    display: block;
+    box-sizing: border-box;
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 7px;
     background: rgba(255, 255, 255, 0.055);

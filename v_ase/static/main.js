@@ -137,35 +137,55 @@ class VAseApp {
     bindNumberInputHoldGuard(input) {
         if (!input || input.dataset.holdGuarded === 'true') return;
         input.dataset.holdGuarded = 'true';
-        let hold = null;
         const stop = () => {
-            hold = null;
             window.removeEventListener('pointerup', stop, true);
             window.removeEventListener('pointercancel', stop, true);
             window.removeEventListener('blur', stop, true);
         };
-        input.addEventListener('pointerdown', event => {
+        const pressHandler = event => {
             if (event.button !== 0 || input.disabled || input.readOnly) return;
-            hold = {
-                acceptedValue: input.value,
-                inputCount: 0,
-                restoring: false,
-            };
+            const direction = this.nativeNumberSpinDirection(input, event);
+            if (!direction) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            input.focus({ preventScroll: true });
+            this.stepNumberInputOnce(input, direction);
             window.addEventListener('pointerup', stop, true);
             window.addEventListener('pointercancel', stop, true);
             window.addEventListener('blur', stop, true);
-        }, true);
-        input.addEventListener('input', () => {
-            if (!hold || hold.restoring) return;
-            hold.inputCount += 1;
-            if (hold.inputCount === 1) {
-                hold.acceptedValue = input.value;
-                return;
-            }
-            hold.restoring = true;
-            input.value = hold.acceptedValue;
-            hold.restoring = false;
-        }, true);
+        };
+        input.addEventListener('pointerdown', pressHandler, true);
+    }
+
+    nativeNumberSpinDirection(input, event) {
+        const rect = input.getBoundingClientRect();
+        if (!rect.width || !rect.height) return 0;
+        if (event.clientY < rect.top || event.clientY > rect.bottom) return 0;
+        const spinnerWidth = Math.min(28, Math.max(16, rect.width * 0.28));
+        const isRtl = getComputedStyle(input).direction === 'rtl';
+        const inSpinRegion = isRtl
+            ? event.clientX >= rect.left && event.clientX <= rect.left + spinnerWidth
+            : event.clientX <= rect.right && event.clientX >= rect.right - spinnerWidth;
+        if (!inSpinRegion) return 0;
+        return event.clientY < rect.top + rect.height / 2 ? 1 : -1;
+    }
+
+    stepNumberInputOnce(input, direction) {
+        try {
+            direction > 0 ? input.stepUp() : input.stepDown();
+        } catch {
+            const step = Number(input.step || 1);
+            const delta = Number.isFinite(step) && step > 0 ? step : 1;
+            const current = Number(input.value || 0);
+            let next = (Number.isFinite(current) ? current : 0) + direction * delta;
+            const min = Number(input.min);
+            const max = Number(input.max);
+            if (Number.isFinite(min)) next = Math.max(min, next);
+            if (Number.isFinite(max)) next = Math.min(max, next);
+            input.value = String(next);
+        }
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
     clampInspectorWidth(width) {
