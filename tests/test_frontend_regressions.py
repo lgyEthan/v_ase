@@ -516,6 +516,14 @@ def test_trajectory_controls_update_live_and_space_toggles_playback():
     assert "setTimeout(tick, 1000 / this.currentPlaybackFps())" in main_js
     assert "e.code === 'Space'" in main_js
     assert "Play or pause trajectory" in main_js
+    assert "setupNumberSteppers" in main_js
+    assert "bindNumberStepperButton" in main_js
+    assert "pointerInsideButton" in main_js
+    assert "button.addEventListener('pointerleave', stop)" in main_js
+    assert "window.addEventListener('blur', stop, true)" in main_js
+    assert "number-stepper-up" in main_js
+    assert "input[type=\"number\"]::-webkit-inner-spin-button" in style_css
+    assert ".trajectory-strip .number-stepper-btn" in style_css
     assert ".trajectory-strip" in style_css
     renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
     assert "refreshBondsForCurrentPositions" in renderer_js

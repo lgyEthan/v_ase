@@ -567,6 +567,72 @@ textarea {
     padding: 5px 6px;
 }
 
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+input[type="number"] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+.number-stepper {
+    position: relative;
+    display: inline-grid;
+    grid-template-columns: minmax(0, 1fr) 18px;
+    align-items: stretch;
+    width: 100%;
+    min-width: 0;
+}
+
+.number-stepper input[type="number"] {
+    width: 100%;
+    min-width: 0;
+    padding-right: 23px;
+}
+
+.number-stepper-controls {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    bottom: 3px;
+    width: 17px;
+    display: grid;
+    grid-template-rows: 1fr 1fr;
+    overflow: hidden;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.055);
+}
+
+.number-stepper-btn {
+    width: 17px;
+    min-width: 17px;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: rgba(235, 241, 244, 0.74);
+    font-size: 0.44rem;
+    line-height: 1;
+    cursor: pointer;
+    user-select: none;
+    touch-action: none;
+}
+
+.number-stepper-btn:hover,
+.number-stepper-btn.active {
+    background: rgba(88, 211, 187, 0.20);
+    color: #f5fffc;
+}
+
+.number-stepper-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.42;
+}
+
 textarea {
     width: 100%;
     min-height: 76px;
@@ -2227,6 +2293,28 @@ body.inspector-wide #inspector #element-radius-list {
     background: rgba(0, 0, 0, 0.24);
     color: var(--text);
     text-align: center;
+}
+
+.timeline-fps .number-stepper {
+    width: 100%;
+}
+
+.trajectory-strip .number-stepper-btn {
+    width: 17px;
+    min-width: 17px;
+    min-height: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: rgba(235, 241, 244, 0.74);
+    font-size: 0.44rem;
+    box-shadow: none;
+}
+
+.trajectory-strip .number-stepper-btn:hover,
+.trajectory-strip .number-stepper-btn.active {
+    background: rgba(88, 211, 187, 0.20);
+    color: #f5fffc;
 }
 
 @media (max-width: 980px) {

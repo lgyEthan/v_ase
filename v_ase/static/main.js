@@ -84,6 +84,7 @@ class VAseApp {
             this.setupWebSocket();
             this.setupInspectorResizer();
             this.setupEventListeners();
+            this.setupNumberSteppers();
             await this.refresh();
         } catch (err) {
             console.error("v_ase initialization failed:", err);
@@ -112,6 +113,118 @@ class VAseApp {
 
     editOnlyToast() {
         this.toast('Visualization mode is lightweight; use --interactive to enable atom editing.', 'warning');
+    }
+
+    setupNumberSteppers() {
+        this.enhanceNumberSteppers(document);
+        this.numberStepperObserver = new MutationObserver(mutations => {
+            for (const mutation of mutations) {
+                mutation.addedNodes.forEach(node => {
+                    if (node instanceof HTMLElement) this.enhanceNumberSteppers(node);
+                });
+            }
+        });
+        this.numberStepperObserver.observe(document.body, { childList: true, subtree: true });
+    }
+
+    enhanceNumberSteppers(root = document) {
+        const inputs = [];
+        if (root instanceof HTMLInputElement && root.type === 'number') inputs.push(root);
+        if (root.querySelectorAll) inputs.push(...root.querySelectorAll('input[type="number"]:not([data-stepper-enhanced])'));
+        inputs.forEach(input => this.wrapNumberInput(input));
+    }
+
+    wrapNumberInput(input) {
+        if (!input || input.dataset.stepperEnhanced === 'true' || input.closest('.number-stepper')) return;
+        input.dataset.stepperEnhanced = 'true';
+        const wrapper = document.createElement('span');
+        wrapper.className = 'number-stepper';
+        const controls = document.createElement('span');
+        controls.className = 'number-stepper-controls';
+        const labelText = input.getAttribute('aria-label') || input.id || 'number';
+        const up = document.createElement('button');
+        up.type = 'button';
+        up.className = 'number-stepper-btn number-stepper-up';
+        up.setAttribute('aria-label', `Increase ${labelText}`);
+        up.innerHTML = '<span aria-hidden="true">▲</span>';
+        const down = document.createElement('button');
+        down.type = 'button';
+        down.className = 'number-stepper-btn number-stepper-down';
+        down.setAttribute('aria-label', `Decrease ${labelText}`);
+        down.innerHTML = '<span aria-hidden="true">▼</span>';
+        controls.append(up, down);
+        input.parentNode.insertBefore(wrapper, input);
+        wrapper.append(input, controls);
+        this.bindNumberStepperButton(input, up, 1);
+        this.bindNumberStepperButton(input, down, -1);
+    }
+
+    bindNumberStepperButton(input, button, direction) {
+        const stop = () => {
+            const wasActive = button._vaseStepperActive;
+            if (button._vaseRepeatDelay) clearTimeout(button._vaseRepeatDelay);
+            if (button._vaseRepeatTimer) clearInterval(button._vaseRepeatTimer);
+            button._vaseRepeatDelay = null;
+            button._vaseRepeatTimer = null;
+            button._vaseStepperActive = false;
+            button.classList.remove('active');
+            window.removeEventListener('pointermove', onPointerMove, true);
+            window.removeEventListener('pointerup', stop, true);
+            window.removeEventListener('pointercancel', stop, true);
+            window.removeEventListener('blur', stop, true);
+            if (wasActive) input.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        const pointerInsideButton = event => {
+            const rect = button.getBoundingClientRect();
+            return event.clientX >= rect.left && event.clientX <= rect.right
+                && event.clientY >= rect.top && event.clientY <= rect.bottom;
+        };
+        const onPointerMove = event => {
+            if (!pointerInsideButton(event)) stop();
+        };
+        const step = () => {
+            if (!button._vaseStepperActive || input.disabled || input.readOnly) {
+                stop();
+                return;
+            }
+            try {
+                direction > 0 ? input.stepUp() : input.stepDown();
+            } catch {
+                this.manualNumberStep(input, direction);
+            }
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+        button.addEventListener('pointerdown', event => {
+            if (event.button !== 0 || input.disabled || input.readOnly) return;
+            event.preventDefault();
+            stop();
+            button._vaseStepperActive = true;
+            button.classList.add('active');
+            input.focus({ preventScroll: true });
+            step();
+            window.addEventListener('pointermove', onPointerMove, true);
+            window.addEventListener('pointerup', stop, true);
+            window.addEventListener('pointercancel', stop, true);
+            window.addEventListener('blur', stop, true);
+            button._vaseRepeatDelay = setTimeout(() => {
+                if (button._vaseStepperActive) {
+                    button._vaseRepeatTimer = setInterval(step, 90);
+                }
+            }, 320);
+        });
+        button.addEventListener('pointerleave', stop);
+    }
+
+    manualNumberStep(input, direction) {
+        const step = Number(input.step || 1);
+        const delta = Number.isFinite(step) && step > 0 ? step : 1;
+        const current = Number(input.value || 0);
+        let next = (Number.isFinite(current) ? current : 0) + direction * delta;
+        const min = Number(input.min);
+        const max = Number(input.max);
+        if (Number.isFinite(min)) next = Math.max(min, next);
+        if (Number.isFinite(max)) next = Math.min(max, next);
+        input.value = String(next);
     }
 
     clampInspectorWidth(width) {
