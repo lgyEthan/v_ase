@@ -208,6 +208,9 @@ def test_viewer_uses_packaged_three_and_initial_camera_fit():
     assert "this.camera = this.orthographicCamera" in renderer_js
     assert "projectionMode = 'orthographic'" in renderer_js
     assert "this.cameraFillLight = new THREE.PointLight" in renderer_js
+    assert "this.cameraFillDirectionalLight = new THREE.DirectionalLight" in renderer_js
+    assert "this.cameraFillDirectionalLight.position.copy(this.camera.position)" in renderer_js
+    assert "new THREE.AmbientLight(0xffffff, 0.68)" in renderer_js
     assert "updateViewLighting()" in renderer_js
 
 
@@ -412,6 +415,10 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "inferBondPairsCellList" in renderer_js
     assert "0.6 * (vi + vj)" in renderer_js
     assert "fixedAtomDisplayEnabled()" in renderer_js
+    assert "return this.displayOptions.showOverlays !== false" in renderer_js
+    assert "fixedAtomSegments(segmentCount)" in renderer_js
+    assert "flatShading: true" in renderer_js
+    assert "v-ase-fixed-micro-etched-faceted-v2" in renderer_js
     assert "const supercellChanged" in renderer_js
     assert "if (supercellChanged) this.rebuildSupercell()" in renderer_js
     assert "elementVisible: { ...(options.elementVisible" in renderer_js

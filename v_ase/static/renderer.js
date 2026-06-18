@@ -241,27 +241,36 @@ export class ASERenderer {
 
         this.controls = new BlenderTumbleControls(this.camera, this.renderer.domElement);
 
-        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x3c4046, 1.05);
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x6a7078, 1.18);
         this.scene.add(hemiLight);
 
         // Lighting
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.46);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.68);
         this.scene.add(ambientLight);
         
-        const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.62);
+        const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.50);
         dirLight1.position.set(10, 20, 10);
         this.scene.add(dirLight1);
 
-        const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.48);
-        dirLight2.position.set(-12, -18, 8);
+        const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.50);
+        dirLight2.position.set(-10, -20, 10);
         this.scene.add(dirLight2);
 
-        const dirLight3 = new THREE.DirectionalLight(0xffffff, 0.34);
-        dirLight3.position.set(12, -14, -8);
+        const dirLight3 = new THREE.DirectionalLight(0xffffff, 0.36);
+        dirLight3.position.set(12, -14, 8);
         this.scene.add(dirLight3);
 
-        this.cameraFillLight = new THREE.PointLight(0xffffff, 0.55, 0, 1.8);
+        const dirLight4 = new THREE.DirectionalLight(0xffffff, 0.34);
+        dirLight4.position.set(-12, 14, -8);
+        this.scene.add(dirLight4);
+
+        this.cameraFillLight = new THREE.PointLight(0xffffff, 1.15, 0, 1.35);
         this.scene.add(this.cameraFillLight);
+        this.cameraFillTarget = new THREE.Object3D();
+        this.scene.add(this.cameraFillTarget);
+        this.cameraFillDirectionalLight = new THREE.DirectionalLight(0xffffff, 0.48);
+        this.cameraFillDirectionalLight.target = this.cameraFillTarget;
+        this.scene.add(this.cameraFillDirectionalLight);
 
         this.viewportGuides = this.buildViewportGuides();
         this.gridGroup = this.viewportGuides.gridGroup;
@@ -506,15 +515,29 @@ export class ASERenderer {
     }
 
     fixedAtomDisplayEnabled() {
-        return !this.displayOptions.vizOnly && this.displayOptions.showOverlays !== false;
+        return this.displayOptions.showOverlays !== false;
     }
 
     atomMaterialSpec(color, isFixed = false) {
         const base = new THREE.Color(color);
         if (!isFixed) {
-            return { color: base, roughness: 0.42, metalness: 0.08 };
+            return {
+                color: base,
+                roughness: 0.42,
+                metalness: 0.08,
+                emissive: base.clone().multiplyScalar(0.08),
+                emissiveIntensity: 0.28,
+                flatShading: false
+            };
         }
-        return { color: base, roughness: 0.92, metalness: 0.0 };
+        return {
+            color: base,
+            roughness: 0.98,
+            metalness: 0.0,
+            emissive: base.clone().multiplyScalar(0.04),
+            emissiveIntensity: 0.20,
+            flatShading: true
+        };
     }
 
     createAtomMaterial(color, isFixed = false) {
@@ -523,6 +546,9 @@ export class ASERenderer {
             color: spec.color,
             roughness: spec.roughness,
             metalness: spec.metalness,
+            emissive: spec.emissive,
+            emissiveIntensity: spec.emissiveIntensity,
+            flatShading: spec.flatShading,
             transparent: false,
             opacity: 1.0
         });
@@ -541,25 +567,25 @@ export class ASERenderer {
                 vec3 etchedN = normalize(vNormal);
                 float etchedTheta = atan(etchedN.z, etchedN.x) / 6.28318530718 + 0.5;
                 float etchedPhi = asin(clamp(etchedN.y, -1.0, 1.0)) / 3.14159265359 + 0.5;
-                float etchedLineA = abs(fract(etchedTheta * 18.0) - 0.5);
-                float etchedLineB = abs(fract(etchedPhi * 13.0 + etchedTheta * 0.5) - 0.5);
-                float etchedGrid = 1.0 - smoothstep(0.018, 0.052, min(etchedLineA, etchedLineB));
-                vec2 etchedCell = fract(vec2(etchedTheta * 12.0 + etchedPhi * 2.0, etchedPhi * 14.0) + vec2(0.5, 0.0)) - 0.5;
-                float etchedDimple = 1.0 - smoothstep(0.10, 0.23, length(etchedCell));
-                float etchedMask = clamp(etchedGrid * 0.72 + etchedDimple * 0.22, 0.0, 1.0);
-                diffuseColor.rgb *= mix(1.0, 0.58, etchedMask);
-                diffuseColor.rgb += vec3(0.035) * (1.0 - etchedMask);
+                float etchedLineA = abs(fract(etchedTheta * 14.0) - 0.5);
+                float etchedLineB = abs(fract(etchedPhi * 11.0 + etchedTheta * 0.5) - 0.5);
+                float etchedGrid = 1.0 - smoothstep(0.030, 0.082, min(etchedLineA, etchedLineB));
+                vec2 etchedCell = fract(vec2(etchedTheta * 9.0 + etchedPhi * 2.0, etchedPhi * 10.5) + vec2(0.5, 0.0)) - 0.5;
+                float etchedDimple = 1.0 - smoothstep(0.16, 0.30, length(etchedCell));
+                float etchedMask = clamp(etchedGrid * 0.88 + etchedDimple * 0.32, 0.0, 1.0);
+                diffuseColor.rgb = mix(diffuseColor.rgb * 0.94, diffuseColor.rgb * 0.24 + vec3(0.055), etchedMask);
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.74, 0.28), etchedGrid * 0.12);
                 `
             );
             shader.fragmentShader = shader.fragmentShader.replace(
                 '#include <roughnessmap_fragment>',
                 `
                 #include <roughnessmap_fragment>
-                roughnessFactor = min(1.0, roughnessFactor + 0.18);
+                roughnessFactor = min(1.0, roughnessFactor + 0.30);
                 `
             );
         };
-        material.customProgramCacheKey = () => 'v-ase-fixed-micro-etched-v1';
+        material.customProgramCacheKey = () => 'v-ase-fixed-micro-etched-faceted-v2';
         material.needsUpdate = true;
         return material;
     }
@@ -775,14 +801,15 @@ export class ASERenderer {
             const color = this.atomVisualColor(i, customColors[i]);
             const isFixed = fixed.has(i);
 
-            const geometryKey = `${radius}:${segmentCount}`;
+            const atomSegments = isFixed ? this.fixedAtomSegments(segmentCount) : segmentCount;
+            const geometryKey = `${radius}:${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
             if (!this.geometryCache.has(geometryKey)) {
                 this.geometryCache.set(
                     geometryKey,
-                    new THREE.SphereGeometry(radius, segmentCount, Math.max(10, Math.floor(segmentCount * 0.65)))
+                    new THREE.SphereGeometry(radius, atomSegments, Math.max(8, Math.floor(atomSegments * 0.65)))
                 );
             }
-            const materialKey = `${color}:${isFixed ? 'fixed' : 'normal'}:${segmentCount}`;
+            const materialKey = `${color}:${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
             if (!this.materialCache.has(materialKey)) {
                 this.materialCache.set(materialKey, this.createAtomMaterial(color, isFixed));
             }
@@ -829,10 +856,13 @@ export class ASERenderer {
         atoms.symbols.forEach((sym, i) => {
             const radius = this.atomVisualRadius(i);
             const isFixed = fixed.has(i);
-            const geometryKey = `${radius}:${segmentCount}`;
+            const atomSegments = isFixed ? this.fixedAtomSegments(segmentCount) : segmentCount;
+            const geometryKey = `${radius}:${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
             const materialKey = `${geometryKey}:${isFixed ? 'fixed' : 'normal'}:instanced`;
             const key = `${geometryKey}|${materialKey}`;
-            if (!groups.has(key)) groups.set(key, { radius, geometryKey, materialKey, fixed: isFixed, indices: [] });
+            if (!groups.has(key)) {
+                groups.set(key, { radius, geometryKey, materialKey, fixed: isFixed, segments: atomSegments, indices: [] });
+            }
             groups.get(key).indices.push(i);
         });
 
@@ -840,14 +870,18 @@ export class ASERenderer {
             if (!this.geometryCache.has(group.geometryKey)) {
                 this.geometryCache.set(
                     group.geometryKey,
-                    new THREE.SphereGeometry(group.radius, segmentCount, Math.max(10, Math.floor(segmentCount * 0.65)))
+                    new THREE.SphereGeometry(group.radius, group.segments, Math.max(8, Math.floor(group.segments * 0.65)))
                 );
             }
             if (!this.materialCache.has(group.materialKey)) {
+                const spec = this.atomMaterialSpec('#ffffff', group.fixed);
                 const material = new THREE.MeshStandardMaterial({
                     color: 0xffffff,
-                    roughness: group.fixed ? 0.96 : 0.54,
-                    metalness: group.fixed ? 0.0 : 0.04
+                    roughness: spec.roughness,
+                    metalness: spec.metalness,
+                    emissive: spec.emissive,
+                    emissiveIntensity: spec.emissiveIntensity,
+                    flatShading: spec.flatShading
                 });
                 if (group.fixed) this.applyFixedAtomEtchedShader(material);
                 this.materialCache.set(group.materialKey, material);
@@ -932,6 +966,10 @@ export class ASERenderer {
         if (quality === 'high') return 40;
         if (quality === 'ultra') return 64;
         return atomCount > 1500 ? 12 : atomCount > 400 ? 18 : 32;
+    }
+
+    fixedAtomSegments(segmentCount) {
+        return Math.max(10, Math.min(18, Math.floor(segmentCount * 0.55)));
     }
 
     structureBounds() {
@@ -1070,6 +1108,11 @@ export class ASERenderer {
     updateViewLighting() {
         if (!this.cameraFillLight || !this.camera) return;
         this.cameraFillLight.position.copy(this.camera.position);
+        if (this.cameraFillDirectionalLight && this.cameraFillTarget) {
+            this.cameraFillDirectionalLight.position.copy(this.camera.position);
+            this.cameraFillTarget.position.copy(this.controls?.target || new THREE.Vector3());
+            this.cameraFillDirectionalLight.target.updateMatrixWorld();
+        }
     }
 
     rebuildCell(cell) {
@@ -1272,14 +1315,15 @@ export class ASERenderer {
             const radius = this.atomVisualRadius(index);
             const color = this.atomVisualColor(index, this.customColors[index]);
             const isFixed = Boolean(mesh.userData.fixed) && this.fixedAtomDisplayEnabled();
-            const geometryKey = `${radius}:${segmentCount}`;
+            const atomSegments = isFixed ? this.fixedAtomSegments(segmentCount) : segmentCount;
+            const geometryKey = `${radius}:${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
             if (!this.geometryCache.has(geometryKey)) {
                 this.geometryCache.set(
                     geometryKey,
-                    new THREE.SphereGeometry(radius, segmentCount, Math.max(10, Math.floor(segmentCount * 0.65)))
+                    new THREE.SphereGeometry(radius, atomSegments, Math.max(8, Math.floor(atomSegments * 0.65)))
                 );
             }
-            const materialKey = `${color}:${isFixed ? 'fixed' : 'normal'}:${segmentCount}`;
+            const materialKey = `${color}:${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
             if (!this.materialCache.has(materialKey)) {
                 this.materialCache.set(materialKey, this.createAtomMaterial(color, isFixed));
             }

@@ -66,7 +66,8 @@ numeric input gives exact transforms.
   back to NumPy.
 - ASE constraint-aware editing and visualization:
   `FixAtoms`, `FixCartesian`, `FixedLine`, `FixedPlane`, `FixScaled`, and
-  `Hookean`.
+  `Hookean`. `FixAtoms` are rendered with a faceted, micro-etched material so
+  they remain distinguishable without changing the element color.
 - Interactive constraint editing for selected atoms: apply or clear `FixAtoms`,
   `FixedLine`, and `FixedPlane` from the Constraints panel.
 - Hookean constraints are visualized as threshold-aware hook/latch springs.
