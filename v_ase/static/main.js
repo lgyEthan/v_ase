@@ -1504,19 +1504,28 @@ class VAseApp {
         return this.reconcileTypeOrder(this.state.atoms?.symbols || []);
     }
 
+    naturalTypeCompare(a, b) {
+        return String(a).localeCompare(String(b), undefined, {
+            numeric: true,
+            sensitivity: 'base'
+        });
+    }
+
     reconcileTypeOrder(symbols = []) {
-        const present = new Set(symbols.filter(Boolean));
+        const presentList = [...new Set(symbols.filter(Boolean))];
+        const present = new Set(presentList);
+        const existingOrder = this.state.typeOrder || [];
         const ordered = [];
-        (this.state.typeOrder || []).forEach(symbol => {
+        existingOrder.forEach(symbol => {
             if (present.has(symbol) && !ordered.includes(symbol)) {
                 ordered.push(symbol);
             }
         });
-        symbols.forEach(symbol => {
-            if (symbol && present.has(symbol) && !ordered.includes(symbol)) {
-                ordered.push(symbol);
-            }
-        });
+        const newSymbols = presentList
+            .filter(symbol => !ordered.includes(symbol))
+            .sort((a, b) => this.naturalTypeCompare(a, b));
+        if (!existingOrder.length) ordered.splice(0, ordered.length);
+        ordered.push(...newSymbols);
         this.state.typeOrder = ordered;
         return ordered;
     }
@@ -1533,6 +1542,29 @@ class VAseApp {
             order.push(newSymbol);
         }
         this.state.typeOrder = [...new Set(order)];
+    }
+
+    typeLabelExists(label, exceptLabel = null) {
+        return (this.state.atoms?.symbols || []).some(symbol => symbol === label && symbol !== exceptLabel);
+    }
+
+    uniqueTypeLabel(desiredLabel, exceptLabel = null) {
+        const base = this.normalizedTypeLabel(desiredLabel);
+        if (!base) return base;
+        if (!this.typeLabelExists(base, exceptLabel)) return base;
+        let suffix = 2;
+        let candidate = `${base}_${suffix}`;
+        while (this.typeLabelExists(candidate, exceptLabel)) {
+            suffix += 1;
+            candidate = `${base}_${suffix}`;
+        }
+        return candidate;
+    }
+
+    labelForBaseTypeChange(currentLabel, baseSymbol) {
+        if (!baseSymbol) return currentLabel;
+        if (currentLabel === baseSymbol) return currentLabel;
+        return this.typeLabelExists(baseSymbol, currentLabel) ? currentLabel : baseSymbol;
     }
 
     elementIndices(symbol) {
@@ -1802,15 +1834,20 @@ class VAseApp {
                 }
             };
             const commitRename = (baseOverride = null) => {
-                const next = this.normalizedTypeLabel(nameInput.value);
+                const desired = this.normalizedTypeLabel(nameInput.value);
+                const next = this.uniqueTypeLabel(desired, symbol);
                 const inferredBase = this.detectedElementForLabel(next);
                 const base = baseOverride || inferredBase;
+                if (desired && next !== desired) {
+                    nameInput.value = next;
+                    this.toast(`Label ${desired} already exists; using ${next} to keep atom types separate.`, 'warning');
+                }
                 if (next && (next !== symbol || base !== currentElement)) this.renameElementType(symbol, next, base);
             };
             typeSelect.addEventListener('change', () => {
                 const radius = this.defaultElementRadius(typeSelect.value);
                 if (Number.isFinite(radius) && radius > 0) input.value = Number(radius.toFixed(4));
-                nameInput.value = typeSelect.value;
+                nameInput.value = this.labelForBaseTypeChange(symbol, typeSelect.value);
                 commitRename(typeSelect.value);
             });
             nameInput.addEventListener('keydown', event => {
@@ -1929,10 +1966,14 @@ class VAseApp {
     }
 
     async renameElementType(oldSymbol, nextLabel, baseSymbol = null) {
-        const label = this.normalizedTypeLabel(nextLabel);
+        const desiredLabel = this.normalizedTypeLabel(nextLabel);
+        const label = this.uniqueTypeLabel(desiredLabel, oldSymbol);
         if (!label) {
             this.toast('Atom type name cannot be empty.', 'warning');
             return;
+        }
+        if (desiredLabel && label !== desiredLabel) {
+            this.toast(`Label ${desiredLabel} already exists; using ${label} to keep atom types separate.`, 'warning');
         }
         const indices = this.elementIndices(oldSymbol);
         if (!indices.length) {
@@ -1950,15 +1991,23 @@ class VAseApp {
             return;
         }
         try {
+            const actionText = label === oldSymbol
+                ? `Updating ${oldSymbol} element type to ${effectiveBase}`
+                : `Renaming ${oldSymbol} to ${label}`;
             const data = await this.withBusy(
-                `Renaming ${indices.length} ${oldSymbol} atom${indices.length === 1 ? '' : 's'}...`,
+                `${actionText} for ${indices.length} atom${indices.length === 1 ? '' : 's'}...`,
                 () => this.api.updateAtomTypes(indices, label, this.backendPositionsPayload(), this.state.applyConstraints, base)
             );
             this.transferElementDisplaySettings(oldSymbol, label, { appearance: preserveAppearance });
             if (!preserveAppearance) this.setElementBaseDefaults(label, effectiveBase);
             this.replaceTypeOrder(oldSymbol, label);
             this.setAtomsData(data);
-            this.toast(`Renamed ${oldSymbol} to ${label}.`, 'success');
+            this.toast(
+                label === oldSymbol
+                    ? `Updated ${label} element type to ${effectiveBase}.`
+                    : `Renamed ${oldSymbol} to ${label}.`,
+                'success'
+            );
         } catch (err) {
             this.toast(`Rename failed: ${err.message}`, 'error');
         }
@@ -2000,7 +2049,12 @@ class VAseApp {
         this.renderElementRadiusControls();
         this.updateElementSelectionControls();
         this.updateUI();
-        this.toast(`Renamed ${oldSymbol} to ${label} for this visualization.`, 'success');
+        this.toast(
+            label === oldSymbol
+                ? `Updated ${label} element type to ${base} for this visualization.`
+                : `Renamed ${oldSymbol} to ${label} for this visualization.`,
+            'success'
+        );
     }
 
     selectedTypeLabel() {
@@ -2042,31 +2096,37 @@ class VAseApp {
             return;
         }
         const previousLabels = [...new Set(indices.map(index => this.state.atoms.symbols[index]))];
+        const exclusivePrevious = previousLabels.length === 1 ? previousLabels[0] : null;
+        const uniqueLabel = this.uniqueTypeLabel(label, exclusivePrevious);
+        if (uniqueLabel !== label) {
+            this.toast(`Label ${label} already exists; using ${uniqueLabel} to keep atom types separate.`, 'warning');
+        }
         const previousBase = previousLabels.length === 1 ? this.chemicalSymbolForLabel(previousLabels[0]) : null;
-        const detectedBase = this.detectedElementForLabel(label);
+        const detectedBase = this.detectedElementForLabel(uniqueLabel);
         const base = detectedBase || previousBase || 'H';
         const preserveAppearance = !detectedBase || (previousLabels.length === 1 && previousBase === detectedBase);
         if (preserveAppearance && this.validHexColor(color?.value)) {
-            this.state.display.elementColors[label] = color.value;
+            this.state.display.elementColors[uniqueLabel] = color.value;
         }
         if (!this.canEditAtoms()) {
-            this.applySelectedTypeForVisualization(indices, label, base, { preserveAppearance });
+            this.applySelectedTypeForVisualization(indices, uniqueLabel, base, { preserveAppearance });
             return;
         }
         try {
             const data = await this.withBusy(
-                `Changing ${indices.length} selected atom${indices.length === 1 ? '' : 's'} to ${label}...`,
-                () => this.api.updateAtomTypes(indices, label, this.backendPositionsPayload(), this.state.applyConstraints, detectedBase)
+                `Changing ${indices.length} selected atom${indices.length === 1 ? '' : 's'} to ${uniqueLabel}...`,
+                () => this.api.updateAtomTypes(indices, uniqueLabel, this.backendPositionsPayload(), this.state.applyConstraints, detectedBase)
             );
             if (previousLabels.length === 1) {
-                this.transferElementDisplaySettings(previousLabels[0], label, { appearance: preserveAppearance });
+                this.transferElementDisplaySettings(previousLabels[0], uniqueLabel, { appearance: preserveAppearance });
+                this.replaceTypeOrder(previousLabels[0], uniqueLabel);
             }
-            if (!preserveAppearance) this.setElementBaseDefaults(label, base);
+            if (!preserveAppearance) this.setElementBaseDefaults(uniqueLabel, base);
             this.setAtomsData(data);
             indices.forEach(index => this.state.selected.add(index));
             this.updateSelectionVisuals();
             this.updateUI();
-            this.toast(`Updated selected atoms to ${label}.`, 'success');
+            this.toast(`Updated selected atoms to ${uniqueLabel}.`, 'success');
         } catch (err) {
             this.toast(`Selected atom type update failed: ${err.message}`, 'error');
         }

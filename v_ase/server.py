@@ -567,6 +567,14 @@ def update_atom_type_labels(atoms, indices, label, base_symbol=None):
     updated = atoms.copy()
     symbols = updated.get_chemical_symbols()
     type_labels = atom_type_labels(updated)
+    outside_labels = {atom_type for idx, atom_type in enumerate(type_labels) if idx not in indices}
+    if normalized in outside_labels:
+        suffix = 2
+        candidate = f"{normalized}_{suffix}"
+        while candidate in outside_labels:
+            suffix += 1
+            candidate = f"{normalized}_{suffix}"
+        normalized = candidate
     base_symbol = base_symbol_for_atom_type(base_symbol) if base_symbol else inferred_base_symbol_for_label(normalized)
     for idx in indices:
         if base_symbol:

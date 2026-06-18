@@ -62,6 +62,9 @@ def test_ui_button_api_endpoints_respond_without_network_server():
     numeric = asyncio.run(update_atom_types(session.session_id, {"indices": [1], "label": "2"}))
     assert numeric["symbols"][1] == "2"
     assert numeric["chemical_symbols"][1] == "Si"
+    duplicate = asyncio.run(update_atom_types(session.session_id, {"indices": [2], "label": "surface_site", "base_symbol": "H"}))
+    assert duplicate["symbols"][2] == "surface_site_2"
+    assert duplicate["chemical_symbols"][2] == "H"
     constrained = asyncio.run(update_constraints(session.session_id, {
         "indices": [1, 2],
         "fix_atoms": True,
@@ -382,9 +385,14 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "element-radius-list" in index_html
     assert "renderElementRadiusControls" in main_js
     assert "return this.reconcileTypeOrder(this.state.atoms?.symbols || []);" in main_js
+    assert "naturalTypeCompare" in main_js
+    assert ".sort((a, b) => this.naturalTypeCompare(a, b))" in main_js
+    assert "uniqueTypeLabel" in main_js
+    assert "labelForBaseTypeChange" in main_js
     assert "previewDetectedBase" in main_js
     assert "typeSelect.value = inferredBase" in main_js
-    assert "nameInput.value = typeSelect.value" in main_js
+    assert "nameInput.value = this.labelForBaseTypeChange(symbol, typeSelect.value)" in main_js
+    assert "Label ${desired} already exists; using ${next}" in main_js
     assert "nameInput.addEventListener('change', () => commitRename())" in main_js
     assert "nameInput.addEventListener('change', commitRename)" not in main_js
     assert "detectedElementForLabel" in main_js
