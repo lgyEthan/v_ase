@@ -108,4 +108,4 @@ The visualizer respects ASE constraints:
     - `POST /api/export/blender/{session_id}`: Exports a Blender Python scene.
     - `POST /api/relax/start/{session_id}`: Starts geometry optimization.
     - `POST /api/relax/stop/{session_id}`: Requests geometry optimization stop.
-    - `WS /ws/{session_id}`: Streams relaxation positions, energy, and fmax.
+    - `WS /ws/{session_id}`: Streams relaxation positions, energy, and fmax. In blocking CLI mode, browser tab/window close is detected through this socket and releases the waiting terminal after a short reconnect grace period.

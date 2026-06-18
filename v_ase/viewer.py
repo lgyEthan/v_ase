@@ -153,7 +153,8 @@ def view(
             "apply_constraint": respect_constraints,
             "allow_relax": allow_relax,
             "viz_only": viz_only,
-            "theme": theme
+            "theme": theme,
+            "auto_close_on_disconnect": bool(block and not notebook),
         }
     )
     sessions[session_id] = session

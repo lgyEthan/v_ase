@@ -27,12 +27,14 @@ from v_ase.server import (
     apply_positions,
     apply_supercell,
     apply_supercell_matrix,
+    cancel_session_autoclose,
     delete_atoms,
     get_atoms,
     load_visual_settings,
     reset,
     reset_coordinates,
     save_visual_settings,
+    schedule_session_autoclose,
     set_frame,
     undo,
     update_calculator,
@@ -385,6 +387,45 @@ def test_visual_settings_save_and_load_pickle_roundtrip():
     loaded = asyncio.run(load_visual_settings(session.session_id, BytesRequest(response.body)))
     assert loaded["settings"]["display"]["atomRadiusScale"] == 1.4
     assert loaded["settings"]["sphereQuality"] == "high"
+
+
+def test_blocking_cli_session_finalizes_after_browser_disconnect_grace():
+    atoms = molecule("H2")
+    session = EditorSession(
+        "browser-close-autoclose",
+        atoms.copy(),
+        atoms.copy(),
+        config={"auto_close_on_disconnect": True},
+    )
+    sessions[session.session_id] = session
+    try:
+        schedule_session_autoclose(session.session_id, delay=0.01)
+        assert session.done_event.wait(timeout=1.0)
+        assert session.result_atoms is not None
+        np.testing.assert_allclose(session.result_atoms.positions, atoms.positions)
+    finally:
+        cancel_session_autoclose(session.session_id)
+        sessions.pop(session.session_id, None)
+
+
+def test_blocking_cli_session_autoclose_can_be_cancelled_on_reconnect():
+    atoms = molecule("H2")
+    session = EditorSession(
+        "browser-close-reconnect",
+        atoms.copy(),
+        atoms.copy(),
+        config={"auto_close_on_disconnect": True},
+    )
+    sessions[session.session_id] = session
+    try:
+        schedule_session_autoclose(session.session_id, delay=0.05)
+        cancel_session_autoclose(session.session_id)
+        time.sleep(0.08)
+        assert not session.done_event.is_set()
+        assert session.result_atoms is None
+    finally:
+        cancel_session_autoclose(session.session_id)
+        sessions.pop(session.session_id, None)
 
 
 def test_trajectory_file_input(tmp_path):

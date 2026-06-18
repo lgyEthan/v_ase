@@ -23,6 +23,9 @@ class WebSocketManager:
         if websocket in self.active_connections:
             del self.active_connections[websocket]
 
+    def has_session_connection(self, session_id: str) -> bool:
+        return any(connection_session == session_id for connection_session in self.active_connections.values())
+
     def broadcast_sync(self, message: dict, session_id: Optional[str] = None):
         """Thread-safe method to queue a message for broadcasting."""
         self.message_queue.put((session_id, json.dumps(message)))

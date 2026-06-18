@@ -116,7 +116,10 @@ The browser UI talks to a local FastAPI server bound to `127.0.0.1`.
 - `POST /api/export/blender/{session_id}`: Exports a Blender Python scene.
 - `POST /api/relax/start/{session_id}`: Starts geometry optimization.
 - `POST /api/relax/stop/{session_id}`: Requests geometry optimization stop.
-- `WS /ws/{session_id}`: Streams relaxation positions, energy, and fmax.
+- `WS /ws/{session_id}`: Streams relaxation positions, energy, and fmax. For
+  blocking CLI sessions, a closed browser tab/window disconnects this socket;
+  after a short reconnect grace period the backend finalizes the current
+  working structure and releases the terminal.
 
 ## `ASEEditor` class
 Returned when `block=False`.

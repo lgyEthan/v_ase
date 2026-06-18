@@ -62,6 +62,9 @@ class _MissingFastAPIApp:
 
 
 app = FastAPI() if FASTAPI_AVAILABLE else _MissingFastAPIApp()
+_SESSION_AUTOCLOSE_GRACE_SECONDS = 1.2
+_session_autoclose_timers: Dict[str, threading.Timer] = {}
+_session_autoclose_lock = threading.Lock()
 
 if FASTAPI_AVAILABLE:
     @app.exception_handler(ValueError)
@@ -154,6 +157,51 @@ def payload_apply_constraint(payload: Dict[str, Any] | None) -> bool:
 
 def is_viz_only(session: EditorSession) -> bool:
     return bool((session.config or {}).get("viz_only", False))
+
+
+def session_allows_disconnect_autoclose(session: EditorSession) -> bool:
+    return bool((session.config or {}).get("auto_close_on_disconnect", False))
+
+
+def finalize_session_from_browser_close(session_id: str) -> None:
+    session = sessions.get(session_id)
+    if session is None or session.done_event.is_set():
+        return
+    if not session_allows_disconnect_autoclose(session):
+        return
+    if ws_manager.has_session_connection(session_id):
+        return
+    session.result_atoms = session.working_atoms.copy()
+    if session.working_atoms.calc:
+        session.result_atoms.calc = copy_calculator(session.working_atoms.calc)
+    session.done_event.set()
+
+
+def cancel_session_autoclose(session_id: str) -> None:
+    with _session_autoclose_lock:
+        timer = _session_autoclose_timers.pop(session_id, None)
+    if timer is not None:
+        timer.cancel()
+
+
+def schedule_session_autoclose(session_id: str, delay: float = _SESSION_AUTOCLOSE_GRACE_SECONDS) -> None:
+    session = sessions.get(session_id)
+    if session is None or not session_allows_disconnect_autoclose(session):
+        return
+    cancel_session_autoclose(session_id)
+
+    def close_if_still_disconnected() -> None:
+        try:
+            finalize_session_from_browser_close(session_id)
+        finally:
+            with _session_autoclose_lock:
+                _session_autoclose_timers.pop(session_id, None)
+
+    timer = threading.Timer(delay, close_if_still_disconnected)
+    timer.daemon = True
+    with _session_autoclose_lock:
+        _session_autoclose_timers[session_id] = timer
+    timer.start()
 
 
 def require_editable(session: EditorSession, action: str = "This operation"):
@@ -951,11 +999,13 @@ async def cancel(session_id: str):
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
     await ws_manager.connect(websocket, session_id)
+    cancel_session_autoclose(session_id)
     try:
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
+        schedule_session_autoclose(session_id)
 
 # Modular endpoints for scientific features
 if FASTAPI_AVAILABLE:

@@ -38,7 +38,9 @@ a lightweight visualization mode for fast inspection, trajectory playback,
 bonding, supercell preview, appearance edits, wrapping, and export. Add
 `--interactive` when you want Blender-style atom editing: left click and box
 drag select atoms, `G` moves atoms, `R` rotates atoms, `X/Y/Z` lock axes, and
-numeric input gives exact transforms.
+numeric input gives exact transforms. For normal blocking CLI use, closing the
+browser tab or window finalizes the current session and returns control to the
+terminal.
 
 ![v_ase overview](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_overview.png)
 
@@ -46,6 +48,8 @@ numeric input gives exact transforms.
 
 - `v_ase gui FILE` command-line workflow for POSCAR, VASP, extxyz, traj, and
   other ASE-readable files.
+- Blocking CLI sessions behave like `ase gui`: the terminal waits while the
+  browser tab is open, then continues after the tab/window is closed.
 - Python API for notebooks and scripts: `from v_ase.visualize import view`.
 - Lightweight OVITO-style inspection is the default CLI mode, keeping bonds,
   supercell, appearance, visual type labels, measurements, projection, wrapping,
