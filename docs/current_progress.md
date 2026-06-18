@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.38`.
+Last synchronized with implementation: `v_ase-gui 0.0.39`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -307,7 +307,12 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (updated for 0.0.38).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (updated for 0.0.39).
+
+### Phase 26. Type-stable appearance edits and covalent auto-bonding
+
+*   [x] Changing the Appearance `TYPE` dropdown updates the backend chemical element, default radius, and color while preserving the existing atom-type label so independent labels do not merge.
+*   [x] Automatic bond inference now uses a covalent-radius tolerance (`1.2 * (r_i + r_j)`) instead of vdW-based cutoffs, preventing common water false positives between neighboring molecules while still allowing users to override element-pair cutoffs manually.
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.

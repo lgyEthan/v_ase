@@ -1562,9 +1562,7 @@ class VAseApp {
     }
 
     labelForBaseTypeChange(currentLabel, baseSymbol) {
-        if (!baseSymbol) return currentLabel;
-        if (currentLabel === baseSymbol) return currentLabel;
-        return this.typeLabelExists(baseSymbol, currentLabel) ? currentLabel : baseSymbol;
+        return currentLabel;
     }
 
     elementIndices(symbol) {
@@ -1693,10 +1691,7 @@ class VAseApp {
     }
 
     defaultElementCutoff(a, b) {
-        const ri = this.elementVdwRadius(a);
-        const rj = this.elementVdwRadius(b);
-        if (Number.isFinite(ri) && Number.isFinite(rj)) return Number((0.6 * (ri + rj)).toFixed(3));
-        return Number((this.elementCovalentRadius(a) + this.elementCovalentRadius(b) + 0.4).toFixed(3));
+        return Number((1.2 * (this.elementCovalentRadius(a) + this.elementCovalentRadius(b))).toFixed(3));
     }
 
     elementVdwRadius(element) {

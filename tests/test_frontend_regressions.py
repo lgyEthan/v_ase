@@ -389,6 +389,7 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert ".sort((a, b) => this.naturalTypeCompare(a, b))" in main_js
     assert "uniqueTypeLabel" in main_js
     assert "labelForBaseTypeChange" in main_js
+    assert "labelForBaseTypeChange(currentLabel, baseSymbol) {\n        return currentLabel;" in main_js
     assert "previewDetectedBase" in main_js
     assert "typeSelect.value = inferredBase" in main_js
     assert "nameInput.value = this.labelForBaseTypeChange(symbol, typeSelect.value)" in main_js
@@ -421,12 +422,13 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "refreshAtomAppearance(indices)" in renderer_js
     assert "rebuildInstancedAtoms" in renderer_js
     assert "inferBondPairsCellList" in renderer_js
-    assert "0.6 * (vi + vj)" in renderer_js
+    assert "COVALENT_BOND_TOLERANCE" in renderer_js
+    assert "this.atomCovalentRadius(i) + this.atomCovalentRadius(j)" in renderer_js
     assert "fixedAtomDisplayEnabled()" in renderer_js
     assert "return this.displayOptions.showOverlays !== false" in renderer_js
     assert "fixedAtomSegments(segmentCount)" in renderer_js
     assert "flatShading: true" in renderer_js
-    assert "v-ase-fixed-micro-etched-faceted-v2" in renderer_js
+    assert "v-ase-fixed-micro-etched-faceted-v3" in renderer_js
     assert "const supercellChanged" in renderer_js
     assert "if (supercellChanged) this.rebuildSupercell()" in renderer_js
     assert "elementVisible: { ...(options.elementVisible" in renderer_js

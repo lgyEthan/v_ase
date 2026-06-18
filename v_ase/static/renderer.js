@@ -209,6 +209,7 @@ class BlenderTumbleControls {
 const FALLBACK_ATOM_COLOR = '#cccccc';
 const FALLBACK_ATOM_RADIUS = 0.7;
 const FALLBACK_COVALENT_RADIUS = 0.75;
+const COVALENT_BOND_TOLERANCE = 1.2;
 
 export class ASERenderer {
     constructor(container) {
@@ -564,9 +565,9 @@ export class ASERenderer {
                 '#include <color_fragment>',
                 `
                 #include <color_fragment>
-                vec3 etchedN = normalize(vNormal);
-                float etchedTheta = atan(etchedN.z, etchedN.x) / 6.28318530718 + 0.5;
-                float etchedPhi = asin(clamp(etchedN.y, -1.0, 1.0)) / 3.14159265359 + 0.5;
+                vec2 etchedUv = gl_FragCoord.xy * 0.022;
+                float etchedTheta = etchedUv.x;
+                float etchedPhi = etchedUv.y;
                 float etchedLineA = abs(fract(etchedTheta * 14.0) - 0.5);
                 float etchedLineB = abs(fract(etchedPhi * 11.0 + etchedTheta * 0.5) - 0.5);
                 float etchedGrid = 1.0 - smoothstep(0.030, 0.082, min(etchedLineA, etchedLineB));
@@ -585,7 +586,7 @@ export class ASERenderer {
                 `
             );
         };
-        material.customProgramCacheKey = () => 'v-ase-fixed-micro-etched-faceted-v2';
+        material.customProgramCacheKey = () => 'v-ase-fixed-micro-etched-faceted-v3';
         material.needsUpdate = true;
         return material;
     }
@@ -1372,13 +1373,8 @@ export class ASERenderer {
     }
 
     autoBondCutoff(i, j) {
-        const vi = this.atomVdwRadius(i);
-        const vj = this.atomVdwRadius(j);
         const scale = Math.max(0.1, Number(this.displayOptions.bondCutoffScale || 1));
-        if (Number.isFinite(vi) && Number.isFinite(vj)) {
-            return 0.6 * (vi + vj) * scale;
-        }
-        return (this.atomCovalentRadius(i) + this.atomCovalentRadius(j) + 0.4) * scale;
+        return COVALENT_BOND_TOLERANCE * (this.atomCovalentRadius(i) + this.atomCovalentRadius(j)) * scale;
     }
 
     maxPossibleBondCutoff() {
@@ -1390,16 +1386,12 @@ export class ASERenderer {
             return values.length ? Math.max(...values) : 0;
         }
         const scale = Math.max(0.1, Number(this.displayOptions.bondCutoffScale || 1));
-        let maxVdw = 0;
         let maxCovalent = 0;
         for (let i = 0; i < this.atomsData.positions.length; i++) {
             if (!this.atomTypeVisible(i)) continue;
-            const vdw = this.atomVdwRadius(i);
-            if (Number.isFinite(vdw)) maxVdw = Math.max(maxVdw, vdw);
             maxCovalent = Math.max(maxCovalent, this.atomCovalentRadius(i));
         }
-        if (maxVdw > 0) return 1.2 * maxVdw * scale;
-        return (2 * maxCovalent + 0.4) * scale;
+        return COVALENT_BOND_TOLERANCE * 2 * maxCovalent * scale;
     }
 
     inferBondPairsCellList() {
