@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.35`.
+Last synchronized with implementation: `v_ase-gui 0.0.36`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -307,7 +307,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (updated for 0.0.35).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (updated for 0.0.36).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -320,7 +320,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 20**: Orthographic projection is the default view, viewport lighting uses symmetric fill plus camera-follow fill, Appearance row order remains the initial file order after relabeling, and trajectory auto/element bonds are re-inferred per frame.
 *   [x] **Phase 21**: FixAtoms remain visible in default visualization mode using faceted, micro-etched materials, and viewport lighting adds a camera-follow directional fill so +Y/-Y axis views stay balanced.
 *   [x] **Phase 22**: Blocking CLI sessions finalize when the browser tab/window closes by using WebSocket disconnect detection with a short reconnect grace period.
-*   [x] **Phase 23**: Number fields use v_ase-controlled steppers instead of browser-native spin buttons; repeat stepping stops on pointer release, cancel, blur, or leaving the button.
+*   [x] **Phase 23**: Number fields keep browser-native spin buttons, while pointer-hold repeat changes are guarded so a single press produces only one value change.
 *   [ ] **Planned**: Click-to-place atom insertion.
 
 ---
