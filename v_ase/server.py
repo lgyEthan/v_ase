@@ -851,17 +851,27 @@ async def add_atoms(session_id: str, payload: Dict[str, Any]):
     require_editable(session, "Adding atoms")
     symbols = payload.get("symbols")
     positions = payload.get("positions")
+    base_symbols = payload.get("base_symbols")
     if symbols is None and "symbol" in payload:
         symbols = [payload["symbol"]]
         positions = [payload["position"]]
+        base_symbols = [payload.get("base_symbol")]
     if not symbols or not positions or len(symbols) != len(positions):
         raise HTTPException(status_code=400, detail="symbols and positions must have the same non-zero length")
+    if base_symbols is None:
+        base_symbols = [None] * len(symbols)
+    if len(base_symbols) != len(symbols):
+        raise HTTPException(status_code=400, detail="base_symbols must match symbols when provided")
 
     session.push_history()
     type_labels = atom_type_labels(session.working_atoms)
-    for symbol, position in zip(symbols, positions):
-        type_labels.append(str(symbol))
-        session.working_atoms.append(Atom(base_symbol_for_atom_type(symbol), position=position))
+    for symbol, position, base_symbol in zip(symbols, positions, base_symbols):
+        label = normalize_atom_type_label(symbol)
+        if not label:
+            raise HTTPException(status_code=400, detail="Atom type label cannot be empty.")
+        type_labels.append(label)
+        atom_symbol = base_symbol_for_atom_type(base_symbol) if base_symbol else base_symbol_for_atom_type(label)
+        session.working_atoms.append(Atom(atom_symbol, position=position))
     set_atom_type_labels(session.working_atoms, type_labels)
     session.sync_current_frame()
     return session_atoms_to_json(session)

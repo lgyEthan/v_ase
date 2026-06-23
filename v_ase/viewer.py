@@ -114,6 +114,7 @@ def view(
     return_mode: str = "atoms",
     trajectory_source=None,
     initial_frame: int = 0,
+    close_on_disconnect: bool = True,
 ) -> Union[Atoms, ASEEditor, None]:
     """
     Open the v_ase structure viewer/editor.
@@ -154,7 +155,7 @@ def view(
             "allow_relax": allow_relax,
             "viz_only": viz_only,
             "theme": theme,
-            "auto_close_on_disconnect": bool(block and not notebook),
+            "auto_close_on_disconnect": bool(close_on_disconnect and not notebook),
         }
     )
     sessions[session_id] = session
@@ -240,6 +241,7 @@ def view_edit(
     allow_relax: bool = True,
     export: bool = True,
     return_mode: str = "atoms",
+    close_on_disconnect: bool = True,
 ):
     """Open an interactive Blender-style ASE Atoms editor."""
     return view(
@@ -254,6 +256,7 @@ def view_edit(
         allow_relax=allow_relax,
         viz_only=False,
         return_mode=return_mode,
+        close_on_disconnect=close_on_disconnect,
     )
 
 

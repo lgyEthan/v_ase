@@ -83,6 +83,7 @@ class VAseApp {
             }
             this.setupWebSocket();
             this.setupInspectorResizer();
+            this.setupCreateAtomWidget();
             this.setupEventListeners();
             this.setupNumberInputHoldGuards();
             await this.refresh();
@@ -113,6 +114,165 @@ class VAseApp {
 
     editOnlyToast() {
         this.toast('Visualization mode is lightweight; use --interactive to enable atom editing.', 'warning');
+    }
+
+    setupCreateAtomWidget() {
+        const widget = document.getElementById('create-atom-widget');
+        if (!widget) return;
+        const typeSelect = document.getElementById('create-atom-type');
+        const labelInput = document.getElementById('create-atom-label');
+        const toggle = document.getElementById('btn-create-atom-toggle');
+        const close = document.getElementById('btn-create-atom-close');
+        const head = document.getElementById('create-atom-drag');
+        const centerButton = document.getElementById('btn-create-atom-center');
+        const selectedButton = document.getElementById('btn-create-atom-selected');
+        const addButton = document.getElementById('btn-create-atom-add');
+        if (typeSelect && !typeSelect.options.length) {
+            this.chemicalElementOptions().forEach(symbol => {
+                const option = document.createElement('option');
+                option.value = symbol;
+                option.textContent = symbol;
+                typeSelect.appendChild(option);
+            });
+            typeSelect.value = 'H';
+        }
+        const setExpanded = expanded => widget.classList.toggle('collapsed', !expanded);
+        const setPositionInputs = vector => {
+            ['x', 'y', 'z'].forEach((axis, idx) => {
+                const input = document.getElementById(`create-atom-${axis}`);
+                if (input) input.value = Number(vector.getComponent(idx).toFixed(4));
+            });
+        };
+        toggle?.addEventListener('click', event => {
+            event.preventDefault();
+            setExpanded(true);
+            this.syncCreateAtomDefaults({ position: true });
+        });
+        close?.addEventListener('click', event => {
+            event.preventDefault();
+            setExpanded(false);
+        });
+        typeSelect?.addEventListener('change', () => {
+            if (!labelInput) return;
+            const current = this.normalizedTypeLabel(labelInput.value);
+            if (!current || this.chemicalElementOptions().includes(current)) {
+                labelInput.value = typeSelect.value;
+            }
+        });
+        centerButton?.addEventListener('click', event => {
+            event.preventDefault();
+            setPositionInputs(this.createAtomViewCenter());
+        });
+        selectedButton?.addEventListener('click', event => {
+            event.preventDefault();
+            setPositionInputs(this.getSceneCenter());
+        });
+        addButton?.addEventListener('click', event => {
+            event.preventDefault();
+            this.createAtomFromWidget();
+        });
+        this.makeCreateAtomWidgetDraggable(widget, head);
+    }
+
+    makeCreateAtomWidgetDraggable(widget, handle) {
+        if (!widget || !handle) return;
+        let dragging = false;
+        let startX = 0;
+        let startY = 0;
+        let startLeft = 0;
+        let startTop = 0;
+        const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+        const onMove = event => {
+            if (!dragging) return;
+            const rect = widget.getBoundingClientRect();
+            const left = clamp(startLeft + event.clientX - startX, 12, window.innerWidth - rect.width - 12);
+            const top = clamp(startTop + event.clientY - startY, 84, window.innerHeight - rect.height - 88);
+            widget.style.left = `${left}px`;
+            widget.style.top = `${top}px`;
+            widget.style.right = 'auto';
+            widget.style.bottom = 'auto';
+        };
+        const onUp = () => {
+            if (!dragging) return;
+            dragging = false;
+            document.body.classList.remove('dragging-create-atom');
+            window.removeEventListener('pointermove', onMove, true);
+            window.removeEventListener('pointerup', onUp, true);
+            window.removeEventListener('pointercancel', onUp, true);
+        };
+        handle.addEventListener('pointerdown', event => {
+            if (event.target?.closest?.('button')) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const rect = widget.getBoundingClientRect();
+            dragging = true;
+            startX = event.clientX;
+            startY = event.clientY;
+            startLeft = rect.left;
+            startTop = rect.top;
+            document.body.classList.add('dragging-create-atom');
+            handle.setPointerCapture?.(event.pointerId);
+            window.addEventListener('pointermove', onMove, true);
+            window.addEventListener('pointerup', onUp, true);
+            window.addEventListener('pointercancel', onUp, true);
+        });
+    }
+
+    syncCreateAtomDefaults({ position = false } = {}) {
+        const typeSelect = document.getElementById('create-atom-type');
+        const labelInput = document.getElementById('create-atom-label');
+        if (typeSelect && !typeSelect.value) typeSelect.value = 'H';
+        if (labelInput && !this.normalizedTypeLabel(labelInput.value)) labelInput.value = typeSelect?.value || 'H';
+        if (position) {
+            const center = this.createAtomViewCenter();
+            ['x', 'y', 'z'].forEach((axis, idx) => {
+                const input = document.getElementById(`create-atom-${axis}`);
+                if (input && !input.value) input.value = Number(center.getComponent(idx).toFixed(4));
+            });
+        }
+    }
+
+    createAtomViewCenter() {
+        const target = this.renderer?.controls?.target;
+        if (target) return target.clone();
+        if (this.state.atoms?.positions?.length) return this.getSceneCenter();
+        return new THREE.Vector3(0, 0, 0);
+    }
+
+    createAtomPositionFromWidget() {
+        const fallback = this.createAtomViewCenter();
+        const values = ['x', 'y', 'z'].map((axis, idx) => {
+            const input = document.getElementById(`create-atom-${axis}`);
+            const value = Number(input?.value);
+            return Number.isFinite(value) ? value : fallback.getComponent(idx);
+        });
+        return values;
+    }
+
+    async createAtomFromWidget() {
+        if (!this.canEditAtoms()) {
+            this.editOnlyToast();
+            return;
+        }
+        const typeSelect = document.getElementById('create-atom-type');
+        const labelInput = document.getElementById('create-atom-label');
+        const rawLabel = this.normalizedTypeLabel(labelInput?.value);
+        const baseSymbol = typeSelect?.value || this.detectedElementForLabel(rawLabel) || 'H';
+        const symbol = rawLabel || baseSymbol;
+        const position = this.createAtomPositionFromWidget();
+        try {
+            const before = this.state.atoms?.positions?.length || 0;
+            const data = await this.api.addAtom(symbol, position, baseSymbol);
+            this.setAtomsData(data, { clearSelection: true });
+            if (data.positions?.length > before) {
+                this.state.selected.add(data.positions.length - 1);
+                this.updateSelectionVisuals();
+                this.updateUI();
+            }
+            this.toast(`Created ${symbol} at (${position.map(v => v.toFixed(2)).join(', ')}).`, 'success');
+        } catch (err) {
+            this.toast(`Create atom failed: ${err.message}`, 'error');
+        }
     }
 
     setupNumberInputHoldGuards() {
@@ -2769,6 +2929,16 @@ class VAseApp {
         if (!this.sessionId) return;
         const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
         const ws = new WebSocket(`${protocol}://${window.location.host}/ws/${this.sessionId}`);
+        this.ws = ws;
+        const closeSocket = () => {
+            try {
+                if (this.ws && this.ws.readyState <= WebSocket.OPEN) this.ws.close(1000, 'page closing');
+            } catch {
+                // Page teardown path; ignore browser-specific close races.
+            }
+        };
+        window.addEventListener('pagehide', closeSocket, { once: true });
+        window.addEventListener('beforeunload', closeSocket, { once: true });
         ws.onmessage = (event) => {
             const msg = JSON.parse(event.data);
             if (msg.type === 'relax_step') {

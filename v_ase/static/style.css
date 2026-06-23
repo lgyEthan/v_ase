@@ -140,6 +140,142 @@ body[data-viz-only="true"] [data-edit-only] {
     overflow: visible;
 }
 
+.create-atom-widget {
+    position: absolute;
+    left: 18px;
+    bottom: 94px;
+    z-index: 74;
+    width: 306px;
+    min-height: 40px;
+    padding: 0;
+    overflow: hidden;
+    pointer-events: auto;
+}
+
+.create-atom-widget.collapsed {
+    width: auto;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+.create-atom-toggle {
+    display: none;
+    height: 38px;
+    padding: 0 14px;
+    border: 1px solid rgba(255, 196, 0, 0.28);
+    border-radius: 999px;
+    background: rgba(29, 30, 32, 0.92);
+    color: var(--accent);
+    font-weight: 850;
+    font-size: 0.78rem;
+    cursor: pointer;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+}
+
+.create-atom-widget.collapsed .create-atom-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.create-atom-card {
+    display: block;
+}
+
+.create-atom-widget.collapsed .create-atom-card {
+    display: none;
+}
+
+.create-atom-head {
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 10px 0 13px;
+    cursor: grab;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.085);
+    color: var(--accent);
+    font-size: 0.68rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+body.dragging-create-atom .create-atom-head {
+    cursor: grabbing;
+}
+
+.create-atom-head button {
+    width: 26px;
+    height: 26px;
+    border: 0;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--text);
+    cursor: pointer;
+    line-height: 1;
+}
+
+.create-atom-body {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 9px 10px;
+    align-items: center;
+    padding: 12px;
+}
+
+.create-atom-body label {
+    color: var(--muted);
+    font-size: 0.68rem;
+    font-weight: 800;
+    line-height: 1.1;
+}
+
+.create-atom-body input,
+.create-atom-body select {
+    width: 100%;
+    min-width: 0;
+    height: 32px;
+    padding: 5px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 7px;
+    background: rgba(12, 13, 14, 0.42);
+    color: var(--text);
+}
+
+.create-position-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.create-atom-actions {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1fr 1fr 0.9fr;
+    gap: 7px;
+    margin-top: 2px;
+}
+
+.create-atom-actions button {
+    height: 32px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.075);
+    color: var(--text);
+    font-size: 0.72rem;
+    font-weight: 780;
+    cursor: pointer;
+}
+
+.create-atom-actions button:last-child {
+    border-color: rgba(51, 199, 166, 0.44);
+    background: rgba(51, 199, 166, 0.18);
+}
+
 .orientation-line {
     stroke-linecap: round;
     stroke-width: 3.2;

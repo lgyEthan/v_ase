@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.40`.
+Last synchronized with implementation: `v_ase-gui 0.0.41`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -307,7 +307,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (updated for 0.0.40).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (updated for 0.0.41).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -324,6 +324,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 24**: Appearance atom-type rows preserve the initial natural label order, and element/type changes cannot merge distinct atom-type labels when multiple labels share one chemical element.
 *   [x] **Phase 25**: Appearance `TYPE` changes update chemical element, default radius, and color while preserving existing labels; automatic bond inference uses covalent-radius tolerance (`1.2 * (r_i + r_j)`) to avoid water intermolecular false bonds.
 *   [x] **Phase 26**: Middle-button viewport tumble/pan keeps window-level pointer and mouseup fallback listeners active, so transient browser pointer-capture loss does not stop rotation while the physical button is still held.
+*   [x] **Phase 27**: Interactive mode includes a compact floating Create Atom widget outside the inspector, and Python API sessions explicitly close their WebSocket on browser pagehide so browser-window close finalizes sessions like the CLI path.
 *   [ ] **Planned**: Click-to-place atom insertion.
 
 ---

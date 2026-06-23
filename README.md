@@ -109,6 +109,21 @@ python -m pip install -e .
 
 No conda and no Node.js are required. Three.js is vendored inside the package.
 
+If pip reports `ERROR: Error while checking for conflicts` after saying
+`Requirement already satisfied: v_ase-gui`, the package is already installed;
+the failure is usually caused by a different installed package with broken
+metadata (`version=None`) in that Python environment. Use:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install --upgrade --force-reinstall --no-deps v_ase-gui
+python -m pip check
+```
+
+If `pip check` still crashes, create a clean virtual environment or repair the
+package with invalid metadata before installing scientific packages into that
+environment.
+
 ## Quick Start
 
 Open a structure file:

@@ -287,18 +287,20 @@ export class ASEApi {
         if (path.includes('/api/add/')) {
             const payload = JSON.parse(options.body || '{}');
             const symbols = payload.symbols || [payload.symbol];
+            const baseSymbols = payload.base_symbols || symbols.map(() => payload.base_symbol || null);
             const positions = payload.positions || [payload.position];
             this.mockPushHistory();
             symbols.forEach((symbol, idx) => {
+                const baseSymbol = baseSymbols[idx] || this.baseSymbolForLabel(symbol);
                 this.mockState.atoms.symbols.push(symbol);
+                this.mockState.atoms.chemical_symbols.push(baseSymbol);
                 this.mockState.atoms.positions.push([...positions[idx]]);
                 this.mockState.atoms.forces.push([0, 0, 0]);
                 this.mockState.atoms.tags.push(0);
                 this.mockState.atoms.charges.push(0);
                 this.mockState.atoms.magmoms.push(0);
             });
-            this.mockState.atoms.visual = this.mockVisualForSymbols(this.mockState.atoms.symbols);
-            this.mockState.atoms.chemical_symbols = this.mockState.atoms.symbols.map(symbol => this.baseSymbolForLabel(symbol));
+            this.mockState.atoms.visual = this.mockVisualForSymbols(this.mockState.atoms.chemical_symbols);
             this.mockState.atoms.metadata.natoms = this.mockState.atoms.positions.length;
             return await this.mockResponse(this.mockState.atoms);
         }
@@ -534,12 +536,16 @@ export class ASEApi {
         return await this.jsonPost(`/api/constrain/{session_id}`, { positions, apply_constraint: applyConstraint });
     }
 
-    async addAtom(symbol, position) {
-        return await this.jsonPost(`/api/add/{session_id}`, { symbol, position });
+    async addAtom(symbol, position, baseSymbol = null) {
+        const payload = { symbol, position };
+        if (baseSymbol) payload.base_symbol = baseSymbol;
+        return await this.jsonPost(`/api/add/{session_id}`, payload);
     }
 
-    async addAtoms(symbols, positions) {
-        return await this.jsonPost(`/api/add/{session_id}`, { symbols, positions });
+    async addAtoms(symbols, positions, baseSymbols = null) {
+        const payload = { symbols, positions };
+        if (baseSymbols) payload.base_symbols = baseSymbols;
+        return await this.jsonPost(`/api/add/{session_id}`, payload);
     }
 
     async deleteAtoms(indices) {

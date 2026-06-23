@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.40">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.41">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.40';
+            : '/static/vendor/three.module.js?v=0.0.41';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -34,7 +34,7 @@
 
     <!-- Top Status Bar -->
     <header id="top-bar" class="glass-panel">
-        <div class="logo">v_ase<span class="version">0.0.40</span></div>
+        <div class="logo">v_ase<span class="version">0.0.41</span></div>
         <div class="status-group">
             <div class="status-item">
                 <span class="label">MODE</span>
@@ -76,6 +76,33 @@
             <g id="ow-line-group"></g>
             <g id="ow-pos-group"></g>
         </svg>
+    </div>
+
+    <div id="create-atom-widget" class="create-atom-widget glass-panel collapsed" data-edit-only>
+        <button id="btn-create-atom-toggle" class="create-atom-toggle" type="button" title="Create atom">+ Atom</button>
+        <div id="create-atom-card" class="create-atom-card" aria-label="Create atom">
+            <div id="create-atom-drag" class="create-atom-head" title="Drag create atom panel">
+                <span>Create Atom</span>
+                <button id="btn-create-atom-close" type="button" aria-label="Close create atom panel">×</button>
+            </div>
+            <div class="create-atom-body">
+                <label for="create-atom-type">Type</label>
+                <select id="create-atom-type" aria-label="New atom type"></select>
+                <label for="create-atom-label">Label</label>
+                <input id="create-atom-label" type="text" value="H" aria-label="New atom label">
+                <label>Position / Å</label>
+                <div class="create-position-grid">
+                    <input id="create-atom-x" type="number" step="0.1" aria-label="New atom x position">
+                    <input id="create-atom-y" type="number" step="0.1" aria-label="New atom y position">
+                    <input id="create-atom-z" type="number" step="0.1" aria-label="New atom z position">
+                </div>
+                <div class="create-atom-actions">
+                    <button id="btn-create-atom-center" type="button">View Center</button>
+                    <button id="btn-create-atom-selected" type="button">Selection</button>
+                    <button id="btn-create-atom-add" type="button">Add</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Right Inspector -->
@@ -393,7 +420,7 @@
     <script type="module">
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.40';
+            : './static/main.js?v=0.0.41';
         import(modulePath);
     </script>
 </body>

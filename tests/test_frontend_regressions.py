@@ -7,6 +7,7 @@ from fastapi import HTTPException
 import pytest
 
 from v_ase.server import (
+    add_atoms,
     apply_positions,
     delete_atoms,
     get_atoms,
@@ -65,6 +66,13 @@ def test_ui_button_api_endpoints_respond_without_network_server():
     duplicate = asyncio.run(update_atom_types(session.session_id, {"indices": [2], "label": "surface_site", "base_symbol": "H"}))
     assert duplicate["symbols"][2] == "surface_site_2"
     assert duplicate["chemical_symbols"][2] == "H"
+    added = asyncio.run(add_atoms(session.session_id, {
+        "symbol": "adsorbate_site",
+        "base_symbol": "O",
+        "position": [1.5, 1.5, 1.5],
+    }))
+    assert added["symbols"][-1] == "adsorbate_site"
+    assert added["chemical_symbols"][-1] == "O"
     constrained = asyncio.run(update_constraints(session.session_id, {
         "indices": [1, 2],
         "fix_atoms": True,
@@ -448,6 +456,16 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "align-self: start" in style_css
     assert "Center (unwrapped)" in index_html
     assert "orientation-widget" in index_html
+    assert "create-atom-widget" in index_html
+    assert "btn-create-atom-toggle" in index_html
+    assert "create-atom-card" in index_html
+    assert "setupCreateAtomWidget" in main_js
+    assert "createAtomFromWidget" in main_js
+    assert "makeCreateAtomWidgetDraggable" in main_js
+    assert "this.api.addAtom(symbol, position, baseSymbol)" in main_js
+    assert "async addAtom(symbol, position, baseSymbol = null)" in (ROOT / "v_ase/static/api.js").read_text()
+    assert ".create-atom-widget" in style_css
+    assert "body.dragging-create-atom" in style_css
     assert "Repulsion Calc" in index_html
     assert "Repulsion calculator settings only" in index_html
     assert 'id="calc-controls" class="calc-control-group" title="Repulsion calculator settings only" data-edit-only' in index_html
@@ -479,7 +497,23 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert 'body[data-viz-only="true"] [data-edit-only]' in style_css
     assert ".busy-spinner" in style_css
     assert ".orientation-widget" in style_css
+    assert ".create-atom-card" in style_css
     assert ".calc-control-title" in style_css
+
+
+def test_api_browser_close_and_python_view_autoclose_contract_are_wired():
+    main_js = (ROOT / "v_ase/static/main.js").read_text()
+    viewer_py = (ROOT / "v_ase/viewer.py").read_text()
+    server_py = (ROOT / "v_ase/server.py").read_text()
+
+    assert "close_on_disconnect: bool = True" in viewer_py
+    assert '"auto_close_on_disconnect": bool(close_on_disconnect and not notebook)' in viewer_py
+    assert "this.ws = ws" in main_js
+    assert "window.addEventListener('pagehide', closeSocket" in main_js
+    assert "window.addEventListener('beforeunload', closeSocket" in main_js
+    assert "this.ws.close(1000, 'page closing')" in main_js
+    assert "schedule_session_autoclose(session_id)" in server_py
+    assert "finalize_session_from_browser_close(session_id)" in server_py
 
 
 def test_frontend_reset_video_and_visual_settings_controls_are_wired():
