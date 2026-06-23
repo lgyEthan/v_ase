@@ -418,6 +418,13 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "toggleElementSelection" in main_js
     assert "elementVisible" in renderer_js
     assert "atomTypeVisible" in renderer_js
+    assert "handleLostPointerCapture(event)" in renderer_js
+    assert "Chrome/Safari can drop pointer capture during middle-button drags" in renderer_js
+    assert "window.addEventListener('pointermove', this.onPointerMove, true)" in renderer_js
+    assert "window.addEventListener('mouseup', this.onMouseUp, true)" in renderer_js
+    assert "window.addEventListener('blur', this.onWindowBlur, true)" in renderer_js
+    assert "this.onLostPointerCapture = (event) => this.handleLostPointerCapture(event)" in renderer_js
+    assert "this.onLostPointerCapture = (event) => this.endGesture(event)" not in renderer_js
     assert "renameAtomType(oldSymbol, label, indices = [], displayOptions = null, baseSymbol = null)" in renderer_js
     assert "refreshAtomAppearance(indices)" in renderer_js
     assert "rebuildInstancedAtoms" in renderer_js

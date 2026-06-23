@@ -13,6 +13,10 @@ class BlenderTumbleControls {
         this.zoomSpeed = 0.0012;
         this.state = 'idle';
         this.activePointerId = null;
+        this.activeButton = null;
+        this.activeButtonsMask = 0;
+        this.windowGestureListenersActive = false;
+        this.previousUserSelect = '';
         this.lastPointer = new THREE.Vector2();
         this.lastWheelTime = 0;
         this.wheelSpeedHistory = [];
@@ -27,15 +31,18 @@ class BlenderTumbleControls {
         this.onPointerDown = (event) => this.handlePointerDown(event);
         this.onPointerMove = (event) => this.handlePointerMove(event);
         this.onPointerUp = (event) => this.endGesture(event);
+        this.onPointerCancel = (event) => this.endGesture(event, { force: true });
+        this.onMouseUp = (event) => this.handleMouseUp(event);
         this.onWheel = (event) => this.handleWheel(event);
-        this.onLostPointerCapture = (event) => this.endGesture(event);
+        this.onLostPointerCapture = (event) => this.handleLostPointerCapture(event);
+        this.onWindowBlur = () => this.endGesture(null, { force: true });
 
         domElement.addEventListener('contextmenu', this.onContextMenu);
         domElement.addEventListener('auxclick', this.onAuxClick);
         domElement.addEventListener('pointerdown', this.onPointerDown);
         domElement.addEventListener('pointermove', this.onPointerMove);
         domElement.addEventListener('pointerup', this.onPointerUp);
-        domElement.addEventListener('pointercancel', this.onPointerUp);
+        domElement.addEventListener('pointercancel', this.onPointerCancel);
         domElement.addEventListener('lostpointercapture', this.onLostPointerCapture);
         domElement.addEventListener('wheel', this.onWheel, { passive: false });
     }
@@ -43,23 +50,60 @@ class BlenderTumbleControls {
     handlePointerDown(event) {
         if (!this.enabled) return;
         if (event.button === 1) {
-            event.preventDefault();
-            this.state = event.shiftKey ? 'pan' : 'rotate';
-            this.activePointerId = event.pointerId;
-            this.lastPointer.set(event.clientX, event.clientY);
-            this.domElement.setPointerCapture?.(event.pointerId);
+            this.startGesture(event, event.shiftKey ? 'pan' : 'rotate');
         } else if (event.button === 2) {
-            event.preventDefault();
-            this.state = 'pan';
-            this.activePointerId = event.pointerId;
-            this.lastPointer.set(event.clientX, event.clientY);
-            this.domElement.setPointerCapture?.(event.pointerId);
+            this.startGesture(event, 'pan');
         }
+    }
+
+    startGesture(event, state) {
+        if (this.state !== 'idle') this.endGesture(null, { force: true });
+        event.preventDefault();
+        this.state = state;
+        this.activePointerId = event.pointerId;
+        this.activeButton = event.button;
+        this.activeButtonsMask = this.buttonsMaskForButton(event.button);
+        this.lastPointer.set(event.clientX, event.clientY);
+        this.previousUserSelect = document.body.style.userSelect || '';
+        document.body.style.userSelect = 'none';
+        this.domElement.setPointerCapture?.(event.pointerId);
+        this.addWindowGestureListeners();
+    }
+
+    buttonsMaskForButton(button) {
+        if (button === 0) return 1;
+        if (button === 1) return 4;
+        if (button === 2) return 2;
+        return 0;
+    }
+
+    addWindowGestureListeners() {
+        if (this.windowGestureListenersActive) return;
+        window.addEventListener('pointermove', this.onPointerMove, true);
+        window.addEventListener('pointerup', this.onPointerUp, true);
+        window.addEventListener('pointercancel', this.onPointerCancel, true);
+        window.addEventListener('mouseup', this.onMouseUp, true);
+        window.addEventListener('blur', this.onWindowBlur, true);
+        this.windowGestureListenersActive = true;
+    }
+
+    removeWindowGestureListeners() {
+        if (!this.windowGestureListenersActive) return;
+        window.removeEventListener('pointermove', this.onPointerMove, true);
+        window.removeEventListener('pointerup', this.onPointerUp, true);
+        window.removeEventListener('pointercancel', this.onPointerCancel, true);
+        window.removeEventListener('mouseup', this.onMouseUp, true);
+        window.removeEventListener('blur', this.onWindowBlur, true);
+        this.windowGestureListenersActive = false;
     }
 
     handlePointerMove(event) {
         if (!this.enabled || this.state === 'idle') return;
         if (this.activePointerId !== null && event.pointerId !== this.activePointerId) return;
+        if (event.buttons !== undefined && event.buttons !== 0 && this.activeButtonsMask && !(event.buttons & this.activeButtonsMask)) {
+            this.endGesture(event, { force: true });
+            return;
+        }
         event.preventDefault();
         const dx = event.clientX - this.lastPointer.x;
         const dy = event.clientY - this.lastPointer.y;
@@ -69,6 +113,23 @@ class BlenderTumbleControls {
             this.rotate(dx, dy);
         } else if (this.state === 'pan') {
             this.pan(dx, dy);
+        }
+    }
+
+    handleLostPointerCapture(event) {
+        if (event?.pointerId !== undefined && this.activePointerId !== null && event.pointerId !== this.activePointerId) {
+            return;
+        }
+        // Chrome/Safari can drop pointer capture during middle-button drags while the
+        // physical button is still held. Keep the gesture alive; window listeners
+        // continue receiving movement, and pointerup/mouseup will finish it.
+        if (this.state !== 'idle') this.addWindowGestureListeners();
+    }
+
+    handleMouseUp(event) {
+        if (this.state === 'idle') return;
+        if (this.activeButton === null || event.button === this.activeButton) {
+            this.endGesture(null, { force: true });
         }
     }
 
@@ -190,15 +251,19 @@ class BlenderTumbleControls {
         this.camera.lookAt(this.target);
     }
 
-    endGesture(event = null) {
-        if (event?.pointerId !== undefined && this.activePointerId !== null && event.pointerId !== this.activePointerId) {
+    endGesture(event = null, { force = false } = {}) {
+        if (!force && event?.pointerId !== undefined && this.activePointerId !== null && event.pointerId !== this.activePointerId) {
             return;
         }
         if (this.activePointerId !== null && this.domElement.hasPointerCapture?.(this.activePointerId)) {
             this.domElement.releasePointerCapture(this.activePointerId);
         }
+        this.removeWindowGestureListeners();
+        document.body.style.userSelect = this.previousUserSelect;
         this.state = 'idle';
         this.activePointerId = null;
+        this.activeButton = null;
+        this.activeButtonsMask = 0;
     }
 
     update() {
