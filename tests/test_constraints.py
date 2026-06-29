@@ -1,7 +1,8 @@
 import asyncio
 import numpy as np
+from ase import Atoms
 from ase.build import molecule
-from ase.constraints import FixAtoms, FixedLine, FixedPlane, Hookean
+from ase.constraints import FixAtoms, FixedLine, FixedPlane, FixScaled, Hookean
 from v_ase.export import export_blender_response
 from v_ase.serialization import atoms_to_json
 from v_ase.server import apply_positions, apply_supercell, update_constraints
@@ -80,6 +81,26 @@ def test_constraint_serialization_line_plane_and_hookean():
         "kind": "two atoms",
         "indices": [1, 2],
     }]
+
+
+def test_fix_scaled_serialization_uses_fractional_line_and_plane_guides():
+    atoms = Atoms(
+        "H3",
+        positions=[[0.0, 0.0, 0.0], [0.2, 0.3, 0.4], [0.5, 0.5, 0.5]],
+        cell=[[2.0, 0.0, 0.0], [0.5, 3.0, 0.0], [0.2, 0.4, 4.0]],
+        pbc=True,
+    )
+    atoms.set_constraint([
+        FixScaled(0, [False, False, True]),
+        FixScaled(1, [True, False, True]),
+        FixScaled(2, [True, True, True]),
+    ])
+
+    data = atoms_to_json(atoms)
+
+    np.testing.assert_allclose(data["constraints"]["fixed_plane"]["0"], [0.0, 0.0, 6.0])
+    np.testing.assert_allclose(data["constraints"]["fixed_line"]["1"], [0.5, 3.0, 0.0])
+    assert data["constraints"]["fixed_indices"] == [2]
 
 
 def test_apply_endpoint_enforces_fixed_line_and_plane():

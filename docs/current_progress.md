@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.41`.
+Last synchronized with implementation: `v_ase-gui 0.0.42`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -116,7 +116,7 @@ The editor currently supports:
 1.  **FixAtoms**: Visualized by changing the atom material itself to a micro-etched shader texture; movement blocked.
 2.  **FixCartesian**: Backend-enforced during movement.
 3.  **FixedLine / FixedPlane**: Backend-enforced via `set_positions(apply_constraint=True)`. These constraints keep the viewport clean until selected, then show minimal CAD-style line/plane guides. FixedPlane uses a soft transparent plane plus perimeter, crosshair, and normal tick.
-4.  **FixScaled**: Serialized and handled as an ASE constraint in backend coordinate application.
+4.  **FixScaled**: Backend-enforced by ASE and serialized into cell-aware `FixedPlane`, `FixedLine`, or fixed-atom visual guides according to the fractional-coordinate mask.
 5.  **Hookean**: Visualized as a threshold-aware latch/spring; inactive and active states are shown based on current distance and `rt`.
 
 ---
@@ -307,7 +307,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (updated for 0.0.41).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (updated for 0.0.42).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -325,6 +325,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 25**: Appearance `TYPE` changes update chemical element, default radius, and color while preserving existing labels; automatic bond inference uses covalent-radius tolerance (`1.2 * (r_i + r_j)`) to avoid water intermolecular false bonds.
 *   [x] **Phase 26**: Middle-button viewport tumble/pan keeps window-level pointer and mouseup fallback listeners active, so transient browser pointer-capture loss does not stop rotation while the physical button is still held.
 *   [x] **Phase 27**: Interactive mode includes a compact floating Create Atom widget outside the inspector, and Python API sessions explicitly close their WebSocket on browser pagehide so browser-window close finalizes sessions like the CLI path.
+*   [x] **Phase 28**: ASE `FixScaled` constraints from VASP selective dynamics are visualized as cell-aware FixedPlane/FixedLine guides instead of being collapsed into FixAtoms.
 *   [ ] **Planned**: Click-to-place atom insertion.
 
 ---

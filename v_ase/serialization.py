@@ -27,6 +27,47 @@ def _as_float_list(values):
     return [float(v) for v in np.asarray(values, dtype=float).tolist()]
 
 
+def _nonzero_vector(values, fallback):
+    vector = np.asarray(values, dtype=float)
+    if vector.shape == (3,) and np.linalg.norm(vector) > 1e-12:
+        return vector
+    return np.asarray(fallback, dtype=float)
+
+
+def _fix_scaled_visual_constraint(atoms, constraint):
+    """Convert ASE FixScaled masks into Cartesian line/plane display guides.
+
+    FixScaled constrains fractional coordinates. If one fractional coordinate
+    is fixed, motion is allowed in the plane spanned by the two remaining cell
+    vectors. If two are fixed, motion is allowed along the remaining cell
+    vector. If all three are fixed, the atom is visually fixed.
+    """
+    mask = np.asarray(constraint.mask, dtype=bool)
+    if mask.shape != (3,):
+        return "fixed", None
+    allowed = [axis for axis, fixed in enumerate(mask) if not fixed]
+    if len(allowed) == 3:
+        return None, None
+    if len(allowed) == 0:
+        return "fixed", None
+
+    cell = np.asarray(atoms.cell.array, dtype=float)
+    fallback_axes = np.eye(3)
+    cell_vectors = [
+        _nonzero_vector(cell[axis] if cell.shape == (3, 3) else fallback_axes[axis], fallback_axes[axis])
+        for axis in range(3)
+    ]
+
+    if len(allowed) == 1:
+        return "line", _as_float_list(cell_vectors[allowed[0]])
+
+    normal = np.cross(cell_vectors[allowed[0]], cell_vectors[allowed[1]])
+    if np.linalg.norm(normal) <= 1e-12:
+        fixed_axes = [axis for axis, fixed in enumerate(mask) if fixed]
+        normal = fallback_axes[fixed_axes[0]] if fixed_axes else fallback_axes[2]
+    return "plane", _as_float_list(normal)
+
+
 def _ase_gui_jmol_hex(atomic_number):
     number = int(atomic_number)
     if number >= len(jmol_colors):
@@ -151,8 +192,15 @@ def atoms_to_json(atoms):
                 normal = getattr(c, "plane_normal", getattr(c, "dir", None))
                 data["constraints"]["fixed_plane"][str(idx)] = _as_float_list(normal)
         elif isinstance(c, FixScaled):
-            # Scaled constraints are treated as fixed in cartesian for simple visualization
-            data["constraints"]["fixed_indices"].extend([int(i) for i in indices])
+            kind, vector = _fix_scaled_visual_constraint(atoms, c)
+            if kind == "fixed":
+                data["constraints"]["fixed_indices"].extend([int(i) for i in indices])
+            elif kind == "line":
+                for idx in indices:
+                    data["constraints"]["fixed_line"][str(idx)] = vector
+            elif kind == "plane":
+                for idx in indices:
+                    data["constraints"]["fixed_plane"][str(idx)] = vector
         elif isinstance(c, Hookean):
             item = {
                 "spring": float(c.spring),

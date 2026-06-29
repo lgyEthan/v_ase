@@ -71,7 +71,9 @@ terminal.
 - ASE constraint-aware editing and visualization:
   `FixAtoms`, `FixCartesian`, `FixedLine`, `FixedPlane`, `FixScaled`, and
   `Hookean`. `FixAtoms` are rendered with a faceted, micro-etched material so
-  they remain distinguishable without changing the element color.
+  they remain distinguishable without changing the element color. VASP
+  selective-dynamics `FixScaled` masks are interpreted in fractional
+  coordinates and displayed as cell-aware `FixedPlane` or `FixedLine` guides.
 - Interactive constraint editing for selected atoms: apply or clear `FixAtoms`,
   `FixedLine`, and `FixedPlane` from the Constraints panel.
 - Hookean constraints are visualized as threshold-aware hook/latch springs.
