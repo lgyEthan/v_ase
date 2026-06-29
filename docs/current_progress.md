@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.43`.
+Last synchronized with implementation: `v_ase-gui 0.0.44`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -115,7 +115,7 @@ Structures are serialized into a rich JSON format:
 The editor currently supports:
 1.  **FixAtoms**: Visualized by changing the atom material itself to a micro-etched shader texture; movement blocked.
 2.  **FixCartesian**: Backend-enforced during movement.
-3.  **FixedLine / FixedPlane**: Backend-enforced via `set_positions(apply_constraint=True)`. These constraints keep the viewport clean until selected, then show minimal CAD-style line/plane guides. FixedPlane uses a soft transparent plane plus perimeter, crosshair, and normal tick. Multiple selected atoms that share one plane normal are rendered as a single aggregate plane guide to avoid stacked overlays.
+3.  **FixedLine / FixedPlane**: Backend-enforced via `set_positions(apply_constraint=True)`. These constraints keep the viewport clean until selected, then show minimal CAD-style line/plane guides. FixedPlane uses a soft transparent plane plus perimeter, crosshair, and normal tick. Multiple selected FixedPlane atoms use compact local plane markers per atom so the visual anchor never shifts to the selection COM.
 4.  **FixScaled**: Backend-enforced by ASE and serialized into cell-aware `FixedPlane`, `FixedLine`, or fixed-atom visual guides according to the fractional-coordinate mask.
 5.  **Hookean**: Visualized as a threshold-aware latch/spring; inactive and active states are shown based on current distance and `rt`.
 
@@ -136,7 +136,7 @@ ring, or always-on overlay geometry is drawn.
 *   **Material State**: Fixed atoms keep their radius and base hue, but use a micro-etched shader pattern with increased roughness. This reads as a material/constraint state without looking like selection.
 *   **Depth Behavior**: The fixed-atom state is not a see-through overlay and is occluded normally by other atoms.
 *   **Constraint Integrity**: Fixed atoms can be selected, but transform previews and final backend application do not move them.
-*   **Selected Guides Only**: FixedLine and FixedPlane guides are drawn only for selected atoms. FixedLine uses a thin fading axis; FixedPlane uses a translucent soft-edge plane, thin bounding perimeter, central crosshair, and short normal marker. Multi-atom FixedPlane selections are grouped by plane normal so the viewport shows one aggregate guide rather than one overlapping plane per atom.
+*   **Selected Guides Only**: FixedLine and FixedPlane guides are drawn only for selected atoms. FixedLine uses a thin fading axis; FixedPlane uses a translucent soft-edge plane, thin bounding perimeter, central crosshair, and short normal marker. Multi-atom FixedPlane selections switch to compact per-atom circular markers to avoid both overlay stacking and false COM anchoring.
 *   **Global Overlay Toggle**: `Show Overlays` hides selection outlines, selected constraint guides, Hookean overlays, and fixed-atom material marking for clean structure inspection or figure capture.
 
 ---
@@ -307,7 +307,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.43).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.44).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -326,7 +326,8 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 26**: Middle-button viewport tumble/pan keeps window-level pointer and mouseup fallback listeners active, so transient browser pointer-capture loss does not stop rotation while the physical button is still held.
 *   [x] **Phase 27**: Interactive mode includes a compact floating Create Atom widget outside the inspector, and Python API sessions explicitly close their WebSocket on browser pagehide so browser-window close finalizes sessions like the CLI path.
 *   [x] **Phase 28**: ASE `FixScaled` constraints from VASP selective dynamics are visualized as cell-aware FixedPlane/FixedLine guides instead of being collapsed into FixAtoms.
-*   [x] **Phase 29**: Multi-atom FixedPlane selections use one aggregate guide instead of overlapping planes, and quick or long relaxation runs populate an optimization timeline without showing a useless single-frame bar for plain static structures.
+*   [x] **Phase 29**: Multi-atom FixedPlane selections use compact per-atom local markers instead of COM-centered or heavily overlapping planes, and quick or long relaxation runs populate an optimization timeline without showing a useless single-frame bar for plain static structures.
+*   [x] **Phase 30**: Added a standalone HTML design preview with five FixedLine and five FixedPlane persistent-marker candidates, plus fixed-atom reference styling.
 *   [ ] **Planned**: Click-to-place atom insertion.
 
 ---

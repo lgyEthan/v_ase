@@ -197,16 +197,21 @@ v_ase gui examples/readme_scene_assets/ferrocene.traj --show-bonds
 v_ase gui examples/readme_scene_assets/showcase.traj --show-bonds
 ```
 
+Constraint guide design variants can be inspected without starting the app by
+opening `docs/design/constraint_guides_preview.html` in a browser. It compares
+five always-visible FixedLine marker candidates and five FixedPlane marker
+candidates on one constrained structure.
+
 ## Case 1: Selection, FixedLine, and FixedPlane
 
 Selected atoms get yellow Blender-style outlines. `FixAtoms` entries keep their
 atom color but switch to a faceted, micro-etched material, so they read as
 immobile without looking selected. `FixedLine` and `FixedPlane` guides stay
 hidden until the constrained atom is selected, then appear as a thin fading axis
-or a translucent CAD-style plane. When multiple selected atoms share the same
-FixedPlane normal, `v_ase` draws one aggregate plane with perimeter, crosshair,
-normal, and atom-position markers instead of stacking one guide per atom. `Show
-Overlays` can hide all of these guides for a clean structure view.
+or a translucent CAD-style plane. When multiple FixedPlane atoms are selected,
+each atom keeps its own compact local plane marker so the constraint never looks
+anchored at the selection COM. `Show Overlays` can hide all of these guides for
+a clean structure view.
 
 `FixedLine` is shown as a Li ion moving along a carbon nanotube channel. The ion
 can slide parallel to the tube axis, but not leave the channel direction:

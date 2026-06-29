@@ -1995,7 +1995,7 @@ export class ASERenderer {
         if (!this.atomsData?.constraints || !selectedIndices.size || this.displayOptions.showOverlays === false) return;
         const fixedLine = this.atomsData.constraints.fixed_line || {};
         const fixedPlane = this.atomsData.constraints.fixed_plane || {};
-        const planeGroups = new Map();
+        const compactPlane = selectedIndices.size > 1;
         selectedIndices.forEach(idx => {
             const atom = this.atomMeshByIndex.get(idx);
             if (!atom) return;
@@ -2004,16 +2004,7 @@ export class ASERenderer {
             }
             const planeNormal = fixedPlane[idx] || fixedPlane[String(idx)];
             if (planeNormal) {
-                const key = this.canonicalVectorKey(planeNormal);
-                if (!planeGroups.has(key)) planeGroups.set(key, { normal: planeNormal, indices: [] });
-                planeGroups.get(key).indices.push(idx);
-            }
-        });
-        planeGroups.forEach(group => {
-            if (group.indices.length === 1) {
-                this.addFixedPlaneGuide(group.indices[0], group.normal);
-            } else {
-                this.addFixedPlaneGuideGroup(group.indices, group.normal);
+                this.addFixedPlaneGuide(idx, planeNormal, { compact: compactPlane });
             }
         });
     }
@@ -2049,11 +2040,12 @@ export class ASERenderer {
         this.constraintGuideGroup.add(group);
     }
 
-    addFixedPlaneGuide(index, normalValues) {
+    addFixedPlaneGuide(index, normalValues, options = {}) {
         const atom = this.atomMeshByIndex.get(index);
         if (!atom) return;
         const normal = this.normalizedVector(normalValues);
         const planeOffset = 0.04;
+        const compact = Boolean(options.compact);
         const group = new THREE.Group();
         group.userData = {
             constraintGuideFor: index,
@@ -2063,30 +2055,46 @@ export class ASERenderer {
             planeOffset
         };
 
-        const guideSize = Math.max(8, Math.min(80, (this.desiredGuideSize?.() || 24) * 0.52));
-        const plane = new THREE.Mesh(new THREE.PlaneGeometry(guideSize, guideSize), this.constraintMaterials.planeSoft);
+        const atomRadius = this.atomVisualRadius?.(index) || 0.55;
+        const guideSize = compact
+            ? Math.max(1.15, Math.min(2.8, atomRadius * 2.8))
+            : Math.max(8, Math.min(80, (this.desiredGuideSize?.() || 24) * 0.52));
+        const planeGeometry = compact
+            ? new THREE.CircleGeometry(guideSize * 0.5, 48)
+            : new THREE.PlaneGeometry(guideSize, guideSize);
+        const plane = new THREE.Mesh(planeGeometry, compact ? this.constraintMaterials.planeAggregate : this.constraintMaterials.planeSoft);
         plane.userData.sharedMaterial = true;
         plane.renderOrder = 16;
         group.add(plane);
 
         const half = guideSize * 0.5;
-        const cross = guideSize * 0.34;
+        const cross = guideSize * (compact ? 0.26 : 0.34);
         const edgeRadius = Math.max(0.008, guideSize * 0.0016);
         const crossRadius = Math.max(0.010, guideSize * 0.0018);
         const normalRadius = Math.max(0.012, guideSize * 0.0021);
-        const edges = [
-            [[-half, -half, 0.002], [half, -half, 0.002]],
-            [[half, -half, 0.002], [half, half, 0.002]],
-            [[half, half, 0.002], [-half, half, 0.002]],
-            [[-half, half, 0.002], [-half, -half, 0.002]]
-        ];
-        edges.forEach((edge, edgeIndex) => {
-            const line = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.planePerimeter);
-            line.userData = { sharedMaterial: true, fixedPlanePerimeter: true };
-            this.setLinePoints(line, edge.map(p => new THREE.Vector3(...p)), `fixedPlaneEdge${edgeIndex}`, edgeRadius);
-            line.renderOrder = 18;
-            group.add(line);
-        });
+        if (compact) {
+            const ring = new THREE.Mesh(
+                new THREE.RingGeometry(half * 0.94, half, 64),
+                this.constraintMaterials.planePerimeter
+            );
+            ring.userData = { sharedMaterial: true, fixedPlanePerimeter: true };
+            ring.renderOrder = 18;
+            group.add(ring);
+        } else {
+            const edges = [
+                [[-half, -half, 0.002], [half, -half, 0.002]],
+                [[half, -half, 0.002], [half, half, 0.002]],
+                [[half, half, 0.002], [-half, half, 0.002]],
+                [[-half, half, 0.002], [-half, -half, 0.002]]
+            ];
+            edges.forEach((edge, edgeIndex) => {
+                const line = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.planePerimeter);
+                line.userData = { sharedMaterial: true, fixedPlanePerimeter: true };
+                this.setLinePoints(line, edge.map(p => new THREE.Vector3(...p)), `fixedPlaneEdge${edgeIndex}`, edgeRadius);
+                line.renderOrder = 18;
+                group.add(line);
+            });
+        }
 
         [
             [[-cross, 0, 0.006], [cross, 0, 0.006]],
@@ -2099,7 +2107,9 @@ export class ASERenderer {
             group.add(line);
         });
 
-        const tickLength = Math.max(0.9, Math.min(2.4, guideSize * 0.085));
+        const tickLength = compact
+            ? Math.max(0.32, Math.min(0.72, guideSize * 0.24))
+            : Math.max(0.9, Math.min(2.4, guideSize * 0.085));
         const normalTick = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.planeNormal);
         normalTick.userData = { sharedMaterial: true, fixedPlaneNormalTick: true };
         this.setLinePoints(normalTick, [

@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>v_ase Constraint Guide Design Preview</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #17191d;
+      --panel: rgba(21, 23, 27, 0.88);
+      --line: #76d7f2;
+      --plane: #61e6c7;
+      --warm: #ffc857;
+      --text: #f3f5f7;
+      --muted: #9ba4ad;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      overflow: hidden;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at 22% 12%, #29313a 0, var(--bg) 45%, #101114 100%);
+      color: var(--text);
+    }
+
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    .hud {
+      position: fixed;
+      inset: 20px auto auto 20px;
+      width: min(410px, calc(100vw - 40px));
+      max-height: calc(100vh - 40px);
+      overflow: auto;
+      padding: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 10px;
+      background: var(--panel);
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
+      backdrop-filter: blur(18px) saturate(120%);
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 1.06rem;
+      letter-spacing: 0.01em;
+    }
+
+    .sub {
+      margin: 0 0 16px;
+      color: var(--muted);
+      font-size: 0.86rem;
+      line-height: 1.45;
+    }
+
+    .group {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid rgba(255, 255, 255, 0.09);
+    }
+
+    .group h2 {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 8px;
+      font-size: 0.8rem;
+      color: #dce3e9;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .swatch {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: var(--line);
+      box-shadow: 0 0 14px currentColor;
+    }
+
+    .swatch.plane { background: var(--plane); }
+    .swatch.fixed { background: var(--warm); }
+
+    ol {
+      display: grid;
+      gap: 6px;
+      margin: 0;
+      padding-left: 22px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.38;
+    }
+
+    b { color: var(--text); font-weight: 740; }
+
+    .note {
+      margin-top: 12px;
+      padding: 10px 11px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 200, 87, 0.22);
+      background: rgba(255, 200, 87, 0.08);
+      color: #ffd986;
+      font-size: 0.8rem;
+      line-height: 1.42;
+    }
+
+    .caption {
+      position: fixed;
+      right: 22px;
+      bottom: 18px;
+      padding: 9px 12px;
+      border-radius: 8px;
+      color: #cfd6dc;
+      background: rgba(13, 14, 17, 0.70);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      font: 700 0.76rem ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      backdrop-filter: blur(12px);
+    }
+  </style>
+</head>
+<body>
+  <div class="hud">
+    <h1>v_ase constraint guide design preview</h1>
+    <p class="sub">
+      This is a standalone visual design sheet. It shows always-visible, local
+      markers for constrained atoms without using a COM-centered plane.
+      Drag to rotate, scroll to zoom.
+    </p>
+
+    <div class="group">
+      <h2><span class="swatch fixed"></span> FixAtoms baseline</h2>
+      <ol>
+        <li><b>Faceted / etched material</b>: fixed slab atoms keep their element hue but use a rough, cut-stone surface state.</li>
+      </ol>
+    </div>
+
+    <div class="group">
+      <h2><span class="swatch"></span> FixedLine candidates</h2>
+      <ol>
+        <li><b>Axis filament</b>: a short luminous line through the atom.</li>
+        <li><b>Dual rail</b>: two thin rails bracketing the allowed direction.</li>
+        <li><b>Bead track</b>: sparse beads along the allowed 1D channel.</li>
+        <li><b>Direction ticks</b>: center line plus small perpendicular tick marks.</li>
+        <li><b>Glass sleeve</b>: a transparent tube with a fine central rail.</li>
+      </ol>
+    </div>
+
+    <div class="group">
+      <h2><span class="swatch plane"></span> FixedPlane candidates</h2>
+      <ol>
+        <li><b>Local disk</b>: small translucent disk, ring, crosshair, normal tick.</li>
+        <li><b>Annulus only</b>: clean halo ring plus normal pin, almost no fill.</li>
+        <li><b>Tangent axes</b>: two in-plane guide axes with direction caps.</li>
+        <li><b>Sparse wafer</b>: small plate with a sparse local grid.</li>
+        <li><b>Contour lens</b>: concentric local rings plus normal tick.</li>
+      </ol>
+    </div>
+
+    <div class="note">
+      Recommendation: start with FixedLine #2 for dense structures and
+      FixedPlane #1 or #5. They stay local to each atom, avoid COM ambiguity,
+      and remain readable when several constrained atoms are visible.
+    </div>
+  </div>
+  <div class="caption">FixedLine: left column / FixedPlane: right column / FixAtoms: faceted slab</div>
+
+  <script type="importmap">
+    { "imports": { "three": "../../v_ase/static/vendor/three.module.js" } }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x17191d);
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 200);
+    camera.position.set(8.8, -10.5, 7.2);
+    camera.lookAt(0, 0, 0.4);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    document.body.appendChild(renderer.domElement);
+
+    scene.add(new THREE.HemisphereLight(0xf4f8ff, 0x29313a, 1.45));
+    const key = new THREE.DirectionalLight(0xffffff, 1.8);
+    key.position.set(4, -5, 8);
+    scene.add(key);
+    const fill = new THREE.DirectionalLight(0x86d7ff, 0.72);
+    fill.position.set(-8, 7, 4);
+    scene.add(fill);
+
+    const root = new THREE.Group();
+    scene.add(root);
+
+    const atomMaterials = {
+      Ga: new THREE.MeshStandardMaterial({ color: 0xd0a98a, roughness: 0.48, metalness: 0.03 }),
+      N: new THREE.MeshStandardMaterial({ color: 0x2553d6, roughness: 0.42, metalness: 0.04 }),
+      H: new THREE.MeshStandardMaterial({ color: 0xf4f4f4, roughness: 0.38, metalness: 0.02 }),
+      Li: new THREE.MeshStandardMaterial({ color: 0x66e13c, roughness: 0.36, metalness: 0.03 }),
+      fixed: new THREE.MeshStandardMaterial({ color: 0xb48f7a, roughness: 0.96, metalness: 0.0, flatShading: true })
+    };
+
+    const sphere = new THREE.SphereGeometry(0.32, 32, 18);
+    const smallSphere = new THREE.SphereGeometry(0.18, 24, 12);
+    const fixedGeo = new THREE.IcosahedronGeometry(0.34, 2);
+
+    function addAtom(symbol, position, radius = 1, fixed = false) {
+      const geo = fixed ? fixedGeo : (radius < 0.22 ? smallSphere : sphere);
+      const mat = fixed ? atomMaterials.fixed : atomMaterials[symbol];
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(...position);
+      mesh.scale.setScalar(radius / 0.32);
+      root.add(mesh);
+      return mesh;
+    }
+
+    function cylinderBetween(a, b, radius, color, opacity = 1, transparent = true) {
+      const start = new THREE.Vector3(...a);
+      const end = new THREE.Vector3(...b);
+      const delta = end.clone().sub(start);
+      const length = delta.length();
+      const geo = new THREE.CylinderGeometry(radius, radius, length, 18, 1, false);
+      const mat = new THREE.MeshBasicMaterial({
+        color,
+        transparent,
+        opacity,
+        depthWrite: opacity > 0.92
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.copy(start.add(end).multiplyScalar(0.5));
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), delta.normalize());
+      root.add(mesh);
+      return mesh;
+    }
+
+    function basis(normal) {
+      const n = new THREE.Vector3(...normal).normalize();
+      const seed = Math.abs(n.z) < 0.88 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0);
+      const u = new THREE.Vector3().crossVectors(seed, n).normalize();
+      const v = new THREE.Vector3().crossVectors(n, u).normalize();
+      return { u, v, n };
+    }
+
+    function point(base, vec, scale) {
+      return new THREE.Vector3(...base).addScaledVector(vec, scale).toArray();
+    }
+
+    function addPlaneMesh(position, normal, geometry, color, opacity) {
+      const mat = new THREE.MeshBasicMaterial({
+        color,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity,
+        depthWrite: false
+      });
+      const mesh = new THREE.Mesh(geometry, mat);
+      mesh.position.set(...position);
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...normal).normalize());
+      mesh.renderOrder = 8;
+      root.add(mesh);
+      return mesh;
+    }
+
+    function addRing(position, normal, outer, inner, color, opacity = 0.9) {
+      return addPlaneMesh(position, normal, new THREE.RingGeometry(inner, outer, 80), color, opacity);
+    }
+
+    function addLabel(text, position, color = "#f3f5f7") {
+      const canvas = document.createElement("canvas");
+      canvas.width = 256;
+      canvas.height = 80;
+      const ctx = canvas.getContext("2d");
+      ctx.font = "700 28px ui-monospace, SFMono-Regular, Menlo, monospace";
+      ctx.fillStyle = "rgba(10, 11, 13, 0.66)";
+      ctx.roundRect(10, 12, 236, 52, 12);
+      ctx.fill();
+      ctx.fillStyle = color;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, 128, 39);
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+      sprite.position.set(...position);
+      sprite.scale.set(1.4, 0.44, 1);
+      scene.add(sprite);
+    }
+
+    function addFixedLineVariant(kind, position, dir) {
+      const d = new THREE.Vector3(...dir).normalize();
+      const { u, v } = basis(dir);
+      const c = new THREE.Vector3(...position);
+      const lineColor = 0x76d7f2;
+      if (kind === 1) {
+        cylinderBetween(point(position, d, -1.25), point(position, d, 1.25), 0.018, lineColor, 0.82);
+      } else if (kind === 2) {
+        [-0.13, 0.13].forEach(offset => {
+          const start = c.clone().addScaledVector(u, offset).addScaledVector(d, -1.18).toArray();
+          const end = c.clone().addScaledVector(u, offset).addScaledVector(d, 1.18).toArray();
+          cylinderBetween(start, end, 0.016, lineColor, 0.74);
+        });
+      } else if (kind === 3) {
+        cylinderBetween(point(position, d, -1.05), point(position, d, 1.05), 0.010, lineColor, 0.38);
+        [-0.8, -0.4, 0.4, 0.8].forEach(t => {
+          const bead = new THREE.Mesh(new THREE.SphereGeometry(0.055, 18, 10), new THREE.MeshBasicMaterial({ color: lineColor }));
+          bead.position.copy(c.clone().addScaledVector(d, t));
+          root.add(bead);
+        });
+      } else if (kind === 4) {
+        cylinderBetween(point(position, d, -1.18), point(position, d, 1.18), 0.014, lineColor, 0.72);
+        [-0.65, 0, 0.65].forEach(t => {
+          const base = c.clone().addScaledVector(d, t);
+          cylinderBetween(base.clone().addScaledVector(v, -0.16).toArray(), base.clone().addScaledVector(v, 0.16).toArray(), 0.012, 0xd7fff5, 0.70);
+        });
+      } else {
+        cylinderBetween(point(position, d, -1.0), point(position, d, 1.0), 0.155, lineColor, 0.13);
+        cylinderBetween(point(position, d, -1.15), point(position, d, 1.15), 0.013, lineColor, 0.86);
+      }
+    }
+
+    function addFixedPlaneVariant(kind, position, normal) {
+      const { u, v, n } = basis(normal);
+      const planeColor = 0x61e6c7;
+      const c = new THREE.Vector3(...position);
+      if (kind === 1) {
+        addPlaneMesh(position, normal, new THREE.CircleGeometry(0.58, 64), planeColor, 0.115);
+        addRing(position, normal, 0.60, 0.56, planeColor, 0.88);
+        cylinderBetween(point(position, u, -0.42), point(position, u, 0.42), 0.012, 0xd7fff5, 0.74);
+        cylinderBetween(point(position, v, -0.42), point(position, v, 0.42), 0.012, 0xd7fff5, 0.74);
+        cylinderBetween(point(position, n, 0.06), point(position, n, 0.62), 0.018, 0xffc857, 0.92);
+      } else if (kind === 2) {
+        addRing(position, normal, 0.66, 0.59, planeColor, 0.96);
+        addRing(point(position, n, 0.012), normal, 0.42, 0.39, 0xd7fff5, 0.38);
+        cylinderBetween(point(position, n, 0.05), point(position, n, 0.72), 0.020, 0xffc857, 0.88);
+      } else if (kind === 3) {
+        cylinderBetween(point(position, u, -0.68), point(position, u, 0.68), 0.016, planeColor, 0.86);
+        cylinderBetween(point(position, v, -0.68), point(position, v, 0.68), 0.016, planeColor, 0.86);
+        [u, v].forEach(axis => {
+          [-1, 1].forEach(sign => {
+            const tip = c.clone().addScaledVector(axis, sign * 0.68);
+            cylinderBetween(tip.clone().addScaledVector(axis, -sign * 0.16).addScaledVector(n, 0.015).toArray(), tip.clone().addScaledVector(n, 0.015).toArray(), 0.026, planeColor, 0.9);
+          });
+        });
+        cylinderBetween(point(position, n, 0.04), point(position, n, 0.55), 0.018, 0xffc857, 0.90);
+      } else if (kind === 4) {
+        addPlaneMesh(position, normal, new THREE.PlaneGeometry(1.26, 1.26), planeColor, 0.075);
+        [-0.42, 0, 0.42].forEach(t => {
+          cylinderBetween(c.clone().addScaledVector(u, -0.56).addScaledVector(v, t).toArray(), c.clone().addScaledVector(u, 0.56).addScaledVector(v, t).toArray(), 0.008, 0xd7fff5, 0.50);
+          cylinderBetween(c.clone().addScaledVector(v, -0.56).addScaledVector(u, t).toArray(), c.clone().addScaledVector(v, 0.56).addScaledVector(u, t).toArray(), 0.008, 0xd7fff5, 0.50);
+        });
+        cylinderBetween(point(position, n, 0.04), point(position, n, 0.62), 0.016, 0xffc857, 0.88);
+      } else {
+        addPlaneMesh(position, normal, new THREE.CircleGeometry(0.62, 64), planeColor, 0.070);
+        [0.30, 0.48, 0.64].forEach((outer, i) => addRing(point(position, n, i * 0.004), normal, outer, outer - 0.025, i === 1 ? 0xd7fff5 : planeColor, i === 1 ? 0.72 : 0.58));
+        cylinderBetween(point(position, u, -0.50), point(position, u, 0.50), 0.010, 0xd7fff5, 0.42);
+        cylinderBetween(point(position, v, -0.50), point(position, v, 0.50), 0.010, 0xd7fff5, 0.42);
+        cylinderBetween(point(position, n, 0.06), point(position, n, 0.70), 0.018, 0xffc857, 0.90);
+      }
+    }
+
+    for (let ix = -3; ix <= 3; ix++) {
+      for (let iy = -2; iy <= 2; iy++) {
+        const fixed = Math.abs(iy) === 2 || ix === -3 || ix === 3;
+        addAtom(fixed ? "Ga" : "N", [ix * 0.78, iy * 0.74, fixed ? -0.18 : 0], fixed ? 0.34 : 0.27, fixed);
+      }
+    }
+
+    const lineAtoms = [
+      [-3.1, -1.0, 1.00],
+      [-3.1, -0.25, 1.00],
+      [-3.1, 0.50, 1.00],
+      [-3.1, 1.25, 1.00],
+      [-3.1, 2.00, 1.00]
+    ];
+    const planeAtoms = [
+      [3.1, -1.0, 1.00],
+      [3.1, -0.25, 1.00],
+      [3.1, 0.50, 1.00],
+      [3.1, 1.25, 1.00],
+      [3.1, 2.00, 1.00]
+    ];
+    const lineDirs = [[1, 0.25, 0.10], [0.85, 0.35, 0.0], [1, -0.20, 0.16], [0.90, 0.10, 0.28], [1, 0.05, 0.0]];
+    const planeNormals = [[0.1, 0.1, 1], [0.25, -0.05, 1], [0.1, 0.35, 1], [0.35, 0.0, 1], [0.0, -0.25, 1]];
+
+    lineAtoms.forEach((pos, i) => {
+      addAtom("Li", pos, 0.30);
+      addFixedLineVariant(i + 1, pos, lineDirs[i]);
+      addLabel(`FL ${i + 1}`, [pos[0] - 0.05, pos[1], pos[2] + 0.78], "#aeefff");
+    });
+    planeAtoms.forEach((pos, i) => {
+      addAtom("Li", pos, 0.30);
+      addFixedPlaneVariant(i + 1, pos, planeNormals[i]);
+      addLabel(`FP ${i + 1}`, [pos[0] + 0.05, pos[1], pos[2] + 0.78], "#bfffee");
+    });
+
+    addLabel("FixAtoms", [0, -2.15, 0.35], "#ffd986");
+
+    const grid = new THREE.GridHelper(9, 18, 0x3e4a55, 0x2a323a);
+    grid.rotation.x = Math.PI / 2;
+    grid.position.z = -0.55;
+    scene.add(grid);
+
+    let dragging = false;
+    let lastX = 0;
+    let lastY = 0;
+    renderer.domElement.addEventListener("pointerdown", event => {
+      dragging = true;
+      lastX = event.clientX;
+      lastY = event.clientY;
+      renderer.domElement.setPointerCapture(event.pointerId);
+    });
+    renderer.domElement.addEventListener("pointermove", event => {
+      if (!dragging) return;
+      const dx = event.clientX - lastX;
+      const dy = event.clientY - lastY;
+      lastX = event.clientX;
+      lastY = event.clientY;
+      root.rotation.z += dx * 0.006;
+      root.rotation.x += dy * 0.004;
+    });
+    renderer.domElement.addEventListener("pointerup", () => { dragging = false; });
+    renderer.domElement.addEventListener("wheel", event => {
+      event.preventDefault();
+      camera.position.multiplyScalar(1 + Math.sign(event.deltaY) * 0.055);
+      camera.lookAt(0, 0, 0.4);
+    }, { passive: false });
+
+    addEventListener("resize", () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+    function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>

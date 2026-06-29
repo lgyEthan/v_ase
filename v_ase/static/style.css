@@ -143,7 +143,7 @@ body[data-viz-only="true"] [data-edit-only] {
 .create-atom-widget {
     position: absolute;
     left: 18px;
-    bottom: 94px;
+    bottom: 160px;
     z-index: 74;
     width: 306px;
     min-height: 40px;
@@ -2291,9 +2291,9 @@ body.inspector-wide #inspector #element-radius-list {
 }
 
 .trajectory-strip {
-    width: min(900px, 100%);
+    width: min(1080px, 100%);
     display: grid;
-    grid-template-columns: 172px minmax(220px, 1fr) 168px;
+    grid-template-columns: minmax(360px, max-content) minmax(260px, 1fr) 168px;
     gap: 12px;
     align-items: center;
     padding: 9px 12px;
@@ -2308,10 +2308,11 @@ body.inspector-wide #inspector #element-radius-list {
 
 .trajectory-strip .timeline-head {
     display: grid;
-    grid-template-columns: auto 34px 34px 34px minmax(46px, 1fr);
+    grid-template-columns: auto 34px 34px 34px minmax(72px, max-content);
     gap: 7px;
     align-items: center;
     margin: 0;
+    min-width: 0;
 }
 
 .timeline-source-label {
@@ -2359,6 +2360,8 @@ body.inspector-wide #inspector #element-radius-list {
     font-size: 0.78rem;
     font-weight: 780;
     text-align: right;
+    min-width: 72px;
+    white-space: nowrap;
 }
 
 .trajectory-strip #frame-slider {
@@ -2422,7 +2425,7 @@ body.inspector-wide #inspector #element-radius-list {
     }
 
     .trajectory-strip {
-        grid-template-columns: 164px minmax(130px, 1fr) 154px;
+        grid-template-columns: minmax(330px, max-content) minmax(160px, 1fr) 154px;
     }
 }
 

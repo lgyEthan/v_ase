@@ -596,8 +596,10 @@ def test_trajectory_controls_update_live_and_space_toggles_playback():
     assert ".relax-trajectory-row" in style_css
     renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
     assert "canonicalVectorKey" in renderer_js
-    assert "addFixedPlaneGuideGroup" in renderer_js
-    assert "fixed_plane_group" in renderer_js
+    assert "const compactPlane = selectedIndices.size > 1" in renderer_js
+    assert "this.addFixedPlaneGuide(idx, planeNormal, { compact: compactPlane })" in renderer_js
+    assert "new THREE.CircleGeometry(guideSize * 0.5, 48)" in renderer_js
+    assert "new THREE.RingGeometry(half * 0.94, half, 64)" in renderer_js
     assert "constraintGuideIndices" in renderer_js
     assert "planeAggregate" in renderer_js
     assert "refreshBondsForCurrentPositions" in renderer_js

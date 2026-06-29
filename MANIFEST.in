@@ -3,7 +3,7 @@ include LICENSE
 include requirements.txt
 recursive-include v_ase/static *.html *.css *.js
 recursive-include v_ase/static/vendor *
-recursive-include docs *.md *.png *.gif
+recursive-include docs *.md *.png *.gif *.html
 prune docs/assets/github
 recursive-include examples *.py *.traj *.md
 recursive-include scripts *.py
