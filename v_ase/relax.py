@@ -136,8 +136,18 @@ def run_opt_thread(session, fmax, steps, run_id):
         if run_id == session.relax_run_id:
             session.working_atoms = copy_atoms_with_calc(atoms)
             session.sync_current_frame()
+            forces = atoms.get_forces()
+            energy = atoms.get_potential_energy()
+            current_fmax = float(np.sqrt((forces**2).sum(axis=1).max())) if len(forces) else 0.0
             ws_manager.broadcast_sync(
-                {"type": "relax_finished", "status": "converged"},
+                {
+                    "type": "relax_finished",
+                    "status": "converged",
+                    "step": dyn.nsteps,
+                    "energy": float(energy),
+                    "fmax": current_fmax,
+                    "positions": atoms.get_positions().tolist(),
+                },
                 session.session_id,
             )
 

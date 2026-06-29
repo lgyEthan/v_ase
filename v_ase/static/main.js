@@ -65,8 +65,16 @@ class VAseApp {
             rotationMaxStrain: 0,
             rotationViolationCount: 0,
             trajectoryTimer: null,
+            trajectoryPlaybackSource: null,
             trajectoryBinaryCache: null,
             trajectoryBinaryPromise: null,
+            relaxTrajectory: {
+                frames: [],
+                frame: 0,
+                sourceFrame: 0,
+                active: false,
+                finished: false
+            },
             typeOrder: [],
             isRelaxing: false
         };
@@ -405,6 +413,7 @@ class VAseApp {
             if (!data || !data.positions) return;
 
             this.state.atoms = data;
+            this.clearRelaxTrajectoryIfTopologyChanged(data);
             this.state.originalPositions = data.positions.map(p => [...p]);
             if (data.metadata?.trajectory_positions_binary && !data.trajectory_positions) {
                 this.loadTrajectoryCache({ background: true });
@@ -718,6 +727,7 @@ class VAseApp {
 
     setAtomsData(data, { clearSelection = false } = {}) {
         this.state.atoms = data;
+        this.clearRelaxTrajectoryIfTopologyChanged(data);
         this.reconcileTypeOrder(data.symbols || []);
         this.state.originalPositions = data.positions.map(p => [...p]);
         if (data.trajectory_positions) {
@@ -793,6 +803,106 @@ class VAseApp {
         return positions;
     }
 
+    loadedFrameCount() {
+        return this.state.atoms?.metadata?.frame_count || 1;
+    }
+
+    relaxFrameCount() {
+        return this.state.relaxTrajectory?.frames?.length || 0;
+    }
+
+    primaryTimelineSource() {
+        if (this.loadedFrameCount() > 1) return 'loaded';
+        if (this.relaxFrameCount() > 1) return 'relax';
+        return 'loaded';
+    }
+
+    timelineFrameCount(source = this.primaryTimelineSource()) {
+        return source === 'relax' ? this.relaxFrameCount() : this.loadedFrameCount();
+    }
+
+    timelineFrameIndex(source = this.primaryTimelineSource()) {
+        if (source === 'relax') return this.state.relaxTrajectory?.frame || 0;
+        return this.state.atoms?.metadata?.current_frame || 0;
+    }
+
+    startRelaxTrajectory() {
+        const meta = this.state.atoms?.metadata || {};
+        const sourceFrame = Number.isFinite(Number(meta.current_frame)) ? Number(meta.current_frame) : 0;
+        this.state.relaxTrajectory = {
+            frames: [],
+            frame: 0,
+            sourceFrame,
+            active: true,
+            finished: false
+        };
+        const positions = this.currentPositionsFromScene?.() || this.state.atoms?.positions || [];
+        if (positions.length) this.appendRelaxFrame(positions, { force: true });
+        this.updateTrajectoryUI();
+    }
+
+    samePositionFrame(a, b) {
+        if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+        for (let i = 0; i < a.length; i++) {
+            const pa = a[i];
+            const pb = b[i];
+            if (!pa || !pb) return false;
+            for (let axis = 0; axis < 3; axis++) {
+                if (Math.abs(Number(pa[axis]) - Number(pb[axis])) > 1e-10) return false;
+            }
+        }
+        return true;
+    }
+
+    appendRelaxFrame(positions, { force = false } = {}) {
+        if (!Array.isArray(positions) || !positions.length) return;
+        const trajectory = this.state.relaxTrajectory;
+        if (!trajectory.active && !trajectory.frames.length) {
+            trajectory.active = true;
+        }
+        const frame = positions.map(p => [...p]);
+        const last = trajectory.frames[trajectory.frames.length - 1];
+        if (!force && last && this.samePositionFrame(last, frame)) return;
+        trajectory.frames.push(frame);
+        trajectory.frame = trajectory.frames.length - 1;
+        this.updateTrajectoryUI();
+    }
+
+    relaxOverridePositions(frameIndex) {
+        const trajectory = this.state.relaxTrajectory;
+        if (!trajectory?.frames?.length) return null;
+        if (trajectory.sourceFrame !== frameIndex) return null;
+        return trajectory.frames[trajectory.frames.length - 1];
+    }
+
+    async loadRelaxFrame(index) {
+        if (this.transform.mode !== 'IDLE') this.cancelTransform();
+        const count = this.relaxFrameCount();
+        if (count <= 0) return;
+        const normalized = Math.max(0, Math.min(count - 1, parseInt(index, 10) || 0));
+        const positions = this.state.relaxTrajectory.frames[normalized];
+        if (!positions) return;
+        this.state.relaxTrajectory.frame = normalized;
+        this.state.atoms.positions = positions;
+        this.state.originalPositions = this.state.vizOnly ? positions : positions.map(p => [...p]);
+        this.renderer.updatePositions(positions);
+        this.updateUI();
+    }
+
+    clearRelaxTrajectoryIfTopologyChanged(data) {
+        const relax = this.state.relaxTrajectory;
+        if (!relax?.frames?.length) return;
+        const natoms = data?.positions?.length || 0;
+        if (relax.frames[0]?.length === natoms) return;
+        this.state.relaxTrajectory = {
+            frames: [],
+            frame: 0,
+            sourceFrame: 0,
+            active: false,
+            finished: false
+        };
+    }
+
     pruneSelection() {
         const count = this.state.atoms?.positions?.length || 0;
         this.state.selected.forEach(idx => {
@@ -844,10 +954,21 @@ class VAseApp {
 
     updateTrajectoryUI() {
         const meta = this.state.atoms?.metadata || {};
-        const count = meta.frame_count || 1;
-        const index = meta.current_frame || 0;
+        const loadedCount = meta.frame_count || 1;
+        const relaxCount = this.relaxFrameCount();
+        const source = this.primaryTimelineSource();
+        const count = this.timelineFrameCount(source);
+        const index = this.timelineFrameIndex(source);
         const panel = document.getElementById('trajectory-panel');
-        if (panel) panel.classList.remove('hidden');
+        if (panel) {
+            panel.classList.toggle('hidden', loadedCount <= 1 && relaxCount <= 1);
+            panel.dataset.primarySource = source;
+        }
+        const sourceLabel = document.getElementById('timeline-source-label');
+        if (sourceLabel) {
+            sourceLabel.innerText = source === 'relax' ? 'RELAX' : 'LOADED';
+            sourceLabel.classList.toggle('relax', source === 'relax');
+        }
         const slider = document.getElementById('frame-slider');
         if (slider) {
             slider.max = Math.max(0, count - 1);
@@ -869,10 +990,24 @@ class VAseApp {
         if (fps) fps.disabled = count <= 1;
         const skip = document.getElementById('movie-skip');
         if (skip) skip.disabled = count <= 1;
+        const relaxRow = document.getElementById('relax-trajectory-row');
+        const showRelaxRow = loadedCount > 1 && relaxCount > 1;
+        if (relaxRow) relaxRow.classList.toggle('hidden', !showRelaxRow);
+        const relaxSlider = document.getElementById('relax-frame-slider');
+        if (relaxSlider) {
+            relaxSlider.max = Math.max(0, relaxCount - 1);
+            relaxSlider.value = Math.min(this.state.relaxTrajectory.frame || 0, Math.max(0, relaxCount - 1));
+            relaxSlider.disabled = relaxCount <= 1;
+        }
+        const relaxLabel = document.getElementById('relax-frame-label');
+        if (relaxLabel) {
+            const relaxIndex = Math.min((this.state.relaxTrajectory.frame || 0) + 1, Math.max(1, relaxCount));
+            relaxLabel.innerText = `${relaxIndex} / ${Math.max(1, relaxCount)}`;
+        }
         const exportVideo = document.getElementById('btn-export-video');
         if (exportVideo) {
-            exportVideo.disabled = count <= 1;
-            exportVideo.title = count <= 1 ? 'Export Video is available for trajectory files only.' : 'Export the trajectory as a WebM video.';
+            exportVideo.disabled = loadedCount <= 1;
+            exportVideo.title = loadedCount <= 1 ? 'Export Video is available for loaded trajectory files only.' : 'Export the loaded trajectory as a WebM video.';
         }
     }
 
@@ -2944,6 +3079,7 @@ class VAseApp {
             if (msg.type === 'relax_step') {
                 this.state.atoms.positions = msg.positions;
                 this.state.originalPositions = msg.positions.map(p => [...p]);
+                this.appendRelaxFrame(msg.positions);
                 this.renderer.updatePositions(msg.positions);
                 const energy = document.getElementById('val-energy');
                 const fmax = document.getElementById('val-fmax');
@@ -2952,9 +3088,23 @@ class VAseApp {
             }
             if (msg.type === 'relax_finished') {
                 this.state.isRelaxing = false;
+                if (Array.isArray(msg.positions)) {
+                    this.appendRelaxFrame(msg.positions, { force: this.relaxFrameCount() <= 1 });
+                    this.state.atoms.positions = msg.positions;
+                    this.state.originalPositions = msg.positions.map(p => [...p]);
+                    this.renderer.updatePositions(msg.positions);
+                } else if (this.state.atoms?.positions?.length) {
+                    this.appendRelaxFrame(this.state.atoms.positions, { force: this.relaxFrameCount() <= 1 });
+                }
+                this.state.relaxTrajectory.finished = true;
                 this.toast(`Relax ${msg.status}.`, msg.status === 'error' ? 'error' : 'success');
                 this.updateUI();
-                this.refresh();
+                this.refresh().then(() => {
+                    if (this.state.atoms?.positions?.length) {
+                        this.appendRelaxFrame(this.state.atoms.positions, { force: this.relaxFrameCount() <= 1 });
+                    }
+                    this.updateTrajectoryUI();
+                });
             }
         };
     }
@@ -3267,6 +3417,14 @@ class VAseApp {
                 }
             }
             if (Array.isArray(frame.pbc)) this.state.atoms.pbc = frame.pbc;
+            const override = this.relaxOverridePositions(normalized);
+            if (override) {
+                this.state.atoms.positions = override;
+                this.state.originalPositions = this.state.vizOnly ? override : override.map(p => [...p]);
+                this.renderer.updatePositions(override);
+                this.updateUI();
+                return;
+            }
             this.renderer.updatePositionsFlat(frame.values, 0, frame.atoms);
             if (this.state.trajectoryTimer) {
                 this.updateTrajectoryUI();
@@ -3285,8 +3443,9 @@ class VAseApp {
             const framePositions = this.state.atoms.trajectory_positions[normalized];
             if (!Array.isArray(framePositions)) return;
             this.state.atoms.metadata.current_frame = normalized;
-            this.state.atoms.positions = framePositions;
-            this.state.originalPositions = this.state.vizOnly ? framePositions : framePositions.map(p => [...p]);
+            const positions = this.relaxOverridePositions(normalized) || framePositions;
+            this.state.atoms.positions = positions;
+            this.state.originalPositions = this.state.vizOnly ? positions : positions.map(p => [...p]);
             this.renderer.updatePositions(this.state.atoms.positions);
             if (this.state.trajectoryTimer) {
                 this.updateTrajectoryUI();
@@ -3302,11 +3461,16 @@ class VAseApp {
             const normalized = Math.max(0, Math.min(count - 1, parseInt(index, 10) || 0));
             const offset = normalized * binaryCache.atoms * 3;
             this.state.atoms.metadata.current_frame = normalized;
-            this.renderer.updatePositionsFlat(binaryCache.values, offset, binaryCache.atoms);
+            const override = this.relaxOverridePositions(normalized);
+            if (override) {
+                this.renderer.updatePositions(override);
+            } else {
+                this.renderer.updatePositionsFlat(binaryCache.values, offset, binaryCache.atoms);
+            }
             if (this.state.trajectoryTimer) {
                 this.updateTrajectoryUI();
             } else {
-                const framePositions = this.materializeBinaryFrame(binaryCache, normalized);
+                const framePositions = override || this.materializeBinaryFrame(binaryCache, normalized);
                 this.state.atoms.positions = framePositions;
                 this.state.originalPositions = this.state.vizOnly ? framePositions : framePositions.map(p => [...p]);
                 this.updateUI();
@@ -3331,6 +3495,11 @@ class VAseApp {
                 }
             }
             if (Array.isArray(data.pbc)) this.state.atoms.pbc = data.pbc;
+            const override = this.relaxOverridePositions(data.metadata.current_frame);
+            if (override) {
+                this.state.atoms.positions = override;
+                this.state.originalPositions = this.state.vizOnly ? override : override.map(p => [...p]);
+            }
             this.renderer.updatePositions(this.state.atoms.positions);
             if (this.state.trajectoryTimer) {
                 this.updateTrajectoryUI();
@@ -3343,8 +3512,12 @@ class VAseApp {
     }
 
     queueFrameLoad(index) {
-        const meta = this.state.atoms?.metadata || {};
-        const count = meta.frame_count || 1;
+        const source = this.primaryTimelineSource();
+        if (source === 'relax') {
+            this.loadRelaxFrame(index).catch(err => this.toast(`Relax frame load failed: ${err.message}`, 'error'));
+            return;
+        }
+        const count = this.loadedFrameCount();
         if (count <= 1) return;
         const normalized = Math.max(0, Math.min(count - 1, parseInt(index, 10) || 0));
         this.pendingFrameIndex = normalized;
@@ -3368,12 +3541,16 @@ class VAseApp {
         }
     }
 
-    async stepFrame(delta) {
-        const meta = this.state.atoms.metadata;
-        const count = meta.frame_count || 1;
+    async stepFrame(delta, source = this.primaryTimelineSource()) {
+        const count = this.timelineFrameCount(source);
         if (count <= 1) return;
-        const next = (meta.current_frame + delta + count) % count;
-        await this.loadFrame(next);
+        const current = this.timelineFrameIndex(source);
+        const next = (current + delta + count) % count;
+        if (source === 'relax') {
+            await this.loadRelaxFrame(next);
+        } else {
+            await this.loadFrame(next);
+        }
     }
 
     currentPlaybackFps() {
@@ -3394,8 +3571,10 @@ class VAseApp {
         if (this.state.trajectoryTimer) {
             clearTimeout(this.state.trajectoryTimer);
             this.state.trajectoryTimer = null;
+            const source = this.state.trajectoryPlaybackSource || this.primaryTimelineSource();
+            this.state.trajectoryPlaybackSource = null;
             this.updateTrajectoryUI();
-            if (this.state.atoms?.metadata?.current_frame !== undefined) {
+            if (source === 'loaded' && this.state.atoms?.metadata?.current_frame !== undefined) {
                 if (this.state.atoms.metadata.virtual_trajectory) {
                     this.loadFrame(this.state.atoms.metadata.current_frame).catch(err => console.warn("Failed to sync frame", err));
                 } else {
@@ -3407,18 +3586,20 @@ class VAseApp {
 
     async startPlayback() {
         const meta = this.state.atoms?.metadata || {};
-        if ((meta.frame_count || 1) <= 1 || this.state.trajectoryTimer) return;
-        if (meta.trajectory_positions_binary && !this.state.trajectoryBinaryCache) {
+        const source = this.primaryTimelineSource();
+        if (this.timelineFrameCount(source) <= 1 || this.state.trajectoryTimer) return;
+        if (source === 'loaded' && meta.trajectory_positions_binary && !this.state.trajectoryBinaryCache) {
             const cache = await this.withBusy(
                 'Loading trajectory cache...',
                 () => this.loadTrajectoryCache({ background: false })
             );
             if (!cache) return;
         }
+        this.state.trajectoryPlaybackSource = source;
         const tick = async () => {
             if (!this.state.trajectoryTimer) return;
             try {
-                await this.stepFrame(this.currentPlaybackStep());
+                await this.stepFrame(this.currentPlaybackStep(), this.state.trajectoryPlaybackSource || source);
             } catch (err) {
                 this.toast(`Movie playback failed: ${err.message}`, 'error');
                 this.stopPlayback();
@@ -3627,6 +3808,7 @@ class VAseApp {
             const fmax = parseFloat(document.getElementById('relax-fmax').value || '0.05');
             const steps = parseInt(document.getElementById('relax-steps').value || '200', 10);
             try {
+                this.startRelaxTrajectory();
                 const response = await this.api.relaxStart(
                     this.backendPositionsPayload(),
                     fmax,
@@ -3638,10 +3820,12 @@ class VAseApp {
                     this.state.isRelaxing = true;
                     this.toast(response.status === 'restarting' ? 'Relaxation restarting.' : 'Relaxation started.', 'success');
                 } else {
+                    this.state.relaxTrajectory.active = false;
                     this.toast(response.message || 'Relaxation did not start.', 'warning');
                 }
                 this.updateUI();
             } catch (err) {
+                this.state.relaxTrajectory.active = false;
                 this.toast(`Relax failed: ${err.message}`, 'error');
             }
         };
@@ -3738,6 +3922,12 @@ class VAseApp {
         document.getElementById('frame-slider').onchange = (e) => {
             this.queueFrameLoad(e.target.value);
         };
+        document.getElementById('relax-frame-slider')?.addEventListener('input', e => {
+            this.loadRelaxFrame(e.target.value).catch(err => this.toast(`Relax frame load failed: ${err.message}`, 'error'));
+        });
+        document.getElementById('relax-frame-slider')?.addEventListener('change', e => {
+            this.loadRelaxFrame(e.target.value).catch(err => this.toast(`Relax frame load failed: ${err.message}`, 'error'));
+        });
         document.getElementById('movie-fps').oninput = () => {
             this.restartPlayback().catch(err => this.toast(`Movie playback failed: ${err.message}`, 'error'));
         };
@@ -3956,8 +4146,7 @@ class VAseApp {
                 }
             } else {
                 if ((e.code === 'Space' || e.key === ' ') && e.target?.tagName?.toLowerCase() !== 'button') {
-                    const frameCount = this.state.atoms?.metadata?.frame_count || 1;
-                    if (frameCount > 1) {
+                    if (this.timelineFrameCount(this.primaryTimelineSource()) > 1) {
                         e.preventDefault();
                         this.togglePlayback().catch(err => this.toast(`Movie playback failed: ${err.message}`, 'error'));
                         return;

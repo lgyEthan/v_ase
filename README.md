@@ -79,6 +79,10 @@ terminal.
 - Hookean constraints are visualized as threshold-aware hook/latch springs.
 - Trajectory playback with live frame slider, FPS control, frame skip, image
   export, and video export.
+- Interactive relaxation streams an optimization trajectory into the bottom
+  timeline. Static single-structure sessions stay uncluttered until relaxation
+  creates frames; loaded trajectory files keep their own movie timeline while a
+  separate Relax row exposes the latest optimization path.
 - Periodic bonds, element-pair cutoff tables, manual bond pairs, supercell
   preview, `make_supercell(P)` cell transform, and wrap atoms into cell. Auto
   and element-cutoff bonds are re-inferred for each trajectory frame.
@@ -196,11 +200,13 @@ v_ase gui examples/readme_scene_assets/showcase.traj --show-bonds
 ## Case 1: Selection, FixedLine, and FixedPlane
 
 Selected atoms get yellow Blender-style outlines. `FixAtoms` entries keep their
-atom shape but switch to a darker matte material, so they read as immobile
-without looking selected. `FixedLine` and `FixedPlane` guides stay hidden until
-the constrained atom is selected, then appear as a thin fading axis or a
-translucent soft-edge plane. `Show Overlays` can hide all of these guides for a
-clean structure view.
+atom color but switch to a faceted, micro-etched material, so they read as
+immobile without looking selected. `FixedLine` and `FixedPlane` guides stay
+hidden until the constrained atom is selected, then appear as a thin fading axis
+or a translucent CAD-style plane. When multiple selected atoms share the same
+FixedPlane normal, `v_ase` draws one aggregate plane with perimeter, crosshair,
+normal, and atom-position markers instead of stacking one guide per atom. `Show
+Overlays` can hide all of these guides for a clean structure view.
 
 `FixedLine` is shown as a Li ion moving along a carbon nanotube channel. The ion
 can slide parallel to the tube axis, but not leave the channel direction:

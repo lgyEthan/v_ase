@@ -533,7 +533,7 @@ def test_frontend_reset_video_and_visual_settings_controls_are_wired():
     assert '<section class="panel-section utility-section"' in index_html
     assert "Scientific Tools" not in index_html
     assert "Relaxation" in index_html
-    assert "Export Video is available for trajectory files only" in main_js
+    assert "Export Video is available for loaded trajectory files only" in main_js
     assert "exportTrajectoryVideo" in main_js
     assert "canvas.captureStream" in main_js
     assert "MediaRecorder" in main_js
@@ -556,9 +556,19 @@ def test_trajectory_controls_update_live_and_space_toggles_playback():
     assert "flushFrameLoadQueue" in main_js
     assert '<div id="trajectory-panel" class="trajectory-strip"' in index_html
     assert 'frame-label">1 / 1' in index_html
-    assert "panel.classList.remove('hidden')" in main_js
+    assert "timeline-source-label" in index_html
+    assert "relax-trajectory-row" in index_html
+    assert "relax-frame-slider" in index_html
+    assert "primaryTimelineSource" in main_js
+    assert "timelineFrameCount(source)" in main_js
+    assert "startRelaxTrajectory" in main_js
+    assert "appendRelaxFrame" in main_js
+    assert "loadRelaxFrame" in main_js
+    assert "relaxOverridePositions" in main_js
+    assert "panel.classList.toggle('hidden', loadedCount <= 1 && relaxCount <= 1)" in main_js
     assert "slider.disabled = count <= 1" in main_js
     assert "frame-slider').oninput" in main_js
+    assert "relax-frame-slider')?.addEventListener('input'" in main_js
     assert "movie-fps').oninput" in main_js
     assert 'label for="movie-skip">Skip' in index_html
     assert "movie-skip" in main_js
@@ -566,7 +576,7 @@ def test_trajectory_controls_update_live_and_space_toggles_playback():
     assert "currentPlaybackFps" in main_js
     assert "currentPlaybackSkip" in main_js
     assert "currentPlaybackStep" in main_js
-    assert "this.stepFrame(this.currentPlaybackStep())" in main_js
+    assert "this.stepFrame(this.currentPlaybackStep(), this.state.trajectoryPlaybackSource || source)" in main_js
     assert "setTimeout(tick, 1000 / this.currentPlaybackFps())" in main_js
     assert "e.code === 'Space'" in main_js
     assert "Play or pause trajectory" in main_js
@@ -583,7 +593,13 @@ def test_trajectory_controls_update_live_and_space_toggles_playback():
     assert "number-stepper" not in style_css
     assert "input[type=\"number\"]::-webkit-inner-spin-button" not in style_css
     assert ".trajectory-strip" in style_css
+    assert ".relax-trajectory-row" in style_css
     renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
+    assert "canonicalVectorKey" in renderer_js
+    assert "addFixedPlaneGuideGroup" in renderer_js
+    assert "fixed_plane_group" in renderer_js
+    assert "constraintGuideIndices" in renderer_js
+    assert "planeAggregate" in renderer_js
     assert "refreshBondsForCurrentPositions" in renderer_js
     assert "const nextPairs = this.inferBondPairs()" in renderer_js
     assert "this.refreshBondsForCurrentPositions()" in renderer_js

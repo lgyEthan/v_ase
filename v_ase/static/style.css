@@ -2308,10 +2308,28 @@ body.inspector-wide #inspector #element-radius-list {
 
 .trajectory-strip .timeline-head {
     display: grid;
-    grid-template-columns: 34px 34px 34px minmax(46px, 1fr);
+    grid-template-columns: auto 34px 34px 34px minmax(46px, 1fr);
     gap: 7px;
     align-items: center;
     margin: 0;
+}
+
+.timeline-source-label {
+    min-width: 56px;
+    padding: 4px 7px;
+    border-radius: 6px;
+    background: rgba(88, 211, 187, 0.12);
+    color: #78e6d0;
+    font-size: 0.64rem;
+    font-weight: 860;
+    letter-spacing: 0.04em;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.timeline-source-label.relax {
+    background: rgba(255, 200, 87, 0.13);
+    color: #ffd77b;
 }
 
 .trajectory-strip button {
@@ -2369,6 +2387,31 @@ body.inspector-wide #inspector #element-radius-list {
     background: rgba(0, 0, 0, 0.24);
     color: var(--text);
     text-align: center;
+}
+
+.relax-trajectory-row {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 72px minmax(220px, 1fr) 62px;
+    gap: 10px;
+    align-items: center;
+    padding-top: 8px;
+    margin-top: 2px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.relax-trajectory-row input {
+    width: 100%;
+    min-height: 20px;
+    accent-color: var(--inspector-accent-warm);
+}
+
+#relax-frame-label {
+    color: var(--text);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.78rem;
+    font-weight: 780;
+    text-align: right;
 }
 
 @media (max-width: 980px) {

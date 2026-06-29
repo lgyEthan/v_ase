@@ -463,6 +463,40 @@ export class ASERenderer {
                     }
                 `
             }),
+            planeAggregate: new THREE.ShaderMaterial({
+                transparent: true,
+                side: THREE.DoubleSide,
+                depthTest: true,
+                depthWrite: false,
+                uniforms: {
+                    color: { value: new THREE.Color(0x3dd6b0) },
+                    opacity: { value: 0.055 }
+                },
+                vertexShader: `
+                    varying vec2 vUv;
+                    void main() {
+                        vUv = uv;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform vec3 color;
+                    uniform float opacity;
+                    varying vec2 vUv;
+                    void main() {
+                        vec2 centered = abs(vUv - vec2(0.5)) * 2.0;
+                        float edge = max(centered.x, centered.y);
+                        float interior = 1.0 - smoothstep(0.42, 0.94, edge);
+                        vec2 grid = abs(fract(vUv * 8.0) - 0.5);
+                        float sparseGrid = max(
+                            smoothstep(0.465, 0.500, grid.x),
+                            smoothstep(0.465, 0.500, grid.y)
+                        );
+                        float alpha = opacity * interior + opacity * 0.42 * sparseGrid * (1.0 - smoothstep(0.72, 1.0, edge));
+                        gl_FragColor = vec4(color, alpha);
+                    }
+                `
+            }),
             planePerimeter: new THREE.MeshBasicMaterial({
                 color: 0x66f2d5,
                 transparent: true,
@@ -683,8 +717,7 @@ export class ASERenderer {
                 group.visible = this.atomTypeVisible(idx);
             });
             this.constraintGuideGroup.children.forEach(group => {
-                const idx = group.userData.constraintGuideFor;
-                group.visible = this.atomTypeVisible(idx);
+                group.visible = this.constraintGuideVisible(group);
             });
             this.refreshBondsForCurrentPositions();
             this.updateSupercellPositions();
@@ -706,8 +739,7 @@ export class ASERenderer {
             group.visible = this.atomTypeVisible(idx);
         });
         this.constraintGuideGroup.children.forEach(group => {
-            const idx = group.userData.constraintGuideFor;
-            group.visible = this.atomTypeVisible(idx);
+            group.visible = this.constraintGuideVisible(group);
         });
         this.refreshBondsForCurrentPositions();
         this.updateSupercellPositions();
@@ -1919,6 +1951,25 @@ export class ASERenderer {
         return v.lengthSq() > 1e-12 ? v.normalize() : new THREE.Vector3(1, 0, 0);
     }
 
+    canonicalVectorKey(values) {
+        const v = this.normalizedVector(values);
+        const components = [v.x, v.y, v.z];
+        const dominant = components.reduce((best, value, idx) => Math.abs(value) > Math.abs(components[best]) ? idx : best, 0);
+        if (components[dominant] < 0) v.multiplyScalar(-1);
+        return [v.x, v.y, v.z].map(value => value.toFixed(3)).join(',');
+    }
+
+    constraintGuideIndices(group) {
+        if (Array.isArray(group.userData.constraintGuideIndices)) return group.userData.constraintGuideIndices;
+        const idx = group.userData.constraintGuideFor;
+        return idx === undefined ? [] : [idx];
+    }
+
+    constraintGuideVisible(group) {
+        const indices = this.constraintGuideIndices(group);
+        return indices.some(idx => this.atomTypeVisible(idx));
+    }
+
     orientYAxis(object, direction) {
         object.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.clone().normalize());
     }
@@ -1944,14 +1995,25 @@ export class ASERenderer {
         if (!this.atomsData?.constraints || !selectedIndices.size || this.displayOptions.showOverlays === false) return;
         const fixedLine = this.atomsData.constraints.fixed_line || {};
         const fixedPlane = this.atomsData.constraints.fixed_plane || {};
+        const planeGroups = new Map();
         selectedIndices.forEach(idx => {
             const atom = this.atomMeshByIndex.get(idx);
             if (!atom) return;
             if (fixedLine[idx] || fixedLine[String(idx)]) {
                 this.addFixedLineGuide(idx, fixedLine[idx] || fixedLine[String(idx)]);
             }
-            if (fixedPlane[idx] || fixedPlane[String(idx)]) {
-                this.addFixedPlaneGuide(idx, fixedPlane[idx] || fixedPlane[String(idx)]);
+            const planeNormal = fixedPlane[idx] || fixedPlane[String(idx)];
+            if (planeNormal) {
+                const key = this.canonicalVectorKey(planeNormal);
+                if (!planeGroups.has(key)) planeGroups.set(key, { normal: planeNormal, indices: [] });
+                planeGroups.get(key).indices.push(idx);
+            }
+        });
+        planeGroups.forEach(group => {
+            if (group.indices.length === 1) {
+                this.addFixedPlaneGuide(group.indices[0], group.normal);
+            } else {
+                this.addFixedPlaneGuideGroup(group.indices, group.normal);
             }
         });
     }
@@ -2052,6 +2114,103 @@ export class ASERenderer {
         group.renderOrder = 19;
         this.constraintGuideGroup.add(group);
         this.updateFixedPlaneGuideMotion(group, atom);
+    }
+
+    fixedPlaneBasis(normal) {
+        const n = normal.clone().normalize();
+        const seed = Math.abs(n.z) < 0.86 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0);
+        const u = new THREE.Vector3().crossVectors(seed, n).normalize();
+        const v = new THREE.Vector3().crossVectors(n, u).normalize();
+        return { u, v, n };
+    }
+
+    selectedPlaneCenter(indices) {
+        const center = new THREE.Vector3();
+        let count = 0;
+        indices.forEach(idx => {
+            const atom = this.atomMeshByIndex.get(idx);
+            if (!atom || !this.atomTypeVisible(idx)) return;
+            center.add(atom.position);
+            count += 1;
+        });
+        return count ? center.multiplyScalar(1 / count) : null;
+    }
+
+    addFixedPlaneGuideGroup(indices, normalValues) {
+        const normal = this.normalizedVector(normalValues);
+        const center = this.selectedPlaneCenter(indices);
+        if (!center) return;
+        const planeOffset = 0.045;
+        const group = new THREE.Group();
+        group.userData = {
+            constraintGuideIndices: [...indices],
+            kind: 'fixed_plane_group',
+            normal: normal.toArray(),
+            planeOffset
+        };
+
+        const { u, v, n } = this.fixedPlaneBasis(normal);
+        let maxSpan = 0;
+        indices.forEach(idx => {
+            const atom = this.atomMeshByIndex.get(idx);
+            if (!atom) return;
+            const delta = atom.position.clone().sub(center);
+            maxSpan = Math.max(maxSpan, Math.abs(delta.dot(u)), Math.abs(delta.dot(v)));
+        });
+        const guideSize = Math.max(8, Math.min(96, maxSpan * 2 + Math.max(5.5, (this.desiredGuideSize?.() || 18) * 0.18)));
+        const plane = new THREE.Mesh(new THREE.PlaneGeometry(guideSize, guideSize), this.constraintMaterials.planeAggregate);
+        plane.userData.sharedMaterial = true;
+        plane.renderOrder = 15;
+        group.add(plane);
+
+        const half = guideSize * 0.5;
+        const cross = guideSize * 0.28;
+        const edgeRadius = Math.max(0.010, guideSize * 0.0014);
+        const crossRadius = Math.max(0.010, guideSize * 0.0015);
+        const normalRadius = Math.max(0.012, guideSize * 0.0019);
+        [
+            [[-half, -half, 0.002], [half, -half, 0.002]],
+            [[half, -half, 0.002], [half, half, 0.002]],
+            [[half, half, 0.002], [-half, half, 0.002]],
+            [[-half, half, 0.002], [-half, -half, 0.002]]
+        ].forEach((edge, edgeIndex) => {
+            const line = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.planePerimeter);
+            line.userData = { sharedMaterial: true, fixedPlanePerimeter: true };
+            this.setLinePoints(line, edge.map(p => new THREE.Vector3(...p)), `fixedPlaneGroupEdge${edgeIndex}`, edgeRadius);
+            line.renderOrder = 17;
+            group.add(line);
+        });
+
+        [
+            [[-cross, 0, 0.006], [cross, 0, 0.006]],
+            [[0, -cross, 0.006], [0, cross, 0.006]]
+        ].forEach((axis, axisIndex) => {
+            const line = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.planeCrosshair);
+            line.userData = { sharedMaterial: true, fixedPlaneCrosshair: true };
+            this.setLinePoints(line, axis.map(p => new THREE.Vector3(...p)), `fixedPlaneGroupCrosshair${axisIndex}`, crossRadius);
+            line.renderOrder = 18;
+            group.add(line);
+        });
+
+        const tickLength = Math.max(0.9, Math.min(2.6, guideSize * 0.07));
+        const normalTick = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.planeNormal);
+        normalTick.userData = { sharedMaterial: true, fixedPlaneNormalTick: true };
+        this.setLinePoints(normalTick, [
+            new THREE.Vector3(0, 0, 0.08),
+            new THREE.Vector3(0, 0, tickLength)
+        ], 'fixedPlaneGroupNormalTick', normalRadius);
+        normalTick.renderOrder = 20;
+        group.add(normalTick);
+
+        indices.forEach((idx, markIndex) => {
+            const marker = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.planeCrosshair);
+            marker.userData = { sharedMaterial: true, fixedPlaneAtomMarker: true, atomIndex: idx, markIndex };
+            group.add(marker);
+        });
+
+        group.renderOrder = 19;
+        this.constraintGuideGroup.add(group);
+        this.updateFixedPlaneGuideGroupMotion(group, { u, v, n });
     }
 
     rebuildHookeanConstraints() {
@@ -2305,12 +2464,20 @@ export class ASERenderer {
 
     syncConstraintGuides() {
         this.constraintGuideGroup.children.forEach(group => {
-            const atom = this.atomMeshByIndex.get(group.userData.constraintGuideFor);
-            if (!atom || !this.atomTypeVisible(group.userData.constraintGuideFor)) {
+            if (!this.constraintGuideVisible(group)) {
                 group.visible = false;
                 return;
             }
             group.visible = true;
+            if (group.userData.kind === 'fixed_plane_group') {
+                this.updateFixedPlaneGuideGroupMotion(group);
+                return;
+            }
+            const atom = this.atomMeshByIndex.get(group.userData.constraintGuideFor);
+            if (!atom) {
+                group.visible = false;
+                return;
+            }
             if (group.userData.kind === 'fixed_plane') {
                 this.updateFixedPlaneGuideMotion(group, atom);
             } else {
@@ -2324,6 +2491,39 @@ export class ASERenderer {
         const planeOffset = Number(group.userData.planeOffset || 0);
         group.position.copy(atom.position).addScaledVector(normal, -planeOffset);
         group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+    }
+
+    updateFixedPlaneGuideGroupMotion(group, basis = null) {
+        const normal = this.normalizedVector(group.userData.normal);
+        const indices = this.constraintGuideIndices(group);
+        const center = this.selectedPlaneCenter(indices);
+        if (!center) {
+            group.visible = false;
+            return;
+        }
+        const planeOffset = Number(group.userData.planeOffset || 0);
+        group.position.copy(center).addScaledVector(normal, -planeOffset);
+        group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+
+        const inverse = group.quaternion.clone().invert();
+        group.children.forEach(child => {
+            if (!child.userData.fixedPlaneAtomMarker) return;
+            const idx = child.userData.atomIndex;
+            const atom = this.atomMeshByIndex.get(idx);
+            if (!atom || !this.atomTypeVisible(idx)) {
+                child.visible = false;
+                return;
+            }
+            child.visible = true;
+            const local = atom.position.clone().sub(center).applyQuaternion(inverse);
+            local.z = 0.012;
+            const markerSize = Math.max(0.18, Math.min(0.52, (this.atomVisualRadius?.(idx) || 0.5) * 0.42));
+            this.setLinePoints(child, [
+                new THREE.Vector3(local.x - markerSize, local.y, local.z),
+                new THREE.Vector3(local.x + markerSize, local.y, local.z)
+            ], `fixedPlaneGroupAtomMarker${child.userData.markIndex}`, Math.max(0.010, markerSize * 0.035));
+            child.renderOrder = 21;
+        });
     }
 
     clearSelectionOutlines() {

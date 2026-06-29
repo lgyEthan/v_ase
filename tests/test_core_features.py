@@ -14,6 +14,7 @@ from ase.calculators.emt import EMT
 from ase.calculators.singlepoint import SinglePointCalculator
 from fastapi import HTTPException
 
+import v_ase.relax as relax_module
 from v_ase.export import export_pickle_response, export_poscar_response
 from v_ase.relax import start_relaxation, stop_relaxation
 from v_ase import DefaultRepulsionCalculator as RootDefaultRepulsionCalculator
@@ -228,9 +229,15 @@ def test_default_repulsion_calculator_device_settings_are_configurable():
     assert 1 in details["cpu_thread_options"]
 
 
-def test_relaxation_starts_with_default_repulsion_calculator():
+def test_relaxation_starts_with_default_repulsion_calculator(monkeypatch):
     atoms = Atoms("HH", positions=[[0, 0, 0], [0.25, 0, 0]])
     session = make_session(atoms)
+    messages = []
+    monkeypatch.setattr(
+        relax_module.ws_manager,
+        "broadcast_sync",
+        lambda message, session_id: messages.append((message, session_id)),
+    )
 
     response = asyncio.run(start_relaxation(session, {"steps": 0}, None))
 
@@ -239,6 +246,10 @@ def test_relaxation_starts_with_default_repulsion_calculator():
         if not session.is_relaxing:
             break
         time.sleep(0.01)
+    finished = [message for message, sid in messages if sid == session.session_id and message["type"] == "relax_finished"]
+    assert finished
+    assert finished[-1]["status"] == "converged"
+    assert len(finished[-1]["positions"]) == len(atoms)
     asyncio.run(stop_relaxation(session))
 
 
