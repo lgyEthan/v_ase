@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.50';
-import { ASERenderer } from './renderer.js?v=0.0.50';
-import { ASESelection } from './selection.js?v=0.0.50';
-import { ASETransform } from './transform.js?v=0.0.50';
+import { ASEApi } from './api.js?v=0.0.51';
+import { ASERenderer } from './renderer.js?v=0.0.51';
+import { ASESelection } from './selection.js?v=0.0.51';
+import { ASETransform } from './transform.js?v=0.0.51';
 
 class VAseApp {
     constructor() {
@@ -440,9 +440,8 @@ class VAseApp {
         const button = document.getElementById('btn-inspector-collapse');
         if (button) {
             button.setAttribute('aria-expanded', next ? 'false' : 'true');
+            button.setAttribute('aria-label', next ? 'Expand control panel' : 'Collapse control panel');
             button.title = next ? 'Expand control panel' : 'Collapse control panel';
-            const glyph = button.querySelector('.inspector-collapse-glyph');
-            if (glyph) glyph.textContent = next ? '<' : '>';
         }
         if (persist) {
             try {
@@ -480,12 +479,14 @@ class VAseApp {
 
     setupInspectorNavigation() {
         let savedGroup = 'inspect';
-        let collapsed = false;
+        let collapsed = true;
         try {
             savedGroup = window.localStorage?.getItem('v_ase.inspectorGroup') || 'inspect';
-            collapsed = window.localStorage?.getItem('v_ase.inspectorCollapsed') === '1';
+            const savedCollapsed = window.localStorage?.getItem('v_ase.inspectorCollapsed');
+            collapsed = savedCollapsed === null ? true : savedCollapsed === '1';
         } catch {
             savedGroup = 'inspect';
+            collapsed = true;
         }
         document.querySelectorAll('[data-inspector-group]').forEach(button => {
             button.addEventListener('click', () => this.setInspectorGroup(button.dataset.inspectorGroup));

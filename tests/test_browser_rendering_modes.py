@@ -9,6 +9,13 @@ from v_ase.session import sessions
 from v_ase.viewer import find_free_port, view
 
 
+def _expand_inspector(page):
+    if page.locator('body').evaluate("element => element.classList.contains('inspector-collapsed')"):
+        page.click('#btn-inspector-collapse')
+        page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
+        page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width >= 336")
+
+
 def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
     atoms = Atoms(
         "HH",
@@ -50,17 +57,33 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
                 "shadows": False,
             }
 
+            assert page.locator('body').evaluate("element => element.classList.contains('inspector-collapsed')")
+            assert page.locator('#btn-inspector-collapse').get_attribute('aria-expanded') == 'false'
+            assert page.locator('#btn-inspector-collapse').get_attribute('title') == 'Expand control panel'
+            assert page.locator('#btn-inspector-collapse .inspector-edge-chevron').count() == 1
+            page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width <= 1")
+            assert page.locator('#inspector').evaluate("element => Math.round(element.getBoundingClientRect().width)") == 0
+
+            page.click('#btn-inspector-collapse')
+            page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
+            page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width >= 336")
+            assert page.locator('#btn-inspector-collapse').get_attribute('aria-expanded') == 'true'
+            assert page.locator('#btn-inspector-collapse').get_attribute('title') == 'Collapse control panel'
+            edge_geometry = page.evaluate("""() => {
+                const button = document.getElementById('btn-inspector-collapse').getBoundingClientRect();
+                const panel = document.getElementById('inspector').getBoundingClientRect();
+                return { buttonRight: button.right, panelLeft: panel.left };
+            }""")
+            assert edge_geometry['buttonRight'] == pytest.approx(edge_geometry['panelLeft'], abs=1.5)
+
             page.click('[data-inspector-group="scene"]')
             assert page.locator('[data-panel="view"]').is_visible()
             assert not page.locator('[data-panel="structure-info"]').is_visible()
-            assert page.locator('#btn-inspector-collapse .inspector-collapse-glyph').inner_text() == '>'
             page.click('#btn-inspector-collapse')
             page.wait_for_function("document.body.classList.contains('inspector-collapsed')")
-            page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width <= 49")
-            assert page.locator('#inspector').evaluate("element => Math.round(element.getBoundingClientRect().width)") == 48
-            assert page.locator('#btn-inspector-collapse .inspector-collapse-glyph').inner_text() == '<'
+            page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width <= 1")
             page.click('#btn-inspector-collapse')
-            assert page.locator('#btn-inspector-collapse .inspector-collapse-glyph').inner_text() == '>'
+            page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
 
             page.click('[data-panel="bonding"] > summary')
             page.check('#chk-periodic-bonds')
@@ -71,9 +94,29 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             assert lighting_icon.is_visible()
             icon_box = lighting_icon.bounding_box()
             assert icon_box is not None
-            assert icon_box['width'] == pytest.approx(24, abs=1)
+            assert icon_box['width'] == pytest.approx(27, abs=1)
             assert icon_box['height'] == pytest.approx(24, abs=1)
+            viewport_tools = page.evaluate("""() => {
+                const trigger = document.getElementById('btn-lighting-toggle').getBoundingClientRect();
+                const orientation = document.getElementById('orientation-widget').getBoundingClientRect();
+                return {
+                    triggerBottom: trigger.bottom,
+                    orientationTop: orientation.top,
+                    horizontalCenterDelta: Math.abs(
+                        (trigger.left + trigger.width / 2) -
+                        (orientation.left + orientation.width / 2)
+                    )
+                };
+            }""")
+            assert viewport_tools['triggerBottom'] <= viewport_tools['orientationTop']
+            assert viewport_tools['horizontalCenterDelta'] <= 2
             page.click('#btn-lighting-toggle')
+            lighting_panel_geometry = page.evaluate("""() => {
+                const trigger = document.getElementById('btn-lighting-toggle').getBoundingClientRect();
+                const card = document.getElementById('lighting-card').getBoundingClientRect();
+                return { triggerLeft: trigger.left, cardRight: card.right };
+            }""")
+            assert lighting_panel_geometry['cardRight'] < lighting_panel_geometry['triggerLeft']
             page.select_option('#lighting-mode', 'studio-shadow')
             page.check('#chk-sun-gizmo')
             page.fill('#sun-position-x', '3')
@@ -199,6 +242,46 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             end = page.evaluate("window.__ASE_APP__.renderer.renderCount")
             assert end == start
 
+            page.click('#btn-lighting-close')
+            page.click('#btn-inspector-collapse')
+            page.wait_for_function("document.body.classList.contains('inspector-collapsed')")
+            page.set_viewport_size({"width": 390, "height": 844})
+            page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width <= 1")
+            mobile_collapsed = page.evaluate("""() => {
+                const trigger = document.getElementById('btn-lighting-toggle').getBoundingClientRect();
+                const orientation = document.getElementById('orientation-widget').getBoundingClientRect();
+                const handle = document.getElementById('btn-inspector-collapse').getBoundingClientRect();
+                const panel = document.getElementById('inspector').getBoundingClientRect();
+                return {
+                    panelWidth: panel.width,
+                    handleRight: handle.right,
+                    viewportWidth: window.innerWidth,
+                    triggerRight: trigger.right,
+                    handleLeft: handle.left,
+                    triggerBottom: trigger.bottom,
+                    orientationTop: orientation.top,
+                    horizontalCenterDelta: Math.abs(
+                        (trigger.left + trigger.width / 2) -
+                        (orientation.left + orientation.width / 2)
+                    )
+                };
+            }""")
+            assert mobile_collapsed['panelWidth'] == pytest.approx(0, abs=1)
+            assert mobile_collapsed['handleRight'] == pytest.approx(mobile_collapsed['viewportWidth'], abs=1)
+            assert mobile_collapsed['triggerRight'] < mobile_collapsed['handleLeft']
+            assert mobile_collapsed['triggerBottom'] <= mobile_collapsed['orientationTop']
+            assert mobile_collapsed['horizontalCenterDelta'] <= 2
+
+            page.click('#btn-inspector-collapse')
+            page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width >= 345.5")
+            mobile_expanded = page.evaluate("""() => {
+                const handle = document.getElementById('btn-inspector-collapse').getBoundingClientRect();
+                const panel = document.getElementById('inspector').getBoundingClientRect();
+                return { handleRight: handle.right, panelLeft: panel.left, panelWidth: panel.width };
+            }""")
+            assert mobile_expanded['panelWidth'] == pytest.approx(346, abs=1)
+            assert mobile_expanded['handleRight'] == pytest.approx(mobile_expanded['panelLeft'], abs=1)
+
             browser.close()
     finally:
         sessions.pop(editor.session_id, None)
@@ -233,6 +316,7 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
             page.wait_for_function("window.__ASE_APP__.renderer.bondPairs.length === 1")
 
+            _expand_inspector(page)
             page.click('[data-inspector-group="scene"]')
             page.click('[data-panel="bonding"] > summary')
             page.select_option('#bond-mode', 'element')
@@ -344,6 +428,7 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
             assert default_bond["segments"] == 2
             assert default_bond["first"] != default_bond["second"]
 
+            _expand_inspector(page)
             page.click('[data-inspector-group="scene"]')
             page.click('[data-panel="bonding"] > summary')
             page.select_option('#bond-style', 'flat')

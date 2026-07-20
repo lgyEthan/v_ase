@@ -73,14 +73,18 @@ a warning and resets the invalid multiplier.
 
 ### Inspector Navigation and Lighting
 The inspector is divided into Inspect, Edit, Scene, and Output sections instead
-of one long mixed panel. Edit is omitted in visualization-only mode. The entire
-inspector can collapse to a 48 px rail, and its width, collapsed state, and active
-section are persisted locally. Its action glyph always describes the next action:
-`>` collapses the open inspector and `<` expands the rail.
+of one long mixed panel. Edit is omitted in visualization-only mode. The
+inspector starts fully collapsed and opens from a compact panel-edge handle.
+The visible tab is only 15 x 30 px, while a transparent 24 x 40 px hit area keeps
+mouse and touch interaction reliable. Its 60-degree SVG chevron points toward
+the next panel state without using text glyphs. Width, explicit collapsed state,
+and active section are persisted locally.
 
-The lighting control uses an illuminated-object icon with incoming rays, a shaded
-sphere, and a surface highlight so it remains distinct from generic add or sun
-controls at compact viewport sizes.
+The lighting control is centered directly above the orientation gizmo. It uses
+an illuminated-object icon with incoming rays, a broad lit hemisphere, curved
+light terminator, shaded hemisphere, and surface highlight so it remains
+distinct from generic add or sun controls at compact viewport sizes. Its card
+opens to the left so it does not cover the orientation gizmo.
 
 The viewport renderer has three explicit modes:
 

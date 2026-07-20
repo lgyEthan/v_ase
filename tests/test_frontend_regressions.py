@@ -751,7 +751,11 @@ def test_control_panel_uses_collapsible_default_hierarchy():
     main_js = (ROOT / "v_ase/static/main.js").read_text()
 
     assert 'id="btn-inspector-collapse"' in index_html
-    assert 'class="inspector-collapse-glyph"' in index_html
+    assert '<body class="inspector-collapsed">' in index_html
+    assert 'class="inspector-edge-chevron"' in index_html
+    assert 'viewBox="0 0 14 20"' in index_html
+    assert 'd="M1.6 4 12 10 1.6 16"' in index_html
+    assert 'inspector-collapse-glyph' not in index_html
     assert '<strong>Workspace</strong>' not in index_html
     assert 'data-inspector-group="inspect"' in index_html
     assert 'data-inspector-group="edit"' in index_html
@@ -765,8 +769,13 @@ def test_control_panel_uses_collapsible_default_hierarchy():
     assert 'data-panel="cell-transform" data-panel-group="edit" data-edit-only' in index_html
     assert 'data-panel="scientific-tools" data-panel-group="edit" data-edit-only' in index_html
     assert "setupInspectorNavigation" in main_js
-    assert "glyph.textContent = next ? '<' : '>'" in main_js
+    assert "let collapsed = true" in main_js
+    assert "savedCollapsed === null ? true" in main_js
+    assert "button.setAttribute('aria-label'" in main_js
+    assert "glyph.textContent" not in main_js
     assert "body.inspector-collapsed" in style_css
+    assert ".inspector-edge-toggle" in style_css
+    assert "--inspector-width: 0px" in style_css
     assert "#inspector .group-hidden" in style_css
     assert "details:not([open]) > summary.section-header" in style_css
     assert "summary.section-header::after" in style_css
@@ -780,9 +789,13 @@ def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
 
     assert 'id="lighting-widget"' in index_html
     assert 'class="render-light-icon"' in index_html
-    assert 'class="render-light-body"' in index_html
-    assert 'class="render-light-highlight"' in index_html
-    assert 'class="render-light-ray"' in index_html
+    assert 'class="render-light-beam"' in index_html
+    assert 'class="render-light-object"' in index_html
+    assert 'class="render-light-lit-face"' in index_html
+    assert 'class="render-light-terminator"' in index_html
+    assert 'class="render-light-specular"' in index_html
+    assert 'render-light-ray' not in index_html
+    assert 'render-light-body' not in index_html
     assert 'class="sun-icon"' not in index_html
     assert '<option value="modeling">Modeling</option>' in index_html
     assert '<option value="studio">Studio Sun</option>' in index_html

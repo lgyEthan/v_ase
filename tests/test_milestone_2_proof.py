@@ -60,9 +60,12 @@ def test_milestone_2_proof():
         # Load the viewer
         page.goto(f"http://127.0.0.1:{port}/?session_id={session_id}")
         
-        # Wait for atoms to load.
-        page.wait_for_selector("#prop-natoms:text-is('3')")
+        # Wait for atoms to load, then open the inspector from its default
+        # collapsed state before checking visible property fields.
         page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
+        page.click("#btn-inspector-collapse")
+        page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
+        page.wait_for_selector("#prop-natoms:text-is('3')")
         print("Atoms loaded in UI.")
         
         # 1. Click O (Select Oxygen). Use the actual projected mesh position
