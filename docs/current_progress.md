@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.51`.
+Last synchronized with implementation: `v_ase-gui 0.0.52`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -334,7 +334,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.51).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.52).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -362,6 +362,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 35**: Replaced the ambiguous inspector chevron construction with explicit action glyphs, removed the redundant Workspace header label, and introduced an illuminated-object vector icon for render lighting.
 *   [x] **Phase 36**: Replaced direct Sun-handle dragging with selectable Blender-style `G`/`R` light transforms, including axis locks, numeric input, confirm/cancel, robust viewport focus, and exact Sun transform/intensity export to Blender.
 *   [x] **Phase 37**: The inspector now starts collapsed behind a small geometric panel-edge handle with a robust invisible hit area; render lighting is centered above the orientation gizmo and uses a clearly illuminated, two-tone sphere icon whose control card opens away from the gizmo.
+*   [x] **Phase 38**: The inspector handle is centered vertically and slightly enlarged without sacrificing its compact edge-tab form; render lighting now sits to the gizmo's right and uses an explicit Sun-to-sphere illumination icon with a ground shadow.
 
 ---
 

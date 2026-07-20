@@ -430,16 +430,18 @@ body.dragging-create-atom {
 
 .inspector-edge-toggle {
     position: fixed;
-    top: calc(var(--header-height) + 14px);
+    top: calc(50vh + 29px);
     right: var(--inspector-width);
     z-index: 340;
-    width: 24px;
-    height: 40px;
+    width: 28px;
+    height: 48px;
     padding: 0;
     border: 0;
     background: transparent;
     cursor: pointer;
     pointer-events: auto;
+    touch-action: manipulation;
+    transform: translateY(-50%);
     transition: right 150ms ease;
 }
 
@@ -448,8 +450,8 @@ body.dragging-create-atom {
     position: absolute;
     top: 5px;
     right: 0;
-    width: 15px;
-    height: 30px;
+    width: 19px;
+    height: 38px;
     border: 1px solid rgba(255, 255, 255, 0.13);
     border-right: 0;
     border-radius: 4px 0 0 4px;
@@ -460,11 +462,11 @@ body.dragging-create-atom {
 
 .inspector-edge-chevron {
     position: absolute;
-    top: 10px;
+    top: 12px;
     right: 2px;
     z-index: 1;
-    width: 11px;
-    height: 20px;
+    width: 14px;
+    height: 24px;
     overflow: visible;
     transform: rotate(180deg);
     transition: transform 150ms ease;
@@ -1192,8 +1194,8 @@ body.inspector-wide #inspector #element-radius-list {
 /* Viewport overlays */
 .orientation-widget {
     position: absolute;
-    top: calc(var(--header-height) + 58px);
-    right: calc(var(--inspector-width) + 14px);
+    top: calc(var(--header-height) + 16px);
+    right: calc(var(--inspector-width) + 62px);
     z-index: 180;
     width: 104px;
     height: 104px;
@@ -1231,54 +1233,70 @@ body.inspector-wide #inspector #element-radius-list {
 
 .lighting-widget {
     position: absolute;
-    top: calc(var(--header-height) + 12px);
-    right: calc(var(--inspector-width) + 47px);
+    top: calc(var(--header-height) + 47px);
+    right: calc(var(--inspector-width) + 12px);
     z-index: 208;
     pointer-events: auto;
 }
 
 .lighting-trigger {
     position: relative;
-    width: 40px;
-    height: 36px;
+    width: 42px;
+    height: 42px;
     display: grid;
     place-items: center;
     padding: 0;
     border: 1px solid var(--line-strong);
-    border-radius: 6px;
+    border-radius: 50%;
     background: rgba(29, 32, 34, 0.94);
     box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
     cursor: pointer;
 }
 
 .render-light-icon {
-    width: 27px;
-    height: 24px;
+    width: 31px;
+    height: 27px;
     overflow: visible;
+}
+
+.render-light-shadow {
+    fill: #090a0b;
+    opacity: 0.52;
+}
+
+.render-light-source {
+    fill: #c6ccc9;
+}
+
+.render-light-source-rays {
+    fill: none;
+    stroke: #c6ccc9;
+    stroke-width: 1.35;
+    stroke-linecap: round;
 }
 
 .render-light-beam {
     fill: none;
     stroke: #bac1be;
-    stroke-width: 1.5;
+    stroke-width: 1.35;
     stroke-linecap: round;
 }
 
 .render-light-object {
     fill: #24292b;
     stroke: #aab2af;
-    stroke-width: 1.2;
+    stroke-width: 1.25;
 }
 
 .render-light-lit-face {
-    fill: #d7ddda;
-    opacity: 0.88;
+    fill: #e1e6e3;
+    opacity: 0.94;
 }
 
 .render-light-terminator {
     fill: none;
     stroke: #f4f6f4;
-    stroke-width: 0.9;
+    stroke-width: 1;
     opacity: 0.72;
 }
 
@@ -1290,6 +1308,18 @@ body.inspector-wide #inspector #element-radius-list {
 .lighting-trigger:hover .render-light-beam,
 .lighting-widget[data-mode="studio"] .render-light-beam,
 .lighting-widget[data-mode="studio-shadow"] .render-light-beam {
+    stroke: var(--amber);
+}
+
+.lighting-trigger:hover .render-light-source,
+.lighting-widget[data-mode="studio"] .render-light-source,
+.lighting-widget[data-mode="studio-shadow"] .render-light-source {
+    fill: var(--amber);
+}
+
+.lighting-trigger:hover .render-light-source-rays,
+.lighting-widget[data-mode="studio"] .render-light-source-rays,
+.lighting-widget[data-mode="studio-shadow"] .render-light-source-rays {
     stroke: var(--amber);
 }
 
@@ -1332,8 +1362,8 @@ body.inspector-wide #inspector #element-radius-list {
 
 .lighting-card {
     position: absolute;
-    top: 0;
-    right: 72px;
+    top: 82px;
+    right: 0;
     width: 310px;
     overflow: hidden;
     border-radius: 7px;
@@ -1972,6 +2002,7 @@ body[data-rotate-invalid="true"] #cmd-buffer {
     }
 
     .inspector-edge-toggle {
+        top: calc(50vh - 10px);
         right: calc(var(--inspector-width) + 9px);
     }
 
@@ -1984,11 +2015,11 @@ body[data-rotate-invalid="true"] #cmd-buffer {
     }
 
     .orientation-widget {
-        right: calc(var(--inspector-width) + 14px);
+        right: calc(var(--inspector-width) + 62px);
     }
 
     .lighting-widget {
-        right: calc(var(--inspector-width) + 18px);
+        right: calc(var(--inspector-width) + 12px);
     }
 
     #command-bar {
@@ -2052,12 +2083,8 @@ body[data-rotate-invalid="true"] #cmd-buffer {
         border-radius: 0;
     }
 
-    .inspector-edge-toggle,
-    body.inspector-collapsed .inspector-edge-toggle {
-        top: calc(var(--header-height) + 13px);
-    }
-
     .inspector-edge-toggle {
+        top: calc(50vh + 27px);
         right: min(var(--inspector-width), calc(100vw - 44px));
     }
 
@@ -2075,21 +2102,21 @@ body[data-rotate-invalid="true"] #cmd-buffer {
     }
 
     .orientation-widget {
-        top: calc(var(--header-height) + 54px);
-        right: 8px;
+        top: calc(var(--header-height) + 16px);
+        right: 58px;
         width: 88px;
         height: 88px;
     }
 
     .lighting-widget {
-        top: calc(var(--header-height) + 10px);
-        right: 32px;
+        top: calc(var(--header-height) + 39px);
+        right: 10px;
         left: auto;
     }
 
     .lighting-card {
         position: fixed;
-        top: calc(var(--header-height) + 150px);
+        top: calc(var(--header-height) + 113px);
         right: 10px;
         left: auto;
         width: min(310px, calc(100vw - 20px));

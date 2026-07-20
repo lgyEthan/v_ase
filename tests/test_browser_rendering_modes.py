@@ -72,9 +72,17 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             edge_geometry = page.evaluate("""() => {
                 const button = document.getElementById('btn-inspector-collapse').getBoundingClientRect();
                 const panel = document.getElementById('inspector').getBoundingClientRect();
-                return { buttonRight: button.right, panelLeft: panel.left };
+                return {
+                    buttonRight: button.right,
+                    panelLeft: panel.left,
+                    verticalCenterDelta: Math.abs(
+                        (button.top + button.height / 2) -
+                        (panel.top + panel.height / 2)
+                    )
+                };
             }""")
             assert edge_geometry['buttonRight'] == pytest.approx(edge_geometry['panelLeft'], abs=1.5)
+            assert edge_geometry['verticalCenterDelta'] <= 1.5
 
             page.click('[data-inspector-group="scene"]')
             assert page.locator('[data-panel="view"]').is_visible()
@@ -94,29 +102,36 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             assert lighting_icon.is_visible()
             icon_box = lighting_icon.bounding_box()
             assert icon_box is not None
-            assert icon_box['width'] == pytest.approx(27, abs=1)
-            assert icon_box['height'] == pytest.approx(24, abs=1)
+            assert icon_box['width'] == pytest.approx(31, abs=1)
+            assert icon_box['height'] == pytest.approx(27, abs=1)
             viewport_tools = page.evaluate("""() => {
                 const trigger = document.getElementById('btn-lighting-toggle').getBoundingClientRect();
                 const orientation = document.getElementById('orientation-widget').getBoundingClientRect();
                 return {
-                    triggerBottom: trigger.bottom,
-                    orientationTop: orientation.top,
-                    horizontalCenterDelta: Math.abs(
-                        (trigger.left + trigger.width / 2) -
-                        (orientation.left + orientation.width / 2)
+                    triggerLeft: trigger.left,
+                    orientationRight: orientation.right,
+                    verticalCenterDelta: Math.abs(
+                        (trigger.top + trigger.height / 2) -
+                        (orientation.top + orientation.height / 2)
                     )
                 };
             }""")
-            assert viewport_tools['triggerBottom'] <= viewport_tools['orientationTop']
-            assert viewport_tools['horizontalCenterDelta'] <= 2
+            assert viewport_tools['triggerLeft'] >= viewport_tools['orientationRight'] + 5
+            assert viewport_tools['verticalCenterDelta'] <= 2
             page.click('#btn-lighting-toggle')
             lighting_panel_geometry = page.evaluate("""() => {
                 const trigger = document.getElementById('btn-lighting-toggle').getBoundingClientRect();
                 const card = document.getElementById('lighting-card').getBoundingClientRect();
-                return { triggerLeft: trigger.left, cardRight: card.right };
+                const orientation = document.getElementById('orientation-widget').getBoundingClientRect();
+                return {
+                    triggerRight: trigger.right,
+                    cardRight: card.right,
+                    cardTop: card.top,
+                    orientationBottom: orientation.bottom
+                };
             }""")
-            assert lighting_panel_geometry['cardRight'] < lighting_panel_geometry['triggerLeft']
+            assert lighting_panel_geometry['cardRight'] == pytest.approx(lighting_panel_geometry['triggerRight'], abs=1.5)
+            assert lighting_panel_geometry['cardTop'] >= lighting_panel_geometry['orientationBottom'] + 5
             page.select_option('#lighting-mode', 'studio-shadow')
             page.check('#chk-sun-gizmo')
             page.fill('#sun-position-x', '3')
@@ -258,29 +273,49 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
                     viewportWidth: window.innerWidth,
                     triggerRight: trigger.right,
                     handleLeft: handle.left,
-                    triggerBottom: trigger.bottom,
-                    orientationTop: orientation.top,
-                    horizontalCenterDelta: Math.abs(
-                        (trigger.left + trigger.width / 2) -
-                        (orientation.left + orientation.width / 2)
+                    handleOverlap: !(
+                        trigger.right <= handle.left ||
+                        trigger.left >= handle.right ||
+                        trigger.bottom <= handle.top ||
+                        trigger.top >= handle.bottom
+                    ),
+                    triggerLeft: trigger.left,
+                    orientationRight: orientation.right,
+                    toolsVerticalCenterDelta: Math.abs(
+                        (trigger.top + trigger.height / 2) -
+                        (orientation.top + orientation.height / 2)
+                    ),
+                    handleVerticalCenterDelta: Math.abs(
+                        (handle.top + handle.height / 2) -
+                        (panel.top + panel.height / 2)
                     )
                 };
             }""")
             assert mobile_collapsed['panelWidth'] == pytest.approx(0, abs=1)
             assert mobile_collapsed['handleRight'] == pytest.approx(mobile_collapsed['viewportWidth'], abs=1)
-            assert mobile_collapsed['triggerRight'] < mobile_collapsed['handleLeft']
-            assert mobile_collapsed['triggerBottom'] <= mobile_collapsed['orientationTop']
-            assert mobile_collapsed['horizontalCenterDelta'] <= 2
+            assert mobile_collapsed['handleOverlap'] is False
+            assert mobile_collapsed['triggerLeft'] >= mobile_collapsed['orientationRight'] + 5
+            assert mobile_collapsed['toolsVerticalCenterDelta'] <= 2
+            assert mobile_collapsed['handleVerticalCenterDelta'] <= 1.5
 
             page.click('#btn-inspector-collapse')
             page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width >= 345.5")
             mobile_expanded = page.evaluate("""() => {
                 const handle = document.getElementById('btn-inspector-collapse').getBoundingClientRect();
                 const panel = document.getElementById('inspector').getBoundingClientRect();
-                return { handleRight: handle.right, panelLeft: panel.left, panelWidth: panel.width };
+                return {
+                    handleRight: handle.right,
+                    panelLeft: panel.left,
+                    panelWidth: panel.width,
+                    verticalCenterDelta: Math.abs(
+                        (handle.top + handle.height / 2) -
+                        (panel.top + panel.height / 2)
+                    )
+                };
             }""")
             assert mobile_expanded['panelWidth'] == pytest.approx(346, abs=1)
             assert mobile_expanded['handleRight'] == pytest.approx(mobile_expanded['panelLeft'], abs=1)
+            assert mobile_expanded['verticalCenterDelta'] <= 1.5
 
             browser.close()
     finally:

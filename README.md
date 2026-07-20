@@ -69,8 +69,8 @@ terminal.
   sections. It starts collapsed and opens from a compact edge handle, leaving
   the viewport unobstructed until controls are needed. v_ase remembers the
   active section, explicit collapsed state, and panel width.
-- Viewport lighting is opt-in and its illuminated-sphere control sits directly
-  above the orientation gizmo. Modeling keeps the original low-overhead,
+- Viewport lighting is opt-in and its illuminated-sphere control sits to the
+  right of the orientation gizmo. Modeling keeps the original low-overhead,
   evenly-lit view; Studio Sun adds real-time PBR directional lighting; Sun +
   Soft Shadow adds a single soft shadow map. The viewport Sun is selected as an
   object and transformed with Blender-style `G`, `R`, `X/Y/Z`, numeric input,

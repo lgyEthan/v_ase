@@ -789,6 +789,9 @@ def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
 
     assert 'id="lighting-widget"' in index_html
     assert 'class="render-light-icon"' in index_html
+    assert 'class="render-light-shadow"' in index_html
+    assert 'class="render-light-source"' in index_html
+    assert 'class="render-light-source-rays"' in index_html
     assert 'class="render-light-beam"' in index_html
     assert 'class="render-light-object"' in index_html
     assert 'class="render-light-lit-face"' in index_html
