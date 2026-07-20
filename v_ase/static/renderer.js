@@ -1892,7 +1892,9 @@ export class ASERenderer {
 
     inferBondPairs() {
         if (!this.atomsData || !this.atomsData.positions) return [];
-        if (this.atomsData.positions.length > 2000) return this.inferBondPairsCellList();
+        // Interactive transforms re-run inference on every visual update. Use
+        // the spatial index early enough to keep medium-sized edits responsive.
+        if (this.atomsData.positions.length > 384) return this.inferBondPairsCellList();
         const pairs = [];
         const hookeanExcluded = this.hookeanBondExclusions();
         const count = this.atomsData.positions.length;

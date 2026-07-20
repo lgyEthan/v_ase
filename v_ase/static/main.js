@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.46';
-import { ASERenderer } from './renderer.js?v=0.0.46';
-import { ASESelection } from './selection.js?v=0.0.46';
-import { ASETransform } from './transform.js?v=0.0.46';
+import { ASEApi } from './api.js?v=0.0.47';
+import { ASERenderer } from './renderer.js?v=0.0.47';
+import { ASESelection } from './selection.js?v=0.0.47';
+import { ASETransform } from './transform.js?v=0.0.47';
 
 class VAseApp {
     constructor() {
@@ -581,6 +581,7 @@ class VAseApp {
 
     async refresh() {
         try {
+            if (this.state.displayConfigLoaded) this.captureBondSettingsFromControls();
             const data = await this.api.fetchAtoms();
             if (!data || !data.positions) return;
 
@@ -892,6 +893,7 @@ class VAseApp {
     }
 
     setAtomsData(data, { clearSelection = false } = {}) {
+        this.captureBondSettingsFromControls();
         this.state.atoms = data;
         this.rebuildTypeIndexCache(data.symbols || []);
         this.state.cachedFmax = this.computeFmax(data.forces || []);
@@ -1797,7 +1799,7 @@ class VAseApp {
         });
         this.renderer.flushAtomInstances(changed);
         this.renderer.syncSelectionOutlines();
-        this.renderer.updateBondPositions();
+        this.renderer.refreshBondsForCurrentPositions();
         this.renderer.updateSupercellPositions();
         this.renderer.updateHookeanPositions();
         const measure = document.getElementById('selected-measure');
@@ -1834,7 +1836,7 @@ class VAseApp {
                 });
                 this.renderer.flushAtomInstances(changed);
                 this.renderer.syncSelectionOutlines();
-                this.renderer.updateBondPositions();
+                this.renderer.refreshBondsForCurrentPositions();
                 this.renderer.updateSupercellPositions();
                 this.renderer.updateHookeanPositions();
                 const measure = document.getElementById('selected-measure');
@@ -2190,15 +2192,8 @@ class VAseApp {
             if (!(newSymbol in map)) map[newSymbol] = map[oldSymbol];
             delete map[oldSymbol];
         });
-        const cutoffs = this.state.display.elementBondCutoffs || {};
-        Object.entries({ ...cutoffs }).forEach(([key, value]) => {
-            const parts = key.split('-');
-            if (parts.length !== 2 || !parts.includes(oldSymbol)) return;
-            const nextParts = parts.map(part => part === oldSymbol ? newSymbol : part);
-            const nextKey = this.elementPairKey(nextParts[0], nextParts[1]);
-            if (!(nextKey in cutoffs)) cutoffs[nextKey] = value;
-            delete cutoffs[key];
-        });
+        // Bond cutoffs are keyed by backend chemical elements, not editable
+        // display labels. Relabeling must never rename or discard this map.
     }
 
     uniqueElementPairs() {
@@ -2687,6 +2682,7 @@ class VAseApp {
     renderElementBondControls() {
         const root = document.getElementById('element-bond-list');
         if (!root || !this.state.atoms?.symbols) return;
+        this.captureBondSettingsFromControls();
         const existingFocus = document.activeElement?.dataset?.pairKey;
         root.innerHTML = '';
         this.uniqueElementPairs().forEach(([a, b]) => {
@@ -2729,6 +2725,30 @@ class VAseApp {
             }
         });
         return cutoffs;
+    }
+
+    captureBondSettingsFromControls({ strictManual = false } = {}) {
+        if (!this.state?.display) return;
+        const mode = document.getElementById('bond-mode')?.value;
+        if (['auto', 'element', 'manual'].includes(mode)) {
+            this.state.display.bondMode = mode;
+        }
+        const scale = Number(document.getElementById('bond-cutoff')?.value);
+        if (Number.isFinite(scale) && scale > 0) {
+            this.state.display.bondCutoffScale = Math.max(0.5, scale);
+        }
+        this.state.display.elementBondCutoffs = {
+            ...(this.state.display.elementBondCutoffs || {}),
+            ...this.parseElementBondCutoffs()
+        };
+        if (this.state.display.bondMode !== 'manual') return;
+        try {
+            this.state.display.manualBondPairs = this.parseBondPairs();
+        } catch (error) {
+            if (strictManual) throw error;
+            // Preserve the last valid topology while a manual pair is being
+            // typed or a topology-changing backend response is being applied.
+        }
     }
 
     updateBondModeUI() {
@@ -2796,17 +2816,12 @@ class VAseApp {
         this.state.display.unitCellAwareRotate = Boolean(document.getElementById('chk-unit-aware-rotate')?.checked);
         const strainCutoff = parseFloat(document.getElementById('rotate-strain-cutoff')?.value || '0.15');
         this.state.display.rotateStrainCutoff = Number.isFinite(strainCutoff) && strainCutoff >= 0 ? strainCutoff : 0.15;
-        this.state.display.bondMode = document.getElementById('bond-mode').value;
-        this.state.display.bondCutoffScale = Math.max(0.5, parseFloat(document.getElementById('bond-cutoff').value || '1.0'));
-        this.state.display.elementBondCutoffs = this.parseElementBondCutoffs();
+        this.captureBondSettingsFromControls({ strictManual: true });
         const radiusScale = parseFloat(document.getElementById('atom-radius-scale')?.value || '1');
         this.state.display.atomRadiusScale = Number.isFinite(radiusScale) && radiusScale > 0 ? radiusScale : 1.0;
         this.state.display.elementRadii = this.parseElementRadii();
         this.state.display.elementColors = this.parseElementColors();
         this.state.display.elementVisible = this.parseElementVisibility();
-        if (this.state.display.bondMode === 'manual') {
-            this.state.display.manualBondPairs = this.parseBondPairs();
-        }
         this.state.display.supercell = this.normalizeSupercellInputs();
         this.state.display.antiAliasing = this.state.antiAliasing;
         this.state.display.sphereQuality = this.state.sphereQuality;
@@ -4152,6 +4167,7 @@ class VAseApp {
             this.renderElementBondControls();
             this.safeApplyDisplayOptions();
         };
+        document.getElementById('bond-cutoff').oninput = () => this.safeApplyDisplayOptions();
         document.getElementById('btn-bond-apply').onclick = () => {
             const mode = document.getElementById('bond-mode').value;
             if (mode === 'manual') {

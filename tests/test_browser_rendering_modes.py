@@ -125,3 +125,101 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             browser.close()
     finally:
         sessions.pop(editor.session_id, None)
+
+
+def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
+    atoms = Atoms(
+        "HH",
+        positions=[[0.0, 0.0, 0.0], [0.7, 0.0, 0.0]],
+        cell=[8.0, 8.0, 8.0],
+        pbc=False,
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        show_bonds=True,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
+            page.wait_for_function("window.__ASE_APP__.renderer.bondPairs.length === 1")
+
+            page.click('[data-inspector-group="scene"]')
+            page.click('[data-panel="bonding"] > summary')
+            page.select_option('#bond-mode', 'element')
+            cutoff = page.locator('.element-bond-cutoff[data-pair-key="H-H"]')
+            assert cutoff.count() == 1
+            cutoff.fill('0.90')
+            page.wait_for_function(
+                "Math.abs(window.__ASE_APP__.state.display.elementBondCutoffs['H-H'] - 0.9) < 1e-9"
+            )
+
+            page.evaluate("""() => {
+                document.activeElement?.blur();
+                const app = window.__ASE_APP__;
+                app.state.selected.clear();
+                app.state.selected.add(1);
+                app.updateSelectionVisuals();
+                app.updateUI();
+            }""")
+
+            page.keyboard.press('g')
+            page.keyboard.press('x')
+            page.keyboard.type('1.0')
+            page.wait_for_function(
+                "window.__ASE_APP__.transform.mode === 'MOVE' && "
+                "window.__ASE_APP__.renderer.bondPairs.length === 0"
+            )
+
+            page.keyboard.press('Enter')
+            page.wait_for_function("window.__ASE_APP__.transform.mode === 'IDLE'")
+            page.evaluate("async () => { await window.__ASE_APP__.pendingApply; }")
+            persisted = page.evaluate("""() => ({
+                mode: window.__ASE_APP__.state.display.bondMode,
+                cutoff: window.__ASE_APP__.state.display.elementBondCutoffs['H-H'],
+                input: Number(document.querySelector('[data-pair-key="H-H"]').value),
+                bonds: window.__ASE_APP__.renderer.bondPairs.length
+            })""")
+            assert persisted == {
+                "mode": "element",
+                "cutoff": 0.9,
+                "input": 0.9,
+                "bonds": 0,
+            }
+
+            page.keyboard.press('g')
+            page.keyboard.press('x')
+            page.keyboard.type('-1.0')
+            page.wait_for_function(
+                "window.__ASE_APP__.transform.mode === 'MOVE' && "
+                "window.__ASE_APP__.renderer.bondPairs.length === 1"
+            )
+            page.keyboard.press('Escape')
+            page.wait_for_function(
+                "window.__ASE_APP__.transform.mode === 'IDLE' && "
+                "window.__ASE_APP__.renderer.bondPairs.length === 0"
+            )
+
+            label_cutoffs = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.state.display.elementBondCutoffs['H-O'] = 1.23;
+                app.transferElementDisplaySettings('H', 'H_custom');
+                return {...app.state.display.elementBondCutoffs};
+            }""")
+            assert label_cutoffs['H-O'] == 1.23
+            assert 'H_custom-O' not in label_cutoffs
+            browser.close()
+    finally:
+        sessions.pop(editor.session_id, None)

@@ -46,15 +46,18 @@ to the same ASE calculator class.
 
 ### Display Tools
 Bonds are rendered as live cylinder objects and update during transform previews,
-relaxation updates, and trajectory frame changes. Auto and element-cutoff bonds
-are re-inferred for each trajectory frame, so bonds break or form when distances
-cross the active cutoff. Bonding can use covalent-radius inference, element-pair
-cutoff rows, or an explicit pair list such as `0-1, 1-2`. Direct current-cell
-distances are the default, so a bond is not drawn toward an atom image that is
-not visible. `Periodic image bonds` opts into minimum-image vectors and image-
-crossing cylinders. This matches VESTA's explicit distinction between keeping
-atom searches inside the boundary and searching atoms beyond it, as documented
-in the [VESTA manual](https://jp-minerals.org/vesta/en/doc/VESTAch8.html).
+relaxation updates, and trajectory frame changes. In interactive mode, auto and
+element-cutoff bonds are re-inferred from every G/R preview position, so bonds
+break or form as soon as distances cross the active cutoff, before commit.
+Manual pair topology remains fixed and only its cylinder geometry is updated.
+The bond mode, global scale, element-pair `rcut` map, periodic-image policy, and
+manual pairs persist across backend structure refreshes and label edits. Bonding
+can use covalent-radius inference, element-pair cutoff rows, or an explicit pair
+list such as `0-1, 1-2`. Direct current-cell distances are the default, so a bond
+is not drawn toward an atom image that is not visible. `Periodic image bonds`
+opts into minimum-image vectors and image-crossing cylinders. This matches
+VESTA's explicit distinction between keeping atom searches inside the boundary
+and searching atoms beyond it, as documented in the [VESTA manual](https://jp-minerals.org/vesta/en/doc/VESTAch8.html).
 
 Orthographic projection is the default view, with perspective available as a
 viewport option. Unit cell, axes, grid, and supercell preview controls are

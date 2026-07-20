@@ -101,8 +101,10 @@ terminal.
   separate Relax row exposes the latest optimization path.
 - Cell-local bonds, opt-in periodic-image bonds, element-pair cutoff tables,
   manual bond pairs, supercell preview, `make_supercell(P)` cell transform, and
-  wrap atoms into cell. Auto and element-cutoff bonds are re-inferred for each
-  trajectory frame.
+  wrap atoms into cell. In interactive mode, auto and element-cutoff bonds form
+  and break live during G/R previews; the chosen mode, scales, pair-specific
+  `rcut` values, MIC policy, and manual pairs persist when the structure or
+  trajectory frame changes.
 - Custom extxyz atom type labels such as `H_type5` are preserved for GUI type
   settings even when ASE cannot parse them as real elements.
 - LAMMPS `lammpstrj` and `.data` integer types stay visible as labels. Valid
@@ -340,6 +342,11 @@ Bonding can be automatic, element-pair based, or manually specified.
   keeping a search inside the boundary and explicitly searching atoms beyond it.
 - Element-pair mode exposes pair-specific `rcut` rows.
 - Manual mode accepts pair strings such as `Na-Cl: 3.2` or `0-1, 1-2`.
+- During interactive G/R previews, auto and element-cutoff pairs are re-inferred
+  immediately. Manual pair topology remains fixed while its cylinders follow the
+  moving atoms.
+- Bond settings persist across transform commits, frame changes, structure
+  refreshes, and atom-label edits.
 - Supercell preview shows repeated atoms and repeated unit-cell lines.
 - `Set Supercell as Cell` converts the preview into real editable atoms.
 - `Cell Transform` accepts a full integer `make_supercell(P)` matrix.

@@ -30,6 +30,9 @@ small number of GPU batches and explicit render requests.
   disables shadow maps, and does not allocate a continuous render loop. Studio
   Sun activates one directional PBR light only when selected. The soft-shadow
   mode additionally enables a single fitted PCF shadow map.
+- **Incremental live bonds**: interactive auto/element bonding uses a cell-list
+  search above 384 atoms and rebuilds bond instances only when the inferred pair
+  topology changes. Manual pairs bypass neighbor inference entirely.
 
 Interactive atom edits still commit through ASE. In particular,
 `Atoms.set_positions(..., apply_constraint=True)` remains the final authority
@@ -62,6 +65,8 @@ reference rather than a universal hardware guarantee.
 ## Regression Checks
 
 `tests/test_frontend_regressions.py` locks down the demand-rendering and
-instancing architecture. The full test suite also covers the optimized LAMMPS
-reader, binary frame metadata, constraints, periodic bonds, supercells, export,
-CLI entry points, and packaging.
+instancing architecture. Browser tests also verify live interactive bond
+formation/breaking and preservation of element-pair cutoffs across structure
+updates. The full test suite covers the optimized LAMMPS reader, binary frame
+metadata, constraints, periodic bonds, supercells, export, CLI entry points,
+and packaging.

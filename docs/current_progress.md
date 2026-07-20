@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.46`.
+Last synchronized with implementation: `v_ase-gui 0.0.47`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -202,10 +202,11 @@ The frontend manages modes: `IDLE`, `MOVE`, `ROTATE`. Transitions are triggered 
 *   **Inference**: Initially created based on covalent radii + scale factor.
 *   **Cell Boundary Default**: Direct current-cell distances are used by default, so cylinders do not point toward invisible neighboring-cell atoms.
 *   **Periodic Images**: `Periodic image bonds` explicitly enables minimum-image vectors and image-crossing cylinders, following VESTA's separate inside-boundary / outside-boundary search policy.
-*   **Interactive**: Once enabled, cylinder bonds **stretch and rotate** to follow atom movement in real time.
+*   **Interactive**: Auto and element-cutoff bonds are re-inferred from the current preview coordinates during G/R transforms, so cylinders form and disappear before the transform is committed. Manual pairs keep their explicit topology and update cylinder geometry only.
 *   **Element/Type Pairs**: Element-pair cutoff rows are exposed in the Bonding panel.
 *   **Manual Pairs**: Explicit pair lists such as `0-1, 1-2` can be supplied in the Bonding panel.
-*   **Recalculation**: During an interactive transform, existing cylinders stretch without repeatedly running neighbor inference. Auto and element-cutoff modes are re-inferred when the trajectory frame changes, so bonds can form or break at the active cutoff; manual pairs only update geometry.
+*   **Recalculation**: Auto and element-cutoff modes are re-inferred during interactive previews and whenever the trajectory frame changes. A cell-list search is used above the small-scene threshold, and bond meshes are rebuilt only when the inferred pair list changes.
+*   **Persistent Settings**: Bond mode, global cutoff scale, element-pair `rcut` values, MIC policy, and manual pairs survive structure refreshes, transform commits, trajectory changes, and display-label edits. Element cutoffs remain keyed by backend chemical elements rather than editable labels.
 
 ---
 
@@ -330,7 +331,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.46).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.47).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -353,13 +354,14 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 30**: Added a standalone HTML design preview with five FixedLine and five FixedPlane persistent-marker candidates, plus fixed-atom reference styling.
 *   [x] **Phase 31**: Consolidated the desktop UI into one responsive style system, integrated the atomistic v_ase logo in the app/package/README, added demand rendering and adaptive DPR, and instanced atoms, bonds, selection outlines, and visualization-mode supercells for large-scene performance.
 *   [x] **Phase 32**: Added collapsible workspace navigation, opt-in Studio Sun and soft-shadow rendering with draggable light controls and independent image-export settings, plus a VESTA-style cell-local bond default with explicit periodic-image MIC mode.
+*   [x] **Phase 33**: Auto and element-cutoff bonds now form and break live during interactive G/R previews, while all user bond settings persist across backend structure refreshes, trajectory changes, and label edits.
 
 ---
 
 ## 28. Prohibited Implementations
 *   **NO** camera rotation on Left Drag.
 *   **NO** client-side-only constraints (always sync with ASE backend).
-*   **NO** continuous bond recalculation during movement (must stretch).
+*   **NO** stale auto/element bond topology during movement; re-infer it from preview coordinates. Manual pair topology remains explicit and only its geometry may stretch.
 *   **NO** silent calculator loss.
 *   **NO** mandatory torch dependency for the default repulsion model.
 *   **NO** device/thread controls applied to user-provided calculators.
