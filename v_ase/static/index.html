@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.45">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.46">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.45';
+            : '/static/vendor/three.module.js?v=0.0.46';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -40,7 +40,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.45</span>
+            <span class="version">0.0.46</span>
         </div>
         <div class="status-group">
             <div class="status-item">
@@ -85,6 +85,61 @@
         </svg>
     </div>
 
+    <div id="lighting-widget" class="lighting-widget">
+        <button id="btn-lighting-toggle" class="lighting-trigger" type="button" aria-expanded="false" title="Render lighting">
+            <span class="sun-icon" aria-hidden="true"></span>
+            <span id="lighting-mode-indicator" class="lighting-mode-indicator" aria-hidden="true"></span>
+        </button>
+        <section id="lighting-card" class="lighting-card glass-panel hidden" aria-label="Render lighting controls">
+            <header class="lighting-card-head">
+                <div>
+                    <strong>Render Lighting</strong>
+                    <span id="lighting-card-mode">Modeling</span>
+                </div>
+                <button id="btn-lighting-close" type="button" aria-label="Close render lighting controls">&times;</button>
+            </header>
+            <div class="lighting-card-body">
+                <label class="lighting-field" for="lighting-mode">
+                    <span>Renderer</span>
+                    <select id="lighting-mode">
+                        <option value="modeling">Modeling</option>
+                        <option value="studio">Studio Sun</option>
+                        <option value="studio-shadow">Sun + Soft Shadow</option>
+                    </select>
+                </label>
+                <label class="lighting-range" for="sun-intensity">
+                    <span>Brightness</span>
+                    <output id="sun-intensity-value">2.20</output>
+                    <input id="sun-intensity" type="range" min="0" max="8" step="0.05" value="2.2">
+                </label>
+                <div class="lighting-vector">
+                    <span>Sun position</span>
+                    <div>
+                        <input id="sun-position-x" type="number" step="0.25" value="8" aria-label="Sun position x">
+                        <input id="sun-position-y" type="number" step="0.25" value="-10" aria-label="Sun position y">
+                        <input id="sun-position-z" type="number" step="0.25" value="14" aria-label="Sun position z">
+                    </div>
+                </div>
+                <div class="lighting-vector">
+                    <span>Direction target</span>
+                    <div>
+                        <input id="sun-target-x" type="number" step="0.25" value="0" aria-label="Sun target x">
+                        <input id="sun-target-y" type="number" step="0.25" value="0" aria-label="Sun target y">
+                        <input id="sun-target-z" type="number" step="0.25" value="0" aria-label="Sun target z">
+                    </div>
+                </div>
+                <label class="lighting-toggle-row" for="chk-sun-gizmo" title="Show draggable Sun and target handles in the viewport">
+                    <span>Edit handles</span>
+                    <input id="chk-sun-gizmo" type="checkbox">
+                </label>
+                <div class="lighting-actions">
+                    <button id="btn-sun-from-view" type="button">From View</button>
+                    <button id="btn-sun-target-selection" type="button">Target Selection</button>
+                </div>
+            </div>
+        </section>
+    </div>
+
     <datalist id="element-type-options"></datalist>
 
     <div id="create-atom-widget" class="create-atom-widget glass-panel collapsed" data-edit-only>
@@ -117,7 +172,23 @@
     <!-- Right Inspector -->
     <aside id="inspector" class="glass-panel">
         <div id="inspector-resizer" role="separator" aria-label="Resize control panel" aria-orientation="vertical" title="Drag to resize panel"></div>
-        <details class="panel-section" open data-panel="structure-info">
+        <header class="inspector-head">
+            <button id="btn-inspector-collapse" class="inspector-collapse" type="button" aria-expanded="true" title="Collapse control panel">
+                <span aria-hidden="true"></span>
+            </button>
+            <div class="inspector-title">
+                <strong>Workspace</strong>
+                <span id="inspector-context">Inspect</span>
+            </div>
+        </header>
+        <nav class="inspector-nav" role="tablist" aria-label="Control panel workspace">
+            <button type="button" role="tab" data-inspector-group="inspect" aria-selected="true">Inspect</button>
+            <button type="button" role="tab" data-inspector-group="edit" aria-selected="false" data-edit-only>Edit</button>
+            <button type="button" role="tab" data-inspector-group="scene" aria-selected="false">Scene</button>
+            <button type="button" role="tab" data-inspector-group="output" aria-selected="false">Output</button>
+        </nav>
+        <div id="inspector-content" class="inspector-content">
+        <details class="panel-section" open data-panel="structure-info" data-panel-group="inspect">
             <summary class="section-header">Structure Info</summary>
             <div class="prop-grid">
                 <span class="p-label">Atoms</span><span id="prop-natoms" class="p-val">-</span>
@@ -126,7 +197,7 @@
             </div>
         </details>
 
-        <details class="panel-section" open data-panel="selection">
+        <details class="panel-section" open data-panel="selection" data-panel-group="inspect">
             <summary class="section-header">Selection</summary>
             <div class="prop-grid">
                 <span class="p-label">Indices</span>
@@ -145,7 +216,7 @@
             <button id="btn-delete-selection" class="btn-block danger-soft" data-edit-only>Delete Selected</button>
         </details>
 
-        <details class="panel-section" open data-panel="constraints" data-edit-only>
+        <details class="panel-section" open data-panel="constraints" data-panel-group="edit" data-edit-only>
             <summary class="section-header">Constraints</summary>
             <div id="constraint-selection-state" class="constraint-hint">Select atoms to edit constraints.</div>
             <div class="prop-row">
@@ -175,7 +246,7 @@
             </div>
         </details>
 
-        <details class="panel-section" open data-panel="view">
+        <details class="panel-section" open data-panel="view" data-panel-group="scene">
             <summary class="section-header">View</summary>
             <div class="prop-row">
                 <label for="projection-mode">Projection</label>
@@ -216,7 +287,7 @@
             <button id="btn-wrap" class="btn-block">Wrap Atoms Into Cell</button>
         </details>
 
-        <details class="panel-section" data-panel="transform" data-edit-only>
+        <details class="panel-section" data-panel="transform" data-panel-group="edit" data-edit-only>
             <summary class="section-header">Transform</summary>
             <div class="prop-row">
                 <label for="rotate-pivot">Rotate pivot</label>
@@ -244,7 +315,7 @@
             </div>
         </details>
 
-        <details class="panel-section" data-panel="appearance">
+        <details class="panel-section" data-panel="appearance" data-panel-group="scene">
             <summary class="section-header">Appearance</summary>
             <div class="prop-row">
                 <label for="chk-antialias">Anti-aliasing</label>
@@ -280,7 +351,7 @@
             </div>
         </details>
 
-        <details class="panel-section" data-panel="cell-transform" data-edit-only>
+        <details class="panel-section" data-panel="cell-transform" data-panel-group="edit" data-edit-only>
             <summary class="section-header">Cell Transform</summary>
             <div class="matrix-grid" id="make-supercell-matrix">
                 <input type="number" id="matrix-00" value="1" step="1">
@@ -296,11 +367,15 @@
             <button id="btn-apply-supercell-matrix" class="btn-block">Apply make_supercell Matrix</button>
         </details>
 
-        <details class="panel-section" data-panel="bonding">
+        <details class="panel-section" data-panel="bonding" data-panel-group="scene">
             <summary class="section-header">Bonding</summary>
             <div class="prop-row">
                 <label for="chk-bonds">Show Bonds</label>
                 <input type="checkbox" id="chk-bonds">
+            </div>
+            <div class="prop-row">
+                <label for="chk-periodic-bonds" title="Include minimum-image bonds to periodic copies outside the displayed cell">Periodic image bonds</label>
+                <input type="checkbox" id="chk-periodic-bonds">
             </div>
             <div class="prop-row">
                 <label for="bond-mode">Mode</label>
@@ -328,7 +403,7 @@
             </div>
         </details>
 
-        <details class="panel-section" data-panel="scientific-tools">
+        <details class="panel-section" data-panel="scientific-tools" data-panel-group="edit" data-edit-only>
             <summary class="section-header">Relaxation</summary>
             <div class="relax-grid">
                 <label>fmax</label>
@@ -340,7 +415,7 @@
             <button id="btn-stop-relax" class="btn-block">Stop Relax</button>
         </details>
 
-        <section class="panel-section export-section" data-panel="export">
+        <section class="panel-section export-section" data-panel="export" data-panel-group="output">
             <div class="section-header static-header">Export</div>
             <button id="btn-export-poscar" class="btn-block">Export POSCAR</button>
             <button id="btn-export-pickle" class="btn-block">Export Pickle</button>
@@ -355,7 +430,7 @@
             <button id="btn-export-video" class="btn-block" disabled>Export Video</button>
         </section>
 
-        <section class="panel-section utility-section" data-panel="settings">
+        <section class="panel-section utility-section" data-panel="settings" data-panel-group="output">
             <div class="section-header static-header">Settings</div>
             <div class="btn-stack-row two">
                 <button id="btn-save-settings">Save Settings</button>
@@ -367,6 +442,7 @@
                 <button id="btn-redo" title="Redo (Ctrl+Shift+Z)">↻</button>
             </div>
         </section>
+        </div>
     </aside>
 
     <!-- Bottom Command Overlay -->
@@ -438,7 +514,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.45';
+            : './static/main.js?v=0.0.46';
         import(modulePath);
     </script>
 </body>

@@ -128,6 +128,14 @@ def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs
         raw_pairs = display.get("manualBondPairs") or []
 
     pairs = []
+    include_periodic_images = bool(display.get("showPeriodicBonds"))
+
+    def bond_delta(i, j):
+        direct = positions[j] - positions[i]
+        if include_periodic_images:
+            return _minimum_image_delta(direct, cell, pbc)
+        return direct
+
     if raw_pairs:
         for pair in raw_pairs:
             if not isinstance(pair, (list, tuple)) or len(pair) < 2:
@@ -141,7 +149,7 @@ def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs
             return []
         for i in range(len(symbols)):
             for j in range(i + 1, len(symbols)):
-                delta = _minimum_image_delta(positions[j] - positions[i], cell, pbc)
+                delta = bond_delta(i, j)
                 if float(np.linalg.norm(delta)) <= cutoff(i, j):
                     pairs.append((i, j))
 
@@ -152,7 +160,7 @@ def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs
         if key in seen:
             continue
         seen.add(key)
-        delta = _minimum_image_delta(positions[j] - positions[i], cell, pbc)
+        delta = bond_delta(i, j)
         bonds.append({
             "i": i,
             "j": j,

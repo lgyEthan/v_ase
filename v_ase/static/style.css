@@ -45,6 +45,10 @@ body {
     pointer-events: none;
 }
 
+body.inspector-collapsed {
+    --inspector-width: 48px;
+}
+
 button,
 input,
 select,
@@ -379,27 +383,167 @@ body.dragging-create-atom {
     width: var(--inspector-width);
     min-width: 336px;
     max-width: min(760px, 72vw);
-    overflow-x: hidden;
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     padding: 0;
     border-width: 0 0 0 1px;
     background: var(--panel);
     box-shadow: -16px 0 42px rgba(0, 0, 0, 0.26);
+    transition: width 150ms ease, min-width 150ms ease, box-shadow 150ms ease;
+}
+
+.inspector-content {
+    flex: 1;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
     scrollbar-color: rgba(141, 145, 142, 0.5) transparent;
 }
 
-#inspector::-webkit-scrollbar {
+.inspector-content::-webkit-scrollbar {
     width: 9px;
 }
 
-#inspector::-webkit-scrollbar-track {
+.inspector-content::-webkit-scrollbar-track {
     background: transparent;
 }
 
-#inspector::-webkit-scrollbar-thumb {
+.inspector-content::-webkit-scrollbar-thumb {
     border: 2px solid var(--panel);
     border-radius: 8px;
     background: #555a58;
+}
+
+.inspector-head {
+    flex: 0 0 54px;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--line);
+    background: #191c1e;
+}
+
+.inspector-collapse {
+    position: relative;
+    flex: 0 0 30px;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid var(--line-strong);
+    border-radius: 5px;
+    background: #222628;
+    cursor: pointer;
+}
+
+.inspector-collapse span::before,
+.inspector-collapse span::after {
+    content: "";
+    position: absolute;
+    left: 10px;
+    width: 8px;
+    height: 1.5px;
+    border-radius: 1px;
+    background: var(--text-soft);
+    transform-origin: left center;
+}
+
+.inspector-collapse span::before {
+    top: 11px;
+    transform: rotate(42deg);
+}
+
+.inspector-collapse span::after {
+    top: 17px;
+    transform: rotate(-42deg);
+}
+
+.inspector-title {
+    min-width: 0;
+    display: grid;
+    gap: 1px;
+}
+
+.inspector-title strong {
+    color: var(--text);
+    font-size: 0.82rem;
+    font-weight: 740;
+}
+
+.inspector-title span {
+    color: var(--muted);
+    font-size: 0.61rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.inspector-nav {
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 3px;
+    padding: 7px 8px;
+    border-bottom: 1px solid var(--line);
+    background: #171a1c;
+}
+
+.inspector-nav button {
+    min-width: 0;
+    height: 31px;
+    padding: 0 5px;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.66rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.inspector-nav button:hover {
+    color: var(--text-soft);
+    background: rgba(255, 255, 255, 0.035);
+}
+
+.inspector-nav button[aria-selected="true"] {
+    border-color: rgba(88, 213, 189, 0.26);
+    background: rgba(88, 213, 189, 0.11);
+    color: var(--teal);
+}
+
+#inspector .group-hidden {
+    display: none !important;
+}
+
+body.inspector-collapsed #inspector {
+    min-width: 48px;
+    max-width: 48px;
+    box-shadow: -8px 0 22px rgba(0, 0, 0, 0.20);
+}
+
+body.inspector-collapsed .inspector-head {
+    justify-content: center;
+    padding: 0;
+}
+
+body.inspector-collapsed .inspector-collapse span::before {
+    top: 11px;
+    left: 11px;
+    transform: rotate(-42deg);
+}
+
+body.inspector-collapsed .inspector-collapse span::after {
+    top: 17px;
+    left: 11px;
+    transform: rotate(42deg);
+}
+
+body.inspector-collapsed .inspector-title,
+body.inspector-collapsed .inspector-nav,
+body.inspector-collapsed .inspector-content,
+body.inspector-collapsed #inspector-resizer {
+    display: none;
 }
 
 #inspector-resizer {
@@ -1061,6 +1205,230 @@ body.inspector-wide #inspector #element-radius-list {
     dominant-baseline: central;
 }
 
+.lighting-widget {
+    position: absolute;
+    top: calc(var(--header-height) + 124px);
+    right: calc(var(--inspector-width) + 22px);
+    z-index: 208;
+    pointer-events: auto;
+}
+
+.lighting-trigger {
+    position: relative;
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    background: rgba(29, 32, 34, 0.94);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+    cursor: pointer;
+}
+
+.sun-icon {
+    position: relative;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--text-soft);
+    border-radius: 50%;
+}
+
+.sun-icon::before,
+.sun-icon::after {
+    content: "";
+    position: absolute;
+    top: 4px;
+    left: -5px;
+    width: 20px;
+    height: 2px;
+    background: var(--text-soft);
+}
+
+.sun-icon::after {
+    transform: rotate(90deg);
+}
+
+.lighting-trigger:hover .sun-icon,
+.lighting-widget[data-mode="studio"] .sun-icon,
+.lighting-widget[data-mode="studio-shadow"] .sun-icon {
+    border-color: var(--amber);
+}
+
+.lighting-trigger:hover .sun-icon::before,
+.lighting-trigger:hover .sun-icon::after,
+.lighting-widget[data-mode="studio"] .sun-icon::before,
+.lighting-widget[data-mode="studio"] .sun-icon::after,
+.lighting-widget[data-mode="studio-shadow"] .sun-icon::before,
+.lighting-widget[data-mode="studio-shadow"] .sun-icon::after {
+    background: var(--amber);
+}
+
+.lighting-mode-indicator {
+    position: absolute;
+    right: 4px;
+    bottom: 4px;
+    width: 6px;
+    height: 6px;
+    border: 1px solid #17191b;
+    border-radius: 50%;
+    background: var(--muted);
+}
+
+.lighting-widget[data-mode="studio"] .lighting-mode-indicator {
+    background: var(--teal);
+}
+
+.lighting-widget[data-mode="studio-shadow"] .lighting-mode-indicator {
+    background: var(--amber);
+}
+
+.lighting-card {
+    position: absolute;
+    top: 46px;
+    right: 0;
+    width: 310px;
+    overflow: hidden;
+    border-radius: 7px;
+    background: rgba(28, 31, 33, 0.98);
+}
+
+.lighting-card-head {
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 8px 8px 13px;
+    border-bottom: 1px solid var(--line);
+}
+
+.lighting-card-head > div {
+    display: grid;
+    gap: 1px;
+}
+
+.lighting-card-head strong {
+    font-size: 0.76rem;
+}
+
+.lighting-card-head span {
+    color: var(--amber);
+    font-size: 0.59rem;
+    font-weight: 720;
+    text-transform: uppercase;
+}
+
+.lighting-card-head button {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 1.05rem;
+    cursor: pointer;
+}
+
+.lighting-card-head button:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text);
+}
+
+.lighting-card-body {
+    display: grid;
+    gap: 11px;
+    padding: 12px;
+}
+
+.lighting-field,
+.lighting-range,
+.lighting-vector,
+.lighting-toggle-row {
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr);
+    gap: 9px;
+    align-items: center;
+    color: var(--text-soft);
+    font-size: 0.67rem;
+    font-weight: 650;
+}
+
+.lighting-field select,
+.lighting-vector input,
+.export-grid select,
+.export-light-vector input {
+    width: 100%;
+    min-width: 0;
+    height: 31px;
+    padding: 4px 7px;
+    border: 1px solid var(--line-strong);
+    border-radius: 5px;
+    background: var(--field);
+    color: var(--text);
+}
+
+.lighting-range {
+    grid-template-columns: 92px minmax(0, 1fr) 38px;
+}
+
+.lighting-range input {
+    min-width: 0;
+    accent-color: var(--amber);
+}
+
+.lighting-range output {
+    color: var(--amber);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.65rem;
+    text-align: right;
+}
+
+.lighting-vector > div,
+.export-light-vector > div {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+}
+
+.lighting-vector input {
+    text-align: center;
+}
+
+.lighting-toggle-row input {
+    justify-self: end;
+    accent-color: var(--teal);
+}
+
+.lighting-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+}
+
+.lighting-actions button {
+    min-width: 0;
+    min-height: 31px;
+    padding: 5px 7px;
+    border: 1px solid var(--line-strong);
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.055);
+    color: var(--text);
+    font-size: 0.65rem;
+    cursor: pointer;
+}
+
+.lighting-actions button:hover:not(:disabled) {
+    border-color: rgba(88, 213, 189, 0.52);
+    background: var(--teal-soft);
+}
+
+.lighting-card-body :disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
 .create-atom-widget {
     position: absolute;
     left: 18px;
@@ -1430,6 +1798,37 @@ body[data-rotate-invalid="true"] #cmd-buffer {
     color: var(--text);
 }
 
+.export-grid select {
+    height: 32px;
+}
+
+.export-render-section {
+    display: grid;
+    gap: 10px;
+    margin-top: 14px;
+    padding-top: 13px;
+    border-top: 1px solid var(--line);
+}
+
+.export-section-title {
+    color: var(--text);
+    font-size: 0.72rem;
+    font-weight: 740;
+}
+
+.export-light-vector {
+    display: grid;
+    grid-template-columns: 112px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    color: var(--text-soft);
+    font-size: 0.72rem;
+}
+
+.export-light-vector input {
+    text-align: center;
+}
+
 .modal-actions {
     display: flex;
     justify-content: flex-end;
@@ -1531,7 +1930,11 @@ body[data-rotate-invalid="true"] #cmd-buffer {
     }
 
     .orientation-widget {
-        right: 20px;
+        right: calc(var(--inspector-width) + 14px);
+    }
+
+    .lighting-widget {
+        right: calc(var(--inspector-width) + 18px);
     }
 
     #command-bar {
@@ -1576,6 +1979,16 @@ body[data-rotate-invalid="true"] #cmd-buffer {
         max-height: 48vh;
     }
 
+    body.inspector-collapsed #inspector {
+        top: var(--header-height);
+        left: auto;
+        right: 0;
+        bottom: 0;
+        width: 48px;
+        max-height: none;
+        border-radius: 0;
+    }
+
     #inspector .prop-row,
     #inspector .supercell-row {
         grid-template-columns: minmax(112px, 1fr) minmax(124px, 1fr);
@@ -1590,6 +2003,18 @@ body[data-rotate-invalid="true"] #cmd-buffer {
         right: 8px;
         width: 88px;
         height: 88px;
+    }
+
+    .lighting-widget {
+        top: 70px;
+        right: auto;
+        left: 10px;
+    }
+
+    .lighting-card {
+        right: auto;
+        left: 0;
+        width: min(310px, calc(100vw - 20px));
     }
 
     .create-atom-widget {

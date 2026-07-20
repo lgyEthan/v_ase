@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.45';
-import { ASERenderer } from './renderer.js?v=0.0.45';
-import { ASESelection } from './selection.js?v=0.0.45';
-import { ASETransform } from './transform.js?v=0.0.45';
+import { ASEApi } from './api.js?v=0.0.46';
+import { ASERenderer } from './renderer.js?v=0.0.46';
+import { ASESelection } from './selection.js?v=0.0.46';
+import { ASETransform } from './transform.js?v=0.0.46';
 
 class VAseApp {
     constructor() {
@@ -34,6 +34,7 @@ class VAseApp {
                 showAxes: true,
                 showGrid: true,
                 showOverlays: true,
+                showPeriodicBonds: false,
                 bondMode: 'auto',
                 bondCutoffScale: 1.0,
                 manualBondPairs: [],
@@ -46,7 +47,12 @@ class VAseApp {
                 unitCellAwareRotate: false,
                 rotateStrainCutoff: 0.15,
                 supercell: [1, 1, 1],
-                projectionMode: 'orthographic'
+                projectionMode: 'orthographic',
+                lightingMode: 'modeling',
+                sunIntensity: 2.2,
+                sunPosition: [8, -10, 14],
+                sunTarget: [0, 0, 0],
+                sunGizmo: false
             },
             antiAliasing: true,
             sphereQuality: 'auto',
@@ -82,8 +88,11 @@ class VAseApp {
             hoverPickTimer: null,
             hoverPointer: null,
             orientationSignature: null,
-            isRelaxing: false
+            isRelaxing: false,
+            sunHandleDragging: false
         };
+
+        this.inspectorGroup = 'inspect';
 
         this.init();
     }
@@ -98,6 +107,8 @@ class VAseApp {
             }
             this.setupWebSocket();
             this.setupInspectorResizer();
+            this.setupInspectorNavigation();
+            this.setupLightingControls();
             this.setupCreateAtomWidget();
             this.setupEventListeners();
             this.setupNumberInputHoldGuards();
@@ -121,9 +132,9 @@ class VAseApp {
     updateEditingAvailability() {
         document.body.dataset.vizOnly = this.state.vizOnly ? 'true' : 'false';
         document.querySelectorAll('[data-edit-only]').forEach(el => {
-            el.hidden = this.state.vizOnly;
             if ('disabled' in el) el.disabled = this.state.vizOnly;
         });
+        if (this.state.vizOnly && this.inspectorGroup === 'edit') this.setInspectorGroup('inspect');
         if (this.state.vizOnly && this.transform.mode !== 'IDLE') {
             this.cancelTransform();
         }
@@ -406,6 +417,7 @@ class VAseApp {
             window.removeEventListener('pointercancel', onUp);
         };
         resizer.addEventListener('pointerdown', event => {
+            if (document.body.classList.contains('inspector-collapsed')) return;
             event.preventDefault();
             event.stopPropagation();
             document.body.classList.add('resizing-inspector');
@@ -414,6 +426,157 @@ class VAseApp {
             window.addEventListener('pointerup', onUp);
             window.addEventListener('pointercancel', onUp);
         });
+    }
+
+    setInspectorCollapsed(collapsed, persist = true) {
+        const next = Boolean(collapsed);
+        document.body.classList.toggle('inspector-collapsed', next);
+        const button = document.getElementById('btn-inspector-collapse');
+        if (button) {
+            button.setAttribute('aria-expanded', next ? 'false' : 'true');
+            button.title = next ? 'Expand control panel' : 'Collapse control panel';
+        }
+        if (persist) {
+            try {
+                window.localStorage?.setItem('v_ase.inspectorCollapsed', next ? '1' : '0');
+            } catch {
+                // Local storage may be unavailable in restricted browser contexts.
+            }
+        }
+        this.renderer?.onResize?.();
+    }
+
+    setInspectorGroup(group, persist = true) {
+        const available = new Set(['inspect', 'edit', 'scene', 'output']);
+        let next = available.has(group) ? group : 'inspect';
+        if (this.state.vizOnly && next === 'edit') next = 'inspect';
+        this.inspectorGroup = next;
+        document.querySelectorAll('[data-inspector-group]').forEach(button => {
+            const active = button.dataset.inspectorGroup === next;
+            button.setAttribute('aria-selected', active ? 'true' : 'false');
+            button.tabIndex = active ? 0 : -1;
+        });
+        document.querySelectorAll('#inspector [data-panel-group]').forEach(panel => {
+            panel.classList.toggle('group-hidden', panel.dataset.panelGroup !== next);
+        });
+        const label = document.getElementById('inspector-context');
+        if (label) label.textContent = next.charAt(0).toUpperCase() + next.slice(1);
+        if (persist) {
+            try {
+                window.localStorage?.setItem('v_ase.inspectorGroup', next);
+            } catch {
+                // Local storage may be unavailable in restricted browser contexts.
+            }
+        }
+    }
+
+    setupInspectorNavigation() {
+        let savedGroup = 'inspect';
+        let collapsed = false;
+        try {
+            savedGroup = window.localStorage?.getItem('v_ase.inspectorGroup') || 'inspect';
+            collapsed = window.localStorage?.getItem('v_ase.inspectorCollapsed') === '1';
+        } catch {
+            savedGroup = 'inspect';
+        }
+        document.querySelectorAll('[data-inspector-group]').forEach(button => {
+            button.addEventListener('click', () => this.setInspectorGroup(button.dataset.inspectorGroup));
+        });
+        document.getElementById('btn-inspector-collapse')?.addEventListener('click', () => {
+            this.setInspectorCollapsed(!document.body.classList.contains('inspector-collapsed'));
+        });
+        this.setInspectorGroup(savedGroup, false);
+        this.setInspectorCollapsed(collapsed, false);
+    }
+
+    lightingVectorFromInputs(prefix, fallback) {
+        return ['x', 'y', 'z'].map((axis, index) => {
+            const value = Number(document.getElementById(`${prefix}-${axis}`)?.value);
+            return Number.isFinite(value) ? value : fallback[index];
+        });
+    }
+
+    syncLightingControls(options = this.state.display) {
+        const mode = options.lightingMode || 'modeling';
+        const setValue = (id, value) => {
+            const element = document.getElementById(id);
+            if (element && document.activeElement !== element) element.value = `${value}`;
+        };
+        setValue('lighting-mode', mode);
+        setValue('sun-intensity', Number(options.sunIntensity ?? 2.2));
+        const intensityValue = document.getElementById('sun-intensity-value');
+        if (intensityValue) intensityValue.textContent = Number(options.sunIntensity ?? 2.2).toFixed(2);
+        ['x', 'y', 'z'].forEach((axis, index) => {
+            setValue(`sun-position-${axis}`, Number(options.sunPosition?.[index] ?? [8, -10, 14][index]).toFixed(3));
+            setValue(`sun-target-${axis}`, Number(options.sunTarget?.[index] ?? 0).toFixed(3));
+        });
+        const gizmo = document.getElementById('chk-sun-gizmo');
+        if (gizmo) gizmo.checked = Boolean(options.sunGizmo);
+        const cardMode = document.getElementById('lighting-card-mode');
+        if (cardMode) cardMode.textContent = mode === 'studio-shadow' ? 'Soft Shadow' : mode === 'studio' ? 'Studio Sun' : 'Modeling';
+        const widget = document.getElementById('lighting-widget');
+        if (widget) widget.dataset.mode = mode;
+        document.querySelectorAll('.lighting-card-body input:not(#lighting-mode), .lighting-card-body button').forEach(control => {
+            if (control.id === 'chk-sun-gizmo') return;
+            control.disabled = mode === 'modeling';
+        });
+    }
+
+    applyLightingControls() {
+        const fallbackPosition = this.state.display.sunPosition || [8, -10, 14];
+        const fallbackTarget = this.state.display.sunTarget || [0, 0, 0];
+        this.state.display.lightingMode = document.getElementById('lighting-mode')?.value || 'modeling';
+        this.state.display.sunIntensity = Math.max(0, Number(document.getElementById('sun-intensity')?.value || 2.2));
+        this.state.display.sunPosition = this.lightingVectorFromInputs('sun-position', fallbackPosition);
+        this.state.display.sunTarget = this.lightingVectorFromInputs('sun-target', fallbackTarget);
+        this.state.display.sunGizmo = Boolean(document.getElementById('chk-sun-gizmo')?.checked);
+        this.renderer.setLightingOptions(this.state.display);
+        this.syncLightingControls();
+    }
+
+    setupLightingControls() {
+        const widget = document.getElementById('lighting-widget');
+        const card = document.getElementById('lighting-card');
+        const trigger = document.getElementById('btn-lighting-toggle');
+        const setOpen = open => {
+            card?.classList.toggle('hidden', !open);
+            trigger?.setAttribute('aria-expanded', open ? 'true' : 'false');
+            widget?.classList.toggle('open', open);
+        };
+        trigger?.addEventListener('click', event => {
+            event.stopPropagation();
+            setOpen(card?.classList.contains('hidden'));
+        });
+        document.getElementById('btn-lighting-close')?.addEventListener('click', () => setOpen(false));
+        document.addEventListener('pointerdown', event => {
+            if (!card?.classList.contains('hidden') && widget && !widget.contains(event.target)) setOpen(false);
+        });
+        document.getElementById('lighting-mode')?.addEventListener('change', () => this.applyLightingControls());
+        document.getElementById('sun-intensity')?.addEventListener('input', () => this.applyLightingControls());
+        ['sun-position-x', 'sun-position-y', 'sun-position-z', 'sun-target-x', 'sun-target-y', 'sun-target-z'].forEach(id => {
+            document.getElementById(id)?.addEventListener('input', () => this.applyLightingControls());
+        });
+        document.getElementById('chk-sun-gizmo')?.addEventListener('change', () => this.applyLightingControls());
+        document.getElementById('btn-sun-from-view')?.addEventListener('click', () => {
+            const camera = this.renderer.camera;
+            const target = this.renderer.controls.target;
+            this.state.display.sunPosition = [camera.position.x, camera.position.y, camera.position.z];
+            this.state.display.sunTarget = [target.x, target.y, target.z];
+            this.syncLightingControls();
+            this.applyLightingControls();
+        });
+        document.getElementById('btn-sun-target-selection')?.addEventListener('click', () => {
+            const target = this.getSceneCenter();
+            this.state.display.sunTarget = [target.x, target.y, target.z];
+            this.syncLightingControls();
+            this.applyLightingControls();
+        });
+        this.renderer.onLightingChange = options => {
+            this.state.display.sunPosition = [...options.sunPosition];
+            this.state.display.sunTarget = [...options.sunTarget];
+            this.syncLightingControls();
+        };
+        this.syncLightingControls();
     }
 
     async refresh() {
@@ -923,6 +1086,7 @@ class VAseApp {
         this.state.display.showAxes = config.show_axes !== false;
         this.state.display.showGrid = config.show_grid !== false;
         this.state.display.showOverlays = config.show_overlays !== false;
+        this.state.display.showPeriodicBonds = Boolean(config.show_periodic_bonds);
         this.state.applyConstraints = config.apply_constraint !== false;
         this.state.antiAliasing = config.anti_aliasing !== false;
         this.state.sphereQuality = config.sphere_quality || 'auto';
@@ -937,6 +1101,7 @@ class VAseApp {
         this.state.vizOnly = Boolean(config.viz_only);
         this.state.display.vizOnly = this.state.vizOnly;
         document.getElementById('chk-bonds').checked = this.state.display.showBonds;
+        document.getElementById('chk-periodic-bonds').checked = this.state.display.showPeriodicBonds;
         document.getElementById('chk-cell').checked = this.state.display.showCell;
         document.getElementById('chk-axes').checked = this.state.display.showAxes;
         document.getElementById('chk-grid').checked = this.state.display.showGrid;
@@ -952,6 +1117,7 @@ class VAseApp {
         const projectionMode = document.getElementById('projection-mode');
         if (projectionMode) projectionMode.value = this.state.display.projectionMode;
         this.updateRadiusScaleLabel();
+        this.syncLightingControls();
         this.updateEditingAvailability();
         this.state.displayConfigLoaded = true;
     }
@@ -2621,6 +2787,7 @@ class VAseApp {
         this.state.display.showAxes = document.getElementById('chk-axes').checked;
         this.state.display.showGrid = document.getElementById('chk-grid').checked;
         this.state.display.showOverlays = document.getElementById('chk-overlays')?.checked !== false;
+        this.state.display.showPeriodicBonds = Boolean(document.getElementById('chk-periodic-bonds')?.checked);
         this.state.display.projectionMode = document.getElementById('projection-mode')?.value || 'perspective';
         this.state.applyConstraints = document.getElementById('chk-constraints').checked;
         this.state.antiAliasing = document.getElementById('chk-antialias').checked;
@@ -2729,6 +2896,7 @@ class VAseApp {
         setChecked('chk-axes', display.showAxes);
         setChecked('chk-grid', display.showGrid);
         setChecked('chk-overlays', display.showOverlays !== false);
+        setChecked('chk-periodic-bonds', display.showPeriodicBonds);
         setValue('projection-mode', display.projectionMode || 'perspective');
         setChecked('chk-constraints', this.state.applyConstraints);
         setChecked('chk-antialias', this.state.antiAliasing);
@@ -2743,6 +2911,7 @@ class VAseApp {
         setValue('rotate-increment', this.state.rotateIncrementDeg || 0);
         this.setSupercellInputs(display.supercell || [1, 1, 1]);
         this.writeBondPairs(display.manualBondPairs || []);
+        this.syncLightingControls(display);
         this.updateRadiusScaleLabel();
     }
 
@@ -3294,6 +3463,9 @@ class VAseApp {
     showExportImageModal() {
         const width = Math.max(256, parseInt(document.getElementById('image-width').value || '1920', 10));
         const height = Math.max(256, parseInt(document.getElementById('image-height').value || '1080', 10));
+        const lighting = this.state.display;
+        const position = lighting.sunPosition || [8, -10, 14];
+        const target = lighting.sunTarget || [0, 0, 0];
         this.showModal(`
             <h2>Export Image</h2>
             <div class="export-grid">
@@ -3314,6 +3486,32 @@ class VAseApp {
                 <span>Include axes</span>
                 <input type="checkbox" id="export-axes" ${this.state.display.showAxes ? 'checked' : ''}>
             </label>
+            <div class="export-render-section">
+                <div class="export-section-title">Rendering</div>
+                <div class="export-grid">
+                    <label for="export-render-mode">Renderer</label>
+                    <select id="export-render-mode">
+                        <option value="current">Viewport setting</option>
+                        <option value="modeling">Modeling</option>
+                        <option value="studio">Studio Sun</option>
+                        <option value="studio-shadow">Sun + Soft Shadow</option>
+                    </select>
+                    <label for="export-sun-intensity">Brightness</label>
+                    <input type="number" id="export-sun-intensity" value="${Number(lighting.sunIntensity ?? 2.2).toFixed(2)}" min="0" max="8" step="0.05">
+                </div>
+                <div class="export-light-vector">
+                    <span>Sun position</span>
+                    <div>
+                        ${position.map((value, index) => `<input type="number" id="export-sun-position-${index}" value="${Number(value).toFixed(3)}" step="0.25" aria-label="Export Sun position ${index + 1}">`).join('')}
+                    </div>
+                </div>
+                <div class="export-light-vector">
+                    <span>Direction target</span>
+                    <div>
+                        ${target.map((value, index) => `<input type="number" id="export-sun-target-${index}" value="${Number(value).toFixed(3)}" step="0.25" aria-label="Export Sun target ${index + 1}">`).join('')}
+                    </div>
+                </div>
+            </div>
         `, `
             <button id="modal-close" class="btn">Cancel</button>
             <button id="modal-export-image" class="btn primary">Export</button>
@@ -3326,10 +3524,21 @@ class VAseApp {
                 const transparentBackground = document.getElementById('export-transparent').checked;
                 const includeGrid = document.getElementById('export-grid').checked;
                 const includeAxes = document.getElementById('export-axes').checked;
+                const selectedRenderMode = document.getElementById('export-render-mode').value;
+                const renderMode = selectedRenderMode === 'current'
+                    ? (this.state.display.lightingMode || 'modeling')
+                    : selectedRenderMode;
+                const sunIntensity = Math.max(0, Number(document.getElementById('export-sun-intensity').value || 2.2));
+                const sunPosition = [0, 1, 2].map(index => Number(document.getElementById(`export-sun-position-${index}`).value || 0));
+                const sunTarget = [0, 1, 2].map(index => Number(document.getElementById(`export-sun-target-${index}`).value || 0));
                 const dataUrl = this.renderer.exportPNG(exportWidth, exportHeight, {
                     transparentBackground,
                     includeGrid,
-                    includeAxes
+                    includeAxes,
+                    renderMode,
+                    sunIntensity,
+                    sunPosition,
+                    sunTarget
                 });
                 this.downloadDataUrl(dataUrl, `v_ase-${exportWidth}x${exportHeight}.png`);
                 this.closeModal();
@@ -3920,6 +4129,7 @@ class VAseApp {
         });
         document.getElementById('calc-cpus')?.addEventListener('change', () => this.applyCalculatorControls());
         document.getElementById('chk-bonds').onchange = () => this.safeApplyDisplayOptions();
+        document.getElementById('chk-periodic-bonds').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('chk-cell').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('chk-axes').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('chk-grid').onchange = () => this.safeApplyDisplayOptions();
@@ -4058,6 +4268,15 @@ class VAseApp {
 
         canvas.addEventListener('pointerdown', (e) => {
             if (e.button !== 0) return; // Left click only
+            const sunHandle = this.renderer.pickSunHandle?.(e);
+            if (sunHandle) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.state.sunHandleDragging = true;
+                this.renderer.controls.enabled = false;
+                this.renderer.startSunHandleDrag(sunHandle, e);
+                return;
+            }
             if (!this.canViewportSelectAtoms()) {
                 this.setHoveredAtom(null);
                 return;
@@ -4076,6 +4295,10 @@ class VAseApp {
         });
 
         canvas.addEventListener('pointermove', (e) => {
+            if (this.state.sunHandleDragging) {
+                this.renderer.updateSunHandleDrag(e);
+                return;
+            }
             if (this.transform.mode !== 'IDLE') {
                 this.transform.pointerDelta.x = (e.clientX - this.state.transformStartPointer.x) / window.innerWidth;
                 this.transform.pointerDelta.y = -(e.clientY - this.state.transformStartPointer.y) / window.innerHeight;
@@ -4103,6 +4326,12 @@ class VAseApp {
 
         canvas.addEventListener('pointerup', (e) => {
             if (e.button !== 0) return;
+            if (this.state.sunHandleDragging) {
+                this.state.sunHandleDragging = false;
+                this.renderer.endSunHandleDrag(e);
+                this.renderer.controls.enabled = true;
+                return;
+            }
             if (!this.canViewportSelectAtoms()) {
                 this.state.isDragging = false;
                 this.renderer.controls.enabled = true;
@@ -4159,6 +4388,10 @@ class VAseApp {
         });
 
         canvas.addEventListener('pointercancel', () => {
+            if (this.state.sunHandleDragging) {
+                this.state.sunHandleDragging = false;
+                this.renderer.endSunHandleDrag();
+            }
             this.state.isDragging = false;
             this.renderer.controls.enabled = true;
             this.hideMarquee();

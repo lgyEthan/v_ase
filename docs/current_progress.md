@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.45`.
+Last synchronized with implementation: `v_ase-gui 0.0.46`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -11,7 +11,7 @@ Unlike the default ASE viewer, this tool supports:
 *   **Blender-Style Transforms**: G (Move), R (Rotate) with X/Y/Z axis locking and numeric input.
 *   **Constraint-Aware Editing**: Real-time backend synchronization using `set_positions(..., apply_constraint=True)`.
 *   **Structural Modification**: Copy/paste appends atoms through the backend.
-*   **Scientific Visualization**: Material-state fixed atoms, selection outlines, selected-constraint guides, interactive/manual bonds, unit-cell/axes/grid/overlay toggles, POSCAR/pickle/PNG/WebM/Blender export, wrap, and supercell preview.
+*   **Scientific Visualization**: Material-state fixed atoms, selection outlines, selected-constraint guides, cell-local or periodic-image bonds, unit-cell/axes/grid/overlay toggles, opt-in Studio Sun lighting, POSCAR/pickle/PNG/WebM/Blender export, wrap, and supercell preview.
 *   **Default Lightweight CLI Viewer**: `v_ase gui FILE` opens in visualization mode by default; `--interactive` enables atom coordinate editing.
 *   **Trajectory Playback**: Multi-frame `Atoms` inputs and ASE-readable trajectory files expose a movie timeline with live scrubbing, FPS, and frame skip controls.
 *   **Live Simulation**: Real-time relaxation visualization using attached ASE calculators or the default v_ase repulsion calculator via WebSockets. Relaxation frames are collected into an optimization timeline when needed.
@@ -93,7 +93,7 @@ Packaging hygiene:
 
 ## 5. Backend and Frontend Stack
 *   **Backend**: FastAPI + Uvicorn. Chosen for clean REST endpoints and native WebSocket support for live relaxation.
-*   **Frontend**: HTML5 + Three.js (WebGL). Implements a custom modal transform state machine, raycasting for selection, outlines, bonds, and display overlays.
+*   **Frontend**: HTML5 + Three.js (stable WebGL2 path). Implements a custom modal transform state machine, raycasting for selection, outlines, bonds, display overlays, and an opt-in directional-light/shadow renderer.
 
 ---
 
@@ -200,6 +200,8 @@ The frontend manages modes: `IDLE`, `MOVE`, `ROTATE`. Transitions are triggered 
 
 ## 16. Bond Visualization
 *   **Inference**: Initially created based on covalent radii + scale factor.
+*   **Cell Boundary Default**: Direct current-cell distances are used by default, so cylinders do not point toward invisible neighboring-cell atoms.
+*   **Periodic Images**: `Periodic image bonds` explicitly enables minimum-image vectors and image-crossing cylinders, following VESTA's separate inside-boundary / outside-boundary search policy.
 *   **Interactive**: Once enabled, cylinder bonds **stretch and rotate** to follow atom movement in real time.
 *   **Element/Type Pairs**: Element-pair cutoff rows are exposed in the Bonding panel.
 *   **Manual Pairs**: Explicit pair lists such as `0-1, 1-2` can be supplied in the Bonding panel.
@@ -227,15 +229,21 @@ possible, and update the frontend state. This behavior is covered by
 *   **Reset**: Revert to original input structure (preserving calculator).
 *   **Wrap**: Explicitly call `Atoms.wrap()`.
 *   **Constraint Panel**: Interactive mode can apply or clear `FixAtoms`, `FixedLine`, and `FixedPlane` on selected atoms. FixAtoms uses tri-state selection semantics; partial selections clear first, then can be applied to all selected atoms.
+*   **Inspector Workspaces**: Inspect, Edit, Scene, and Output tabs replace the single long inspector. The full panel collapses to a 48 px rail and persists its active workspace and width.
 
 ---
 
 ## 20. Export
 *   **VASP POSCAR**: Exported using `ase.io.write`.
 *   **Pickle**: The UI exports a structure-only pickle. The Python handle can export with or without a calculator.
-*   **PNG Image**: Export options include transparent background, grid, and axes.
+*   **PNG Image**: Export options include resolution, transparent background,
+    grid, axes, and an independent Modeling, Studio Sun, or Sun + Soft Shadow
+    setup with brightness, position, and target.
 *   **WebM Video**: Available for trajectories.
-*   **Blender Script**: Exports atoms, unit cell, bonds, constraints where practical, and the current camera.
+*   **Blender Script**: Exports separate atom objects with shared meshes, unit
+    cell, bonds, constraints where practical, and the current camera. Blender can
+    run the script and save a native `.blend`; OBJ is possible but loses camera,
+    constraints, trajectory behavior, instancing, and richer materials.
 
 ---
 
@@ -277,7 +285,7 @@ This preserves the ASE bridge for the current frame while avoiding the startup a
 `side_project/bigger_atoms/efield_all.lammpstrj` (15,333 atoms, 1,051 frames, 1.1 GB) opens in under 5 seconds on the local test machine.
 
 ### 24.1 Frontend Rendering Pipeline
-The 0.0.45 renderer removes the permanent animation loop. Camera movement,
+The 0.0.46 renderer removes the permanent animation loop. Camera movement,
 trajectory playback, transforms, and state changes schedule a frame, while an
 idle viewport schedules none. Large structures use shared unit-sphere geometry
 and GPU instancing for atoms, bonds, selection outlines, and visualization-mode
@@ -287,8 +295,9 @@ labels, and the device pixel ratio is capped progressively at 1,000, 5,000, and
 
 A fresh-browser validation on the local test machine loaded a synthetic
 15,000-atom, 16-frame LAMMPS trajectory to a fully rendered 1280 x 720 canvas in
-3.19 seconds. After completion, a 0.9-second idle sample produced zero additional
-render frames. The complete method is recorded in `docs/performance.md`.
+4.06 seconds. After completion, a 0.9-second idle sample produced zero additional
+render frames. Studio Sun activated in 79 ms on the same scene. The complete
+method is recorded in `docs/performance.md`.
 
 ---
 
@@ -321,7 +330,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.45).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.46).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -343,6 +352,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 29**: Multi-atom FixedPlane selections use compact per-atom local markers instead of COM-centered or heavily overlapping planes, and quick or long relaxation runs populate an optimization timeline without showing a useless single-frame bar for plain static structures.
 *   [x] **Phase 30**: Added a standalone HTML design preview with five FixedLine and five FixedPlane persistent-marker candidates, plus fixed-atom reference styling.
 *   [x] **Phase 31**: Consolidated the desktop UI into one responsive style system, integrated the atomistic v_ase logo in the app/package/README, added demand rendering and adaptive DPR, and instanced atoms, bonds, selection outlines, and visualization-mode supercells for large-scene performance.
+*   [x] **Phase 32**: Added collapsible workspace navigation, opt-in Studio Sun and soft-shadow rendering with draggable light controls and independent image-export settings, plus a VESTA-style cell-local bond default with explicit periodic-image MIC mode.
 
 ---
 
@@ -359,7 +369,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 ## 28. Known Limitations
 1.  Bonds are visualization-only (not stored in `Atoms.topology`).
 2.  Some heavy calculators may lag during real-time constraint dragging.
-3.  Supercell images are rendered as display ghosts and are not directly editable.
+3.  Supercell images are display-only repeats and are not directly editable.
 
 ---
 

@@ -287,6 +287,7 @@ export class ASERenderer {
         this.renderRequestId = null;
         this.renderCount = 0;
         this.setupScene();
+        this.setLightingOptions(this.lightingOptions);
         this.requestRender();
     }
 
@@ -309,42 +310,73 @@ export class ASERenderer {
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+        this.renderer.shadowMap.enabled = false;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         this.domElement = this.renderer.domElement;
         this.container.appendChild(this.renderer.domElement);
 
         this.controls = new BlenderTumbleControls(this.camera, this.renderer.domElement);
         this.controls.onChange = () => this.requestRender();
 
+        this.modelingLightGroup = new THREE.Group();
+        this.modelingLightGroup.name = 'v_ase_modeling_lights';
+        this.scene.add(this.modelingLightGroup);
+
         const hemiLight = new THREE.HemisphereLight(0xffffff, 0x6a7078, 1.18);
-        this.scene.add(hemiLight);
+        this.modelingLightGroup.add(hemiLight);
 
         // Lighting
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.68);
-        this.scene.add(ambientLight);
+        this.modelingLightGroup.add(ambientLight);
         
         const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.50);
         dirLight1.position.set(10, 20, 10);
-        this.scene.add(dirLight1);
+        this.modelingLightGroup.add(dirLight1);
 
         const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.50);
         dirLight2.position.set(-10, -20, 10);
-        this.scene.add(dirLight2);
+        this.modelingLightGroup.add(dirLight2);
 
         const dirLight3 = new THREE.DirectionalLight(0xffffff, 0.36);
         dirLight3.position.set(12, -14, 8);
-        this.scene.add(dirLight3);
+        this.modelingLightGroup.add(dirLight3);
 
         const dirLight4 = new THREE.DirectionalLight(0xffffff, 0.34);
         dirLight4.position.set(-12, 14, -8);
-        this.scene.add(dirLight4);
+        this.modelingLightGroup.add(dirLight4);
 
         this.cameraFillLight = new THREE.PointLight(0xffffff, 1.15, 0, 1.35);
-        this.scene.add(this.cameraFillLight);
+        this.modelingLightGroup.add(this.cameraFillLight);
         this.cameraFillTarget = new THREE.Object3D();
-        this.scene.add(this.cameraFillTarget);
+        this.modelingLightGroup.add(this.cameraFillTarget);
         this.cameraFillDirectionalLight = new THREE.DirectionalLight(0xffffff, 0.48);
         this.cameraFillDirectionalLight.target = this.cameraFillTarget;
-        this.scene.add(this.cameraFillDirectionalLight);
+        this.modelingLightGroup.add(this.cameraFillDirectionalLight);
+
+        this.studioLightGroup = new THREE.Group();
+        this.studioLightGroup.name = 'v_ase_studio_sun_lights';
+        this.studioLightGroup.visible = false;
+        this.scene.add(this.studioLightGroup);
+        this.studioAmbientLight = new THREE.AmbientLight(0xffffff, 0.24);
+        this.studioHemisphereLight = new THREE.HemisphereLight(0xf8fbff, 0x27323b, 0.44);
+        this.studioSunTarget = new THREE.Object3D();
+        this.studioSunLight = new THREE.DirectionalLight(0xfff5df, 2.2);
+        this.studioSunLight.name = 'v_ase_studio_sun';
+        this.studioSunLight.target = this.studioSunTarget;
+        this.studioSunLight.position.set(8, -10, 14);
+        this.studioSunLight.shadow.mapSize.set(1024, 1024);
+        this.studioSunLight.shadow.bias = -0.00035;
+        this.studioSunLight.shadow.normalBias = 0.025;
+        this.studioLightGroup.add(this.studioAmbientLight);
+        this.studioLightGroup.add(this.studioHemisphereLight);
+        this.studioLightGroup.add(this.studioSunTarget);
+        this.studioLightGroup.add(this.studioSunLight);
+
+        this.sunGizmoGroup = this.buildSunGizmo();
+        this.scene.add(this.sunGizmoGroup);
+        this.sunRaycaster = new THREE.Raycaster();
+        this.sunDragState = null;
+        this.onLightingChange = null;
 
         this.viewportGuides = this.buildViewportGuides();
         this.gridGroup = this.viewportGuides.gridGroup;
@@ -391,6 +423,7 @@ export class ASERenderer {
             showAxes: true,
             showGrid: true,
             showBonds: false,
+            showPeriodicBonds: false,
             bondMode: 'auto',
             bondCutoffScale: 1.0,
             manualBondPairs: [],
@@ -407,8 +440,21 @@ export class ASERenderer {
             supercell: [1, 1, 1],
             antiAliasing: true,
             sphereQuality: 'auto',
-            vizOnly: false
+            vizOnly: false,
+            lightingMode: 'modeling',
+            sunIntensity: 2.2,
+            sunPosition: [8, -10, 14],
+            sunTarget: [0, 0, 0],
+            sunGizmo: false
         };
+        this.lightingOptions = {
+            lightingMode: 'modeling',
+            sunIntensity: 2.2,
+            sunPosition: [8, -10, 14],
+            sunTarget: [0, 0, 0],
+            sunGizmo: false
+        };
+        this.shadowModeActive = false;
         this.bondPairs = [];
         this.bondGeometry = new THREE.CylinderGeometry(0.055, 0.055, 1, 16);
         this.bondMaterial = new THREE.MeshStandardMaterial({
@@ -595,6 +641,263 @@ export class ASERenderer {
                 depthWrite: false
             })
         };
+    }
+
+    buildSunGizmo() {
+        const group = new THREE.Group();
+        group.name = 'v_ase_sun_gizmo';
+        group.visible = false;
+        group.renderOrder = 90;
+
+        const sunMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffc857,
+            transparent: true,
+            opacity: 0.96,
+            depthTest: false,
+            depthWrite: false
+        });
+        const targetMaterial = new THREE.MeshBasicMaterial({
+            color: 0x58d5bd,
+            transparent: true,
+            opacity: 0.96,
+            depthTest: false,
+            depthWrite: false
+        });
+        const lineMaterial = new THREE.LineBasicMaterial({
+            color: 0xf7e5b3,
+            transparent: true,
+            opacity: 0.56,
+            depthTest: false,
+            depthWrite: false
+        });
+
+        const positionHandle = new THREE.Group();
+        positionHandle.name = 'v_ase_sun_position_handle';
+        const sunCore = new THREE.Mesh(new THREE.SphereGeometry(0.22, 18, 12), sunMaterial);
+        const sunRing = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.035, 8, 28), sunMaterial);
+        sunCore.userData.sunHandle = 'position';
+        sunRing.userData.sunHandle = 'position';
+        positionHandle.add(sunCore);
+        positionHandle.add(sunRing);
+
+        const targetHandle = new THREE.Mesh(new THREE.OctahedronGeometry(0.22, 0), targetMaterial);
+        targetHandle.name = 'v_ase_sun_target_handle';
+        targetHandle.userData.sunHandle = 'target';
+
+        const lineGeometry = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(8, -10, 14),
+            new THREE.Vector3(0, 0, 0)
+        ]);
+        const directionLine = new THREE.Line(lineGeometry, lineMaterial);
+        directionLine.name = 'v_ase_sun_direction';
+        directionLine.renderOrder = 89;
+
+        group.add(directionLine);
+        group.add(positionHandle);
+        group.add(targetHandle);
+        group.userData = {
+            positionHandle,
+            targetHandle,
+            directionLine,
+            pickables: [sunCore, sunRing, targetHandle]
+        };
+        return group;
+    }
+
+    normalizedLightingVector(value, fallback) {
+        if (!Array.isArray(value) || value.length < 3) return [...fallback];
+        return value.slice(0, 3).map((component, index) => {
+            const parsed = Number(component);
+            return Number.isFinite(parsed) ? parsed : fallback[index];
+        });
+    }
+
+    setLightingOptions(options = {}) {
+        const previousMode = this.lightingOptions?.lightingMode || 'modeling';
+        const mode = ['studio', 'studio-shadow'].includes(options.lightingMode)
+            ? options.lightingMode
+            : 'modeling';
+        const intensity = Math.max(0, Number(options.sunIntensity ?? this.lightingOptions?.sunIntensity ?? 2.2));
+        const position = this.normalizedLightingVector(
+            options.sunPosition || this.lightingOptions?.sunPosition,
+            [8, -10, 14]
+        );
+        const target = this.normalizedLightingVector(
+            options.sunTarget || this.lightingOptions?.sunTarget,
+            [0, 0, 0]
+        );
+        const sunGizmo = Boolean(options.sunGizmo ?? this.lightingOptions?.sunGizmo);
+        this.lightingOptions = {
+            lightingMode: mode,
+            sunIntensity: Number.isFinite(intensity) ? intensity : 2.2,
+            sunPosition: position,
+            sunTarget: target,
+            sunGizmo
+        };
+        Object.assign(this.displayOptions, this.lightingOptions);
+
+        const studio = mode !== 'modeling';
+        this.modelingLightGroup.visible = !studio;
+        this.studioLightGroup.visible = studio;
+        this.studioSunLight.intensity = this.lightingOptions.sunIntensity;
+        this.studioSunLight.position.fromArray(position);
+        this.studioSunTarget.position.fromArray(target);
+        this.studioSunTarget.updateMatrixWorld(true);
+        this.sunGizmoGroup.visible = studio && sunGizmo;
+        this.renderer.toneMapping = studio ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
+        this.renderer.toneMappingExposure = studio ? 1.05 : 1.0;
+        this.domElement.dataset.lightingMode = mode;
+        this.domElement.dataset.shadowMode = mode === 'studio-shadow' ? 'true' : 'false';
+        this.setShadowMode(mode === 'studio-shadow');
+        this.syncSunGizmo();
+        if (previousMode !== mode && mode === 'studio-shadow') this.fitSunShadowCamera();
+        this.requestRender();
+    }
+
+    setShadowMode(enabled) {
+        const next = Boolean(enabled);
+        this.renderer.shadowMap.enabled = next;
+        this.studioSunLight.castShadow = next;
+        if (this.shadowModeActive !== next) {
+            this.shadowModeActive = next;
+            this.applyShadowFlags();
+        }
+        if (next) {
+            this.studioSunLight.shadow.needsUpdate = true;
+            this.fitSunShadowCamera();
+        }
+    }
+
+    applyShadowFlags() {
+        const enabled = Boolean(this.shadowModeActive);
+        [this.atomMeshes, this.bondGroup, this.supercellGroup].forEach(group => {
+            group?.traverse?.(object => {
+                if (!object.isMesh) return;
+                object.castShadow = enabled;
+                object.receiveShadow = enabled;
+            });
+        });
+    }
+
+    fitSunShadowCamera() {
+        if (!this.studioSunLight?.shadow?.camera) return;
+        const box = new THREE.Box3();
+        this.forEachAtomProxy?.(proxy => {
+            if (proxy?.visible !== false) box.expandByPoint(proxy.position);
+        });
+        const target = new THREE.Vector3(...(this.lightingOptions?.sunTarget || [0, 0, 0]));
+        const center = box.isEmpty() ? target : box.getCenter(new THREE.Vector3());
+        const sphere = box.isEmpty()
+            ? { radius: 10 }
+            : box.getBoundingSphere(new THREE.Sphere());
+        const radius = Math.max(4, Number(sphere.radius || 10) * 1.35);
+        const shadowCamera = this.studioSunLight.shadow.camera;
+        shadowCamera.left = -radius;
+        shadowCamera.right = radius;
+        shadowCamera.top = radius;
+        shadowCamera.bottom = -radius;
+        shadowCamera.near = 0.1;
+        shadowCamera.far = Math.max(60, this.studioSunLight.position.distanceTo(center) + radius * 3);
+        shadowCamera.updateProjectionMatrix();
+        this.studioSunLight.shadow.needsUpdate = true;
+    }
+
+    sunWorldPerPixel(point) {
+        const height = Math.max(1, this.domElement?.clientHeight || window.innerHeight || 1);
+        if (this.camera?.isOrthographicCamera) {
+            return (this.camera.top - this.camera.bottom) / Math.max(1, height * (this.camera.zoom || 1));
+        }
+        const distance = Math.max(0.1, this.camera.position.distanceTo(point));
+        return 2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2) * distance / height;
+    }
+
+    syncSunGizmo() {
+        if (!this.sunGizmoGroup) return;
+        const position = new THREE.Vector3(...(this.lightingOptions?.sunPosition || [8, -10, 14]));
+        const target = new THREE.Vector3(...(this.lightingOptions?.sunTarget || [0, 0, 0]));
+        const { positionHandle, targetHandle, directionLine } = this.sunGizmoGroup.userData;
+        positionHandle.position.copy(position);
+        targetHandle.position.copy(target);
+        const attribute = directionLine.geometry.getAttribute('position');
+        attribute.setXYZ(0, position.x, position.y, position.z);
+        attribute.setXYZ(1, target.x, target.y, target.z);
+        attribute.needsUpdate = true;
+        directionLine.geometry.computeBoundingSphere();
+        this.updateSunGizmoScale();
+    }
+
+    updateSunGizmoScale() {
+        if (!this.sunGizmoGroup?.visible) return;
+        const { positionHandle, targetHandle } = this.sunGizmoGroup.userData;
+        const positionScale = Math.max(0.28, this.sunWorldPerPixel(positionHandle.position) * 50);
+        const targetScale = Math.max(0.28, this.sunWorldPerPixel(targetHandle.position) * 50);
+        positionHandle.scale.setScalar(positionScale);
+        targetHandle.scale.setScalar(targetScale);
+        positionHandle.quaternion.copy(this.camera.quaternion);
+    }
+
+    sunPointerNdc(event) {
+        const rect = this.domElement.getBoundingClientRect();
+        return new THREE.Vector2(
+            ((event.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1,
+            -((event.clientY - rect.top) / Math.max(1, rect.height)) * 2 + 1
+        );
+    }
+
+    pickSunHandle(event) {
+        if (!this.sunGizmoGroup?.visible || !event) return null;
+        this.sunRaycaster.setFromCamera(this.sunPointerNdc(event), this.camera);
+        const hit = this.sunRaycaster.intersectObjects(this.sunGizmoGroup.userData.pickables, false)[0];
+        return hit?.object?.userData?.sunHandle || null;
+    }
+
+    startSunHandleDrag(kind, event) {
+        if (!['position', 'target'].includes(kind)) return;
+        const source = kind === 'position' ? this.lightingOptions.sunPosition : this.lightingOptions.sunTarget;
+        const point = new THREE.Vector3(...source);
+        const normal = this.camera.getWorldDirection(new THREE.Vector3()).normalize();
+        this.sunDragState = {
+            kind,
+            pointerId: event.pointerId,
+            plane: new THREE.Plane().setFromNormalAndCoplanarPoint(normal, point)
+        };
+        this.domElement.setPointerCapture?.(event.pointerId);
+    }
+
+    updateSunHandleDrag(event) {
+        if (!this.sunDragState) return;
+        this.sunRaycaster.setFromCamera(this.sunPointerNdc(event), this.camera);
+        const point = this.sunRaycaster.ray.intersectPlane(this.sunDragState.plane, new THREE.Vector3());
+        if (!point) return;
+        if (this.sunDragState.kind === 'position') {
+            this.lightingOptions.sunPosition = point.toArray();
+            this.studioSunLight.position.copy(point);
+        } else {
+            this.lightingOptions.sunTarget = point.toArray();
+            this.studioSunTarget.position.copy(point);
+            this.studioSunTarget.updateMatrixWorld(true);
+        }
+        Object.assign(this.displayOptions, {
+            sunPosition: [...this.lightingOptions.sunPosition],
+            sunTarget: [...this.lightingOptions.sunTarget]
+        });
+        this.syncSunGizmo();
+        if (this.shadowModeActive) this.fitSunShadowCamera();
+        this.onLightingChange?.({
+            ...this.lightingOptions,
+            sunPosition: [...this.lightingOptions.sunPosition],
+            sunTarget: [...this.lightingOptions.sunTarget]
+        });
+        this.requestRender();
+    }
+
+    endSunHandleDrag(event = null) {
+        const pointerId = this.sunDragState?.pointerId;
+        if (pointerId !== undefined && this.domElement.hasPointerCapture?.(pointerId)) {
+            this.domElement.releasePointerCapture(pointerId);
+        }
+        this.sunDragState = null;
+        if (event) event.preventDefault?.();
     }
 
     atomVisualRadius(index) {
@@ -939,6 +1242,8 @@ export class ASERenderer {
                 this.fitCameraToStructure();
                 this.needsInitialCameraFit = false;
             }
+            this.applyShadowFlags();
+            if (this.shadowModeActive) this.fitSunShadowCamera();
             this.requestRender();
             return;
         }
@@ -983,6 +1288,8 @@ export class ASERenderer {
             this.fitCameraToStructure();
             this.needsInitialCameraFit = false;
         }
+        this.applyShadowFlags();
+        if (this.shadowModeActive) this.fitSunShadowCamera();
         this.requestRender();
     }
 
@@ -1288,13 +1595,16 @@ export class ASERenderer {
     }
 
     updateViewLighting() {
-        if (!this.cameraFillLight || !this.camera) return;
-        this.cameraFillLight.position.copy(this.camera.position);
-        if (this.cameraFillDirectionalLight && this.cameraFillTarget) {
-            this.cameraFillDirectionalLight.position.copy(this.camera.position);
-            this.cameraFillTarget.position.copy(this.controls?.target || new THREE.Vector3());
-            this.cameraFillDirectionalLight.target.updateMatrixWorld();
+        if (!this.camera) return;
+        if (this.modelingLightGroup?.visible && this.cameraFillLight) {
+            this.cameraFillLight.position.copy(this.camera.position);
+            if (this.cameraFillDirectionalLight && this.cameraFillTarget) {
+                this.cameraFillDirectionalLight.position.copy(this.camera.position);
+                this.cameraFillTarget.position.copy(this.controls?.target || new THREE.Vector3());
+                this.cameraFillDirectionalLight.target.updateMatrixWorld();
+            }
         }
+        this.updateSunGizmoScale();
     }
 
     rebuildCell(cell) {
@@ -1411,7 +1721,9 @@ export class ASERenderer {
             elementRadii: { ...(this.displayOptions.elementRadii || {}) },
             elementColors: { ...(this.displayOptions.elementColors || {}) },
             elementVisible: { ...(this.displayOptions.elementVisible || {}) },
-            supercell: [...(this.displayOptions.supercell || [1, 1, 1])]
+            supercell: [...(this.displayOptions.supercell || [1, 1, 1])],
+            sunPosition: [...(this.displayOptions.sunPosition || [8, -10, 14])],
+            sunTarget: [...(this.displayOptions.sunTarget || [0, 0, 0])]
         };
         this.displayOptions = {
             ...this.displayOptions,
@@ -1421,7 +1733,9 @@ export class ASERenderer {
             elementRadii: { ...(options.elementRadii || this.displayOptions.elementRadii || {}) },
             elementColors: { ...(options.elementColors || this.displayOptions.elementColors || {}) },
             elementVisible: { ...(options.elementVisible || this.displayOptions.elementVisible || {}) },
-            supercell: [...(options.supercell || this.displayOptions.supercell || [1, 1, 1])]
+            supercell: [...(options.supercell || this.displayOptions.supercell || [1, 1, 1])],
+            sunPosition: [...(options.sunPosition || this.displayOptions.sunPosition || [8, -10, 14])],
+            sunTarget: [...(options.sunTarget || this.displayOptions.sunTarget || [0, 0, 0])]
         };
         const antiAliasingChanged = previous.antiAliasing !== this.displayOptions.antiAliasing;
         const sphereQualityChanged = previous.sphereQuality !== this.displayOptions.sphereQuality;
@@ -1437,9 +1751,15 @@ export class ASERenderer {
             ])].filter(symbol => previous.elementVisible?.[symbol] !== this.displayOptions.elementVisible?.[symbol])
             : [];
         const supercellChanged = JSON.stringify(previous.supercell || [1, 1, 1]) !== JSON.stringify(this.displayOptions.supercell || [1, 1, 1]);
+        const lightingChanged = previous.lightingMode !== this.displayOptions.lightingMode ||
+            previous.sunIntensity !== this.displayOptions.sunIntensity ||
+            previous.sunGizmo !== this.displayOptions.sunGizmo ||
+            JSON.stringify(previous.sunPosition || []) !== JSON.stringify(this.displayOptions.sunPosition || []) ||
+            JSON.stringify(previous.sunTarget || []) !== JSON.stringify(this.displayOptions.sunTarget || []);
         if (previous.projectionMode !== this.displayOptions.projectionMode) {
             this.setProjectionMode(this.displayOptions.projectionMode);
         }
+        if (lightingChanged) this.setLightingOptions(this.displayOptions);
         if (!rebuild) {
             if (antiAliasingChanged) this.updateRenderQuality();
             this.cellGroup.visible = this.displayOptions.showCell;
@@ -1469,6 +1789,7 @@ export class ASERenderer {
         if (this.gridGroup) this.gridGroup.visible = this.displayOptions.showGrid;
         this.applyOverlayVisibility();
         const bondsChanged = previous.showBonds !== this.displayOptions.showBonds ||
+            previous.showPeriodicBonds !== this.displayOptions.showPeriodicBonds ||
             previous.bondMode !== this.displayOptions.bondMode ||
             previous.bondCutoffScale !== this.displayOptions.bondCutoffScale ||
             JSON.stringify(previous.manualBondPairs || []) !== JSON.stringify(this.displayOptions.manualBondPairs || []) ||
@@ -1583,7 +1904,7 @@ export class ASERenderer {
                 if (hookeanExcluded.has(this.hookeanPairKey(i, j))) continue;
                 const cutoff = this.bondCutoffForPair(i, j);
                 if (!Number.isFinite(cutoff) || cutoff <= 0) continue;
-                const d = this.minimumImageDelta(i, j, pi).length();
+                const d = this.bondDelta(i, j, pi).length();
                 if (d > 0.15 && d <= cutoff) pairs.push([i, j]);
             }
         }
@@ -1639,7 +1960,7 @@ export class ASERenderer {
         const hookeanExcluded = this.hookeanBondExclusions();
         const pbc = this.atomsData?.pbc || [false, false, false];
         const basis = this.hasValidCell() ? this.cellBasis() : null;
-        const useFractionalGrid = Boolean(basis && pbc.some(Boolean));
+        const useFractionalGrid = Boolean(this.displayOptions.showPeriodicBonds && basis && pbc.some(Boolean));
         const positions = new Array(count);
         const sortable = [];
 
@@ -1734,7 +2055,7 @@ export class ASERenderer {
                             if (j <= i || hookeanExcluded.has(this.hookeanPairKey(i, j))) return;
                             const cutoff = this.bondCutoffForPair(i, j);
                             if (!Number.isFinite(cutoff) || cutoff <= 0) return;
-                            const d = this.minimumImageDelta(i, j, pi).length();
+                            const d = this.bondDelta(i, j, pi).length();
                             if (d > 0.15 && d <= cutoff) pairs.push([i, j]);
                         });
                     }
@@ -1768,6 +2089,8 @@ export class ASERenderer {
     rebuildBonds(precomputedPairs = null) {
         this.clearGroup(this.bondGroup);
         this.bondPairs = [];
+        this.domElement.dataset.bondCount = '0';
+        this.domElement.dataset.periodicBonds = this.displayOptions.showPeriodicBonds ? 'true' : 'false';
         if (!this.displayOptions.showBonds || !this.atomsData) {
             this.requestRender();
             return;
@@ -1779,6 +2102,7 @@ export class ASERenderer {
                 this.atomTypeVisible(i) && this.atomTypeVisible(j) &&
                 !hookeanExcluded.has(this.hookeanPairKey(i, j)))
             : this.inferBondPairs());
+        this.domElement.dataset.bondCount = String(this.bondPairs.length);
         if (!this.bondPairs.length) {
             this.requestRender();
             return;
@@ -1797,6 +2121,7 @@ export class ASERenderer {
             this.bondPairs.forEach(([i, j], instanceId) => this.positionBondInstance(mesh, instanceId, i, j));
             mesh.instanceMatrix.needsUpdate = true;
             this.bondGroup.add(mesh);
+            this.applyShadowFlags();
             this.requestRender();
             return;
         }
@@ -1807,6 +2132,7 @@ export class ASERenderer {
             this.bondGroup.add(bond);
             this.positionBondMesh(bond, i, j);
         });
+        this.applyShadowFlags();
         this.requestRender();
     }
 
@@ -1923,6 +2249,18 @@ export class ASERenderer {
         return this.fracToCart(frac, basis);
     }
 
+    directAtomDelta(i, j, startOverride = null) {
+        const start = startOverride || this.getAtomPosition(i);
+        const end = this.getAtomPosition(j);
+        return new THREE.Vector3().subVectors(end, start);
+    }
+
+    bondDelta(i, j, startOverride = null) {
+        return this.displayOptions.showPeriodicBonds
+            ? this.minimumImageDelta(i, j, startOverride)
+            : this.directAtomDelta(i, j, startOverride);
+    }
+
     positionBondMesh(bond, i, j) {
         const a = this.atomMeshByIndex.get(i);
         const b = this.atomMeshByIndex.get(j);
@@ -1931,7 +2269,7 @@ export class ASERenderer {
             return;
         }
         const start = a.position;
-        const delta = this.minimumImageDelta(i, j, start);
+        const delta = this.bondDelta(i, j, start);
         const length = delta.length();
         if (length < 1e-6) {
             bond.visible = false;
@@ -1956,7 +2294,7 @@ export class ASERenderer {
             return;
         }
         const start = a.position;
-        const delta = this.minimumImageDelta(i, j, start);
+        const delta = this.bondDelta(i, j, start);
         const length = delta.length();
         if (!Number.isFinite(length) || length < 1e-6) {
             dummy.position.set(0, 0, 0);
@@ -1992,6 +2330,7 @@ export class ASERenderer {
         this.addSupercellCellPreview(cell, reps);
         if (this.displayOptions.vizOnly) {
             this.rebuildVizOnlySupercellAtoms(cell, reps);
+            this.applyShadowFlags();
             this.requestRender();
             return;
         }
@@ -2040,6 +2379,7 @@ export class ASERenderer {
                 }
             }
         }
+        this.applyShadowFlags();
         this.requestRender();
     }
 
@@ -2935,6 +3275,14 @@ export class ASERenderer {
         const transparentBackground = Boolean(options.transparentBackground);
         const includeGrid = options.includeGrid !== false;
         const includeAxes = options.includeAxes !== false;
+        const oldLighting = {
+            ...this.lightingOptions,
+            sunPosition: [...(this.lightingOptions?.sunPosition || [8, -10, 14])],
+            sunTarget: [...(this.lightingOptions?.sunTarget || [0, 0, 0])]
+        };
+        const requestedMode = ['modeling', 'studio', 'studio-shadow'].includes(options.renderMode)
+            ? options.renderMode
+            : oldLighting.lightingMode;
         const oldSize = new THREE.Vector2();
         this.renderer.getSize(oldSize);
         const oldPixelRatio = this.renderer.getPixelRatio();
@@ -2952,6 +3300,16 @@ export class ASERenderer {
         const oldAxesVisible = this.axesHelper?.visible;
 
         try {
+            this.setLightingOptions({
+                ...oldLighting,
+                lightingMode: requestedMode,
+                sunIntensity: Number.isFinite(Number(options.sunIntensity))
+                    ? Number(options.sunIntensity)
+                    : oldLighting.sunIntensity,
+                sunPosition: options.sunPosition || oldLighting.sunPosition,
+                sunTarget: options.sunTarget || oldLighting.sunTarget,
+                sunGizmo: false
+            });
             if (transparentBackground) {
                 this.scene.background = null;
                 this.renderer.setClearColor(0x000000, 0);
@@ -2970,8 +3328,10 @@ export class ASERenderer {
             this.updateHookeanPositions();
             this.updateViewLighting();
             this.renderer.render(this.scene, this.camera);
+            if (requestedMode === 'studio-shadow') this.renderer.render(this.scene, this.camera);
             return this.renderer.domElement.toDataURL('image/png');
         } finally {
+            this.setLightingOptions(oldLighting);
             this.scene.background = oldBackground;
             this.renderer.setClearColor(oldClearColor, oldClearAlpha);
             if (this.gridGroup) this.gridGroup.visible = oldGridVisible;

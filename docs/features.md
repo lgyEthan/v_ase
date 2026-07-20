@@ -49,11 +49,40 @@ Bonds are rendered as live cylinder objects and update during transform previews
 relaxation updates, and trajectory frame changes. Auto and element-cutoff bonds
 are re-inferred for each trajectory frame, so bonds break or form when distances
 cross the active cutoff. Bonding can use covalent-radius inference, element-pair
-cutoff rows, or an explicit pair list such as `0-1, 1-2`. Orthographic
-projection is the default view, with perspective available as a viewport option. Unit cell, axes, grid, and
-supercell preview controls are exposed in the inspector. Supercell preview is
-only enabled when a valid unit cell exists and PBC is true in the requested
-direction; otherwise the UI shows a warning and resets the invalid multiplier.
+cutoff rows, or an explicit pair list such as `0-1, 1-2`. Direct current-cell
+distances are the default, so a bond is not drawn toward an atom image that is
+not visible. `Periodic image bonds` opts into minimum-image vectors and image-
+crossing cylinders. This matches VESTA's explicit distinction between keeping
+atom searches inside the boundary and searching atoms beyond it, as documented
+in the [VESTA manual](https://jp-minerals.org/vesta/en/doc/VESTAch8.html).
+
+Orthographic projection is the default view, with perspective available as a
+viewport option. Unit cell, axes, grid, and supercell preview controls are
+exposed in the inspector. Supercell preview is only enabled when a valid unit
+cell exists and PBC is true in the requested direction; otherwise the UI shows
+a warning and resets the invalid multiplier.
+
+### Workspace Navigation and Lighting
+The inspector is divided into Inspect, Edit, Scene, and Output workspaces instead
+of one long mixed panel. Edit is omitted in visualization-only mode. The entire
+inspector can collapse to a 48 px rail, and its width, collapsed state, and active
+workspace are persisted locally.
+
+The viewport renderer has three explicit modes:
+
+- **Modeling**: the original balanced-light path, with no shadow map and no
+  extra render loop.
+- **Studio Sun**: physically based materials under ambient, hemisphere, and one
+  directional Sun light.
+- **Sun + Soft Shadow**: the same setup with one PCF soft shadow map.
+
+Sun brightness, position, and target update in real time and can be edited with
+viewport handles. Image export accepts independent lighting values, so a
+high-quality still can be produced while the live viewport remains in Modeling.
+The implementation stays on stable Three.js WebGL2 because the project's fixed-
+atom material uses a custom shader hook; Three.js currently documents WebGPU as
+experimental and does not support `onBeforeCompile()` materials there. See the
+[Three.js WebGPU renderer notes](https://threejs.org/manual/en/webgpurenderer).
 
 ### Trajectory/Movie Playback
 `view()` and `view_edit()` accept an `Atoms` object, a sequence of `Atoms`
@@ -94,6 +123,14 @@ The renderer also lowers device pixel ratio progressively for large atom counts,
 uses a cell-list bond search, caches type/cell/force summaries, and serves large
 LAMMPS trajectory frames as binary float32 positions. Measurement method and
 current benchmark results are documented in [Rendering Performance](performance.md).
+
+### Blender Scene Format
+The Blender exporter emits a Python scene because this works without Blender in
+the v_ase Python environment and retains separate atom objects, shared meshes,
+bonds, cell lines, materials, and the viewport camera. Blender can run the script
+headlessly and save a native `.blend` with `bpy.ops.wm.save_as_mainfile`. A named-
+object OBJ exporter is possible, but OBJ would discard camera, constraints,
+trajectory behavior, instancing semantics, and richer material state.
 
 ### ASE Constraint Compatibility
 The visualizer respects ASE constraints:

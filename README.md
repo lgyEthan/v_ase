@@ -65,6 +65,13 @@ terminal.
   for architecture and reproducible benchmark details.
 - Orthographic projection is the default view, with perspective available from
   the View panel.
+- The control panel is organized into Inspect, Edit, Scene, and Output
+  workspaces. The whole panel can be collapsed to a narrow rail, and v_ase
+  remembers the active workspace and panel width.
+- Viewport lighting is opt-in. Modeling keeps the original low-overhead,
+  evenly-lit view; Studio Sun adds real-time PBR directional lighting; Sun +
+  Soft Shadow adds a single soft shadow map. Sun brightness, position, and
+  target can be edited numerically or with draggable viewport handles.
 - Add `--interactive` for Blender-like atom editing: middle-mouse orbit,
   shift-middle pan, wheel zoom, click/box selection, `G` move, `R` rotate, axis
   locking, numeric transforms, `Enter`, `Esc`, copy/paste/undo/delete.
@@ -92,9 +99,10 @@ terminal.
   timeline. Static single-structure sessions stay uncluttered until relaxation
   creates frames; loaded trajectory files keep their own movie timeline while a
   separate Relax row exposes the latest optimization path.
-- Periodic bonds, element-pair cutoff tables, manual bond pairs, supercell
-  preview, `make_supercell(P)` cell transform, and wrap atoms into cell. Auto
-  and element-cutoff bonds are re-inferred for each trajectory frame.
+- Cell-local bonds, opt-in periodic-image bonds, element-pair cutoff tables,
+  manual bond pairs, supercell preview, `make_supercell(P)` cell transform, and
+  wrap atoms into cell. Auto and element-cutoff bonds are re-inferred for each
+  trajectory frame.
 - Custom extxyz atom type labels such as `H_type5` are preserved for GUI type
   settings even when ASE cannot parse them as real elements.
 - LAMMPS `lammpstrj` and `.data` integer types stay visible as labels. Valid
@@ -103,7 +111,9 @@ terminal.
 - Appearance label edits keep row order stable. Labels with element prefixes
   such as `O_bridge` automatically update the TYPE dropdown and default radius.
 - Export POSCAR, pickle, PNG image, WebM video, and Blender Python scene script.
-  Blender export includes viewport camera, unit cell, bonds, and smooth atoms.
+  Image export can use viewport lighting or an independent Modeling, Studio Sun,
+  or Sun + Soft Shadow setup. Blender export includes viewport camera, unit
+  cell, bonds, and smooth atoms.
 
 ## Installation
 
@@ -321,7 +331,13 @@ pivot is the selection center of mass, it passes through that COM.
 
 Bonding can be automatic, element-pair based, or manually specified.
 
-- Auto cutoff uses covalent radii and respects periodic minimum-image distances.
+- Auto cutoff uses covalent radii.
+- By default, bonds are drawn only when both endpoints are atoms displayed in
+  the current cell. This avoids periodic bonds ending at invisible image atoms.
+- `Periodic image bonds` enables minimum-image distances and draws bonds toward
+  neighboring-cell images. This mirrors [VESTA's boundary-search
+  distinction](https://jp-minerals.org/vesta/en/doc/VESTAch8.html) between
+  keeping a search inside the boundary and explicitly searching atoms beyond it.
 - Element-pair mode exposes pair-specific `rcut` rows.
 - Manual mode accepts pair strings such as `Na-Cl: 3.2` or `0-1, 1-2`.
 - Supercell preview shows repeated atoms and repeated unit-cell lines.
@@ -453,6 +469,10 @@ From the right panel:
 - `Export Image`
 - `Export Video`
 
+Image export provides its own resolution, transparency, grid, axes, and render
+lighting controls. It can therefore export a Studio Sun or soft-shadow image
+without changing the viewport from the lightweight Modeling mode.
+
 Blender export downloads `v_ase_blender_scene.py`:
 
 ```bash
@@ -462,6 +482,14 @@ blender --python v_ase_blender_scene.py
 The generated scene keeps atoms and constraint graphics as editable Blender
 objects where practical. Atom objects reuse shared sphere meshes by radius/color
 so large exports avoid duplicating mesh geometry for every atom.
+
+The current Python scene format is deliberate: it preserves separate editable
+atom objects, shared meshes, bonds, unit cell, materials, and the active camera
+without requiring Blender to be installed in the Python environment running
+v_ase. The generated script can be converted to a native `.blend` file by
+running it in Blender and saving the main file. OBJ export is also technically
+possible with one named object per atom, but OBJ does not preserve the camera,
+constraints, trajectory behavior, instancing, or the full material setup.
 
 ## Python API
 

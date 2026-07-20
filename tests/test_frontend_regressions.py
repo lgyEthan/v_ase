@@ -21,7 +21,7 @@ from v_ase.server import (
     value_error_handler,
 )
 import v_ase.server as server_module
-from v_ase.export import export_blender_response, export_pickle_response, export_poscar_response
+from v_ase.export import _display_bonds, export_blender_response, export_pickle_response, export_poscar_response
 from v_ase.session import EditorSession, sessions
 
 
@@ -672,19 +672,79 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
     assert "bond_{bond.get('i', 0)}" in script
 
 
+def test_bond_export_defaults_to_visible_cell_and_periodic_images_are_opt_in():
+    atoms = molecule("H2")
+    atoms.set_cell([10, 10, 10])
+    atoms.set_pbc(True)
+    atoms.positions[0] = [0.6, 0.0, 0.0]
+    atoms.positions[1] = [9.4, 0.0, 0.0]
+    session = EditorSession("bond-boundary-export", atoms.copy(), atoms.copy())
+    data = session_atoms_to_json(session)
+
+    direct = _display_bonds(data, {
+        "showBonds": True,
+        "bondMode": "manual",
+        "manualBondPairs": [[0, 1]],
+        "showPeriodicBonds": False,
+    })
+    periodic = _display_bonds(data, {
+        "showBonds": True,
+        "bondMode": "manual",
+        "manualBondPairs": [[0, 1]],
+        "showPeriodicBonds": True,
+    })
+
+    assert direct[0]["length"] == pytest.approx(8.8)
+    assert periodic[0]["length"] == pytest.approx(1.2)
+
+
 def test_control_panel_uses_collapsible_default_hierarchy():
     index_html = (ROOT / "v_ase/static/index.html").read_text()
     style_css = (ROOT / "v_ase/static/style.css").read_text()
 
-    assert '<details class="panel-section" open data-panel="structure-info">' in index_html
-    assert '<details class="panel-section" open data-panel="selection">' in index_html
-    assert '<details class="panel-section" open data-panel="view">' in index_html
-    assert '<details class="panel-section" data-panel="transform" data-edit-only>' in index_html
-    assert '<details class="panel-section" data-panel="appearance">' in index_html
-    assert '<details class="panel-section" data-panel="cell-transform" data-edit-only>' in index_html
-    assert '<details class="panel-section" data-panel="scientific-tools">' in index_html
+    assert 'id="btn-inspector-collapse"' in index_html
+    assert 'data-inspector-group="inspect"' in index_html
+    assert 'data-inspector-group="edit"' in index_html
+    assert 'data-inspector-group="scene"' in index_html
+    assert 'data-inspector-group="output"' in index_html
+    assert 'data-panel="structure-info" data-panel-group="inspect"' in index_html
+    assert 'data-panel="selection" data-panel-group="inspect"' in index_html
+    assert 'data-panel="view" data-panel-group="scene"' in index_html
+    assert 'data-panel="transform" data-panel-group="edit" data-edit-only' in index_html
+    assert 'data-panel="appearance" data-panel-group="scene"' in index_html
+    assert 'data-panel="cell-transform" data-panel-group="edit" data-edit-only' in index_html
+    assert 'data-panel="scientific-tools" data-panel-group="edit" data-edit-only' in index_html
+    assert "setupInspectorNavigation" in (ROOT / "v_ase/static/main.js").read_text()
+    assert "body.inspector-collapsed" in style_css
+    assert "#inspector .group-hidden" in style_css
     assert "details:not([open]) > summary.section-header" in style_css
     assert "summary.section-header::after" in style_css
+
+
+def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
+    main_js = (ROOT / "v_ase/static/main.js").read_text()
+    renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
+    index_html = (ROOT / "v_ase/static/index.html").read_text()
+
+    assert 'id="lighting-widget"' in index_html
+    assert '<option value="modeling">Modeling</option>' in index_html
+    assert '<option value="studio">Studio Sun</option>' in index_html
+    assert '<option value="studio-shadow">Sun + Soft Shadow</option>' in index_html
+    assert 'id="chk-sun-gizmo"' in index_html
+    assert 'id="chk-periodic-bonds"' in index_html
+    assert "showPeriodicBonds: false" in main_js
+    assert "lightingMode: 'modeling'" in main_js
+    assert "setupLightingControls" in main_js
+    assert "export-render-mode" in main_js
+    assert "sunPosition" in main_js
+    assert "buildSunGizmo" in renderer_js
+    assert "pickSunHandle" in renderer_js
+    assert "updateSunHandleDrag" in renderer_js
+    assert "THREE.PCFSoftShadowMap" in renderer_js
+    assert "this.renderer.shadowMap.enabled = false" in renderer_js
+    assert "bondDelta(i, j" in renderer_js
+    assert "this.displayOptions.showPeriodicBonds" in renderer_js
+    assert "data-periodic-bonds" not in index_html
 
 
 def test_grid_guides_scale_to_large_unit_cells():

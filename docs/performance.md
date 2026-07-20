@@ -26,6 +26,10 @@ small number of GPU batches and explicit render requests.
 - **Binary trajectory frames**: large LAMMPS dumps are byte-offset indexed and
   subsequent frames are served as float32 positions instead of large JSON
   payloads or complete ASE object lists.
+- **Opt-in lighting cost**: Modeling mode keeps the existing balanced lights,
+  disables shadow maps, and does not allocate a continuous render loop. Studio
+  Sun activates one directional PBR light only when selected. The soft-shadow
+  mode additionally enables a single fitted PCF shadow map.
 
 Interactive atom edits still commit through ASE. In particular,
 `Atoms.set_positions(..., apply_constraint=True)` remains the final authority
@@ -35,19 +39,19 @@ supercells, wrapping, trajectories, and exports.
 
 ## Validation
 
-The 0.0.45 browser benchmark used a generated LAMMPS dump with 15,000 atoms and
-16 frames (7.98 MB) in default visualization mode. A fresh local server origin
+The 0.0.46 browser benchmark used a generated LAMMPS dump with 15,000 atoms and
+16 frames (7.07 MiB) in default visualization mode. A fresh local server origin
 was opened in the in-app Chromium browser at a 1280 x 720 CSS viewport.
 
 | Check | Result |
 | --- | ---: |
-| Fully rendered first frame | 3.19 s |
+| Fully rendered first frame | 4.06 s |
 | Displayed atoms | 15,000 |
 | Detected trajectory frames | 16 |
 | Canvas backing size | 1280 x 720 |
 | Extra render frames during 0.9 s idle | 0 |
-| Live slider input | Frame 1 to frame 8 without mouse release |
-| Viz-only x=2 supercell | 30,000 visible atom instances |
+| Default lighting / shadow map | Modeling / off |
+| Studio Sun activation | 79 ms |
 
 The timing includes page navigation, static asset loading from the fresh origin,
 API fetch, scene construction, camera fit, and the first completed canvas render.
