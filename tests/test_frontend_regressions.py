@@ -228,9 +228,10 @@ def test_viewer_uses_packaged_three_and_initial_camera_fit():
 def test_frontend_handles_missing_calculator_forces_without_aborting_refresh():
     main_js = (ROOT / "v_ase/static/main.js").read_text()
 
-    assert "validForces" in main_js
-    assert "Array.isArray(f)" in main_js
-    assert "f.slice(0, 3).every" in main_js
+    assert "computeFmax(forces = [])" in main_js
+    assert "this.state.cachedFmax = this.computeFmax" in main_js
+    assert "Array.isArray(force)" in main_js
+    assert "[x, y, z].every(Number.isFinite)" in main_js
     assert "this.state.atoms.forces.map(f => Math.sqrt(f[0]" not in main_js
 
 
@@ -482,8 +483,9 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "atomRadiusScale" in renderer_js
     assert "elementRadii" in renderer_js
     assert "elementColors" in renderer_js
-    assert "const materialKey = `supercell:viz:${geometryKey}:${color}`" in renderer_js
-    assert "color: group.color" in renderer_js
+    assert "new THREE.SphereGeometry(1, group.atomSegments" in renderer_js
+    assert "mesh.setColorAt(" in renderer_js
+    assert "mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)" in renderer_js
     assert "previous.atomRadiusScale" in renderer_js
     assert "reconcileTypeOrder" in main_js
     assert "replaceTypeOrder(oldSymbol, label)" in main_js
@@ -499,6 +501,24 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert ".orientation-widget" in style_css
     assert ".create-atom-card" in style_css
     assert ".calc-control-title" in style_css
+
+
+def test_frontend_renderer_uses_demand_rendering_and_large_scene_instancing():
+    renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
+    main_js = (ROOT / "v_ase/static/main.js").read_text()
+
+    assert "preserveDrawingBuffer: false" in renderer_js
+    assert "requestRender()" in renderer_js
+    assert "renderFrame()" in renderer_js
+    assert "this.controls.onChange = () => this.requestRender()" in renderer_js
+    assert "requestAnimationFrame(() => this.animate())" not in renderer_js
+    assert "rebuildInstancedAtoms" in renderer_js
+    assert "new THREE.InstancedMesh" in renderer_js
+    assert "this.atomIndicesBySymbol = new Map()" in renderer_js
+    assert "applyAtomVisibility(changedSymbols = null)" in renderer_js
+    assert "updateRenderQuality()" in renderer_js
+    assert "if (atomCount >= 15000) cap = 1" in renderer_js
+    assert "orientationSignature" in main_js
 
 
 def test_api_browser_close_and_python_view_autoclose_contract_are_wired():

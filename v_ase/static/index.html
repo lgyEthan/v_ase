@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.44">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.45">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.44';
+            : '/static/vendor/three.module.js?v=0.0.45';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -25,16 +25,23 @@
 </head>
 <body>
     <div id="app-viewport"></div>
-    <div id="busy-overlay" class="hidden" aria-live="polite">
+    <div id="busy-overlay" aria-live="polite">
         <div class="busy-card">
-            <div class="busy-spinner"></div>
-            <div id="busy-message">Working...</div>
+            <img class="busy-logo brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase atomistic logo">
+            <div class="busy-copy">
+                <strong>Preparing workspace</strong>
+                <div id="busy-message">Loading structure...</div>
+            </div>
+            <div class="busy-progress" aria-hidden="true"><span></span></div>
         </div>
     </div>
 
     <!-- Top Status Bar -->
     <header id="top-bar" class="glass-panel">
-        <div class="logo">v_ase<span class="version">0.0.44</span></div>
+        <div class="logo">
+            <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
+            <span class="version">0.0.45</span>
+        </div>
         <div class="status-group">
             <div class="status-item">
                 <span class="label">MODE</span>
@@ -77,6 +84,8 @@
             <g id="ow-pos-group"></g>
         </svg>
     </div>
+
+    <datalist id="element-type-options"></datalist>
 
     <div id="create-atom-widget" class="create-atom-widget glass-panel collapsed" data-edit-only>
         <button id="btn-create-atom-toggle" class="create-atom-toggle" type="button" title="Create atom">+ Atom</button>
@@ -424,9 +433,12 @@
     <div id="toast-container" aria-live="polite"></div>
 
     <script type="module">
+        if (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html')) {
+            document.querySelectorAll('.brand-logo-asset').forEach(image => { image.src = './v_ase-logo.png'; });
+        }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.44';
+            : './static/main.js?v=0.0.45';
         import(modulePath);
     </script>
 </body>

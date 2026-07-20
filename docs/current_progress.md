@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.44`.
+Last synchronized with implementation: `v_ase-gui 0.0.45`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -203,14 +203,14 @@ The frontend manages modes: `IDLE`, `MOVE`, `ROTATE`. Transitions are triggered 
 *   **Interactive**: Once enabled, cylinder bonds **stretch and rotate** to follow atom movement in real time.
 *   **Element/Type Pairs**: Element-pair cutoff rows are exposed in the Bonding panel.
 *   **Manual Pairs**: Explicit pair lists such as `0-1, 1-2` can be supplied in the Bonding panel.
-*   **Recalculation**: Cutoff logic is only reapplied when inference is requested or auto settings change.
+*   **Recalculation**: During an interactive transform, existing cylinders stretch without repeatedly running neighbor inference. Auto and element-cutoff modes are re-inferred when the trajectory frame changes, so bonds can form or break at the active cutoff; manual pairs only update geometry.
 
 ---
 
 ## 17. Atom Addition
 *   **Copy/Paste**: `Ctrl+V` appends copied atoms through `ase.Atoms.append()`.
 *   **Calculator**: The existing calculator is preserved after append operations.
-*   **Planned Upgrade**: Click-to-place atom insertion can be added as a dedicated mode later.
+*   **Create Atom Widget**: Interactive mode exposes a compact draggable viewport widget for adding an ASE-valid element or custom label at exact Cartesian coordinates.
 
 ---
 
@@ -276,6 +276,20 @@ For default visualization-mode LAMMPS text dumps (`.lammpstrj` / `.dump`), v_ase
 This preserves the ASE bridge for the current frame while avoiding the startup and memory cost of materializing thousands of full ASE frames. The benchmark case
 `side_project/bigger_atoms/efield_all.lammpstrj` (15,333 atoms, 1,051 frames, 1.1 GB) opens in under 5 seconds on the local test machine.
 
+### 24.1 Frontend Rendering Pipeline
+The 0.0.45 renderer removes the permanent animation loop. Camera movement,
+trajectory playback, transforms, and state changes schedule a frame, while an
+idle viewport schedules none. Large structures use shared unit-sphere geometry
+and GPU instancing for atoms, bonds, selection outlines, and visualization-mode
+supercell copies. Visibility changes update only indices belonging to changed
+labels, and the device pixel ratio is capped progressively at 1,000, 5,000, and
+15,000 atoms.
+
+A fresh-browser validation on the local test machine loaded a synthetic
+15,000-atom, 16-frame LAMMPS trajectory to a fully rendered 1280 x 720 canvas in
+3.19 seconds. After completion, a 0.9-second idle sample produced zero additional
+render frames. The complete method is recorded in `docs/performance.md`.
+
 ---
 
 ## 25. Backend Endpoints
@@ -307,7 +321,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.44).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.45).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -328,7 +342,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 28**: ASE `FixScaled` constraints from VASP selective dynamics are visualized as cell-aware FixedPlane/FixedLine guides instead of being collapsed into FixAtoms.
 *   [x] **Phase 29**: Multi-atom FixedPlane selections use compact per-atom local markers instead of COM-centered or heavily overlapping planes, and quick or long relaxation runs populate an optimization timeline without showing a useless single-frame bar for plain static structures.
 *   [x] **Phase 30**: Added a standalone HTML design preview with five FixedLine and five FixedPlane persistent-marker candidates, plus fixed-atom reference styling.
-*   [ ] **Planned**: Click-to-place atom insertion.
+*   [x] **Phase 31**: Consolidated the desktop UI into one responsive style system, integrated the atomistic v_ase logo in the app/package/README, added demand rendering and adaptive DPR, and instanced atoms, bonds, selection outlines, and visualization-mode supercells for large-scene performance.
 
 ---
 

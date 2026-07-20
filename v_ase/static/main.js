@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js';
-import { ASERenderer } from './renderer.js';
-import { ASESelection } from './selection.js';
-import { ASETransform } from './transform.js';
+import { ASEApi } from './api.js?v=0.0.45';
+import { ASERenderer } from './renderer.js?v=0.0.45';
+import { ASESelection } from './selection.js?v=0.0.45';
+import { ASETransform } from './transform.js?v=0.0.45';
 
 class VAseApp {
     constructor() {
@@ -76,6 +76,12 @@ class VAseApp {
                 finished: false
             },
             typeOrder: [],
+            typeIndices: new Map(),
+            cachedFmax: null,
+            displayApplyRequest: null,
+            hoverPickTimer: null,
+            hoverPointer: null,
+            orientationSignature: null,
             isRelaxing: false
         };
 
@@ -83,6 +89,7 @@ class VAseApp {
     }
 
     async init() {
+        this.setBusy('Loading structure...');
         try {
             if (!this.sessionId) {
                 const active = await this.api.fetchActiveSession();
@@ -98,6 +105,8 @@ class VAseApp {
         } catch (err) {
             console.error("v_ase initialization failed:", err);
             this.toast(`Initialization failed: ${err.message}`, 'error');
+        } finally {
+            this.clearBusy();
         }
     }
 
@@ -413,6 +422,8 @@ class VAseApp {
             if (!data || !data.positions) return;
 
             this.state.atoms = data;
+            this.rebuildTypeIndexCache(data.symbols || []);
+            this.state.cachedFmax = this.computeFmax(data.forces || []);
             this.clearRelaxTrajectoryIfTopologyChanged(data);
             this.state.originalPositions = data.positions.map(p => [...p]);
             if (data.metadata?.trajectory_positions_binary && !data.trajectory_positions) {
@@ -426,9 +437,8 @@ class VAseApp {
             this.updateUI();
             
             this.state.display.vizOnly = this.state.vizOnly;
-            this.renderer.setDisplayOptions(this.state.display);
+            this.renderer.setDisplayOptions(this.state.display, { rebuild: false });
             this.renderer.rebuildAtoms(data, data.metadata.custom_colors || {});
-            this.renderer.setDisplayOptions(this.state.display);
             
             this.updateSelectionVisuals();
         } catch (err) {
@@ -450,14 +460,7 @@ class VAseApp {
             : calcLabel);
         setHtml('val-mode', this.transform.mode === 'IDLE' ? (this.state.vizOnly ? 'VIEW' : 'SELECT') : this.transform.mode);
         setHtml('val-energy', typeof meta.energy === 'number' ? meta.energy.toFixed(4) : "-");
-        const validForces = (this.state.atoms.forces || [])
-            .filter(f => Array.isArray(f) && f.length >= 3 && f.slice(0, 3).every(v => Number.isFinite(Number(v))));
-        if (validForces.length) {
-            const fmax = Math.max(...validForces.map(f => Math.sqrt(Number(f[0]) ** 2 + Number(f[1]) ** 2 + Number(f[2]) ** 2)));
-            setHtml('val-fmax', Number.isFinite(fmax) ? fmax.toFixed(4) : "-");
-        } else {
-            setHtml('val-fmax', "-");
-        }
+        setHtml('val-fmax', Number.isFinite(this.state.cachedFmax) ? this.state.cachedFmax.toFixed(4) : "-");
         
         const pbc = this.state.atoms.pbc.map(p => p ? 'T' : 'F').join('');
         setHtml('prop-pbc', pbc);
@@ -486,13 +489,13 @@ class VAseApp {
         const el = document.getElementById(id);
         if (!el) return;
         el.innerText = value;
-        el.dataset.copyValue = value === '-' ? '' : value;
-        el.title = value;
+        el._copyValue = value === '-' ? '' : value;
+        el.title = value.length <= 512 ? value : `${value.slice(0, 509)}...`;
     }
 
     async copySelectionField(targetId) {
         const el = document.getElementById(targetId);
-        const text = el?.dataset.copyValue || el?.innerText || '';
+        const text = el?._copyValue || el?.innerText || '';
         if (!text || text === '-') {
             this.toast('Nothing to copy.', 'warning');
             return;
@@ -727,6 +730,8 @@ class VAseApp {
 
     setAtomsData(data, { clearSelection = false } = {}) {
         this.state.atoms = data;
+        this.rebuildTypeIndexCache(data.symbols || []);
+        this.state.cachedFmax = this.computeFmax(data.forces || []);
         this.clearRelaxTrajectoryIfTopologyChanged(data);
         this.reconcileTypeOrder(data.symbols || []);
         this.state.originalPositions = data.positions.map(p => [...p]);
@@ -745,9 +750,8 @@ class VAseApp {
             this.pruneSelection();
         }
         this.state.display.vizOnly = this.state.vizOnly;
-        this.renderer.setDisplayOptions(this.state.display);
+        this.renderer.setDisplayOptions(this.state.display, { rebuild: false });
         this.renderer.rebuildAtoms(data, data.metadata.custom_colors || {});
-        this.renderer.setDisplayOptions(this.state.display);
         this.renderElementBondControls();
         this.renderElementRadiusControls();
         this.updateEditingAvailability();
@@ -1080,6 +1084,7 @@ class VAseApp {
     }
 
     updateSelectionConstraintControls() {
+        if (this.state.vizOnly) return;
         const indices = [...this.state.selected].sort((a, b) => a - b);
         const fixBox = document.getElementById('constraint-fixatoms');
         const kindSelect = document.getElementById('constraint-kind');
@@ -1357,6 +1362,7 @@ class VAseApp {
         this.renderer.syncSelectionOutlines();
         this.transform.updateGuides(camera);
         this.updateOrientationWidget();
+        this.renderer.requestRender();
         return sign;
     }
 
@@ -1408,6 +1414,10 @@ class VAseApp {
         const camera = this.renderer?.camera;
         if (!camera) return;
         camera.updateMatrixWorld();
+        const q = camera.quaternion;
+        const signature = `${q.x.toFixed(6)}:${q.y.toFixed(6)}:${q.z.toFixed(6)}:${q.w.toFixed(6)}`;
+        if (signature === this.state.orientationSignature) return;
+        this.state.orientationSignature = signature;
         const inverse = camera.quaternion.clone().invert();
         const axes = {
             x: new THREE.Vector3(1, 0, 0),
@@ -1487,6 +1497,20 @@ class VAseApp {
         this.state.hoveredIndex = normalized;
         const readout = document.getElementById('hover-readout');
         if (readout) readout.innerText = this.atomHoverText(normalized);
+    }
+
+    queueHoverPick(event) {
+        this.state.hoverPointer = { clientX: event.clientX, clientY: event.clientY };
+        if (this.state.hoverPickTimer !== null) return;
+        this.state.hoverPickTimer = window.setTimeout(() => {
+            this.state.hoverPickTimer = null;
+            const pointer = this.state.hoverPointer;
+            if (!pointer || this.transform.mode !== 'IDLE' || this.state.isDragging) {
+                this.setHoveredAtom(null);
+                return;
+            }
+            this.setHoveredAtom(this.selection.pick(pointer, this.renderer.atomMeshes));
+        }, 32);
     }
 
     pointerAngleAroundPivot(pointer) {
@@ -1624,6 +1648,7 @@ class VAseApp {
             this.constraintTimeout = setTimeout(() => this.previewConstraints(), 50);
         }
         this.updateCommandReadout();
+        this.renderer.requestRender();
     }
     
     async previewConstraints() {
@@ -1648,6 +1673,7 @@ class VAseApp {
                 this.renderer.updateHookeanPositions();
                 const measure = document.getElementById('selected-measure');
                 if (measure) measure.innerText = this.getSelectionMeasureText();
+                this.renderer.requestRender();
             }
         } catch (err) {
             console.error("Constraint preview error:", err);
@@ -1799,6 +1825,30 @@ class VAseApp {
         return this.reconcileTypeOrder(this.state.atoms?.symbols || []);
     }
 
+    computeFmax(forces = []) {
+        let maximum = null;
+        for (const force of forces) {
+            if (!Array.isArray(force) || force.length < 3) continue;
+            const x = Number(force[0]);
+            const y = Number(force[1]);
+            const z = Number(force[2]);
+            if (![x, y, z].every(Number.isFinite)) continue;
+            const magnitude = Math.sqrt(x * x + y * y + z * z);
+            maximum = maximum === null ? magnitude : Math.max(maximum, magnitude);
+        }
+        return maximum;
+    }
+
+    rebuildTypeIndexCache(symbols = []) {
+        const cache = new Map();
+        symbols.forEach((symbol, index) => {
+            if (!cache.has(symbol)) cache.set(symbol, []);
+            cache.get(symbol).push(index);
+        });
+        this.state.typeIndices = cache;
+        return cache;
+    }
+
     naturalTypeCompare(a, b) {
         return String(a).localeCompare(String(b), undefined, {
             numeric: true,
@@ -1861,9 +1911,7 @@ class VAseApp {
     }
 
     elementIndices(symbol) {
-        return (this.state.atoms?.symbols || [])
-            .map((value, index) => value === symbol ? index : -1)
-            .filter(index => index >= 0);
+        return this.state.typeIndices?.get(symbol) || [];
     }
 
     isElementVisible(symbol) {
@@ -1931,6 +1979,19 @@ class VAseApp {
             'Md','No','Lr','Rf','Db','Sg','Bh','Hs','Mt','Ds',
             'Rg','Cn','Nh','Fl','Mc','Lv','Ts','Og'
         ];
+    }
+
+    ensureElementTypeDatalist() {
+        const list = document.getElementById('element-type-options');
+        if (!list || list.dataset.ready === 'true') return;
+        const fragment = document.createDocumentFragment();
+        this.chemicalElementOptions().forEach(symbol => {
+            const option = document.createElement('option');
+            option.value = symbol;
+            fragment.appendChild(option);
+        });
+        list.appendChild(fragment);
+        list.dataset.ready = 'true';
     }
 
     baseElementForLabel(label, fallback = 'H') {
@@ -2050,6 +2111,7 @@ class VAseApp {
     renderElementRadiusControls() {
         const root = document.getElementById('element-radius-list');
         if (!root || !this.state.atoms?.symbols) return;
+        this.ensureElementTypeDatalist();
         const active = document.activeElement;
         const existingFocus = {
             radius: active?.dataset?.elementRadius,
@@ -2068,17 +2130,15 @@ class VAseApp {
             const row = document.createElement('div');
             row.className = 'element-radius-row element-appearance-row';
             const currentElement = this.chemicalSymbolForLabel(symbol);
-            const typeSelect = document.createElement('select');
+            const typeIndices = this.elementIndices(symbol);
+            const typeSelect = document.createElement('input');
+            typeSelect.type = 'text';
+            typeSelect.setAttribute('list', 'element-type-options');
+            typeSelect.setAttribute('aria-label', `Element type for ${symbol}`);
             typeSelect.className = 'element-type-select';
             typeSelect.dataset.elementType = symbol;
-            typeSelect.title = `${this.elementIndices(symbol).length} atom${this.elementIndices(symbol).length === 1 ? '' : 's'} with label ${symbol}`;
-            this.chemicalElementOptions().forEach(element => {
-                const option = document.createElement('option');
-                option.value = element;
-                option.innerText = element;
-                option.selected = element === currentElement;
-                typeSelect.appendChild(option);
-            });
+            typeSelect.title = `${typeIndices.length} atom${typeIndices.length === 1 ? '' : 's'} with label ${symbol}`;
+            typeSelect.value = currentElement;
 
             const visibleBox = document.createElement('input');
             visibleBox.type = 'checkbox';
@@ -2135,6 +2195,12 @@ class VAseApp {
                 if (next && (next !== symbol || base !== currentElement)) this.renameElementType(symbol, next, base);
             };
             typeSelect.addEventListener('change', () => {
+                if (!this.chemicalElementOptions().includes(typeSelect.value)) {
+                    const invalidType = typeSelect.value;
+                    typeSelect.value = currentElement;
+                    this.toast(`${invalidType || 'Unknown'} is not a valid element type.`, 'warning');
+                    return;
+                }
                 const radius = this.defaultElementRadius(typeSelect.value);
                 if (Number.isFinite(radius) && radius > 0) input.value = Number(radius.toFixed(4));
                 nameInput.value = this.labelForBaseTypeChange(symbol, typeSelect.value);
@@ -2326,6 +2392,7 @@ class VAseApp {
                 this.state.atoms.visual.colors[index] = color;
             }
         });
+        this.rebuildTypeIndexCache(this.state.atoms.symbols || []);
         const selected = new Set();
         this.state.selected.forEach(index => {
             if (this.isElementVisible(this.state.atoms.symbols[index])) selected.add(index);
@@ -2440,6 +2507,7 @@ class VAseApp {
                 this.state.atoms.visual.colors[index] = color;
             }
         });
+        this.rebuildTypeIndexCache(this.state.atoms.symbols || []);
         if (!preserveAppearance) this.setElementBaseDefaults(label, baseSymbol, { color: true });
         this.renderer.rebuildAtoms(this.state.atoms, this.state.atoms.metadata?.custom_colors || {});
         this.renderer.setSelection(this.state.selected);
@@ -2544,6 +2612,10 @@ class VAseApp {
     }
 
     applyDisplayOptions() {
+        if (this.state.displayApplyRequest !== null) {
+            cancelAnimationFrame(this.state.displayApplyRequest);
+            this.state.displayApplyRequest = null;
+        }
         this.state.display.showBonds = document.getElementById('chk-bonds').checked;
         this.state.display.showCell = document.getElementById('chk-cell').checked;
         this.state.display.showAxes = document.getElementById('chk-axes').checked;
@@ -2581,11 +2653,15 @@ class VAseApp {
     }
 
     safeApplyDisplayOptions() {
-        try {
-            this.applyDisplayOptions();
-        } catch (err) {
-            this.toast(err.message, 'error');
-        }
+        if (this.state.displayApplyRequest !== null) return;
+        this.state.displayApplyRequest = requestAnimationFrame(() => {
+            this.state.displayApplyRequest = null;
+            try {
+                this.applyDisplayOptions();
+            } catch (err) {
+                this.toast(err.message, 'error');
+            }
+        });
     }
 
     clonePlain(value) {
@@ -3751,7 +3827,7 @@ class VAseApp {
         };
         document.getElementById('btn-export-blender').onclick = async () => {
             try {
-                this.safeApplyDisplayOptions();
+                this.applyDisplayOptions();
                 const saved = await this.saveBlobFromAction(
                     () => this.api.exportBlender(
                         this.backendPositionsPayload(),
@@ -3974,7 +4050,7 @@ class VAseApp {
         canvas.addEventListener('pointermove', (e) => {
             this.state.lastPointer.set(e.clientX, e.clientY);
             if (this.canViewportSelectAtoms() && this.transform.mode === 'IDLE' && !this.state.isDragging) {
-                this.setHoveredAtom(this.selection.pick(e, this.renderer.atomMeshes));
+                this.queueHoverPick(e);
             } else {
                 this.setHoveredAtom(null);
             }

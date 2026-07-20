@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/v_ase-logo.png" width="720" alt="v_ase atomistic logo">
+</p>
+
 # v_ase
 
 [![PyPI version](https://img.shields.io/pypi/v/v_ase-gui.svg)](https://pypi.python.org/pypi/v_ase-gui/)
@@ -54,6 +58,11 @@ terminal.
 - Lightweight OVITO-style inspection is the default CLI mode, keeping bonds,
   supercell, appearance, visual type labels, measurements, projection, wrapping,
   and export controls responsive for large structures.
+- Large scenes use shared unit-sphere geometry, GPU instancing for atoms, bonds,
+  selection outlines, and visualization-mode supercells, adaptive pixel ratio,
+  and demand rendering. An idle viewport does not continuously consume GPU
+  frames. See [Rendering Performance](https://github.com/lgyEthan/v_ase/blob/main/docs/performance.md)
+  for architecture and reproducible benchmark details.
 - Orthographic projection is the default view, with perspective available from
   the View panel.
 - Add `--interactive` for Blender-like atom editing: middle-mouse orbit,

@@ -28,15 +28,16 @@ export class ASESelection {
             }
             return hit.object.userData.index;
         }
+        if ((this.renderer.atomMeshByIndex?.size || 0) > 2000) return null;
         return this.nearestProjectedAtom(e, atomGroup);
     }
 
     nearestProjectedAtom(e, atomGroup) {
         let best = null;
         const tolerance = 24;
+        const pos = new THREE.Vector3();
         this.renderer.forEachAtomProxy((mesh, index) => {
             if (mesh.visible === false || !this.renderer.atomTypeVisible(index)) return;
-            const pos = new THREE.Vector3();
             pos.copy(mesh.position);
             const screenPos = pos.project(this.renderer.camera);
             if (screenPos.z > 1 || screenPos.z < -1) return;
@@ -53,10 +54,10 @@ export class ASESelection {
 
     boxSelect(rect, atomGroup, camera) {
         const selected = new Set();
+        const pos = new THREE.Vector3();
         
         this.renderer.forEachAtomProxy((mesh, index) => {
             if (mesh.visible === false || !this.renderer.atomTypeVisible(index)) return;
-            const pos = new THREE.Vector3();
             pos.copy(mesh.position);
             
             // Project to screen space

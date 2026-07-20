@@ -13,6 +13,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from v_ase.viewer import find_free_port, view
+from v_ase.session import sessions
 
 def test_milestone_2_proof():
     print("Initializing H2O molecule with EMT calculator...")
@@ -25,6 +26,7 @@ def test_milestone_2_proof():
     
     # Store the result
     result = {"edited": None}
+    existing_sessions = set(sessions)
     
     def run_viewer():
         # block=True returns when the session is finalized through the API.
@@ -33,6 +35,16 @@ def test_milestone_2_proof():
     
     viewer_thread = threading.Thread(target=run_viewer, daemon=True)
     viewer_thread.start()
+
+    deadline = time.time() + 5
+    session_id = None
+    while time.time() < deadline:
+        created = set(sessions) - existing_sessions
+        if created:
+            session_id = next(iter(created))
+            break
+        time.sleep(0.02)
+    assert session_id is not None, "view() did not create a browser session."
     
     # Wait for server to start
     time.sleep(2)
@@ -46,7 +58,7 @@ def test_milestone_2_proof():
         page = browser.new_page()
         
         # Load the viewer
-        page.goto(f"http://127.0.0.1:{port}")
+        page.goto(f"http://127.0.0.1:{port}/?session_id={session_id}")
         
         # Wait for atoms to load.
         page.wait_for_selector("#prop-natoms:text-is('3')")

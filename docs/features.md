@@ -82,6 +82,19 @@ does not reorder rows. If a label prefix names a real element, for example
 base element changes, stale radius/color overrides from the old label are not
 blindly copied.
 
+### Rendering Performance
+The viewport renders on demand instead of running a permanent animation loop.
+Camera movement, trajectory playback, transforms, and UI changes request a
+frame; an unchanged viewport remains idle. Large structures use Three.js
+`InstancedMesh` batches for atoms, bonds, selection outlines, and visualization-
+mode supercell repeats. Per-instance transforms, colors, and visibility avoid
+creating one JavaScript object and draw call per atom.
+
+The renderer also lowers device pixel ratio progressively for large atom counts,
+uses a cell-list bond search, caches type/cell/force summaries, and serves large
+LAMMPS trajectory frames as binary float32 positions. Measurement method and
+current benchmark results are documented in [Rendering Performance](performance.md).
+
 ### ASE Constraint Compatibility
 The visualizer respects ASE constraints:
 - **FixAtoms**: Atoms marked as fixed cannot be moved or rotated and are shown by a micro-etched atom material shader on the atom itself, with normal depth occlusion and no extra see-through marker.

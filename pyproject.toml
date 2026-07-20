@@ -1,13 +1,14 @@
 [build-system]
-requires = ["setuptools>=61", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "v_ase-gui"
-version = "0.0.44"
+version = "0.0.45"
 description = "v_ase: a Blender-style browser GUI and editor for ASE Atoms objects."
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [
   { name = "v_ase contributors" }
@@ -53,11 +54,8 @@ jupyter = [
   "jupyterlab>=4",
 ]
 
-[tool.setuptools]
-license-files = ["LICENSE"]
-
 [tool.setuptools.packages.find]
 include = ["v_ase*"]
 
 [tool.setuptools.package-data]
-v_ase = ["static/*.html", "static/*.css", "static/*.js", "static/vendor/*.js", "static/vendor/THREE_LICENSE"]
+v_ase = ["static/*.html", "static/*.css", "static/*.js", "static/*.png", "static/vendor/*.js", "static/vendor/THREE_LICENSE"]

@@ -15,6 +15,7 @@
 - [Shortcuts & Controls](shortcuts.md)
 - [Features & Architecture](features.md)
 - [API Reference](api.md)
+- [Rendering Performance](performance.md)
 - [Unit-Cell-Aware Rotate](unit_cell_aware_rotate.md)
 
 ## Getting Started
