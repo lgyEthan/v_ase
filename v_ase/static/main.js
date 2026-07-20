@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.48';
-import { ASERenderer } from './renderer.js?v=0.0.48';
-import { ASESelection } from './selection.js?v=0.0.48';
-import { ASETransform } from './transform.js?v=0.0.48';
+import { ASEApi } from './api.js?v=0.0.49';
+import { ASERenderer } from './renderer.js?v=0.0.49';
+import { ASESelection } from './selection.js?v=0.0.49';
+import { ASETransform } from './transform.js?v=0.0.49';
 
 class VAseApp {
     constructor() {
@@ -439,6 +439,8 @@ class VAseApp {
         if (button) {
             button.setAttribute('aria-expanded', next ? 'false' : 'true');
             button.title = next ? 'Expand control panel' : 'Collapse control panel';
+            const glyph = button.querySelector('.inspector-collapse-glyph');
+            if (glyph) glyph.textContent = next ? '<' : '>';
         }
         if (persist) {
             try {

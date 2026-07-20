@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.48`.
+Last synchronized with implementation: `v_ase-gui 0.0.49`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -231,7 +231,7 @@ possible, and update the frontend state. This behavior is covered by
 *   **Reset**: Revert to original input structure (preserving calculator).
 *   **Wrap**: Explicitly call `Atoms.wrap()`.
 *   **Constraint Panel**: Interactive mode can apply or clear `FixAtoms`, `FixedLine`, and `FixedPlane` on selected atoms. FixAtoms uses tri-state selection semantics; partial selections clear first, then can be applied to all selected atoms.
-*   **Inspector Workspaces**: Inspect, Edit, Scene, and Output tabs replace the single long inspector. The full panel collapses to a 48 px rail and persists its active workspace and width.
+*   **Inspector Sections**: Inspect, Edit, Scene, and Output tabs replace the single long inspector. The full panel collapses to a 48 px rail and persists its active section and width.
 
 ---
 
@@ -332,7 +332,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.48).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.49).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -357,6 +357,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 32**: Added collapsible workspace navigation, opt-in Studio Sun and soft-shadow rendering with draggable light controls and independent image-export settings, plus a VESTA-style cell-local bond default with explicit periodic-image MIC mode.
 *   [x] **Phase 33**: Auto and element-cutoff bonds now form and break live during interactive G/R previews, while all user bond settings persist across backend structure refreshes, trajectory changes, and label edits.
 *   [x] **Phase 34**: Added persistent bond thickness, custom or midpoint-split atom colors, 3D cylinder and camera-facing flat-ribbon styles, GPU-instanced rendering, and matching Blender export.
+*   [x] **Phase 35**: Replaced the ambiguous inspector chevron construction with explicit action glyphs, removed the redundant Workspace header label, and introduced an illuminated-object vector icon for render lighting.
 
 ---
 

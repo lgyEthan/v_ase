@@ -71,11 +71,16 @@ exposed in the inspector. Supercell preview is only enabled when a valid unit
 cell exists and PBC is true in the requested direction; otherwise the UI shows
 a warning and resets the invalid multiplier.
 
-### Workspace Navigation and Lighting
-The inspector is divided into Inspect, Edit, Scene, and Output workspaces instead
+### Inspector Navigation and Lighting
+The inspector is divided into Inspect, Edit, Scene, and Output sections instead
 of one long mixed panel. Edit is omitted in visualization-only mode. The entire
 inspector can collapse to a 48 px rail, and its width, collapsed state, and active
-workspace are persisted locally.
+section are persisted locally. Its action glyph always describes the next action:
+`>` collapses the open inspector and `<` expands the rail.
+
+The lighting control uses an illuminated-object icon with incoming rays, a shaded
+sphere, and a surface highlight so it remains distinct from generic add or sun
+controls at compact viewport sizes.
 
 The viewport renderer has three explicit modes:
 

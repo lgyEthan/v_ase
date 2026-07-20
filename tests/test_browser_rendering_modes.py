@@ -53,17 +53,26 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             page.click('[data-inspector-group="scene"]')
             assert page.locator('[data-panel="view"]').is_visible()
             assert not page.locator('[data-panel="structure-info"]').is_visible()
+            assert page.locator('#btn-inspector-collapse .inspector-collapse-glyph').inner_text() == '>'
             page.click('#btn-inspector-collapse')
             page.wait_for_function("document.body.classList.contains('inspector-collapsed')")
             page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width <= 49")
             assert page.locator('#inspector').evaluate("element => Math.round(element.getBoundingClientRect().width)") == 48
+            assert page.locator('#btn-inspector-collapse .inspector-collapse-glyph').inner_text() == '<'
             page.click('#btn-inspector-collapse')
+            assert page.locator('#btn-inspector-collapse .inspector-collapse-glyph').inner_text() == '>'
 
             page.click('[data-panel="bonding"] > summary')
             page.check('#chk-periodic-bonds')
             page.wait_for_function("window.__ASE_APP__.renderer.bondPairs.length === 1")
             assert page.locator('#app-viewport canvas').get_attribute('data-periodic-bonds') == 'true'
 
+            lighting_icon = page.locator('#btn-lighting-toggle .render-light-icon')
+            assert lighting_icon.is_visible()
+            icon_box = lighting_icon.bounding_box()
+            assert icon_box is not None
+            assert icon_box['width'] == pytest.approx(24, abs=1)
+            assert icon_box['height'] == pytest.approx(24, abs=1)
             page.click('#btn-lighting-toggle')
             page.select_option('#lighting-mode', 'studio-shadow')
             page.check('#chk-sun-gizmo')

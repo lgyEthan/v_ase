@@ -426,10 +426,11 @@ body.dragging-create-atom {
 }
 
 .inspector-collapse {
-    position: relative;
     flex: 0 0 30px;
     width: 30px;
     height: 30px;
+    display: grid;
+    place-items: center;
     padding: 0;
     border: 1px solid var(--line-strong);
     border-radius: 5px;
@@ -437,44 +438,31 @@ body.dragging-create-atom {
     cursor: pointer;
 }
 
-.inspector-collapse span::before,
-.inspector-collapse span::after {
-    content: "";
-    position: absolute;
-    left: 10px;
-    width: 8px;
-    height: 1.5px;
-    border-radius: 1px;
-    background: var(--text-soft);
-    transform-origin: left center;
+.inspector-collapse-glyph {
+    display: block;
+    color: var(--text-soft);
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 21px;
+    font-weight: 500;
+    line-height: 1;
+    text-align: center;
 }
 
-.inspector-collapse span::before {
-    top: 11px;
-    transform: rotate(42deg);
-}
-
-.inspector-collapse span::after {
-    top: 17px;
-    transform: rotate(-42deg);
+.inspector-collapse:hover .inspector-collapse-glyph,
+.inspector-collapse:focus-visible .inspector-collapse-glyph {
+    color: var(--teal);
 }
 
 .inspector-title {
     min-width: 0;
-    display: grid;
-    gap: 1px;
-}
-
-.inspector-title strong {
-    color: var(--text);
-    font-size: 0.82rem;
-    font-weight: 740;
+    display: flex;
+    align-items: center;
 }
 
 .inspector-title span {
-    color: var(--muted);
-    font-size: 0.61rem;
-    font-weight: 700;
+    color: var(--text-soft);
+    font-size: 0.72rem;
+    font-weight: 720;
     text-transform: uppercase;
 }
 
@@ -525,18 +513,6 @@ body.inspector-collapsed #inspector {
 body.inspector-collapsed .inspector-head {
     justify-content: center;
     padding: 0;
-}
-
-body.inspector-collapsed .inspector-collapse span::before {
-    top: 11px;
-    left: 11px;
-    transform: rotate(-42deg);
-}
-
-body.inspector-collapsed .inspector-collapse span::after {
-    top: 17px;
-    left: 11px;
-    transform: rotate(42deg);
 }
 
 body.inspector-collapsed .inspector-title,
@@ -1235,42 +1211,52 @@ body.inspector-wide #inspector #element-radius-list {
     cursor: pointer;
 }
 
-.sun-icon {
-    position: relative;
-    width: 14px;
-    height: 14px;
-    border: 2px solid var(--text-soft);
-    border-radius: 50%;
+.render-light-icon {
+    width: 24px;
+    height: 24px;
+    overflow: visible;
 }
 
-.sun-icon::before,
-.sun-icon::after {
-    content: "";
-    position: absolute;
-    top: 4px;
-    left: -5px;
-    width: 20px;
-    height: 2px;
-    background: var(--text-soft);
+.render-light-ray {
+    fill: none;
+    stroke: #aeb5b2;
+    stroke-width: 1.65;
+    stroke-linecap: round;
 }
 
-.sun-icon::after {
-    transform: rotate(90deg);
+.render-light-body {
+    fill: #394043;
+    stroke: #c5ccca;
+    stroke-width: 1.35;
 }
 
-.lighting-trigger:hover .sun-icon,
-.lighting-widget[data-mode="studio"] .sun-icon,
-.lighting-widget[data-mode="studio-shadow"] .sun-icon {
-    border-color: var(--amber);
+.render-light-highlight {
+    fill: none;
+    stroke: #f7f9f7;
+    stroke-width: 1.8;
+    stroke-linecap: round;
 }
 
-.lighting-trigger:hover .sun-icon::before,
-.lighting-trigger:hover .sun-icon::after,
-.lighting-widget[data-mode="studio"] .sun-icon::before,
-.lighting-widget[data-mode="studio"] .sun-icon::after,
-.lighting-widget[data-mode="studio-shadow"] .sun-icon::before,
-.lighting-widget[data-mode="studio-shadow"] .sun-icon::after {
-    background: var(--amber);
+.render-light-shade {
+    fill: rgba(10, 12, 13, 0.52);
+}
+
+.lighting-trigger:hover .render-light-ray,
+.lighting-widget[data-mode="studio"] .render-light-ray,
+.lighting-widget[data-mode="studio-shadow"] .render-light-ray {
+    stroke: var(--amber);
+}
+
+.lighting-trigger:hover .render-light-body,
+.lighting-widget[data-mode="studio"] .render-light-body,
+.lighting-widget[data-mode="studio-shadow"] .render-light-body {
+    stroke: var(--amber);
+}
+
+.lighting-trigger:hover .render-light-highlight,
+.lighting-widget[data-mode="studio"] .render-light-highlight,
+.lighting-widget[data-mode="studio-shadow"] .render-light-highlight {
+    stroke: #fff2bd;
 }
 
 .lighting-mode-indicator {
