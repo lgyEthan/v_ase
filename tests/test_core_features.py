@@ -382,6 +382,10 @@ def test_visual_settings_save_and_load_pickle_roundtrip():
             "showBonds": True,
             "bondMode": "element",
             "elementBondCutoffs": {"H-O": 1.35},
+            "bondStyle": "flat",
+            "bondThickness": 0.24,
+            "bondColorMode": "custom",
+            "bondCustomColor": "#18a7d8",
             "atomRadiusScale": 1.4,
             "elementRadii": {"O": 0.72},
             "supercell": [1, 1, 1],
@@ -394,9 +398,13 @@ def test_visual_settings_save_and_load_pickle_roundtrip():
     payload = pickle.loads(response.body)
     assert payload["schema"] == "v_ase.visual_settings.v1"
     assert payload["settings"]["display"]["elementBondCutoffs"]["H-O"] == 1.35
+    assert payload["settings"]["display"]["bondStyle"] == "flat"
+    assert payload["settings"]["display"]["bondThickness"] == 0.24
+    assert payload["settings"]["display"]["bondCustomColor"] == "#18a7d8"
 
     loaded = asyncio.run(load_visual_settings(session.session_id, BytesRequest(response.body)))
     assert loaded["settings"]["display"]["atomRadiusScale"] == 1.4
+    assert loaded["settings"]["display"]["bondColorMode"] == "custom"
     assert loaded["settings"]["sphereQuality"] == "high"
 
 

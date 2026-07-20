@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.47';
-import { ASERenderer } from './renderer.js?v=0.0.47';
-import { ASESelection } from './selection.js?v=0.0.47';
-import { ASETransform } from './transform.js?v=0.0.47';
+import { ASEApi } from './api.js?v=0.0.48';
+import { ASERenderer } from './renderer.js?v=0.0.48';
+import { ASESelection } from './selection.js?v=0.0.48';
+import { ASETransform } from './transform.js?v=0.0.48';
 
 class VAseApp {
     constructor() {
@@ -39,6 +39,10 @@ class VAseApp {
                 bondCutoffScale: 1.0,
                 manualBondPairs: [],
                 elementBondCutoffs: {},
+                bondStyle: 'cylinder',
+                bondThickness: 0.11,
+                bondColorMode: 'split',
+                bondCustomColor: '#c8ccd0',
                 atomRadiusScale: 1.0,
                 elementRadii: {},
                 elementColors: {},
@@ -1089,6 +1093,17 @@ class VAseApp {
         this.state.display.showGrid = config.show_grid !== false;
         this.state.display.showOverlays = config.show_overlays !== false;
         this.state.display.showPeriodicBonds = Boolean(config.show_periodic_bonds);
+        this.state.display.bondStyle = ['cylinder', 'flat'].includes(config.bond_style)
+            ? config.bond_style
+            : this.state.display.bondStyle;
+        this.state.display.bondThickness = Math.max(0.02, Math.min(0.6,
+            Number(config.bond_thickness || this.state.display.bondThickness)));
+        this.state.display.bondColorMode = ['split', 'custom'].includes(config.bond_color_mode)
+            ? config.bond_color_mode
+            : this.state.display.bondColorMode;
+        if (/^#[0-9A-Fa-f]{6}$/.test(config.bond_custom_color || '')) {
+            this.state.display.bondCustomColor = config.bond_custom_color;
+        }
         this.state.applyConstraints = config.apply_constraint !== false;
         this.state.antiAliasing = config.anti_aliasing !== false;
         this.state.sphereQuality = config.sphere_quality || 'auto';
@@ -1104,6 +1119,10 @@ class VAseApp {
         this.state.display.vizOnly = this.state.vizOnly;
         document.getElementById('chk-bonds').checked = this.state.display.showBonds;
         document.getElementById('chk-periodic-bonds').checked = this.state.display.showPeriodicBonds;
+        document.getElementById('bond-style').value = this.state.display.bondStyle;
+        document.getElementById('bond-thickness').value = this.state.display.bondThickness;
+        document.getElementById('bond-color-mode').value = this.state.display.bondColorMode;
+        document.getElementById('bond-custom-color').value = this.state.display.bondCustomColor;
         document.getElementById('chk-cell').checked = this.state.display.showCell;
         document.getElementById('chk-axes').checked = this.state.display.showAxes;
         document.getElementById('chk-grid').checked = this.state.display.showGrid;
@@ -2737,6 +2756,18 @@ class VAseApp {
         if (Number.isFinite(scale) && scale > 0) {
             this.state.display.bondCutoffScale = Math.max(0.5, scale);
         }
+        const style = document.getElementById('bond-style')?.value;
+        if (['cylinder', 'flat'].includes(style)) this.state.display.bondStyle = style;
+        const thickness = Number(document.getElementById('bond-thickness')?.value);
+        if (Number.isFinite(thickness) && thickness > 0) {
+            this.state.display.bondThickness = Math.max(0.02, Math.min(0.6, thickness));
+        }
+        const colorMode = document.getElementById('bond-color-mode')?.value;
+        if (['split', 'custom'].includes(colorMode)) this.state.display.bondColorMode = colorMode;
+        const customColor = document.getElementById('bond-custom-color')?.value;
+        if (/^#[0-9A-Fa-f]{6}$/.test(customColor || '')) {
+            this.state.display.bondCustomColor = customColor;
+        }
         this.state.display.elementBondCutoffs = {
             ...(this.state.display.elementBondCutoffs || {}),
             ...this.parseElementBondCutoffs()
@@ -2759,6 +2790,16 @@ class VAseApp {
         if (elementPanel) elementPanel.classList.toggle('hidden', mode !== 'element');
         if (pairText) pairText.classList.toggle('hidden', mode !== 'manual');
         if (cutoffRow) cutoffRow.classList.toggle('hidden', mode === 'manual');
+        this.updateBondAppearanceUI();
+    }
+
+    updateBondAppearanceUI() {
+        const mode = document.getElementById('bond-color-mode')?.value || this.state.display.bondColorMode;
+        document.getElementById('bond-custom-color-row')?.classList.toggle('hidden', mode !== 'custom');
+        const rawThickness = Number(document.getElementById('bond-thickness')?.value || this.state.display.bondThickness);
+        const thickness = Number.isFinite(rawThickness) ? rawThickness : 0.11;
+        const output = document.getElementById('bond-thickness-value');
+        if (output) output.innerText = `${thickness.toFixed(2)} A`;
     }
 
     parseBondPairs() {
@@ -2921,6 +2962,10 @@ class VAseApp {
         setValue('rotate-strain-cutoff', display.rotateStrainCutoff ?? 0.15);
         setValue('bond-mode', display.bondMode || 'auto');
         setValue('bond-cutoff', display.bondCutoffScale || 1.0);
+        setValue('bond-style', display.bondStyle || 'cylinder');
+        setValue('bond-thickness', display.bondThickness || 0.11);
+        setValue('bond-color-mode', display.bondColorMode || 'split');
+        setValue('bond-custom-color', display.bondCustomColor || '#c8ccd0');
         setValue('atom-radius-scale', display.atomRadiusScale || 1);
         setValue('move-increment', this.state.moveIncrement || 0);
         setValue('rotate-increment', this.state.rotateIncrementDeg || 0);
@@ -2928,6 +2973,7 @@ class VAseApp {
         this.writeBondPairs(display.manualBondPairs || []);
         this.syncLightingControls(display);
         this.updateRadiusScaleLabel();
+        this.updateBondAppearanceUI();
     }
 
     applyDesignSettings(settings, { render = true } = {}) {
@@ -4168,6 +4214,18 @@ class VAseApp {
             this.safeApplyDisplayOptions();
         };
         document.getElementById('bond-cutoff').oninput = () => this.safeApplyDisplayOptions();
+        document.getElementById('bond-style').onchange = () => this.safeApplyDisplayOptions();
+        document.getElementById('bond-thickness').oninput = () => {
+            this.updateBondAppearanceUI();
+            this.safeApplyDisplayOptions();
+        };
+        document.getElementById('bond-thickness').onchange = () => this.safeApplyDisplayOptions();
+        document.getElementById('bond-color-mode').onchange = () => {
+            this.updateBondAppearanceUI();
+            this.safeApplyDisplayOptions();
+        };
+        document.getElementById('bond-custom-color').oninput = () => this.safeApplyDisplayOptions();
+        document.getElementById('bond-custom-color').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('btn-bond-apply').onclick = () => {
             const mode = document.getElementById('bond-mode').value;
             if (mode === 'manual') {

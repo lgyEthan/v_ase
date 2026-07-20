@@ -59,6 +59,12 @@ opts into minimum-image vectors and image-crossing cylinders. This matches
 VESTA's explicit distinction between keeping atom searches inside the boundary
 and searching atoms beyond it, as documented in the [VESTA manual](https://jp-minerals.org/vesta/en/doc/VESTAch8.html).
 
+Bond appearance is independent of topology inference. Thickness controls the
+3D cylinder diameter or 2D flat-ribbon width. Color can be one freely selected
+custom value or two midpoint-split segments using the endpoint atom colors.
+Flat ribbons remain camera-facing during navigation. These settings persist in
+visual-settings pickle files and are reproduced in PNG/WebM and Blender export.
+
 Orthographic projection is the default view, with perspective available as a
 viewport option. Unit cell, axes, grid, and supercell preview controls are
 exposed in the inspector. Supercell preview is only enabled when a valid unit

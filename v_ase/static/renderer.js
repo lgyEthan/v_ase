@@ -428,6 +428,10 @@ export class ASERenderer {
             bondCutoffScale: 1.0,
             manualBondPairs: [],
             elementBondCutoffs: {},
+            bondStyle: 'cylinder',
+            bondThickness: 0.11,
+            bondColorMode: 'split',
+            bondCustomColor: '#c8ccd0',
             atomRadiusScale: 1.0,
             elementRadii: {},
             elementColors: {},
@@ -456,14 +460,25 @@ export class ASERenderer {
         };
         this.shadowModeActive = false;
         this.bondPairs = [];
-        this.bondGeometry = new THREE.CylinderGeometry(0.055, 0.055, 1, 16);
-        this.bondMaterial = new THREE.MeshStandardMaterial({
-            color: 0xc8ccd0,
+        this.bondCylinderGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 16);
+        this.bondFlatGeometry = new THREE.PlaneGeometry(1, 1);
+        this.bondCylinderMaterial = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
             roughness: 0.55,
             metalness: 0.04,
-            transparent: true,
-            opacity: 0.9
+            vertexColors: true
         });
+        this.bondFlatMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            vertexColors: true,
+            side: THREE.DoubleSide,
+            toneMapped: false
+        });
+        this.bondColorScratch = new THREE.Color();
+        this.bondFlatBasis = new THREE.Matrix4();
+        this.bondFlatX = new THREE.Vector3();
+        this.bondFlatY = new THREE.Vector3();
+        this.bondFlatZ = new THREE.Vector3();
         this.strainViolationGeometry = new THREE.CylinderGeometry(0.085, 0.085, 1, 24);
         this.strainViolationMaterial = new THREE.MeshBasicMaterial({
             color: 0xff3b30,
@@ -1792,6 +1807,11 @@ export class ASERenderer {
             previous.showPeriodicBonds !== this.displayOptions.showPeriodicBonds ||
             previous.bondMode !== this.displayOptions.bondMode ||
             previous.bondCutoffScale !== this.displayOptions.bondCutoffScale ||
+            previous.bondStyle !== this.displayOptions.bondStyle ||
+            previous.bondThickness !== this.displayOptions.bondThickness ||
+            previous.bondColorMode !== this.displayOptions.bondColorMode ||
+            previous.bondCustomColor !== this.displayOptions.bondCustomColor ||
+            (colorChanged && this.displayOptions.bondColorMode === 'split') ||
             JSON.stringify(previous.manualBondPairs || []) !== JSON.stringify(this.displayOptions.manualBondPairs || []) ||
             JSON.stringify(previous.elementBondCutoffs || {}) !== JSON.stringify(this.displayOptions.elementBondCutoffs || {}) ||
             visibilityChanged;
@@ -2093,6 +2113,9 @@ export class ASERenderer {
         this.bondPairs = [];
         this.domElement.dataset.bondCount = '0';
         this.domElement.dataset.periodicBonds = this.displayOptions.showPeriodicBonds ? 'true' : 'false';
+        this.domElement.dataset.bondStyle = this.displayOptions.bondStyle || 'cylinder';
+        this.domElement.dataset.bondColorMode = this.displayOptions.bondColorMode || 'split';
+        this.domElement.dataset.bondThickness = String(this.bondThickness());
         if (!this.displayOptions.showBonds || !this.atomsData) {
             this.requestRender();
             return;
@@ -2109,31 +2132,39 @@ export class ASERenderer {
             this.requestRender();
             return;
         }
-        if (this.bondPairs.length >= 128) {
-            const mesh = new THREE.InstancedMesh(this.bondGeometry, this.bondMaterial, this.bondPairs.length);
-            mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-            mesh.frustumCulled = false;
-            mesh.renderOrder = -1;
-            mesh.userData = {
-                instancedBonds: true,
-                bondPairs: this.bondPairs,
-                sharedGeometry: true,
-                sharedMaterial: true
-            };
-            this.bondPairs.forEach(([i, j], instanceId) => this.positionBondInstance(mesh, instanceId, i, j));
-            mesh.instanceMatrix.needsUpdate = true;
-            this.bondGroup.add(mesh);
-            this.applyShadowFlags();
-            this.requestRender();
-            return;
-        }
-        this.bondPairs.forEach(([i, j]) => {
-            const bond = new THREE.Mesh(this.bondGeometry, this.bondMaterial);
-            bond.userData = { bondPair: [i, j], sharedGeometry: true, sharedMaterial: true };
-            bond.renderOrder = -1;
-            this.bondGroup.add(bond);
-            this.positionBondMesh(bond, i, j);
+        const split = this.displayOptions.bondColorMode !== 'custom';
+        const segments = this.bondPairs.flatMap(([i, j]) => split
+            ? [
+                { i, j, t0: 0, t1: 0.5, colorIndex: i },
+                { i, j, t0: 0.5, t1: 1, colorIndex: j }
+            ]
+            : [{ i, j, t0: 0, t1: 1, colorIndex: null }]);
+        const flat = this.displayOptions.bondStyle === 'flat';
+        const mesh = new THREE.InstancedMesh(
+            flat ? this.bondFlatGeometry : this.bondCylinderGeometry,
+            flat ? this.bondFlatMaterial : this.bondCylinderMaterial,
+            segments.length
+        );
+        mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        mesh.frustumCulled = false;
+        mesh.renderOrder = -1;
+        mesh.userData = {
+            instancedBonds: true,
+            bondPairs: this.bondPairs,
+            bondSegments: segments,
+            sharedGeometry: true,
+            sharedMaterial: true
+        };
+        segments.forEach((segment, instanceId) => {
+            this.positionBondInstance(mesh, instanceId, segment.i, segment.j, segment.t0, segment.t1);
+            const color = segment.colorIndex === null
+                ? this.displayOptions.bondCustomColor || '#c8ccd0'
+                : this.atomVisualColor(segment.colorIndex, this.customColors[segment.colorIndex]);
+            mesh.setColorAt(instanceId, this.bondColorScratch.set(color));
         });
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        this.bondGroup.add(mesh);
         this.applyShadowFlags();
         this.requestRender();
     }
@@ -2142,7 +2173,9 @@ export class ASERenderer {
         if (!this.displayOptions.showBonds || !this.bondGroup.children.length || !this.bondPairs?.length) return;
         this.bondGroup.children.forEach(bond => {
             if (bond.userData.instancedBonds) {
-                bond.userData.bondPairs.forEach(([i, j], instanceId) => this.positionBondInstance(bond, instanceId, i, j));
+                (bond.userData.bondSegments || []).forEach((segment, instanceId) => {
+                    this.positionBondInstance(bond, instanceId, segment.i, segment.j, segment.t0, segment.t1);
+                });
                 bond.instanceMatrix.needsUpdate = true;
                 return;
             }
@@ -2263,6 +2296,31 @@ export class ASERenderer {
             : this.directAtomDelta(i, j, startOverride);
     }
 
+    bondThickness() {
+        const value = Number(this.displayOptions.bondThickness);
+        return Number.isFinite(value) ? Math.max(0.02, Math.min(0.6, value)) : 0.11;
+    }
+
+    orientFlatBond(object, direction) {
+        const y = this.bondFlatY.copy(direction).normalize();
+        const z = this.camera.getWorldDirection(this.bondFlatZ).multiplyScalar(-1);
+        z.addScaledVector(y, -z.dot(y));
+        if (z.lengthSq() < 1e-10) {
+            z.copy(this.camera.up).addScaledVector(y, -this.camera.up.dot(y));
+        }
+        if (z.lengthSq() < 1e-10) {
+            z.set(0, 0, 1).addScaledVector(y, -y.z);
+        }
+        if (z.lengthSq() < 1e-10) {
+            z.set(1, 0, 0).addScaledVector(y, -y.x);
+        }
+        z.normalize();
+        const x = this.bondFlatX.crossVectors(y, z).normalize();
+        z.crossVectors(x, y).normalize();
+        this.bondFlatBasis.makeBasis(x, y, z);
+        object.quaternion.setFromRotationMatrix(this.bondFlatBasis);
+    }
+
     positionBondMesh(bond, i, j) {
         const a = this.atomMeshByIndex.get(i);
         const b = this.atomMeshByIndex.get(j);
@@ -2279,11 +2337,16 @@ export class ASERenderer {
         }
         bond.visible = true;
         bond.position.copy(start).addScaledVector(delta, 0.5);
-        bond.scale.set(1, length, 1);
-        bond.quaternion.setFromUnitVectors(this.yAxis, delta.normalize());
+        if (this.displayOptions.bondStyle === 'flat') {
+            bond.scale.set(this.bondThickness(), length, 1);
+            this.orientFlatBond(bond, delta);
+        } else {
+            bond.scale.set(this.bondThickness(), length, this.bondThickness());
+            bond.quaternion.setFromUnitVectors(this.yAxis, delta.normalize());
+        }
     }
 
-    positionBondInstance(mesh, instanceId, i, j) {
+    positionBondInstance(mesh, instanceId, i, j, t0 = 0, t1 = 1) {
         const a = this.atomMeshByIndex.get(i);
         const b = this.atomMeshByIndex.get(j);
         const dummy = this.bondInstanceDummy;
@@ -2295,8 +2358,10 @@ export class ASERenderer {
             mesh.setMatrixAt(instanceId, dummy.matrix);
             return;
         }
-        const start = a.position;
-        const delta = this.bondDelta(i, j, start);
+        const atomStart = a.position;
+        const fullDelta = this.bondDelta(i, j, atomStart);
+        const start = atomStart.clone().addScaledVector(fullDelta, t0);
+        const delta = fullDelta.multiplyScalar(t1 - t0);
         const length = delta.length();
         if (!Number.isFinite(length) || length < 1e-6) {
             dummy.position.set(0, 0, 0);
@@ -2307,8 +2372,13 @@ export class ASERenderer {
             return;
         }
         dummy.position.copy(start).addScaledVector(delta, 0.5);
-        dummy.scale.set(1, length, 1);
-        dummy.quaternion.setFromUnitVectors(this.yAxis, delta.normalize());
+        if (this.displayOptions.bondStyle === 'flat') {
+            dummy.scale.set(this.bondThickness(), length, 1);
+            this.orientFlatBond(dummy, delta);
+        } else {
+            dummy.scale.set(this.bondThickness(), length, this.bondThickness());
+            dummy.quaternion.setFromUnitVectors(this.yAxis, delta.normalize());
+        }
         dummy.updateMatrix();
         mesh.setMatrixAt(instanceId, dummy.matrix);
     }
@@ -3363,6 +3433,7 @@ export class ASERenderer {
 
     renderFrame() {
         this.controls.update();
+        if (this.displayOptions.bondStyle === 'flat') this.updateBondPositions();
         this.syncSelectionOutlines();
         this.onFrame?.();
         this.updateViewLighting();

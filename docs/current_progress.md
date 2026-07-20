@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.47`.
+Last synchronized with implementation: `v_ase-gui 0.0.48`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -207,6 +207,7 @@ The frontend manages modes: `IDLE`, `MOVE`, `ROTATE`. Transitions are triggered 
 *   **Manual Pairs**: Explicit pair lists such as `0-1, 1-2` can be supplied in the Bonding panel.
 *   **Recalculation**: Auto and element-cutoff modes are re-inferred during interactive previews and whenever the trajectory frame changes. A cell-list search is used above the small-scene threshold, and bond meshes are rebuilt only when the inferred pair list changes.
 *   **Persistent Settings**: Bond mode, global cutoff scale, element-pair `rcut` values, MIC policy, and manual pairs survive structure refreshes, transform commits, trajectory changes, and display-label edits. Element cutoffs remain keyed by backend chemical elements rather than editable labels.
+*   **Appearance**: Bond thickness is the cylinder diameter or flat-ribbon width. Bonds can use a lit 3D cylinder or a camera-facing 2D ribbon, with either one custom color or two midpoint-split segments colored from their endpoint atoms. Viewport, PNG/WebM, visual-settings pickle, and Blender export share these values.
 
 ---
 
@@ -331,7 +332,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.47).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.48).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -355,6 +356,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 31**: Consolidated the desktop UI into one responsive style system, integrated the atomistic v_ase logo in the app/package/README, added demand rendering and adaptive DPR, and instanced atoms, bonds, selection outlines, and visualization-mode supercells for large-scene performance.
 *   [x] **Phase 32**: Added collapsible workspace navigation, opt-in Studio Sun and soft-shadow rendering with draggable light controls and independent image-export settings, plus a VESTA-style cell-local bond default with explicit periodic-image MIC mode.
 *   [x] **Phase 33**: Auto and element-cutoff bonds now form and break live during interactive G/R previews, while all user bond settings persist across backend structure refreshes, trajectory changes, and label edits.
+*   [x] **Phase 34**: Added persistent bond thickness, custom or midpoint-split atom colors, 3D cylinder and camera-facing flat-ribbon styles, GPU-instanced rendering, and matching Blender export.
 
 ---
 

@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.47">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.48">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.47';
+            : '/static/vendor/three.module.js?v=0.0.48';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -40,7 +40,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.47</span>
+            <span class="version">0.0.48</span>
         </div>
         <div class="status-group">
             <div class="status-item">
@@ -389,6 +389,31 @@
                 <label for="bond-cutoff">Cutoff scale</label>
                 <input type="number" id="bond-cutoff" value="1.00" min="0.5" max="3.0" step="0.05">
             </div>
+            <div class="prop-row">
+                <label for="bond-style">Style</label>
+                <select id="bond-style">
+                    <option value="cylinder">Cylinder</option>
+                    <option value="flat">Flat ribbon</option>
+                </select>
+            </div>
+            <div class="range-row bond-thickness-control">
+                <div class="range-head">
+                    <label for="bond-thickness">Thickness</label>
+                    <output id="bond-thickness-value">0.11 A</output>
+                </div>
+                <input type="range" id="bond-thickness" value="0.11" min="0.02" max="0.60" step="0.01">
+            </div>
+            <div class="prop-row">
+                <label for="bond-color-mode">Color</label>
+                <select id="bond-color-mode">
+                    <option value="split">Split atom colors</option>
+                    <option value="custom">Custom color</option>
+                </select>
+            </div>
+            <div id="bond-custom-color-row" class="prop-row bond-color-row hidden">
+                <label for="bond-custom-color">Bond color</label>
+                <input type="color" id="bond-custom-color" value="#c8ccd0">
+            </div>
             <div id="element-bond-panel" class="bond-element-panel hidden">
                 <div class="mini-table-head">
                     <span>Element pair</span>
@@ -514,7 +539,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.47';
+            : './static/main.js?v=0.0.48';
         import(modulePath);
     </script>
 </body>

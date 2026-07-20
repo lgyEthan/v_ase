@@ -182,10 +182,20 @@ FRAMES = DATA.get("frames", [])
 CAMERA = DATA.get("camera", {{}})
 BONDS = DATA.get("bonds", [])
 CELL = DATA.get("cell", [])
+DISPLAY = DATA.get("display", {{}})
+BOND_STYLE = DISPLAY.get("bondStyle", "cylinder")
+BOND_COLOR_MODE = DISPLAY.get("bondColorMode", "split")
+BOND_CUSTOM_COLOR = DISPLAY.get("bondCustomColor", "#c8ccd0")
+try:
+    BOND_THICKNESS = max(0.02, min(0.6, float(DISPLAY.get("bondThickness", 0.11))))
+except (TypeError, ValueError):
+    BOND_THICKNESS = 0.11
 
 VISUAL = DATA.get("visual", {{}})
 ATOM_COLORS = VISUAL.get("colors", [])
 ATOM_RADII = VISUAL.get("radii", VISUAL.get("covalent_radii", []))
+ATOM_LABELS = DATA.get("symbols", [])
+DISPLAY_ELEMENT_COLORS = DISPLAY.get("elementColors", {{}})
 FALLBACK_COLOR = (0.8, 0.8, 0.8, 1.0)
 FALLBACK_RADIUS = 0.7
 
@@ -210,6 +220,10 @@ def hex_to_rgba(value):
     return FALLBACK_COLOR
 
 def get_atom_color(index):
+    if 0 <= index < len(ATOM_LABELS):
+        display_color = DISPLAY_ELEMENT_COLORS.get(ATOM_LABELS[index])
+        if display_color:
+            return hex_to_rgba(display_color)
     if 0 <= index < len(ATOM_COLORS):
         return hex_to_rgba(ATOM_COLORS[index])
     return FALLBACK_COLOR
@@ -237,6 +251,7 @@ def material(name, color, alpha=1.0):
 
 ATOM_MATS = {{}}
 ATOM_MESHES = {{}}
+BOND_MATS = {{}}
 MAT_LINE = material("v_ase fixed line", (0.3, 0.8, 1.0, 0.55), 0.55)
 MAT_PLANE = material("v_ase fixed plane", (0.25, 1.0, 0.78, 0.22), 0.22)
 MAT_HOOKEAN = material("v_ase Hookean active spring", (1.0, 0.58, 0.18, 1.0), 1.0)
@@ -247,8 +262,15 @@ MAT_HOOKEAN_SLACK = material("v_ase Hookean inactive gap", (0.72, 0.76, 0.85, 0.
 MAT_HOOKEAN_ACTIVE_MARKER = material("v_ase Hookean active marker", (0.22, 0.85, 0.59, 0.92), 0.92)
 MAT_HOOKEAN_INACTIVE_MARKER = material("v_ase Hookean inactive marker", (0.46, 0.66, 1.0, 0.78), 0.78)
 MAT_HOOKEAN_THRESHOLD_MARKER = material("v_ase Hookean threshold marker", (1.0, 0.82, 0.35, 0.9), 0.9)
-MAT_BOND = material("v_ase bond", (0.78, 0.80, 0.82, 1.0), 1.0)
+MAT_BOND = material("v_ase custom bond", hex_to_rgba(BOND_CUSTOM_COLOR), 1.0)
 MAT_CELL = material("v_ase unit cell", (0.92, 0.78, 0.34, 0.72), 0.72)
+
+def get_bond_mat(index):
+    color = get_atom_color(index)
+    key = f"{{color[0]:.4f}}_{{color[1]:.4f}}_{{color[2]:.4f}}"
+    if key not in BOND_MATS:
+        BOND_MATS[key] = material(f"v_ase atom-colored bond {{key}}", color, 1.0)
+    return BOND_MATS[key]
 
 def get_atom_mat(index, symbol):
     color = get_atom_color(index)
@@ -330,6 +352,36 @@ def add_cylinder_between(name, start, end, radius, mat):
     look_at_axis(obj, end - start)
     obj.data.materials.append(mat)
     return obj
+
+def add_flat_between(name, start, end, width, mat):
+    start = Vector(start); end = Vector(end)
+    axis = end - start
+    length = axis.length
+    if length <= 1e-8:
+        return None
+    direction = axis.normalized()
+    camera_position = CAMERA.get("position", (8, -9, 6))
+    camera_target = CAMERA.get("target", (0, 0, 0))
+    view = Vector(camera_target) - Vector(camera_position)
+    side = direction.cross(view)
+    if side.length <= 1e-8:
+        side = direction.cross(Vector((0, 0, 1)))
+    if side.length <= 1e-8:
+        side = direction.cross(Vector((0, 1, 0)))
+    side.normalize()
+    half = side * (width * 0.5)
+    mesh = bpy.data.meshes.new(name + "_mesh")
+    mesh.from_pydata([start - half, end - half, end + half, start + half], [], [(0, 1, 2, 3)])
+    mesh.update()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    obj.data.materials.append(mat)
+    return obj
+
+def add_bond_piece(name, start, end, mat):
+    if BOND_STYLE == "flat":
+        return add_flat_between(name, start, end, BOND_THICKNESS, mat)
+    return add_cylinder_between(name, start, end, BOND_THICKNESS * 0.5, mat)
 
 def add_unit_cell(cell):
     if not isinstance(cell, (list, tuple)) or len(cell) != 3:
@@ -480,13 +532,15 @@ for idx, (symbol, pos) in enumerate(zip(symbols, positions)):
 add_unit_cell(CELL)
 
 for bond_index, bond in enumerate(BONDS):
-    add_cylinder_between(
-        f"bond_{{bond.get('i', 0)}}_{{bond.get('j', 0)}}_{{bond_index:04d}}",
-        bond.get("start"),
-        bond.get("end"),
-        0.045,
-        MAT_BOND,
-    )
+    i = int(bond.get("i", 0)); j = int(bond.get("j", 0))
+    start = Vector(bond.get("start")); end = Vector(bond.get("end"))
+    name = f"bond_{{i}}_{{j}}_{{bond_index:04d}}"
+    if BOND_COLOR_MODE == "split":
+        midpoint = (start + end) * 0.5
+        add_bond_piece(name + "_start", start, midpoint, get_bond_mat(i))
+        add_bond_piece(name + "_end", midpoint, end, get_bond_mat(j))
+    else:
+        add_bond_piece(name, start, end, MAT_BOND)
 
 def frame_topology_matches(frame_data):
     return (

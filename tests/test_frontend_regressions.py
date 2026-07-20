@@ -651,6 +651,9 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
             "showBonds": True,
             "bondMode": "manual",
             "manualBondPairs": [[0, 1]],
+            "bondStyle": "flat",
+            "bondThickness": 0.24,
+            "bondColorMode": "split",
         },
         "bond_pairs": [[0, 1]],
         "camera": {
@@ -664,12 +667,40 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
 
     assert "BONDS = DATA.get(\"bonds\", [])" in script
     assert "MAT_BOND" in script
+    assert 'BOND_STYLE = DISPLAY.get("bondStyle", "cylinder")' in script
+    assert 'BOND_COLOR_MODE = DISPLAY.get("bondColorMode", "split")' in script
+    assert "BOND_THICKNESS" in script
+    assert "add_flat_between" in script
+    assert 'if BOND_COLOR_MODE == "split"' in script
     assert "add_unit_cell(CELL)" in script
     assert "ATOM_MESHES" in script
     assert "bpy.data.objects.new" in script
     assert "polygon.use_smooth = True" in script
     assert "obj.data.type = \"ORTHO\"" in script
-    assert "bond_{bond.get('i', 0)}" in script
+    assert 'name = f"bond_{i}_{j}_{bond_index:04d}"' in script
+    compile(script, "v_ase_blender_scene.py", "exec")
+
+
+def test_bond_appearance_controls_and_instanced_renderer_contract():
+    main_js = (ROOT / "v_ase/static/main.js").read_text()
+    renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
+    index_html = (ROOT / "v_ase/static/index.html").read_text()
+
+    assert 'id="bond-style"' in index_html
+    assert '<option value="cylinder">Cylinder</option>' in index_html
+    assert '<option value="flat">Flat ribbon</option>' in index_html
+    assert 'id="bond-thickness"' in index_html
+    assert 'id="bond-color-mode"' in index_html
+    assert '<option value="split">Split atom colors</option>' in index_html
+    assert '<option value="custom">Custom color</option>' in index_html
+    assert 'id="bond-custom-color"' in index_html
+    assert "bondStyle: 'cylinder'" in main_js
+    assert "bondColorMode: 'split'" in main_js
+    assert "captureBondSettingsFromControls" in main_js
+    assert "bondCylinderGeometry" in renderer_js
+    assert "bondFlatGeometry" in renderer_js
+    assert "bondSegments" in renderer_js
+    assert "orientFlatBond" in renderer_js
 
 
 def test_bond_export_defaults_to_visible_cell_and_periodic_images_are_opt_in():

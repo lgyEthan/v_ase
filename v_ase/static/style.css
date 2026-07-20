@@ -1165,6 +1165,14 @@ body.inspector-wide #inspector #element-radius-list {
     text-align: right;
 }
 
+.bond-thickness-control {
+    padding: 3px 0 4px;
+}
+
+#inspector .bond-color-row input[type="color"] {
+    justify-self: end;
+}
+
 /* Viewport overlays */
 .orientation-widget {
     position: absolute;

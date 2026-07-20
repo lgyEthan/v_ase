@@ -223,3 +223,137 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
             browser.close()
     finally:
         sessions.pop(editor.session_id, None)
+
+
+def test_bond_style_thickness_and_color_modes_render_and_persist():
+    atoms = Atoms(
+        "HO",
+        positions=[[0.0, 0.0, 0.0], [0.85, 0.0, 0.0]],
+        cell=[8.0, 8.0, 8.0],
+        pbc=False,
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        show_bonds=True,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.bondPairs?.length === 1")
+
+            default_bond = page.evaluate("""() => {
+                const mesh = window.__ASE_APP__.renderer.bondGroup.children[0];
+                const colors = Array.from(mesh.instanceColor.array);
+                return {
+                    style: mesh.geometry.type,
+                    segments: mesh.userData.bondSegments.length,
+                    first: colors.slice(0, 3),
+                    second: colors.slice(3, 6)
+                };
+            }""")
+            assert default_bond["style"] == "CylinderGeometry"
+            assert default_bond["segments"] == 2
+            assert default_bond["first"] != default_bond["second"]
+
+            page.click('[data-inspector-group="scene"]')
+            page.click('[data-panel="bonding"] > summary')
+            page.select_option('#bond-style', 'flat')
+            page.select_option('#bond-color-mode', 'custom')
+            page.locator('#bond-thickness').evaluate("""element => {
+                element.value = '0.24';
+                element.dispatchEvent(new Event('input', { bubbles: true }));
+            }""")
+            page.locator('#bond-custom-color').evaluate("""element => {
+                element.value = '#18a7d8';
+                element.dispatchEvent(new Event('input', { bubbles: true }));
+            }""")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                const mesh = app.renderer.bondGroup.children[0];
+                return app.state.display.bondStyle === 'flat'
+                    && app.state.display.bondColorMode === 'custom'
+                    && Math.abs(app.state.display.bondThickness - 0.24) < 1e-9
+                    && app.state.display.bondCustomColor === '#18a7d8'
+                    && mesh.geometry.type === 'PlaneGeometry'
+                    && mesh.userData.bondSegments.length === 1;
+            }""")
+            flat_state = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const mesh = app.renderer.bondGroup.children[0];
+                const matrix = Array.from(mesh.instanceMatrix.array.slice(0, 16));
+                return {
+                    thickness: Math.hypot(matrix[0], matrix[1], matrix[2]),
+                    output: document.getElementById('bond-thickness-value').innerText,
+                    customVisible: !document.getElementById('bond-custom-color-row').classList.contains('hidden'),
+                    matrix
+                };
+            }""")
+            assert flat_state["thickness"] == pytest.approx(0.24, abs=1e-5)
+            assert flat_state["output"] == "0.24 A"
+            assert flat_state["customVisible"] is True
+
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.renderer.controls.rotate(42, -27);
+                app.renderer.renderNow();
+            }""")
+            rotated_matrix = page.evaluate(
+                "Array.from(window.__ASE_APP__.renderer.bondGroup.children[0].instanceMatrix.array.slice(0, 16))"
+            )
+            assert rotated_matrix != flat_state["matrix"]
+
+            page.select_option('#bond-color-mode', 'split')
+            page.wait_for_function(
+                "window.__ASE_APP__.renderer.bondGroup.children[0].userData.bondSegments.length === 2"
+            )
+            split_colors = page.evaluate(
+                "Array.from(window.__ASE_APP__.renderer.bondGroup.children[0].instanceColor.array)"
+            )
+            assert split_colors[:3] != split_colors[3:6]
+
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.state.selected.clear();
+                app.state.selected.add(1);
+                app.updateSelectionVisuals();
+                app.updateUI();
+            }""")
+            page.keyboard.press('g')
+            page.keyboard.press('x')
+            page.keyboard.type('0.1')
+            page.keyboard.press('Enter')
+            page.wait_for_function("window.__ASE_APP__.transform.mode === 'IDLE'")
+            page.evaluate("async () => { await window.__ASE_APP__.pendingApply; }")
+            persisted = page.evaluate("""() => ({
+                style: window.__ASE_APP__.state.display.bondStyle,
+                thickness: window.__ASE_APP__.state.display.bondThickness,
+                colorMode: window.__ASE_APP__.state.display.bondColorMode,
+                customColor: window.__ASE_APP__.state.display.bondCustomColor,
+                styleControl: document.getElementById('bond-style').value,
+                thicknessControl: Number(document.getElementById('bond-thickness').value),
+                colorControl: document.getElementById('bond-color-mode').value
+            })""")
+            assert persisted == {
+                "style": "flat",
+                "thickness": 0.24,
+                "colorMode": "split",
+                "customColor": "#18a7d8",
+                "styleControl": "flat",
+                "thicknessControl": 0.24,
+                "colorControl": "split",
+            }
+            browser.close()
+    finally:
+        sessions.pop(editor.session_id, None)

@@ -32,7 +32,9 @@ small number of GPU batches and explicit render requests.
   mode additionally enables a single fitted PCF shadow map.
 - **Incremental live bonds**: interactive auto/element bonding uses a cell-list
   search above 384 atoms and rebuilds bond instances only when the inferred pair
-  topology changes. Manual pairs bypass neighbor inference entirely.
+  topology changes. Manual pairs bypass neighbor inference entirely. Custom-color
+  bonds use one instance per pair; split atom colors use two half-length instances
+  while retaining one GPU draw call for the complete bond set.
 
 Interactive atom edits still commit through ASE. In particular,
 `Atoms.set_positions(..., apply_constraint=True)` remains the final authority
