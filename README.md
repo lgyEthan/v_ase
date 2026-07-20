@@ -354,8 +354,11 @@ Bonding can be automatic, element-pair based, or manually specified.
   refreshes, and atom-label edits.
 - Bond appearance supports adjustable thickness, a lit 3D cylinder or
   camera-facing flat ribbon, and either one custom color or a midpoint split
-  using the colors of the two bonded atoms. The same settings are used by image,
+  using the colors of the two bonded atoms. Custom and split colors are applied
+  to the rendered bond materials, and the same settings are used by image,
   video, and Blender exports.
+- Edited control values commit consistently when you press `Enter`, press
+  `Tab`, or move focus to another control.
 - Supercell preview shows repeated atoms and repeated unit-cell lines.
 - `Set Supercell as Cell` converts the preview into real editable atoms.
 - `Cell Transform` accepts a full integer `make_supercell(P)` matrix.

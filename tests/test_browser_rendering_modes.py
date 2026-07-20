@@ -424,9 +424,9 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
 def test_bond_style_thickness_and_color_modes_render_and_persist():
     atoms = Atoms(
         "HO",
-        positions=[[0.0, 0.0, 0.0], [0.85, 0.0, 0.0]],
+        positions=[[0.0, 0.0, 0.0], [2.4, 0.0, 0.0]],
         cell=[8.0, 8.0, 8.0],
-        pbc=False,
+        pbc=True,
     )
     port = find_free_port()
     editor = view(
@@ -447,35 +447,36 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
                 pytest.skip(f"Playwright Chromium is not installed: {exc}")
             page = browser.new_page(viewport={"width": 1280, "height": 800})
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
-            page.wait_for_function("window.__ASE_APP__?.renderer?.bondPairs?.length === 1")
-
-            default_bond = page.evaluate("""() => {
-                const mesh = window.__ASE_APP__.renderer.bondGroup.children[0];
-                const colors = Array.from(mesh.instanceColor.array);
-                return {
-                    style: mesh.geometry.type,
-                    segments: mesh.userData.bondSegments.length,
-                    first: colors.slice(0, 3),
-                    second: colors.slice(3, 6)
-                };
-            }""")
-            assert default_bond["style"] == "CylinderGeometry"
-            assert default_bond["segments"] == 2
-            assert default_bond["first"] != default_bond["second"]
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
 
             _expand_inspector(page)
             page.click('[data-inspector-group="scene"]')
             page.click('[data-panel="bonding"] > summary')
+            page.select_option('#bond-mode', 'manual')
+            page.fill('#bond-pairs', '0-1')
+            page.click('#btn-bond-apply')
+            page.wait_for_function("window.__ASE_APP__.renderer.bondPairs.length === 1")
+
+            default_bond = page.evaluate("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                const meshes = renderer.bondGroup.children;
+                return {
+                    styles: meshes.map(mesh => mesh.geometry.type),
+                    segments: meshes.reduce((sum, mesh) => sum + mesh.userData.bondSegments.length, 0),
+                    colors: meshes.map(mesh => `#${mesh.material.color.getHexString()}`).sort(),
+                    expected: [renderer.atomVisualColor(0), renderer.atomVisualColor(1)]
+                        .map(color => color.toLowerCase()).sort()
+                };
+            }""")
+            assert default_bond["styles"] == ["CylinderGeometry", "CylinderGeometry"]
+            assert default_bond["segments"] == 2
+            assert default_bond["colors"] == default_bond["expected"]
+
             page.select_option('#bond-style', 'flat')
             page.select_option('#bond-color-mode', 'custom')
-            page.locator('#bond-thickness').evaluate("""element => {
-                element.value = '0.24';
-                element.dispatchEvent(new Event('input', { bubbles: true }));
-            }""")
-            page.locator('#bond-custom-color').evaluate("""element => {
-                element.value = '#18a7d8';
-                element.dispatchEvent(new Event('input', { bubbles: true }));
-            }""")
+            page.fill('#bond-thickness', '0.24')
+            page.fill('#bond-custom-color', '#18a7d8')
+            page.locator('#bond-pairs').click()
             page.wait_for_function("""() => {
                 const app = window.__ASE_APP__;
                 const mesh = app.renderer.bondGroup.children[0];
@@ -484,7 +485,9 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
                     && Math.abs(app.state.display.bondThickness - 0.24) < 1e-9
                     && app.state.display.bondCustomColor === '#18a7d8'
                     && mesh.geometry.type === 'PlaneGeometry'
-                    && mesh.userData.bondSegments.length === 1;
+                    && mesh.userData.bondSegments.length === 1
+                    && mesh.userData.bondColor === '#18a7d8'
+                    && mesh.material.color.getHexString() === '18a7d8';
             }""")
             flat_state = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
@@ -494,12 +497,14 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
                     thickness: Math.hypot(matrix[0], matrix[1], matrix[2]),
                     output: document.getElementById('bond-thickness-value').innerText,
                     customVisible: !document.getElementById('bond-custom-color-row').classList.contains('hidden'),
+                    color: `#${mesh.material.color.getHexString()}`,
                     matrix
                 };
             }""")
             assert flat_state["thickness"] == pytest.approx(0.24, abs=1e-5)
             assert flat_state["output"] == "0.24 A"
             assert flat_state["customVisible"] is True
+            assert flat_state["color"] == "#18a7d8"
 
             page.evaluate("""() => {
                 const app = window.__ASE_APP__;
@@ -512,13 +517,38 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
             assert rotated_matrix != flat_state["matrix"]
 
             page.select_option('#bond-color-mode', 'split')
+            page.wait_for_function("""() => {
+                const meshes = window.__ASE_APP__.renderer.bondGroup.children;
+                return meshes.length === 2
+                    && meshes.reduce((sum, mesh) => sum + mesh.userData.bondSegments.length, 0) === 2;
+            }""")
+            split_colors = page.evaluate("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                return {
+                    actual: renderer.bondGroup.children
+                        .map(mesh => `#${mesh.material.color.getHexString()}`).sort(),
+                    expected: [renderer.atomVisualColor(0), renderer.atomVisualColor(1)]
+                        .map(color => color.toLowerCase()).sort()
+                };
+            }""")
+            assert split_colors["actual"] == split_colors["expected"]
+
+            page.fill('#super-x', '2')
+            page.keyboard.press('Tab')
+            page.wait_for_function("window.__ASE_APP__.state.display.supercell[0] === 2")
+            page.fill('#super-y', '2')
+            page.keyboard.press('Enter')
+            page.wait_for_function("window.__ASE_APP__.state.display.supercell[1] === 2")
+            page.fill('#super-z', '2')
+            page.locator('#bond-pairs').click()
+            page.wait_for_function("window.__ASE_APP__.state.display.supercell[2] === 2")
+            assert page.evaluate("window.__ASE_APP__.state.display.supercell") == [2, 2, 2]
+            for control in ('#super-x', '#super-y', '#super-z'):
+                page.fill(control, '1')
+                page.keyboard.press('Tab')
             page.wait_for_function(
-                "window.__ASE_APP__.renderer.bondGroup.children[0].userData.bondSegments.length === 2"
+                "window.__ASE_APP__.state.display.supercell.every(value => value === 1)"
             )
-            split_colors = page.evaluate(
-                "Array.from(window.__ASE_APP__.renderer.bondGroup.children[0].instanceColor.array)"
-            )
-            assert split_colors[:3] != split_colors[3:6]
 
             page.evaluate("""() => {
                 const app = window.__ASE_APP__;

@@ -462,19 +462,6 @@ export class ASERenderer {
         this.bondPairs = [];
         this.bondCylinderGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 16);
         this.bondFlatGeometry = new THREE.PlaneGeometry(1, 1);
-        this.bondCylinderMaterial = new THREE.MeshStandardMaterial({
-            color: 0xffffff,
-            roughness: 0.55,
-            metalness: 0.04,
-            vertexColors: true
-        });
-        this.bondFlatMaterial = new THREE.MeshBasicMaterial({
-            color: 0xffffff,
-            vertexColors: true,
-            side: THREE.DoubleSide,
-            toneMapped: false
-        });
-        this.bondColorScratch = new THREE.Color();
         this.bondFlatBasis = new THREE.Matrix4();
         this.bondFlatX = new THREE.Vector3();
         this.bondFlatY = new THREE.Vector3();
@@ -2132,31 +2119,35 @@ export class ASERenderer {
             ]
             : [{ i, j, t0: 0, t1: 1, colorIndex: null }]);
         const flat = this.displayOptions.bondStyle === 'flat';
-        const mesh = new THREE.InstancedMesh(
-            flat ? this.bondFlatGeometry : this.bondCylinderGeometry,
-            flat ? this.bondFlatMaterial : this.bondCylinderMaterial,
-            segments.length
-        );
-        mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-        mesh.frustumCulled = false;
-        mesh.renderOrder = -1;
-        mesh.userData = {
-            instancedBonds: true,
-            bondPairs: this.bondPairs,
-            bondSegments: segments,
-            sharedGeometry: true,
-            sharedMaterial: true
-        };
-        segments.forEach((segment, instanceId) => {
-            this.positionBondInstance(mesh, instanceId, segment.i, segment.j, segment.t0, segment.t1);
-            const color = segment.colorIndex === null
-                ? this.displayOptions.bondCustomColor || '#c8ccd0'
-                : this.atomVisualColor(segment.colorIndex, this.customColors[segment.colorIndex]);
-            mesh.setColorAt(instanceId, this.bondColorScratch.set(color));
+        const segmentsByColor = new Map();
+        segments.forEach(segment => {
+            const color = this.bondSegmentColor(segment);
+            if (!segmentsByColor.has(color)) segmentsByColor.set(color, []);
+            segmentsByColor.get(color).push(segment);
         });
-        mesh.instanceMatrix.needsUpdate = true;
-        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-        this.bondGroup.add(mesh);
+        segmentsByColor.forEach((colorSegments, color) => {
+            const mesh = new THREE.InstancedMesh(
+                flat ? this.bondFlatGeometry : this.bondCylinderGeometry,
+                this.bondMaterial(flat ? 'flat' : 'cylinder', color),
+                colorSegments.length
+            );
+            mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+            mesh.frustumCulled = false;
+            mesh.renderOrder = -1;
+            mesh.userData = {
+                instancedBonds: true,
+                bondPairs: this.bondPairs,
+                bondSegments: colorSegments,
+                bondColor: color,
+                sharedGeometry: true,
+                sharedMaterial: true
+            };
+            colorSegments.forEach((segment, instanceId) => {
+                this.positionBondInstance(mesh, instanceId, segment.i, segment.j, segment.t0, segment.t1);
+            });
+            mesh.instanceMatrix.needsUpdate = true;
+            this.bondGroup.add(mesh);
+        });
         this.applyShadowFlags();
         this.requestRender();
     }
@@ -2291,6 +2282,31 @@ export class ASERenderer {
     bondThickness() {
         const value = Number(this.displayOptions.bondThickness);
         return Number.isFinite(value) ? Math.max(0.02, Math.min(0.6, value)) : 0.11;
+    }
+
+    bondSegmentColor(segment) {
+        const requested = segment.colorIndex === null
+            ? this.displayOptions.bondCustomColor
+            : this.atomVisualColor(segment.colorIndex, this.customColors[segment.colorIndex]);
+        return this.validHexColor(requested) ? requested.toLowerCase() : '#c8ccd0';
+    }
+
+    bondMaterial(style, color) {
+        const key = `bond:${style}:${color}`;
+        if (this.materialCache.has(key)) return this.materialCache.get(key);
+        const material = style === 'flat'
+            ? new THREE.MeshBasicMaterial({
+                color,
+                side: THREE.DoubleSide,
+                toneMapped: false
+            })
+            : new THREE.MeshStandardMaterial({
+                color,
+                roughness: 0.5,
+                metalness: 0.03
+            });
+        this.materialCache.set(key, material);
+        return material;
     }
 
     orientFlatBond(object, direction) {

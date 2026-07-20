@@ -716,7 +716,11 @@ def test_bond_appearance_controls_and_instanced_renderer_contract():
     assert "bondCylinderGeometry" in renderer_js
     assert "bondFlatGeometry" in renderer_js
     assert "bondSegments" in renderer_js
+    assert "segmentsByColor" in renderer_js
+    assert "bondMaterial(flat ? 'flat' : 'cylinder', color)" in renderer_js
     assert "orientFlatBond" in renderer_js
+    assert "setupInputCommitBehavior" in main_js
+    assert "commitInputValue" in main_js
 
 
 def test_bond_export_defaults_to_visible_cell_and_periodic_images_are_opt_in():

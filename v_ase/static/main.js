@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.52';
-import { ASERenderer } from './renderer.js?v=0.0.52';
-import { ASESelection } from './selection.js?v=0.0.52';
-import { ASETransform } from './transform.js?v=0.0.52';
+import { ASEApi } from './api.js?v=0.0.53';
+import { ASERenderer } from './renderer.js?v=0.0.53';
+import { ASESelection } from './selection.js?v=0.0.53';
+import { ASETransform } from './transform.js?v=0.0.53';
 
 class VAseApp {
     constructor() {
@@ -16,6 +16,7 @@ class VAseApp {
         this.initialDesignSettings = null;
         this.frameLoadInFlight = false;
         this.pendingFrameIndex = null;
+        this.controlCommitState = new WeakMap();
         this.renderer.onFrame = () => this.updateOrientationWidget();
         
         this.state = {
@@ -117,6 +118,7 @@ class VAseApp {
             this.setupLightingControls();
             this.setupCreateAtomWidget();
             this.setupEventListeners();
+            this.setupInputCommitBehavior();
             this.setupNumberInputHoldGuards();
             await this.refresh();
         } catch (err) {
@@ -380,6 +382,75 @@ class VAseApp {
         }
         input.dispatchEvent(new Event('input', { bubbles: true }));
         input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    isCommittableInput(element) {
+        if (element instanceof HTMLTextAreaElement) return true;
+        if (!(element instanceof HTMLInputElement)) return false;
+        return !['button', 'submit', 'reset', 'file', 'checkbox', 'radio', 'range'].includes(element.type);
+    }
+
+    isDisplayCommitInput(element) {
+        return element.matches([
+            '#bond-cutoff',
+            '#bond-custom-color',
+            '#super-x', '#super-y', '#super-z',
+            '#rotate-strain-cutoff',
+            '.element-bond-cutoff',
+            '.element-radius-input',
+            '.element-color-input'
+        ].join(','));
+    }
+
+    commitInputValue(element, { dispatchChange = true } = {}) {
+        if (!this.isCommittableInput(element)) return;
+        const record = this.controlCommitState.get(element);
+        const dirty = !record || record.dirty || record.value !== element.value;
+        this.controlCommitState.set(element, { value: element.value, dirty: false });
+        if (dispatchChange && dirty) {
+            element.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        if (this.isDisplayCommitInput(element)) {
+            try {
+                this.applyDisplayOptions();
+            } catch (error) {
+                this.toast(error.message, 'error');
+            }
+        } else if (element.matches('#sun-position-x, #sun-position-y, #sun-position-z, #sun-target-x, #sun-target-y, #sun-target-z')) {
+            this.applyLightingControls();
+        }
+    }
+
+    setupInputCommitBehavior() {
+        document.addEventListener('focusin', event => {
+            if (!this.isCommittableInput(event.target)) return;
+            this.controlCommitState.set(event.target, { value: event.target.value, dirty: false });
+        }, true);
+        document.addEventListener('input', event => {
+            if (!this.isCommittableInput(event.target)) return;
+            const previous = this.controlCommitState.get(event.target) || { value: event.target.value, dirty: false };
+            previous.dirty = previous.value !== event.target.value;
+            this.controlCommitState.set(event.target, previous);
+        }, true);
+        document.addEventListener('change', event => {
+            if (!this.isCommittableInput(event.target)) return;
+            this.controlCommitState.set(event.target, { value: event.target.value, dirty: false });
+        }, true);
+        document.addEventListener('keydown', event => {
+            if (!this.isCommittableInput(event.target)) return;
+            if (event.key === 'Tab') {
+                this.commitInputValue(event.target);
+                return;
+            }
+            if (event.key !== 'Enter' || event.target instanceof HTMLTextAreaElement) return;
+            event.preventDefault();
+            this.commitInputValue(event.target);
+            event.target.blur();
+        });
+        document.addEventListener('focusout', event => {
+            if (!this.isCommittableInput(event.target)) return;
+            this.commitInputValue(event.target);
+        }, true);
     }
 
     clampInspectorWidth(width) {
