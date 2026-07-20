@@ -3,7 +3,7 @@
 The visualizer is designed to be familiar to Blender users.
 
 ## Mouse Controls
-- **Left Click**: Select an atom.
+- **Left Click**: Select an atom or the visible Sun light object.
 - **Left Click during G/R transform**: Confirm the current transform.
 - **Shift + Left Click**: Add/Remove from selection.
 - **Left Drag**: Box select; the yellow marquee shows the active selection area.
@@ -19,13 +19,13 @@ Press these keys to enter transformation mode:
 
 | Key | Action | Description |
 |-----|--------|-------------|
-| **G** | **Grab** | Move selected atoms relative to the view plane. |
-| **R** | **Rotate** | Rotate selected atoms around their collective center. |
+| **G** | **Grab** | Move selected atoms or the selected Sun object relative to the view plane. |
+| **R** | **Rotate** | Rotate selected atoms around their collective center, or rotate the selected Sun direction. |
 | **X** | **Align / Lock X** | In select mode, align the viewport to +X. Press X again only from exact +X alignment to flip to -X. During G/R, lock movement/rotation to X. |
 | **Y** | **Align / Lock Y** | In select mode, align the viewport to +Y. Press Y again only from exact +Y alignment to flip to -Y. During G/R, lock movement/rotation to Y. |
 | **Z** | **Align / Lock Z** | In select mode, align the viewport to +Z. Press Z again only from exact +Z alignment to flip to -Z. During G/R, lock movement/rotation to Z. |
-| **Esc** | **Cancel** | Revert atoms to their original positions. |
-| **Enter / Left Click** | **Confirm** | Save new positions to the ASE Atoms object. |
+| **Esc** | **Cancel** | Revert atoms or the Sun object to the transform start state. |
+| **Enter / Left Click** | **Confirm** | Confirm the current atom or Sun transform. |
 | **Ctrl+C** | **Copy** | Copy selected atoms to the editor clipboard. |
 | **Ctrl+V** | **Paste** | Paste copied atoms near the selected center. |
 | **Ctrl+Z** | **Undo** | Restore the previous structure state. |

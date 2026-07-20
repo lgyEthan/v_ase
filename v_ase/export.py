@@ -183,6 +183,7 @@ CAMERA = DATA.get("camera", {{}})
 BONDS = DATA.get("bonds", [])
 CELL = DATA.get("cell", [])
 DISPLAY = DATA.get("display", {{}})
+LIGHTING = DATA.get("lighting", {{}})
 BOND_STYLE = DISPLAY.get("bondStyle", "cylinder")
 BOND_COLOR_MODE = DISPLAY.get("bondColorMode", "split")
 BOND_CUSTOM_COLOR = DISPLAY.get("bondCustomColor", "#c8ccd0")
@@ -338,6 +339,56 @@ def add_scene_camera():
     obj = bpy.context.object
     obj.name = "v_ase_view_camera"
     bpy.context.scene.camera = obj
+    return obj
+
+def add_scene_lighting():
+    mode = LIGHTING.get("mode", DISPLAY.get("lightingMode", "modeling"))
+    if mode in ("studio", "studio-shadow"):
+        position = LIGHTING.get("position", DISPLAY.get("sunPosition", (8, -10, 14)))
+        target = LIGHTING.get("target", DISPLAY.get("sunTarget", (0, 0, 0)))
+        color = LIGHTING.get("color", (1.0, 0.960784, 0.87451))
+        try:
+            intensity = max(0.0, float(LIGHTING.get("intensity", DISPLAY.get("sunIntensity", 2.2))))
+        except (TypeError, ValueError):
+            intensity = 2.2
+        try:
+            position = Vector(position)
+            target = Vector(target)
+        except Exception:
+            position = Vector((8, -10, 14))
+            target = Vector((0, 0, 0))
+
+        bpy.ops.object.light_add(type="SUN", location=position)
+        obj = bpy.context.object
+        obj.name = "v_ase_studio_sun"
+        obj.data.name = "v_ase_studio_sun_data"
+        obj.data.energy = intensity
+        if isinstance(color, (list, tuple)) and len(color) >= 3:
+            obj.data.color = tuple(clamp01(value) for value in color[:3])
+        direction = target - position
+        if direction.length <= 1e-10:
+            direction = Vector((0, 0, -1))
+        obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+        obj["v_ase_mode"] = mode
+        obj["v_ase_target"] = target[:]
+        obj["v_ase_intensity"] = intensity
+        if hasattr(obj.data, "angle"):
+            obj.data.angle = math.radians(2.0 if mode == "studio-shadow" else 0.5)
+
+        world = bpy.context.scene.world
+        if world is not None:
+            world.use_nodes = True
+            background = world.node_tree.nodes.get("Background")
+            if background is not None:
+                background.inputs["Color"].default_value = (0.075, 0.085, 0.095, 1.0)
+                background.inputs["Strength"].default_value = 0.24
+        return obj
+
+    bpy.ops.object.light_add(type="AREA", location=(5, -6, 8))
+    obj = bpy.context.object
+    obj.name = "v_ase_area_light"
+    obj.data.energy = 450
+    obj.data.size = 5
     return obj
 
 def add_cylinder_between(name, start, end, radius, mat):
@@ -610,10 +661,7 @@ for item in constraints.get("hookean", []):
             radius_end=0.18,
         )
 
-bpy.ops.object.light_add(type="AREA", location=(5, -6, 8))
-bpy.context.object.name = "v_ase_area_light"
-bpy.context.object.data.energy = 450
-bpy.context.object.data.size = 5
+add_scene_lighting()
 add_scene_camera()
 '''
 
@@ -629,6 +677,14 @@ def export_blender_response(session, payload: Dict[str, Any]):
     display = payload.get("display") or {}
     if display:
         data["display"] = display
+    lighting = payload.get("lighting") or {
+        "mode": display.get("lightingMode", "modeling"),
+        "intensity": display.get("sunIntensity", 2.2),
+        "position": display.get("sunPosition", [8, -10, 14]),
+        "target": display.get("sunTarget", [0, 0, 0]),
+        "color": [1.0, 0.960784, 0.87451],
+    }
+    data["lighting"] = lighting
     data["bonds"] = _display_bonds(data, display, payload.get("bond_pairs"))
     if payload.get("camera"):
         data["camera"] = payload["camera"]

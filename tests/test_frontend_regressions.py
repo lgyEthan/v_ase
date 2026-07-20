@@ -662,6 +662,13 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
             "projection": "orthographic",
             "ortho_scale": 8,
         },
+        "lighting": {
+            "mode": "studio-shadow",
+            "intensity": 3.4,
+            "position": [7, -9, 12],
+            "target": [1, 2, 3],
+            "color": [1.0, 0.9, 0.8],
+        },
     })
     script = Path(response.path).read_text(encoding="utf-8")
 
@@ -678,6 +685,15 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
     assert "polygon.use_smooth = True" in script
     assert "obj.data.type = \"ORTHO\"" in script
     assert 'name = f"bond_{i}_{j}_{bond_index:04d}"' in script
+    assert 'LIGHTING = DATA.get("lighting", {})' in script
+    assert "'mode': 'studio-shadow'" in script
+    assert "'intensity': 3.4" in script
+    assert "'position': [7, -9, 12]" in script
+    assert "'target': [1, 2, 3]" in script
+    assert 'bpy.ops.object.light_add(type="SUN", location=position)' in script
+    assert 'obj.data.energy = intensity' in script
+    assert 'direction.to_track_quat("-Z", "Y")' in script
+    assert 'obj.name = "v_ase_studio_sun"' in script
     compile(script, "v_ase_blender_scene.py", "exec")
 
 
@@ -759,6 +775,7 @@ def test_control_panel_uses_collapsible_default_hierarchy():
 def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
     main_js = (ROOT / "v_ase/static/main.js").read_text()
     renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
+    api_js = (ROOT / "v_ase/static/api.js").read_text()
     index_html = (ROOT / "v_ase/static/index.html").read_text()
 
     assert 'id="lighting-widget"' in index_html
@@ -771,15 +788,22 @@ def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
     assert '<option value="studio">Studio Sun</option>' in index_html
     assert '<option value="studio-shadow">Sun + Soft Shadow</option>' in index_html
     assert 'id="chk-sun-gizmo"' in index_html
+    assert '<span>Light object</span>' in index_html
     assert 'id="chk-periodic-bonds"' in index_html
     assert "showPeriodicBonds: false" in main_js
     assert "lightingMode: 'modeling'" in main_js
     assert "setupLightingControls" in main_js
+    assert "enterSunTransformMode" in main_js
+    assert "applySunTransformPreview" in main_js
+    assert "currentLightingForExport" in main_js
+    assert "startSunHandleDrag" not in renderer_js
     assert "export-render-mode" in main_js
     assert "sunPosition" in main_js
     assert "buildSunGizmo" in renderer_js
     assert "pickSunHandle" in renderer_js
-    assert "updateSunHandleDrag" in renderer_js
+    assert "updateSunTransform" in renderer_js
+    assert "updateSunHandleDrag" not in renderer_js
+    assert "if (lighting) body.lighting = lighting" in api_js
     assert "THREE.PCFSoftShadowMap" in renderer_js
     assert "this.renderer.shadowMap.enabled = false" in renderer_js
     assert "bondDelta(i, j" in renderer_js

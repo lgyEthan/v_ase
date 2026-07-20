@@ -90,9 +90,13 @@ The viewport renderer has three explicit modes:
   directional Sun light.
 - **Sun + Soft Shadow**: the same setup with one PCF soft shadow map.
 
-Sun brightness, position, and target update in real time and can be edited with
-viewport handles. Image export accepts independent lighting values, so a
+Sun brightness, position, and target update in real time. Enable the Light object,
+select it in the viewport, and use Blender-style `G`/`R`, optional `X`/`Y`/`Z`
+axis locking, numeric input, `Enter`, and `Esc`. Direct handle dragging does not
+change the light. Image export accepts independent lighting values, so a
 high-quality still can be produced while the live viewport remains in Modeling.
+Blender export creates a `SUN` at the same position, rotates its local `-Z` toward
+the same target, and assigns the same numeric intensity to Blender light energy.
 The implementation stays on stable Three.js WebGL2 because the project's fixed-
 atom material uses a custom shader hook; Three.js currently documents WebGPU as
 experimental and does not support `onBeforeCompile()` materials there. See the

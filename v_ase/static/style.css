@@ -77,6 +77,10 @@ summary:focus-visible {
     pointer-events: auto;
 }
 
+#app-viewport canvas:focus {
+    outline: none;
+}
+
 .glass-panel {
     z-index: 100;
     pointer-events: auto;

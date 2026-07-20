@@ -375,7 +375,7 @@ export class ASERenderer {
         this.sunGizmoGroup = this.buildSunGizmo();
         this.scene.add(this.sunGizmoGroup);
         this.sunRaycaster = new THREE.Raycaster();
-        this.sunDragState = null;
+        this.sunGizmoSelected = false;
         this.onLightingChange = null;
 
         this.viewportGuides = this.buildViewportGuides();
@@ -685,19 +685,29 @@ export class ASERenderer {
             depthTest: false,
             depthWrite: false
         });
+        const selectionMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffc857,
+            transparent: true,
+            opacity: 0.92,
+            depthTest: false,
+            depthWrite: false
+        });
 
         const positionHandle = new THREE.Group();
         positionHandle.name = 'v_ase_sun_position_handle';
         const sunCore = new THREE.Mesh(new THREE.SphereGeometry(0.22, 18, 12), sunMaterial);
         const sunRing = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.035, 8, 28), sunMaterial);
-        sunCore.userData.sunHandle = 'position';
-        sunRing.userData.sunHandle = 'position';
-        positionHandle.add(sunCore);
-        positionHandle.add(sunRing);
+        const selectionRing = new THREE.Mesh(new THREE.TorusGeometry(0.46, 0.025, 8, 36), selectionMaterial);
+        selectionRing.visible = false;
+        selectionRing.renderOrder = 92;
+        sunCore.userData.sunHandle = 'sun';
+        sunRing.userData.sunHandle = 'sun';
+        selectionRing.userData.sunHandle = 'sun';
+        positionHandle.add(sunCore, sunRing, selectionRing);
 
         const targetHandle = new THREE.Mesh(new THREE.OctahedronGeometry(0.22, 0), targetMaterial);
         targetHandle.name = 'v_ase_sun_target_handle';
-        targetHandle.userData.sunHandle = 'target';
+        targetHandle.userData.sunHandle = 'sun';
 
         const lineGeometry = new THREE.BufferGeometry().setFromPoints([
             new THREE.Vector3(8, -10, 14),
@@ -714,6 +724,7 @@ export class ASERenderer {
             positionHandle,
             targetHandle,
             directionLine,
+            selectionRing,
             pickables: [sunCore, sunRing, targetHandle]
         };
         return group;
@@ -759,6 +770,7 @@ export class ASERenderer {
         this.studioSunTarget.position.fromArray(target);
         this.studioSunTarget.updateMatrixWorld(true);
         this.sunGizmoGroup.visible = studio && sunGizmo;
+        if (!this.sunGizmoGroup.visible) this.setSunGizmoSelected(false);
         this.renderer.toneMapping = studio ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
         this.renderer.toneMappingExposure = studio ? 1.05 : 1.0;
         this.domElement.dataset.lightingMode = mode;
@@ -866,53 +878,33 @@ export class ASERenderer {
         return hit?.object?.userData?.sunHandle || null;
     }
 
-    startSunHandleDrag(kind, event) {
-        if (!['position', 'target'].includes(kind)) return;
-        const source = kind === 'position' ? this.lightingOptions.sunPosition : this.lightingOptions.sunTarget;
-        const point = new THREE.Vector3(...source);
-        const normal = this.camera.getWorldDirection(new THREE.Vector3()).normalize();
-        this.sunDragState = {
-            kind,
-            pointerId: event.pointerId,
-            plane: new THREE.Plane().setFromNormalAndCoplanarPoint(normal, point)
-        };
-        this.domElement.setPointerCapture?.(event.pointerId);
+    setSunGizmoSelected(selected) {
+        this.sunGizmoSelected = Boolean(selected) && Boolean(this.sunGizmoGroup?.visible);
+        const selectionRing = this.sunGizmoGroup?.userData?.selectionRing;
+        if (selectionRing) selectionRing.visible = this.sunGizmoSelected;
+        this.requestRender();
     }
 
-    updateSunHandleDrag(event) {
-        if (!this.sunDragState) return;
-        this.sunRaycaster.setFromCamera(this.sunPointerNdc(event), this.camera);
-        const point = this.sunRaycaster.ray.intersectPlane(this.sunDragState.plane, new THREE.Vector3());
-        if (!point) return;
-        if (this.sunDragState.kind === 'position') {
-            this.lightingOptions.sunPosition = point.toArray();
-            this.studioSunLight.position.copy(point);
-        } else {
-            this.lightingOptions.sunTarget = point.toArray();
-            this.studioSunTarget.position.copy(point);
-            this.studioSunTarget.updateMatrixWorld(true);
-        }
+    updateSunTransform(position, target, { notify = true } = {}) {
+        this.lightingOptions.sunPosition = this.normalizedLightingVector(position, [8, -10, 14]);
+        this.lightingOptions.sunTarget = this.normalizedLightingVector(target, [0, 0, 0]);
+        this.studioSunLight.position.fromArray(this.lightingOptions.sunPosition);
+        this.studioSunTarget.position.fromArray(this.lightingOptions.sunTarget);
+        this.studioSunTarget.updateMatrixWorld(true);
         Object.assign(this.displayOptions, {
             sunPosition: [...this.lightingOptions.sunPosition],
             sunTarget: [...this.lightingOptions.sunTarget]
         });
         this.syncSunGizmo();
         if (this.shadowModeActive) this.fitSunShadowCamera();
-        this.onLightingChange?.({
-            ...this.lightingOptions,
-            sunPosition: [...this.lightingOptions.sunPosition],
-            sunTarget: [...this.lightingOptions.sunTarget]
-        });
-        this.requestRender();
-    }
-
-    endSunHandleDrag(event = null) {
-        const pointerId = this.sunDragState?.pointerId;
-        if (pointerId !== undefined && this.domElement.hasPointerCapture?.(pointerId)) {
-            this.domElement.releasePointerCapture(pointerId);
+        if (notify) {
+            this.onLightingChange?.({
+                ...this.lightingOptions,
+                sunPosition: [...this.lightingOptions.sunPosition],
+                sunTarget: [...this.lightingOptions.sunTarget]
+            });
         }
-        this.sunDragState = null;
-        if (event) event.preventDefault?.();
+        this.requestRender();
     }
 
     atomVisualRadius(index) {

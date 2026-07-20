@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.49`.
+Last synchronized with implementation: `v_ase-gui 0.0.50`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -243,7 +243,9 @@ possible, and update the frontend state. This behavior is covered by
     setup with brightness, position, and target.
 *   **WebM Video**: Available for trajectories.
 *   **Blender Script**: Exports separate atom objects with shared meshes, unit
-    cell, bonds, constraints where practical, and the current camera. Blender can
+    cell, bonds, constraints where practical, the current camera, and a Blender
+    Sun whose location, target-derived rotation, color, and energy match the
+    active v_ase Studio Sun values. Blender can
     run the script and save a native `.blend`; OBJ is possible but loses camera,
     constraints, trajectory behavior, instancing, and richer materials.
 
@@ -332,7 +334,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.49).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.50).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -354,10 +356,11 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 29**: Multi-atom FixedPlane selections use compact per-atom local markers instead of COM-centered or heavily overlapping planes, and quick or long relaxation runs populate an optimization timeline without showing a useless single-frame bar for plain static structures.
 *   [x] **Phase 30**: Added a standalone HTML design preview with five FixedLine and five FixedPlane persistent-marker candidates, plus fixed-atom reference styling.
 *   [x] **Phase 31**: Consolidated the desktop UI into one responsive style system, integrated the atomistic v_ase logo in the app/package/README, added demand rendering and adaptive DPR, and instanced atoms, bonds, selection outlines, and visualization-mode supercells for large-scene performance.
-*   [x] **Phase 32**: Added collapsible workspace navigation, opt-in Studio Sun and soft-shadow rendering with draggable light controls and independent image-export settings, plus a VESTA-style cell-local bond default with explicit periodic-image MIC mode.
+*   [x] **Phase 32**: Added collapsible inspector navigation, opt-in Studio Sun and soft-shadow rendering with viewport light controls and independent image-export settings, plus a VESTA-style cell-local bond default with explicit periodic-image MIC mode.
 *   [x] **Phase 33**: Auto and element-cutoff bonds now form and break live during interactive G/R previews, while all user bond settings persist across backend structure refreshes, trajectory changes, and label edits.
 *   [x] **Phase 34**: Added persistent bond thickness, custom or midpoint-split atom colors, 3D cylinder and camera-facing flat-ribbon styles, GPU-instanced rendering, and matching Blender export.
 *   [x] **Phase 35**: Replaced the ambiguous inspector chevron construction with explicit action glyphs, removed the redundant Workspace header label, and introduced an illuminated-object vector icon for render lighting.
+*   [x] **Phase 36**: Replaced direct Sun-handle dragging with selectable Blender-style `G`/`R` light transforms, including axis locks, numeric input, confirm/cancel, robust viewport focus, and exact Sun transform/intensity export to Blender.
 
 ---
 

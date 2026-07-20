@@ -66,12 +66,14 @@ terminal.
 - Orthographic projection is the default view, with perspective available from
   the View panel.
 - The control panel is organized into Inspect, Edit, Scene, and Output
-  workspaces. The whole panel can be collapsed to a narrow rail, and v_ase
-  remembers the active workspace and panel width.
+  sections. The whole panel can be collapsed to a narrow rail, and v_ase
+  remembers the active section and panel width.
 - Viewport lighting is opt-in. Modeling keeps the original low-overhead,
   evenly-lit view; Studio Sun adds real-time PBR directional lighting; Sun +
-  Soft Shadow adds a single soft shadow map. Sun brightness, position, and
-  target can be edited numerically or with draggable viewport handles.
+  Soft Shadow adds a single soft shadow map. The viewport Sun is selected as an
+  object and transformed with Blender-style `G`, `R`, `X/Y/Z`, numeric input,
+  `Enter`, and `Esc`; position, target, and strength also remain editable in the
+  lighting panel.
 - Add `--interactive` for Blender-like atom editing: middle-mouse orbit,
   shift-middle pan, wheel zoom, click/box selection, `G` move, `R` rotate, axis
   locking, numeric transforms, `Enter`, `Esc`, copy/paste/undo/delete.
@@ -114,8 +116,9 @@ terminal.
   such as `O_bridge` automatically update the TYPE dropdown and default radius.
 - Export POSCAR, pickle, PNG image, WebM video, and Blender Python scene script.
   Image export can use viewport lighting or an independent Modeling, Studio Sun,
-  or Sun + Soft Shadow setup. Blender export includes viewport camera, unit
-  cell, bonds, and smooth atoms.
+  or Sun + Soft Shadow setup. Blender export includes the viewport camera,
+  unit cell, bonds, smooth atoms, and a Sun object with the same position,
+  direction, color, and numeric strength used in v_ase.
 
 ## Installation
 
@@ -492,7 +495,10 @@ blender --python v_ase_blender_scene.py
 
 The generated scene keeps atoms and constraint graphics as editable Blender
 objects where practical. Atom objects reuse shared sphere meshes by radius/color
-so large exports avoid duplicating mesh geometry for every atom.
+so large exports avoid duplicating mesh geometry for every atom. Studio lighting
+is exported as a Blender `SUN`: its location matches the v_ase light object,
+local `-Z` points at the same target, and Blender `energy` receives the exact
+v_ase strength value.
 
 The current Python scene format is deliberate: it preserves separate editable
 atom objects, shared meshes, bonds, unit cell, materials, and the active camera

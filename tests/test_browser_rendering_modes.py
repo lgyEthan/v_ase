@@ -105,13 +105,81 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
                     y: rect.top + (-point.y + 1) * rect.height / 2
                 };
             }""")
-            before_drag = page.evaluate("window.__ASE_APP__.renderer.lightingOptions.sunPosition.slice()")
+            before_drag = page.evaluate("""() => ({
+                position: window.__ASE_APP__.renderer.lightingOptions.sunPosition.slice(),
+                target: window.__ASE_APP__.renderer.lightingOptions.sunTarget.slice()
+            })""")
             page.mouse.move(handle["x"], handle["y"])
             page.mouse.down()
             page.mouse.move(handle["x"] + 44, handle["y"] - 28, steps=6)
             page.mouse.up()
-            after_drag = page.evaluate("window.__ASE_APP__.renderer.lightingOptions.sunPosition.slice()")
-            assert after_drag != before_drag
+            after_direct_drag = page.evaluate("""() => ({
+                position: window.__ASE_APP__.renderer.lightingOptions.sunPosition.slice(),
+                target: window.__ASE_APP__.renderer.lightingOptions.sunTarget.slice(),
+                selected: window.__ASE_APP__.state.sunSelected,
+                rendererSelected: window.__ASE_APP__.renderer.sunGizmoSelected
+            })""")
+            assert after_direct_drag["position"] == pytest.approx(before_drag["position"])
+            assert after_direct_drag["target"] == pytest.approx(before_drag["target"])
+            assert after_direct_drag["selected"] is True
+            assert after_direct_drag["rendererSelected"] is True
+
+            page.keyboard.press('g')
+            page.keyboard.press('x')
+            page.keyboard.type('2')
+            page.keyboard.press('Enter')
+            after_move = page.evaluate("""() => ({
+                position: window.__ASE_APP__.renderer.lightingOptions.sunPosition.slice(),
+                target: window.__ASE_APP__.renderer.lightingOptions.sunTarget.slice(),
+                mode: window.__ASE_APP__.transform.mode
+            })""")
+            assert after_move["position"] == pytest.approx([
+                before_drag["position"][0] + 2,
+                before_drag["position"][1],
+                before_drag["position"][2],
+            ])
+            assert after_move["target"] == pytest.approx([
+                before_drag["target"][0] + 2,
+                before_drag["target"][1],
+                before_drag["target"][2],
+            ])
+            assert after_move["mode"] == 'IDLE'
+
+            direction_before_rotate = [
+                after_move["target"][axis] - after_move["position"][axis]
+                for axis in range(3)
+            ]
+            page.keyboard.press('r')
+            page.keyboard.press('z')
+            page.keyboard.type('90')
+            page.keyboard.press('Enter')
+            after_rotate = page.evaluate("""() => ({
+                position: window.__ASE_APP__.renderer.lightingOptions.sunPosition.slice(),
+                target: window.__ASE_APP__.renderer.lightingOptions.sunTarget.slice()
+            })""")
+            direction_after_rotate = [
+                after_rotate["target"][axis] - after_rotate["position"][axis]
+                for axis in range(3)
+            ]
+            assert after_rotate["position"] == pytest.approx(after_move["position"])
+            assert direction_after_rotate == pytest.approx([
+                -direction_before_rotate[1],
+                direction_before_rotate[0],
+                direction_before_rotate[2],
+            ])
+
+            page.keyboard.press('g')
+            page.keyboard.press('y')
+            page.keyboard.type('3')
+            page.keyboard.press('Escape')
+            after_cancel = page.evaluate("window.__ASE_APP__.renderer.lightingOptions.sunPosition.slice()")
+            assert after_cancel == pytest.approx(after_rotate["position"])
+            lighting_export = page.evaluate("window.__ASE_APP__.currentLightingForExport()")
+            assert lighting_export["mode"] == "studio-shadow"
+            assert lighting_export["intensity"] == pytest.approx(2.2)
+            assert lighting_export["position"] == pytest.approx(after_rotate["position"])
+            assert lighting_export["target"] == pytest.approx(after_rotate["target"])
+            assert lighting_export["color"] == pytest.approx([1.0, 0.960784, 0.87451])
 
             exported = page.evaluate("""() => window.__ASE_APP__.renderer.exportPNG(640, 360, {
                 renderMode: 'studio-shadow',

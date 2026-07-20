@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.49';
-import { ASERenderer } from './renderer.js?v=0.0.49';
-import { ASESelection } from './selection.js?v=0.0.49';
-import { ASETransform } from './transform.js?v=0.0.49';
+import { ASEApi } from './api.js?v=0.0.50';
+import { ASERenderer } from './renderer.js?v=0.0.50';
+import { ASESelection } from './selection.js?v=0.0.50';
+import { ASETransform } from './transform.js?v=0.0.50';
 
 class VAseApp {
     constructor() {
@@ -74,6 +74,9 @@ class VAseApp {
             rotationInvalid: false,
             rotationMaxStrain: 0,
             rotationViolationCount: 0,
+            transformSubject: null,
+            sunSelected: false,
+            sunTransformOriginal: null,
             trajectoryTimer: null,
             trajectoryPlaybackSource: null,
             trajectoryBinaryCache: null,
@@ -92,8 +95,7 @@ class VAseApp {
             hoverPickTimer: null,
             hoverPointer: null,
             orientationSignature: null,
-            isRelaxing: false,
-            sunHandleDragging: false
+            isRelaxing: false
         };
 
         this.inspectorGroup = 'inspect';
@@ -537,7 +539,31 @@ class VAseApp {
         this.state.display.sunTarget = this.lightingVectorFromInputs('sun-target', fallbackTarget);
         this.state.display.sunGizmo = Boolean(document.getElementById('chk-sun-gizmo')?.checked);
         this.renderer.setLightingOptions(this.state.display);
+        if (!this.sunIsSelectable()) {
+            if (this.state.transformSubject === 'sun' && this.transform.mode !== 'IDLE') this.cancelTransform();
+            this.setSunSelected(false, { update: false });
+        } else if (this.state.sunSelected) {
+            this.renderer.setSunGizmoSelected(true);
+        }
         this.syncLightingControls();
+    }
+
+    sunIsSelectable() {
+        return this.state.display.lightingMode !== 'modeling' && Boolean(this.state.display.sunGizmo);
+    }
+
+    setSunSelected(selected, { clearAtoms = true, update = true } = {}) {
+        const next = Boolean(selected) && this.sunIsSelectable();
+        this.state.sunSelected = next;
+        this.renderer.setSunGizmoSelected(next);
+        if (next && clearAtoms && this.state.selected.size > 0) {
+            this.state.selected.clear();
+            this.updateSelectionVisuals();
+        }
+        if (update) {
+            this.updateToolState();
+            this.updateUI();
+        }
     }
 
     setupLightingControls() {
@@ -890,7 +916,7 @@ class VAseApp {
         const setHtml = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
         if (this.transform.mode !== 'IDLE') {
             cmdBuf.classList.remove('hidden');
-            setHtml('cmd-mode', this.transform.mode);
+            setHtml('cmd-mode', this.state.transformSubject === 'sun' ? `SUN ${this.transform.mode}` : this.transform.mode);
             setHtml('cmd-axis', this.transform.axis || 'NONE');
             setHtml('cmd-val', this.commandValueText());
         } else {
@@ -1435,6 +1461,17 @@ class VAseApp {
         };
     }
 
+    currentLightingForExport() {
+        const display = this.state.display || {};
+        return {
+            mode: display.lightingMode || 'modeling',
+            intensity: Number(display.sunIntensity ?? 2.2),
+            position: [...(display.sunPosition || [8, -10, 14])],
+            target: [...(display.sunTarget || [0, 0, 0])],
+            color: [1.0, 0.960784, 0.87451]
+        };
+    }
+
     getSelectionCenterText() {
         if (!this.state.atoms || this.state.selected.size === 0) return '-';
         const center = [0, 0, 0];
@@ -1724,8 +1761,94 @@ class VAseApp {
         this.state.rotationLastAngle = angle;
     }
 
+    sunTransformMoveDelta() {
+        const numVal = this.transform.getNumericValue();
+        const axisVec = new THREE.Vector3();
+        if (this.transform.axis === 'X') axisVec.set(1, 0, 0);
+        else if (this.transform.axis === 'Y') axisVec.set(0, 1, 0);
+        else if (this.transform.axis === 'Z') axisVec.set(0, 0, 1);
+
+        const camera = this.renderer.camera;
+        camera.updateMatrixWorld();
+        const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+        const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+        const distance = Math.max(this.transform.pivot.distanceTo(camera.position), 1e-6);
+        const zoom = Math.max(camera.zoom || 1, 1e-6);
+        const height = camera.isOrthographicCamera
+            ? (camera.top - camera.bottom) / zoom
+            : 2 * Math.tan((camera.fov || 50) * Math.PI / 360) * distance;
+        const width = camera.isOrthographicCamera
+            ? (camera.right - camera.left) / zoom
+            : height * (camera.aspect || this.renderer.viewportAspect?.() || 1);
+
+        const delta = new THREE.Vector3();
+        if (numVal !== null && this.transform.axis) {
+            delta.copy(axisVec).multiplyScalar(numVal);
+        } else if (numVal === null && this.transform.axis) {
+            const screen = right.clone().multiplyScalar(this.transform.pointerDelta.x * width)
+                .add(up.clone().multiplyScalar(this.transform.pointerDelta.y * height));
+            delta.copy(axisVec).multiplyScalar(screen.dot(axisVec));
+        } else if (numVal === null) {
+            delta.copy(right).multiplyScalar(this.transform.pointerDelta.x * width)
+                .add(up.multiplyScalar(this.transform.pointerDelta.y * height));
+        }
+        return numVal === null ? this.snapMoveDelta(delta, this.transform.axis ? axisVec : null) : delta;
+    }
+
+    sunTransformRotation() {
+        const numeric = this.transform.getNumericValue();
+        let angle = numeric === null
+            ? this.snapRotationAngle(this.transform.rotationAngle)
+            : THREE.MathUtils.degToRad(numeric);
+        if (!Number.isFinite(angle)) angle = 0;
+
+        const axis = new THREE.Vector3();
+        if (this.transform.axis === 'X') axis.set(1, 0, 0);
+        else if (this.transform.axis === 'Y') axis.set(0, 1, 0);
+        else if (this.transform.axis === 'Z') axis.set(0, 0, 1);
+        else this.renderer.camera.getWorldDirection(axis).normalize();
+        return {
+            angle,
+            quaternion: new THREE.Quaternion().setFromAxisAngle(axis, angle)
+        };
+    }
+
+    applySunTransformPreview() {
+        const original = this.state.sunTransformOriginal;
+        if (!original || this.transform.mode === 'IDLE') return;
+        const originalPosition = new THREE.Vector3(...original.position);
+        const originalTarget = new THREE.Vector3(...original.target);
+        let position = originalPosition.clone();
+        let target = originalTarget.clone();
+
+        if (this.transform.mode === 'MOVE') {
+            const delta = this.sunTransformMoveDelta();
+            position.add(delta);
+            target.add(delta);
+            this.state.transformReadout = this.formatMoveReadout(delta);
+        } else if (this.transform.mode === 'ROTATE') {
+            const { angle, quaternion } = this.sunTransformRotation();
+            let direction = originalTarget.clone().sub(originalPosition);
+            if (direction.lengthSq() <= 1e-12) direction.set(0, 0, -10);
+            direction.applyQuaternion(quaternion);
+            target.copy(position).add(direction);
+            this.state.transformReadout = this.formatRotateReadout(angle);
+        }
+
+        this.state.display.sunPosition = position.toArray();
+        this.state.display.sunTarget = target.toArray();
+        this.renderer.updateSunTransform(this.state.display.sunPosition, this.state.display.sunTarget, { notify: false });
+        this.transform.updateGuides(this.renderer.camera);
+        this.syncLightingControls();
+        this.updateCommandReadout();
+    }
+
     applyTransformPreview() {
         if (this.transform.mode === 'IDLE') return;
+        if (this.state.transformSubject === 'sun') {
+            this.applySunTransformPreview();
+            return;
+        }
 
         const numVal = this.transform.getNumericValue();
         const hasNum = numVal !== null;
@@ -1842,6 +1965,7 @@ class VAseApp {
     
     async previewConstraints() {
         if (!this.state.applyConstraints) return;
+        if (this.state.transformSubject !== 'atoms') return;
         if (this.transform.mode !== 'MOVE' || this.state.selected.size === 0) return;
         const newPositions = this.currentPositionsFromScene();
         try {
@@ -1870,6 +1994,7 @@ class VAseApp {
     }
 
     commitTransform() {
+        if (this.state.transformSubject === 'sun') return this.commitSunTransform();
         if (this.transform.mode === 'IDLE' || this.state.selected.size === 0) return;
         if (!this.canEditAtoms()) {
             this.cancelTransform();
@@ -1897,6 +2022,7 @@ class VAseApp {
         // Confirm immediately in the viewport. Backend apply follows asynchronously
         // and may correct constrained positions authoritatively.
         this.transform.exit();
+        this.state.transformSubject = null;
         this.renderer.controls.enabled = true;
         this.updateToolState();
         this.updateSelectionVisuals();
@@ -1913,6 +2039,10 @@ class VAseApp {
     }
 
     enterTransformMode(mode) {
+        if (this.state.sunSelected) {
+            this.enterSunTransformMode(mode);
+            return;
+        }
         if (!this.canEditAtoms()) {
             this.editOnlyToast();
             return;
@@ -1929,6 +2059,7 @@ class VAseApp {
         this.state.rotationScreenPivot.copy(this.worldToScreen(pivot));
         this.state.rotationLastAngle = 0;
         this.state.rotationPointerActive = false;
+        this.state.transformSubject = 'atoms';
         this.transform.enter(mode, pivot, this.renderer.camera);
         this.prepareRotationValidation(editableSelection);
         this.renderer.controls.enabled = false;
@@ -1937,6 +2068,10 @@ class VAseApp {
     }
 
     cancelTransform() {
+        if (this.state.transformSubject === 'sun') {
+            this.cancelSunTransform();
+            return;
+        }
         if (this.constraintTimeout) clearTimeout(this.constraintTimeout);
         this.renderer.updatePositions(this.state.originalPositions);
         this.state.transformReadout = '';
@@ -1945,7 +2080,58 @@ class VAseApp {
         this.renderer.clearStrainViolations?.();
         delete document.body.dataset.rotateInvalid;
         this.transform.exit();
+        this.state.transformSubject = null;
         this.renderer.controls.enabled = true;
+        this.updateToolState();
+        this.updateUI();
+    }
+
+    enterSunTransformMode(mode) {
+        if (!this.state.sunSelected || !this.sunIsSelectable()) return;
+        this.readTransformSettings();
+        const position = [...(this.state.display.sunPosition || [8, -10, 14])];
+        const target = [...(this.state.display.sunTarget || [0, 0, 0])];
+        const pivot = new THREE.Vector3(...position);
+        this.state.sunTransformOriginal = { position, target };
+        this.state.transformSubject = 'sun';
+        this.state.transformReadout = '';
+        this.state.transformStartPointer.copy(this.state.lastPointer);
+        this.state.rotationScreenPivot.copy(this.worldToScreen(pivot));
+        this.state.rotationLastAngle = 0;
+        this.state.rotationPointerActive = false;
+        this.transform.enter(mode, pivot, this.renderer.camera);
+        this.renderer.controls.enabled = false;
+        this.updateToolState();
+        this.updateUI();
+    }
+
+    commitSunTransform() {
+        if (this.transform.mode === 'IDLE') return;
+        this.state.sunTransformOriginal = null;
+        this.state.transformReadout = '';
+        this.transform.exit();
+        this.state.transformSubject = null;
+        this.renderer.controls.enabled = true;
+        this.renderer.setSunGizmoSelected(true);
+        this.syncLightingControls();
+        this.updateToolState();
+        this.updateUI();
+    }
+
+    cancelSunTransform() {
+        const original = this.state.sunTransformOriginal;
+        if (original) {
+            this.state.display.sunPosition = [...original.position];
+            this.state.display.sunTarget = [...original.target];
+            this.renderer.updateSunTransform(original.position, original.target, { notify: false });
+        }
+        this.state.sunTransformOriginal = null;
+        this.state.transformReadout = '';
+        this.transform.exit();
+        this.state.transformSubject = null;
+        this.renderer.controls.enabled = true;
+        this.renderer.setSunGizmoSelected(this.state.sunSelected);
+        this.syncLightingControls();
         this.updateToolState();
         this.updateUI();
     }
@@ -3511,8 +3697,8 @@ class VAseApp {
                 <span>Middle drag</span><label>Orbit viewport</label>
                 <span>Right drag</span><label>Pan viewport</label>
                 <span>Space</span><label>Play or pause trajectory</label>
-                <span>G</span><label>Move selected atoms</label>
-                <span>R</span><label>Rotate selected atoms</label>
+                <span>G</span><label>Move selected atoms or Sun object</label>
+                <span>R</span><label>Rotate selected atoms or Sun object</label>
                 <span>X / Y / Z</span><label>Align view in select mode</label>
                 <span>X / Y / Z</span><label>Lock transform axis in G/R mode</label>
                 <span>Enter</span><label>Confirm transform</label>
@@ -4106,7 +4292,8 @@ class VAseApp {
                         this.state.applyConstraints,
                         this.currentCameraForExport(),
                         this.clonePlain(this.state.display),
-                        this.renderer.bondPairs || []
+                        this.renderer.bondPairs || [],
+                        this.currentLightingForExport()
                     ),
                     'v_ase_blender_scene.py',
                     'text/x-python',
@@ -4333,6 +4520,8 @@ class VAseApp {
         });
 
         const canvas = this.renderer.domElement;
+        canvas.tabIndex = 0;
+        canvas.setAttribute('aria-label', '3D structure viewport');
         canvas.addEventListener('pointermove', (e) => {
             this.state.lastPointer.set(e.clientX, e.clientY);
             if (this.canViewportSelectAtoms() && this.transform.mode === 'IDLE' && !this.state.isDragging) {
@@ -4344,23 +4533,26 @@ class VAseApp {
 
         canvas.addEventListener('pointerdown', (e) => {
             if (e.button !== 0) return; // Left click only
-            const sunHandle = this.renderer.pickSunHandle?.(e);
-            if (sunHandle) {
-                e.preventDefault();
-                e.stopPropagation();
-                this.state.sunHandleDragging = true;
-                this.renderer.controls.enabled = false;
-                this.renderer.startSunHandleDrag(sunHandle, e);
-                return;
-            }
-            if (!this.canViewportSelectAtoms()) {
-                this.setHoveredAtom(null);
-                return;
-            }
+            if (document.activeElement && document.activeElement !== canvas) document.activeElement.blur?.();
+            canvas.focus({ preventScroll: true });
             if (this.transform.mode !== 'IDLE') {
                 e.preventDefault();
                 this.state.suppressNextPointerUp = true;
                 this.commitTransform();
+                return;
+            }
+            const sunHandle = this.renderer.pickSunHandle?.(e);
+            if (sunHandle) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.state.suppressNextPointerUp = true;
+                this.setSunSelected(true);
+                canvas.focus({ preventScroll: true });
+                return;
+            }
+            if (this.state.sunSelected) this.setSunSelected(false, { update: false });
+            if (!this.canViewportSelectAtoms()) {
+                this.setHoveredAtom(null);
                 return;
             }
             this.state.isDragging = true;
@@ -4371,10 +4563,6 @@ class VAseApp {
         });
 
         canvas.addEventListener('pointermove', (e) => {
-            if (this.state.sunHandleDragging) {
-                this.renderer.updateSunHandleDrag(e);
-                return;
-            }
             if (this.transform.mode !== 'IDLE') {
                 this.transform.pointerDelta.x = (e.clientX - this.state.transformStartPointer.x) / window.innerWidth;
                 this.transform.pointerDelta.y = -(e.clientY - this.state.transformStartPointer.y) / window.innerHeight;
@@ -4402,21 +4590,15 @@ class VAseApp {
 
         canvas.addEventListener('pointerup', (e) => {
             if (e.button !== 0) return;
-            if (this.state.sunHandleDragging) {
-                this.state.sunHandleDragging = false;
-                this.renderer.endSunHandleDrag(e);
-                this.renderer.controls.enabled = true;
+            if (this.state.suppressNextPointerUp) {
+                this.state.suppressNextPointerUp = false;
+                this.state.isDragging = false;
+                this.hideMarquee();
                 return;
             }
             if (!this.canViewportSelectAtoms()) {
                 this.state.isDragging = false;
                 this.renderer.controls.enabled = true;
-                this.hideMarquee();
-                return;
-            }
-            if (this.state.suppressNextPointerUp) {
-                this.state.suppressNextPointerUp = false;
-                this.state.isDragging = false;
                 this.hideMarquee();
                 return;
             }
@@ -4464,10 +4646,6 @@ class VAseApp {
         });
 
         canvas.addEventListener('pointercancel', () => {
-            if (this.state.sunHandleDragging) {
-                this.state.sunHandleDragging = false;
-                this.renderer.endSunHandleDrag();
-            }
             this.state.isDragging = false;
             this.renderer.controls.enabled = true;
             this.hideMarquee();
@@ -4537,8 +4715,16 @@ class VAseApp {
                         return;
                     }
                 }
+                if (this.state.sunSelected &&
+                    (this.isPhysicalKey(e, 'KeyG', ['g']) || this.isPhysicalKey(e, 'KeyR', ['r']))) {
+                    e.preventDefault();
+                    const mode = this.isPhysicalKey(e, 'KeyR', ['r']) ? 'ROTATE' : 'MOVE';
+                    this.enterSunTransformMode(mode);
+                    return;
+                }
                 if (this.isPhysicalKey(e, 'KeyA', ['a'])) {
                     e.preventDefault();
+                    this.setSunSelected(false, { update: false });
                     if (e.altKey) {
                         this.state.selected.clear();
                     } else {
