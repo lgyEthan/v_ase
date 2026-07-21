@@ -1273,28 +1273,39 @@ body.inspector-wide #inspector #element-radius-list {
     overflow: visible;
 }
 
-.render-lamp-stem {
+.render-spot-handle {
     fill: none;
     stroke: #aeb5b2;
-    stroke-width: 1.5;
+    stroke-width: 1.35;
     stroke-linecap: round;
+    stroke-linejoin: round;
 }
 
-.render-lamp-shade {
-    fill: #747c79;
+.render-spot-body {
+    fill: #555e5b;
     stroke: #d3d8d5;
-    stroke-width: 1.05;
+    stroke-width: 1.0;
+    stroke-linejoin: round;
+}
+
+.render-spot-lens {
+    fill: #8a9290;
+    stroke: #e0e4e2;
+    stroke-width: 0.9;
     stroke-linejoin: round;
 }
 
 .render-light-cone {
     fill: #f1bd51;
-    opacity: 0.04;
+    opacity: 0.065;
 }
 
-.render-light-pool {
-    fill: #f1bd51;
-    opacity: 0.10;
+.render-light-beam-edge {
+    fill: none;
+    stroke: #aeb5b2;
+    stroke-width: 0.7;
+    stroke-linecap: round;
+    opacity: 0.30;
 }
 
 .render-light-object {
@@ -1308,9 +1319,16 @@ body.inspector-wide #inspector #element-radius-list {
     opacity: 0.78;
 }
 
-.lighting-trigger:hover .render-lamp-shade,
-.lighting-widget[data-mode="studio"] .render-lamp-shade,
-.lighting-widget[data-mode="studio-shadow"] .render-lamp-shade {
+.lighting-trigger:hover .render-spot-body,
+.lighting-widget[data-mode="studio"] .render-spot-body,
+.lighting-widget[data-mode="studio-shadow"] .render-spot-body {
+    fill: #626b68;
+    stroke: #f0f3f1;
+}
+
+.lighting-trigger:hover .render-spot-lens,
+.lighting-widget[data-mode="studio"] .render-spot-lens,
+.lighting-widget[data-mode="studio-shadow"] .render-spot-lens {
     fill: #f1bd51;
     stroke: #fff2bd;
 }
@@ -1321,10 +1339,11 @@ body.inspector-wide #inspector #element-radius-list {
     opacity: 0.22;
 }
 
-.lighting-trigger:hover .render-light-pool,
-.lighting-widget[data-mode="studio"] .render-light-pool,
-.lighting-widget[data-mode="studio-shadow"] .render-light-pool {
-    opacity: 0.58;
+.lighting-trigger:hover .render-light-beam-edge,
+.lighting-widget[data-mode="studio"] .render-light-beam-edge,
+.lighting-widget[data-mode="studio-shadow"] .render-light-beam-edge {
+    stroke: #f1bd51;
+    opacity: 0.72;
 }
 
 .lighting-trigger:hover .render-light-object,
@@ -1743,6 +1762,7 @@ body.inspector-wide #inspector #element-radius-list {
 }
 
 #cmd-buffer,
+#selection-measure-readout,
 #hover-readout,
 #coord-readout {
     padding: 5px 9px;
@@ -1757,8 +1777,29 @@ body.inspector-wide #inspector #element-radius-list {
     pointer-events: none;
 }
 
+#selection-measure-readout {
+    display: flex;
+    max-width: min(72vw, 680px);
+    align-items: center;
+    gap: 9px;
+    color: var(--text);
+    white-space: nowrap;
+}
+
+.selection-measure-label {
+    color: var(--amber);
+    font-size: 0.58rem;
+    font-weight: 850;
+    letter-spacing: 0.04em;
+}
+
+#selection-measure-value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 #hover-readout {
-    max-width: min(78vw, 1120px);
+    max-width: min(72vw, 960px);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2144,6 +2185,7 @@ body[data-rotate-invalid="true"] #cmd-buffer {
         grid-column: 1;
     }
 
+    #selection-measure-readout,
     #hover-readout,
     #coord-readout {
         display: none;

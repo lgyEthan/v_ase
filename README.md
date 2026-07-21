@@ -50,6 +50,32 @@ terminal.
 
 ## Highlights
 
+- Open ASE structures and trajectories directly with `v_ase gui FILE` or
+  `from v_ase.visualize import view`.
+- Inspect large systems in the lightweight default viewer, with GPU-instanced
+  atoms, bonds, supercells, and live trajectory playback.
+- Add `--interactive` for Blender-style selection, move, rotate, axis locking,
+  numeric transforms, copy/paste, undo, and atom creation.
+- Visualize and edit ASE constraints including `FixAtoms`, `FixedLine`,
+  `FixedPlane`, `FixScaled`, and threshold-aware `Hookean` springs.
+- Render with Modeling, Studio Sun, or Sun + Soft Shadow, then export images,
+  video, POSCAR, pickle, or an editable Blender scene script.
+
+## Why v_ase
+
+`v_ase` combines two workflows researchers normally have to keep separate:
+
+| ASE convenience | Blender flexibility | Scientific continuity |
+| --- | --- | --- |
+| Open structures and trajectories from Python or the terminal. | Select, inspect, move, rotate, and style atoms directly in 3D. | Keep ASE cells, PBC, constraints, calculators, labels, and trajectory data connected to the visualization. |
+
+The default mode is a fast visualizer for routine inspection. Interactive mode
+adds structure editing only when it is needed, while the same appearance,
+bonding, measurement, trajectory, rendering, and export controls remain
+available in both workflows.
+
+## Feature Reference
+
 - `v_ase gui FILE` command-line workflow for POSCAR, VASP, extxyz, traj, and
   other ASE-readable files.
 - Blocking CLI sessions behave like `ase gui`: the terminal waits while the
@@ -71,9 +97,9 @@ terminal.
   active section, explicit collapsed state, and panel width. `Tab` toggles the
   panel while viewport focus is active; controls inside each category start
   expanded.
-- Viewport lighting is opt-in and its compact downlight-over-material control
+- Viewport lighting is opt-in and its compact studio-spotlight control
   sits in the top toolbar, immediately beside the calculator controls. Its lit
-  state visibly illuminates both the fixture and material without using an
+  state brightens the lens, beam, and illuminated material without using an
   idea-bulb metaphor. Modeling keeps the
   original low-overhead, evenly-lit view; Studio Sun adds real-time PBR
   directional lighting; Sun + Soft Shadow adds a structure-fitted shadow map
@@ -88,8 +114,8 @@ terminal.
   shift-middle pan, wheel zoom, click/box selection, `G` move, `R` rotate, axis
   locking, numeric transforms, `Enter`, `Esc`, copy/paste/undo/delete.
 - Selection measurements: two selected atoms show distance, and three selected
-  atoms show two distances plus the central angle. The same live measurement is
-  repeated in the bottom hover readout beside atom metadata. In visualization
+  atoms show two distances plus the central angle. A compact persistent Measure
+  HUD stays independent from the changing hover-atom metadata. In visualization
   mode, supercell replicas are independently selectable and their displayed
   Cartesian positions contribute to center, distance, and angle statistics.
 - Calculator handling preserves existing ASE calculators, including

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import math
 import os
 from io import BytesIO
@@ -42,6 +43,85 @@ def configured_asset_dir() -> Path:
 ASSET_DIR = configured_asset_dir()
 MEDIA_SIZE = parse_media_size(os.environ.get("V_ASE_README_MEDIA_SIZE"), (1920, 1080))
 
+LOGO_GLYPHS = {
+    "V": {"width": 6.0, "paths": (((0.0, 8.0), (3.0, 0.0), (6.0, 8.0)),)},
+    "_": {"width": 4.5, "paths": (((0.0, 0.0), (4.5, 0.0)),)},
+    "A": {
+        "width": 6.0,
+        "paths": (
+            ((0.0, 0.0), (3.0, 8.0), (6.0, 0.0)),
+            ((1.35, 3.65), (4.65, 3.65)),
+        ),
+    },
+    "S": {
+        "width": 6.0,
+        "paths": ((
+            (6.0, 8.0), (1.5, 8.0), (0.45, 7.45), (0.0, 6.35),
+            (0.45, 5.35), (1.5, 4.65), (4.55, 3.55), (5.55, 2.9),
+            (6.0, 1.85), (5.55, 0.75), (4.55, 0.15), (0.0, 0.15),
+        ),),
+    },
+    "E": {
+        "width": 6.0,
+        "paths": (
+            ((0.0, 0.0), (0.0, 8.0)),
+            ((0.0, 8.0), (6.0, 8.0)),
+            ((0.0, 4.0), (5.0, 4.0)),
+            ((0.0, 0.0), (6.0, 0.0)),
+        ),
+    },
+}
+
+
+def logo_paths(text: str = "V_ASE") -> tuple[list[tuple[tuple[float, float], ...]], float]:
+    paths = []
+    offset = 0.0
+    gap = 2.0
+    for character in text:
+        glyph = LOGO_GLYPHS[character]
+        paths.extend(
+            tuple((point[0] + offset, point[1]) for point in path)
+            for path in glyph["paths"]
+        )
+        offset += float(glyph["width"]) + gap
+    return paths, offset - gap
+
+
+def sample_logo_points(paths, x_scale: float, y_scale: float, spacing: float):
+    points = []
+    for path in paths:
+        for segment_index, (start, end) in enumerate(zip(path, path[1:])):
+            start_xy = np.array([start[0] * x_scale, start[1] * y_scale])
+            end_xy = np.array([end[0] * x_scale, end[1] * y_scale])
+            intervals = max(1, int(np.ceil(np.linalg.norm(end_xy - start_xy) / spacing)))
+            for index in range(0 if segment_index == 0 else 1, intervals + 1):
+                point = start_xy + (end_xy - start_xy) * (index / intervals)
+                points.append((float(point[0]), float(point[1])))
+    deduplicated = []
+    for point in points:
+        if all(np.linalg.norm(np.subtract(point, existing)) > spacing * 0.35 for existing in deduplicated):
+            deduplicated.append(point)
+    return deduplicated
+
+
+def make_logo_scene() -> Atoms:
+    surface = fcc111("Cu", size=(30, 10, 1), a=3.615, vacuum=7.5, orthogonal=True)
+    top_z = float(surface.positions[:, 2].max())
+    paths, logical_width = logo_paths()
+    sampled = sample_logo_points(paths, x_scale=1.75, y_scale=2.0, spacing=1.4)
+    cell_x, cell_y, _ = surface.cell.lengths()
+    origin_x = (float(cell_x) - logical_width * 1.75) / 2
+    origin_y = (float(cell_y) - 8.0 * 2.0) / 2
+    oxygen = Atoms(
+        symbols=["O"] * len(sampled),
+        positions=[[origin_x + x, origin_y + y, top_z + 1.45] for x, y in sampled],
+    )
+    atoms = surface + oxygen
+    center = (np.min(atoms.positions, axis=0) + np.max(atoms.positions, axis=0)) / 2
+    atoms.positions -= center
+    atoms.info["readme_scene"] = "v_ase_atomistic_logo"
+    return atoms
+
 
 def open_panels(page, panels):
     page.evaluate(
@@ -56,14 +136,48 @@ def open_panels(page, panels):
     )
 
 
+def configure_inspector(page, group: str, panels, width=416):
+    page.evaluate(
+        """({ group, width }) => {
+            const app = window.__V_ASE_APP__;
+            app.setInspectorCollapsed(false, false);
+            app.setInspectorGroup(group, false);
+            app.setInspectorWidth(width, false);
+        }""",
+        {"group": group, "width": width},
+    )
+    open_panels(page, panels)
+    page.wait_for_function(
+        """(minimumWidth) => {
+            const inspector = document.getElementById('inspector');
+            return inspector
+                && !document.body.classList.contains('inspector-collapsed')
+                && inspector.getBoundingClientRect().width >= minimumWidth;
+        }""",
+        arg=max(336, width - 2),
+    )
+    page.wait_for_timeout(100)
+
+
 def set_display(page, options):
     page.evaluate(
         """(options) => {
             const app = window.__V_ASE_APP__;
+            const current = app.state.display || {};
+            const merged = {
+                ...current,
+                ...options,
+                elementRadii: options.elementRadii || current.elementRadii || {},
+                elementColors: options.elementColors || current.elementColors || {},
+                elementVisible: options.elementVisible || current.elementVisible || {},
+                elementBondCutoffs: options.elementBondCutoffs || current.elementBondCutoffs || {},
+                manualBondPairs: options.manualBondPairs || current.manualBondPairs || [],
+                supercell: options.supercell || current.supercell || [1, 1, 1]
+            };
             if (app.applyDesignSettings) {
-                app.applyDesignSettings({ display: options }, { render: true });
+                app.applyDesignSettings({ display: merged }, { render: true });
             } else {
-                app.state.display = { ...app.state.display, ...options };
+                app.state.display = merged;
                 app.renderer.setDisplayOptions(app.state.display);
                 app.updateUI();
             }
@@ -71,6 +185,97 @@ def set_display(page, options):
         }""",
         options,
     )
+
+
+def set_readme_lighting(page, target, *, intensity=2.9, position_offset=(-12.0, -15.0, 20.0)):
+    target = [float(value) for value in target]
+    position = [target[i] + float(position_offset[i]) for i in range(3)]
+    set_display(page, {
+        "lightingMode": "studio-shadow",
+        "sunIntensity": float(intensity),
+        "sunPosition": position,
+        "sunTarget": target,
+        "sunGizmo": False,
+        "antialias": True,
+        "sphereQuality": "ultra",
+    })
+    page.evaluate(
+        """() => {
+            const renderer = window.__V_ASE_APP__.renderer;
+            renderer.fitSunShadowCamera?.();
+            renderer.renderer.render(renderer.scene, renderer.camera);
+            renderer.renderer.render(renderer.scene, renderer.camera);
+        }"""
+    )
+    page.wait_for_timeout(300)
+
+
+def save_logo_render(page, path: Path):
+    data_url = page.evaluate(
+        """() => window.__V_ASE_APP__.renderer.exportPNG(2400, 738, {
+            transparentBackground: true,
+            includeGrid: false,
+            includeAxes: false,
+            renderMode: 'studio-shadow',
+            sunIntensity: 3.1,
+            sunPosition: [-22, -26, 42],
+            sunTarget: [0, 0, 0]
+        })"""
+    )
+    payload = base64.b64decode(data_url.split(",", 1)[1])
+    image = Image.open(BytesIO(payload)).convert("RGBA")
+    bounds = image.getbbox()
+    if bounds:
+        image = image.crop(bounds)
+    padding = 16
+    scale = min((1200 - padding * 2) / image.width, (369 - padding * 2) / image.height)
+    image = image.resize(
+        (max(1, round(image.width * scale)), max(1, round(image.height * scale))),
+        Image.Resampling.LANCZOS,
+    )
+    canvas = Image.new("RGBA", (1200, 369), (0, 0, 0, 0))
+    canvas.alpha_composite(image, ((1200 - image.width) // 2, (369 - image.height) // 2))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(path)
+
+
+def capture_logo(browser):
+    atoms = make_logo_scene()
+    editor, page = open_scene(browser, atoms, show_bonds=False)
+    try:
+        set_display(page, {
+            "showCell": False,
+            "showAxes": False,
+            "showGrid": False,
+            "showBonds": False,
+            "showOverlays": False,
+            "atomRadiusScale": 1.0,
+            "elementRadii": {"Cu": 1.278, "O": 0.80},
+            "elementColors": {"Cu": "#71493f", "O": "#d7f26f"},
+            "projectionMode": "orthographic",
+        })
+        page.evaluate(
+            """() => {
+                const app = window.__V_ASE_APP__;
+                const renderer = app.renderer;
+                renderer.setProjectionMode('orthographic');
+                renderer.controls.target.set(0, 0, 0);
+                renderer.camera.up.set(0, 1, 0);
+                renderer.camera.position.set(0, -12, 70);
+                renderer.camera.lookAt(renderer.controls.target);
+                renderer.fitCameraToStructure();
+                renderer.camera.zoom *= 1.04;
+                renderer.camera.updateProjectionMatrix();
+            }"""
+        )
+        set_readme_lighting(page, [0, 0, 0], intensity=3.1, position_offset=(-22, -26, 42))
+        docs_logo = ROOT / "docs" / "assets" / "v_ase-logo.png"
+        static_logo = ROOT / "v_ase" / "static" / "v_ase-logo.png"
+        save_logo_render(page, docs_logo)
+        static_logo.write_bytes(docs_logo.read_bytes())
+    finally:
+        page.close()
+        editor.close()
 
 
 def set_selection(page, indices):
@@ -112,7 +317,7 @@ def set_camera(page, *, target, position, up=(0, 0, 1), fov=38):
             camera.updateProjectionMatrix();
             app.renderer.syncSelectionOutlines();
             app.renderer.syncConstraintGuides();
-            app.renderer.syncLockMarkers();
+            app.renderer.syncLockMarkers?.();
             app.renderer.updateHookeanPositions();
             app.transform?.updateGuides?.(camera);
             app.renderer.renderer.render(app.renderer.scene, camera);
@@ -394,9 +599,13 @@ def main() -> int:
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         try:
+            if ASSET_DIR.resolve() == (ROOT / "docs" / "assets").resolve():
+                capture_logo(browser)
+
             editor, page = open_scene(browser, make_frames(), show_bonds=True)
             settle_view(page, target=[5.6, 5.0, 2.2], position=[17.0, -12.5, 10.0], fov=40)
-            open_panels(page, ["structure-info", "selection", "view", "trajectory-panel"])
+            set_readme_lighting(page, [5.6, 5.0, 2.2], intensity=2.85)
+            configure_inspector(page, "inspect", ["structure-info", "selection"])
             page.screenshot(path=ASSET_DIR / "readme_overview.png")
             page.close()
             editor.close()
@@ -405,13 +614,14 @@ def main() -> int:
             editor, page = open_scene(browser, fixedline_atoms, show_bonds=True)
             set_display(page, {"atomRadiusScale": 0.54, "showBonds": True, "showGrid": True})
             set_selection(page, [line_idx["ion"]])
-            open_panels(page, ["structure-info", "selection", "view", "transform"])
+            configure_inspector(page, "edit", ["constraints", "transform"])
             settle_view(
                 page,
                 target=[7.0, 7.0, line_idx["z_length"] * 0.52],
                 position=[16.5, -6.2, line_idx["z_length"] * 0.72],
                 fov=38,
             )
+            set_readme_lighting(page, [7.0, 7.0, line_idx["z_length"] * 0.52], intensity=2.8)
             page.screenshot(path=ASSET_DIR / "readme_constraints.png")
 
             base = fixedline_atoms.get_positions()
@@ -429,8 +639,9 @@ def main() -> int:
             editor, page = open_scene(browser, fixedplane_atoms, show_bonds=True)
             set_display(page, {"atomRadiusScale": 0.60, "showBonds": True, "showGrid": True})
             set_selection(page, [plane_idx["ion"]])
-            open_panels(page, ["structure-info", "selection", "view", "transform"])
+            configure_inspector(page, "edit", ["constraints", "transform"])
             settle_view(page, target=[5.1, 4.5, 11.6], position=[11.6, -5.5, 17.2], fov=39)
+            set_readme_lighting(page, [5.1, 4.5, 11.6], intensity=2.75)
             base = fixedplane_atoms.get_positions()
             set_selection(page, [plane_idx["ion"]])
             enter_mode(page, "MOVE", None)
@@ -451,7 +662,7 @@ def main() -> int:
                 "showGrid": True
             })
             set_selection(page, [])
-            open_panels(page, ["structure-info", "selection", "view"])
+            configure_inspector(page, "inspect", ["structure-info", "selection"])
             base = hookean_atoms.get_positions()
             carbon_pos = base[hidx["carbon"]].copy()
             oxygen_pos = base[hidx["oxygen"]].copy()
@@ -460,6 +671,7 @@ def main() -> int:
             target = (carbon_pos + oxygen_pos) * 0.5 + np.array([0.15, 0.05, 0.12])
             camera = target + np.array([3.90, -4.70, 2.90])
             settle_view(page, target=target.tolist(), position=camera.tolist(), fov=33)
+            set_readme_lighting(page, target.tolist(), intensity=3.0, position_offset=(-7.0, -9.0, 12.0))
             active_preview = base.copy()
             preview_delta = direction * 0.62
             active_preview[hidx["oxygen"]] = base[hidx["oxygen"]] + preview_delta
@@ -485,8 +697,9 @@ def main() -> int:
                 "rotatePivot": "origin"
             })
             set_selection(page, fidx["top_ring"])
-            open_panels(page, ["structure-info", "selection", "transform", "view"])
+            configure_inspector(page, "edit", ["constraints", "transform"])
             settle_view(page, target=[0, 0, 0], position=[6.2, -7.8, 4.6], fov=36)
+            set_readme_lighting(page, [0, 0, 0], intensity=2.9, position_offset=(-7.0, -10.0, 13.0))
             enter_mode(page, "ROTATE", "X")
             page.screenshot(path=ASSET_DIR / "readme_rotate.png")
             capture_animation(

@@ -379,6 +379,10 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "btn-export-blender" in index_html
     assert "selected-measure" in index_html
     assert "getSelectionMeasureText" in main_js
+    assert 'id="selection-measure-readout"' in index_html
+    assert 'id="selection-measure-value"' in index_html
+    assert "getSelectionMeasureSummary" in main_js
+    assert "measure=${measure}" not in main_js
     assert "selectionAngle" in main_js
     assert "currentCameraForExport" in main_js
     assert "camera) body.camera = camera" in api_js
@@ -841,10 +845,11 @@ def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
 
     assert 'id="lighting-widget"' in index_html
     assert 'class="render-light-icon"' in index_html
-    assert 'class="render-lamp-stem"' in index_html
-    assert 'class="render-lamp-shade"' in index_html
+    assert 'class="render-spot-handle"' in index_html
+    assert 'class="render-spot-body"' in index_html
+    assert 'class="render-spot-lens"' in index_html
     assert 'class="render-light-cone"' in index_html
-    assert 'class="render-light-pool"' in index_html
+    assert 'class="render-light-beam-edge"' in index_html
     assert 'class="render-light-object"' in index_html
     assert 'class="render-light-lit-face"' in index_html
     assert 'class="render-light-terminator"' not in index_html

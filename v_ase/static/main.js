@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.57';
-import { ASERenderer } from './renderer.js?v=0.0.57';
-import { ASESelection } from './selection.js?v=0.0.57';
-import { ASETransform } from './transform.js?v=0.0.57';
+import { ASEApi } from './api.js?v=0.0.58';
+import { ASERenderer } from './renderer.js?v=0.0.58';
+import { ASESelection } from './selection.js?v=0.0.58';
+import { ASETransform } from './transform.js?v=0.0.58';
 
 class VAseApp {
     constructor() {
@@ -752,7 +752,7 @@ class VAseApp {
             selectedEntries.map(reference => this.selectionReferenceSymbol(reference)).join(', ') || '-'
         );
         this.setSelectionCenterText(this.getSelectionCenterText());
-        setHtml('selected-measure', this.getSelectionMeasureText(selectedEntries));
+        this.updateSelectionMeasureUI(selectedEntries);
         this.updateTrajectoryUI();
         this.updateElementSelectionControls();
         this.updateSelectionConstraintControls();
@@ -790,6 +790,18 @@ class VAseApp {
             row.textContent = line;
             el.appendChild(row);
         });
+    }
+
+    updateSelectionMeasureUI(selectedEntries = this.selectionEntries()) {
+        const detail = this.getSelectionMeasureText(selectedEntries);
+        const panelValue = document.getElementById('selected-measure');
+        if (panelValue) panelValue.innerText = detail;
+        const readout = document.getElementById('selection-measure-readout');
+        const readoutValue = document.getElementById('selection-measure-value');
+        if (!readout || !readoutValue) return;
+        const summary = this.getSelectionMeasureSummary(selectedEntries);
+        readoutValue.innerText = summary;
+        readout.classList.toggle('hidden', selectedEntries.length === 0);
     }
 
     async copySelectionField(targetId) {
@@ -1791,6 +1803,26 @@ class VAseApp {
         return `${selectedReferences.length} atoms selected`;
     }
 
+    getSelectionMeasureSummary(selectedReferences = this.selectionEntries()) {
+        if (!this.state.atoms || selectedReferences.length === 0) return '-';
+        if (selectedReferences.length === 1) return '1 atom selected';
+        if (selectedReferences.length === 2) {
+            const distance = this.selectionDistance(selectedReferences[0], selectedReferences[1]);
+            return Number.isFinite(distance)
+                ? `Distance ${this.formatNumber(distance, 4)} A`
+                : 'Distance unavailable';
+        }
+        if (selectedReferences.length === 3) {
+            const [i, j, k] = selectedReferences;
+            const left = this.selectionDistance(i, j);
+            const right = this.selectionDistance(j, k);
+            const angle = this.selectionAngle(i, j, k);
+            if (![left, right, angle].every(Number.isFinite)) return 'Angle unavailable';
+            return `Angle ${this.formatNumber(angle, 2)} deg | D1 ${this.formatNumber(left, 4)} A | D2 ${this.formatNumber(right, 4)} A`;
+        }
+        return `${selectedReferences.length} atoms selected`;
+    }
+
     worldToScreen(vec) {
         const projected = vec.clone().project(this.renderer.camera);
         return new THREE.Vector2(
@@ -1957,9 +1989,8 @@ class VAseApp {
 
     atomHoverText(reference) {
         const normalized = this.normalizeSelectionReference(reference);
-        const measure = this.getSelectionMeasureText();
         if (!normalized || !this.state.atoms?.symbols?.[normalized.index]) {
-            return `Hover atom: -  |  measure=${measure}`;
+            return 'Hover atom: -';
         }
         const index = normalized.index;
         const symbol = this.state.atoms.symbols[index];
@@ -1975,8 +2006,7 @@ class VAseApp {
             `force=${this.formatVectorTuple(force)}`,
             `charge=${this.formatNumber(Number(charge), 4)}`,
             `tag=${tag ?? '-'}`,
-            `magmom=${this.formatNumber(Number(magmom), 4)}`,
-            `measure=${measure}`
+            `magmom=${this.formatNumber(Number(magmom), 4)}`
         ];
         return parts.join('  |  ');
     }
@@ -2220,8 +2250,7 @@ class VAseApp {
         this.renderer.refreshBondsForCurrentPositions();
         this.renderer.updateSupercellPositions();
         this.renderer.updateHookeanPositions();
-        const measure = document.getElementById('selected-measure');
-        if (measure) measure.innerText = this.getSelectionMeasureText();
+        this.updateSelectionMeasureUI();
         if (this.transform.mode === 'ROTATE') {
             this.validateRotationStrain();
         }
@@ -2258,8 +2287,7 @@ class VAseApp {
                 this.renderer.refreshBondsForCurrentPositions();
                 this.renderer.updateSupercellPositions();
                 this.renderer.updateHookeanPositions();
-                const measure = document.getElementById('selected-measure');
-                if (measure) measure.innerText = this.getSelectionMeasureText();
+                this.updateSelectionMeasureUI();
                 this.renderer.requestRender();
             }
         } catch (err) {

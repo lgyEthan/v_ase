@@ -70,7 +70,8 @@ reference rather than a universal hardware guarantee.
 instancing architecture. Browser tests also verify live interactive bond
 formation/breaking, repeated supercell bonds, interactive-mode replica
 exclusion, visualization-mode replica selection/measurement, atomic relabel
-commits, and preservation of label-pair cutoffs across structure
+commits, independent persistent Measure and pointer-driven Hover HUDs, and
+preservation of label-pair cutoffs across structure
 updates. The full test suite covers the optimized LAMMPS reader, binary frame
 metadata, constraints, periodic bonds, supercells, export, CLI entry points,
 and packaging.

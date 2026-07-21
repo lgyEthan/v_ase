@@ -888,6 +888,8 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
                         : 0;
                 })(),
                 measure: document.getElementById('selected-measure').innerText,
+                measureSummary: document.getElementById('selection-measure-value').innerText,
+                measureVisible: !document.getElementById('selection-measure-readout').classList.contains('hidden'),
                 replicaOutlines: window.__ASE_APP__.renderer.replicaSelectionOutlines.children
                     .reduce((sum, mesh) => sum + mesh.count, 0),
             })""")
@@ -899,14 +901,16 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
             ]
             assert selected['centerLineDelta'] > 5
             assert 'angle(0@[1,0,0]-0-0@[0,1,0]) = 90.00 deg' in selected['measure']
+            assert selected['measureSummary'] == 'Angle 90.00 deg | D1 4.0000 A | D2 4.0000 A'
+            assert selected['measureVisible'] is True
             assert selected['replicaOutlines'] == 2
 
             page.mouse.move(points['yReplica']['x'], points['yReplica']['y'])
             page.wait_for_function("window.__ASE_APP__.state.hoveredReference?.key === 'replica:0:0,1,0'")
             hover_text = page.locator('#hover-readout').inner_text()
             assert '#0@[0,1,0] Cu' in hover_text
-            assert 'measure=' in hover_text
-            assert '90.00 deg' in hover_text
+            assert 'measure=' not in hover_text
+            assert page.locator('#selection-measure-value').inner_text() == selected['measureSummary']
 
             page.locator('#app-viewport canvas').focus()
             page.keyboard.press('Control+a')

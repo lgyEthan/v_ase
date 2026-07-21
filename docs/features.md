@@ -76,6 +76,11 @@ Shift-click, box selection, element selection, `Ctrl+A`, hover metadata, and
 displayed-coordinate center/distance/angle measurements. Interactive mode keeps
 replicas outside atom edit selection until the supercell is committed.
 
+Selection measurements and hover inspection use separate viewport HUDs. The
+Measure HUD remains visible while the selection is retained and summarizes only
+the selected count, distance, or angle with adjacent distances. Hover metadata
+updates independently as the pointer moves over atoms.
+
 ### Inspector Navigation and Lighting
 The inspector is divided into Inspect, Edit, Scene, and Output sections instead
 of one long mixed panel. Edit is omitted in visualization-only mode. The
@@ -88,9 +93,9 @@ active section are persisted locally.
 
 The lighting control sits in the top toolbar immediately to the right of the
 calculator controls, away from the viewport orientation gizmo. Its compact
-studio-downlight icon illuminates a material sphere and pool when active, making
-the on/off state read as scene lighting rather than an idea bulb. The settings
-card opens directly below the toolbar control.
+directional studio-spotlight icon keeps a faint beam visible while off, then
+illuminates its lens, beam, and target material when active. The settings card
+opens directly below the toolbar control.
 
 The viewport renderer has three explicit modes:
 

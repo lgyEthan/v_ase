@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.57">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.58">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.57';
+            : '/static/vendor/three.module.js?v=0.0.58';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -40,7 +40,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.57</span>
+            <span class="version">0.0.58</span>
         </div>
         <div class="status-group">
             <div class="status-item">
@@ -73,13 +73,14 @@
             </div>
             <div id="lighting-widget" class="lighting-widget">
                 <button id="btn-lighting-toggle" class="lighting-trigger" type="button" aria-expanded="false" aria-label="Open render lighting settings" title="Render lighting settings">
-                    <svg class="render-light-icon" viewBox="0 0 28 28" aria-hidden="true">
-                        <path class="render-lamp-stem" d="M14 1.8v3"></path>
-                        <path class="render-lamp-shade" d="M9.1 4.5h9.8l2.2 5.1H6.9Z"></path>
-                        <path class="render-light-cone" d="M7.2 9.6 3.6 25h20.8L20.8 9.6Z"></path>
-                        <ellipse class="render-light-pool" cx="14" cy="24.8" rx="8.1" ry="1.25"></ellipse>
-                        <circle class="render-light-object" cx="14" cy="18.1" r="5.35"></circle>
-                        <path class="render-light-lit-face" d="M14 12.75a5.35 5.35 0 0 0 0 10.7c-2.25-1.38-3.42-3.17-3.42-5.35s1.17-3.97 3.42-5.35Z"></path>
+                    <svg class="render-light-icon" viewBox="0 0 30 28" aria-hidden="true">
+                        <path class="render-spot-handle" d="M5.2 4.2 8.1 2.8l3 3.1"></path>
+                        <path class="render-spot-body" d="m4.5 7.3 8.2-3.1 5.1 5.1-3.1 8.2-3.2-3.2-4.1 1.2-4.1-4.1 1.2-4.1Z"></path>
+                        <path class="render-spot-lens" d="m15.8 7.3 4 4-3.1 3.1-4-4Z"></path>
+                        <path class="render-light-cone" d="m19.1 12.8 9.2 4.7-6.4 8.2-5.1-10.9Z"></path>
+                        <path class="render-light-beam-edge" d="m19.1 12.8 9.2 4.7M16.8 14.8l5.1 10.9"></path>
+                        <circle class="render-light-object" cx="24.1" cy="21.1" r="3.55"></circle>
+                        <path class="render-light-lit-face" d="M23.4 17.62a3.55 3.55 0 0 0 0 6.96c-1.35-.92-2.02-2.08-2.02-3.48s.67-2.56 2.02-3.48Z"></path>
                     </svg>
                     <span id="lighting-mode-indicator" class="lighting-mode-indicator" aria-hidden="true"></span>
                 </button>
@@ -505,6 +506,10 @@
         <div id="cmd-buffer" class="hidden">
             <span id="cmd-mode">MOVE</span> | <span id="cmd-axis">-</span> | <span id="cmd-val"></span>
         </div>
+        <div id="selection-measure-readout" class="hidden" aria-live="polite">
+            <span class="selection-measure-label">MEASURE</span>
+            <span id="selection-measure-value">-</span>
+        </div>
         <div id="hover-readout">Hover atom: -</div>
         <div id="coord-readout">X: 0.00 Y: 0.00 Z: 0.00</div>
     </footer>
@@ -553,7 +558,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.57';
+            : './static/main.js?v=0.0.58';
         import(modulePath);
     </script>
 </body>
