@@ -14,6 +14,7 @@
 - [x] **Phase 11: Production export** (Geometry Nodes Blender scenes, exact Sun/camera, 15k-atom runtime benchmark)
 - [x] **Phase 12: Document workflow** (empty GUI, browser file loading, strict ASE Pickle, JSON presets, and `.vase` projects)
 - [x] **Phase 13: Commensurate rotation** (cell-boundary strain search, viewport candidate rays, magnetic angle snapping, and consistent free/axis-locked mouse direction)
+- [x] **Phase 14: Scientific image scale** (exact camera framing, fixed px/Å export, and export-only atom smoothness)
 
 ## Core Documentation
 - [Shortcuts & Controls](shortcuts.md)

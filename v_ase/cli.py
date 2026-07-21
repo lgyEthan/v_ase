@@ -54,7 +54,7 @@ def package_version() -> str:
     try:
         return version("v_ase-gui")
     except PackageNotFoundError:
-        return "0.0.62"
+        return "0.0.63"
 
 
 def resolve_input_format(fmt: str | None) -> str | None:

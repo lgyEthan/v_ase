@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.62&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.62&rev=1';
-import { ASESelection } from './selection.js?v=0.0.62&rev=1';
-import { ASETransform } from './transform.js?v=0.0.62&rev=1';
+import { ASEApi } from './api.js?v=0.0.63&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.63&rev=1';
+import { ASESelection } from './selection.js?v=0.0.63&rev=1';
+import { ASETransform } from './transform.js?v=0.0.63&rev=1';
 
 class VAseApp {
     constructor() {
@@ -63,7 +63,11 @@ class VAseApp {
                 sunPosition: [8, -10, 14],
                 sunTarget: [0, 0, 0],
                 sunGizmo: false,
-                blenderExportMode: 'instanced'
+                blenderExportMode: 'instanced',
+                imageScaleMode: 'viewport',
+                imagePixelsPerAngstrom: 100,
+                imageSphereQuality: 'viewport',
+                imageSmoothnessScale: 1
             },
             antiAliasing: true,
             sphereQuality: 'auto',
@@ -3654,6 +3658,16 @@ class VAseApp {
             elementRadii,
             elementColors,
             elementVisible,
+            imageScaleMode: nextDisplay.imageScaleMode === 'physical' ? 'physical' : 'viewport',
+            imagePixelsPerAngstrom: finiteClamped(
+                nextDisplay.imagePixelsPerAngstrom, 100, 0.1, 5000
+            ),
+            imageSphereQuality: ['viewport', 'auto', 'low', 'medium', 'high', 'ultra'].includes(
+                nextDisplay.imageSphereQuality
+            ) ? nextDisplay.imageSphereQuality : 'viewport',
+            imageSmoothnessScale: finiteClamped(
+                nextDisplay.imageSmoothnessScale, 1, 0.5, 2
+            ),
             supercell
         };
     }
@@ -4505,27 +4519,70 @@ class VAseApp {
         const lighting = this.state.display;
         const position = lighting.sunPosition || [8, -10, 14];
         const target = lighting.sunTarget || [0, 0, 0];
+        const scaleMode = lighting.imageScaleMode === 'physical' ? 'physical' : 'viewport';
+        const pixelsPerAngstrom = Math.max(0.1, Math.min(5000,
+            Number(lighting.imagePixelsPerAngstrom) || 100));
+        const sphereQuality = ['viewport', 'auto', 'low', 'medium', 'high', 'ultra'].includes(
+            lighting.imageSphereQuality
+        ) ? lighting.imageSphereQuality : 'viewport';
+        const smoothnessScale = Math.max(0.5, Math.min(2,
+            Number(lighting.imageSmoothnessScale) || 1));
+        const selected = (value, current) => value === current ? 'selected' : '';
         this.showModal(`
             <h2>Export Image</h2>
-            <div class="export-grid">
-                <label for="export-width">Width</label>
-                <input type="number" id="export-width" value="${width}" min="256" step="128">
-                <label for="export-height">Height</label>
-                <input type="number" id="export-height" value="${height}" min="256" step="128">
-            </div>
-            <label class="check-row" for="export-transparent">
-                <span>Transparent background</span>
-                <input type="checkbox" id="export-transparent">
-            </label>
-            <label class="check-row" for="export-grid">
-                <span>Include grid</span>
-                <input type="checkbox" id="export-grid" ${this.state.display.showGrid ? 'checked' : ''}>
-            </label>
-            <label class="check-row" for="export-axes">
-                <span>Include axes</span>
-                <input type="checkbox" id="export-axes" ${this.state.display.showAxes ? 'checked' : ''}>
-            </label>
-            <div class="export-render-section">
+            <div class="export-image-columns">
+                <div class="export-image-column">
+                <div class="export-grid">
+                    <label for="export-width">Width</label>
+                    <input type="number" id="export-width" value="${width}" min="256" step="128">
+                    <label for="export-height">Height</label>
+                    <input type="number" id="export-height" value="${height}" min="256" step="128">
+                </div>
+                <label class="check-row" for="export-transparent">
+                    <span>Transparent background</span>
+                    <input type="checkbox" id="export-transparent">
+                </label>
+                <label class="check-row" for="export-grid">
+                    <span>Include grid</span>
+                    <input type="checkbox" id="export-grid" ${this.state.display.showGrid ? 'checked' : ''}>
+                </label>
+                <label class="check-row" for="export-axes">
+                    <span>Include axes</span>
+                    <input type="checkbox" id="export-axes" ${this.state.display.showAxes ? 'checked' : ''}>
+                </label>
+                <div class="export-render-section">
+                    <div class="export-section-title">Framing and physical scale</div>
+                    <div class="export-grid">
+                        <label for="export-scale-mode">Scale mode</label>
+                        <select id="export-scale-mode">
+                            <option value="viewport" ${selected('viewport', scaleMode)}>Current viewport</option>
+                            <option value="physical" ${selected('physical', scaleMode)}>Fixed physical scale</option>
+                        </select>
+                        <label for="export-pixels-per-angstrom">Pixels / Å</label>
+                        <input type="number" id="export-pixels-per-angstrom" value="${pixelsPerAngstrom.toFixed(2)}" min="0.1" max="5000" step="1">
+                    </div>
+                    <p id="export-scale-note" class="export-note"></p>
+                </div>
+                <div class="export-render-section">
+                    <div class="export-section-title">Atom surface</div>
+                    <div class="export-grid">
+                        <label for="export-sphere-quality">Atom smoothness</label>
+                        <select id="export-sphere-quality">
+                            <option value="viewport" ${selected('viewport', sphereQuality)}>Viewport setting</option>
+                            <option value="auto" ${selected('auto', sphereQuality)}>Auto</option>
+                            <option value="low" ${selected('low', sphereQuality)}>Low</option>
+                            <option value="medium" ${selected('medium', sphereQuality)}>Medium</option>
+                            <option value="high" ${selected('high', sphereQuality)}>High</option>
+                            <option value="ultra" ${selected('ultra', sphereQuality)}>Ultra</option>
+                        </select>
+                        <label for="export-smoothness-scale">Smoothness scale</label>
+                        <input type="number" id="export-smoothness-scale" value="${smoothnessScale.toFixed(2)}" min="0.5" max="2" step="0.1">
+                    </div>
+                    <p id="export-smoothness-note" class="export-note"></p>
+                </div>
+                </div>
+                <div class="export-image-column">
+                <div class="export-render-section">
                 <div class="export-section-title">Rendering</div>
                 <div class="export-grid">
                     <label for="export-render-mode">Renderer</label>
@@ -4550,11 +4607,53 @@ class VAseApp {
                         ${target.map((value, index) => `<input type="number" id="export-sun-target-${index}" value="${Number(value).toFixed(3)}" step="0.25" aria-label="Export Sun target ${index + 1}">`).join('')}
                     </div>
                 </div>
+                </div>
+                </div>
             </div>
         `, `
             <button id="modal-close" class="btn">Cancel</button>
             <button id="modal-export-image" class="btn primary">Export</button>
         `);
+        document.querySelector('#modal-container .modal')?.classList.add('export-image-modal');
+
+        const updateExportSummary = () => {
+            const mode = document.getElementById('export-scale-mode')?.value || 'viewport';
+            const ppaInput = document.getElementById('export-pixels-per-angstrom');
+            const outputWidth = Math.max(256, parseInt(document.getElementById('export-width')?.value || `${width}`, 10));
+            const outputHeight = Math.max(256, parseInt(document.getElementById('export-height')?.value || `${height}`, 10));
+            const ppa = Math.max(0.1, Math.min(5000, Number(ppaInput?.value) || pixelsPerAngstrom));
+            if (ppaInput) ppaInput.disabled = mode !== 'physical';
+            const scaleNote = document.getElementById('export-scale-note');
+            if (scaleNote) {
+                const projectionNote = this.state.display.projectionMode === 'perspective'
+                    ? 'Perspective scale is defined at the camera target plane.'
+                    : 'Orthographic scale is uniform at every depth.';
+                scaleNote.textContent = mode === 'physical'
+                    ? `Frame span: ${(outputWidth / ppa).toFixed(2)} Å × ${(outputHeight / ppa).toFixed(2)} Å. ${projectionNote}`
+                    : 'Preserves the complete live camera composition. A different output aspect ratio is centered with margins instead of cropping or shifting the structure.';
+            }
+
+            const qualityInput = document.getElementById('export-sphere-quality');
+            const quality = qualityInput?.value === 'viewport'
+                ? (this.state.sphereQuality || 'auto')
+                : (qualityInput?.value || 'auto');
+            const multiplier = Math.max(0.5, Math.min(2,
+                Number(document.getElementById('export-smoothness-scale')?.value) || smoothnessScale));
+            const segments = this.renderer.sphereQualitySegmentsFor(
+                quality,
+                this.state.atoms?.positions?.length || 0,
+                multiplier
+            );
+            const smoothnessNote = document.getElementById('export-smoothness-note');
+            if (smoothnessNote) {
+                smoothnessNote.textContent = `${segments} sphere segments at ${multiplier.toFixed(2)}×. This affects only the exported image.`;
+            }
+        };
+        ['export-width', 'export-height', 'export-pixels-per-angstrom', 'export-smoothness-scale']
+            .forEach(id => document.getElementById(id)?.addEventListener('input', updateExportSummary));
+        ['export-scale-mode', 'export-sphere-quality']
+            .forEach(id => document.getElementById(id)?.addEventListener('change', updateExportSummary));
+        updateExportSummary();
 
         document.getElementById('modal-export-image')?.addEventListener('click', () => {
             try {
@@ -4570,10 +4669,28 @@ class VAseApp {
                 const sunIntensity = Math.max(0, Number(document.getElementById('export-sun-intensity').value || 2.2));
                 const sunPosition = [0, 1, 2].map(index => Number(document.getElementById(`export-sun-position-${index}`).value || 0));
                 const sunTarget = [0, 1, 2].map(index => Number(document.getElementById(`export-sun-target-${index}`).value || 0));
+                const selectedScaleMode = document.getElementById('export-scale-mode').value === 'physical'
+                    ? 'physical'
+                    : 'viewport';
+                const exportPixelsPerAngstrom = Math.max(0.1, Math.min(5000,
+                    Number(document.getElementById('export-pixels-per-angstrom').value) || pixelsPerAngstrom));
+                const exportSphereQuality = document.getElementById('export-sphere-quality').value;
+                const exportSmoothnessScale = Math.max(0.5, Math.min(2,
+                    Number(document.getElementById('export-smoothness-scale').value) || smoothnessScale));
+                Object.assign(this.state.display, {
+                    imageScaleMode: selectedScaleMode,
+                    imagePixelsPerAngstrom: exportPixelsPerAngstrom,
+                    imageSphereQuality: exportSphereQuality,
+                    imageSmoothnessScale: exportSmoothnessScale
+                });
                 const dataUrl = this.renderer.exportPNG(exportWidth, exportHeight, {
                     transparentBackground,
                     includeGrid,
                     includeAxes,
+                    scaleMode: selectedScaleMode,
+                    pixelsPerAngstrom: exportPixelsPerAngstrom,
+                    sphereQuality: exportSphereQuality,
+                    sphereQualityScale: exportSmoothnessScale,
                     renderMode,
                     sunIntensity,
                     sunPosition,

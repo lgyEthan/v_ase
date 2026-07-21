@@ -609,15 +609,91 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             assert lighting_export["target"] == pytest.approx(after_target_rotate["target"])
             assert lighting_export["color"] == pytest.approx([1.0, 0.960784, 0.87451])
 
-            exported = page.evaluate("""() => window.__ASE_APP__.renderer.exportPNG(640, 360, {
-                renderMode: 'studio-shadow',
-                sunIntensity: 2.6,
-                sunPosition: [4, -5, 7],
-                sunTarget: [0, 0, 0],
-                includeGrid: false,
-                includeAxes: false
-            }).slice(0, 22)""")
-            assert exported == "data:image/png;base64,"
+            export_contract = page.evaluate("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                const liveCamera = renderer.camera;
+                const before = {
+                    position: liveCamera.position.toArray(),
+                    projection: liveCamera.projectionMatrix.elements.slice()
+                };
+                const viewport = renderer.exportCameraSetup(640, 640, { scaleMode: 'viewport' });
+                const physical = renderer.exportCameraSetup(1000, 500, {
+                    scaleMode: 'physical',
+                    pixelsPerAngstrom: 100
+                });
+                const originalGeometry = renderer.atomMeshes.children[0].geometry;
+                const dataUrl = renderer.exportPNG(640, 360, {
+                    renderMode: 'studio-shadow',
+                    sunIntensity: 2.6,
+                    sunPosition: [4, -5, 7],
+                    sunTarget: [0, 0, 0],
+                    includeGrid: false,
+                    includeAxes: false,
+                    scaleMode: 'viewport',
+                    sphereQuality: 'ultra',
+                    sphereQualityScale: 1.5
+                });
+                return {
+                    prefix: dataUrl.slice(0, 22),
+                    dataUrl,
+                    cloned: viewport.camera !== liveCamera,
+                    viewportProjection: viewport.camera.projectionMatrix.elements.slice(),
+                    viewportRender: [viewport.renderWidth, viewport.renderHeight],
+                    viewportOffset: [viewport.offsetX, viewport.offsetY],
+                    physicalSpan: [
+                        (physical.camera.right - physical.camera.left) / physical.camera.zoom,
+                        (physical.camera.top - physical.camera.bottom) / physical.camera.zoom
+                    ],
+                    geometryRestored: renderer.atomMeshes.children[0].geometry === originalGeometry,
+                    after: {
+                        position: liveCamera.position.toArray(),
+                        projection: liveCamera.projectionMatrix.elements.slice()
+                    },
+                    before
+                };
+            }""")
+            assert export_contract["prefix"] == "data:image/png;base64,"
+            assert export_contract["cloned"] is True
+            assert export_contract["viewportProjection"] == pytest.approx(
+                export_contract["before"]["projection"]
+            )
+            assert max(export_contract["viewportRender"]) == 640
+            assert min(export_contract["viewportRender"]) < 640
+            assert all(value >= 0 for value in export_contract["viewportOffset"])
+            assert export_contract["physicalSpan"] == pytest.approx([10.0, 5.0])
+            assert export_contract["geometryRestored"] is True
+            assert export_contract["after"]["position"] == pytest.approx(
+                export_contract["before"]["position"]
+            )
+            assert export_contract["after"]["projection"] == pytest.approx(
+                export_contract["before"]["projection"]
+            )
+            exported_size = page.evaluate("""async dataUrl => {
+                const image = new Image();
+                const loaded = new Promise((resolve, reject) => {
+                    image.onload = resolve;
+                    image.onerror = reject;
+                });
+                image.src = dataUrl;
+                await loaded;
+                return [image.naturalWidth, image.naturalHeight];
+            }""", export_contract["dataUrl"])
+            assert exported_size == [640, 360]
+
+            page.click('[data-inspector-group="output"]')
+            page.click('#btn-export-image')
+            assert page.locator('#export-scale-mode').is_visible()
+            assert page.locator('#export-pixels-per-angstrom').is_disabled()
+            page.select_option('#export-scale-mode', 'physical')
+            page.fill('#export-width', '1600')
+            page.fill('#export-height', '800')
+            page.fill('#export-pixels-per-angstrom', '80')
+            assert not page.locator('#export-pixels-per-angstrom').is_disabled()
+            assert '20.00 Å × 10.00 Å' in page.locator('#export-scale-note').inner_text()
+            page.select_option('#export-sphere-quality', 'auto')
+            page.fill('#export-smoothness-scale', '1.5')
+            assert '48 sphere segments' in page.locator('#export-smoothness-note').inner_text()
+            page.click('#modal-close')
 
             page.click('#btn-lighting-toggle')
             page.select_option('#lighting-mode', 'modeling')

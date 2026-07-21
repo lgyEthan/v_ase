@@ -168,8 +168,12 @@ available in both workflows.
   Python scene script. The pickle preserves labels, cell/PBC, constraints,
   portable atom arrays, and valid `SinglePointCalculator` results, but excludes
   visualization settings and arbitrary executable calculator objects.
-  Image export can use viewport lighting or an independent Modeling, Studio Sun,
-  or Sun + Soft Shadow setup. Blender export includes the viewport camera,
+  Image export can preserve the complete live camera composition without crop
+  or offset, or use a fixed `px/Å` scale for directly comparable images from
+  different structures. Export-only atom smoothness and its quality multiplier
+  are independent of viewport performance settings. Image export can also use
+  viewport lighting or an independent Modeling, Studio Sun, or Sun + Soft Shadow
+  setup. Blender export includes the viewport camera,
   unit cell, bonds, smooth atoms, and a true Blender `SUN` object with the same
   source position, target-derived direction, color, and numeric strength used
   in v_ase. Optimized export uses editable point groups and Geometry Nodes;
@@ -577,9 +581,21 @@ From the right panel:
 - `Export Image`
 - `Export Video`
 
-Image export provides its own resolution, transparency, grid, axes, and render
-lighting controls. It can therefore export a Studio Sun or soft-shadow image
-without changing the viewport from the lightweight Modeling mode.
+Image export provides its own resolution, transparency, grid, axes, physical
+scale, atom smoothness, and render-lighting controls. `Current viewport`
+preserves the live camera projection and complete composition; when the output
+aspect ratio differs, v_ase centers that view with margins instead of cropping
+or shifting it. `Fixed physical scale` uses pixels per Angstrom (`px/Å`), so the
+same value produces the same physical scale across different structures. For an
+output width `W` and scale `s`, the horizontal field is `W / s` Å. In perspective
+projection this scale is defined at the camera target plane; orthographic export
+has uniform scale at every depth.
+
+`Atom smoothness` selects the export sphere preset, and `Smoothness scale`
+multiplies its tessellation from `0.5×` to `2.0×`. Both affect only the PNG render,
+so a large scene can stay lightweight in the viewport while a publication image
+uses smoother atom surfaces. Studio Sun and soft-shadow images can likewise be
+exported without changing the viewport from Modeling mode.
 
 `Export ASE Pickle` writes the current modified `Atoms` object for later Python
 use. Coordinates, chemical types, v_ase labels, cell/PBC, constraints, tags,

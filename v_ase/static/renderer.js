@@ -458,6 +458,10 @@ export class ASERenderer {
             supercell: [1, 1, 1],
             antiAliasing: true,
             sphereQuality: 'auto',
+            imageScaleMode: 'viewport',
+            imagePixelsPerAngstrom: 100,
+            imageSphereQuality: 'viewport',
+            imageSmoothnessScale: 1,
             vizOnly: false,
             lightingMode: 'modeling',
             sunIntensity: 2.2,
@@ -1460,7 +1464,13 @@ export class ASERenderer {
                 this.materialCache.get(group.materialKey),
                 group.indices.length
             );
-            mesh.userData = { instancedAtoms: true, atomIndices: group.indices, sharedGeometry: true, sharedMaterial: true };
+            mesh.userData = {
+                instancedAtoms: true,
+                atomIndices: group.indices,
+                fixed: group.fixed,
+                sharedGeometry: true,
+                sharedMaterial: true
+            };
             mesh.frustumCulled = false;
             mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
             this.atomMeshes.add(mesh);
@@ -1554,17 +1564,61 @@ export class ASERenderer {
         }
     }
 
+    sphereQualitySegmentsFor(quality = 'auto', atomCount = 0, scale = 1) {
+        let baseSegments;
+        if (quality === 'low') baseSegments = 12;
+        else if (quality === 'medium') baseSegments = 24;
+        else if (quality === 'high') baseSegments = 40;
+        else if (quality === 'ultra') baseSegments = 64;
+        else baseSegments = atomCount > 1500 ? 12 : atomCount > 400 ? 18 : 32;
+        const safeScale = Math.max(0.5, Math.min(2, Number(scale) || 1));
+        return Math.max(8, Math.min(128, Math.round(baseSegments * safeScale / 2) * 2));
+    }
+
     sphereQualitySegments(atomCount = 0) {
-        const quality = this.displayOptions.sphereQuality || 'auto';
-        if (quality === 'low') return 12;
-        if (quality === 'medium') return 24;
-        if (quality === 'high') return 40;
-        if (quality === 'ultra') return 64;
-        return atomCount > 1500 ? 12 : atomCount > 400 ? 18 : 32;
+        return this.sphereQualitySegmentsFor(this.displayOptions.sphereQuality || 'auto', atomCount, 1);
     }
 
     fixedAtomSegments(segmentCount) {
         return Math.max(10, Math.min(18, Math.floor(segmentCount * 0.55)));
+    }
+
+    applyExportSphereQuality(quality = 'viewport', scale = 1) {
+        const safeScale = Math.max(0.5, Math.min(2, Number(scale) || 1));
+        if (quality === 'viewport' && Math.abs(safeScale - 1) < 1e-6) return () => {};
+        const resolvedQuality = quality === 'viewport'
+            ? (this.displayOptions.sphereQuality || 'auto')
+            : quality;
+        const atomCount = this.atomsData?.symbols?.length || 0;
+        const normalSegments = this.sphereQualitySegmentsFor(resolvedQuality, atomCount, safeScale);
+        const geometries = new Map();
+        const assignments = [];
+        const geometryFor = fixed => {
+            const key = fixed ? 'fixed' : 'normal';
+            if (!geometries.has(key)) {
+                const segments = fixed ? this.fixedAtomSegments(normalSegments) : normalSegments;
+                geometries.set(
+                    key,
+                    new THREE.SphereGeometry(1, segments, Math.max(8, Math.floor(segments * 0.65)))
+                );
+            }
+            return geometries.get(key);
+        };
+        const replace = mesh => {
+            if (!mesh?.geometry) return;
+            assignments.push([mesh, mesh.geometry]);
+            mesh.geometry = geometryFor(Boolean(mesh.userData?.fixed));
+        };
+        this.atomMeshes?.children?.forEach(replace);
+        this.supercellGroup?.children?.forEach(mesh => {
+            if (mesh.userData?.supercellInstanced) replace(mesh);
+        });
+        return () => {
+            assignments.forEach(([mesh, geometry]) => {
+                mesh.geometry = geometry;
+            });
+            geometries.forEach(geometry => geometry.dispose());
+        };
     }
 
     structureBounds() {
@@ -1709,17 +1763,108 @@ export class ASERenderer {
         this.requestRender();
     }
 
-    updateViewLighting() {
-        if (!this.camera) return;
+    updateViewLighting(camera = this.camera, target = this.controls?.target) {
+        if (!camera) return;
         if (this.modelingLightGroup?.visible && this.cameraFillLight) {
-            this.cameraFillLight.position.copy(this.camera.position);
+            this.cameraFillLight.position.copy(camera.position);
             if (this.cameraFillDirectionalLight && this.cameraFillTarget) {
-                this.cameraFillDirectionalLight.position.copy(this.camera.position);
-                this.cameraFillTarget.position.copy(this.controls?.target || new THREE.Vector3());
+                this.cameraFillDirectionalLight.position.copy(camera.position);
+                this.cameraFillTarget.position.copy(target || new THREE.Vector3());
                 this.cameraFillDirectionalLight.target.updateMatrixWorld();
             }
         }
         this.updateSunGizmoScale();
+    }
+
+    currentPixelsPerAngstrom() {
+        const height = Math.max(
+            1,
+            this.renderer?.domElement?.clientHeight || this.container?.clientHeight || window.innerHeight || 1
+        );
+        if (this.camera?.isOrthographicCamera) {
+            const worldHeight = Math.abs(this.camera.top - this.camera.bottom) /
+                Math.max(this.camera.zoom || 1, 1e-6);
+            return worldHeight > 1e-9 ? height / worldHeight : 1;
+        }
+        const target = this.controls?.target || new THREE.Vector3();
+        const distance = Math.max(1e-6, this.camera.position.distanceTo(target));
+        const effectiveFov = this.camera?.getEffectiveFOV?.() || this.camera?.fov || 50;
+        const worldHeight = 2 * distance * Math.tan(THREE.MathUtils.degToRad(effectiveFov) / 2);
+        return worldHeight > 1e-9 ? height / worldHeight : 1;
+    }
+
+    exportCameraSetup(width, height, options = {}) {
+        const outputWidth = Math.max(1, Math.round(Number(width) || 1));
+        const outputHeight = Math.max(1, Math.round(Number(height) || 1));
+        const outputAspect = outputWidth / outputHeight;
+        const scaleMode = options.scaleMode === 'physical' ? 'physical' : 'viewport';
+        const target = (this.controls?.target || new THREE.Vector3()).clone();
+        const camera = this.camera.clone();
+        camera.position.copy(this.camera.position);
+        camera.quaternion.copy(this.camera.quaternion);
+        camera.up.copy(this.camera.up);
+        camera.near = this.camera.near;
+        camera.far = this.camera.far;
+
+        let renderWidth = outputWidth;
+        let renderHeight = outputHeight;
+        let offsetX = 0;
+        let offsetY = 0;
+        let pixelsPerAngstrom = this.currentPixelsPerAngstrom();
+
+        if (scaleMode === 'physical') {
+            pixelsPerAngstrom = Math.max(0.1, Math.min(5000, Number(options.pixelsPerAngstrom) || 100));
+            const worldWidth = outputWidth / pixelsPerAngstrom;
+            const worldHeight = outputHeight / pixelsPerAngstrom;
+            if (camera.isOrthographicCamera) {
+                camera.zoom = 1;
+                camera.left = -worldWidth / 2;
+                camera.right = worldWidth / 2;
+                camera.top = worldHeight / 2;
+                camera.bottom = -worldHeight / 2;
+            } else if (camera.isPerspectiveCamera) {
+                camera.aspect = outputAspect;
+                const effectiveFov = camera.getEffectiveFOV?.() || camera.fov || 50;
+                const halfAngle = THREE.MathUtils.degToRad(effectiveFov) / 2;
+                const distance = worldHeight / Math.max(2 * Math.tan(halfAngle), 1e-6);
+                const offset = new THREE.Vector3().subVectors(camera.position, target);
+                if (offset.lengthSq() < 1e-12) {
+                    camera.getWorldDirection(offset).multiplyScalar(-1);
+                }
+                camera.position.copy(target).addScaledVector(offset.normalize(), distance);
+                camera.lookAt(target);
+            }
+        } else {
+            const sourceAspect = camera.isPerspectiveCamera
+                ? camera.aspect
+                : Math.abs((camera.right - camera.left) / Math.max(1e-9, camera.top - camera.bottom));
+            const safeAspect = Number.isFinite(sourceAspect) && sourceAspect > 0
+                ? sourceAspect
+                : this.viewportAspect();
+            if (outputAspect > safeAspect) {
+                renderHeight = outputHeight;
+                renderWidth = Math.max(1, Math.round(outputHeight * safeAspect));
+                offsetX = Math.floor((outputWidth - renderWidth) / 2);
+            } else if (outputAspect < safeAspect) {
+                renderWidth = outputWidth;
+                renderHeight = Math.max(1, Math.round(outputWidth / safeAspect));
+                offsetY = Math.floor((outputHeight - renderHeight) / 2);
+            }
+        }
+        camera.updateProjectionMatrix();
+        camera.updateMatrixWorld(true);
+        return {
+            camera,
+            target,
+            scaleMode,
+            pixelsPerAngstrom,
+            renderWidth,
+            renderHeight,
+            offsetX,
+            offsetY,
+            outputWidth,
+            outputHeight
+        };
     }
 
     rebuildCell(cell) {
@@ -2750,6 +2895,7 @@ export class ASERenderer {
                 atomIndices: group.indices,
                 shifts,
                 cellOffsets,
+                fixed: group.isFixed,
                 sharedGeometry: true,
                 sharedMaterial: true
             };
@@ -3789,6 +3935,7 @@ export class ASERenderer {
     }
 
     exportPNG(width, height, options = {}) {
+        const exportView = this.exportCameraSetup(width, height, options);
         const transparentBackground = Boolean(options.transparentBackground);
         const includeGrid = options.includeGrid !== false;
         const includeAxes = options.includeAxes !== false;
@@ -3803,18 +3950,18 @@ export class ASERenderer {
         const oldSize = new THREE.Vector2();
         this.renderer.getSize(oldSize);
         const oldPixelRatio = this.renderer.getPixelRatio();
-        const oldPerspectiveAspect = this.perspectiveCamera?.aspect;
-        const oldOrtho = this.orthographicCamera ? {
-            left: this.orthographicCamera.left,
-            right: this.orthographicCamera.right,
-            top: this.orthographicCamera.top,
-            bottom: this.orthographicCamera.bottom
-        } : null;
+        const oldViewport = this.renderer.getViewport(new THREE.Vector4());
+        const oldScissor = this.renderer.getScissor(new THREE.Vector4());
+        const oldScissorTest = this.renderer.getScissorTest();
         const oldBackground = this.scene.background;
         const oldClearColor = this.renderer.getClearColor(new THREE.Color()).clone();
         const oldClearAlpha = this.renderer.getClearAlpha();
         const oldGridVisible = this.gridGroup?.visible;
         const oldAxesVisible = this.axesHelper?.visible;
+        const restoreSphereQuality = this.applyExportSphereQuality(
+            options.sphereQuality || 'viewport',
+            options.sphereQualityScale ?? 1
+        );
 
         try {
             this.setLightingOptions({
@@ -3832,22 +3979,41 @@ export class ASERenderer {
                 this.renderer.setClearColor(0x000000, 0);
             } else {
                 this.scene.background = oldBackground || new THREE.Color(0x303235);
-                this.renderer.setClearColor(0x303235, 1);
+                this.renderer.setClearColor(
+                    this.scene.background?.isColor ? this.scene.background : new THREE.Color(0x303235),
+                    1
+                );
             }
             if (this.gridGroup) this.gridGroup.visible = includeGrid && this.displayOptions.showGrid;
             if (this.axesHelper) this.axesHelper.visible = includeAxes && this.displayOptions.showAxes;
 
             this.renderer.setPixelRatio(1);
-            this.renderer.setSize(width, height, false);
-            this.updateCameraProjection(width / height);
+            this.renderer.setSize(exportView.outputWidth, exportView.outputHeight, false);
+            this.renderer.setViewport(0, 0, exportView.outputWidth, exportView.outputHeight);
+            this.renderer.setScissorTest(false);
+            this.renderer.clear(true, true, true);
+            this.renderer.setViewport(
+                exportView.offsetX,
+                exportView.offsetY,
+                exportView.renderWidth,
+                exportView.renderHeight
+            );
+            this.renderer.setScissor(
+                exportView.offsetX,
+                exportView.offsetY,
+                exportView.renderWidth,
+                exportView.renderHeight
+            );
+            this.renderer.setScissorTest(true);
             this.updateBondPositions();
             this.syncSelectionOutlines();
             this.updateHookeanPositions();
-            this.updateViewLighting();
-            this.renderer.render(this.scene, this.camera);
-            if (requestedMode === 'studio-shadow') this.renderer.render(this.scene, this.camera);
+            this.updateViewLighting(exportView.camera, exportView.target);
+            this.renderer.render(this.scene, exportView.camera);
+            if (requestedMode === 'studio-shadow') this.renderer.render(this.scene, exportView.camera);
             return this.renderer.domElement.toDataURL('image/png');
         } finally {
+            restoreSphereQuality();
             this.setLightingOptions(oldLighting);
             this.scene.background = oldBackground;
             this.renderer.setClearColor(oldClearColor, oldClearAlpha);
@@ -3855,15 +4021,12 @@ export class ASERenderer {
             if (this.axesHelper) this.axesHelper.visible = oldAxesVisible;
             this.renderer.setPixelRatio(oldPixelRatio);
             this.renderer.setSize(oldSize.x, oldSize.y, false);
-            if (this.perspectiveCamera && Number.isFinite(oldPerspectiveAspect)) {
-                this.perspectiveCamera.aspect = oldPerspectiveAspect;
-            }
-            if (this.orthographicCamera && oldOrtho) {
-                Object.assign(this.orthographicCamera, oldOrtho);
-            }
-            this.camera.updateProjectionMatrix();
+            this.renderer.setViewport(oldViewport.x, oldViewport.y, oldViewport.z, oldViewport.w);
+            this.renderer.setScissor(oldScissor.x, oldScissor.y, oldScissor.z, oldScissor.w);
+            this.renderer.setScissorTest(oldScissorTest);
             this.updateBondPositions();
             this.syncSelectionOutlines();
+            this.updateViewLighting();
             this.requestRender();
         }
     }

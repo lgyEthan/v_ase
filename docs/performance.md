@@ -16,7 +16,14 @@ small number of GPU batches and explicit render requests.
   full-material supercell atom/bond copies also use instancing.
 - **Adaptive resolution**: device pixel ratio is capped at 1.5 above 1,000
   atoms, 1.25 above 5,000 atoms, and 1.0 at 15,000 atoms. Export resolution is
-  independent and still uses the requested output dimensions.
+  independent and still uses the requested output dimensions. PNG export can
+  temporarily substitute a chosen sphere quality and `0.5x`-`2.0x` tessellation
+  scale, then restores the original shared geometries without rebuilding the
+  live scene.
+- **Non-mutating image cameras**: PNG export renders through a cloned active
+  camera. Exact-view mode contains the original aspect in the requested frame,
+  while physical mode derives its projection from an explicit `px/Å` value.
+  Neither path refits or changes the viewport camera.
 - **Targeted visibility updates**: label-to-index maps let a Visible checkbox
   update only the affected atom instances. Hidden atoms are also excluded from
   selection and bond display.

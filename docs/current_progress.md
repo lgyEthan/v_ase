@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.62`.
+Last synchronized with implementation: `v_ase-gui 0.0.63`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -243,8 +243,14 @@ possible, and update the frontend state. This behavior is covered by
     `SinglePointCalculator` when present. Visualization state and arbitrary
     executable calculator implementations are excluded.
 *   **PNG Image**: Export options include resolution, transparent background,
-    grid, axes, and an independent Modeling, Studio Sun, or Sun + Soft Shadow
-    setup with brightness, source, and direction target. Studio Sun uses
+    grid, axes, exact live-viewport composition, fixed `px/Å` physical scale,
+    and export-only sphere quality plus a `0.5x`-`2.0x` smoothness multiplier.
+    Exact-view export renders through a cloned camera and centers mismatched
+    output aspect ratios without cropping or mutating the live camera. Fixed
+    physical scale sets the orthographic field directly in Angstrom; perspective
+    scale is defined at the camera target plane. An independent Modeling, Studio
+    Sun, or Sun + Soft Shadow setup controls brightness, source, and direction
+    target. Studio Sun uses
     parallel directional rays; its shadow camera is centered and fitted to the
     complete visible structure so large and off-origin models do not cross a
     finite shadow-frustum boundary.
@@ -371,7 +377,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.62).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.63).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -410,6 +416,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 46**: Added `v_ase gui` empty-workspace startup, streaming browser file/project loading with explicit reader and frame selection, a three-format save guide, and strict current-frame ASE Pickle export limited to valid `SinglePointCalculator` results.
 *   [x] **Phase 47**: Corrected free `R` screen-space direction to agree with axis-locked rotation; replaced bond-length rejection with a CellMatch-style 2D integer-boundary search, principal-strain candidate rays, collision-free angle strip, zero-degree identity target, and optional magnetic angle snapping; made `Tab` open-only and `Esc` close/focus the inspector workflow; and replaced the renderer glyph with matched matte/lit sphere states.
 *   [x] **Phase 48**: Centralized the application chrome into a role-based charcoal/teal/amber/red palette, moved the matte/lit renderer icon gradients onto the same tokens, eliminated isolated light-colored form controls, and synchronized viewport axis/grid colors with their toolbar counterparts.
+*   [x] **Phase 49**: Image export uses a cloned camera to preserve the complete live composition without crop or shift, adds reusable fixed `px/Å` physical scaling across structures, and applies export-only sphere quality plus a bounded smoothness multiplier without rebuilding the live scene.
 
 ---
 

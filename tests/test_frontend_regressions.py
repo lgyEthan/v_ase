@@ -194,6 +194,13 @@ def test_image_export_is_option_modal_with_transparency_and_grid_controls():
     assert "export-transparent" in main_js
     assert "export-grid" in main_js
     assert "export-axes" in main_js
+    assert "export-scale-mode" in main_js
+    assert "export-pixels-per-angstrom" in main_js
+    assert "export-sphere-quality" in main_js
+    assert "export-smoothness-scale" in main_js
+    assert "scaleMode: selectedScaleMode" in main_js
+    assert "pixelsPerAngstrom: exportPixelsPerAngstrom" in main_js
+    assert "sphereQualityScale: exportSmoothnessScale" in main_js
     assert "this.renderer.exportPNG(exportWidth, exportHeight" in main_js
     assert "modalContainer?.addEventListener('pointerdown'" in main_js
     assert "e.stopPropagation()" in main_js
@@ -201,6 +208,10 @@ def test_image_export_is_option_modal_with_transparency_and_grid_controls():
     assert "includeAxes" in renderer_js
     assert "this.scene.background = null" in renderer_js
     assert "this.gridGroup.visible = includeGrid" in renderer_js
+    assert "exportCameraSetup" in renderer_js
+    assert "const camera = this.camera.clone()" in renderer_js
+    assert "applyExportSphereQuality" in renderer_js
+    assert "this.updateCameraProjection(width / height)" not in renderer_js
     assert "alpha: true" in renderer_js
 
 
@@ -222,7 +233,7 @@ def test_viewer_uses_packaged_three_and_initial_camera_fit():
     assert "projectionMode = 'orthographic'" in renderer_js
     assert "this.cameraFillLight = new THREE.PointLight" in renderer_js
     assert "this.cameraFillDirectionalLight = new THREE.DirectionalLight" in renderer_js
-    assert "this.cameraFillDirectionalLight.position.copy(this.camera.position)" in renderer_js
+    assert "this.cameraFillDirectionalLight.position.copy(camera.position)" in renderer_js
     assert "new THREE.AmbientLight(0xffffff, 0.68)" in renderer_js
     assert "updateViewLighting()" in renderer_js
 

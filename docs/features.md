@@ -14,7 +14,7 @@ The visualizer adopts the modal operator pattern from Blender:
 
 ### Editor Actions
 The current editor supports copy/paste, undo/redo, Delete/Backspace deletion,
-reset, wrap, POSCAR export, pickle export, viewport PNG image
+reset, wrap, POSCAR export, pickle export, physically scaled PNG image
 export, WebM video export, Blender scene export, and calculator-backed
 relaxation controls. Visual presets can be saved as JSON, while `.vase`
 projects preserve complete structures or trajectories together with display
@@ -66,6 +66,16 @@ Bond appearance is independent of topology inference. Thickness controls the
 custom value or two midpoint-split segments using the endpoint atom colors.
 Flat ribbons remain camera-facing during navigation. These settings persist in
 visual-settings JSON files and are reproduced in PNG/WebM and Blender export.
+
+PNG export has two explicit framing contracts. `Current viewport` clones the
+active camera and preserves its complete composition; a different output aspect
+ratio is centered with margins rather than cropped or shifted. `Fixed physical
+scale` sets pixels per Angstrom, making images from different structures directly
+comparable (`field width in Å = image width in px / px-per-Å`). Orthographic
+projection is uniform through depth, while perspective uses the camera target
+plane as its scale reference. Export-only sphere quality and a `0.5x`-`2.0x`
+smoothness multiplier temporarily replace atom geometry for the render and then
+restore the live scene.
 
 Orthographic projection is the default view, with perspective available as a
 viewport option. Unit cell, axes, grid, and supercell preview controls are

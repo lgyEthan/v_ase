@@ -2193,6 +2193,31 @@ body.inspector-wide #inspector #element-radius-list {
     margin: 8px 0;
 }
 
+.modal.export-image-modal {
+    width: min(780px, calc(100vw - 32px));
+}
+
+.export-image-columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+    align-items: start;
+}
+
+.export-image-column {
+    min-width: 0;
+}
+
+.export-image-modal .export-grid {
+    grid-template-columns: minmax(118px, 1fr) minmax(156px, 0.9fr);
+}
+
+.export-image-column > .export-render-section:first-child {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+}
+
 .export-grid input {
     width: 100%;
     height: 32px;
@@ -2232,6 +2257,30 @@ body.inspector-wide #inspector #element-radius-list {
 
 .export-light-vector input {
     text-align: center;
+}
+
+.export-note {
+    min-height: 2.8em;
+    margin: 0;
+    padding: 8px 10px;
+    border-left: 2px solid var(--teal);
+    background: var(--surface-subtle);
+    color: var(--text-soft);
+    font-size: 0.68rem;
+    line-height: 1.4;
+}
+
+.export-grid input:disabled {
+    border-color: var(--line);
+    color: var(--muted);
+    cursor: not-allowed;
+    opacity: 0.62;
+}
+
+@media (max-width: 720px) {
+    .export-image-columns {
+        grid-template-columns: 1fr;
+    }
 }
 
 .modal-actions {
