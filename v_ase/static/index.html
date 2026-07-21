@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.53">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.54">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.53';
+            : '/static/vendor/three.module.js?v=0.0.54';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -40,7 +40,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.53</span>
+            <span class="version">0.0.54</span>
         </div>
         <div class="status-group">
             <div class="status-item">
@@ -71,6 +71,66 @@
                 <label for="calc-cpus">CPU threads</label>
                 <select id="calc-cpus"></select>
             </div>
+            <div id="lighting-widget" class="lighting-widget">
+                <button id="btn-lighting-toggle" class="lighting-trigger" type="button" aria-expanded="false" aria-label="Open render lighting settings" title="Render lighting settings">
+                    <svg class="render-light-icon" viewBox="0 0 28 28" aria-hidden="true">
+                        <circle class="render-light-object" cx="14" cy="14" r="10.5"></circle>
+                        <path class="render-light-lit-face" d="M14 3.5a10.5 10.5 0 0 0 0 21c-3.75-2.65-5.65-6.15-5.65-10.5S10.25 6.15 14 3.5Z"></path>
+                        <path class="render-light-terminator" d="M14 3.5c3.75 2.65 5.65 6.15 5.65 10.5S17.75 21.85 14 24.5"></path>
+                        <circle class="render-light-specular" cx="10.4" cy="9.5" r="1.65"></circle>
+                        <circle class="render-light-specular-soft" cx="8.5" cy="12.1" r="0.75"></circle>
+                    </svg>
+                    <span id="lighting-mode-indicator" class="lighting-mode-indicator" aria-hidden="true"></span>
+                </button>
+                <section id="lighting-card" class="lighting-card glass-panel hidden" aria-label="Render lighting controls">
+                    <header class="lighting-card-head">
+                        <div>
+                            <strong>Render Lighting</strong>
+                            <span id="lighting-card-mode">Modeling</span>
+                        </div>
+                        <button id="btn-lighting-close" type="button" aria-label="Close render lighting controls">&times;</button>
+                    </header>
+                    <div class="lighting-card-body">
+                        <label class="lighting-field" for="lighting-mode">
+                            <span>Renderer</span>
+                            <select id="lighting-mode">
+                                <option value="modeling">Modeling</option>
+                                <option value="studio">Studio Sun</option>
+                                <option value="studio-shadow">Sun + Soft Shadow</option>
+                            </select>
+                        </label>
+                        <label class="lighting-range" for="sun-intensity">
+                            <span>Brightness</span>
+                            <output id="sun-intensity-value">2.20</output>
+                            <input id="sun-intensity" type="range" min="0" max="8" step="0.05" value="2.2">
+                        </label>
+                        <div class="lighting-vector">
+                            <span>Direction source</span>
+                            <div>
+                                <input id="sun-position-x" type="number" step="0.25" value="8" aria-label="Sun source x">
+                                <input id="sun-position-y" type="number" step="0.25" value="-10" aria-label="Sun source y">
+                                <input id="sun-position-z" type="number" step="0.25" value="14" aria-label="Sun source z">
+                            </div>
+                        </div>
+                        <div class="lighting-vector">
+                            <span>Direction target</span>
+                            <div>
+                                <input id="sun-target-x" type="number" step="0.25" value="0" aria-label="Sun target x">
+                                <input id="sun-target-y" type="number" step="0.25" value="0" aria-label="Sun target y">
+                                <input id="sun-target-z" type="number" step="0.25" value="0" aria-label="Sun target z">
+                            </div>
+                        </div>
+                        <label class="lighting-toggle-row" for="chk-sun-gizmo" title="Show independent source and target handles; select either and transform it with G/R and X/Y/Z">
+                            <span>Direction handles</span>
+                            <input id="chk-sun-gizmo" type="checkbox">
+                        </label>
+                        <div class="lighting-actions">
+                            <button id="btn-sun-from-view" type="button">From View</button>
+                            <button id="btn-sun-target-selection" type="button">Target Selection</button>
+                        </div>
+                    </div>
+                </section>
+            </div>
             <button id="btn-reset" class="btn" data-edit-only>RESET</button>
             <button id="btn-reset-coords" class="btn" data-edit-only>RESET COORDS</button>
             <button id="btn-shortcuts" class="btn icon-btn" title="Shortcuts">?</button>
@@ -83,70 +143,6 @@
             <g id="ow-line-group"></g>
             <g id="ow-pos-group"></g>
         </svg>
-    </div>
-
-    <div id="lighting-widget" class="lighting-widget">
-        <button id="btn-lighting-toggle" class="lighting-trigger" type="button" aria-expanded="false" aria-label="Open render lighting settings" title="Render lighting settings">
-            <svg class="render-light-icon" viewBox="0 0 34 30" aria-hidden="true">
-                <ellipse class="render-light-shadow" cx="23.2" cy="27" rx="8.5" ry="1.8"></ellipse>
-                <circle class="render-light-source" cx="7" cy="7" r="3"></circle>
-                <path class="render-light-source-rays" d="M7 1.3v2M7 10.7v2M1.3 7h2M10.7 7h2M3 3l1.45 1.45M9.55 9.55 11 11M11 3 9.55 4.45"></path>
-                <path class="render-light-beam" d="m10.7 10.2 5.1 4.2M12.7 7.2l6.2 4.2"></path>
-                <circle class="render-light-object" cx="23" cy="19" r="8"></circle>
-                <path class="render-light-lit-face" d="M23 11a8 8 0 0 0 0 16c-2.65-2.05-4.05-4.73-4.05-8S20.35 13.05 23 11Z"></path>
-                <path class="render-light-terminator" d="M23 11c2.65 2.05 4.05 4.73 4.05 8S25.65 24.95 23 27"></path>
-                <circle class="render-light-specular" cx="20" cy="15.2" r="1.35"></circle>
-            </svg>
-            <span id="lighting-mode-indicator" class="lighting-mode-indicator" aria-hidden="true"></span>
-        </button>
-        <section id="lighting-card" class="lighting-card glass-panel hidden" aria-label="Render lighting controls">
-            <header class="lighting-card-head">
-                <div>
-                    <strong>Render Lighting</strong>
-                    <span id="lighting-card-mode">Modeling</span>
-                </div>
-                <button id="btn-lighting-close" type="button" aria-label="Close render lighting controls">&times;</button>
-            </header>
-            <div class="lighting-card-body">
-                <label class="lighting-field" for="lighting-mode">
-                    <span>Renderer</span>
-                    <select id="lighting-mode">
-                        <option value="modeling">Modeling</option>
-                        <option value="studio">Studio Sun</option>
-                        <option value="studio-shadow">Sun + Soft Shadow</option>
-                    </select>
-                </label>
-                <label class="lighting-range" for="sun-intensity">
-                    <span>Brightness</span>
-                    <output id="sun-intensity-value">2.20</output>
-                    <input id="sun-intensity" type="range" min="0" max="8" step="0.05" value="2.2">
-                </label>
-                <div class="lighting-vector">
-                    <span>Sun position</span>
-                    <div>
-                        <input id="sun-position-x" type="number" step="0.25" value="8" aria-label="Sun position x">
-                        <input id="sun-position-y" type="number" step="0.25" value="-10" aria-label="Sun position y">
-                        <input id="sun-position-z" type="number" step="0.25" value="14" aria-label="Sun position z">
-                    </div>
-                </div>
-                <div class="lighting-vector">
-                    <span>Direction target</span>
-                    <div>
-                        <input id="sun-target-x" type="number" step="0.25" value="0" aria-label="Sun target x">
-                        <input id="sun-target-y" type="number" step="0.25" value="0" aria-label="Sun target y">
-                        <input id="sun-target-z" type="number" step="0.25" value="0" aria-label="Sun target z">
-                    </div>
-                </div>
-                <label class="lighting-toggle-row" for="chk-sun-gizmo" title="Show the Sun object; select it and transform it with G/R and X/Y/Z">
-                    <span>Light object</span>
-                    <input id="chk-sun-gizmo" type="checkbox">
-                </label>
-                <div class="lighting-actions">
-                    <button id="btn-sun-from-view" type="button">From View</button>
-                    <button id="btn-sun-target-selection" type="button">Target Selection</button>
-                </div>
-            </div>
-        </section>
     </div>
 
     <datalist id="element-type-options"></datalist>
@@ -551,7 +547,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.53';
+            : './static/main.js?v=0.0.54';
         import(modulePath);
     </script>
 </body>

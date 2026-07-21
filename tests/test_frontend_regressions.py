@@ -793,22 +793,26 @@ def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
 
     assert 'id="lighting-widget"' in index_html
     assert 'class="render-light-icon"' in index_html
-    assert 'class="render-light-shadow"' in index_html
-    assert 'class="render-light-source"' in index_html
-    assert 'class="render-light-source-rays"' in index_html
-    assert 'class="render-light-beam"' in index_html
     assert 'class="render-light-object"' in index_html
     assert 'class="render-light-lit-face"' in index_html
     assert 'class="render-light-terminator"' in index_html
     assert 'class="render-light-specular"' in index_html
-    assert 'render-light-ray' not in index_html
+    assert 'class="render-light-specular-soft"' in index_html
+    assert 'class="render-light-rays"' not in index_html
+    assert 'class="render-light-shadow"' not in index_html
+    assert 'class="render-light-source"' not in index_html
+    assert 'class="render-light-beam"' not in index_html
     assert 'render-light-body' not in index_html
     assert 'class="sun-icon"' not in index_html
+    assert index_html.index('id="calc-controls"') < index_html.index('id="lighting-widget"')
+    assert index_html.index('id="lighting-widget"') < index_html.index('id="btn-reset"')
     assert '<option value="modeling">Modeling</option>' in index_html
     assert '<option value="studio">Studio Sun</option>' in index_html
     assert '<option value="studio-shadow">Sun + Soft Shadow</option>' in index_html
     assert 'id="chk-sun-gizmo"' in index_html
-    assert '<span>Light object</span>' in index_html
+    assert '<span>Direction source</span>' in index_html
+    assert '<span>Direction target</span>' in index_html
+    assert '<span>Direction handles</span>' in index_html
     assert 'id="chk-periodic-bonds"' in index_html
     assert "showPeriodicBonds: false" in main_js
     assert "lightingMode: 'modeling'" in main_js
@@ -819,9 +823,18 @@ def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
     assert "startSunHandleDrag" not in renderer_js
     assert "export-render-mode" in main_js
     assert "sunPosition" in main_js
+    assert "this.setSunSelected(sunHandle)" in main_js
+    assert "if (handle === 'target') target.add(delta)" in main_js
+    assert "else position.add(delta)" in main_js
     assert "buildSunGizmo" in renderer_js
     assert "pickSunHandle" in renderer_js
     assert "updateSunTransform" in renderer_js
+    assert "lightingStructureBounds" in renderer_js
+    assert "semanticSunDirection" in renderer_js
+    assert "applyStudioSunDirection" in renderer_js
+    assert "sunHandle = 'source'" in renderer_js
+    assert "sunHandle = 'target'" in renderer_js
+    assert "this.studioSunLight.shadow.mapSize.set(2048, 2048)" in renderer_js
     assert "updateSunHandleDrag" not in renderer_js
     assert "if (lighting) body.lighting = lighting" in api_js
     assert "THREE.PCFSoftShadowMap" in renderer_js

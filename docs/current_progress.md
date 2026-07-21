@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.53`.
+Last synchronized with implementation: `v_ase-gui 0.0.54`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -240,7 +240,10 @@ possible, and update the frontend state. This behavior is covered by
 *   **Pickle**: The UI exports a structure-only pickle. The Python handle can export with or without a calculator.
 *   **PNG Image**: Export options include resolution, transparent background,
     grid, axes, and an independent Modeling, Studio Sun, or Sun + Soft Shadow
-    setup with brightness, position, and target.
+    setup with brightness, source, and direction target. Studio Sun uses
+    parallel directional rays; its shadow camera is centered and fitted to the
+    complete visible structure so large and off-origin models do not cross a
+    finite shadow-frustum boundary.
 *   **WebM Video**: Available for trajectories.
 *   **Blender Script**: Exports separate atom objects with shared meshes, unit
     cell, bonds, constraints where practical, the current camera, and a Blender
@@ -334,7 +337,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.53).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.54).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -364,6 +367,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 37**: The inspector now starts collapsed behind a small geometric panel-edge handle with a robust invisible hit area; render lighting is centered above the orientation gizmo and uses a clearly illuminated, two-tone sphere icon whose control card opens away from the gizmo.
 *   [x] **Phase 38**: The inspector handle is centered vertically and slightly enlarged without sacrificing its compact edge-tab form; render lighting now sits to the gizmo's right and uses an explicit Sun-to-sphere illumination icon with a ground shadow.
 *   [x] **Phase 39**: Made custom and midpoint-split bond colors use color-grouped instanced materials for reliable final rendering, and unified number/text/color input commits across Enter, Tab, and focus changes.
+*   [x] **Phase 40**: Reworked Studio Sun as a structure-fitted directional light, eliminating finite shadow-map seams while preserving planar illumination. Source and target are independently selectable and transformable with `G`/`R`; the object-centered shaded-sphere control now lives beside the calculator in the top toolbar, and browser tests cover both handles, shadow bounds, export settings, and responsive placement.
 
 ---
 

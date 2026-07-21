@@ -102,36 +102,39 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             assert lighting_icon.is_visible()
             icon_box = lighting_icon.bounding_box()
             assert icon_box is not None
-            assert icon_box['width'] == pytest.approx(31, abs=1)
+            assert icon_box['width'] == pytest.approx(27, abs=1)
             assert icon_box['height'] == pytest.approx(27, abs=1)
             viewport_tools = page.evaluate("""() => {
                 const trigger = document.getElementById('btn-lighting-toggle').getBoundingClientRect();
-                const orientation = document.getElementById('orientation-widget').getBoundingClientRect();
+                const calculator = document.getElementById('calc-controls').getBoundingClientRect();
+                const actionGroup = document.querySelector('.action-group').getBoundingClientRect();
                 return {
                     triggerLeft: trigger.left,
-                    orientationRight: orientation.right,
-                    verticalCenterDelta: Math.abs(
+                    calculatorRight: calculator.right,
+                    contained: trigger.left >= actionGroup.left && trigger.right <= actionGroup.right,
+                    headerCenterDelta: Math.abs(
                         (trigger.top + trigger.height / 2) -
-                        (orientation.top + orientation.height / 2)
+                        (actionGroup.top + actionGroup.height / 2)
                     )
                 };
             }""")
-            assert viewport_tools['triggerLeft'] >= viewport_tools['orientationRight'] + 5
-            assert viewport_tools['verticalCenterDelta'] <= 2
+            assert viewport_tools['triggerLeft'] >= viewport_tools['calculatorRight'] + 5
+            assert viewport_tools['contained'] is True
+            assert viewport_tools['headerCenterDelta'] <= 2
             page.click('#btn-lighting-toggle')
             lighting_panel_geometry = page.evaluate("""() => {
                 const trigger = document.getElementById('btn-lighting-toggle').getBoundingClientRect();
                 const card = document.getElementById('lighting-card').getBoundingClientRect();
-                const orientation = document.getElementById('orientation-widget').getBoundingClientRect();
+                const header = document.getElementById('top-bar').getBoundingClientRect();
                 return {
                     triggerRight: trigger.right,
                     cardRight: card.right,
                     cardTop: card.top,
-                    orientationBottom: orientation.bottom
+                    headerBottom: header.bottom
                 };
             }""")
             assert lighting_panel_geometry['cardRight'] == pytest.approx(lighting_panel_geometry['triggerRight'], abs=1.5)
-            assert lighting_panel_geometry['cardTop'] >= lighting_panel_geometry['orientationBottom'] + 5
+            assert lighting_panel_geometry['cardTop'] >= lighting_panel_geometry['headerBottom'] + 5
             page.select_option('#lighting-mode', 'studio-shadow')
             page.check('#chk-sun-gizmo')
             page.fill('#sun-position-x', '3')
@@ -152,6 +155,7 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
                 "modelingLights": False,
                 "studioLights": True,
             }
+            page.click('#btn-lighting-close')
 
             handle = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
@@ -179,8 +183,8 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             })""")
             assert after_direct_drag["position"] == pytest.approx(before_drag["position"])
             assert after_direct_drag["target"] == pytest.approx(before_drag["target"])
-            assert after_direct_drag["selected"] is True
-            assert after_direct_drag["rendererSelected"] is True
+            assert after_direct_drag["selected"] == "source"
+            assert after_direct_drag["rendererSelected"] == "source"
 
             page.keyboard.press('g')
             page.keyboard.press('x')
@@ -196,11 +200,7 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
                 before_drag["position"][1],
                 before_drag["position"][2],
             ])
-            assert after_move["target"] == pytest.approx([
-                before_drag["target"][0] + 2,
-                before_drag["target"][1],
-                before_drag["target"][2],
-            ])
+            assert after_move["target"] == pytest.approx(before_drag["target"])
             assert after_move["mode"] == 'IDLE'
 
             direction_before_rotate = [
@@ -226,17 +226,90 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
                 direction_before_rotate[2],
             ])
 
+            target_handle = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const point = app.renderer.sunGizmoGroup.userData.targetHandle.position.clone();
+                point.project(app.renderer.camera);
+                const rect = app.renderer.domElement.getBoundingClientRect();
+                return {
+                    x: rect.left + (point.x + 1) * rect.width / 2,
+                    y: rect.top + (-point.y + 1) * rect.height / 2
+                };
+            }""")
+            page.mouse.click(target_handle["x"], target_handle["y"])
+            target_selection = page.evaluate("""() => ({
+                selected: window.__ASE_APP__.state.sunSelected,
+                rendererSelected: window.__ASE_APP__.renderer.sunGizmoSelected
+            })""")
+            assert target_selection == {"selected": "target", "rendererSelected": "target"}
+
             page.keyboard.press('g')
             page.keyboard.press('y')
             page.keyboard.type('3')
+            page.keyboard.press('Enter')
+            after_target_move = page.evaluate("""() => ({
+                position: window.__ASE_APP__.renderer.lightingOptions.sunPosition.slice(),
+                target: window.__ASE_APP__.renderer.lightingOptions.sunTarget.slice()
+            })""")
+            assert after_target_move["position"] == pytest.approx(after_rotate["position"])
+            assert after_target_move["target"] == pytest.approx([
+                after_rotate["target"][0],
+                after_rotate["target"][1] + 3,
+                after_rotate["target"][2],
+            ])
+
+            page.keyboard.press('g')
+            page.keyboard.press('z')
+            page.keyboard.type('2')
             page.keyboard.press('Escape')
-            after_cancel = page.evaluate("window.__ASE_APP__.renderer.lightingOptions.sunPosition.slice()")
-            assert after_cancel == pytest.approx(after_rotate["position"])
+            after_cancel = page.evaluate("window.__ASE_APP__.renderer.lightingOptions.sunTarget.slice()")
+            assert after_cancel == pytest.approx(after_target_move["target"])
+
+            directional_shadow = page.evaluate("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                const originalPositions = window.__ASE_APP__.state.atoms.positions.map(position => position.slice());
+                const shiftedPositions = originalPositions.map(([x, y, z]) => [x + 120, y - 80, z + 45]);
+                renderer.updatePositions(shiftedPositions);
+                renderer.fitSunShadowCamera();
+                const bounds = renderer.lightingStructureBounds();
+                const center = bounds.getCenter(renderer.studioSunTarget.position.clone());
+                const semanticDirection = renderer.studioSunTarget.position.clone()
+                    .fromArray(renderer.lightingOptions.sunTarget)
+                    .sub(renderer.studioSunLight.position.clone().fromArray(renderer.lightingOptions.sunPosition))
+                    .normalize();
+                const effectiveDirection = renderer.studioSunTarget.position.clone()
+                    .sub(renderer.studioSunLight.position).normalize();
+                const camera = renderer.studioSunLight.shadow.camera;
+                camera.updateMatrixWorld(true);
+                const inside = renderer.boxCorners(bounds).every(corner => {
+                    const point = corner.clone().applyMatrix4(camera.matrixWorldInverse);
+                    return point.x >= camera.left && point.x <= camera.right &&
+                        point.y >= camera.bottom && point.y <= camera.top &&
+                        -point.z >= camera.near && -point.z <= camera.far;
+                });
+                const result = {
+                    directional: renderer.studioSunLight.isDirectionalLight,
+                    center: center.toArray(),
+                    effectiveTarget: renderer.studioSunTarget.position.toArray(),
+                    semanticDirection: semanticDirection.toArray(),
+                    effectiveDirection: effectiveDirection.toArray(),
+                    inside
+                };
+                renderer.updatePositions(originalPositions);
+                return result;
+            }""")
+            assert directional_shadow["directional"] is True
+            assert max(abs(value) for value in directional_shadow["center"]) > 40
+            assert directional_shadow["effectiveTarget"] == pytest.approx(directional_shadow["center"])
+            assert directional_shadow["effectiveDirection"] == pytest.approx(
+                directional_shadow["semanticDirection"]
+            )
+            assert directional_shadow["inside"] is True
             lighting_export = page.evaluate("window.__ASE_APP__.currentLightingForExport()")
             assert lighting_export["mode"] == "studio-shadow"
             assert lighting_export["intensity"] == pytest.approx(2.2)
-            assert lighting_export["position"] == pytest.approx(after_rotate["position"])
-            assert lighting_export["target"] == pytest.approx(after_rotate["target"])
+            assert lighting_export["position"] == pytest.approx(after_target_move["position"])
+            assert lighting_export["target"] == pytest.approx(after_target_move["target"])
             assert lighting_export["color"] == pytest.approx([1.0, 0.960784, 0.87451])
 
             exported = page.evaluate("""() => window.__ASE_APP__.renderer.exportPNG(640, 360, {
@@ -249,6 +322,7 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             }).slice(0, 22)""")
             assert exported == "data:image/png;base64,"
 
+            page.click('#btn-lighting-toggle')
             page.select_option('#lighting-mode', 'modeling')
             page.wait_for_function("!window.__ASE_APP__.renderer.renderer.shadowMap.enabled")
             page.wait_for_timeout(100)
@@ -264,9 +338,9 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width <= 1")
             mobile_collapsed = page.evaluate("""() => {
                 const trigger = document.getElementById('btn-lighting-toggle').getBoundingClientRect();
-                const orientation = document.getElementById('orientation-widget').getBoundingClientRect();
                 const handle = document.getElementById('btn-inspector-collapse').getBoundingClientRect();
                 const panel = document.getElementById('inspector').getBoundingClientRect();
+                const actionGroup = document.querySelector('.action-group').getBoundingClientRect();
                 return {
                     panelWidth: panel.width,
                     handleRight: handle.right,
@@ -279,11 +353,10 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
                         trigger.bottom <= handle.top ||
                         trigger.top >= handle.bottom
                     ),
-                    triggerLeft: trigger.left,
-                    orientationRight: orientation.right,
-                    toolsVerticalCenterDelta: Math.abs(
+                    triggerContained: trigger.left >= actionGroup.left && trigger.right <= actionGroup.right,
+                    headerCenterDelta: Math.abs(
                         (trigger.top + trigger.height / 2) -
-                        (orientation.top + orientation.height / 2)
+                        (actionGroup.top + actionGroup.height / 2)
                     ),
                     handleVerticalCenterDelta: Math.abs(
                         (handle.top + handle.height / 2) -
@@ -294,8 +367,8 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             assert mobile_collapsed['panelWidth'] == pytest.approx(0, abs=1)
             assert mobile_collapsed['handleRight'] == pytest.approx(mobile_collapsed['viewportWidth'], abs=1)
             assert mobile_collapsed['handleOverlap'] is False
-            assert mobile_collapsed['triggerLeft'] >= mobile_collapsed['orientationRight'] + 5
-            assert mobile_collapsed['toolsVerticalCenterDelta'] <= 2
+            assert mobile_collapsed['triggerContained'] is True
+            assert mobile_collapsed['headerCenterDelta'] <= 2
             assert mobile_collapsed['handleVerticalCenterDelta'] <= 1.5
 
             page.click('#btn-inspector-collapse')

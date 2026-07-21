@@ -69,13 +69,15 @@ terminal.
   sections. It starts collapsed and opens from a compact edge handle, leaving
   the viewport unobstructed until controls are needed. v_ase remembers the
   active section, explicit collapsed state, and panel width.
-- Viewport lighting is opt-in and its illuminated-sphere control sits to the
-  right of the orientation gizmo. Modeling keeps the original low-overhead,
-  evenly-lit view; Studio Sun adds real-time PBR directional lighting; Sun +
-  Soft Shadow adds a single soft shadow map. The viewport Sun is selected as an
-  object and transformed with Blender-style `G`, `R`, `X/Y/Z`, numeric input,
-  `Enter`, and `Esc`; position, target, and strength also remain editable in the
-  lighting panel.
+- Viewport lighting is opt-in and its shaded-material-sphere control sits in the
+  top toolbar, immediately beside the calculator controls. Modeling keeps the
+  original low-overhead, evenly-lit view; Studio Sun adds real-time PBR
+  directional lighting; Sun + Soft Shadow adds a structure-fitted shadow map
+  without a finite-frustum seam across large or off-origin structures. The Sun
+  source and direction target are independently selectable viewport objects.
+  Either can be moved with Blender-style `G`, `X/Y/Z`, numeric input, `Enter`,
+  and `Esc`, while `R` rotates the direction around the selected handle.
+  Source, target, and strength also remain editable in the lighting panel.
 - Add `--interactive` for Blender-like atom editing: middle-mouse orbit,
   shift-middle pan, wheel zoom, click/box selection, `G` move, `R` rotate, axis
   locking, numeric transforms, `Enter`, `Esc`, copy/paste/undo/delete.
@@ -119,8 +121,9 @@ terminal.
 - Export POSCAR, pickle, PNG image, WebM video, and Blender Python scene script.
   Image export can use viewport lighting or an independent Modeling, Studio Sun,
   or Sun + Soft Shadow setup. Blender export includes the viewport camera,
-  unit cell, bonds, smooth atoms, and a Sun object with the same position,
-  direction, color, and numeric strength used in v_ase.
+  unit cell, bonds, smooth atoms, and a true Blender `SUN` object with the same
+  source position, target-derived direction, color, and numeric strength used
+  in v_ase.
 
 ## Installation
 

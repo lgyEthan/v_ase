@@ -1232,65 +1232,47 @@ body.inspector-wide #inspector #element-radius-list {
 }
 
 .lighting-widget {
-    position: absolute;
-    top: calc(var(--header-height) + 47px);
-    right: calc(var(--inspector-width) + 12px);
-    z-index: 208;
+    position: relative;
+    z-index: 312;
+    flex: none;
     pointer-events: auto;
 }
 
 .lighting-trigger {
     position: relative;
-    width: 42px;
-    height: 42px;
+    width: 40px;
+    height: 38px;
     display: grid;
     place-items: center;
     padding: 0;
     border: 1px solid var(--line-strong);
-    border-radius: 50%;
-    background: rgba(29, 32, 34, 0.94);
-    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+    border-radius: var(--radius);
+    background: rgba(255, 255, 255, 0.055);
     cursor: pointer;
+    transition: border-color 100ms ease, background 100ms ease;
+}
+
+.lighting-trigger:hover,
+.lighting-widget.open .lighting-trigger {
+    border-color: rgba(243, 190, 87, 0.58);
+    background: var(--amber-soft);
 }
 
 .render-light-icon {
-    width: 31px;
+    width: 27px;
     height: 27px;
     overflow: visible;
 }
 
-.render-light-shadow {
-    fill: #090a0b;
-    opacity: 0.52;
-}
-
-.render-light-source {
-    fill: #c6ccc9;
-}
-
-.render-light-source-rays {
-    fill: none;
-    stroke: #c6ccc9;
-    stroke-width: 1.35;
-    stroke-linecap: round;
-}
-
-.render-light-beam {
-    fill: none;
-    stroke: #bac1be;
-    stroke-width: 1.35;
-    stroke-linecap: round;
-}
-
 .render-light-object {
     fill: #24292b;
-    stroke: #aab2af;
-    stroke-width: 1.25;
+    stroke: #c5cbc8;
+    stroke-width: 1.35;
 }
 
 .render-light-lit-face {
-    fill: #e1e6e3;
-    opacity: 0.94;
+    fill: #dfe4e1;
+    opacity: 0.96;
 }
 
 .render-light-terminator {
@@ -1302,25 +1284,12 @@ body.inspector-wide #inspector #element-radius-list {
 
 .render-light-specular {
     fill: #ffffff;
-    opacity: 0.9;
+    opacity: 0.92;
 }
 
-.lighting-trigger:hover .render-light-beam,
-.lighting-widget[data-mode="studio"] .render-light-beam,
-.lighting-widget[data-mode="studio-shadow"] .render-light-beam {
-    stroke: var(--amber);
-}
-
-.lighting-trigger:hover .render-light-source,
-.lighting-widget[data-mode="studio"] .render-light-source,
-.lighting-widget[data-mode="studio-shadow"] .render-light-source {
-    fill: var(--amber);
-}
-
-.lighting-trigger:hover .render-light-source-rays,
-.lighting-widget[data-mode="studio"] .render-light-source-rays,
-.lighting-widget[data-mode="studio-shadow"] .render-light-source-rays {
-    stroke: var(--amber);
+.render-light-specular-soft {
+    fill: #ffffff;
+    opacity: 0.48;
 }
 
 .lighting-trigger:hover .render-light-object,
@@ -1362,7 +1331,7 @@ body.inspector-wide #inspector #element-radius-list {
 
 .lighting-card {
     position: absolute;
-    top: 82px;
+    top: calc(100% + 16px);
     right: 0;
     width: 310px;
     overflow: hidden;
@@ -2018,10 +1987,6 @@ body[data-rotate-invalid="true"] #cmd-buffer {
         right: calc(var(--inspector-width) + 62px);
     }
 
-    .lighting-widget {
-        right: calc(var(--inspector-width) + 12px);
-    }
-
     #command-bar {
         right: 14px;
         left: 14px;
@@ -2108,15 +2073,9 @@ body[data-rotate-invalid="true"] #cmd-buffer {
         height: 88px;
     }
 
-    .lighting-widget {
-        top: calc(var(--header-height) + 39px);
-        right: 10px;
-        left: auto;
-    }
-
     .lighting-card {
         position: fixed;
-        top: calc(var(--header-height) + 113px);
+        top: calc(var(--header-height) + 8px);
         right: 10px;
         left: auto;
         width: min(310px, calc(100vw - 20px));

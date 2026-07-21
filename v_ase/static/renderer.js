@@ -364,7 +364,7 @@ export class ASERenderer {
         this.studioSunLight.name = 'v_ase_studio_sun';
         this.studioSunLight.target = this.studioSunTarget;
         this.studioSunLight.position.set(8, -10, 14);
-        this.studioSunLight.shadow.mapSize.set(1024, 1024);
+        this.studioSunLight.shadow.mapSize.set(2048, 2048);
         this.studioSunLight.shadow.bias = -0.00035;
         this.studioSunLight.shadow.normalBias = 0.025;
         this.studioLightGroup.add(this.studioAmbientLight);
@@ -375,7 +375,8 @@ export class ASERenderer {
         this.sunGizmoGroup = this.buildSunGizmo();
         this.scene.add(this.sunGizmoGroup);
         this.sunRaycaster = new THREE.Raycaster();
-        this.sunGizmoSelected = false;
+        this.sunGizmoSelected = null;
+        this.sunShadowBoundsCache = null;
         this.onLightingChange = null;
 
         this.viewportGuides = this.buildViewportGuides();
@@ -672,10 +673,18 @@ export class ASERenderer {
             depthTest: false,
             depthWrite: false
         });
-        const selectionMaterial = new THREE.MeshBasicMaterial({
+        const sourceSelectionMaterial = new THREE.MeshBasicMaterial({
             color: 0xffc857,
             transparent: true,
             opacity: 0.92,
+            depthTest: false,
+            depthWrite: false
+        });
+        const targetSelectionMaterial = new THREE.MeshBasicMaterial({
+            color: 0x58d5bd,
+            transparent: true,
+            opacity: 0.92,
+            wireframe: true,
             depthTest: false,
             depthWrite: false
         });
@@ -684,17 +693,27 @@ export class ASERenderer {
         positionHandle.name = 'v_ase_sun_position_handle';
         const sunCore = new THREE.Mesh(new THREE.SphereGeometry(0.22, 18, 12), sunMaterial);
         const sunRing = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.035, 8, 28), sunMaterial);
-        const selectionRing = new THREE.Mesh(new THREE.TorusGeometry(0.46, 0.025, 8, 36), selectionMaterial);
-        selectionRing.visible = false;
-        selectionRing.renderOrder = 92;
-        sunCore.userData.sunHandle = 'sun';
-        sunRing.userData.sunHandle = 'sun';
-        selectionRing.userData.sunHandle = 'sun';
-        positionHandle.add(sunCore, sunRing, selectionRing);
+        const sourceSelectionRing = new THREE.Mesh(
+            new THREE.TorusGeometry(0.46, 0.025, 8, 36),
+            sourceSelectionMaterial
+        );
+        sourceSelectionRing.visible = false;
+        sourceSelectionRing.renderOrder = 92;
+        sunCore.userData.sunHandle = 'source';
+        sunRing.userData.sunHandle = 'source';
+        positionHandle.add(sunCore, sunRing, sourceSelectionRing);
 
-        const targetHandle = new THREE.Mesh(new THREE.OctahedronGeometry(0.22, 0), targetMaterial);
+        const targetHandle = new THREE.Group();
         targetHandle.name = 'v_ase_sun_target_handle';
-        targetHandle.userData.sunHandle = 'sun';
+        const targetCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.22, 0), targetMaterial);
+        targetCore.userData.sunHandle = 'target';
+        const targetSelectionShell = new THREE.Mesh(
+            new THREE.OctahedronGeometry(0.33, 0),
+            targetSelectionMaterial
+        );
+        targetSelectionShell.visible = false;
+        targetSelectionShell.renderOrder = 92;
+        targetHandle.add(targetCore, targetSelectionShell);
 
         const lineGeometry = new THREE.BufferGeometry().setFromPoints([
             new THREE.Vector3(8, -10, 14),
@@ -711,8 +730,9 @@ export class ASERenderer {
             positionHandle,
             targetHandle,
             directionLine,
-            selectionRing,
-            pickables: [sunCore, sunRing, targetHandle]
+            sourceSelectionRing,
+            targetSelectionShell,
+            pickables: [sunCore, sunRing, targetCore]
         };
         return group;
     }
@@ -753,9 +773,7 @@ export class ASERenderer {
         this.modelingLightGroup.visible = !studio;
         this.studioLightGroup.visible = studio;
         this.studioSunLight.intensity = this.lightingOptions.sunIntensity;
-        this.studioSunLight.position.fromArray(position);
-        this.studioSunTarget.position.fromArray(target);
-        this.studioSunTarget.updateMatrixWorld(true);
+        this.applyStudioSunDirection();
         this.sunGizmoGroup.visible = studio && sunGizmo;
         if (!this.sunGizmoGroup.visible) this.setSunGizmoSelected(false);
         this.renderer.toneMapping = studio ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
@@ -793,26 +811,115 @@ export class ASERenderer {
         });
     }
 
+    invalidateSunShadowBounds() {
+        this.sunShadowBoundsCache = null;
+    }
+
+    lightingStructureBounds() {
+        if (this.sunShadowBoundsCache) return this.sunShadowBoundsCache.clone();
+        const base = new THREE.Box3();
+        const low = new THREE.Vector3();
+        const high = new THREE.Vector3();
+        this.forEachAtomProxy?.((proxy, index) => {
+            if (!proxy || proxy.visible === false || !this.atomTypeVisible(index)) return;
+            const radius = Math.max(0.05, Number(this.atomVisualRadius(index) || 0.5));
+            low.copy(proxy.position).addScalar(-radius);
+            high.copy(proxy.position).addScalar(radius);
+            base.expandByPoint(low);
+            base.expandByPoint(high);
+        });
+
+        if (base.isEmpty()) {
+            const target = new THREE.Vector3(...(this.lightingOptions?.sunTarget || [0, 0, 0]));
+            base.set(target.clone().addScalar(-4), target.clone().addScalar(4));
+        }
+
+        const reps = this.displayOptions?.supercell || [1, 1, 1];
+        if (reps.some(value => value > 1) && this.hasValidCell()) {
+            const cell = this.atomsData.cell.map(vector => new THREE.Vector3(...vector));
+            const shiftA = cell[0].multiplyScalar(Math.max(0, reps[0] - 1));
+            const shiftB = cell[1].multiplyScalar(Math.max(0, reps[1] - 1));
+            const shiftC = cell[2].multiplyScalar(Math.max(0, reps[2] - 1));
+            const baseCorners = this.boxCorners(base);
+            const expanded = new THREE.Box3();
+            for (let a = 0; a <= 1; a++) {
+                for (let b = 0; b <= 1; b++) {
+                    for (let c = 0; c <= 1; c++) {
+                        const shift = new THREE.Vector3()
+                            .addScaledVector(shiftA, a)
+                            .addScaledVector(shiftB, b)
+                            .addScaledVector(shiftC, c);
+                        baseCorners.forEach(corner => expanded.expandByPoint(corner.clone().add(shift)));
+                    }
+                }
+            }
+            base.copy(expanded);
+        }
+
+        this.sunShadowBoundsCache = base.clone();
+        return base;
+    }
+
+    boxCorners(box) {
+        const { min, max } = box;
+        return [
+            new THREE.Vector3(min.x, min.y, min.z),
+            new THREE.Vector3(max.x, min.y, min.z),
+            new THREE.Vector3(min.x, max.y, min.z),
+            new THREE.Vector3(max.x, max.y, min.z),
+            new THREE.Vector3(min.x, min.y, max.z),
+            new THREE.Vector3(max.x, min.y, max.z),
+            new THREE.Vector3(min.x, max.y, max.z),
+            new THREE.Vector3(max.x, max.y, max.z)
+        ];
+    }
+
+    semanticSunDirection() {
+        const source = new THREE.Vector3(...(this.lightingOptions?.sunPosition || [8, -10, 14]));
+        const target = new THREE.Vector3(...(this.lightingOptions?.sunTarget || [0, 0, 0]));
+        const direction = target.sub(source);
+        return direction.lengthSq() > 1e-12 ? direction.normalize() : new THREE.Vector3(0, 0, -1);
+    }
+
+    applyStudioSunDirection(bounds = this.lightingStructureBounds()) {
+        if (!this.studioSunLight || !this.studioSunTarget) return null;
+        const sphere = bounds.getBoundingSphere(new THREE.Sphere());
+        const center = sphere.center;
+        const radius = Math.max(4, Number(sphere.radius || 4));
+        const direction = this.semanticSunDirection();
+        const distance = Math.max(12, radius * 3);
+
+        // A Sun is defined only by direction. Keep the editable semantic
+        // handles independent while centering the effective light and its
+        // orthographic shadow camera on the complete rendered structure.
+        this.studioSunTarget.position.copy(center);
+        this.studioSunLight.position.copy(center).addScaledVector(direction, -distance);
+        this.studioSunTarget.updateMatrixWorld(true);
+        this.studioSunLight.updateMatrixWorld(true);
+        return { bounds, center, radius, direction, distance };
+    }
+
+    refreshStudioSunForStructure({ invalidate = true } = {}) {
+        if (invalidate) this.invalidateSunShadowBounds();
+        if (!this.studioLightGroup?.visible) return;
+        if (this.shadowModeActive) this.fitSunShadowCamera();
+        else this.applyStudioSunDirection();
+    }
+
     fitSunShadowCamera() {
         if (!this.studioSunLight?.shadow?.camera) return;
-        const box = new THREE.Box3();
-        this.forEachAtomProxy?.(proxy => {
-            if (proxy?.visible !== false) box.expandByPoint(proxy.position);
-        });
-        const target = new THREE.Vector3(...(this.lightingOptions?.sunTarget || [0, 0, 0]));
-        const center = box.isEmpty() ? target : box.getCenter(new THREE.Vector3());
-        const sphere = box.isEmpty()
-            ? { radius: 10 }
-            : box.getBoundingSphere(new THREE.Sphere());
-        const radius = Math.max(4, Number(sphere.radius || 10) * 1.35);
+        const setup = this.applyStudioSunDirection(this.lightingStructureBounds());
+        if (!setup) return;
+        const radius = Math.max(4, setup.radius * 1.25);
         const shadowCamera = this.studioSunLight.shadow.camera;
         shadowCamera.left = -radius;
         shadowCamera.right = radius;
         shadowCamera.top = radius;
         shadowCamera.bottom = -radius;
-        shadowCamera.near = 0.1;
-        shadowCamera.far = Math.max(60, this.studioSunLight.position.distanceTo(center) + radius * 3);
+        shadowCamera.near = Math.max(0.1, setup.distance - radius * 1.6);
+        shadowCamera.far = setup.distance + radius * 1.6;
         shadowCamera.updateProjectionMatrix();
+        this.studioSunLight.shadow.updateMatrices(this.studioSunLight);
         this.studioSunLight.shadow.needsUpdate = true;
     }
 
@@ -865,19 +972,22 @@ export class ASERenderer {
         return hit?.object?.userData?.sunHandle || null;
     }
 
-    setSunGizmoSelected(selected) {
-        this.sunGizmoSelected = Boolean(selected) && Boolean(this.sunGizmoGroup?.visible);
-        const selectionRing = this.sunGizmoGroup?.userData?.selectionRing;
-        if (selectionRing) selectionRing.visible = this.sunGizmoSelected;
+    setSunGizmoSelected(handle) {
+        const requested = handle === true ? 'source' : handle;
+        this.sunGizmoSelected = this.sunGizmoGroup?.visible && ['source', 'target'].includes(requested)
+            ? requested
+            : null;
+        const sourceRing = this.sunGizmoGroup?.userData?.sourceSelectionRing;
+        const targetShell = this.sunGizmoGroup?.userData?.targetSelectionShell;
+        if (sourceRing) sourceRing.visible = this.sunGizmoSelected === 'source';
+        if (targetShell) targetShell.visible = this.sunGizmoSelected === 'target';
         this.requestRender();
     }
 
     updateSunTransform(position, target, { notify = true } = {}) {
         this.lightingOptions.sunPosition = this.normalizedLightingVector(position, [8, -10, 14]);
         this.lightingOptions.sunTarget = this.normalizedLightingVector(target, [0, 0, 0]);
-        this.studioSunLight.position.fromArray(this.lightingOptions.sunPosition);
-        this.studioSunTarget.position.fromArray(this.lightingOptions.sunTarget);
-        this.studioSunTarget.updateMatrixWorld(true);
+        this.applyStudioSunDirection();
         Object.assign(this.displayOptions, {
             sunPosition: [...this.lightingOptions.sunPosition],
             sunTarget: [...this.lightingOptions.sunTarget]
@@ -1060,6 +1170,7 @@ export class ASERenderer {
             if (this.displayOptions.showBonds) this.refreshBondsForCurrentPositions();
             if (this.supercellGroup.children.length) this.updateSupercellPositions();
             if (this.hookeanGroup.children.length) this.updateHookeanPositions();
+            this.refreshStudioSunForStructure();
             this.requestRender();
             return;
         }
@@ -1082,6 +1193,7 @@ export class ASERenderer {
         if (this.displayOptions.showBonds) this.refreshBondsForCurrentPositions();
         if (this.supercellGroup.children.length) this.updateSupercellPositions();
         if (this.hookeanGroup.children.length) this.updateHookeanPositions();
+        this.refreshStudioSunForStructure();
         this.requestRender();
     }
 
@@ -1191,6 +1303,7 @@ export class ASERenderer {
     }
 
     rebuildAtoms(atoms, customColors) {
+        this.invalidateSunShadowBounds();
         // Remove existing meshes cleanly
         while(this.atomMeshes.children.length > 0){ 
             const child = this.atomMeshes.children[0];
@@ -1237,7 +1350,7 @@ export class ASERenderer {
                 this.needsInitialCameraFit = false;
             }
             this.applyShadowFlags();
-            if (this.shadowModeActive) this.fitSunShadowCamera();
+            this.refreshStudioSunForStructure({ invalidate: false });
             this.requestRender();
             return;
         }
@@ -1283,7 +1396,7 @@ export class ASERenderer {
             this.needsInitialCameraFit = false;
         }
         this.applyShadowFlags();
-        if (this.shadowModeActive) this.fitSunShadowCamera();
+        this.refreshStudioSunForStructure({ invalidate: false });
         this.requestRender();
     }
 
@@ -1654,6 +1767,7 @@ export class ASERenderer {
             this.refreshBondsForCurrentPositions();
             this.updateSupercellPositions();
             this.updateHookeanPositions();
+            this.refreshStudioSunForStructure();
             return;
         }
         this.atomMeshes.children.forEach(mesh => {
@@ -1671,6 +1785,7 @@ export class ASERenderer {
         this.refreshBondsForCurrentPositions();
         this.updateSupercellPositions();
         this.updateHookeanPositions();
+        this.refreshStudioSunForStructure();
         this.requestRender();
     }
 
@@ -1691,6 +1806,7 @@ export class ASERenderer {
             this.refreshBondsForCurrentPositions();
             this.updateSupercellPositions();
             this.updateHookeanPositions();
+            this.refreshStudioSunForStructure();
             return;
         }
         this.atomMeshes.children.forEach(mesh => {
@@ -1704,6 +1820,7 @@ export class ASERenderer {
         this.refreshBondsForCurrentPositions();
         this.updateSupercellPositions();
         this.updateHookeanPositions();
+        this.refreshStudioSunForStructure();
         this.requestRender();
     }
 
@@ -1797,6 +1914,9 @@ export class ASERenderer {
         if (visibilityChanged) this.applyAtomVisibility(changedVisibilitySymbols);
         else if (bondsChanged) this.rebuildBonds();
         if (supercellChanged) this.rebuildSupercell();
+        if ((radiusChanged || supercellChanged) && !visibilityChanged) {
+            this.refreshStudioSunForStructure();
+        }
         this.requestRender();
     }
 

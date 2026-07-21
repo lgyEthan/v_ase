@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.53';
-import { ASERenderer } from './renderer.js?v=0.0.53';
-import { ASESelection } from './selection.js?v=0.0.53';
-import { ASETransform } from './transform.js?v=0.0.53';
+import { ASEApi } from './api.js?v=0.0.54';
+import { ASERenderer } from './renderer.js?v=0.0.54';
+import { ASESelection } from './selection.js?v=0.0.54';
+import { ASETransform } from './transform.js?v=0.0.54';
 
 class VAseApp {
     constructor() {
@@ -76,7 +76,7 @@ class VAseApp {
             rotationMaxStrain: 0,
             rotationViolationCount: 0,
             transformSubject: null,
-            sunSelected: false,
+            sunSelected: null,
             sunTransformOriginal: null,
             trajectoryTimer: null,
             trajectoryPlaybackSource: null,
@@ -615,7 +615,7 @@ class VAseApp {
             if (this.state.transformSubject === 'sun' && this.transform.mode !== 'IDLE') this.cancelTransform();
             this.setSunSelected(false, { update: false });
         } else if (this.state.sunSelected) {
-            this.renderer.setSunGizmoSelected(true);
+            this.renderer.setSunGizmoSelected(this.state.sunSelected);
         }
         this.syncLightingControls();
     }
@@ -625,7 +625,10 @@ class VAseApp {
     }
 
     setSunSelected(selected, { clearAtoms = true, update = true } = {}) {
-        const next = Boolean(selected) && this.sunIsSelectable();
+        const requested = selected === true ? 'source' : selected;
+        const next = this.sunIsSelectable() && ['source', 'target'].includes(requested)
+            ? requested
+            : null;
         this.state.sunSelected = next;
         this.renderer.setSunGizmoSelected(next);
         if (next && clearAtoms && this.state.selected.size > 0) {
@@ -726,7 +729,10 @@ class VAseApp {
         setHtml('val-calc', calcDetails.is_default_repulsion && calcDetails.effective_device
             ? `${calcLabel}/${calcDetails.effective_device}`
             : calcLabel);
-        setHtml('val-mode', this.transform.mode === 'IDLE' ? (this.state.vizOnly ? 'VIEW' : 'SELECT') : this.transform.mode);
+        const idleMode = this.state.sunSelected
+            ? `LIGHT ${this.state.sunSelected === 'target' ? 'TARGET' : 'SOURCE'}`
+            : (this.state.vizOnly ? 'VIEW' : 'SELECT');
+        setHtml('val-mode', this.transform.mode === 'IDLE' ? idleMode : this.transform.mode);
         setHtml('val-energy', typeof meta.energy === 'number' ? meta.energy.toFixed(4) : "-");
         setHtml('val-fmax', Number.isFinite(this.state.cachedFmax) ? this.state.cachedFmax.toFixed(4) : "-");
         
@@ -988,7 +994,13 @@ class VAseApp {
         const setHtml = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
         if (this.transform.mode !== 'IDLE') {
             cmdBuf.classList.remove('hidden');
-            setHtml('cmd-mode', this.state.transformSubject === 'sun' ? `SUN ${this.transform.mode}` : this.transform.mode);
+            const lightHandle = this.state.sunTransformOriginal?.handle || this.state.sunSelected || 'source';
+            setHtml(
+                'cmd-mode',
+                this.state.transformSubject === 'sun'
+                    ? `SUN ${lightHandle.toUpperCase()} ${this.transform.mode}`
+                    : this.transform.mode
+            );
             setHtml('cmd-axis', this.transform.axis || 'NONE');
             setHtml('cmd-val', this.commandValueText());
         } else {
@@ -1888,6 +1900,7 @@ class VAseApp {
     applySunTransformPreview() {
         const original = this.state.sunTransformOriginal;
         if (!original || this.transform.mode === 'IDLE') return;
+        const handle = original.handle === 'target' ? 'target' : 'source';
         const originalPosition = new THREE.Vector3(...original.position);
         const originalTarget = new THREE.Vector3(...original.target);
         let position = originalPosition.clone();
@@ -1895,15 +1908,22 @@ class VAseApp {
 
         if (this.transform.mode === 'MOVE') {
             const delta = this.sunTransformMoveDelta();
-            position.add(delta);
-            target.add(delta);
+            if (handle === 'target') target.add(delta);
+            else position.add(delta);
             this.state.transformReadout = this.formatMoveReadout(delta);
         } else if (this.transform.mode === 'ROTATE') {
             const { angle, quaternion } = this.sunTransformRotation();
-            let direction = originalTarget.clone().sub(originalPosition);
-            if (direction.lengthSq() <= 1e-12) direction.set(0, 0, -10);
-            direction.applyQuaternion(quaternion);
-            target.copy(position).add(direction);
+            if (handle === 'target') {
+                let sourceOffset = originalPosition.clone().sub(originalTarget);
+                if (sourceOffset.lengthSq() <= 1e-12) sourceOffset.set(0, 0, 10);
+                sourceOffset.applyQuaternion(quaternion);
+                position.copy(target).add(sourceOffset);
+            } else {
+                let targetOffset = originalTarget.clone().sub(originalPosition);
+                if (targetOffset.lengthSq() <= 1e-12) targetOffset.set(0, 0, -10);
+                targetOffset.applyQuaternion(quaternion);
+                target.copy(position).add(targetOffset);
+            }
             this.state.transformReadout = this.formatRotateReadout(angle);
         }
 
@@ -2163,8 +2183,9 @@ class VAseApp {
         this.readTransformSettings();
         const position = [...(this.state.display.sunPosition || [8, -10, 14])];
         const target = [...(this.state.display.sunTarget || [0, 0, 0])];
-        const pivot = new THREE.Vector3(...position);
-        this.state.sunTransformOriginal = { position, target };
+        const handle = this.state.sunSelected === 'target' ? 'target' : 'source';
+        const pivot = new THREE.Vector3(...(handle === 'target' ? target : position));
+        this.state.sunTransformOriginal = { position, target, handle };
         this.state.transformSubject = 'sun';
         this.state.transformReadout = '';
         this.state.transformStartPointer.copy(this.state.lastPointer);
@@ -2184,7 +2205,7 @@ class VAseApp {
         this.transform.exit();
         this.state.transformSubject = null;
         this.renderer.controls.enabled = true;
-        this.renderer.setSunGizmoSelected(true);
+        this.renderer.setSunGizmoSelected(this.state.sunSelected);
         this.syncLightingControls();
         this.updateToolState();
         this.updateUI();
@@ -4618,7 +4639,7 @@ class VAseApp {
                 e.preventDefault();
                 e.stopPropagation();
                 this.state.suppressNextPointerUp = true;
-                this.setSunSelected(true);
+                this.setSunSelected(sunHandle);
                 canvas.focus({ preventScroll: true });
                 return;
             }

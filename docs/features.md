@@ -81,11 +81,11 @@ mouse and touch interaction. Its 60-degree SVG chevron points toward the next
 panel state without using text glyphs. Width, explicit collapsed state, and
 active section are persisted locally.
 
-The lighting control sits immediately to the right of the orientation gizmo at
-the same vertical center. Its illuminated-object icon combines an explicit Sun,
-incoming rays, a broad lit hemisphere, curved light terminator, surface highlight,
-and ground shadow. The settings card opens below both viewport tools so neither
-tool is obscured.
+The lighting control sits in the top toolbar immediately to the right of the
+calculator controls, away from the viewport orientation gizmo. Its object-first
+icon is a large shaded material sphere with a curved terminator and two-stage
+specular highlight; it deliberately omits a separate Sun, rays, fuse-like marks,
+and ground shadow. The settings card opens directly below the toolbar control.
 
 The viewport renderer has three explicit modes:
 
@@ -93,12 +93,16 @@ The viewport renderer has three explicit modes:
   extra render loop.
 - **Studio Sun**: physically based materials under ambient, hemisphere, and one
   directional Sun light.
-- **Sun + Soft Shadow**: the same setup with one PCF soft shadow map.
+- **Sun + Soft Shadow**: the same setup with one PCF soft shadow map. The
+  orthographic shadow camera is fitted around the complete visible structure,
+  including positive supercell previews, while the directional rays remain
+  parallel and independent of source distance.
 
-Sun brightness, position, and target update in real time. Enable the Light object,
-select it in the viewport, and use Blender-style `G`/`R`, optional `X`/`Y`/`Z`
-axis locking, numeric input, `Enter`, and `Esc`. Direct handle dragging does not
-change the light. Image export accepts independent lighting values, so a
+Sun brightness, source, and target update in real time. Enable Direction handles,
+select either the source or target in the viewport, and use Blender-style `G`/`R`,
+optional `X`/`Y`/`Z` axis locking, numeric input, `Enter`, and `Esc`. `G` moves
+only the selected endpoint; `R` changes direction around that endpoint. Direct
+handle dragging does not change the light. Image export accepts independent lighting values, so a
 high-quality still can be produced while the live viewport remains in Modeling.
 Blender export creates a `SUN` at the same position, rotates its local `-Z` toward
 the same target, and assigns the same numeric intensity to Blender light energy.
