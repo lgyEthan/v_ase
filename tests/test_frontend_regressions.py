@@ -1,5 +1,6 @@
 from pathlib import Path
 import asyncio
+import re
 import tomllib
 
 from ase.build import molecule
@@ -872,6 +873,9 @@ def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
     assert 'class="render-sphere-highlight"' in index_html
     assert 'class="render-sphere-shadow"' in index_html
     assert 'class="render-sphere-rim"' in index_html
+    assert 'class="render-stop-off-highlight"' in index_html
+    assert 'class="render-stop-on-light"' in index_html
+    assert 'stop-color="#' not in index_html
     assert 'render-spot-' not in index_html
     assert 'render-light-cone' not in index_html
     assert 'render-light-beam' not in index_html
@@ -926,6 +930,40 @@ def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
     assert "bondDelta(i, j" in renderer_js
     assert "this.displayOptions.showPeriodicBonds" in renderer_js
     assert "data-periodic-bonds" not in index_html
+
+
+def test_application_chrome_uses_one_role_based_palette():
+    style_css = (ROOT / "v_ase/static/style.css").read_text()
+    renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
+    transform_js = (ROOT / "v_ase/static/transform.js").read_text()
+
+    required_tokens = (
+        "--neutral-900:",
+        "--surface-hover:",
+        "--teal-border:",
+        "--amber-border:",
+        "--red-border:",
+        "--renderer-off-mid:",
+        "--renderer-on-light:",
+        "--renderer-specular:",
+    )
+    for token in required_tokens:
+        assert token in style_css
+
+    # Color literals belong to the palette declaration only. Components consume
+    # semantic roles so new panels cannot drift into one-off grey families.
+    component_css = style_css.split("\n}\n", 1)[1]
+    assert re.search(r"#[0-9A-Fa-f]{3,8}(?![0-9A-Za-z_-])", component_css) is None
+    assert "rgba(" not in component_css
+    assert ".calc-control-group select" in style_css
+    assert "background: var(--field);" in style_css
+
+    # Canvas, transform guides, and the orientation widget share the same axis
+    # and neutral properties instead of maintaining separate color constants.
+    assert "cssColor('--viewport-bg', '#2d3333')" in renderer_js
+    assert "cssColor('--axis-x', '#f05b55')" in renderer_js
+    assert "['--axis-x', '#f05b55']" in transform_js
+    assert "color: cssColor('--amber', '#f3be57')" in transform_js
 
 
 def test_grid_guides_scale_to_large_unit_cells():

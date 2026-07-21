@@ -281,6 +281,12 @@ const FALLBACK_ATOM_RADIUS = 0.7;
 const FALLBACK_COVALENT_RADIUS = 0.75;
 const COVALENT_BOND_TOLERANCE = 1.2;
 
+function cssColor(property, fallback) {
+    if (typeof document === 'undefined') return fallback;
+    const value = getComputedStyle(document.documentElement).getPropertyValue(property).trim();
+    return value || fallback;
+}
+
 export class ASERenderer {
     constructor(container) {
         this.container = container;
@@ -293,7 +299,8 @@ export class ASERenderer {
 
     setupScene() {
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x303235);
+        const viewportBackground = cssColor('--viewport-bg', '#2d3333');
+        this.scene.background = new THREE.Color(viewportBackground);
         
         const aspect = window.innerWidth / Math.max(1, window.innerHeight);
         this.perspectiveCamera = new THREE.PerspectiveCamera(50, aspect, 0.1, 10000);
@@ -306,7 +313,7 @@ export class ASERenderer {
         this.projectionMode = 'orthographic';
 
         this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: false });
-        this.renderer.setClearColor(0x303235, 1);
+        this.renderer.setClearColor(viewportBackground, 1);
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -1249,7 +1256,8 @@ export class ASERenderer {
         const half = guideSize / 2;
         const divisions = this.gridDivisionsForSize(guideSize);
         const gridGroup = new THREE.Group();
-        const grid = new THREE.GridHelper(guideSize, divisions, 0x5a5d62, 0x42454a);
+        const grid = new THREE.GridHelper(guideSize, divisions,
+            cssColor('--neutral-600', '#56625e'), cssColor('--neutral-650', '#35403d'));
         grid.rotation.x = Math.PI / 2;
         grid.material.transparent = true;
         grid.material.opacity = 0.58;
@@ -1265,9 +1273,9 @@ export class ASERenderer {
             const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
             return new THREE.Line(geo, mat);
         };
-        axisGroup.add(makeLine([-half, 0, 0], [half, 0, 0], 0xff5a52, 0.68));
-        axisGroup.add(makeLine([0, -half, 0], [0, half, 0], 0x44d665, 0.68));
-        axisGroup.add(makeLine([0, 0, -half], [0, 0, half], 0x4da0ff, 0.62));
+        axisGroup.add(makeLine([-half, 0, 0], [half, 0, 0], cssColor('--axis-x', '#f05b55'), 0.68));
+        axisGroup.add(makeLine([0, -half, 0], [0, half, 0], cssColor('--axis-y', '#69b942'), 0.68));
+        axisGroup.add(makeLine([0, 0, -half], [0, 0, half], cssColor('--axis-z', '#408cd5'), 0.62));
         gridGroup.userData = { guideSize };
         axisGroup.userData = { guideSize };
         return { gridGroup, axisGroup };

@@ -1,10 +1,16 @@
 import * as THREE from 'three';
 
-const AXIS_COLORS = {
-    X: 0xff3b30,
-    Y: 0x34c759,
-    Z: 0x0a84ff
+const AXIS_COLOR_PROPERTIES = {
+    X: ['--axis-x', '#f05b55'],
+    Y: ['--axis-y', '#69b942'],
+    Z: ['--axis-z', '#408cd5']
 };
+
+function cssColor(property, fallback) {
+    if (typeof document === 'undefined') return fallback;
+    const value = getComputedStyle(document.documentElement).getPropertyValue(property).trim();
+    return value || fallback;
+}
 
 export class ASETransform {
     constructor(scene) {
@@ -25,7 +31,8 @@ export class ASETransform {
         this.scene.add(this.guideRoot);
 
         this.axisGuides = {};
-        Object.entries(AXIS_COLORS).forEach(([axis, color]) => {
+        Object.entries(AXIS_COLOR_PROPERTIES).forEach(([axis, [property, fallback]]) => {
+            const color = cssColor(property, fallback);
             const group = new THREE.Group();
             const mat = new THREE.MeshBasicMaterial({
                 color,
@@ -53,7 +60,7 @@ export class ASETransform {
         });
 
         const pivotMat = new THREE.MeshBasicMaterial({
-            color: 0xffc400,
+            color: cssColor('--amber', '#f3be57'),
             transparent: true,
             opacity: 0.95,
             depthTest: false,

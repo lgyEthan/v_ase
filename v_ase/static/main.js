@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.61&rev=4';
-import { ASERenderer } from './renderer.js?v=0.0.61&rev=4';
-import { ASESelection } from './selection.js?v=0.0.61&rev=4';
-import { ASETransform } from './transform.js?v=0.0.61&rev=4';
+import { ASEApi } from './api.js?v=0.0.62&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.62&rev=1';
+import { ASESelection } from './selection.js?v=0.0.62&rev=1';
+import { ASETransform } from './transform.js?v=0.0.62&rev=1';
 
 class VAseApp {
     constructor() {
@@ -1936,9 +1936,9 @@ class VAseApp {
         const lineGroup = document.getElementById('ow-line-group');
         if (!posGroup || !negGroup || !lineGroup || posGroup.dataset.ready === 'true') return Boolean(posGroup);
         const axes = [
-            { id: 'x', label: 'X', color: getComputedStyle(document.documentElement).getPropertyValue('--axis-x').trim() || '#ff4f46' },
-            { id: 'y', label: 'Y', color: getComputedStyle(document.documentElement).getPropertyValue('--axis-y').trim() || '#30d158' },
-            { id: 'z', label: 'Z', color: getComputedStyle(document.documentElement).getPropertyValue('--axis-z').trim() || '#0a84ff' }
+            { id: 'x', label: 'X', color: getComputedStyle(document.documentElement).getPropertyValue('--axis-x').trim() || '#f05b55' },
+            { id: 'y', label: 'Y', color: getComputedStyle(document.documentElement).getPropertyValue('--axis-y').trim() || '#69b942' },
+            { id: 'z', label: 'Z', color: getComputedStyle(document.documentElement).getPropertyValue('--axis-z').trim() || '#408cd5' }
         ];
         axes.forEach(axis => {
             const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');

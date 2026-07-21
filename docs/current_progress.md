@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.61`.
+Last synchronized with implementation: `v_ase-gui 0.0.62`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -371,7 +371,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.61).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.62).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -409,6 +409,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 45**: Added portable JSON visual presets and validated full-state `.vase` projects, reorganized the inspector into Inspect/Structure/Display/Output, optimized Blender export with Geometry Nodes point groups and trajectory shape keys, and runtime-tested a 15,000-atom Blender 5 scene at 0.700 seconds.
 *   [x] **Phase 46**: Added `v_ase gui` empty-workspace startup, streaming browser file/project loading with explicit reader and frame selection, a three-format save guide, and strict current-frame ASE Pickle export limited to valid `SinglePointCalculator` results.
 *   [x] **Phase 47**: Corrected free `R` screen-space direction to agree with axis-locked rotation; replaced bond-length rejection with a CellMatch-style 2D integer-boundary search, principal-strain candidate rays, collision-free angle strip, zero-degree identity target, and optional magnetic angle snapping; made `Tab` open-only and `Esc` close/focus the inspector workflow; and replaced the renderer glyph with matched matte/lit sphere states.
+*   [x] **Phase 48**: Centralized the application chrome into a role-based charcoal/teal/amber/red palette, moved the matte/lit renderer icon gradients onto the same tokens, eliminated isolated light-colored form controls, and synchronized viewport axis/grid colors with their toolbar counterparts.
 
 ---
 

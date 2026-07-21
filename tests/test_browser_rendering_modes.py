@@ -226,6 +226,24 @@ def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
             # visual states rather than the former flashlight glyph.
             assert page.locator('#btn-lighting-toggle .render-sphere-off').count() == 1
             assert page.locator('#btn-lighting-toggle .render-sphere-on').count() == 1
+            palette = page.evaluate("""() => {
+                const sample = document.createElement('div');
+                sample.style.background = 'var(--field)';
+                document.body.appendChild(sample);
+                const result = {
+                    field: getComputedStyle(sample).backgroundColor,
+                    calculator: getComputedStyle(document.getElementById('calc-device')).backgroundColor,
+                    offHighlight: getComputedStyle(document.querySelector('.render-stop-off-highlight')).stopColor,
+                    onLight: getComputedStyle(document.querySelector('.render-stop-on-light')).stopColor,
+                    onHighlight: getComputedStyle(document.querySelector('.render-stop-on-highlight')).stopColor
+                };
+                sample.remove();
+                return result;
+            }""")
+            assert palette["calculator"] == palette["field"]
+            assert palette["offHighlight"] == "rgb(195, 204, 200)"
+            assert palette["onLight"] == "rgb(138, 229, 211)"
+            assert palette["onHighlight"] == "rgb(255, 240, 196)"
             page.click('#btn-lighting-toggle')
             page.select_option('#lighting-mode', 'studio-shadow')
             page.wait_for_function("document.getElementById('lighting-widget').dataset.mode === 'studio-shadow'")

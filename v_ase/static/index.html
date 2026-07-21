@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.61&amp;rev=4">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.62&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.61';
+            : '/static/vendor/three.module.js?v=0.0.62';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -46,7 +46,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.61</span>
+            <span class="version">0.0.62</span>
         </div>
         <div class="status-group">
             <div class="status-item">
@@ -89,15 +89,15 @@
                     <svg class="render-light-icon" viewBox="0 0 34 30" aria-hidden="true">
                         <defs>
                             <radialGradient id="render-sphere-off-gradient" cx="34%" cy="28%" r="72%">
-                                <stop offset="0" stop-color="#cbd0ce"></stop>
-                                <stop offset="0.58" stop-color="#7f8784"></stop>
-                                <stop offset="1" stop-color="#3e4442"></stop>
+                                <stop class="render-stop-off-highlight" offset="0"></stop>
+                                <stop class="render-stop-off-mid" offset="0.58"></stop>
+                                <stop class="render-stop-off-shadow" offset="1"></stop>
                             </radialGradient>
                             <radialGradient id="render-sphere-on-gradient" cx="31%" cy="25%" r="76%">
-                                <stop offset="0" stop-color="#ffffff"></stop>
-                                <stop offset="0.16" stop-color="#e9eeeb"></stop>
-                                <stop offset="0.62" stop-color="#737b78"></stop>
-                                <stop offset="1" stop-color="#252a28"></stop>
+                                <stop class="render-stop-on-highlight" offset="0"></stop>
+                                <stop class="render-stop-on-light" offset="0.16"></stop>
+                                <stop class="render-stop-on-mid" offset="0.62"></stop>
+                                <stop class="render-stop-on-shadow" offset="1"></stop>
                             </radialGradient>
                             <filter id="render-sphere-shadow-blur" x="-30%" y="-100%" width="160%" height="300%">
                                 <feGaussianBlur stdDeviation="1.1"></feGaussianBlur>
@@ -648,7 +648,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.61&rev=4';
+            : './static/main.js?v=0.0.62&rev=1';
         import(modulePath);
     </script>
 </body>
