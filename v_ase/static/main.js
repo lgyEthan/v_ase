@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.63&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.63&rev=1';
-import { ASESelection } from './selection.js?v=0.0.63&rev=1';
-import { ASETransform } from './transform.js?v=0.0.63&rev=1';
+import { ASEApi } from './api.js?v=0.0.64&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.64&rev=1';
+import { ASESelection } from './selection.js?v=0.0.64&rev=1';
+import { ASETransform } from './transform.js?v=0.0.64&rev=1';
 
 class VAseApp {
     constructor() {
@@ -107,6 +107,7 @@ class VAseApp {
             pendingTypeRenames: new Set(),
             cachedFmax: null,
             displayApplyRequest: null,
+            exportPreviewEnabled: false,
             hoverPickTimer: null,
             hoverPointer: null,
             orientationSignature: null,
@@ -634,6 +635,7 @@ class VAseApp {
             this.renderer.setSunGizmoSelected(this.state.sunSelected);
         }
         this.syncLightingControls();
+        if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
     }
 
     sunIsSelectable() {
@@ -698,6 +700,7 @@ class VAseApp {
             this.state.display.sunPosition = [...options.sunPosition];
             this.state.display.sunTarget = [...options.sunTarget];
             this.syncLightingControls();
+            if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
         };
         this.syncLightingControls();
     }
@@ -731,6 +734,7 @@ class VAseApp {
             
             this.updateSelectionVisuals();
             this.updateDocumentAvailability();
+            if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
         } catch (err) {
             console.error("DEBUG: Refresh Failed:", err);
         }
@@ -3461,6 +3465,7 @@ class VAseApp {
         this.updateSelectionVisuals();
         this.updateElementSelectionControls();
         this.updateBondModeUI();
+        if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
     }
 
     safeApplyDisplayOptions() {
@@ -4513,6 +4518,47 @@ class VAseApp {
         `);
     }
 
+    imageOutputDimensions() {
+        const width = Math.max(256, parseInt(document.getElementById('image-width')?.value || '1920', 10));
+        const height = Math.max(256, parseInt(document.getElementById('image-height')?.value || '1080', 10));
+        return { width, height };
+    }
+
+    imagePreviewOptions() {
+        const display = this.state.display;
+        return {
+            transparentBackground: false,
+            includeGrid: display.showGrid !== false,
+            includeAxes: display.showAxes !== false,
+            scaleMode: display.imageScaleMode === 'physical' ? 'physical' : 'viewport',
+            pixelsPerAngstrom: Math.max(0.1, Math.min(5000,
+                Number(display.imagePixelsPerAngstrom) || 100)),
+            sphereQuality: display.imageSphereQuality || 'viewport',
+            sphereQualityScale: Math.max(0.5, Math.min(2,
+                Number(display.imageSmoothnessScale) || 1)),
+            renderMode: display.lightingMode || 'modeling',
+            sunIntensity: Number(display.sunIntensity ?? 2.2),
+            sunPosition: [...(display.sunPosition || [8, -10, 14])],
+            sunTarget: [...(display.sunTarget || [0, 0, 0])]
+        };
+    }
+
+    syncImageExportPreview() {
+        const { width, height } = this.imageOutputDimensions();
+        const enabled = Boolean(this.state.exportPreviewEnabled && this.state.atoms?.positions?.length);
+        this.renderer.setExportPreview({
+            enabled,
+            width,
+            height,
+            options: this.imagePreviewOptions()
+        });
+        const button = document.getElementById('btn-preview-image');
+        if (button) {
+            button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+            button.title = enabled ? 'Hide export image preview' : 'Preview the exact export image area';
+        }
+    }
+
     showExportImageModal() {
         const width = Math.max(256, parseInt(document.getElementById('image-width').value || '1920', 10));
         const height = Math.max(256, parseInt(document.getElementById('image-height').value || '1080', 10));
@@ -4683,6 +4729,10 @@ class VAseApp {
                     imageSphereQuality: exportSphereQuality,
                     imageSmoothnessScale: exportSmoothnessScale
                 });
+                const imageWidthInput = document.getElementById('image-width');
+                const imageHeightInput = document.getElementById('image-height');
+                if (imageWidthInput) imageWidthInput.value = `${exportWidth}`;
+                if (imageHeightInput) imageHeightInput.value = `${exportHeight}`;
                 const dataUrl = this.renderer.exportPNG(exportWidth, exportHeight, {
                     transparentBackground,
                     includeGrid,
@@ -4696,6 +4746,7 @@ class VAseApp {
                     sunPosition,
                     sunTarget
                 });
+                this.syncImageExportPreview();
                 this.downloadDataUrl(dataUrl, `v_ase-${exportWidth}x${exportHeight}.png`);
                 this.closeModal();
                 this.toast('Image export started.', 'success');
@@ -5222,6 +5273,15 @@ class VAseApp {
         document.getElementById('btn-export-image').onclick = () => {
             this.showExportImageModal();
         };
+        document.getElementById('btn-preview-image').onclick = () => {
+            this.state.exportPreviewEnabled = !this.state.exportPreviewEnabled;
+            this.syncImageExportPreview();
+        };
+        ['image-width', 'image-height'].forEach(id => {
+            document.getElementById(id)?.addEventListener('input', () => {
+                if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+            });
+        });
         document.getElementById('btn-export-video').onclick = () => {
             this.showExportVideoModal();
         };

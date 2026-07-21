@@ -321,6 +321,16 @@ export class ASERenderer {
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         this.domElement = this.renderer.domElement;
         this.container.appendChild(this.renderer.domElement);
+        this.exportPreviewFrame = document.getElementById('export-preview-frame');
+        this.exportPreviewDimensions = document.getElementById('export-preview-dimensions');
+        this.exportPreview = {
+            enabled: false,
+            width: 1920,
+            height: 1080,
+            options: {}
+        };
+        this.previewRenderCount = 0;
+        this.lastExportPreview = null;
 
         this.controls = new BlenderTumbleControls(this.camera, this.renderer.domElement);
         this.controls.onChange = () => this.requestRender();
@@ -755,7 +765,7 @@ export class ASERenderer {
         });
     }
 
-    setLightingOptions(options = {}) {
+    setLightingOptions(options = {}, { requestRender = true } = {}) {
         const previousMode = this.lightingOptions?.lightingMode || 'modeling';
         const mode = ['studio', 'studio-shadow'].includes(options.lightingMode)
             ? options.lightingMode
@@ -785,7 +795,7 @@ export class ASERenderer {
         this.studioSunLight.intensity = this.lightingOptions.sunIntensity;
         this.applyStudioSunDirection();
         this.sunGizmoGroup.visible = studio && sunGizmo;
-        if (!this.sunGizmoGroup.visible) this.setSunGizmoSelected(false);
+        if (!this.sunGizmoGroup.visible) this.setSunGizmoSelected(false, { requestRender });
         this.renderer.toneMapping = studio ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
         this.renderer.toneMappingExposure = studio ? 1.05 : 1.0;
         this.domElement.dataset.lightingMode = mode;
@@ -793,7 +803,7 @@ export class ASERenderer {
         this.setShadowMode(mode === 'studio-shadow');
         this.syncSunGizmo();
         if (previousMode !== mode && mode === 'studio-shadow') this.fitSunShadowCamera();
-        this.requestRender();
+        if (requestRender) this.requestRender();
     }
 
     setShadowMode(enabled) {
@@ -982,7 +992,7 @@ export class ASERenderer {
         return hit?.object?.userData?.sunHandle || null;
     }
 
-    setSunGizmoSelected(handle) {
+    setSunGizmoSelected(handle, { requestRender = true } = {}) {
         const requested = handle === true ? 'source' : handle;
         this.sunGizmoSelected = this.sunGizmoGroup?.visible && ['source', 'target'].includes(requested)
             ? requested
@@ -991,7 +1001,7 @@ export class ASERenderer {
         const targetShell = this.sunGizmoGroup?.userData?.targetSelectionShell;
         if (sourceRing) sourceRing.visible = this.sunGizmoSelected === 'source';
         if (targetShell) targetShell.visible = this.sunGizmoSelected === 'target';
-        this.requestRender();
+        if (requestRender) this.requestRender();
     }
 
     updateSunTransform(position, target, { notify = true } = {}) {
@@ -1591,18 +1601,17 @@ export class ASERenderer {
             : quality;
         const atomCount = this.atomsData?.symbols?.length || 0;
         const normalSegments = this.sphereQualitySegmentsFor(resolvedQuality, atomCount, safeScale);
-        const geometries = new Map();
         const assignments = [];
         const geometryFor = fixed => {
-            const key = fixed ? 'fixed' : 'normal';
-            if (!geometries.has(key)) {
-                const segments = fixed ? this.fixedAtomSegments(normalSegments) : normalSegments;
-                geometries.set(
+            const segments = fixed ? this.fixedAtomSegments(normalSegments) : normalSegments;
+            const key = `unit-sphere:${fixed ? 'fixed' : 'normal'}:${segments}`;
+            if (!this.geometryCache.has(key)) {
+                this.geometryCache.set(
                     key,
                     new THREE.SphereGeometry(1, segments, Math.max(8, Math.floor(segments * 0.65)))
                 );
             }
-            return geometries.get(key);
+            return this.geometryCache.get(key);
         };
         const replace = mesh => {
             if (!mesh?.geometry) return;
@@ -1617,7 +1626,6 @@ export class ASERenderer {
             assignments.forEach(([mesh, geometry]) => {
                 mesh.geometry = geometry;
             });
-            geometries.forEach(geometry => geometry.dispose());
         };
     }
 
@@ -1865,6 +1873,213 @@ export class ASERenderer {
             outputWidth,
             outputHeight
         };
+    }
+
+    setExportPreview(config = {}) {
+        const width = Math.max(1, Math.round(Number(config.width) || 1920));
+        const height = Math.max(1, Math.round(Number(config.height) || 1080));
+        const next = {
+            enabled: Boolean(config.enabled),
+            width,
+            height,
+            options: { ...(config.options || {}) }
+        };
+        const previousSignature = JSON.stringify(this.exportPreview || {});
+        const nextSignature = JSON.stringify(next);
+        this.exportPreview = next;
+        if (this.exportPreviewFrame) {
+            this.exportPreviewFrame.classList.toggle('hidden', !next.enabled);
+            this.exportPreviewFrame.setAttribute('aria-hidden', next.enabled ? 'false' : 'true');
+            this.exportPreviewFrame.dataset.outputWidth = `${width}`;
+            this.exportPreviewFrame.dataset.outputHeight = `${height}`;
+        }
+        if (this.exportPreviewDimensions) {
+            this.exportPreviewDimensions.textContent = `${width} x ${height}`;
+        }
+        this.domElement.dataset.exportPreview = next.enabled ? 'true' : 'false';
+        if (!next.enabled) this.lastExportPreview = null;
+        if (previousSignature !== nextSignature) this.requestRender();
+    }
+
+    exportPreviewRect(width, height) {
+        const canvasRect = this.domElement.getBoundingClientRect();
+        const canvasWidth = Math.max(1, this.domElement.clientWidth || canvasRect.width || window.innerWidth || 1);
+        const canvasHeight = Math.max(1, this.domElement.clientHeight || canvasRect.height || window.innerHeight || 1);
+        const outputAspect = Math.max(0.01, Number(width) / Math.max(1, Number(height)));
+        const compact = canvasWidth < 640 || canvasHeight < 560;
+        const edge = compact ? 12 : 24;
+
+        const topBar = document.getElementById('top-bar')?.getBoundingClientRect();
+        const topInset = topBar
+            ? Math.max(edge, topBar.bottom - canvasRect.top + (compact ? 10 : 18))
+            : edge;
+        const commandBar = document.getElementById('command-bar');
+        const commandRect = commandBar && getComputedStyle(commandBar).display !== 'none'
+            ? commandBar.getBoundingClientRect()
+            : null;
+        const bottomInset = commandRect && commandRect.height > 0
+            ? Math.max(edge, canvasRect.bottom - commandRect.top + (compact ? 8 : 16))
+            : edge;
+        const inspector = document.getElementById('inspector');
+        const inspectorRect = inspector && !document.body.classList.contains('inspector-collapsed')
+            ? inspector.getBoundingClientRect()
+            : null;
+        const rightInset = inspectorRect && inspectorRect.width > 1
+            ? Math.max(edge, canvasRect.right - inspectorRect.left + (compact ? 8 : 18))
+            : edge;
+
+        const availableWidth = Math.max(120, canvasWidth - edge - rightInset);
+        const availableHeight = Math.max(90, canvasHeight - topInset - bottomInset);
+        const maxWidth = Math.max(96, Math.min(1100, availableWidth * (compact ? 0.94 : 0.90)));
+        const maxHeight = Math.max(54, Math.min(720, availableHeight * (compact ? 0.94 : 0.88)));
+        let frameWidth = Math.floor(maxWidth);
+        let frameHeight = Math.max(1, Math.round(frameWidth / outputAspect));
+        if (frameHeight > maxHeight) {
+            frameHeight = Math.floor(maxHeight);
+            frameWidth = Math.max(1, Math.round(frameHeight * outputAspect));
+        }
+        const left = Math.round(edge + (availableWidth - frameWidth) / 2);
+        const top = Math.round(topInset + (availableHeight - frameHeight) / 2);
+        return {
+            left,
+            top,
+            width: frameWidth,
+            height: frameHeight,
+            canvasWidth,
+            canvasHeight
+        };
+    }
+
+    updateExportPreviewFrame(rect) {
+        if (!this.exportPreviewFrame || !rect) return;
+        this.exportPreviewFrame.style.left = `${rect.left}px`;
+        this.exportPreviewFrame.style.top = `${rect.top}px`;
+        this.exportPreviewFrame.style.width = `${rect.width}px`;
+        this.exportPreviewFrame.style.height = `${rect.height}px`;
+        this.exportPreviewFrame.dataset.frameAspect = `${rect.width / Math.max(1, rect.height)}`;
+    }
+
+    beginExportScene(options = {}) {
+        const oldLighting = {
+            ...this.lightingOptions,
+            sunPosition: [...(this.lightingOptions?.sunPosition || [8, -10, 14])],
+            sunTarget: [...(this.lightingOptions?.sunTarget || [0, 0, 0])]
+        };
+        const requestedMode = ['modeling', 'studio', 'studio-shadow'].includes(options.renderMode)
+            ? options.renderMode
+            : oldLighting.lightingMode;
+        const oldBackground = this.scene.background;
+        const oldClearColor = this.renderer.getClearColor(new THREE.Color()).clone();
+        const oldClearAlpha = this.renderer.getClearAlpha();
+        const oldGridVisible = this.gridGroup?.visible;
+        const oldAxesVisible = this.axesHelper?.visible;
+        const restoreSphereQuality = this.applyExportSphereQuality(
+            options.sphereQuality || 'viewport',
+            options.sphereQualityScale ?? 1
+        );
+        this.setLightingOptions({
+            ...oldLighting,
+            lightingMode: requestedMode,
+            sunIntensity: Number.isFinite(Number(options.sunIntensity))
+                ? Number(options.sunIntensity)
+                : oldLighting.sunIntensity,
+            sunPosition: options.sunPosition || oldLighting.sunPosition,
+            sunTarget: options.sunTarget || oldLighting.sunTarget,
+            sunGizmo: false
+        }, { requestRender: false });
+        if (options.transparentBackground) {
+            this.scene.background = null;
+            this.renderer.setClearColor(0x000000, 0);
+        } else {
+            this.scene.background = oldBackground || new THREE.Color(0x303235);
+            this.renderer.setClearColor(
+                this.scene.background?.isColor ? this.scene.background : new THREE.Color(0x303235),
+                1
+            );
+        }
+        if (this.gridGroup) {
+            this.gridGroup.visible = options.includeGrid !== false && this.displayOptions.showGrid;
+        }
+        if (this.axesHelper) {
+            this.axesHelper.visible = options.includeAxes !== false && this.displayOptions.showAxes;
+        }
+        return {
+            requestedMode,
+            restore: () => {
+                restoreSphereQuality();
+                this.setLightingOptions(oldLighting, { requestRender: false });
+                this.scene.background = oldBackground;
+                this.renderer.setClearColor(oldClearColor, oldClearAlpha);
+                if (this.gridGroup) this.gridGroup.visible = oldGridVisible;
+                if (this.axesHelper) this.axesHelper.visible = oldAxesVisible;
+            }
+        };
+    }
+
+    renderExportPreview() {
+        if (!this.exportPreview?.enabled || !this.exportPreviewFrame) return;
+        const { width, height, options } = this.exportPreview;
+        const rect = this.exportPreviewRect(width, height);
+        this.updateExportPreviewFrame(rect);
+        const exportView = this.exportCameraSetup(width, height, options);
+        const oldViewport = this.renderer.getViewport(new THREE.Vector4());
+        const oldScissor = this.renderer.getScissor(new THREE.Vector4());
+        const oldScissorTest = this.renderer.getScissorTest();
+        const sceneState = this.beginExportScene(options);
+
+        const frameX = Math.max(0, Math.round(rect.left));
+        const frameY = Math.max(0, Math.round(rect.canvasHeight - rect.top - rect.height));
+        const frameWidth = Math.max(1, Math.round(rect.width));
+        const frameHeight = Math.max(1, Math.round(rect.height));
+        const scaleX = frameWidth / exportView.outputWidth;
+        const scaleY = frameHeight / exportView.outputHeight;
+        const contentX = frameX + Math.round(exportView.offsetX * scaleX);
+        const contentY = frameY + Math.round(exportView.offsetY * scaleY);
+        const contentWidth = Math.max(1, Math.round(exportView.renderWidth * scaleX));
+        const contentHeight = Math.max(1, Math.round(exportView.renderHeight * scaleY));
+
+        try {
+            this.renderer.setViewport(frameX, frameY, frameWidth, frameHeight);
+            this.renderer.setScissor(frameX, frameY, frameWidth, frameHeight);
+            this.renderer.setScissorTest(true);
+            this.renderer.clear(true, true, true);
+            this.renderer.setViewport(contentX, contentY, contentWidth, contentHeight);
+            this.renderer.setScissor(contentX, contentY, contentWidth, contentHeight);
+            this.updateBondPositions();
+            this.syncSelectionOutlines();
+            this.updateHookeanPositions();
+            this.updateViewLighting(exportView.camera, exportView.target);
+            this.renderer.render(this.scene, exportView.camera);
+            if (sceneState.requestedMode === 'studio-shadow') {
+                this.renderer.render(this.scene, exportView.camera);
+            }
+            this.previewRenderCount += 1;
+            this.domElement.dataset.previewRenderCount = `${this.previewRenderCount}`;
+            this.lastExportPreview = {
+                frameRect: { ...rect },
+                contentRect: {
+                    left: contentX,
+                    bottom: contentY,
+                    width: contentWidth,
+                    height: contentHeight
+                },
+                outputSize: [exportView.outputWidth, exportView.outputHeight],
+                renderSize: [exportView.renderWidth, exportView.renderHeight],
+                offset: [exportView.offsetX, exportView.offsetY],
+                scaleMode: exportView.scaleMode,
+                pixelsPerAngstrom: exportView.pixelsPerAngstrom,
+                cameraProjection: exportView.camera.projectionMatrix.elements.slice(),
+                cameraPosition: exportView.camera.position.toArray()
+            };
+        } finally {
+            sceneState.restore();
+            this.renderer.setViewport(oldViewport.x, oldViewport.y, oldViewport.z, oldViewport.w);
+            this.renderer.setScissor(oldScissor.x, oldScissor.y, oldScissor.z, oldScissor.w);
+            this.renderer.setScissorTest(oldScissorTest);
+            this.updateBondPositions();
+            this.syncSelectionOutlines();
+            this.updateViewLighting();
+        }
     }
 
     rebuildCell(cell) {
@@ -3936,57 +4151,15 @@ export class ASERenderer {
 
     exportPNG(width, height, options = {}) {
         const exportView = this.exportCameraSetup(width, height, options);
-        const transparentBackground = Boolean(options.transparentBackground);
-        const includeGrid = options.includeGrid !== false;
-        const includeAxes = options.includeAxes !== false;
-        const oldLighting = {
-            ...this.lightingOptions,
-            sunPosition: [...(this.lightingOptions?.sunPosition || [8, -10, 14])],
-            sunTarget: [...(this.lightingOptions?.sunTarget || [0, 0, 0])]
-        };
-        const requestedMode = ['modeling', 'studio', 'studio-shadow'].includes(options.renderMode)
-            ? options.renderMode
-            : oldLighting.lightingMode;
         const oldSize = new THREE.Vector2();
         this.renderer.getSize(oldSize);
         const oldPixelRatio = this.renderer.getPixelRatio();
         const oldViewport = this.renderer.getViewport(new THREE.Vector4());
         const oldScissor = this.renderer.getScissor(new THREE.Vector4());
         const oldScissorTest = this.renderer.getScissorTest();
-        const oldBackground = this.scene.background;
-        const oldClearColor = this.renderer.getClearColor(new THREE.Color()).clone();
-        const oldClearAlpha = this.renderer.getClearAlpha();
-        const oldGridVisible = this.gridGroup?.visible;
-        const oldAxesVisible = this.axesHelper?.visible;
-        const restoreSphereQuality = this.applyExportSphereQuality(
-            options.sphereQuality || 'viewport',
-            options.sphereQualityScale ?? 1
-        );
+        const sceneState = this.beginExportScene(options);
 
         try {
-            this.setLightingOptions({
-                ...oldLighting,
-                lightingMode: requestedMode,
-                sunIntensity: Number.isFinite(Number(options.sunIntensity))
-                    ? Number(options.sunIntensity)
-                    : oldLighting.sunIntensity,
-                sunPosition: options.sunPosition || oldLighting.sunPosition,
-                sunTarget: options.sunTarget || oldLighting.sunTarget,
-                sunGizmo: false
-            });
-            if (transparentBackground) {
-                this.scene.background = null;
-                this.renderer.setClearColor(0x000000, 0);
-            } else {
-                this.scene.background = oldBackground || new THREE.Color(0x303235);
-                this.renderer.setClearColor(
-                    this.scene.background?.isColor ? this.scene.background : new THREE.Color(0x303235),
-                    1
-                );
-            }
-            if (this.gridGroup) this.gridGroup.visible = includeGrid && this.displayOptions.showGrid;
-            if (this.axesHelper) this.axesHelper.visible = includeAxes && this.displayOptions.showAxes;
-
             this.renderer.setPixelRatio(1);
             this.renderer.setSize(exportView.outputWidth, exportView.outputHeight, false);
             this.renderer.setViewport(0, 0, exportView.outputWidth, exportView.outputHeight);
@@ -4010,15 +4183,12 @@ export class ASERenderer {
             this.updateHookeanPositions();
             this.updateViewLighting(exportView.camera, exportView.target);
             this.renderer.render(this.scene, exportView.camera);
-            if (requestedMode === 'studio-shadow') this.renderer.render(this.scene, exportView.camera);
+            if (sceneState.requestedMode === 'studio-shadow') {
+                this.renderer.render(this.scene, exportView.camera);
+            }
             return this.renderer.domElement.toDataURL('image/png');
         } finally {
-            restoreSphereQuality();
-            this.setLightingOptions(oldLighting);
-            this.scene.background = oldBackground;
-            this.renderer.setClearColor(oldClearColor, oldClearAlpha);
-            if (this.gridGroup) this.gridGroup.visible = oldGridVisible;
-            if (this.axesHelper) this.axesHelper.visible = oldAxesVisible;
+            sceneState.restore();
             this.renderer.setPixelRatio(oldPixelRatio);
             this.renderer.setSize(oldSize.x, oldSize.y, false);
             this.renderer.setViewport(oldViewport.x, oldViewport.y, oldViewport.z, oldViewport.w);
@@ -4046,6 +4216,7 @@ export class ASERenderer {
         this.onFrame?.();
         this.updateViewLighting();
         this.renderer.render(this.scene, this.camera);
+        this.renderExportPreview();
         this.renderCount += 1;
         this.domElement.dataset.renderCount = String(this.renderCount);
     }

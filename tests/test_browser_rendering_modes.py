@@ -254,6 +254,223 @@ def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
         editor.close()
 
 
+def test_export_preview_is_screen_fixed_and_matches_the_png_render():
+    atoms = molecule("H2O")
+    atoms.set_cell([12.0, 10.0, 8.0])
+    atoms.center()
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
+            _expand_inspector(page)
+            page.click('[data-inspector-group="output"]')
+            page.fill('#image-width', '1600')
+            page.fill('#image-height', '800')
+            page.click('#btn-preview-image')
+            page.wait_for_function("window.__ASE_APP__.renderer.lastExportPreview?.outputSize?.[0] === 1600")
+
+            initial = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const frame = document.getElementById('export-preview-frame').getBoundingClientRect();
+                const inspector = document.getElementById('inspector').getBoundingClientRect();
+                const topBar = document.getElementById('top-bar').getBoundingClientRect();
+                const commandBar = document.getElementById('command-bar').getBoundingClientRect();
+                const preview = app.renderer.lastExportPreview;
+                const direct = app.renderer.exportCameraSetup(1600, 800, app.imagePreviewOptions());
+                return {
+                    pressed: document.getElementById('btn-preview-image').getAttribute('aria-pressed'),
+                    hidden: document.getElementById('export-preview-frame').classList.contains('hidden'),
+                    frame: [frame.left, frame.top, frame.width, frame.height],
+                    safeBounds: [topBar.bottom, inspector.left, commandBar.top],
+                    frameAspect: frame.width / frame.height,
+                    output: preview.outputSize,
+                    render: preview.renderSize,
+                    offset: preview.offset,
+                    previewProjection: preview.cameraProjection,
+                    directProjection: direct.camera.projectionMatrix.elements.slice(),
+                    previewCount: app.renderer.previewRenderCount
+                };
+            }""")
+            assert initial["pressed"] == "true"
+            assert initial["hidden"] is False
+            assert initial["frameAspect"] == pytest.approx(2.0, abs=0.004)
+            assert initial["output"] == [1600, 800]
+            assert initial["frame"][1] >= initial["safeBounds"][0]
+            assert initial["frame"][0] + initial["frame"][2] <= initial["safeBounds"][1]
+            assert initial["frame"][1] + initial["frame"][3] <= initial["safeBounds"][2]
+            assert initial["previewProjection"] == pytest.approx(initial["directProjection"])
+            assert initial["render"][0] <= 1600
+            assert initial["render"][1] <= 800
+            assert all(value >= 0 for value in initial["offset"])
+
+            page.fill('#image-width', '800')
+            page.fill('#image-height', '1600')
+            page.wait_for_function("window.__ASE_APP__.renderer.lastExportPreview?.outputSize?.[1] === 1600")
+            portrait_aspect = page.locator('#export-preview-frame').evaluate(
+                "element => element.getBoundingClientRect().width / element.getBoundingClientRect().height"
+            )
+            assert portrait_aspect == pytest.approx(0.5, abs=0.004)
+            page.fill('#image-width', '1600')
+            page.fill('#image-height', '800')
+            page.wait_for_function("window.__ASE_APP__.renderer.lastExportPreview?.outputSize?.[0] === 1600")
+
+            # Zoom affects the export camera and atoms inside the frame, but
+            # the preview rectangle itself stays fixed in screen coordinates.
+            zoomed = page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                const camera = app.renderer.camera;
+                camera.zoom *= 0.62;
+                camera.updateProjectionMatrix();
+                app.renderer.requestRender();
+                await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                const frame = document.getElementById('export-preview-frame').getBoundingClientRect();
+                return {
+                    frame: [frame.left, frame.top, frame.width, frame.height],
+                    projection: app.renderer.lastExportPreview.cameraProjection,
+                    previewCount: app.renderer.previewRenderCount
+                };
+            }""")
+            assert zoomed["frame"] == pytest.approx(initial["frame"], abs=0.01)
+            assert zoomed["projection"] != pytest.approx(initial["previewProjection"])
+            assert zoomed["previewCount"] > initial["previewCount"]
+
+            physical = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.state.display.imageScaleMode = 'physical';
+                app.state.display.imagePixelsPerAngstrom = 80;
+                app.syncImageExportPreview();
+                app.renderer.renderNow();
+                const setup = app.renderer.exportCameraSetup(1600, 800, app.imagePreviewOptions());
+                const camera = setup.camera;
+                const result = {
+                    mode: app.renderer.lastExportPreview.scaleMode,
+                    pixelsPerAngstrom: app.renderer.lastExportPreview.pixelsPerAngstrom,
+                    span: [
+                        (camera.right - camera.left) / camera.zoom,
+                        (camera.top - camera.bottom) / camera.zoom
+                    ],
+                    projection: app.renderer.lastExportPreview.cameraProjection,
+                    directProjection: camera.projectionMatrix.elements.slice()
+                };
+                app.state.display.imageScaleMode = 'viewport';
+                app.syncImageExportPreview();
+                app.renderer.renderNow();
+                return result;
+            }""")
+            assert physical["mode"] == "physical"
+            assert physical["pixelsPerAngstrom"] == pytest.approx(80)
+            assert physical["span"] == pytest.approx([20.0, 10.0])
+            assert physical["projection"] == pytest.approx(physical["directProjection"])
+
+            # Use the actual CSS frame dimensions as output pixels, then compare
+            # the rendered inset and PNG. Both must share camera and scene state.
+            frame_width = round(zoomed["frame"][2])
+            frame_height = round(zoomed["frame"][3])
+            page.fill('#image-width', str(frame_width))
+            page.fill('#image-height', str(frame_height))
+            page.wait_for_function(
+                "([w, h]) => window.__ASE_APP__.renderer.lastExportPreview?.outputSize?.[0] === w && "
+                "window.__ASE_APP__.renderer.lastExportPreview?.outputSize?.[1] === h",
+                arg=[frame_width, frame_height],
+            )
+            comparison = page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                app.state.display.showGrid = false;
+                app.state.display.showAxes = false;
+                app.renderer.setDisplayOptions(app.state.display, { rebuild: false });
+                app.syncImageExportPreview();
+                app.renderer.renderNow();
+
+                const renderer = app.renderer;
+                const rect = renderer.lastExportPreview.frameRect;
+                const width = renderer.lastExportPreview.outputSize[0];
+                const height = renderer.lastExportPreview.outputSize[1];
+                const sourceUrl = renderer.domElement.toDataURL('image/png');
+                const loadImage = url => new Promise((resolve, reject) => {
+                    const image = new Image();
+                    image.onload = () => resolve(image);
+                    image.onerror = reject;
+                    image.src = url;
+                });
+                const source = await loadImage(sourceUrl);
+                const ratioX = source.naturalWidth / renderer.domElement.clientWidth;
+                const ratioY = source.naturalHeight / renderer.domElement.clientHeight;
+                const previewCanvas = document.createElement('canvas');
+                previewCanvas.width = width;
+                previewCanvas.height = height;
+                const previewContext = previewCanvas.getContext('2d', { willReadFrequently: true });
+                previewContext.drawImage(
+                    source,
+                    rect.left * ratioX,
+                    rect.top * ratioY,
+                    rect.width * ratioX,
+                    rect.height * ratioY,
+                    0,
+                    0,
+                    width,
+                    height
+                );
+
+                const options = app.imagePreviewOptions();
+                const exportedUrl = renderer.exportPNG(width, height, options);
+                const exported = await loadImage(exportedUrl);
+                const exportCanvas = document.createElement('canvas');
+                exportCanvas.width = width;
+                exportCanvas.height = height;
+                const exportContext = exportCanvas.getContext('2d', { willReadFrequently: true });
+                exportContext.drawImage(exported, 0, 0);
+                const previewPixels = previewContext.getImageData(0, 0, width, height).data;
+                const exportPixels = exportContext.getImageData(0, 0, width, height).data;
+                let total = 0;
+                let maximum = 0;
+                for (let index = 0; index < previewPixels.length; index += 1) {
+                    const difference = Math.abs(previewPixels[index] - exportPixels[index]);
+                    total += difference;
+                    maximum = Math.max(maximum, difference);
+                }
+                return {
+                    meanAbsoluteDifference: total / previewPixels.length,
+                    maximumDifference: maximum,
+                    size: [width, height],
+                    frame: [rect.left, rect.top, rect.width, rect.height],
+                    outputAspect: width / height,
+                    frameAspect: rect.width / rect.height
+                };
+            }""")
+            assert comparison["size"] == [frame_width, frame_height]
+            assert comparison["frameAspect"] == pytest.approx(comparison["outputAspect"], abs=0.004)
+            assert comparison["meanAbsoluteDifference"] < 1.0
+
+            # The preview uses the existing demand renderer and must not create
+            # a hidden animation loop while the scene is idle.
+            idle_start = page.evaluate("window.__ASE_APP__.renderer.previewRenderCount")
+            time.sleep(0.3)
+            idle_end = page.evaluate("window.__ASE_APP__.renderer.previewRenderCount")
+            assert idle_end == idle_start
+
+            page.click('#btn-preview-image')
+            page.wait_for_function("window.__ASE_APP__.renderer.domElement.dataset.exportPreview === 'false'")
+            assert page.locator('#export-preview-frame').is_hidden()
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
     atoms = Atoms(
         "HH",

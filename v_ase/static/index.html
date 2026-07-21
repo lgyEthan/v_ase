@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.63&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.64&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.63';
+            : '/static/vendor/three.module.js?v=0.0.64';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -24,7 +24,18 @@
     </script>
 </head>
 <body class="inspector-collapsed">
-    <div id="app-viewport"></div>
+    <div id="app-viewport">
+        <div id="export-preview-frame" class="export-preview-frame hidden" aria-hidden="true">
+            <div class="export-preview-caption">
+                <span>EXPORT PREVIEW</span>
+                <strong id="export-preview-dimensions">1920 x 1080</strong>
+            </div>
+            <span class="export-preview-corner corner-tl" aria-hidden="true"></span>
+            <span class="export-preview-corner corner-tr" aria-hidden="true"></span>
+            <span class="export-preview-corner corner-bl" aria-hidden="true"></span>
+            <span class="export-preview-corner corner-br" aria-hidden="true"></span>
+        </div>
+    </div>
     <section id="empty-workspace" class="empty-workspace hidden" aria-label="Empty workspace">
         <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
         <h1>Open a structure or project</h1>
@@ -46,7 +57,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.63</span>
+            <span class="version">0.0.64</span>
         </div>
         <div class="status-group">
             <div class="status-item">
@@ -513,7 +524,16 @@
                 <label>image H</label>
                 <input type="number" id="image-height" value="1080" step="128" min="256">
             </div>
-            <button id="btn-export-image" class="btn-block" data-requires-atoms>Export Image</button>
+            <div class="btn-stack-row two export-image-actions">
+                <button id="btn-preview-image" class="export-preview-toggle" type="button" aria-pressed="false" data-requires-atoms>
+                    <svg viewBox="0 0 20 16" aria-hidden="true">
+                        <path d="M2.5 2.5h15v11h-15z"></path>
+                        <path d="M5 2.5v2M15 2.5v2M5 11.5v2M15 11.5v2"></path>
+                    </svg>
+                    <span>Preview Area</span>
+                </button>
+                <button id="btn-export-image" data-requires-atoms>Export Image</button>
+            </div>
             <button id="btn-export-video" class="btn-block" data-requires-atoms disabled>Export Video</button>
         </section>
 
@@ -648,7 +668,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.63&rev=1';
+            : './static/main.js?v=0.0.64&rev=1';
         import(modulePath);
     </script>
 </body>

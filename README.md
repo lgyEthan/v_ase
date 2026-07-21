@@ -65,8 +65,9 @@ terminal.
   numeric transforms, copy/paste, undo, and atom creation.
 - Visualize and edit ASE constraints including `FixAtoms`, `FixedLine`,
   `FixedPlane`, `FixScaled`, and threshold-aware `Hookean` springs.
-- Render with Modeling, Studio Sun, or Sun + Soft Shadow, then export images,
-  video, POSCAR, a structure-only ASE pickle, or an editable Blender scene script.
+- Preview the exact output frame at the requested pixel aspect ratio, render
+  with Modeling, Studio Sun, or Sun + Soft Shadow, then export images, video,
+  POSCAR, a structure-only ASE pickle, or an editable Blender scene script.
 - Save reusable visual presets as JSON or restore the complete scientific and
   visual working state from a portable `.vase` project.
 
@@ -170,8 +171,11 @@ available in both workflows.
   visualization settings and arbitrary executable calculator objects.
   Image export can preserve the complete live camera composition without crop
   or offset, or use a fixed `px/Å` scale for directly comparable images from
-  different structures. Export-only atom smoothness and its quality multiplier
-  are independent of viewport performance settings. Image export can also use
+  different structures. `Preview Area` renders that same export camera and
+  scene inside a screen-fixed frame whose aspect follows image W/H; orbiting or
+  zooming changes the atoms inside the frame without moving the frame itself.
+  Export-only atom smoothness and its quality multiplier are independent of
+  viewport performance settings. Image export can also use
   viewport lighting or an independent Modeling, Studio Sun, or Sun + Soft Shadow
   setup. Blender export includes the viewport camera,
   unit cell, bonds, smooth atoms, and a true Blender `SUN` object with the same
@@ -578,6 +582,7 @@ From the right panel:
 - `Export POSCAR`
 - `Export ASE Pickle`
 - `Export Blender`
+- `Preview Area`
 - `Export Image`
 - `Export Video`
 
@@ -590,6 +595,12 @@ same value produces the same physical scale across different structures. For an
 output width `W` and scale `s`, the horizontal field is `W / s` Å. In perspective
 projection this scale is defined at the camera target plane; orthographic export
 has uniform scale at every depth.
+
+Set `image W` and `image H`, then enable `Preview Area` to see the actual export
+camera rendered inside a fixed screen-space frame. The frame uses the requested
+pixel aspect ratio and the same scene, camera projection, centered margins,
+lighting, grid/axes policy, and atom-surface quality path as PNG export. Zooming
+changes the apparent atom size inside the frame while the frame remains fixed.
 
 `Atom smoothness` selects the export sphere preset, and `Smoothness scale`
 multiplies its tessellation from `0.5×` to `2.0×`. Both affect only the PNG render,

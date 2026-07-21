@@ -186,10 +186,18 @@ def test_frontend_uses_physical_keys_for_layout_independent_shortcuts():
     assert "e.key === 'r'" not in main_js
 
 
-def test_image_export_is_option_modal_with_transparency_and_grid_controls():
+def test_image_export_has_exact_preview_and_option_modal_controls():
+    index_html = (ROOT / "v_ase/static/index.html").read_text()
     main_js = (ROOT / "v_ase/static/main.js").read_text()
     renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
 
+    assert 'id="export-preview-frame"' in index_html
+    assert 'id="btn-preview-image"' in index_html
+    assert "syncImageExportPreview" in main_js
+    assert "setExportPreview" in renderer_js
+    assert "renderExportPreview" in renderer_js
+    assert "const exportView = this.exportCameraSetup(width, height, options)" in renderer_js
+    assert "this.renderExportPreview()" in renderer_js
     assert "showExportImageModal" in main_js
     assert "export-transparent" in main_js
     assert "export-grid" in main_js
@@ -207,7 +215,7 @@ def test_image_export_is_option_modal_with_transparency_and_grid_controls():
     assert "transparentBackground" in renderer_js
     assert "includeAxes" in renderer_js
     assert "this.scene.background = null" in renderer_js
-    assert "this.gridGroup.visible = includeGrid" in renderer_js
+    assert "options.includeGrid !== false" in renderer_js
     assert "exportCameraSetup" in renderer_js
     assert "const camera = this.camera.clone()" in renderer_js
     assert "applyExportSphereQuality" in renderer_js
