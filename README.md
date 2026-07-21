@@ -77,8 +77,10 @@ terminal.
   directional lighting; Sun + Soft Shadow adds a structure-fitted shadow map
   without a finite-frustum seam across large or off-origin structures. The Sun
   source and direction target are independently selectable viewport objects.
-  Either can be moved with Blender-style `G`, `X/Y/Z`, numeric input, `Enter`,
-  and `Esc`, while `R` rotates the direction around the selected handle.
+  `Source + G` translates the complete Sun rig without changing its direction;
+  `Target + G` moves only the target to aim the light. `R` always rotates the
+  target around the source, whichever handle is selected. Axis locks, numeric
+  input, `Enter`, and `Esc` work for both handles.
   Source, target, and strength also remain editable in the lighting panel.
 - Add `--interactive` for Blender-like atom editing: middle-mouse orbit,
   shift-middle pan, wheel zoom, click/box selection, `G` move, `R` rotate, axis

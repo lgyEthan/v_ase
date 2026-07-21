@@ -102,9 +102,11 @@ The viewport renderer has three explicit modes:
 
 Sun brightness, source, and target update in real time. Enable Direction handles,
 select either the source or target in the viewport, and use Blender-style `G`/`R`,
-optional `X`/`Y`/`Z` axis locking, numeric input, `Enter`, and `Esc`. `G` moves
-only the selected endpoint; `R` changes direction around that endpoint. Direct
-handle dragging does not change the light. Image export accepts independent lighting values, so a
+optional `X`/`Y`/`Z` axis locking, numeric input, `Enter`, and `Esc`. `Source + G`
+translates source and target together, preserving the light direction. `Target + G`
+moves only the target. `R` always rotates the target around the source, regardless
+of which handle initiated the transform. Direct handle dragging does not change
+the light. Image export accepts independent lighting values, so a
 high-quality still can be produced while the live viewport remains in Modeling.
 Blender export creates a `SUN` at the same position, rotates its local `-Z` toward
 the same target, and assigns the same numeric intensity to Blender light energy.

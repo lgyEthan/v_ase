@@ -870,7 +870,10 @@ def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
     assert "sunPosition" in main_js
     assert "this.setSunSelected(sunHandle)" in main_js
     assert "if (handle === 'target') target.add(delta)" in main_js
-    assert "else position.add(delta)" in main_js
+    assert "position.add(delta);\n                target.add(delta);" in main_js
+    assert "target.copy(position).add(targetOffset)" in main_js
+    assert "position.copy(target).add(sourceOffset)" not in main_js
+    assert "mode === 'ROTATE' || handle === 'source' ? position : target" in main_js
     assert "buildSunGizmo" in renderer_js
     assert "pickSunHandle" in renderer_js
     assert "updateSunTransform" in renderer_js

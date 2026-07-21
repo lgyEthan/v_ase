@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.55">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.56">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.55';
+            : '/static/vendor/three.module.js?v=0.0.56';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -40,7 +40,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.55</span>
+            <span class="version">0.0.56</span>
         </div>
         <div class="status-group">
             <div class="status-item">
@@ -120,7 +120,7 @@
                                 <input id="sun-target-z" type="number" step="0.25" value="0" aria-label="Sun target z">
                             </div>
                         </div>
-                        <label class="lighting-toggle-row" for="chk-sun-gizmo" title="Show independent source and target handles; select either and transform it with G/R and X/Y/Z">
+                        <label class="lighting-toggle-row" for="chk-sun-gizmo" title="Source + G moves the complete Sun rig; target + G aims it; R rotates the target around the source">
                             <span>Direction handles</span>
                             <input id="chk-sun-gizmo" type="checkbox">
                         </label>
@@ -547,7 +547,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.55';
+            : './static/main.js?v=0.0.56';
         import(modulePath);
     </script>
 </body>

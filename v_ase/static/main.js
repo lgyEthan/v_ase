@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.55';
-import { ASERenderer } from './renderer.js?v=0.0.55';
-import { ASESelection } from './selection.js?v=0.0.55';
-import { ASETransform } from './transform.js?v=0.0.55';
+import { ASEApi } from './api.js?v=0.0.56';
+import { ASERenderer } from './renderer.js?v=0.0.56';
+import { ASESelection } from './selection.js?v=0.0.56';
+import { ASETransform } from './transform.js?v=0.0.56';
 
 class VAseApp {
     constructor() {
@@ -1913,21 +1913,17 @@ class VAseApp {
         if (this.transform.mode === 'MOVE') {
             const delta = this.sunTransformMoveDelta();
             if (handle === 'target') target.add(delta);
-            else position.add(delta);
+            else {
+                position.add(delta);
+                target.add(delta);
+            }
             this.state.transformReadout = this.formatMoveReadout(delta);
         } else if (this.transform.mode === 'ROTATE') {
             const { angle, quaternion } = this.sunTransformRotation();
-            if (handle === 'target') {
-                let sourceOffset = originalPosition.clone().sub(originalTarget);
-                if (sourceOffset.lengthSq() <= 1e-12) sourceOffset.set(0, 0, 10);
-                sourceOffset.applyQuaternion(quaternion);
-                position.copy(target).add(sourceOffset);
-            } else {
-                let targetOffset = originalTarget.clone().sub(originalPosition);
-                if (targetOffset.lengthSq() <= 1e-12) targetOffset.set(0, 0, -10);
-                targetOffset.applyQuaternion(quaternion);
-                target.copy(position).add(targetOffset);
-            }
+            let targetOffset = originalTarget.clone().sub(originalPosition);
+            if (targetOffset.lengthSq() <= 1e-12) targetOffset.set(0, 0, -10);
+            targetOffset.applyQuaternion(quaternion);
+            target.copy(position).add(targetOffset);
             this.state.transformReadout = this.formatRotateReadout(angle);
         }
 
@@ -2188,7 +2184,8 @@ class VAseApp {
         const position = [...(this.state.display.sunPosition || [8, -10, 14])];
         const target = [...(this.state.display.sunTarget || [0, 0, 0])];
         const handle = this.state.sunSelected === 'target' ? 'target' : 'source';
-        const pivot = new THREE.Vector3(...(handle === 'target' ? target : position));
+        const pivotValues = mode === 'ROTATE' || handle === 'source' ? position : target;
+        const pivot = new THREE.Vector3(...pivotValues);
         this.state.sunTransformOriginal = { position, target, handle };
         this.state.transformSubject = 'sun';
         this.state.transformReadout = '';
