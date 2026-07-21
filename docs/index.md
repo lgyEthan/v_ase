@@ -13,13 +13,14 @@
 - [x] **Phase 10: Portable state** (cross-structure JSON presets and complete `.vase` projects)
 - [x] **Phase 11: Production export** (Geometry Nodes Blender scenes, exact Sun/camera, 15k-atom runtime benchmark)
 - [x] **Phase 12: Document workflow** (empty GUI, browser file loading, strict ASE Pickle, JSON presets, and `.vase` projects)
+- [x] **Phase 13: Commensurate rotation** (cell-boundary strain search, viewport candidate rays, magnetic angle snapping, and consistent free/axis-locked mouse direction)
 
 ## Core Documentation
 - [Shortcuts & Controls](shortcuts.md)
 - [Features & Architecture](features.md)
 - [API Reference](api.md)
 - [Rendering Performance](performance.md)
-- [Unit-Cell-Aware Rotate](unit_cell_aware_rotate.md)
+- [Commensurate Cell-Aware Rotation](unit_cell_aware_rotate.md)
 
 ## Getting Started
 To run a comprehensive demo of all features:

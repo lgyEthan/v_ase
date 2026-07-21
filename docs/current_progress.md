@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.60`.
+Last synchronized with implementation: `v_ase-gui 0.0.61`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -340,6 +340,7 @@ method is recorded in `docs/performance.md`.
 *   `GET /api/atoms/{session_id}`: Fetch structure + metadata.
 *   `GET /api/frame/positions/{session_id}/{frame_index}`: Fetch one virtual trajectory frame as binary float32 positions.
 *   `POST /api/constrain/{session_id}`: Calculate constraint-corrected positions.
+*   `POST /api/commensurate/{session_id}`: Search integer 2D cell-boundary matches and rank them by principal strain.
 *   `POST /api/apply/{session_id}`: Commit positions to history.
 *   `POST /api/add/{session_id}`: Append atoms for paste operations.
 *   `POST /api/delete/{session_id}`: Delete selected atoms with constraint remapping.
@@ -370,7 +371,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.60).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.61).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -401,12 +402,13 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 38**: The inspector handle is centered vertically and slightly enlarged without sacrificing its compact edge-tab form; render lighting now sits to the gizmo's right and uses an explicit Sun-to-sphere illumination icon with a ground shadow.
 *   [x] **Phase 39**: Made custom and midpoint-split bond colors use color-grouped instanced materials for reliable final rendering, and unified number/text/color input commits across Enter, Tab, and focus changes.
 *   [x] **Phase 40**: Reworked Studio Sun as a structure-fitted directional light, eliminating finite shadow-map seams while preserving planar illumination. Source and target are independently selectable for Blender-style `G`/`R` transforms; the render-lighting control lives beside the calculator in the top toolbar, and browser tests cover both handles, shadow bounds, export settings, and responsive placement.
-*   [x] **Phase 41**: Supercell previews now instance full-opacity unselectable-but-hoverable atoms and repeated live bonds in every cell; pairwise cutoffs are label-keyed with explicit zero-disable semantics; `Tab` toggles the inspector and all category panels default open; Blender export writes opaque colors to Principled BSDF and is runtime-render tested in Blender 5.
+*   [x] **Phase 41**: Supercell previews now instance full-opacity unselectable-but-hoverable atoms and repeated live bonds in every cell; pairwise cutoffs are label-keyed with explicit zero-disable semantics; all inspector categories default open; Blender export writes opaque colors to Principled BSDF and is runtime-render tested in Blender 5.
 *   [x] **Phase 42**: Studio Sun now behaves as a coherent light rig: moving the source translates source and target together, moving the target changes aim only, and rotating either selected handle always orbits the target around the source pivot.
 *   [x] **Phase 43**: Appearance relabeling now commits atomically across Enter/change/focus events; visualization-mode supercell images are independently selectable and measurable by cell offset; Selection center fractional coordinates use a dedicated second line; the bottom HUD exposes live selection measurements; and Sun mouse rotation follows atom rotation direction.
 *   [x] **Phase 44**: Split persistent selection measurements from pointer-dependent hover metadata, reduced the viewport summary to distance/angle essentials, replaced the bulb-like lighting glyph with a directional studio spotlight, and regenerated the logo plus README media with the current Sun + Soft Shadow renderer.
 *   [x] **Phase 45**: Added portable JSON visual presets and validated full-state `.vase` projects, reorganized the inspector into Inspect/Structure/Display/Output, optimized Blender export with Geometry Nodes point groups and trajectory shape keys, and runtime-tested a 15,000-atom Blender 5 scene at 0.700 seconds.
 *   [x] **Phase 46**: Added `v_ase gui` empty-workspace startup, streaming browser file/project loading with explicit reader and frame selection, a three-format save guide, and strict current-frame ASE Pickle export limited to valid `SinglePointCalculator` results.
+*   [x] **Phase 47**: Corrected free `R` screen-space direction to agree with axis-locked rotation; replaced bond-length rejection with a CellMatch-style 2D integer-boundary search, principal-strain candidate rays, collision-free angle strip, zero-degree identity target, and optional magnetic angle snapping; made `Tab` open-only and `Esc` close/focus the inspector workflow; and replaced the renderer glyph with matched matte/lit sphere states.
 
 ---
 

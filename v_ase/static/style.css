@@ -1043,6 +1043,28 @@ body.inspector-wide #inspector .supercell-row {
     line-height: 1.4;
 }
 
+.commensurate-status {
+    margin-top: 10px;
+    padding: 8px 9px;
+    border: 1px solid rgba(88, 213, 189, 0.18);
+    border-radius: var(--radius);
+    background: rgba(88, 213, 189, 0.045);
+    color: var(--muted);
+    font-size: 0.66rem;
+    line-height: 1.45;
+}
+
+.commensurate-status[data-state="ready"] {
+    border-color: rgba(88, 213, 189, 0.34);
+    color: var(--text-soft);
+}
+
+.commensurate-status[data-state="warning"] {
+    border-color: rgba(243, 190, 87, 0.38);
+    background: rgba(243, 190, 87, 0.06);
+    color: #e7c985;
+}
+
 .constraint-actions {
     display: grid;
     gap: 7px;
@@ -1358,100 +1380,69 @@ body.inspector-wide #inspector #element-radius-list {
 
 .lighting-trigger:hover,
 .lighting-widget.open .lighting-trigger {
-    border-color: rgba(243, 190, 87, 0.58);
-    background: var(--amber-soft);
+    border-color: rgba(88, 213, 189, 0.68);
+    background: var(--teal-soft);
 }
 
 .render-light-icon {
-    width: 27px;
-    height: 27px;
+    width: 31px;
+    height: 29px;
     overflow: visible;
 }
 
-.render-spot-handle {
+.render-sphere-off {
+    fill: url(#render-sphere-off-gradient);
+}
+
+.render-sphere-on {
+    display: none;
+    fill: url(#render-sphere-on-gradient);
+}
+
+.render-sphere-rim {
     fill: none;
-    stroke: #aeb5b2;
-    stroke-width: 1.35;
-    stroke-linecap: round;
-    stroke-linejoin: round;
+    stroke: rgba(231, 235, 233, 0.76);
+    stroke-width: 1.05;
 }
 
-.render-spot-body {
-    fill: #555e5b;
-    stroke: #d3d8d5;
-    stroke-width: 1.0;
-    stroke-linejoin: round;
+.render-sphere-highlight,
+.render-sphere-shadow {
+    display: none;
 }
 
-.render-spot-lens {
-    fill: #8a9290;
-    stroke: #e0e4e2;
-    stroke-width: 0.9;
-    stroke-linejoin: round;
+.render-sphere-highlight {
+    fill: rgba(255, 255, 255, 0.9);
 }
 
-.render-light-cone {
-    fill: #f1bd51;
-    opacity: 0.065;
+.render-sphere-shadow {
+    fill: rgba(0, 0, 0, 0.62);
+    filter: url(#render-sphere-shadow-blur);
 }
 
-.render-light-beam-edge {
-    fill: none;
-    stroke: #aeb5b2;
-    stroke-width: 0.7;
-    stroke-linecap: round;
-    opacity: 0.30;
+.lighting-widget[data-mode="studio"] .render-sphere-off,
+.lighting-widget[data-mode="studio-shadow"] .render-sphere-off {
+    display: none;
 }
 
-.render-light-object {
-    fill: #252b2d;
-    stroke: #c7cecb;
-    stroke-width: 1.2;
+.lighting-widget[data-mode="studio"] .render-sphere-on,
+.lighting-widget[data-mode="studio-shadow"] .render-sphere-on,
+.lighting-widget[data-mode="studio"] .render-sphere-highlight,
+.lighting-widget[data-mode="studio-shadow"] .render-sphere-highlight {
+    display: block;
 }
 
-.render-light-lit-face {
-    fill: #cdd3d0;
-    opacity: 0.78;
+.lighting-widget[data-mode="studio-shadow"] .render-sphere-shadow {
+    display: block;
 }
 
-.lighting-trigger:hover .render-spot-body,
-.lighting-widget[data-mode="studio"] .render-spot-body,
-.lighting-widget[data-mode="studio-shadow"] .render-spot-body {
-    fill: #626b68;
-    stroke: #f0f3f1;
+.lighting-trigger:hover .render-sphere-rim,
+.lighting-widget[data-mode="studio"] .render-sphere-rim,
+.lighting-widget[data-mode="studio-shadow"] .render-sphere-rim {
+    stroke: rgba(255, 255, 255, 0.96);
 }
 
-.lighting-trigger:hover .render-spot-lens,
-.lighting-widget[data-mode="studio"] .render-spot-lens,
-.lighting-widget[data-mode="studio-shadow"] .render-spot-lens {
-    fill: #f1bd51;
-    stroke: #fff2bd;
-}
-
-.lighting-trigger:hover .render-light-cone,
-.lighting-widget[data-mode="studio"] .render-light-cone,
-.lighting-widget[data-mode="studio-shadow"] .render-light-cone {
-    opacity: 0.22;
-}
-
-.lighting-trigger:hover .render-light-beam-edge,
-.lighting-widget[data-mode="studio"] .render-light-beam-edge,
-.lighting-widget[data-mode="studio-shadow"] .render-light-beam-edge {
-    stroke: #f1bd51;
-    opacity: 0.72;
-}
-
-.lighting-trigger:hover .render-light-object,
-.lighting-widget[data-mode="studio"] .render-light-object,
-.lighting-widget[data-mode="studio-shadow"] .render-light-object {
-    stroke: var(--amber);
-}
-
-.lighting-trigger:hover .render-light-lit-face,
-.lighting-widget[data-mode="studio"] .render-light-lit-face,
-.lighting-widget[data-mode="studio-shadow"] .render-light-lit-face {
-    fill: #ffe5a0;
-    opacity: 1;
+.lighting-trigger:hover .render-sphere-off {
+    filter: brightness(1.12);
 }
 
 .lighting-mode-indicator {
@@ -1857,6 +1848,7 @@ body.inspector-wide #inspector #element-radius-list {
 }
 
 #cmd-buffer,
+#commensurate-candidates-readout,
 #selection-measure-readout,
 #hover-readout,
 #coord-readout {
@@ -1870,6 +1862,50 @@ body.inspector-wide #inspector #element-radius-list {
     font-size: 0.67rem;
     line-height: 1.2;
     pointer-events: none;
+}
+
+#commensurate-candidates-readout {
+    display: flex;
+    max-width: min(82vw, 860px);
+    align-items: center;
+    gap: 8px;
+    overflow: hidden;
+}
+
+.commensurate-candidates-label {
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-size: 0.56rem;
+    font-weight: 820;
+}
+
+#commensurate-candidates-values {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 5px;
+    overflow: hidden;
+}
+
+.commensurate-candidate-chip {
+    flex: 0 0 auto;
+    padding: 2px 6px;
+    border: 1px solid rgba(88, 213, 189, 0.22);
+    border-radius: 4px;
+    color: #b8d8d2;
+    font-size: 0.60rem;
+}
+
+.commensurate-candidate-chip.primary,
+.commensurate-candidate-chip.magic {
+    border-color: rgba(88, 213, 189, 0.52);
+    color: #d9fff7;
+}
+
+.commensurate-candidate-chip.active {
+    border-color: rgba(243, 190, 87, 0.88);
+    background: rgba(243, 190, 87, 0.13);
+    color: #ffd77c;
 }
 
 #selection-measure-readout {
@@ -1913,12 +1949,6 @@ body.inspector-wide #inspector #element-radius-list {
 
 #cmd-axis {
     color: var(--teal);
-}
-
-body[data-rotate-invalid="true"] #cmd-buffer {
-    border-color: rgba(255, 114, 105, 0.7);
-    background: rgba(72, 25, 23, 0.94);
-    color: #ffd4d0;
 }
 
 /* Dialogs and notifications */

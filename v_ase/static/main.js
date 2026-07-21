@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.60';
-import { ASERenderer } from './renderer.js?v=0.0.60';
-import { ASESelection } from './selection.js?v=0.0.60';
-import { ASETransform } from './transform.js?v=0.0.60';
+import { ASEApi } from './api.js?v=0.0.61&rev=4';
+import { ASERenderer } from './renderer.js?v=0.0.61&rev=4';
+import { ASESelection } from './selection.js?v=0.0.61&rev=4';
+import { ASETransform } from './transform.js?v=0.0.61&rev=4';
 
 class VAseApp {
     constructor() {
@@ -51,8 +51,11 @@ class VAseApp {
                 elementColors: {},
                 elementVisible: {},
                 rotatePivot: 'selection',
-                unitCellAwareRotate: false,
-                rotateStrainCutoff: 0.15,
+                commensurateGuide: false,
+                commensurateSnap: true,
+                commensurateStrainTolerance: 0.01,
+                commensurateMaxIndex: 32,
+                commensurateSnapRangeDeg: 2.0,
                 supercell: [1, 1, 1],
                 projectionMode: 'orthographic',
                 lightingMode: 'modeling',
@@ -75,10 +78,12 @@ class VAseApp {
             rotationScreenPivot: new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
             rotationLastAngle: 0,
             rotationPointerActive: false,
-            rotationReferenceBonds: [],
-            rotationInvalid: false,
-            rotationMaxStrain: 0,
-            rotationViolationCount: 0,
+            commensurateCandidates: [],
+            commensurateSearch: null,
+            commensurateRequestToken: 0,
+            commensurateReferenceDirection: null,
+            commensurateGuideRadius: 4,
+            commensurateSnappedCandidate: null,
             transformSubject: null,
             sunSelected: null,
             sunTransformOriginal: null,
@@ -399,7 +404,9 @@ class VAseApp {
             '#bond-cutoff',
             '#bond-custom-color',
             '#super-x', '#super-y', '#super-z',
-            '#rotate-strain-cutoff',
+            '#commensurate-strain',
+            '#commensurate-max-index',
+            '#commensurate-snap-range',
             '.element-bond-cutoff',
             '.element-radius-input',
             '.element-color-input'
@@ -1022,6 +1029,9 @@ class VAseApp {
     }
 
     commandValueText() {
+        if (this.transform.mode === 'ROTATE' && this.state.commensurateSnappedCandidate) {
+            return this.state.transformReadout;
+        }
         if (this.transform.buffer) {
             const unit = this.transform.mode === 'MOVE' ? 'A' : 'deg';
             return `${this.transform.buffer} ${unit}`;
@@ -1281,8 +1291,22 @@ class VAseApp {
         this.state.display.elementColors = config.element_colors || {};
         this.state.display.elementVisible = config.element_visible || {};
         this.state.display.rotatePivot = config.rotate_pivot || this.state.display.rotatePivot;
-        this.state.display.unitCellAwareRotate = Boolean(config.unit_cell_aware_rotate);
-        this.state.display.rotateStrainCutoff = Number(config.rotate_strain_cutoff || this.state.display.rotateStrainCutoff);
+        this.state.display.commensurateGuide = Boolean(
+            config.commensurate_guide ?? config.unit_cell_aware_rotate ?? this.state.display.commensurateGuide
+        );
+        this.state.display.commensurateSnap = config.commensurate_snap !== false;
+        const initialStrainTolerance = Number(config.commensurate_strain_tolerance);
+        const initialMaxIndex = parseInt(config.commensurate_max_index, 10);
+        const initialSnapRange = Number(config.commensurate_snap_range_deg);
+        this.state.display.commensurateStrainTolerance = Number.isFinite(initialStrainTolerance)
+            ? Math.max(0, Math.min(0.25, initialStrainTolerance))
+            : this.state.display.commensurateStrainTolerance;
+        this.state.display.commensurateMaxIndex = Number.isFinite(initialMaxIndex)
+            ? Math.max(2, Math.min(64, initialMaxIndex))
+            : this.state.display.commensurateMaxIndex;
+        this.state.display.commensurateSnapRangeDeg = Number.isFinite(initialSnapRange)
+            ? Math.max(0, Math.min(15, initialSnapRange))
+            : this.state.display.commensurateSnapRangeDeg;
         this.state.display.projectionMode = config.projection_mode || this.state.display.projectionMode;
         this.state.vizOnly = Boolean(config.viz_only);
         this.state.display.vizOnly = this.state.vizOnly;
@@ -1302,8 +1326,11 @@ class VAseApp {
         const radiusScale = document.getElementById('atom-radius-scale');
         if (radiusScale) radiusScale.value = this.state.display.atomRadiusScale;
         document.getElementById('rotate-pivot').value = this.state.display.rotatePivot;
-        document.getElementById('chk-unit-aware-rotate').checked = this.state.display.unitCellAwareRotate;
-        document.getElementById('rotate-strain-cutoff').value = this.state.display.rotateStrainCutoff;
+        document.getElementById('chk-commensurate-guide').checked = this.state.display.commensurateGuide;
+        document.getElementById('chk-commensurate-snap').checked = this.state.display.commensurateSnap;
+        document.getElementById('commensurate-strain').value = this.state.display.commensurateStrainTolerance * 100;
+        document.getElementById('commensurate-max-index').value = this.state.display.commensurateMaxIndex;
+        document.getElementById('commensurate-snap-range').value = this.state.display.commensurateSnapRangeDeg;
         const projectionMode = document.getElementById('projection-mode');
         if (projectionMode) projectionMode.value = this.state.display.projectionMode;
         this.updateRadiusScaleLabel();
@@ -2225,6 +2252,7 @@ class VAseApp {
         }
         
         const q = new THREE.Quaternion();
+        let appliedRotationAngle = 0;
         if (this.transform.mode === 'ROTATE') {
             let angle = 0;
             if (hasNum) {
@@ -2233,13 +2261,22 @@ class VAseApp {
                 angle = this.transform.rotationAngle;
             }
             if (!hasNum) angle = this.snapRotationAngle(angle);
+            angle = this.snapCommensurateAngle(angle);
             if (!Number.isFinite(angle)) angle = 0;
-            this.state.transformReadout = this.formatRotateReadout(angle);
+            appliedRotationAngle = angle;
+            const snapped = this.state.commensurateSnappedCandidate;
+            this.state.transformReadout = snapped
+                ? `${this.formatRotateReadout(angle)} | MATCH e=${(snapped.strain * 100).toFixed(3)}% | N=${snapped.area}`
+                : this.formatRotateReadout(angle);
+            this.updateCommensurateAngleStatus(angle);
             
             if (this.transform.axis) {
                 q.setFromAxisAngle(axisVec, angle);
             } else {
-                q.setFromAxisAngle(viewAxis, angle); // Free rotate around current view axis
+                // camera.getWorldDirection() points away from the viewer.  A
+                // screen-space rotation must use the opposite axis so free R
+                // follows the same visible direction as axis-locked rotation.
+                q.setFromAxisAngle(viewAxis, -angle);
             }
         }
 
@@ -2272,7 +2309,7 @@ class VAseApp {
         this.renderer.updateHookeanPositions();
         this.updateSelectionMeasureUI();
         if (this.transform.mode === 'ROTATE') {
-            this.validateRotationStrain();
+            this.renderCommensurateRotationGuides(appliedRotationAngle);
         }
         
         // Async backend projection is only needed for translation. Rotation
@@ -2324,22 +2361,11 @@ class VAseApp {
             return;
         }
         if (this.constraintTimeout) clearTimeout(this.constraintTimeout);
-        if (this.transform.mode === 'ROTATE' && this.state.rotationInvalid) {
-            this.toast(
-                `Rotate blocked: ${this.state.rotationViolationCount} bond strain violation${this.state.rotationViolationCount > 1 ? 's' : ''}.`,
-                'error'
-            );
-            return;
-        }
-        
         const newPositions = this.currentPositionsFromScene();
         this.state.atoms.positions = newPositions.map(p => [...p]);
         this.state.originalPositions = newPositions.map(p => [...p]);
         this.state.transformReadout = '';
-        this.state.rotationInvalid = false;
-        this.state.rotationReferenceBonds = [];
-        this.renderer.clearStrainViolations?.();
-        delete document.body.dataset.rotateInvalid;
+        this.clearCommensurateRotation({ keepStatus: true });
 
         // Confirm immediately in the viewport. Backend apply follows asynchronously
         // and may correct constrained positions authoritatively.
@@ -2383,7 +2409,7 @@ class VAseApp {
         this.state.rotationPointerActive = false;
         this.state.transformSubject = 'atoms';
         this.transform.enter(mode, pivot, this.renderer.camera);
-        this.prepareRotationValidation(editableSelection);
+        this.prepareCommensurateRotation(editableSelection);
         this.renderer.controls.enabled = false;
         this.updateToolState();
         this.updateUI();
@@ -2397,10 +2423,7 @@ class VAseApp {
         if (this.constraintTimeout) clearTimeout(this.constraintTimeout);
         this.renderer.updatePositions(this.state.originalPositions);
         this.state.transformReadout = '';
-        this.state.rotationInvalid = false;
-        this.state.rotationReferenceBonds = [];
-        this.renderer.clearStrainViolations?.();
-        delete document.body.dataset.rotateInvalid;
+        this.clearCommensurateRotation({ keepStatus: true });
         this.transform.exit();
         this.state.transformSubject = null;
         this.renderer.controls.enabled = true;
@@ -3403,9 +3426,20 @@ class VAseApp {
         this.state.antiAliasing = document.getElementById('chk-antialias').checked;
         this.state.sphereQuality = document.getElementById('sphere-quality').value;
         this.state.display.rotatePivot = document.getElementById('rotate-pivot')?.value || 'selection';
-        this.state.display.unitCellAwareRotate = Boolean(document.getElementById('chk-unit-aware-rotate')?.checked);
-        const strainCutoff = parseFloat(document.getElementById('rotate-strain-cutoff')?.value || '0.15');
-        this.state.display.rotateStrainCutoff = Number.isFinite(strainCutoff) && strainCutoff >= 0 ? strainCutoff : 0.15;
+        this.state.display.commensurateGuide = Boolean(document.getElementById('chk-commensurate-guide')?.checked);
+        this.state.display.commensurateSnap = document.getElementById('chk-commensurate-snap')?.checked !== false;
+        const strainPercent = parseFloat(document.getElementById('commensurate-strain')?.value || '1');
+        this.state.display.commensurateStrainTolerance = Number.isFinite(strainPercent) && strainPercent >= 0
+            ? Math.min(25, strainPercent) / 100
+            : 0.01;
+        const maxIndex = parseInt(document.getElementById('commensurate-max-index')?.value || '32', 10);
+        this.state.display.commensurateMaxIndex = Number.isFinite(maxIndex)
+            ? Math.max(2, Math.min(64, maxIndex))
+            : 32;
+        const snapRange = parseFloat(document.getElementById('commensurate-snap-range')?.value || '2');
+        this.state.display.commensurateSnapRangeDeg = Number.isFinite(snapRange)
+            ? Math.max(0, Math.min(15, snapRange))
+            : 2;
         this.captureBondSettingsFromControls({ strictManual: true });
         const radiusScale = parseFloat(document.getElementById('atom-radius-scale')?.value || '1');
         this.state.display.atomRadiusScale = Number.isFinite(radiusScale) && radiusScale > 0 ? radiusScale : 1.0;
@@ -3509,8 +3543,11 @@ class VAseApp {
         setChecked('chk-antialias', this.state.antiAliasing);
         setValue('sphere-quality', this.state.sphereQuality);
         setValue('rotate-pivot', display.rotatePivot || 'selection');
-        setChecked('chk-unit-aware-rotate', display.unitCellAwareRotate);
-        setValue('rotate-strain-cutoff', display.rotateStrainCutoff ?? 0.15);
+        setChecked('chk-commensurate-guide', display.commensurateGuide);
+        setChecked('chk-commensurate-snap', display.commensurateSnap !== false);
+        setValue('commensurate-strain', (display.commensurateStrainTolerance ?? 0.01) * 100);
+        setValue('commensurate-max-index', display.commensurateMaxIndex ?? 32);
+        setValue('commensurate-snap-range', display.commensurateSnapRangeDeg ?? 2);
         setValue('bond-mode', display.bondMode || 'auto');
         setValue('bond-cutoff', display.bondCutoffScale || 1.0);
         setValue('bond-style', display.bondStyle || 'cylinder');
@@ -3529,6 +3566,22 @@ class VAseApp {
     }
 
     reconcileDesignDisplay(nextDisplay = {}) {
+        const migratedDisplay = { ...this.clonePlain(nextDisplay) };
+        if (!Object.prototype.hasOwnProperty.call(migratedDisplay, 'commensurateGuide')
+            && Object.prototype.hasOwnProperty.call(migratedDisplay, 'unitCellAwareRotate')) {
+            migratedDisplay.commensurateGuide = Boolean(migratedDisplay.unitCellAwareRotate);
+        }
+        delete migratedDisplay.unitCellAwareRotate;
+        delete migratedDisplay.rotateStrainCutoff;
+        nextDisplay = migratedDisplay;
+        const finiteClamped = (value, fallback, minimum, maximum) => {
+            const parsed = Number(value);
+            return Math.max(minimum, Math.min(maximum, Number.isFinite(parsed) ? parsed : fallback));
+        };
+        const integerClamped = (value, fallback, minimum, maximum) => {
+            const parsed = parseInt(value, 10);
+            return Math.max(minimum, Math.min(maximum, Number.isFinite(parsed) ? parsed : fallback));
+        };
         const labels = [...new Set(this.state.atoms?.symbols || [])];
         const atomCount = this.state.atoms?.positions?.length || 0;
         const pickLabelMap = (source, fallback = {}) => {
@@ -3585,6 +3638,17 @@ class VAseApp {
 
         return {
             ...this.clonePlain(nextDisplay),
+            commensurateGuide: Boolean(nextDisplay.commensurateGuide),
+            commensurateSnap: nextDisplay.commensurateSnap !== false,
+            commensurateStrainTolerance: finiteClamped(
+                nextDisplay.commensurateStrainTolerance, 0.01, 0, 0.25
+            ),
+            commensurateMaxIndex: integerClamped(
+                nextDisplay.commensurateMaxIndex, 32, 2, 64
+            ),
+            commensurateSnapRangeDeg: finiteClamped(
+                nextDisplay.commensurateSnapRangeDeg, 2, 0, 15
+            ),
             manualBondPairs,
             elementBondCutoffs,
             elementRadii,
@@ -3914,116 +3978,259 @@ class VAseApp {
         return pivot.divideScalar(Math.max(1, editableSelection.length));
     }
 
-    basisVectors() {
-        const cell = this.state.atoms?.cell || [];
-        if (!this.hasUsableCell() || cell.length < 3) return null;
-        return cell.map(v => new THREE.Vector3(...v));
+    updateCommensurateStatus(message, state = '') {
+        const element = document.getElementById('commensurate-status');
+        if (!element) return;
+        element.textContent = message;
+        if (state) element.dataset.state = state;
+        else delete element.dataset.state;
     }
 
-    cartToFracVector(cart, basis) {
-        const det = basis[0].dot(new THREE.Vector3().crossVectors(basis[1], basis[2]));
-        if (Math.abs(det) < 1e-10) return cart.clone();
-        return new THREE.Vector3(
-            cart.dot(new THREE.Vector3().crossVectors(basis[1], basis[2])) / det,
-            cart.dot(new THREE.Vector3().crossVectors(basis[2], basis[0])) / det,
-            cart.dot(new THREE.Vector3().crossVectors(basis[0], basis[1])) / det
-        );
-    }
-
-    fracToCartVector(frac, basis) {
-        return new THREE.Vector3()
-            .addScaledVector(basis[0], frac.x)
-            .addScaledVector(basis[1], frac.y)
-            .addScaledVector(basis[2], frac.z);
-    }
-
-    minimumImageDeltaFromPositions(positions, i, j) {
-        const start = new THREE.Vector3(...positions[i]);
-        const end = new THREE.Vector3(...positions[j]);
-        const delta = new THREE.Vector3().subVectors(end, start);
-        const pbc = this.state.atoms?.pbc || [false, false, false];
-        const basis = this.basisVectors();
-        if (!basis || !pbc.some(Boolean)) return delta;
-        const frac = this.cartToFracVector(delta, basis);
-        for (let axis = 0; axis < 3; axis++) {
-            if (pbc[axis]) frac.setComponent(axis, frac.getComponent(axis) - Math.round(frac.getComponent(axis)));
+    clearCommensurateRotation({ keepStatus = false } = {}) {
+        this.state.commensurateRequestToken += 1;
+        this.state.commensurateCandidates = [];
+        this.state.commensurateSearch = null;
+        this.state.commensurateReferenceDirection = null;
+        this.state.commensurateSnappedCandidate = null;
+        this.renderer.clearCommensurateGuides?.();
+        this.updateCommensurateCandidatesReadout([]);
+        if (!keepStatus) {
+            this.updateCommensurateStatus('Lock X, Y, or Z during R to scan periodic cell matches.');
         }
-        return this.fracToCartVector(frac, basis);
     }
 
-    rotationValidationEnabled() {
-        return (
+    commensurateRotationEnabled() {
+        return Boolean(
             this.transform.mode === 'ROTATE'
-            && Boolean(this.state.display.unitCellAwareRotate)
+            && this.state.display.commensurateGuide
+            && this.transform.axis
             && this.hasUsableCell()
-            && (this.state.atoms?.pbc || []).some(Boolean)
+            && (this.state.atoms?.pbc || []).filter(Boolean).length >= 2
         );
     }
 
-    prepareRotationValidation(editableSelection) {
-        this.state.rotationReferenceBonds = [];
-        this.state.rotationInvalid = false;
-        this.state.rotationMaxStrain = 0;
-        this.state.rotationViolationCount = 0;
-        this.renderer.clearStrainViolations?.();
-        delete document.body.dataset.rotateInvalid;
+    lockedRotationAxisVector() {
+        if (this.transform.axis === 'X') return new THREE.Vector3(1, 0, 0);
+        if (this.transform.axis === 'Y') return new THREE.Vector3(0, 1, 0);
+        if (this.transform.axis === 'Z') return new THREE.Vector3(0, 0, 1);
+        return null;
+    }
 
-        if (!this.rotationValidationEnabled()) return;
-        const selected = new Set(editableSelection);
-        const pairs = this.renderer.bondPairs?.length ? this.renderer.bondPairs : (this.renderer.inferBondPairs?.() || []);
-        const seen = new Set();
-        pairs.forEach(([i, j]) => {
-            if (!selected.has(i) && !selected.has(j)) return;
-            const key = `${Math.min(i, j)}-${Math.max(i, j)}`;
-            if (seen.has(key)) return;
-            seen.add(key);
-            const delta = this.minimumImageDeltaFromPositions(this.state.originalPositions, i, j);
-            const length = delta.length();
-            if (Number.isFinite(length) && length > 1e-6) {
-                this.state.rotationReferenceBonds.push({ i, j, length });
+    commensurateReferenceForSelection(editableSelection, axis) {
+        let reference = null;
+        let maxLength = 0;
+        editableSelection.forEach(index => {
+            const position = this.state.originalPositions[index];
+            if (!position) return;
+            const offset = new THREE.Vector3(...position).sub(this.transform.pivot);
+            offset.addScaledVector(axis, -offset.dot(axis));
+            const length = offset.length();
+            if (length > maxLength) {
+                maxLength = length;
+                reference = offset.normalize();
             }
+        });
+        if (!reference || maxLength < 1e-5) {
+            reference = Math.abs(axis.z) < 0.9
+                ? new THREE.Vector3(0, 0, 1).cross(axis).normalize()
+                : new THREE.Vector3(1, 0, 0);
+        }
+        this.state.commensurateGuideRadius = Math.max(3.2, maxLength * 1.18);
+        return reference;
+    }
+
+    async prepareCommensurateRotation(editableSelection = [...this.state.selected]) {
+        const token = ++this.state.commensurateRequestToken;
+        this.state.commensurateCandidates = [];
+        this.state.commensurateSearch = null;
+        this.state.commensurateSnappedCandidate = null;
+        this.renderer.clearCommensurateGuides?.();
+
+        if (!this.state.display.commensurateGuide) {
+            this.updateCommensurateStatus('Commensurate cell guide is disabled.');
+            return;
+        }
+        if (this.transform.mode !== 'ROTATE' || !this.transform.axis) {
+            this.updateCommensurateStatus('Lock X, Y, or Z during R to scan periodic cell matches.');
+            return;
+        }
+        if (!this.hasUsableCell() || (this.state.atoms?.pbc || []).filter(Boolean).length < 2) {
+            this.updateCommensurateStatus('A defined cell with at least two periodic directions is required.', 'warning');
+            return;
+        }
+        const axis = this.lockedRotationAxisVector();
+        if (!axis) return;
+        this.state.commensurateReferenceDirection = this.commensurateReferenceForSelection(editableSelection, axis);
+        this.updateCommensurateStatus('Scanning integer periodic-cell boundaries...', 'ready');
+        try {
+            const result = await this.api.commensurateAngles(
+                this.transform.axis,
+                this.state.display.commensurateMaxIndex,
+                this.state.display.commensurateStrainTolerance
+            );
+            if (token !== this.state.commensurateRequestToken || this.transform.mode !== 'ROTATE') return;
+            this.state.commensurateSearch = result;
+            this.state.commensurateCandidates = Array.isArray(result.candidates) ? result.candidates : [];
+            const tolerance = (Number(result.strain_tolerance || 0) * 100).toFixed(2);
+            const family = String(result.lattice_family || '2D').replace('-', ' ');
+            const summary = `${family}: ${this.state.commensurateCandidates.length} matches, boundary strain <= ${tolerance}%.`;
+            this.updateCommensurateStatus(result.warning ? `${summary} ${result.warning}` : summary, result.warning ? 'warning' : 'ready');
+            this.applyTransformPreview();
+        } catch (error) {
+            if (token !== this.state.commensurateRequestToken) return;
+            this.updateCommensurateStatus(error.message, 'warning');
+        }
+    }
+
+    candidateInstanceNearAngle(candidate, angleDeg) {
+        const base = Number(candidate.angle_deg);
+        const turns = Math.round((angleDeg - base) / 360);
+        const targetAngleDeg = base + turns * 360;
+        return {
+            ...candidate,
+            targetAngleDeg,
+            deltaDeg: targetAngleDeg - angleDeg
+        };
+    }
+
+    nearestCommensurateCandidate(angle) {
+        if (!this.commensurateRotationEnabled() || !this.state.commensurateCandidates.length) return null;
+        const angleDeg = THREE.MathUtils.radToDeg(angle);
+        const identityAngle = Math.round(angleDeg / 360) * 360;
+        const identity = {
+            angle_deg: 0,
+            area: 1,
+            deltaDeg: identityAngle - angleDeg,
+            family: 'identity',
+            identity: true,
+            magic_reference: false,
+            strain: 0,
+            targetAngleDeg: identityAngle
+        };
+        return [identity, ...this.state.commensurateCandidates
+            .map(candidate => this.candidateInstanceNearAngle(candidate, angleDeg))
+        ].sort((first, second) => Math.abs(first.deltaDeg) - Math.abs(second.deltaDeg))[0] || null;
+    }
+
+    snapCommensurateAngle(angle) {
+        this.state.commensurateSnappedCandidate = null;
+        const nearest = this.nearestCommensurateCandidate(angle);
+        if (!nearest || !this.state.display.commensurateSnap) return angle;
+        const snapRange = Math.max(0, Number(this.state.display.commensurateSnapRangeDeg || 0));
+        if (Math.abs(nearest.deltaDeg) > snapRange) return angle;
+        this.state.commensurateSnappedCandidate = nearest;
+        return THREE.MathUtils.degToRad(nearest.targetAngleDeg);
+    }
+
+    updateCommensurateAngleStatus(angle) {
+        if (!this.commensurateRotationEnabled() || !this.state.commensurateCandidates.length) return;
+        const nearest = this.nearestCommensurateCandidate(angle);
+        if (!nearest) return;
+        const snapped = this.state.commensurateSnappedCandidate;
+        const candidate = snapped || nearest;
+        const label = snapped ? 'Snapped' : 'Nearest';
+        const delta = snapped ? '' : `, delta ${Math.abs(nearest.deltaDeg).toFixed(3)} deg`;
+        const warning = this.state.commensurateSearch?.warning
+            ? ` ${this.state.commensurateSearch.warning}`
+            : '';
+        this.updateCommensurateStatus(
+            `${label}: ${candidate.targetAngleDeg.toFixed(6)} deg, boundary strain ${(candidate.strain * 100).toFixed(4)}%, N=${candidate.area}${delta}.${warning}`,
+            snapped ? 'snap' : (warning ? 'warning' : 'ready')
+        );
+    }
+
+    commensurateGuideCandidates(angle) {
+        if (!this.commensurateRotationEnabled() || !this.state.commensurateCandidates.length) return [];
+        const angleDeg = THREE.MathUtils.radToDeg(angle);
+        const active = this.state.commensurateSnappedCandidate;
+        const ranked = this.state.commensurateCandidates
+            .map(candidate => this.candidateInstanceNearAngle(candidate, angleDeg))
+            .sort((first, second) => Math.abs(first.deltaDeg) - Math.abs(second.deltaDeg));
+        const chosen = [];
+        const addCandidate = candidate => {
+            if (!candidate || candidate.identity) return;
+            const displayAngle = candidate.targetAngleDeg;
+            const isActive = Boolean(active) && Math.abs(displayAngle - active.targetAngleDeg) < 1e-5;
+            const duplicate = chosen.some(item => Math.abs(item.targetAngleDeg - displayAngle) < 1e-5);
+            if (duplicate) return;
+            const separated = chosen.every(item => Math.abs(item.targetAngleDeg - displayAngle) >= 1.35);
+            if (!isActive && !candidate.magic_reference && !separated) return;
+            chosen.push(candidate);
+        };
+
+        addCandidate(active);
+        addCandidate(ranked[0]);
+        addCandidate(ranked.find(candidate => candidate.magic_reference));
+        for (const candidate of ranked) {
+            addCandidate(candidate);
+            if (chosen.length >= 7) break;
+        }
+        const nearest = this.nearestCommensurateCandidate(angle);
+        return chosen.slice(0, 7).map(candidate => {
+            const isActive = Boolean(active) && Math.abs(candidate.targetAngleDeg - active.targetAngleDeg) < 1e-5;
+            const isPrimary = Boolean(nearest)
+                && Math.abs(candidate.targetAngleDeg - nearest.targetAngleDeg) < 1e-5;
+            const prefix = isActive ? 'SNAP ' : candidate.magic_reference ? 'TBG ' : '';
+            return {
+                ...candidate,
+                angle_deg: candidate.targetAngleDeg,
+                active: isActive,
+                primary: isPrimary,
+                label: isActive || isPrimary
+                    ? `${prefix}${candidate.targetAngleDeg.toFixed(2)} deg`
+                    : null
+            };
         });
     }
 
-    validateRotationStrain() {
-        this.state.rotationInvalid = false;
-        this.state.rotationMaxStrain = 0;
-        this.state.rotationViolationCount = 0;
-        this.renderer.clearStrainViolations?.();
-        delete document.body.dataset.rotateInvalid;
-        if (!this.rotationValidationEnabled() || !this.state.rotationReferenceBonds.length) return;
-
-        const cutoff = Math.max(0, Number(this.state.display.rotateStrainCutoff ?? 0.15));
-        const positions = this.currentPositionsFromScene();
-        const violations = [];
-        let maxStrain = 0;
-        this.state.rotationReferenceBonds.forEach(ref => {
-            const delta = this.minimumImageDeltaFromPositions(positions, ref.i, ref.j);
-            const length = delta.length();
-            if (!Number.isFinite(length)) return;
-            const strain = Math.abs(length - ref.length) / Math.max(ref.length, 1e-9);
-            maxStrain = Math.max(maxStrain, strain);
-            if (strain > cutoff) {
-                const start = new THREE.Vector3(...positions[ref.i]);
-                const end = start.clone().add(delta);
-                violations.push({
-                    i: ref.i,
-                    j: ref.j,
-                    strain,
-                    start: start.toArray(),
-                    end: end.toArray()
-                });
-            }
-        });
-
-        this.state.rotationMaxStrain = maxStrain;
-        this.state.rotationViolationCount = violations.length;
-        if (violations.length) {
-            this.state.rotationInvalid = true;
-            document.body.dataset.rotateInvalid = 'true';
-            this.state.transformReadout = `INVALID strain ${(maxStrain * 100).toFixed(1)}% > ${(cutoff * 100).toFixed(1)}%`;
-            this.renderer.setStrainViolations?.(violations);
+    updateCommensurateCandidatesReadout(candidates) {
+        const container = document.getElementById('commensurate-candidates-readout');
+        const values = document.getElementById('commensurate-candidates-values');
+        if (!container || !values) return;
+        if (!candidates?.length) {
+            delete container.dataset.signature;
+            values.replaceChildren();
+            container.classList.add('hidden');
+            return;
         }
+        const signature = candidates.map(candidate => [
+            Number(candidate.angle_deg).toFixed(5),
+            candidate.active ? 'a' : candidate.magic_reference ? 'm' : candidate.primary ? 'p' : ''
+        ].join(':')).join('|');
+        if (container.dataset.signature === signature) return;
+        container.dataset.signature = signature;
+        values.replaceChildren();
+        candidates.forEach(candidate => {
+            const chip = document.createElement('span');
+            chip.className = 'commensurate-candidate-chip';
+            if (candidate.active) chip.classList.add('active');
+            else if (candidate.magic_reference) chip.classList.add('magic');
+            else if (candidate.primary) chip.classList.add('primary');
+            chip.textContent = `${Number(candidate.angle_deg).toFixed(2)} deg`;
+            chip.title = `Boundary strain ${(Number(candidate.strain) * 100).toFixed(4)}%; N=${candidate.area}`;
+            values.appendChild(chip);
+        });
+        container.classList.remove('hidden');
+    }
+
+    renderCommensurateRotationGuides(angle) {
+        const axis = this.lockedRotationAxisVector();
+        const reference = this.state.commensurateReferenceDirection;
+        const candidates = this.commensurateGuideCandidates(angle);
+        if (!axis || !reference || !candidates.length) {
+            this.renderer.clearCommensurateGuides?.();
+            this.updateCommensurateCandidatesReadout([]);
+            return;
+        }
+        this.updateCommensurateCandidatesReadout(candidates);
+        this.renderer.setCommensurateGuides?.({
+            pivot: this.transform.pivot.toArray(),
+            axis: axis.toArray(),
+            reference: reference.toArray(),
+            radius: this.state.commensurateGuideRadius,
+            baselineActive: Boolean(this.state.commensurateSnappedCandidate?.identity),
+            candidates
+        });
     }
 
     setupWebSocket() {
@@ -4267,7 +4474,7 @@ class VAseApp {
                 <span>Middle drag</span><label>Orbit viewport</label>
                 <span>Shift + middle drag</span><label>Pan viewport</label>
                 <span>Space</span><label>Play or pause trajectory</label>
-                <span>Tab</span><label>Open or close control panel</label>
+                <span>Tab</span><label>Open control panel while it is collapsed</label>
                 <span>G</span><label>Move selected atoms or Sun handle</label>
                 <span>R</span><label>Rotate selected atoms or Sun direction</label>
                 <span>Sun source + G</span><label>Move source and target together</label>
@@ -4276,7 +4483,7 @@ class VAseApp {
                 <span>X / Y / Z</span><label>Align view in select mode</label>
                 <span>X / Y / Z</span><label>Lock transform axis in G/R mode</label>
                 <span>Enter</span><label>Confirm transform</label>
-                <span>Esc</span><label>Cancel transform</label>
+                <span>Esc</span><label>Cancel transform, or close the open control panel and return focus to the viewport</label>
                 <span>Ctrl+C / V / Z</span><label>Copy, paste, undo</label>
                 <span>Delete</span><label>Delete selected atoms</label>
             </div>
@@ -5126,19 +5333,26 @@ class VAseApp {
             this.safeApplyDisplayOptions();
             if (this.transform.mode === 'ROTATE') this.toast('Rotate pivot changes apply to the next rotate operation.', 'warning');
         });
-        document.getElementById('chk-unit-aware-rotate')?.addEventListener('change', () => {
-            this.safeApplyDisplayOptions();
+        const refreshCommensurateSearch = () => {
+            this.applyDisplayOptions();
             if (this.transform.mode === 'ROTATE') {
-                this.prepareRotationValidation([...this.state.selected].filter(idx => this.isEditableIndex(idx)));
-                this.applyTransformPreview();
+                this.prepareCommensurateRotation([...this.state.selected].filter(idx => this.isEditableIndex(idx)));
             }
-        });
-        document.getElementById('rotate-strain-cutoff')?.addEventListener('input', () => {
-            this.safeApplyDisplayOptions();
+        };
+        document.getElementById('chk-commensurate-guide')?.addEventListener('change', refreshCommensurateSearch);
+        document.getElementById('chk-commensurate-snap')?.addEventListener('change', () => {
+            this.applyDisplayOptions();
             if (this.transform.mode === 'ROTATE') this.applyTransformPreview();
         });
-        document.getElementById('rotate-strain-cutoff')?.addEventListener('change', () => {
-            this.safeApplyDisplayOptions();
+        ['commensurate-strain', 'commensurate-max-index'].forEach(id => {
+            document.getElementById(id)?.addEventListener('change', refreshCommensurateSearch);
+        });
+        document.getElementById('commensurate-snap-range')?.addEventListener('input', () => {
+            this.applyDisplayOptions();
+            if (this.transform.mode === 'ROTATE') this.applyTransformPreview();
+        });
+        document.getElementById('commensurate-snap-range')?.addEventListener('change', () => {
+            this.applyDisplayOptions();
             if (this.transform.mode === 'ROTATE') this.applyTransformPreview();
         });
 
@@ -5285,9 +5499,26 @@ class VAseApp {
         window.addEventListener('keydown', (e) => {
             const tag = e.target?.tagName?.toLowerCase();
             const isFormControl = ['input', 'textarea', 'select', 'button'].includes(tag) || e.target?.isContentEditable;
-            if ((e.code === 'Tab' || e.key === 'Tab') && !isFormControl && this.transform.mode === 'IDLE') {
+            const inspectorCollapsed = document.body.classList.contains('inspector-collapsed');
+            if (e.key === 'Escape' && this.transform.mode === 'IDLE') {
+                const modal = document.getElementById('modal-container');
+                if (modal && !modal.classList.contains('hidden')) {
+                    e.preventDefault();
+                    this.closeModal();
+                    return;
+                }
+                if (!inspectorCollapsed) {
+                    e.preventDefault();
+                    if (this.isCommittableInput(e.target)) this.commitInputValue(e.target);
+                    e.target?.blur?.();
+                    this.setInspectorCollapsed(true);
+                    canvas.focus({ preventScroll: true });
+                    return;
+                }
+            }
+            if ((e.code === 'Tab' || e.key === 'Tab') && inspectorCollapsed && !isFormControl && this.transform.mode === 'IDLE') {
                 e.preventDefault();
-                this.setInspectorCollapsed(!document.body.classList.contains('inspector-collapsed'));
+                this.setInspectorCollapsed(false);
                 return;
             }
             if (['input', 'textarea', 'select'].includes(tag)) return;
@@ -5331,6 +5562,9 @@ class VAseApp {
                 } else if (axis) {
                     e.preventDefault();
                     this.transform.setAxis(axis, this.renderer.camera);
+                    if (this.transform.mode === 'ROTATE' && this.state.transformSubject === 'atoms') {
+                        this.prepareCommensurateRotation([...this.state.selected].filter(idx => this.isEditableIndex(idx)));
+                    }
                     this.applyTransformPreview();
                     this.updateUI();
                 } else if (this.keyCodeValue(e) !== null) {

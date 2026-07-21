@@ -24,7 +24,7 @@ Press these keys to enter transformation mode:
 | **X** | **Align / Lock X** | In select mode, align the viewport to +X. Press X again only from exact +X alignment to flip to -X. During G/R, lock movement/rotation to X. |
 | **Y** | **Align / Lock Y** | In select mode, align the viewport to +Y. Press Y again only from exact +Y alignment to flip to -Y. During G/R, lock movement/rotation to Y. |
 | **Z** | **Align / Lock Z** | In select mode, align the viewport to +Z. Press Z again only from exact +Z alignment to flip to -Z. During G/R, lock movement/rotation to Z. |
-| **Esc** | **Cancel** | Revert atoms or the Sun object to the transform start state. |
+| **Esc** | **Cancel / Return** | Revert an active transform. Otherwise, commit the active inspector field, close the open control panel, and return keyboard focus to the viewport. |
 | **Enter / Left Click** | **Confirm** | Confirm the current atom or Sun transform. |
 | **Ctrl+C** | **Copy** | Copy selected atoms to the editor clipboard. |
 | **Ctrl+V** | **Paste** | Paste copied atoms near the selected center. |
@@ -32,7 +32,7 @@ Press these keys to enter transformation mode:
 | **Ctrl+Shift+Z** | **Redo** | Restore the next structure state after undo. |
 | **Delete / Backspace** | **Delete** | Delete selected atoms through the backend and remap supported constraints. |
 | **Space** | **Play/Pause** | Toggle trajectory playback when a multi-frame structure is loaded. |
-| **Tab** | **Inspector** | Toggle the control panel while viewport focus is active. |
+| **Tab** | **Inspector** | Open the control panel while it is collapsed. Once open, Tab remains normal form navigation and never closes the panel. |
 
 ## Sun Direction Controls
 

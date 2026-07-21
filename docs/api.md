@@ -120,6 +120,11 @@ The browser UI talks to a local FastAPI server bound to `127.0.0.1`.
 - `POST /api/add/{session_id}`: Appends atoms for paste operations.
 - `POST /api/delete/{session_id}`: Deletes atoms and remaps constraints.
 - `POST /api/constraints/{session_id}`: Applies or clears selected-atom `FixAtoms`, `FixedLine`, and `FixedPlane` constraints.
+- `POST /api/commensurate/{session_id}`: Searches low-strain integer
+  cell-boundary matches for an axis-locked 2D rotation. The request includes
+  `axis`, `max_index`, and fractional `strain_tolerance`; the response includes
+  signed angles, principal boundary strain, integer matrices, and area
+  multipliers.
 - `POST /api/calculator/{session_id}`: Updates default repulsion calculator device/thread settings.
 - `POST /api/frame/{session_id}`: Switches the active trajectory frame.
 - `POST /api/wrap/{session_id}`: Wraps atoms into the unit cell.

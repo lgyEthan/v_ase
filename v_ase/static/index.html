@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.60">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.61&amp;rev=4">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.60';
+            : '/static/vendor/three.module.js?v=0.0.61';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -46,7 +46,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.60</span>
+            <span class="version">0.0.61</span>
         </div>
         <div class="status-group">
             <div class="status-item">
@@ -86,14 +86,28 @@
             </div>
             <div id="lighting-widget" class="lighting-widget">
                 <button id="btn-lighting-toggle" class="lighting-trigger" type="button" aria-expanded="false" aria-label="Open render lighting settings" title="Render lighting settings">
-                    <svg class="render-light-icon" viewBox="0 0 30 28" aria-hidden="true">
-                        <path class="render-spot-handle" d="M5.2 4.2 8.1 2.8l3 3.1"></path>
-                        <path class="render-spot-body" d="m4.5 7.3 8.2-3.1 5.1 5.1-3.1 8.2-3.2-3.2-4.1 1.2-4.1-4.1 1.2-4.1Z"></path>
-                        <path class="render-spot-lens" d="m15.8 7.3 4 4-3.1 3.1-4-4Z"></path>
-                        <path class="render-light-cone" d="m19.1 12.8 9.2 4.7-6.4 8.2-5.1-10.9Z"></path>
-                        <path class="render-light-beam-edge" d="m19.1 12.8 9.2 4.7M16.8 14.8l5.1 10.9"></path>
-                        <circle class="render-light-object" cx="24.1" cy="21.1" r="3.55"></circle>
-                        <path class="render-light-lit-face" d="M23.4 17.62a3.55 3.55 0 0 0 0 6.96c-1.35-.92-2.02-2.08-2.02-3.48s.67-2.56 2.02-3.48Z"></path>
+                    <svg class="render-light-icon" viewBox="0 0 34 30" aria-hidden="true">
+                        <defs>
+                            <radialGradient id="render-sphere-off-gradient" cx="34%" cy="28%" r="72%">
+                                <stop offset="0" stop-color="#cbd0ce"></stop>
+                                <stop offset="0.58" stop-color="#7f8784"></stop>
+                                <stop offset="1" stop-color="#3e4442"></stop>
+                            </radialGradient>
+                            <radialGradient id="render-sphere-on-gradient" cx="31%" cy="25%" r="76%">
+                                <stop offset="0" stop-color="#ffffff"></stop>
+                                <stop offset="0.16" stop-color="#e9eeeb"></stop>
+                                <stop offset="0.62" stop-color="#737b78"></stop>
+                                <stop offset="1" stop-color="#252a28"></stop>
+                            </radialGradient>
+                            <filter id="render-sphere-shadow-blur" x="-30%" y="-100%" width="160%" height="300%">
+                                <feGaussianBlur stdDeviation="1.1"></feGaussianBlur>
+                            </filter>
+                        </defs>
+                        <ellipse class="render-sphere-shadow" cx="18" cy="26" rx="9.2" ry="2.1"></ellipse>
+                        <circle class="render-sphere-off" cx="17" cy="14" r="10.4"></circle>
+                        <circle class="render-sphere-on" cx="17" cy="14" r="10.4"></circle>
+                        <circle class="render-sphere-highlight" cx="13.2" cy="9.7" r="2.25"></circle>
+                        <circle class="render-sphere-rim" cx="17" cy="14" r="10.4"></circle>
                     </svg>
                     <span id="lighting-mode-indicator" class="lighting-mode-indicator" aria-hidden="true"></span>
                 </button>
@@ -334,13 +348,26 @@
                 <input type="number" id="rotate-increment" value="0" min="0" step="1" placeholder="0 = continuous">
             </div>
             <div class="prop-row">
-                <label for="chk-unit-aware-rotate">Bond-strain guard</label>
-                <input type="checkbox" id="chk-unit-aware-rotate">
+                <label for="chk-commensurate-guide">Commensurate guide</label>
+                <input type="checkbox" id="chk-commensurate-guide">
             </div>
             <div class="prop-row">
-                <label for="rotate-strain-cutoff">Max bond strain</label>
-                <input type="number" id="rotate-strain-cutoff" value="0.15" min="0" max="5" step="0.01">
+                <label for="chk-commensurate-snap">Magnetic angle snap</label>
+                <input type="checkbox" id="chk-commensurate-snap" checked>
             </div>
+            <div class="prop-row">
+                <label for="commensurate-strain">Boundary strain / %</label>
+                <input type="number" id="commensurate-strain" value="1.0" min="0" max="25" step="0.1">
+            </div>
+            <div class="prop-row">
+                <label for="commensurate-max-index">Max lattice index</label>
+                <input type="number" id="commensurate-max-index" value="32" min="2" max="64" step="1">
+            </div>
+            <div class="prop-row">
+                <label for="commensurate-snap-range">Snap range / deg</label>
+                <input type="number" id="commensurate-snap-range" value="2" min="0" max="15" step="0.1">
+            </div>
+            <div id="commensurate-status" class="commensurate-status">Lock X, Y, or Z during R to scan periodic cell matches.</div>
         </details>
 
         <details class="panel-section" open data-panel="appearance" data-panel-group="display">
@@ -553,6 +580,10 @@
                 <span id="relax-frame-label">1 / 1</span>
             </div>
         </div>
+        <div id="commensurate-candidates-readout" class="hidden" aria-live="polite">
+            <span class="commensurate-candidates-label">CELL MATCHES</span>
+            <span id="commensurate-candidates-values"></span>
+        </div>
         <div id="cmd-buffer" class="hidden">
             <span id="cmd-mode">MOVE</span> | <span id="cmd-axis">-</span> | <span id="cmd-val"></span>
         </div>
@@ -576,7 +607,7 @@
                     <span>Middle drag</span><label>Orbit viewport</label>
                     <span>Shift + middle drag</span><label>Pan viewport</label>
                     <span>Space</span><label>Play or pause trajectory</label>
-                    <span>Tab</span><label>Open or close control panel</label>
+                    <span>Tab</span><label>Open control panel while it is collapsed</label>
                     <span>G</span><label>Move selected atoms or Sun handle</label>
                     <span>R</span><label>Rotate selected atoms or Sun direction</label>
                     <span>Sun source + G</span><label>Move source and target together</label>
@@ -585,7 +616,7 @@
                     <span>X / Y / Z</span><label>Align view in select mode</label>
                     <span>X / Y / Z</span><label>Lock transform axis in G/R mode</label>
                     <span>Enter</span><label>Confirm transform</label>
-                    <span>Esc</span><label>Cancel transform</label>
+                    <span>Esc</span><label>Cancel transform, or close the open control panel and return focus to the viewport</label>
                     <span>Ctrl+C / V / Z</span><label>Copy, paste, undo</label>
                     <span>Delete</span><label>Delete selected atoms</label>
                 </div>
@@ -617,7 +648,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.60';
+            : './static/main.js?v=0.0.61&rev=4';
         import(modulePath);
     </script>
 </body>

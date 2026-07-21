@@ -13,6 +13,7 @@ from .serialization import atoms_to_json
 from .websocket_manager import ws_manager
 from .io import atom_type_labels, base_symbol_for_atom_type, normalize_atom_type_label, set_atom_type_labels
 from .repulsion import copy_calculator, is_vase_repulsion_calculator, repulsion_metadata
+from .commensurate import find_commensurate_angles
 from .project import (
     PROJECT_MIME,
     SETTINGS_SCHEMA,
@@ -876,6 +877,22 @@ async def constrain_positions(session_id: str, payload: Dict[str, Any]):
     temp_atoms.set_positions(positions, apply_constraint=payload_apply_constraint(payload))
     
     return {"positions": temp_atoms.get_positions().tolist()}
+
+
+@app.post("/api/commensurate/{session_id}")
+async def commensurate_rotation_candidates(session_id: str, payload: Dict[str, Any]):
+    """Return periodic 2D cell-boundary matches for an axis-locked rotate."""
+    session = get_session(session_id)
+    atoms = session.working_atoms
+    return await asyncio.to_thread(
+        find_commensurate_angles,
+        atoms.cell.array,
+        atoms.pbc,
+        payload.get("axis", "Z"),
+        max_index=payload.get("max_index", 32),
+        strain_tolerance=payload.get("strain_tolerance", 0.01),
+        chemical_symbols=atoms.get_chemical_symbols(),
+    )
 
 @app.post("/api/apply/{session_id}")
 async def apply_positions(session_id: str, payload: Dict[str, Any]):

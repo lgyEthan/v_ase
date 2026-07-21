@@ -96,9 +96,14 @@ active section are persisted locally.
 
 The lighting control sits in the top toolbar immediately to the right of the
 calculator controls, away from the viewport orientation gizmo. Its compact
-directional studio-spotlight icon keeps a faint beam visible while off, then
-illuminates its lens, beam, and target material when active. The settings card
-opens directly below the toolbar control.
+icon uses the same sphere in both states: a matte object for Modeling and a
+highlighted object with a ground shadow when rendered lighting is active. The
+settings card opens directly below the toolbar control.
+
+`Tab` opens the inspector only while it is collapsed. Once open, Tab remains
+available for normal form navigation. `Esc` commits the active field, collapses
+the inspector, focuses the viewport, and makes `G`/`R` immediately available
+again; during a transform, Esc retains its usual cancel behavior.
 
 The viewport renderer has three explicit modes:
 

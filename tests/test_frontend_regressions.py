@@ -867,21 +867,14 @@ def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
 
     assert 'id="lighting-widget"' in index_html
     assert 'class="render-light-icon"' in index_html
-    assert 'class="render-spot-handle"' in index_html
-    assert 'class="render-spot-body"' in index_html
-    assert 'class="render-spot-lens"' in index_html
-    assert 'class="render-light-cone"' in index_html
-    assert 'class="render-light-beam-edge"' in index_html
-    assert 'class="render-light-object"' in index_html
-    assert 'class="render-light-lit-face"' in index_html
-    assert 'class="render-light-terminator"' not in index_html
-    assert 'class="render-light-specular"' not in index_html
-    assert 'class="render-light-specular-soft"' not in index_html
-    assert 'class="render-light-rays"' not in index_html
-    assert 'class="render-light-shadow"' not in index_html
-    assert 'class="render-light-source"' not in index_html
-    assert 'class="render-light-beam"' not in index_html
-    assert 'render-light-body' not in index_html
+    assert 'class="render-sphere-off"' in index_html
+    assert 'class="render-sphere-on"' in index_html
+    assert 'class="render-sphere-highlight"' in index_html
+    assert 'class="render-sphere-shadow"' in index_html
+    assert 'class="render-sphere-rim"' in index_html
+    assert 'render-spot-' not in index_html
+    assert 'render-light-cone' not in index_html
+    assert 'render-light-beam' not in index_html
     assert 'class="sun-icon"' not in index_html
     assert index_html.index('id="calc-controls"') < index_html.index('id="lighting-widget"')
     assert index_html.index('id="lighting-widget"') < index_html.index('id="btn-reset"')
@@ -925,8 +918,10 @@ def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
     assert "replicaSelectionOutlines" in renderer_js
     assert "supercellAtomReference" in renderer_js
     assert "selectionCount()" in main_js
-    assert '<span>Tab</span><label>Open or close control panel</label>' in index_html
-    assert '<span>Tab</span><label>Open or close control panel</label>' in main_js
+    assert '<span>Tab</span><label>Open control panel while it is collapsed</label>' in index_html
+    assert '<span>Tab</span><label>Open control panel while it is collapsed</label>' in main_js
+    assert 'close the open control panel and return focus to the viewport' in index_html
+    assert 'close the open control panel and return focus to the viewport' in main_js
     assert '<span>Sun source + G</span><label>Move source and target together</label>' in main_js
     assert "bondDelta(i, j" in renderer_js
     assert "this.displayOptions.showPeriodicBonds" in renderer_js
@@ -943,9 +938,11 @@ def test_grid_guides_scale_to_large_unit_cells():
     assert "[0, 0, -half], [0, 0, half]" in renderer_js
 
 
-def test_rotate_pivot_and_unit_cell_aware_validation_are_wired():
+def test_rotate_pivot_and_commensurate_cell_matching_are_wired():
     main_js = (ROOT / "v_ase/static/main.js").read_text()
     renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
+    api_js = (ROOT / "v_ase/static/api.js").read_text()
+    server_py = (ROOT / "v_ase/server.py").read_text()
     index_html = (ROOT / "v_ase/static/index.html").read_text()
     style_css = (ROOT / "v_ase/static/style.css").read_text()
     docs = (ROOT / "docs/unit_cell_aware_rotate.md").read_text()
@@ -953,26 +950,32 @@ def test_rotate_pivot_and_unit_cell_aware_validation_are_wired():
     assert "rotate-pivot" in index_html
     assert "Global origin" in index_html
     assert "Unit-cell center" in index_html
-    assert "chk-unit-aware-rotate" in index_html
-    assert "Bond-strain guard" in index_html
-    assert "rotate-strain-cutoff" in index_html
+    assert "chk-commensurate-guide" in index_html
+    assert "Magnetic angle snap" in index_html
+    assert "commensurate-strain" in index_html
+    assert "commensurate-max-index" in index_html
+    assert "commensurate-snap-range" in index_html
     assert "make-supercell-matrix" in index_html
     assert "Apply make_supercell Matrix" in index_html
     assert "applyMakeSupercellMatrix" in main_js
     assert "parseSupercellMatrix" in main_js
-    assert "applySupercellMatrix" in (ROOT / "v_ase/static/api.js").read_text()
+    assert "applySupercellMatrix" in api_js
     assert "rotationPivotPosition" in main_js
-    assert "prepareRotationValidation" in main_js
-    assert "validateRotationStrain" in main_js
-    assert "minimumImageDeltaFromPositions" in main_js
-    assert "Rotate blocked:" in main_js
-    assert "data-rotate-invalid" in style_css
-    assert "strainViolationGroup" in renderer_js
-    assert "setStrainViolations" in renderer_js
-    assert "clearStrainViolations" in renderer_js
+    assert "prepareCommensurateRotation" in main_js
+    assert "nearestCommensurateCandidate" in main_js
+    assert "snapCommensurateAngle" in main_js
+    assert "setCommensurateGuides" in renderer_js
+    assert "clearCommensurateGuides" in renderer_js
+    assert "commensurateAngles" in api_js
+    assert 'POST /api/commensurate' not in server_py
+    assert '@app.post("/api/commensurate/{session_id}")' in server_py
+    assert "Bond-strain guard" not in index_html
+    assert "Rotate blocked:" not in main_js
+    assert "data-rotate-invalid" not in style_css
     assert "H' = P H" in docs
     assert "ase.build.make_supercell" in docs
-    assert "Minimum Image Convention" in docs
-    assert "epsilon_ij" in docs
-    assert "10.1080/08927028908031386" in docs
-    assert "10.3390/solids7010005" in docs
+    assert "Q* = argmin" in docs
+    assert "epsilon_boundary" in docs
+    assert "10.1016/j.cpc.2015.08.038" in docs
+    assert "10.1021/acs.jpcc.6b01496" in docs
+    assert "10.1073/pnas.1108174108" in docs

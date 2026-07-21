@@ -254,6 +254,26 @@ export class ASEApi {
                 body: JSON.stringify({ ...payload, reps })
             }, { expect });
         }
+        if (path.includes('/api/commensurate/')) {
+            const payload = JSON.parse(options.body || '{}');
+            return {
+                axis: payload.axis || 'Z',
+                lattice_family: 'hexagonal',
+                periodic_axes: [0, 1],
+                axis_alignment: 1,
+                strain_tolerance: payload.strain_tolerance ?? 0.01,
+                max_index: payload.max_index ?? 32,
+                warning: null,
+                candidates: [
+                    { angle_deg: -21.7867893, strain: 0, area: 7, family: 'hexagonal-r1', magic_reference: false },
+                    { angle_deg: -13.1735511, strain: 0, area: 19, family: 'hexagonal-r1', magic_reference: false },
+                    { angle_deg: -1.0501209, strain: 0, area: 2977, family: 'hexagonal-r1', magic_reference: true },
+                    { angle_deg: 1.0501209, strain: 0, area: 2977, family: 'hexagonal-r1', magic_reference: true },
+                    { angle_deg: 13.1735511, strain: 0, area: 19, family: 'hexagonal-r1', magic_reference: false },
+                    { angle_deg: 21.7867893, strain: 0, area: 7, family: 'hexagonal-r1', magic_reference: false }
+                ]
+            };
+        }
         if (path.includes('/api/reset/')) {
             this.mockPushHistory();
             this.mockState.atoms = this.clone(this.mockState.original);
@@ -619,6 +639,14 @@ export class ASEApi {
 
     async applySupercellMatrix(positions, matrix, applyConstraint = true) {
         return await this.jsonPost(`/api/supercell/matrix/{session_id}`, { positions, matrix, apply_constraint: applyConstraint });
+    }
+
+    async commensurateAngles(axis, maxIndex = 32, strainTolerance = 0.01) {
+        return await this.jsonPost(`/api/commensurate/{session_id}`, {
+            axis,
+            max_index: maxIndex,
+            strain_tolerance: strainTolerance
+        });
     }
 
     async setFrame(index) {

@@ -1,5 +1,7 @@
+import math
 import time
 
+import numpy as np
 import pytest
 from ase import Atoms
 from ase.build import molecule
@@ -68,6 +70,167 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
             assert not page.locator('#empty-workspace').is_visible()
             assert not page.locator('#btn-export-pickle').is_disabled()
             assert page.locator('#frame-label').inner_text() == '1 / 2'
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
+    lattice = 2.46
+    atoms = Atoms(
+        "C4",
+        scaled_positions=[
+            [0.0, 0.0, 0.25],
+            [1 / 3, 2 / 3, 0.25],
+            [0.0, 0.0, 0.75],
+            [2 / 3, 1 / 3, 0.75],
+        ],
+        cell=[
+            [lattice, 0.0, 0.0],
+            [0.5 * lattice, 0.5 * 3 ** 0.5 * lattice, 0.0],
+            [0.0, 0.0, 18.0],
+        ],
+        pbc=[True, True, False],
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 4")
+
+            canvas = page.locator('#app-viewport canvas')
+            canvas.focus()
+            page.keyboard.press('Control+a')
+            page.wait_for_function("window.__ASE_APP__.state.selected.size === 4")
+
+            # Tab opens a collapsed panel.  Once open, Tab remains available
+            # for native form navigation; Escape commits, closes, and returns
+            # keyboard focus to the viewport.
+            page.keyboard.press('Tab')
+            page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
+            page.click('[data-inspector-group="structure"]')
+            page.fill('#rotate-increment', '5')
+            page.keyboard.press('Tab')
+            assert not page.locator('body').evaluate(
+                "element => element.classList.contains('inspector-collapsed')"
+            )
+            page.keyboard.press('Escape')
+            page.wait_for_function("document.body.classList.contains('inspector-collapsed')")
+            assert page.evaluate("document.activeElement?.tagName") == 'CANVAS'
+            assert page.evaluate("window.__ASE_APP__.state.selected.size") == 4
+            page.keyboard.press('r')
+            assert page.evaluate("window.__ASE_APP__.transform.mode") == 'ROTATE'
+            page.keyboard.press('Escape')
+
+            # From +Z, free R and R+Z must apply the same visible clockwise
+            # motion for the same clockwise pointer path.
+            rotation = page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                document.getElementById('rotate-increment').value = '0';
+                app.readTransformSettings();
+                app.alignViewToAxis('Z');
+                const run = (axis) => {
+                    app.enterTransformMode('ROTATE');
+                    if (axis) app.transform.setAxis(axis, app.renderer.camera);
+                    const pivot = app.state.rotationScreenPivot;
+                    app.updateRotationFromPointer(pivot.x + 100, pivot.y);
+                    app.updateRotationFromPointer(pivot.x, pivot.y + 100);
+                    app.applyTransformPreview();
+                    const positions = app.currentPositionsFromScene();
+                    const angle = app.transform.rotationAngle;
+                    app.cancelTransform();
+                    return { positions, angle };
+                };
+                return { free: run(null), locked: run('Z') };
+            }""")
+            assert rotation["free"]["angle"] == pytest.approx(-math.pi / 2, abs=1e-5)
+            assert rotation["locked"]["angle"] == pytest.approx(-math.pi / 2, abs=1e-5)
+            assert np.asarray(rotation["free"]["positions"]) == pytest.approx(
+                np.asarray(rotation["locked"]["positions"]), abs=1e-5
+            )
+
+            # Enable the cell-boundary search through the actual panel, then
+            # run R+Z and wait for the backend result and rendered guide.
+            canvas.focus()
+            page.keyboard.press('Tab')
+            page.click('[data-inspector-group="structure"]')
+            page.check('#chk-commensurate-guide')
+            page.keyboard.press('Escape')
+            page.keyboard.press('r')
+            page.keyboard.press('z')
+            page.wait_for_function("window.__ASE_APP__.state.commensurateCandidates.length >= 60")
+            page.wait_for_function("window.__ASE_APP__.renderer.commensurateGuideGroup.children.length > 0")
+            labels = page.evaluate("""() => window.__ASE_APP__.renderer.commensurateGuideGroup.children
+                .filter(object => object.isSprite)
+                .map(object => object.material.map.image.getContext('2d') ? object.userData : null)
+                .length""")
+            assert labels > 0
+            candidate_status = page.locator('#commensurate-status').inner_text()
+            assert 'boundary strain' in candidate_status
+            assert 'N=' in candidate_status
+
+            snapped = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.transform.buffer = '21.2';
+                app.transform.rotationAngle = app.renderer.THREE
+                    ? app.renderer.THREE.MathUtils.degToRad(21.2)
+                    : 21.2 * Math.PI / 180;
+                app.applyTransformPreview();
+                return {
+                    candidate: app.state.commensurateSnappedCandidate,
+                    readout: app.state.transformReadout,
+                    sprites: app.renderer.commensurateGuideGroup.children.filter(object => object.isSprite).length
+                };
+            }""")
+            assert snapped["candidate"]["targetAngleDeg"] == pytest.approx(21.7867893, abs=1e-5)
+            assert "MATCH" in snapped["readout"]
+            assert snapped["sprites"] > 0
+            assert '21.79 deg' in page.locator('#cmd-val').inner_text()
+            assert page.locator('#commensurate-candidates-readout').is_visible()
+            assert page.locator('#commensurate-candidates-values .commensurate-candidate-chip').count() >= 3
+            assert '21.79 deg' in page.locator(
+                '#commensurate-candidates-values .commensurate-candidate-chip.active'
+            ).inner_text()
+            assert page.locator('#commensurate-status').inner_text().startswith('Snapped: 21.786789 deg')
+
+            unsnapped = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.state.display.commensurateSnap = false;
+                app.transform.buffer = '21.2';
+                app.transform.rotationAngle = 21.2 * Math.PI / 180;
+                app.applyTransformPreview();
+                return {
+                    candidate: app.state.commensurateSnappedCandidate,
+                    readout: app.state.transformReadout
+                };
+            }""")
+            assert unsnapped["candidate"] is None
+            assert unsnapped["readout"].startswith('21.20 deg')
+            page.keyboard.press('Escape')
+
+            # The toolbar icon follows the supplied matte-sphere / lit-sphere
+            # visual states rather than the former flashlight glyph.
+            assert page.locator('#btn-lighting-toggle .render-sphere-off').count() == 1
+            assert page.locator('#btn-lighting-toggle .render-sphere-on').count() == 1
+            page.click('#btn-lighting-toggle')
+            page.select_option('#lighting-mode', 'studio-shadow')
+            page.wait_for_function("document.getElementById('lighting-widget').dataset.mode === 'studio-shadow'")
+            assert page.locator('.render-sphere-on').evaluate("element => getComputedStyle(element).display") == 'block'
+            assert page.locator('.render-sphere-shadow').evaluate("element => getComputedStyle(element).display") == 'block'
             browser.close()
     finally:
         editor.close()
@@ -154,7 +317,7 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             assert 'coordinates' in page.locator('[data-panel="settings"] .panel-note').inner_text()
             page.click('[data-inspector-group="display"]')
             page.locator('#app-viewport canvas').focus()
-            page.keyboard.press('Tab')
+            page.keyboard.press('Escape')
             page.wait_for_function("document.body.classList.contains('inspector-collapsed')")
             page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width <= 1")
             page.keyboard.press('Tab')
@@ -169,8 +332,8 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             assert lighting_icon.is_visible()
             icon_box = lighting_icon.bounding_box()
             assert icon_box is not None
-            assert icon_box['width'] == pytest.approx(27, abs=1)
-            assert icon_box['height'] == pytest.approx(27, abs=1)
+            assert icon_box['width'] == pytest.approx(31, abs=1)
+            assert icon_box['height'] == pytest.approx(29, abs=1)
             viewport_tools = page.evaluate("""() => {
                 const trigger = document.getElementById('btn-lighting-toggle').getBoundingClientRect();
                 const calculator = document.getElementById('calc-controls').getBoundingClientRect();

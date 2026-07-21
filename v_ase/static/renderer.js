@@ -397,8 +397,9 @@ export class ASERenderer {
         this.scene.add(this.cellGroup);
         this.bondGroup = new THREE.Group();
         this.scene.add(this.bondGroup);
-        this.strainViolationGroup = new THREE.Group();
-        this.scene.add(this.strainViolationGroup);
+        this.commensurateGuideGroup = new THREE.Group();
+        this.scene.add(this.commensurateGuideGroup);
+        this.commensurateGuideSignature = null;
         this.supercellGroup = new THREE.Group();
         this.scene.add(this.supercellGroup);
         this.constraintMarkGroup = new THREE.Group();
@@ -440,8 +441,11 @@ export class ASERenderer {
             elementColors: {},
             elementVisible: {},
             rotatePivot: 'selection',
-            unitCellAwareRotate: false,
-            rotateStrainCutoff: 0.15,
+            commensurateGuide: false,
+            commensurateSnap: true,
+            commensurateStrainTolerance: 0.01,
+            commensurateMaxIndex: 32,
+            commensurateSnapRangeDeg: 2.0,
             projectionMode: 'orthographic',
             showOverlays: true,
             supercell: [1, 1, 1],
@@ -469,13 +473,6 @@ export class ASERenderer {
         this.bondFlatX = new THREE.Vector3();
         this.bondFlatY = new THREE.Vector3();
         this.bondFlatZ = new THREE.Vector3();
-        this.strainViolationGeometry = new THREE.CylinderGeometry(0.085, 0.085, 1, 24);
-        this.strainViolationMaterial = new THREE.MeshBasicMaterial({
-            color: 0xff3b30,
-            transparent: true,
-            opacity: 0.88,
-            depthWrite: false
-        });
         this.selectionOutlineGeometry = new THREE.SphereGeometry(1, 18, 12);
         this.selectionOutlineMaterial = new THREE.MeshBasicMaterial({
             color: 0xffc400,
@@ -1318,7 +1315,7 @@ export class ASERenderer {
             if(child.material) child.material.dispose();
         }
         this.clearGroup(this.bondGroup);
-        this.clearGroup(this.strainViolationGroup);
+        this.clearCommensurateGuides();
         this.clearGroup(this.supercellGroup);
         this.clearGroup(this.constraintMarkGroup);
         this.clearGroup(this.constraintGuideGroup);
@@ -2296,27 +2293,151 @@ export class ASERenderer {
         this.updateSupercellBondPositions();
     }
 
-    setStrainViolations(violations = []) {
-        this.clearGroup(this.strainViolationGroup);
-        violations.slice(0, 96).forEach(item => {
-            const start = new THREE.Vector3(...item.start);
-            const end = new THREE.Vector3(...item.end);
-            const delta = new THREE.Vector3().subVectors(end, start);
-            const length = delta.length();
-            if (!Number.isFinite(length) || length < 1e-6) return;
-            const marker = new THREE.Mesh(this.strainViolationGeometry, this.strainViolationMaterial);
-            marker.userData = { sharedGeometry: true, sharedMaterial: true, strainViolation: true, strain: item.strain };
-            marker.renderOrder = 24;
-            marker.position.copy(start).addScaledVector(delta, 0.5);
-            marker.scale.set(1, length, 1);
-            marker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), delta.normalize());
-            this.strainViolationGroup.add(marker);
+    commensurateLabelSprite(text, active = false) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 250;
+        canvas.height = 72;
+        const context = canvas.getContext('2d');
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.font = '700 25px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        const metrics = context.measureText(text);
+        const boxWidth = Math.min(canvas.width - 8, Math.ceil(metrics.width + 34));
+        const left = (canvas.width - boxWidth) / 2;
+        context.fillStyle = active ? 'rgba(42, 36, 22, 0.94)' : 'rgba(20, 24, 25, 0.86)';
+        context.strokeStyle = active ? 'rgba(243, 190, 87, 0.95)' : 'rgba(88, 213, 189, 0.62)';
+        context.lineWidth = 2;
+        context.beginPath();
+        if (typeof context.roundRect === 'function') context.roundRect(left, 9, boxWidth, 54, 9);
+        else context.rect(left, 9, boxWidth, 54);
+        context.fill();
+        context.stroke();
+        context.fillStyle = active ? '#ffd77c' : '#d9fff7';
+        context.fillText(text, canvas.width / 2, 36);
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.minFilter = THREE.LinearFilter;
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            transparent: true,
+            depthTest: false,
+            depthWrite: false,
+            toneMapped: false
         });
+        const sprite = new THREE.Sprite(material);
+        sprite.scale.set(2.5, 0.72, 1);
+        sprite.renderOrder = 48;
+        sprite.userData.commensurateTexture = texture;
+        return sprite;
+    }
+
+    setCommensurateGuides({ pivot, axis, reference, radius, baselineActive = false, candidates = [] } = {}) {
+        if (!pivot || !axis || !reference || !candidates.length) {
+            this.clearCommensurateGuides();
+            return;
+        }
+        const rounded = values => values.map(value => Number(value).toFixed(5));
+        const signature = JSON.stringify({
+            axis: rounded(axis),
+            baselineActive,
+            candidates: candidates.map(candidate => [
+                Number(candidate.angle_deg).toFixed(5),
+                Boolean(candidate.active),
+                candidate.label || ''
+            ]),
+            pivot: rounded(pivot),
+            radius: Number(radius).toFixed(5),
+            reference: rounded(reference)
+        });
+        if (signature === this.commensurateGuideSignature) return;
+        this.clearCommensurateGuides({ resetSignature: false });
+        this.commensurateGuideSignature = signature;
+        const center = new THREE.Vector3(...pivot);
+        const normal = new THREE.Vector3(...axis).normalize();
+        const baseline = new THREE.Vector3(...reference)
+            .addScaledVector(normal, -new THREE.Vector3(...reference).dot(normal))
+            .normalize();
+        const guideRadius = Math.max(2.5, Number(radius) || 4);
+        if (!baseline.lengthSq()) return;
+
+        const labelAnchors = [];
+        const addRay = (angleDeg, color, opacity, active, label, priority = 0) => {
+            const direction = baseline.clone().applyAxisAngle(normal, THREE.MathUtils.degToRad(angleDeg));
+            const start = center.clone().addScaledVector(direction, guideRadius * 0.14);
+            const end = center.clone().addScaledVector(direction, guideRadius);
+            const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
+            const material = new THREE.LineBasicMaterial({
+                color,
+                transparent: true,
+                opacity,
+                depthTest: false,
+                depthWrite: false,
+                toneMapped: false
+            });
+            const ray = new THREE.Line(geometry, material);
+            ray.renderOrder = active ? 47 : 45;
+            this.commensurateGuideGroup.add(ray);
+            if (!label) return;
+            labelAnchors.push({
+                active,
+                label,
+                position: end.clone().addScaledVector(direction, guideRadius * 0.11),
+                priority
+            });
+        };
+
+        addRay(
+            0,
+            baselineActive ? 0xf3be57 : 0x9aa3a0,
+            baselineActive ? 1.0 : 0.38,
+            baselineActive,
+            baselineActive ? 'SNAP 0.00 deg' : '0.00 deg',
+            baselineActive ? 3 : -1
+        );
+        candidates.forEach(candidate => {
+            const active = Boolean(candidate.active);
+            addRay(
+                Number(candidate.angle_deg),
+                active ? 0xf3be57 : 0x58d5bd,
+                active ? 1.0 : 0.66,
+                active,
+                candidate.label,
+                active ? 3 : (candidate.primary || candidate.magic_reference ? 2 : 0)
+            );
+        });
+
+        const width = Math.max(1, this.renderer.domElement.clientWidth || 1);
+        const height = Math.max(1, this.renderer.domElement.clientHeight || 1);
+        const occupied = [];
+        labelAnchors
+            .sort((first, second) => second.priority - first.priority)
+            .forEach(anchor => {
+                const projected = anchor.position.clone().project(this.camera);
+                const screen = {
+                    x: (projected.x * 0.5 + 0.5) * width,
+                    y: (-projected.y * 0.5 + 0.5) * height
+                };
+                const collides = occupied.some(point => (
+                    Math.abs(point.x - screen.x) < 132 && Math.abs(point.y - screen.y) < 36
+                ));
+                if (collides && anchor.priority < 2) return;
+                if (collides && occupied.some(point => point.priority >= anchor.priority)) return;
+                const sprite = this.commensurateLabelSprite(anchor.label, anchor.active);
+                sprite.position.copy(anchor.position);
+                this.commensurateGuideGroup.add(sprite);
+                occupied.push({ ...screen, priority: anchor.priority });
+            });
         this.requestRender();
     }
 
-    clearStrainViolations() {
-        this.clearGroup(this.strainViolationGroup);
+    clearCommensurateGuides({ resetSignature = true } = {}) {
+        if (!this.commensurateGuideGroup) return;
+        if (resetSignature) this.commensurateGuideSignature = null;
+        this.commensurateGuideGroup.traverse(object => {
+            object.userData?.commensurateTexture?.dispose?.();
+        });
+        this.clearGroup(this.commensurateGuideGroup);
         this.requestRender();
     }
 

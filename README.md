@@ -104,13 +104,14 @@ available in both workflows.
 - The control panel is organized into Inspect, Structure, Display, and Output
   sections. It starts collapsed and opens from a compact edge handle, leaving
   the viewport unobstructed until controls are needed. v_ase remembers the
-  active section, explicit collapsed state, and panel width. `Tab` toggles the
-  panel while viewport focus is active; controls inside each category start
-  expanded.
-- Viewport lighting is opt-in and its compact studio-spotlight control
+  active section, explicit collapsed state, and panel width. `Tab` opens the
+  panel only while it is collapsed. Inside the panel, `Tab` remains normal form
+  navigation; `Esc` commits the active field, closes the panel, and returns
+  keyboard focus to the viewport. Controls inside each category start expanded.
+- Viewport lighting is opt-in and its compact rendered-sphere control
   sits in the top toolbar, immediately beside the calculator controls. Its lit
-  state brightens the lens, beam, and illuminated material without using an
-  idea-bulb metaphor. Modeling keeps the
+  state adds a clear highlight and ground shadow, while the matte sphere remains
+  recognizable as the same renderer control when lighting is off. Modeling keeps the
   original low-overhead, evenly-lit view; Studio Sun adds real-time PBR
   directional lighting; Sun + Soft Shadow adds a structure-fitted shadow map
   without a finite-frustum seam across large or off-origin structures. The Sun
@@ -387,7 +388,8 @@ Supported behavior:
 - Optional move increment in Angstrom.
 - Optional rotate increment in degrees.
 - Rotate pivots: selection center, global origin, or unit-cell center.
-- Optional bond-strain guard for rejecting excessive periodic bond distortion.
+- Cell-boundary commensurate-angle guides for axis-locked 2D rotation.
+- Optional magnetic snapping to low-strain integer-supercell matches.
 
 ![Rotate mode](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/readme_rotate.png)
 
@@ -399,6 +401,20 @@ rotating about the X axis while the rest of the molecule remains in place:
 For axis-locked rotation, the colored axis guide is drawn through the active
 pivot. If the pivot is the origin, the axis passes through the origin; if the
 pivot is the selection center of mass, it passes through that COM.
+
+For periodic 2D cells, enable `Commensurate guide` and use `R` followed by an
+axis. v_ase compares integer supercell boundaries after removing their best
+rigid rotation, then draws candidate rays and keeps their angles in a compact
+`CELL MATCHES` strip that stays readable from every camera direction. The
+active ray is labelled in the viewport, while the Structure panel reports its
+principal boundary strain and area multiplier. `Magnetic angle snap` can pull the
+rotation into a candidate within a configurable angular range without blocking
+any other angle; the unchanged `0 deg` identity is always a valid snap target.
+Hexagonal cells include the standard `21.7868 deg`,
+`13.1736 deg`, and `1.0501 deg` commensurate series. The `1.0501 deg` carbon
+marker is a TBG geometric reference near the electronic magic-angle regime,
+not an electronic-energy calculation. Equations and references are in the
+[cell-aware rotation note](docs/unit_cell_aware_rotate.md).
 
 ## Case 4: Bonds, Periodicity, and Supercells
 
@@ -695,12 +711,12 @@ view_file("trajectory.extxyz")
 | `X`, `Y`, `Z` | Align view in select mode, lock axis in transform mode |
 | Number keys | Numeric transform input |
 | `Enter` | Confirm transform |
-| `Esc` | Cancel transform |
+| `Esc` | Cancel transform; otherwise close an open control panel and return focus to the viewport |
 | `Ctrl+C` / `Ctrl+V` | Copy / paste atoms |
 | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
 | `Delete` / `Backspace` | Delete selected atoms |
 | `Space` | Play/pause trajectory |
-| `Tab` | Open/close the control panel while the viewport has focus |
+| `Tab` | Open the control panel while it is collapsed; inside an open panel it remains normal form navigation |
 | Sun source + `G` | Move the complete Sun rig (source and target) |
 | Sun target + `G` | Aim the Sun by moving only its target |
 | Either Sun handle + `R` | Rotate the target around the source |
