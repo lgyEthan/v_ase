@@ -71,8 +71,10 @@ terminal.
   active section, explicit collapsed state, and panel width. `Tab` toggles the
   panel while viewport focus is active; controls inside each category start
   expanded.
-- Viewport lighting is opt-in and its shaded-material-sphere control sits in the
-  top toolbar, immediately beside the calculator controls. Modeling keeps the
+- Viewport lighting is opt-in and its compact downlight-over-material control
+  sits in the top toolbar, immediately beside the calculator controls. Its lit
+  state visibly illuminates both the fixture and material without using an
+  idea-bulb metaphor. Modeling keeps the
   original low-overhead, evenly-lit view; Studio Sun adds real-time PBR
   directional lighting; Sun + Soft Shadow adds a structure-fitted shadow map
   without a finite-frustum seam across large or off-origin structures. The Sun
@@ -86,7 +88,10 @@ terminal.
   shift-middle pan, wheel zoom, click/box selection, `G` move, `R` rotate, axis
   locking, numeric transforms, `Enter`, `Esc`, copy/paste/undo/delete.
 - Selection measurements: two selected atoms show distance, and three selected
-  atoms show two distances plus the central angle.
+  atoms show two distances plus the central angle. The same live measurement is
+  repeated in the bottom hover readout beside atom metadata. In visualization
+  mode, supercell replicas are independently selectable and their displayed
+  Cartesian positions contribute to center, distance, and angle statistics.
 - Calculator handling preserves existing ASE calculators, including
   `SinglePointCalculator`. The default lightweight visualization mode does not
   attach a fallback calculator; `--interactive` enables the soft repulsion
@@ -369,9 +374,11 @@ Bonding can be automatic, label-pair based, or manually specified.
 - Edited control values commit consistently when you press `Enter`, press
   `Tab`, or move focus to another control.
 - Supercell preview shows full-opacity replicas, repeated unit-cell lines, and
-  every currently visible bond in each repeated cell. Replicas expose hover
-  information but are excluded from click and box selection until
-  `Set Supercell as Cell` converts them into real atoms.
+  every currently visible bond in each repeated cell. In the default
+  visualization mode, replicas support click, Shift-click, box selection,
+  `Ctrl+A`, hover metadata, and displayed-coordinate measurements. In
+  interactive mode they remain inspection-only and cannot enter an atom edit;
+  `Set Supercell as Cell` converts them into real editable atoms.
 - `Set Supercell as Cell` converts the preview into real editable atoms.
 - `Cell Transform` accepts a full integer `make_supercell(P)` matrix.
 
@@ -563,8 +570,8 @@ view_file("trajectory.extxyz")
 | Middle drag | Orbit viewport |
 | Shift + middle drag | Pan viewport |
 | Mouse wheel | Zoom |
-| `G` | Move selected atoms |
-| `R` | Rotate selected atoms |
+| `G` | Move selected atoms or the selected Sun handle |
+| `R` | Rotate selected atoms or rotate the Sun target around its source |
 | `X`, `Y`, `Z` | Align view in select mode, lock axis in transform mode |
 | Number keys | Numeric transform input |
 | `Enter` | Confirm transform |
@@ -573,6 +580,10 @@ view_file("trajectory.extxyz")
 | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
 | `Delete` / `Backspace` | Delete selected atoms |
 | `Space` | Play/pause trajectory |
+| `Tab` | Open/close the control panel while the viewport has focus |
+| Sun source + `G` | Move the complete Sun rig (source and target) |
+| Sun target + `G` | Aim the Sun by moving only its target |
+| Either Sun handle + `R` | Rotate the target around the source |
 
 ## Notes
 

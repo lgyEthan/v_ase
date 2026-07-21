@@ -32,6 +32,29 @@ Press these keys to enter transformation mode:
 | **Ctrl+Shift+Z** | **Redo** | Restore the next structure state after undo. |
 | **Delete / Backspace** | **Delete** | Delete selected atoms through the backend and remap supported constraints. |
 | **Space** | **Play/Pause** | Toggle trajectory playback when a multi-frame structure is loaded. |
+| **Tab** | **Inspector** | Toggle the control panel while viewport focus is active. |
+
+## Sun Direction Controls
+
+Enable `Direction handles` in the lighting card, then select the source or
+target in the viewport. Direct dragging selects a handle but does not move it.
+
+| Selection | Shortcut | Result |
+|-----------|----------|--------|
+| **Sun source** | **G** | Translate source and target together without changing direction. |
+| **Sun target** | **G** | Move only the target to aim the directional light. |
+| **Either handle** | **R** | Rotate the target around the source pivot. Mouse rotation follows the same on-screen direction as atom rotation. |
+
+Sun transforms support `X`/`Y`/`Z`, numeric input, `Enter`, and `Esc`.
+
+## Visualization-Mode Replica Selection
+
+In the default visualization mode, repeated supercell atoms are selectable by
+click, Shift-click, box selection, element checkboxes, and `Ctrl+A`. Replica
+identities include their cell offset (for example `12@[1,0,0]`), so center,
+distance, and angle measurements use the positions actually shown on screen.
+Interactive mode keeps replicas unselectable until `Set Supercell as Cell` is
+used, preventing a display-only image from entering an atom edit.
 
 Move and rotate snapping can be set in the right-side Transform section. A zero
 increment keeps motion continuous; non-zero increments make mouse transforms step

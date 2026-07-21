@@ -241,6 +241,36 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
                 direction_before_rotate[2],
             ])
 
+            page.keyboard.press('r')
+            page.keyboard.press('z')
+            mouse_rotation = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const before = app.renderer.lightingOptions.sunTarget.map(
+                    (value, axis) => value - app.renderer.lightingOptions.sunPosition[axis]
+                );
+                const pivot = app.state.rotationScreenPivot;
+                app.updateRotationFromPointer(pivot.x + 90, pivot.y);
+                app.updateRotationFromPointer(pivot.x, pivot.y + 90);
+                app.applyTransformPreview();
+                const after = app.renderer.lightingOptions.sunTarget.map(
+                    (value, axis) => value - app.renderer.lightingOptions.sunPosition[axis]
+                );
+                return {
+                    before,
+                    after,
+                    pointerAngle: app.transform.rotationAngle,
+                    sunAngle: app.sunTransformRotation().angle,
+                };
+            }""")
+            assert mouse_rotation["pointerAngle"] == pytest.approx(-1.57079632679, abs=1e-5)
+            assert mouse_rotation["sunAngle"] == pytest.approx(1.57079632679, abs=1e-5)
+            assert mouse_rotation["after"] == pytest.approx([
+                -mouse_rotation["before"][1],
+                mouse_rotation["before"][0],
+                mouse_rotation["before"][2],
+            ])
+            page.keyboard.press('Escape')
+
             page.evaluate("window.__ASE_APP__.setSunSelected('target')")
             target_selection = page.evaluate("""() => ({
                 selected: window.__ASE_APP__.state.sunSelected,
@@ -709,11 +739,16 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
                     clientY: pointer.clientY,
                 };
             }""")
-            assert repeated_hover["hover"] == 0
+            assert repeated_hover["hover"] == {
+                "kind": "replica",
+                "index": 0,
+                "cellOffset": [1, 0, 0],
+                "key": "replica:0:1,0,0",
+            }
             assert repeated_hover["selectable"] is None
             page.mouse.move(repeated_hover["clientX"], repeated_hover["clientY"])
             page.wait_for_function("window.__ASE_APP__.state.hoveredIndex === 0")
-            assert "#0 H" in page.locator('#hover-readout').inner_text()
+            assert "#0@[1,0,0] H" in page.locator('#hover-readout').inner_text()
             for control in ('#super-x', '#super-y', '#super-z'):
                 page.fill(control, '1')
                 page.keyboard.press('Tab')
@@ -752,6 +787,142 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
                 "thicknessControl": 0.24,
                 "colorControl": "split",
             }
+            browser.close()
+    finally:
+        sessions.pop(editor.session_id, None)
+
+
+def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
+    atoms = Atoms(
+        "Cu2",
+        positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+        cell=[4.0, 4.0, 4.0],
+        pbc=True,
+    )
+    set_atom_type_labels(atoms, ["Cu", "Cu2"])
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 820})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
+
+            _expand_inspector(page)
+            page.click('[data-inspector-group="scene"]')
+            _open_panel(page, 'appearance')
+            label_input = page.locator('[data-element-name="Cu2"]')
+            label_input.fill('Cu')
+            label_input.press('Enter')
+            page.wait_for_function("""() => {
+                const labels = window.__ASE_APP__.state.atoms.symbols;
+                return labels[0] === 'Cu' && labels[1] === 'Cu_2';
+            }""")
+            toasts = page.locator('#toast-container .toast').all_inner_texts()
+            assert sum('already exists' in text for text in toasts) == 1
+            assert sum('Renamed Cu2 to Cu_2' in text for text in toasts) == 1
+            assert all('atoms found' not in text for text in toasts)
+
+            for control, value in (('#super-x', '2'), ('#super-y', '2'), ('#super-z', '1')):
+                page.fill(control, value)
+                page.keyboard.press('Tab')
+            page.wait_for_function("""() =>
+                window.__ASE_APP__.state.display.supercell.join(',') === '2,2,1' &&
+                window.__ASE_APP__.renderer.supercellSelectionReferences().length === 6
+            """)
+
+            points = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const renderer = app.renderer;
+                const Vector3 = renderer.camera.position.constructor;
+                renderer.camera.position.set(2, 2, 20);
+                renderer.camera.up.set(0, 1, 0);
+                renderer.controls.target.set(2, 2, 0);
+                renderer.camera.lookAt(renderer.controls.target);
+                renderer.camera.updateMatrixWorld(true);
+                renderer.scene.updateMatrixWorld(true);
+                const rect = renderer.domElement.getBoundingClientRect();
+                const project = values => {
+                    const point = new Vector3(...values).project(renderer.camera);
+                    return {
+                        x: rect.left + (point.x + 1) * rect.width / 2,
+                        y: rect.top + (1 - point.y) * rect.height / 2,
+                    };
+                };
+                return {
+                    xReplica: project([4, 0, 0]),
+                    base: project([0, 0, 0]),
+                    yReplica: project([0, 4, 0]),
+                };
+            }""")
+            page.mouse.click(points['xReplica']['x'], points['xReplica']['y'])
+            page.keyboard.down('Shift')
+            page.mouse.click(points['base']['x'], points['base']['y'])
+            page.mouse.click(points['yReplica']['x'], points['yReplica']['y'])
+            page.keyboard.up('Shift')
+            page.wait_for_function("window.__ASE_APP__.selectionCount() === 3")
+            page.click('[data-inspector-group="inspect"]')
+            _open_panel(page, 'selection')
+
+            selected = page.evaluate("""() => ({
+                count: window.__ASE_APP__.selectionCount(),
+                indices: document.getElementById('selected-indices').innerText,
+                centerLines: [...document.getElementById('selected-center').children]
+                    .map(line => line.textContent),
+                centerLineDelta: (() => {
+                    const lines = [...document.getElementById('selected-center').children];
+                    return lines.length === 2
+                        ? lines[1].getBoundingClientRect().top - lines[0].getBoundingClientRect().top
+                        : 0;
+                })(),
+                measure: document.getElementById('selected-measure').innerText,
+                replicaOutlines: window.__ASE_APP__.renderer.replicaSelectionOutlines.children
+                    .reduce((sum, mesh) => sum + mesh.count, 0),
+            })""")
+            assert selected['count'] == 3
+            assert selected['indices'] == '0@[1,0,0], 0, 0@[0,1,0]'
+            assert selected['centerLines'] == [
+                '1.333, 1.333, 0.000 A',
+                '(frac 0.3333, 0.3333, 0.0000)',
+            ]
+            assert selected['centerLineDelta'] > 5
+            assert 'angle(0@[1,0,0]-0-0@[0,1,0]) = 90.00 deg' in selected['measure']
+            assert selected['replicaOutlines'] == 2
+
+            page.mouse.move(points['yReplica']['x'], points['yReplica']['y'])
+            page.wait_for_function("window.__ASE_APP__.state.hoveredReference?.key === 'replica:0:0,1,0'")
+            hover_text = page.locator('#hover-readout').inner_text()
+            assert '#0@[0,1,0] Cu' in hover_text
+            assert 'measure=' in hover_text
+            assert '90.00 deg' in hover_text
+
+            page.locator('#app-viewport canvas').focus()
+            page.keyboard.press('Control+a')
+            page.wait_for_function("window.__ASE_APP__.selectionCount() === 8")
+            assert page.locator('#prop-selected').inner_text() == '8'
+            assert page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const selected = app.selection.boxSelect(
+                    {left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight},
+                    app.renderer.atomMeshes,
+                    app.renderer.camera,
+                    app.renderer.supercellGroup,
+                    true
+                );
+                return [...selected].filter(value => value?.kind === 'replica').length;
+            }""") == 6
             browser.close()
     finally:
         sessions.pop(editor.session_id, None)

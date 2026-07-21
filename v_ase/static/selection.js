@@ -15,18 +15,27 @@ export class ASESelection {
         );
     }
 
-    pick(e, atomGroup) {
+    pick(e, atomGroup, supercellGroup = null, includeReplicas = false) {
         const mouse = this.getMouse(e);
         this.raycaster.setFromCamera(mouse, this.renderer.camera);
-        
-        const intersects = this.raycaster.intersectObjects(atomGroup.children)
+
+        const repeatedAtoms = includeReplicas
+            ? (supercellGroup?.children || [])
+                .filter(object => object.userData?.supercellInstanced && object.visible !== false)
+            : [];
+        const intersects = this.raycaster.intersectObjects([...atomGroup.children, ...repeatedAtoms])
             .filter(hit => hit.object.visible !== false);
         if (intersects.length > 0) {
-            const hit = intersects[0];
-            if (hit.object.userData.instancedAtoms) {
-                return hit.object.userData.atomIndices?.[hit.instanceId] ?? null;
+            for (const hit of intersects) {
+                if (hit.object.userData.instancedAtoms) {
+                    return hit.object.userData.atomIndices?.[hit.instanceId] ?? null;
+                }
+                if (hit.object.userData.supercellInstanced) {
+                    const reference = this.renderer.supercellAtomReference(hit.object, hit.instanceId);
+                    if (reference) return reference;
+                }
+                if (hit.object.userData.index !== undefined) return hit.object.userData.index;
             }
-            return hit.object.userData.index;
         }
         if ((this.renderer.atomMeshByIndex?.size || 0) > 2000) return null;
         return this.nearestProjectedAtom(e, atomGroup);
@@ -45,9 +54,8 @@ export class ASESelection {
                 return hit.object.userData.atomIndices?.[hit.instanceId] ?? null;
             }
             if (hit.object.userData.supercellInstanced) {
-                const indices = hit.object.userData.atomIndices || [];
-                if (!indices.length || hit.instanceId === undefined || hit.instanceId === null) continue;
-                return indices[hit.instanceId % indices.length] ?? null;
+                const reference = this.renderer.supercellAtomReference(hit.object, hit.instanceId);
+                if (reference) return reference;
             }
             if (hit.object.userData.index !== undefined) return hit.object.userData.index;
         }
@@ -75,7 +83,7 @@ export class ASESelection {
         return null;
     }
 
-    boxSelect(rect, atomGroup, camera) {
+    boxSelect(rect, atomGroup, camera, supercellGroup = null, includeReplicas = false) {
         const selected = new Set();
         const pos = new THREE.Vector3();
         
@@ -97,6 +105,27 @@ export class ASESelection {
                 selected.add(index);
             }
         });
+
+        if (includeReplicas) {
+            const matrix = new THREE.Matrix4();
+            (supercellGroup?.children || []).forEach(mesh => {
+                if (!mesh.userData?.supercellInstanced || mesh.visible === false) return;
+                mesh.updateMatrixWorld(true);
+                for (let instanceId = 0; instanceId < mesh.count; instanceId++) {
+                    const reference = this.renderer.supercellAtomReference(mesh, instanceId);
+                    if (!reference || !this.renderer.atomTypeVisible(reference.index)) continue;
+                    mesh.getMatrixAt(instanceId, matrix);
+                    pos.setFromMatrixPosition(matrix).applyMatrix4(mesh.matrixWorld);
+                    const screenPos = pos.clone().project(camera);
+                    if (screenPos.z > 1 || screenPos.z < -1) continue;
+                    const x = (screenPos.x + 1) / 2 * window.innerWidth;
+                    const y = -(screenPos.y - 1) / 2 * window.innerHeight;
+                    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+                        selected.add(reference);
+                    }
+                }
+            });
+        }
 
         return selected;
     }

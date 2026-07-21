@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.56">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.57">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.56';
+            : '/static/vendor/three.module.js?v=0.0.57';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -40,7 +40,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.56</span>
+            <span class="version">0.0.57</span>
         </div>
         <div class="status-group">
             <div class="status-item">
@@ -74,11 +74,12 @@
             <div id="lighting-widget" class="lighting-widget">
                 <button id="btn-lighting-toggle" class="lighting-trigger" type="button" aria-expanded="false" aria-label="Open render lighting settings" title="Render lighting settings">
                     <svg class="render-light-icon" viewBox="0 0 28 28" aria-hidden="true">
-                        <circle class="render-light-object" cx="14" cy="14" r="10.5"></circle>
-                        <path class="render-light-lit-face" d="M14 3.5a10.5 10.5 0 0 0 0 21c-3.75-2.65-5.65-6.15-5.65-10.5S10.25 6.15 14 3.5Z"></path>
-                        <path class="render-light-terminator" d="M14 3.5c3.75 2.65 5.65 6.15 5.65 10.5S17.75 21.85 14 24.5"></path>
-                        <circle class="render-light-specular" cx="10.4" cy="9.5" r="1.65"></circle>
-                        <circle class="render-light-specular-soft" cx="8.5" cy="12.1" r="0.75"></circle>
+                        <path class="render-lamp-stem" d="M14 1.8v3"></path>
+                        <path class="render-lamp-shade" d="M9.1 4.5h9.8l2.2 5.1H6.9Z"></path>
+                        <path class="render-light-cone" d="M7.2 9.6 3.6 25h20.8L20.8 9.6Z"></path>
+                        <ellipse class="render-light-pool" cx="14" cy="24.8" rx="8.1" ry="1.25"></ellipse>
+                        <circle class="render-light-object" cx="14" cy="18.1" r="5.35"></circle>
+                        <path class="render-light-lit-face" d="M14 12.75a5.35 5.35 0 0 0 0 10.7c-2.25-1.38-3.42-3.17-3.42-5.35s1.17-3.97 3.42-5.35Z"></path>
                     </svg>
                     <span id="lighting-mode-indicator" class="lighting-mode-indicator" aria-hidden="true"></span>
                 </button>
@@ -218,7 +219,7 @@
                     <span id="selected-elements" class="p-val selection-textbox">-</span>
                     <button type="button" class="copy-mini" data-copy-target="selected-elements" aria-label="Copy selected elements" title="Copy elements"><span aria-hidden="true"></span></button>
                 </span>
-                <span class="p-label">Center (unwrapped)</span><span id="selected-center" class="p-val">-</span>
+                <span class="p-label">Center (unwrapped)</span><span id="selected-center" class="p-val selection-center-value">-</span>
                 <span class="p-label">Measure</span><span id="selected-measure" class="p-val">-</span>
             </div>
             <button id="btn-delete-selection" class="btn-block danger-soft" data-edit-only>Delete Selected</button>
@@ -518,9 +519,14 @@
                     <span>Shift + click</span><label>Add or remove selection</label>
                     <span>Left drag</span><label>Box select</label>
                     <span>Middle drag</span><label>Orbit viewport</label>
-                    <span>Right drag</span><label>Pan viewport</label>
-                    <span>G</span><label>Move selected atoms</label>
-                    <span>R</span><label>Rotate selected atoms</label>
+                    <span>Shift + middle drag</span><label>Pan viewport</label>
+                    <span>Space</span><label>Play or pause trajectory</label>
+                    <span>Tab</span><label>Open or close control panel</label>
+                    <span>G</span><label>Move selected atoms or Sun handle</label>
+                    <span>R</span><label>Rotate selected atoms or Sun direction</label>
+                    <span>Sun source + G</span><label>Move source and target together</label>
+                    <span>Sun target + G</span><label>Move target only</label>
+                    <span>Sun handle + R</span><label>Rotate target around source</label>
                     <span>X / Y / Z</span><label>Align view in select mode</label>
                     <span>X / Y / Z</span><label>Lock transform axis in G/R mode</label>
                     <span>Enter</span><label>Confirm transform</label>
@@ -547,7 +553,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.56';
+            : './static/main.js?v=0.0.57';
         import(modulePath);
     </script>
 </body>

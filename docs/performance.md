@@ -68,8 +68,9 @@ reference rather than a universal hardware guarantee.
 
 `tests/test_frontend_regressions.py` locks down the demand-rendering and
 instancing architecture. Browser tests also verify live interactive bond
-formation/breaking, repeated supercell bonds, replica hover without selection,
-and preservation of label-pair cutoffs across structure
+formation/breaking, repeated supercell bonds, interactive-mode replica
+exclusion, visualization-mode replica selection/measurement, atomic relabel
+commits, and preservation of label-pair cutoffs across structure
 updates. The full test suite covers the optimized LAMMPS reader, binary frame
 metadata, constraints, periodic bonds, supercells, export, CLI entry points,
 and packaging.

@@ -70,8 +70,11 @@ viewport option. Unit cell, axes, grid, and supercell preview controls are
 exposed in the inspector. Supercell preview is only enabled when a valid unit
 cell exists and PBC is true in the requested direction; otherwise the UI shows
 a warning and resets the invalid multiplier. Every replica uses the base atom's
-full material and repeats the current bond geometry. Replica atoms support hover
-inspection but remain outside click and box selection until committed.
+full material and repeats the current bond geometry. In visualization mode,
+replicas have stable `base-index + cell-offset` identities and support click,
+Shift-click, box selection, element selection, `Ctrl+A`, hover metadata, and
+displayed-coordinate center/distance/angle measurements. Interactive mode keeps
+replicas outside atom edit selection until the supercell is committed.
 
 ### Inspector Navigation and Lighting
 The inspector is divided into Inspect, Edit, Scene, and Output sections instead
@@ -84,10 +87,10 @@ panel state without using text glyphs. Width, explicit collapsed state, and
 active section are persisted locally.
 
 The lighting control sits in the top toolbar immediately to the right of the
-calculator controls, away from the viewport orientation gizmo. Its object-first
-icon is a large shaded material sphere with a curved terminator and two-stage
-specular highlight; it deliberately omits a separate Sun, rays, fuse-like marks,
-and ground shadow. The settings card opens directly below the toolbar control.
+calculator controls, away from the viewport orientation gizmo. Its compact
+studio-downlight icon illuminates a material sphere and pool when active, making
+the on/off state read as scene lighting rather than an idea bulb. The settings
+card opens directly below the toolbar control.
 
 The viewport renderer has three explicit modes:
 
@@ -105,7 +108,8 @@ select either the source or target in the viewport, and use Blender-style `G`/`R
 optional `X`/`Y`/`Z` axis locking, numeric input, `Enter`, and `Esc`. `Source + G`
 translates source and target together, preserving the light direction. `Target + G`
 moves only the target. `R` always rotates the target around the source, regardless
-of which handle initiated the transform. Direct handle dragging does not change
+of which handle initiated the transform, and free mouse rotation follows the
+same visible direction as atom rotation. Direct handle dragging does not change
 the light. Image export accepts independent lighting values, so a
 high-quality still can be produced while the live viewport remains in Modeling.
 Blender export creates a `SUN` at the same position, rotates its local `-Z` toward

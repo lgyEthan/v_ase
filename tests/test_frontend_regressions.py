@@ -414,7 +414,10 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "previewDetectedBase" in main_js
     assert "typeSelect.value = inferredBase" in main_js
     assert "nameInput.value = this.labelForBaseTypeChange(symbol, typeSelect.value)" in main_js
-    assert "Label ${desired} already exists; using ${next}" in main_js
+    assert "Label ${desiredLabel} already exists; using ${label}" in main_js
+    assert "pendingTypeRenames" in main_js
+    assert "expectedIndices" in main_js
+    assert "No ${oldSymbol} atoms found" not in main_js
     assert "nameInput.addEventListener('change', () => commitRename())" in main_js
     assert "nameInput.addEventListener('change', commitRename)" not in main_js
     assert "detectedElementForLabel" in main_js
@@ -838,11 +841,15 @@ def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
 
     assert 'id="lighting-widget"' in index_html
     assert 'class="render-light-icon"' in index_html
+    assert 'class="render-lamp-stem"' in index_html
+    assert 'class="render-lamp-shade"' in index_html
+    assert 'class="render-light-cone"' in index_html
+    assert 'class="render-light-pool"' in index_html
     assert 'class="render-light-object"' in index_html
     assert 'class="render-light-lit-face"' in index_html
-    assert 'class="render-light-terminator"' in index_html
-    assert 'class="render-light-specular"' in index_html
-    assert 'class="render-light-specular-soft"' in index_html
+    assert 'class="render-light-terminator"' not in index_html
+    assert 'class="render-light-specular"' not in index_html
+    assert 'class="render-light-specular-soft"' not in index_html
     assert 'class="render-light-rays"' not in index_html
     assert 'class="render-light-shadow"' not in index_html
     assert 'class="render-light-source"' not in index_html
@@ -864,6 +871,7 @@ def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
     assert "setupLightingControls" in main_js
     assert "enterSunTransformMode" in main_js
     assert "applySunTransformPreview" in main_js
+    assert "? -this.snapRotationAngle(this.transform.rotationAngle)" in main_js
     assert "currentLightingForExport" in main_js
     assert "startSunHandleDrag" not in renderer_js
     assert "export-render-mode" in main_js
@@ -887,6 +895,12 @@ def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
     assert "if (lighting) body.lighting = lighting" in api_js
     assert "THREE.PCFSoftShadowMap" in renderer_js
     assert "this.renderer.shadowMap.enabled = false" in renderer_js
+    assert "replicaSelectionOutlines" in renderer_js
+    assert "supercellAtomReference" in renderer_js
+    assert "selectionCount()" in main_js
+    assert '<span>Tab</span><label>Open or close control panel</label>' in index_html
+    assert '<span>Tab</span><label>Open or close control panel</label>' in main_js
+    assert '<span>Sun source + G</span><label>Move source and target together</label>' in main_js
     assert "bondDelta(i, j" in renderer_js
     assert "this.displayOptions.showPeriodicBonds" in renderer_js
     assert "data-periodic-bonds" not in index_html

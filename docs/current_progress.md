@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.56`.
+Last synchronized with implementation: `v_ase-gui 0.0.57`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -207,7 +207,7 @@ The frontend manages modes: `IDLE`, `MOVE`, `ROTATE`. Transitions are triggered 
 *   **Manual Pairs**: Explicit pair lists such as `0-1, 1-2` can be supplied in the Bonding panel.
 *   **Recalculation**: Auto and pairwise-cutoff modes are re-inferred during interactive previews and whenever the trajectory frame changes. A cell-list search is used above the small-scene threshold, and bond meshes are rebuilt only when the inferred pair list changes.
 *   **Persistent Settings**: Bond mode, global cutoff scale, label-pair `rcut` values, MIC policy, and manual pairs survive structure refreshes, transform commits, trajectory changes, and display-label edits. Relabeling copies matching pair settings before the renderer rebuilds.
-*   **Supercell Preview**: Atom and bond instances are repeated for every positive supercell shift. Replicas use the original atom material at full opacity, participate in hover readout, and remain outside click/box-selection groups until the supercell is committed as the cell.
+*   **Supercell Preview**: Atom and bond instances are repeated for every positive supercell shift. Replicas use the original atom material at full opacity and participate in hover readout. Visualization mode gives every image a stable base-index/cell-offset identity for click, box, element, and `Ctrl+A` selection plus displayed-coordinate measurements. Interactive mode leaves display images unselectable until the supercell is committed as the cell.
 *   **Appearance**: Bond thickness is the cylinder diameter or flat-ribbon width. Bonds can use a lit 3D cylinder or a camera-facing 2D ribbon, with either one custom color or two midpoint-split segments colored from their endpoint atoms. Viewport bonds retain GPU instancing but are grouped by final material color so custom and split colors are rendered exactly instead of relying on fragile per-instance shader colors. Viewport, PNG/WebM, visual-settings pickle, and Blender export share these values.
 
 ---
@@ -338,7 +338,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.56).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.57).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -368,9 +368,10 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 37**: The inspector now starts collapsed behind a small geometric panel-edge handle with a robust invisible hit area; render lighting is centered above the orientation gizmo and uses a clearly illuminated, two-tone sphere icon whose control card opens away from the gizmo.
 *   [x] **Phase 38**: The inspector handle is centered vertically and slightly enlarged without sacrificing its compact edge-tab form; render lighting now sits to the gizmo's right and uses an explicit Sun-to-sphere illumination icon with a ground shadow.
 *   [x] **Phase 39**: Made custom and midpoint-split bond colors use color-grouped instanced materials for reliable final rendering, and unified number/text/color input commits across Enter, Tab, and focus changes.
-*   [x] **Phase 40**: Reworked Studio Sun as a structure-fitted directional light, eliminating finite shadow-map seams while preserving planar illumination. Source and target are independently selectable for Blender-style `G`/`R` transforms; the object-centered shaded-sphere control now lives beside the calculator in the top toolbar, and browser tests cover both handles, shadow bounds, export settings, and responsive placement.
+*   [x] **Phase 40**: Reworked Studio Sun as a structure-fitted directional light, eliminating finite shadow-map seams while preserving planar illumination. Source and target are independently selectable for Blender-style `G`/`R` transforms; the render-lighting control lives beside the calculator in the top toolbar, and browser tests cover both handles, shadow bounds, export settings, and responsive placement.
 *   [x] **Phase 41**: Supercell previews now instance full-opacity unselectable-but-hoverable atoms and repeated live bonds in every cell; pairwise cutoffs are label-keyed with explicit zero-disable semantics; `Tab` toggles the inspector and all category panels default open; Blender export writes opaque colors to Principled BSDF and is runtime-render tested in Blender 5.
 *   [x] **Phase 42**: Studio Sun now behaves as a coherent light rig: moving the source translates source and target together, moving the target changes aim only, and rotating either selected handle always orbits the target around the source pivot.
+*   [x] **Phase 43**: Appearance relabeling now commits atomically across Enter/change/focus events; visualization-mode supercell images are independently selectable and measurable by cell offset; Selection center fractional coordinates use a dedicated second line; hover metadata mirrors live selection measurements; Sun mouse rotation follows atom rotation direction; and the toolbar lighting control uses an explicit illuminated studio-downlight state.
 
 ---
 
@@ -387,7 +388,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 ## 28. Known Limitations
 1.  Bonds are visualization-only (not stored in `Atoms.topology`).
 2.  Some heavy calculators may lag during real-time constraint dragging.
-3.  Supercell images are display-only repeats and are not directly editable.
+3.  Supercell images are display-only repeats. Visualization mode can select and measure them, but interactive editing requires `Set Supercell as Cell`.
 
 ---
 

@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.56';
-import { ASERenderer } from './renderer.js?v=0.0.56';
-import { ASESelection } from './selection.js?v=0.0.56';
-import { ASETransform } from './transform.js?v=0.0.56';
+import { ASEApi } from './api.js?v=0.0.57';
+import { ASERenderer } from './renderer.js?v=0.0.57';
+import { ASESelection } from './selection.js?v=0.0.57';
+import { ASETransform } from './transform.js?v=0.0.57';
 
 class VAseApp {
     constructor() {
@@ -22,6 +22,8 @@ class VAseApp {
         this.state = {
             atoms: null,
             selected: new Set(),
+            replicaSelected: new Map(),
+            selectionOrder: [],
             originalPositions: [], // For preview transforms
             isDragging: false,
             pointerDownTime: 0,
@@ -67,6 +69,7 @@ class VAseApp {
             rotateIncrementDeg: 0,
             transformReadout: '',
             hoveredIndex: null,
+            hoveredReference: null,
             displayConfigLoaded: false,
             rotationScreenPivot: new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
             rotationLastAngle: 0,
@@ -91,6 +94,7 @@ class VAseApp {
             },
             typeOrder: [],
             typeIndices: new Map(),
+            pendingTypeRenames: new Set(),
             cachedFmax: null,
             displayApplyRequest: null,
             hoverPickTimer: null,
@@ -631,8 +635,8 @@ class VAseApp {
             : null;
         this.state.sunSelected = next;
         this.renderer.setSunGizmoSelected(next);
-        if (next && clearAtoms && this.state.selected.size > 0) {
-            this.state.selected.clear();
+        if (next && clearAtoms && this.selectionCount() > 0) {
+            this.clearAtomSelection();
             this.updateSelectionVisuals();
         }
         if (update) {
@@ -720,7 +724,7 @@ class VAseApp {
     updateUI() {
         this.pruneSelection();
         const meta = this.state.atoms.metadata;
-        const selectedIndices = [...this.state.selected];
+        const selectedEntries = this.selectionEntries();
         const setHtml = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
         
         setHtml('prop-natoms', meta.natoms);
@@ -738,11 +742,17 @@ class VAseApp {
         
         const pbc = this.state.atoms.pbc.map(p => p ? 'T' : 'F').join('');
         setHtml('prop-pbc', pbc);
-        setHtml('prop-selected', this.state.selected.size);
-        this.setCopyableSelectionText('selected-indices', selectedIndices.join(', ') || '-');
-        this.setCopyableSelectionText('selected-elements', selectedIndices.map(i => this.state.atoms.symbols[i]).join(', ') || '-');
-        setHtml('selected-center', this.getSelectionCenterText());
-        setHtml('selected-measure', this.getSelectionMeasureText(selectedIndices));
+        setHtml('prop-selected', selectedEntries.length);
+        this.setCopyableSelectionText(
+            'selected-indices',
+            selectedEntries.map(reference => this.selectionReferenceLabel(reference)).join(', ') || '-'
+        );
+        this.setCopyableSelectionText(
+            'selected-elements',
+            selectedEntries.map(reference => this.selectionReferenceSymbol(reference)).join(', ') || '-'
+        );
+        this.setSelectionCenterText(this.getSelectionCenterText());
+        setHtml('selected-measure', this.getSelectionMeasureText(selectedEntries));
         this.updateTrajectoryUI();
         this.updateElementSelectionControls();
         this.updateSelectionConstraintControls();
@@ -755,6 +765,8 @@ class VAseApp {
         if (stopRelaxBtn) stopRelaxBtn.disabled = !this.state.isRelaxing;
 
         this.updateCommandReadout();
+        const hoverReadout = document.getElementById('hover-readout');
+        if (hoverReadout) hoverReadout.innerText = this.atomHoverText(this.state.hoveredReference);
 
         document.body.dataset.mode = this.transform.mode.toLowerCase();
     }
@@ -765,6 +777,19 @@ class VAseApp {
         el.innerText = value;
         el._copyValue = value === '-' ? '' : value;
         el.title = value.length <= 512 ? value : `${value.slice(0, 509)}...`;
+    }
+
+    setSelectionCenterText(value) {
+        const el = document.getElementById('selected-center');
+        if (!el) return;
+        const lines = String(value).split('\n');
+        el.replaceChildren();
+        lines.forEach(line => {
+            const row = document.createElement('span');
+            row.className = 'selection-center-line';
+            row.textContent = line;
+            el.appendChild(row);
+        });
     }
 
     async copySelectionField(targetId) {
@@ -1026,7 +1051,7 @@ class VAseApp {
             this.loadTrajectoryCache({ background: true });
         }
         if (clearSelection) {
-            this.state.selected.clear();
+            this.clearAtomSelection();
         } else {
             this.pruneSelection();
         }
@@ -1194,6 +1219,9 @@ class VAseApp {
             if (idx < 0 || idx >= count) this.state.selected.delete(idx);
             else if (!this.isAtomVisible(idx)) this.state.selected.delete(idx);
         });
+        this.state.replicaSelected.forEach((reference, key) => {
+            if (!this.replicaReferenceIsSelectable(reference)) this.state.replicaSelected.delete(key);
+        });
     }
 
     applyInitialDisplayConfig(data) {
@@ -1316,6 +1344,7 @@ class VAseApp {
 
     updateSelectionVisuals() {
         this.renderer.setSelection(this.state.selected);
+        this.renderer.setReplicaSelection(this.state.vizOnly ? this.state.replicaSelected.values() : []);
     }
 
     getFixedIndices() {
@@ -1556,14 +1585,151 @@ class VAseApp {
         };
     }
 
+    isReplicaReference(reference) {
+        return Boolean(
+            reference &&
+            typeof reference === 'object' &&
+            reference.kind === 'replica' &&
+            Number.isInteger(reference.index) &&
+            Array.isArray(reference.cellOffset) &&
+            reference.cellOffset.length === 3
+        );
+    }
+
+    normalizeSelectionReference(reference) {
+        if (reference === null || reference === undefined) return null;
+        if (this.isReplicaReference(reference)) {
+            const cellOffset = reference.cellOffset.map(value => Number(value));
+            if (!cellOffset.every(Number.isInteger)) return null;
+            return {
+                kind: 'replica',
+                index: reference.index,
+                cellOffset,
+                key: this.renderer.supercellReferenceKey(reference.index, cellOffset)
+            };
+        }
+        if (reference && typeof reference === 'object' && reference.kind === 'atom') {
+            return Number.isInteger(reference.index)
+                ? { kind: 'atom', index: reference.index, key: `atom:${reference.index}` }
+                : null;
+        }
+        const index = Number(reference);
+        if (!Number.isInteger(index)) return null;
+        return { kind: 'atom', index, key: `atom:${index}` };
+    }
+
+    selectionReferenceKey(reference) {
+        return this.normalizeSelectionReference(reference)?.key || null;
+    }
+
+    selectionEntries() {
+        const available = new Map();
+        this.state.selected.forEach(index => {
+            const reference = this.normalizeSelectionReference(index);
+            if (reference) available.set(reference.key, reference);
+        });
+        if (this.state.vizOnly) {
+            this.state.replicaSelected.forEach((reference, key) => available.set(key, reference));
+        }
+        const entries = [];
+        this.state.selectionOrder.forEach(key => {
+            const reference = available.get(key);
+            if (!reference) return;
+            entries.push(reference);
+            available.delete(key);
+        });
+        available.forEach(reference => entries.push(reference));
+        this.state.selectionOrder = entries.map(reference => reference.key);
+        return entries;
+    }
+
+    selectionCount() {
+        return this.state.selected.size + (this.state.vizOnly ? this.state.replicaSelected.size : 0);
+    }
+
+    clearAtomSelection() {
+        this.state.selected.clear();
+        this.state.replicaSelected.clear();
+        this.state.selectionOrder = [];
+    }
+
+    replicaReferenceIsSelectable(reference) {
+        if (!this.state.vizOnly || !this.isReplicaReference(reference)) return false;
+        const count = this.state.atoms?.positions?.length || 0;
+        if (reference.index < 0 || reference.index >= count || !this.isAtomVisible(reference.index)) return false;
+        const reps = this.state.display.supercell || [1, 1, 1];
+        const offset = reference.cellOffset.map(Number);
+        return offset.every((value, axis) => Number.isInteger(value) && value >= 0 && value < (reps[axis] || 1)) &&
+            offset.some(value => value !== 0);
+    }
+
+    hasSelectionReference(reference) {
+        const normalized = this.normalizeSelectionReference(reference);
+        if (!normalized) return false;
+        if (normalized.kind === 'replica') return this.state.replicaSelected.has(normalized.key);
+        return this.state.selected.has(normalized.index);
+    }
+
+    addSelectionReference(reference) {
+        const normalized = this.normalizeSelectionReference(reference);
+        if (!normalized || !this.isAtomVisible(normalized.index)) return false;
+        const alreadySelected = this.hasSelectionReference(normalized);
+        if (normalized.kind === 'replica') {
+            if (!this.replicaReferenceIsSelectable(normalized)) return false;
+            this.state.replicaSelected.set(normalized.key, normalized);
+        } else {
+            this.state.selected.add(normalized.index);
+        }
+        if (!alreadySelected) this.state.selectionOrder.push(normalized.key);
+        return true;
+    }
+
+    removeSelectionReference(reference) {
+        const normalized = this.normalizeSelectionReference(reference);
+        if (!normalized) return;
+        if (normalized.kind === 'replica') this.state.replicaSelected.delete(normalized.key);
+        else this.state.selected.delete(normalized.index);
+        this.state.selectionOrder = this.state.selectionOrder.filter(key => key !== normalized.key);
+    }
+
+    toggleSelectionReference(reference) {
+        if (this.hasSelectionReference(reference)) this.removeSelectionReference(reference);
+        else this.addSelectionReference(reference);
+    }
+
+    selectionReferencePosition(reference) {
+        const normalized = this.normalizeSelectionReference(reference);
+        if (!normalized) return null;
+        if (normalized.kind === 'replica') {
+            const position = this.renderer.replicaSelectionPosition(normalized);
+            return position?.clone?.() || null;
+        }
+        const position = this.currentAtomPosition(normalized.index);
+        return position ? new THREE.Vector3(...position) : null;
+    }
+
+    selectionReferenceLabel(reference) {
+        const normalized = this.normalizeSelectionReference(reference);
+        if (!normalized) return '-';
+        return normalized.kind === 'replica'
+            ? `${normalized.index}@[${normalized.cellOffset.join(',')}]`
+            : String(normalized.index);
+    }
+
+    selectionReferenceSymbol(reference) {
+        const normalized = this.normalizeSelectionReference(reference);
+        return normalized ? (this.state.atoms?.symbols?.[normalized.index] || '-') : '-';
+    }
+
     getSelectionCenterText() {
-        if (!this.state.atoms || this.state.selected.size === 0) return '-';
+        const selected = this.selectionEntries();
+        if (!this.state.atoms || selected.length === 0) return '-';
         const center = [0, 0, 0];
         let count = 0;
-        this.state.selected.forEach(i => {
-            const p = this.currentAtomPosition(i);
+        selected.forEach(reference => {
+            const p = this.selectionReferencePosition(reference);
             if (!p) return;
-            center[0] += p[0]; center[1] += p[1]; center[2] += p[2];
+            center[0] += p.x; center[1] += p.y; center[2] += p.z;
             count++;
         });
         if (!count) return '-';
@@ -1572,18 +1738,23 @@ class VAseApp {
         if (!this.renderer?.hasValidCell?.()) return `${cartText} A`;
         const frac = this.renderer.cartToFrac(new THREE.Vector3(cart[0], cart[1], cart[2]));
         const fracText = [frac.x, frac.y, frac.z].map(v => v.toFixed(4)).join(', ');
-        return `${cartText} A (frac ${fracText})`;
+        return `${cartText} A\n(frac ${fracText})`;
     }
 
-    selectionDelta(i, j) {
-        const start = this.renderer.getAtomPosition?.(i);
-        if (start && this.renderer.minimumImageDelta) {
-            return this.renderer.minimumImageDelta(i, j, start);
+    selectionDelta(first, second) {
+        const a = this.normalizeSelectionReference(first);
+        const b = this.normalizeSelectionReference(second);
+        if (!a || !b) return null;
+        if (a.kind === 'atom' && b.kind === 'atom') {
+            const start = this.renderer.getAtomPosition?.(a.index);
+            if (start && this.renderer.minimumImageDelta) {
+                return this.renderer.minimumImageDelta(a.index, b.index, start);
+            }
         }
-        const pi = this.currentAtomPosition(i);
-        const pj = this.currentAtomPosition(j);
+        const pi = this.selectionReferencePosition(a);
+        const pj = this.selectionReferencePosition(b);
         if (!pi || !pj) return null;
-        return new THREE.Vector3(pj[0] - pi[0], pj[1] - pi[1], pj[2] - pi[2]);
+        return pj.clone().sub(pi);
     }
 
     selectionDistance(i, j) {
@@ -1598,22 +1769,26 @@ class VAseApp {
         return THREE.MathUtils.radToDeg(ji.angleTo(jk));
     }
 
-    getSelectionMeasureText(selectedIndices = [...this.state.selected]) {
-        if (!this.state.atoms || selectedIndices.length < 2) return '-';
-        if (selectedIndices.length === 2) {
-            const [i, j] = selectedIndices;
+    getSelectionMeasureText(selectedReferences = this.selectionEntries()) {
+        if (!this.state.atoms || selectedReferences.length === 0) return '-';
+        if (selectedReferences.length === 1) return '1 atom selected';
+        if (selectedReferences.length === 2) {
+            const [i, j] = selectedReferences;
             const distance = this.selectionDistance(i, j);
-            return Number.isFinite(distance) ? `d(${i}-${j}) = ${this.formatNumber(distance, 4)} A` : '-';
+            return Number.isFinite(distance)
+                ? `d(${this.selectionReferenceLabel(i)}-${this.selectionReferenceLabel(j)}) = ${this.formatNumber(distance, 4)} A`
+                : '-';
         }
-        if (selectedIndices.length === 3) {
-            const [i, j, k] = selectedIndices;
+        if (selectedReferences.length === 3) {
+            const [i, j, k] = selectedReferences;
             const left = this.selectionDistance(i, j);
             const right = this.selectionDistance(j, k);
             const angle = this.selectionAngle(i, j, k);
             if (![left, right, angle].every(Number.isFinite)) return '-';
-            return `d(${i}-${j}) = ${this.formatNumber(left, 4)} A | d(${j}-${k}) = ${this.formatNumber(right, 4)} A | angle(${i}-${j}-${k}) = ${this.formatNumber(angle, 2)} deg`;
+            const labels = [i, j, k].map(reference => this.selectionReferenceLabel(reference));
+            return `d(${labels[0]}-${labels[1]}) = ${this.formatNumber(left, 4)} A | d(${labels[1]}-${labels[2]}) = ${this.formatNumber(right, 4)} A | angle(${labels.join('-')}) = ${this.formatNumber(angle, 2)} deg`;
         }
-        return `${selectedIndices.length} atoms selected`;
+        return `${selectedReferences.length} atoms selected`;
     }
 
     worldToScreen(vec) {
@@ -1780,31 +1955,38 @@ class VAseApp {
         return this.state.atoms?.positions?.[index] || null;
     }
 
-    atomHoverText(index) {
-        if (index === null || index === undefined || !this.state.atoms?.symbols?.[index]) {
-            return 'Hover atom: -';
+    atomHoverText(reference) {
+        const normalized = this.normalizeSelectionReference(reference);
+        const measure = this.getSelectionMeasureText();
+        if (!normalized || !this.state.atoms?.symbols?.[normalized.index]) {
+            return `Hover atom: -  |  measure=${measure}`;
         }
+        const index = normalized.index;
         const symbol = this.state.atoms.symbols[index];
-        const pos = this.currentAtomPosition(index);
+        const position = this.selectionReferencePosition(normalized);
+        const pos = position ? position.toArray() : null;
         const force = this.state.atoms.forces?.[index] || null;
         const charge = this.state.atoms.charges?.[index];
         const tag = this.state.atoms.tags?.[index];
         const magmom = this.state.atoms.magmoms?.[index];
         const parts = [
-            `#${index} ${symbol}`,
+            `#${this.selectionReferenceLabel(normalized)} ${symbol}`,
             `pos=${this.formatVectorTuple(pos)}`,
             `force=${this.formatVectorTuple(force)}`,
             `charge=${this.formatNumber(Number(charge), 4)}`,
             `tag=${tag ?? '-'}`,
-            `magmom=${this.formatNumber(Number(magmom), 4)}`
+            `magmom=${this.formatNumber(Number(magmom), 4)}`,
+            `measure=${measure}`
         ];
         return parts.join('  |  ');
     }
 
-    setHoveredAtom(index) {
-        const normalized = index === null || index === undefined ? null : index;
-        if (this.state.hoveredIndex === normalized) return;
-        this.state.hoveredIndex = normalized;
+    setHoveredAtom(reference) {
+        const normalized = reference === null || reference === undefined
+            ? null
+            : this.normalizeSelectionReference(reference);
+        this.state.hoveredReference = normalized;
+        this.state.hoveredIndex = normalized?.index ?? null;
         const readout = document.getElementById('hover-readout');
         if (readout) readout.innerText = this.atomHoverText(normalized);
     }
@@ -1886,7 +2068,7 @@ class VAseApp {
     sunTransformRotation() {
         const numeric = this.transform.getNumericValue();
         let angle = numeric === null
-            ? this.snapRotationAngle(this.transform.rotationAngle)
+            ? -this.snapRotationAngle(this.transform.rotationAngle)
             : THREE.MathUtils.degToRad(numeric);
         if (!Number.isFinite(angle)) angle = 0;
 
@@ -2401,14 +2583,20 @@ class VAseApp {
         this.state.selected.forEach(index => {
             if (!this.isAtomVisible(index)) this.state.selected.delete(index);
         });
+        this.state.replicaSelected.forEach((reference, key) => {
+            if (!this.isAtomVisible(reference.index)) this.state.replicaSelected.delete(key);
+        });
     }
 
     elementSelectionState(symbol) {
         const indices = this.elementIndices(symbol);
-        if (!indices.length) return 'none';
-        const selected = indices.filter(index => this.state.selected.has(index)).length;
+        const replicas = this.state.vizOnly ? this.renderer.supercellSelectionReferences(symbol) : [];
+        const total = indices.length + replicas.length;
+        if (!total) return 'none';
+        const selected = indices.filter(index => this.state.selected.has(index)).length +
+            replicas.filter(reference => this.state.replicaSelected.has(reference.key)).length;
         if (selected === 0) return 'none';
-        return selected === indices.length ? 'all' : 'partial';
+        return selected === total ? 'all' : 'partial';
     }
 
     safeControlId(prefix, value) {
@@ -2601,7 +2789,7 @@ class VAseApp {
             const row = document.createElement('div');
             row.className = 'element-radius-row element-appearance-row';
             const currentElement = this.chemicalSymbolForLabel(symbol);
-            const typeIndices = this.elementIndices(symbol);
+            const typeIndices = [...this.elementIndices(symbol)];
             const typeSelect = document.createElement('input');
             typeSelect.type = 'text';
             typeSelect.setAttribute('list', 'element-type-options');
@@ -2622,7 +2810,14 @@ class VAseApp {
                     ...(this.state.display.elementVisible || {}),
                     [symbol]: visibleBox.checked
                 };
-                if (!visibleBox.checked) this.elementIndices(symbol).forEach(index => this.state.selected.delete(index));
+                if (!visibleBox.checked) {
+                    this.elementIndices(symbol).forEach(index => this.state.selected.delete(index));
+                    this.state.replicaSelected.forEach((reference, key) => {
+                        if (this.state.atoms?.symbols?.[reference.index] === symbol) {
+                            this.state.replicaSelected.delete(key);
+                        }
+                    });
+                }
                 this.safeApplyDisplayOptions();
                 this.updateElementSelectionControls();
                 this.updateUI();
@@ -2654,16 +2849,17 @@ class VAseApp {
                     if (Number.isFinite(radius) && radius > 0) input.value = Number(radius.toFixed(4));
                 }
             };
-            const commitRename = (baseOverride = null) => {
+            let renameRequestKey = null;
+            const commitRename = async (baseOverride = null) => {
                 const desired = this.normalizedTypeLabel(nameInput.value);
-                const next = this.uniqueTypeLabel(desired, symbol);
-                const inferredBase = this.detectedElementForLabel(next);
+                const inferredBase = this.detectedElementForLabel(desired);
                 const base = baseOverride || inferredBase;
-                if (desired && next !== desired) {
-                    nameInput.value = next;
-                    this.toast(`Label ${desired} already exists; using ${next} to keep atom types separate.`, 'warning');
-                }
-                if (next && (next !== symbol || base !== currentElement)) this.renameElementType(symbol, next, base);
+                const requestKey = `${desired}\u0000${base || ''}`;
+                if (!desired || renameRequestKey === requestKey) return;
+                if (desired === symbol && (!base || base === currentElement)) return;
+                renameRequestKey = requestKey;
+                const applied = await this.renameElementType(symbol, desired, base, typeIndices);
+                if (!applied && nameInput.isConnected) renameRequestKey = null;
             };
             typeSelect.addEventListener('change', () => {
                 if (!this.chemicalElementOptions().includes(typeSelect.value)) {
@@ -2678,17 +2874,16 @@ class VAseApp {
                 commitRename(typeSelect.value);
             });
             nameInput.addEventListener('keydown', event => {
-                if (event.key === 'Enter') {
-                    event.preventDefault();
-                    commitRename();
-                    nameInput.blur();
-                } else if (event.key === 'Escape') {
+                if (event.key === 'Escape') {
                     event.preventDefault();
                     nameInput.value = symbol;
                     nameInput.blur();
                 }
             });
-            nameInput.addEventListener('input', previewDetectedBase);
+            nameInput.addEventListener('input', () => {
+                renameRequestKey = null;
+                previewDetectedBase();
+            });
             nameInput.addEventListener('change', () => commitRename());
 
             const color = document.createElement('input');
@@ -2783,6 +2978,12 @@ class VAseApp {
             if (checked) this.state.selected.add(index);
             else this.state.selected.delete(index);
         });
+        if (this.state.vizOnly) {
+            this.renderer.supercellSelectionReferences(symbol).forEach(reference => {
+                if (checked) this.addSelectionReference(reference);
+                else this.removeSelectionReference(reference);
+            });
+        }
         this.updateSelectionVisuals();
         this.updateElementSelectionControls();
         this.updateUI();
@@ -2792,20 +2993,22 @@ class VAseApp {
         this.toggleElementSelection(symbol, true);
     }
 
-    async renameElementType(oldSymbol, nextLabel, baseSymbol = null) {
+    async renameElementType(oldSymbol, nextLabel, baseSymbol = null, expectedIndices = null) {
         const desiredLabel = this.normalizedTypeLabel(nextLabel);
-        const label = this.uniqueTypeLabel(desiredLabel, oldSymbol);
-        if (!label) {
+        if (!desiredLabel) {
             this.toast('Atom type name cannot be empty.', 'warning');
-            return;
+            return false;
         }
+        if (this.state.pendingTypeRenames.has(oldSymbol)) return true;
+        const indices = Array.isArray(expectedIndices)
+            ? [...expectedIndices]
+            : [...this.elementIndices(oldSymbol)];
+        const labels = this.state.atoms?.symbols || [];
+        if (!indices.length || indices.some(index => labels[index] !== oldSymbol)) return false;
+
+        const label = this.uniqueTypeLabel(desiredLabel, oldSymbol);
         if (desiredLabel && label !== desiredLabel) {
             this.toast(`Label ${desiredLabel} already exists; using ${label} to keep atom types separate.`, 'warning');
-        }
-        const indices = this.elementIndices(oldSymbol);
-        if (!indices.length) {
-            this.toast(`No ${oldSymbol} atoms found.`, 'warning');
-            return;
         }
         const base = baseSymbol === null || baseSymbol === undefined
             ? this.detectedElementForLabel(label)
@@ -2813,11 +3016,12 @@ class VAseApp {
         const oldBase = this.chemicalSymbolForLabel(oldSymbol);
         const effectiveBase = base || oldBase;
         const preserveAppearance = effectiveBase === oldBase;
-        if (!this.canEditAtoms()) {
-            this.renameElementTypeForVisualization(oldSymbol, label, indices, effectiveBase, { preserveAppearance });
-            return;
-        }
+        this.state.pendingTypeRenames.add(oldSymbol);
         try {
+            if (!this.canEditAtoms()) {
+                this.renameElementTypeForVisualization(oldSymbol, label, indices, effectiveBase, { preserveAppearance });
+                return true;
+            }
             const actionText = label === oldSymbol
                 ? `Updating ${oldSymbol} element type to ${effectiveBase}`
                 : `Renaming ${oldSymbol} to ${label}`;
@@ -2835,8 +3039,12 @@ class VAseApp {
                     : `Renamed ${oldSymbol} to ${label}.`,
                 'success'
             );
+            return true;
         } catch (err) {
             this.toast(`Rename failed: ${err.message}`, 'error');
+            return false;
+        } finally {
+            this.state.pendingTypeRenames.delete(oldSymbol);
         }
     }
 
@@ -2876,6 +3084,8 @@ class VAseApp {
         this.renderer.renameAtomType(oldSymbol, label, indices, this.state.display, base);
         this.renderElementRadiusControls();
         this.updateElementSelectionControls();
+        this.pruneSelection();
+        this.updateSelectionVisuals();
         this.updateUI();
         this.toast(
             label === oldSymbol
@@ -2982,7 +3192,7 @@ class VAseApp {
         if (!preserveAppearance) this.setElementBaseDefaults(label, baseSymbol, { color: true });
         this.renderElementBondControls();
         this.renderer.rebuildAtoms(this.state.atoms, this.state.atoms.metadata?.custom_colors || {});
-        this.renderer.setSelection(this.state.selected);
+        this.updateSelectionVisuals();
         this.renderElementRadiusControls();
         this.updateElementSelectionControls();
         this.updateUI();
@@ -3159,7 +3369,7 @@ class VAseApp {
         this.state.display.sphereQuality = this.state.sphereQuality;
         this.state.display.vizOnly = this.state.vizOnly;
         this.updateRadiusScaleLabel();
-        this.pruneHiddenSelection();
+        this.pruneSelection();
         this.renderer.setDisplayOptions(this.state.display);
         this.updateSelectionVisuals();
         this.updateElementSelectionControls();
@@ -3798,10 +4008,14 @@ class VAseApp {
                 <span>Shift + click</span><label>Add or remove selection</label>
                 <span>Left drag</span><label>Box select</label>
                 <span>Middle drag</span><label>Orbit viewport</label>
-                <span>Right drag</span><label>Pan viewport</label>
+                <span>Shift + middle drag</span><label>Pan viewport</label>
                 <span>Space</span><label>Play or pause trajectory</label>
-                <span>G</span><label>Move selected atoms or Sun object</label>
-                <span>R</span><label>Rotate selected atoms or Sun object</label>
+                <span>Tab</span><label>Open or close control panel</label>
+                <span>G</span><label>Move selected atoms or Sun handle</label>
+                <span>R</span><label>Rotate selected atoms or Sun direction</label>
+                <span>Sun source + G</span><label>Move source and target together</label>
+                <span>Sun target + G</span><label>Move target only</label>
+                <span>Sun handle + R</span><label>Rotate target around source</label>
                 <span>X / Y / Z</span><label>Align view in select mode</label>
                 <span>X / Y / Z</span><label>Lock transform axis in G/R mode</label>
                 <span>Enter</span><label>Confirm transform</label>
@@ -4719,15 +4933,17 @@ class VAseApp {
 
             if (clickDuration < 300 && dist < 5) {
                 // Single Click
-                const picked = this.selection.pick(e, this.renderer.atomMeshes);
-                if (!e.shiftKey) this.state.selected.clear();
-                
+                const picked = this.selection.pick(
+                    e,
+                    this.renderer.atomMeshes,
+                    this.renderer.supercellGroup,
+                    this.state.vizOnly
+                );
+                if (!e.shiftKey) this.clearAtomSelection();
+
                 if (picked !== null) {
-                    if (this.state.selected.has(picked)) {
-                        this.state.selected.delete(picked);
-                    } else {
-                        this.state.selected.add(picked);
-                    }
+                    if (e.shiftKey) this.toggleSelectionReference(picked);
+                    else this.addSelectionReference(picked);
                 }
                 this.updateSelectionVisuals();
                 this.updateUI();
@@ -4739,10 +4955,16 @@ class VAseApp {
                     top: Math.min(this.selection.startPoint.y, e.clientY),
                     bottom: Math.max(this.selection.startPoint.y, e.clientY)
                 };
-                const newSelected = this.selection.boxSelect(rect, this.renderer.atomMeshes, this.renderer.camera);
-                
-                if (!e.shiftKey) this.state.selected.clear();
-                newSelected.forEach(idx => this.state.selected.add(idx));
+                const newSelected = this.selection.boxSelect(
+                    rect,
+                    this.renderer.atomMeshes,
+                    this.renderer.camera,
+                    this.renderer.supercellGroup,
+                    this.state.vizOnly
+                );
+
+                if (!e.shiftKey) this.clearAtomSelection();
+                newSelected.forEach(reference => this.addSelectionReference(reference));
                 this.updateSelectionVisuals();
                 this.updateUI();
             }
@@ -4835,9 +5057,15 @@ class VAseApp {
                     e.preventDefault();
                     this.setSunSelected(false, { update: false });
                     if (e.altKey) {
-                        this.state.selected.clear();
+                        this.clearAtomSelection();
                     } else {
-                        this.state.atoms.positions.forEach((_, idx) => this.state.selected.add(idx));
+                        this.clearAtomSelection();
+                        this.state.atoms.positions.forEach((_, idx) => this.addSelectionReference(idx));
+                        if (this.state.vizOnly) {
+                            this.renderer.supercellSelectionReferences().forEach(reference => {
+                                this.addSelectionReference(reference);
+                            });
+                        }
                     }
                     this.updateSelectionVisuals();
                     this.updateUI();
