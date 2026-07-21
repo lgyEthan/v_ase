@@ -210,7 +210,7 @@ class BlenderTumbleControls {
     doZoom(deltaY) {
         const factor = Math.exp(deltaY * this.zoomSpeed);
         if (this.camera.isOrthographicCamera) {
-            this.camera.zoom = Math.max(0.05, Math.min(80, this.camera.zoom / factor));
+            this.camera.zoom = Math.max(1e-4, Math.min(1e5, this.camera.zoom / factor));
             this.camera.updateProjectionMatrix();
             this.onChange?.();
             return;
@@ -333,7 +333,10 @@ export class ASERenderer {
         this.lastExportPreview = null;
 
         this.controls = new BlenderTumbleControls(this.camera, this.renderer.domElement);
-        this.controls.onChange = () => this.requestRender();
+        this.controls.onChange = () => {
+            this.onCameraChange?.({ source: 'controls' });
+            this.requestRender();
+        };
 
         this.modelingLightGroup = new THREE.Group();
         this.modelingLightGroup.name = 'v_ase_modeling_lights';
@@ -468,8 +471,8 @@ export class ASERenderer {
             supercell: [1, 1, 1],
             antiAliasing: true,
             sphereQuality: 'auto',
-            imageScaleMode: 'viewport',
-            imagePixelsPerAngstrom: 100,
+            imageFramingMode: 'viewport',
+            atomicScalePixelsPerAngstrom: null,
             imageSphereQuality: 'viewport',
             imageSmoothnessScale: 1,
             vizOnly: false,
@@ -1707,6 +1710,7 @@ export class ASERenderer {
         this.orthographicCamera.far = this.camera.far;
         this.updateCameraProjection(aspect);
         this.controls.update?.();
+        this.onCameraChange?.({ source: 'fit' });
     }
 
     updateRenderQuality() {
@@ -1751,9 +1755,13 @@ export class ASERenderer {
     }
 
     setProjectionMode(mode = 'perspective') {
+        const pixelsPerAngstrom = this.currentPixelsPerAngstrom();
         const nextMode = mode === 'orthographic' ? 'orthographic' : 'perspective';
         if (nextMode === this.projectionMode) {
             this.updateCameraProjection();
+            this.setPixelsPerAngstrom(pixelsPerAngstrom, { requestRender: false, notify: false });
+            this.onCameraChange?.({ source: 'projection' });
+            this.requestRender();
             return;
         }
         const source = this.camera;
@@ -1768,6 +1776,8 @@ export class ASERenderer {
         this.controls.camera = target;
         this.updateCameraProjection();
         this.camera.lookAt(this.controls.target);
+        this.setPixelsPerAngstrom(pixelsPerAngstrom, { requestRender: false, notify: false });
+        this.onCameraChange?.({ source: 'projection' });
         this.requestRender();
     }
 
@@ -1799,6 +1809,32 @@ export class ASERenderer {
         const effectiveFov = this.camera?.getEffectiveFOV?.() || this.camera?.fov || 50;
         const worldHeight = 2 * distance * Math.tan(THREE.MathUtils.degToRad(effectiveFov) / 2);
         return worldHeight > 1e-9 ? height / worldHeight : 1;
+    }
+
+    setPixelsPerAngstrom(value, { requestRender = true, notify = true, source = 'api' } = {}) {
+        const targetScale = Math.max(0.1, Math.min(5000, Number(value) || 1));
+        const currentScale = Math.max(1e-9, this.currentPixelsPerAngstrom());
+        if (this.camera?.isOrthographicCamera) {
+            this.camera.zoom = Math.max(
+                1e-4,
+                Math.min(1e5, (this.camera.zoom || 1) * targetScale / currentScale)
+            );
+            this.camera.updateProjectionMatrix();
+        } else if (this.camera?.isPerspectiveCamera) {
+            const target = this.controls?.target || new THREE.Vector3();
+            const offset = new THREE.Vector3().subVectors(this.camera.position, target);
+            if (offset.lengthSq() < 1e-12) {
+                this.camera.getWorldDirection(offset).multiplyScalar(-1);
+            }
+            const currentDistance = Math.max(1e-6, this.camera.position.distanceTo(target));
+            const targetDistance = currentDistance * currentScale / targetScale;
+            this.camera.position.copy(target).addScaledVector(offset.normalize(), targetDistance);
+            this.camera.lookAt(target);
+            this.camera.updateMatrixWorld(true);
+        }
+        if (notify) this.onCameraChange?.({ source });
+        if (requestRender) this.requestRender();
+        return this.currentPixelsPerAngstrom();
     }
 
     exportCameraSetup(width, height, options = {}) {
@@ -4144,8 +4180,11 @@ export class ASERenderer {
     }
 
     onResize() {
-        this.updateCameraProjection();
+        const pixelsPerAngstrom = this.currentPixelsPerAngstrom();
         this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.updateCameraProjection();
+        this.setPixelsPerAngstrom(pixelsPerAngstrom, { requestRender: false, notify: false });
+        this.onCameraChange?.({ source: 'resize' });
         this.requestRender();
     }
 

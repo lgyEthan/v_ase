@@ -101,7 +101,12 @@ available in both workflows.
   frames. See [Rendering Performance](https://github.com/lgyEthan/v_ase/blob/main/docs/performance.md)
   for architecture and reproducible benchmark details.
 - Orthographic projection is the default view, with perspective available from
-  the View panel.
+  the View panel. `Atomic scale` is a live viewport control in `Display > Viewport`,
+  not an image-export-only setting: changing its `px/Å` value immediately zooms
+  the current structure, the field below reports the visible width and height in
+  Å, and wheel zoom updates the value in return. This follows
+  [VESTA's live magnification model](https://www.jp-minerals.org/vesta/en/doc/VESTAch11.html)
+  and its separation of display magnification from raster-image export.
 - The control panel is organized into Inspect, Structure, Display, and Output
   sections. It starts collapsed and opens from a compact edge handle, leaving
   the viewport unobstructed until controls are needed. v_ase remembers the
@@ -170,8 +175,8 @@ available in both workflows.
   portable atom arrays, and valid `SinglePointCalculator` results, but excludes
   visualization settings and arbitrary executable calculator objects.
   Image export can preserve the complete live camera composition without crop
-  or offset, or use a fixed `px/Å` scale for directly comparable images from
-  different structures. `Preview Area` renders that same export camera and
+  or offset, or use the global View `Atomic scale` for directly comparable images
+  from different structures. `Preview Area` renders that same export camera and
   scene inside a screen-fixed frame whose aspect follows image W/H; orbiting or
   zooming changes the atoms inside the frame without moving the frame itself.
   Export-only atom smoothness and its quality multiplier are independent of
@@ -586,15 +591,19 @@ From the right panel:
 - `Export Image`
 - `Export Video`
 
-Image export provides its own resolution, transparency, grid, axes, physical
-scale, atom smoothness, and render-lighting controls. `Current viewport`
+Image export provides resolution, transparency, grid, axes, atom smoothness,
+and render-lighting controls. Atomic scale is deliberately controlled from
+`Display > Viewport`, where changing `px/Å` zooms the visible structure immediately.
+The accompanying viewport-span readout gives the visible width and height in Å.
+This mirrors VESTA's treatment of magnification as a property of the live 3D view,
+rather than a value hidden inside raster export. `Current viewport`
 preserves the live camera projection and complete composition; when the output
 aspect ratio differs, v_ase centers that view with margins instead of cropping
-or shifting it. `Fixed physical scale` uses pixels per Angstrom (`px/Å`), so the
-same value produces the same physical scale across different structures. For an
-output width `W` and scale `s`, the horizontal field is `W / s` Å. In perspective
-projection this scale is defined at the camera target plane; orthographic export
-has uniform scale at every depth.
+or shifting it. `Atomic scale from View` uses the current global pixels per
+Angstrom (`px/Å`), so the same value produces the same physical scale across
+different structures. For an output width `W` and scale `s`, the horizontal
+field is `W / s` Å. In perspective projection this scale is defined at the camera
+target plane; orthographic export has uniform scale at every depth.
 
 Set `image W` and `image H`, then enable `Preview Area` to see the actual export
 camera rendered inside a fixed screen-space frame. The frame uses the requested

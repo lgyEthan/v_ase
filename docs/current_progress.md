@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.64`.
+Last synchronized with implementation: `v_ase-gui 0.0.65`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -243,16 +243,18 @@ possible, and update the frontend state. This behavior is covered by
     `SinglePointCalculator` when present. Visualization state and arbitrary
     executable calculator implementations are excluded.
 *   **PNG Image**: Export options include resolution, transparent background,
-    grid, axes, exact live-viewport composition, fixed `px/Å` physical scale,
+    grid, axes, exact live-viewport composition, the global Viewport `Atomic scale`,
     and export-only sphere quality plus a `0.5x`-`2.0x` smoothness multiplier.
     Output also provides a demand-rendered, screen-fixed preview frame whose
     aspect follows the requested image dimensions. It reuses the PNG camera and
     scene-state path, including centered margins, and remains fixed while zoom
     changes the structure scale inside it.
     Exact-view export renders through a cloned camera and centers mismatched
-    output aspect ratios without cropping or mutating the live camera. Fixed
-    physical scale sets the orthographic field directly in Angstrom; perspective
-    scale is defined at the camera target plane. An independent Modeling, Studio
+    output aspect ratios without cropping or mutating the live camera. Atomic
+    scale is edited in the live Viewport in `px/Å`, immediately changes camera
+    zoom, and reports the current field in Angstrom. Export can inherit that scale,
+    setting the orthographic field directly in Angstrom; perspective scale is
+    defined at the camera target plane. An independent Modeling, Studio
     Sun, or Sun + Soft Shadow setup controls brightness, source, and direction
     target. Studio Sun uses
     parallel directional rays; its shadow camera is centered and fitted to the
@@ -381,7 +383,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.64).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.65).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -420,8 +422,9 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 46**: Added `v_ase gui` empty-workspace startup, streaming browser file/project loading with explicit reader and frame selection, a three-format save guide, and strict current-frame ASE Pickle export limited to valid `SinglePointCalculator` results.
 *   [x] **Phase 47**: Corrected free `R` screen-space direction to agree with axis-locked rotation; replaced bond-length rejection with a CellMatch-style 2D integer-boundary search, principal-strain candidate rays, collision-free angle strip, zero-degree identity target, and optional magnetic angle snapping; made `Tab` open-only and `Esc` close/focus the inspector workflow; and replaced the renderer glyph with matched matte/lit sphere states.
 *   [x] **Phase 48**: Centralized the application chrome into a role-based charcoal/teal/amber/red palette, moved the matte/lit renderer icon gradients onto the same tokens, eliminated isolated light-colored form controls, and synchronized viewport axis/grid colors with their toolbar counterparts.
-*   [x] **Phase 49**: Image export uses a cloned camera to preserve the complete live composition without crop or shift, adds reusable fixed `px/Å` physical scaling across structures, and applies export-only sphere quality plus a bounded smoothness multiplier without rebuilding the live scene.
+*   [x] **Phase 49**: Image export uses a cloned camera to preserve the complete live composition without crop or shift, supports physical `px/Å` framing, and applies export-only sphere quality plus a bounded smoothness multiplier without rebuilding the live scene.
 *   [x] **Phase 50**: Added an exact, demand-rendered export preview in a fixed screen-space frame. The frame tracks output pixel aspect ratio, shares PNG camera/scene state, remains stationary through zoom, and is Chromium pixel-compared against the final export path.
+*   [x] **Phase 51**: Moved Atomic scale from the image dialog into the live Viewport. The bidirectional `px/Å` control immediately zooms orthographic and perspective cameras, reports the visible Angstrom span, survives projection and viewport-size changes, persists in JSON/`.vase`, and remains available to preview/PNG as `Atomic scale from View`.
 
 ---
 

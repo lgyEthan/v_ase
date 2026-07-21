@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.64&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.65&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.64';
+            : '/static/vendor/three.module.js?v=0.0.65';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -57,7 +57,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.64</span>
+            <span class="version">0.0.65</span>
         </div>
         <div class="status-group">
             <div class="status-item">
@@ -308,6 +308,14 @@
                     <option value="orthographic" selected>Orthographic</option>
                 </select>
             </div>
+            <div class="prop-row atomic-scale-row">
+                <label for="atomic-scale">Atomic scale</label>
+                <div class="atomic-scale-control">
+                    <input type="number" id="atomic-scale" value="100" min="0.1" max="5000" step="1" inputmode="decimal">
+                    <span class="atomic-scale-unit">px/Å</span>
+                </div>
+            </div>
+            <p id="atomic-scale-span" class="atomic-scale-span">Viewport span: -- Å × -- Å</p>
             <div class="prop-row">
                 <label for="chk-cell">Unit Cell</label>
                 <input type="checkbox" id="chk-cell" checked>
@@ -668,7 +676,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.64&rev=1';
+            : './static/main.js?v=0.0.65&rev=1';
         import(modulePath);
     </script>
 </body>

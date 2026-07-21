@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.64&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.64&rev=1';
-import { ASESelection } from './selection.js?v=0.0.64&rev=1';
-import { ASETransform } from './transform.js?v=0.0.64&rev=1';
+import { ASEApi } from './api.js?v=0.0.65&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.65&rev=1';
+import { ASESelection } from './selection.js?v=0.0.65&rev=1';
+import { ASETransform } from './transform.js?v=0.0.65&rev=1';
 
 class VAseApp {
     constructor() {
@@ -18,6 +18,9 @@ class VAseApp {
         this.pendingFrameIndex = null;
         this.controlCommitState = new WeakMap();
         this.renderer.onFrame = () => this.updateOrientationWidget();
+        this.renderer.onCameraChange = event => this.syncAtomicScaleFromCamera({
+            forceInput: event?.source !== 'scale-input'
+        });
         
         this.state = {
             atoms: null,
@@ -64,8 +67,8 @@ class VAseApp {
                 sunTarget: [0, 0, 0],
                 sunGizmo: false,
                 blenderExportMode: 'instanced',
-                imageScaleMode: 'viewport',
-                imagePixelsPerAngstrom: 100,
+                imageFramingMode: 'viewport',
+                atomicScalePixelsPerAngstrom: null,
                 imageSphereQuality: 'viewport',
                 imageSmoothnessScale: 1
             },
@@ -726,10 +729,17 @@ class VAseApp {
             this.updateUI();
             
             this.state.display.vizOnly = this.state.vizOnly;
+            const requestedAtomicScale = Number(this.state.display.atomicScalePixelsPerAngstrom);
+            const hasRequestedAtomicScale = Number.isFinite(requestedAtomicScale) && requestedAtomicScale > 0;
             this.renderer.setDisplayOptions(this.state.display, { rebuild: false });
             this.renderer.rebuildAtoms(data, data.metadata.custom_colors || {});
             const projectCamera = data.metadata?.config?.initial_design_settings?.camera;
-            if (projectCamera) this.applyCameraSettings(projectCamera);
+            if (projectCamera) this.applyCameraSettings(projectCamera, { syncScale: false });
+            if (projectCamera && hasRequestedAtomicScale) {
+                this.renderer.setPixelsPerAngstrom(requestedAtomicScale);
+            } else {
+                this.syncAtomicScaleFromCamera({ forceInput: true });
+            }
             if (!this.initialDesignSettings) this.initialDesignSettings = this.designSettingsSnapshot();
             
             this.updateSelectionVisuals();
@@ -1341,6 +1351,7 @@ class VAseApp {
         document.getElementById('commensurate-snap-range').value = this.state.display.commensurateSnapRangeDeg;
         const projectionMode = document.getElementById('projection-mode');
         if (projectionMode) projectionMode.value = this.state.display.projectionMode;
+        this.syncAtomicScaleFromCamera({ forceInput: true, syncPreview: false });
         this.updateRadiusScaleLabel();
         this.syncLightingControls();
         this.updateEditingAvailability();
@@ -1639,6 +1650,58 @@ class VAseApp {
             near: camera.near,
             far: camera.far
         };
+    }
+
+    atomicScaleText(value) {
+        const scale = Number(value);
+        if (!Number.isFinite(scale) || scale <= 0) return '100.00';
+        return scale >= 100 ? scale.toFixed(1) : scale.toFixed(2);
+    }
+
+    updateAtomicScaleSpan(pixelsPerAngstrom = this.renderer?.currentPixelsPerAngstrom?.()) {
+        const note = document.getElementById('atomic-scale-span');
+        if (!note) return;
+        const scale = Number(pixelsPerAngstrom);
+        const canvas = this.renderer?.domElement;
+        if (!Number.isFinite(scale) || scale <= 0 || !canvas) {
+            note.textContent = 'Viewport span: -- Å × -- Å';
+            return;
+        }
+        const width = Math.max(1, canvas.clientWidth || this.renderer.container?.clientWidth || 1) / scale;
+        const height = Math.max(1, canvas.clientHeight || this.renderer.container?.clientHeight || 1) / scale;
+        note.textContent = `Viewport span: ${width.toFixed(2)} Å × ${height.toFixed(2)} Å`;
+    }
+
+    syncAtomicScaleFromCamera({ forceInput = false, syncPreview = true } = {}) {
+        if (!this.state?.display || !this.renderer?.camera) return null;
+        const measured = Number(this.renderer.currentPixelsPerAngstrom());
+        if (!Number.isFinite(measured) || measured <= 0) return null;
+        const scale = Number(measured.toFixed(4));
+        const previous = Number(this.state.display.atomicScalePixelsPerAngstrom);
+        const changed = !Number.isFinite(previous) || Math.abs(previous - scale) > 1e-4;
+        this.state.display.atomicScalePixelsPerAngstrom = scale;
+        const input = document.getElementById('atomic-scale');
+        if (input && (forceInput || document.activeElement !== input)) {
+            input.value = this.atomicScaleText(scale);
+        }
+        this.updateAtomicScaleSpan(scale);
+        if (changed && syncPreview && this.state.exportPreviewEnabled) {
+            this.syncImageExportPreview();
+        }
+        return scale;
+    }
+
+    applyAtomicScaleFromControl({ normalize = false } = {}) {
+        const input = document.getElementById('atomic-scale');
+        if (!input) return;
+        const requested = Number(input.value);
+        if (!Number.isFinite(requested) || requested <= 0) return;
+        const clamped = Math.max(0.1, Math.min(5000, requested));
+        const applied = this.renderer.setPixelsPerAngstrom(clamped, { source: 'scale-input' });
+        this.state.display.atomicScalePixelsPerAngstrom = Number(applied.toFixed(4));
+        if (normalize) input.value = this.atomicScaleText(applied);
+        this.updateAtomicScaleSpan(applied);
+        if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
     }
 
     currentLightingForExport() {
@@ -3487,6 +3550,7 @@ class VAseApp {
 
     designSettingsSnapshot() {
         this.readTransformSettings();
+        this.syncAtomicScaleFromCamera({ forceInput: true, syncPreview: false });
         return {
             schema: 'v_ase.visual_settings.v2',
             display: this.clonePlain(this.state.display),
@@ -3548,6 +3612,10 @@ class VAseApp {
         setChecked('chk-overlays', display.showOverlays !== false);
         setChecked('chk-periodic-bonds', display.showPeriodicBonds);
         setValue('projection-mode', display.projectionMode || 'perspective');
+        const atomicScale = Number(display.atomicScalePixelsPerAngstrom);
+        if (Number.isFinite(atomicScale) && atomicScale > 0) {
+            setValue('atomic-scale', this.atomicScaleText(atomicScale));
+        }
         setChecked('chk-constraints', this.state.applyConstraints);
         setChecked('chk-antialias', this.state.antiAliasing);
         setValue('sphere-quality', this.state.sphereQuality);
@@ -3576,6 +3644,16 @@ class VAseApp {
 
     reconcileDesignDisplay(nextDisplay = {}) {
         const migratedDisplay = { ...this.clonePlain(nextDisplay) };
+        const legacyFramingMode = migratedDisplay.imageScaleMode;
+        if (!Object.prototype.hasOwnProperty.call(migratedDisplay, 'imageFramingMode')) {
+            migratedDisplay.imageFramingMode = legacyFramingMode === 'physical' ? 'physical' : 'viewport';
+        }
+        if (!Object.prototype.hasOwnProperty.call(migratedDisplay, 'atomicScalePixelsPerAngstrom')
+            && legacyFramingMode === 'physical') {
+            migratedDisplay.atomicScalePixelsPerAngstrom = migratedDisplay.imagePixelsPerAngstrom;
+        }
+        delete migratedDisplay.imageScaleMode;
+        delete migratedDisplay.imagePixelsPerAngstrom;
         if (!Object.prototype.hasOwnProperty.call(migratedDisplay, 'commensurateGuide')
             && Object.prototype.hasOwnProperty.call(migratedDisplay, 'unitCellAwareRotate')) {
             migratedDisplay.commensurateGuide = Boolean(migratedDisplay.unitCellAwareRotate);
@@ -3663,10 +3741,13 @@ class VAseApp {
             elementRadii,
             elementColors,
             elementVisible,
-            imageScaleMode: nextDisplay.imageScaleMode === 'physical' ? 'physical' : 'viewport',
-            imagePixelsPerAngstrom: finiteClamped(
-                nextDisplay.imagePixelsPerAngstrom, 100, 0.1, 5000
-            ),
+            imageFramingMode: nextDisplay.imageFramingMode === 'physical' ? 'physical' : 'viewport',
+            atomicScalePixelsPerAngstrom: (() => {
+                const value = Number(nextDisplay.atomicScalePixelsPerAngstrom);
+                return Number.isFinite(value) && value > 0
+                    ? Math.max(0.1, Math.min(5000, value))
+                    : null;
+            })(),
             imageSphereQuality: ['viewport', 'auto', 'low', 'medium', 'high', 'ultra'].includes(
                 nextDisplay.imageSphereQuality
             ) ? nextDisplay.imageSphereQuality : 'viewport',
@@ -3677,7 +3758,7 @@ class VAseApp {
         };
     }
 
-    applyCameraSettings(cameraSettings) {
+    applyCameraSettings(cameraSettings, { syncScale = true } = {}) {
         if (!cameraSettings || !this.renderer?.camera || !this.renderer?.controls) return;
         const vector = (value, fallback) => Array.isArray(value) && value.length === 3 && value.every(item => Number.isFinite(Number(item)))
             ? value.map(Number)
@@ -3715,6 +3796,7 @@ class VAseApp {
         camera.lookAt(this.renderer.controls.target);
         camera.updateProjectionMatrix();
         camera.updateMatrixWorld(true);
+        if (syncScale) this.syncAtomicScaleFromCamera({ forceInput: true });
         this.renderer.requestRender();
     }
 
@@ -3722,6 +3804,7 @@ class VAseApp {
         if (!settings) return;
         const source = settings.settings || settings;
         const nextDisplay = this.reconcileDesignDisplay(source.display || source);
+        const requestedAtomicScale = Number(nextDisplay.atomicScalePixelsPerAngstrom);
         this.state.display = {
             ...this.state.display,
             ...this.clonePlain(nextDisplay),
@@ -3741,7 +3824,12 @@ class VAseApp {
         this.renderElementBondControls();
         this.renderElementRadiusControls();
         this.syncDesignControls();
-        if (source.camera) this.applyCameraSettings(source.camera);
+        if (source.camera) this.applyCameraSettings(source.camera, { syncScale: false });
+        if (Number.isFinite(requestedAtomicScale) && requestedAtomicScale > 0) {
+            this.renderer.setPixelsPerAngstrom(requestedAtomicScale);
+        } else {
+            this.syncAtomicScaleFromCamera({ forceInput: true });
+        }
         if (render) {
             this.renderer.setDisplayOptions(this.state.display);
             this.updateSelectionVisuals();
@@ -4526,13 +4614,14 @@ class VAseApp {
 
     imagePreviewOptions() {
         const display = this.state.display;
+        const pixelsPerAngstrom = Math.max(0.1, Math.min(5000,
+            Number(this.renderer.currentPixelsPerAngstrom()) || 100));
         return {
             transparentBackground: false,
             includeGrid: display.showGrid !== false,
             includeAxes: display.showAxes !== false,
-            scaleMode: display.imageScaleMode === 'physical' ? 'physical' : 'viewport',
-            pixelsPerAngstrom: Math.max(0.1, Math.min(5000,
-                Number(display.imagePixelsPerAngstrom) || 100)),
+            scaleMode: display.imageFramingMode === 'physical' ? 'physical' : 'viewport',
+            pixelsPerAngstrom,
             sphereQuality: display.imageSphereQuality || 'viewport',
             sphereQualityScale: Math.max(0.5, Math.min(2,
                 Number(display.imageSmoothnessScale) || 1)),
@@ -4565,9 +4654,9 @@ class VAseApp {
         const lighting = this.state.display;
         const position = lighting.sunPosition || [8, -10, 14];
         const target = lighting.sunTarget || [0, 0, 0];
-        const scaleMode = lighting.imageScaleMode === 'physical' ? 'physical' : 'viewport';
+        const scaleMode = lighting.imageFramingMode === 'physical' ? 'physical' : 'viewport';
         const pixelsPerAngstrom = Math.max(0.1, Math.min(5000,
-            Number(lighting.imagePixelsPerAngstrom) || 100));
+            Number(this.renderer.currentPixelsPerAngstrom()) || 100));
         const sphereQuality = ['viewport', 'auto', 'low', 'medium', 'high', 'ultra'].includes(
             lighting.imageSphereQuality
         ) ? lighting.imageSphereQuality : 'viewport';
@@ -4597,15 +4686,13 @@ class VAseApp {
                     <input type="checkbox" id="export-axes" ${this.state.display.showAxes ? 'checked' : ''}>
                 </label>
                 <div class="export-render-section">
-                    <div class="export-section-title">Framing and physical scale</div>
+                    <div class="export-section-title">Framing</div>
                     <div class="export-grid">
-                        <label for="export-scale-mode">Scale mode</label>
-                        <select id="export-scale-mode">
+                        <label for="export-framing-mode">Frame</label>
+                        <select id="export-framing-mode">
                             <option value="viewport" ${selected('viewport', scaleMode)}>Current viewport</option>
-                            <option value="physical" ${selected('physical', scaleMode)}>Fixed physical scale</option>
+                            <option value="physical" ${selected('physical', scaleMode)}>Atomic scale from View</option>
                         </select>
-                        <label for="export-pixels-per-angstrom">Pixels / Å</label>
-                        <input type="number" id="export-pixels-per-angstrom" value="${pixelsPerAngstrom.toFixed(2)}" min="0.1" max="5000" step="1">
                     </div>
                     <p id="export-scale-note" class="export-note"></p>
                 </div>
@@ -4663,19 +4750,18 @@ class VAseApp {
         document.querySelector('#modal-container .modal')?.classList.add('export-image-modal');
 
         const updateExportSummary = () => {
-            const mode = document.getElementById('export-scale-mode')?.value || 'viewport';
-            const ppaInput = document.getElementById('export-pixels-per-angstrom');
+            const mode = document.getElementById('export-framing-mode')?.value || 'viewport';
             const outputWidth = Math.max(256, parseInt(document.getElementById('export-width')?.value || `${width}`, 10));
             const outputHeight = Math.max(256, parseInt(document.getElementById('export-height')?.value || `${height}`, 10));
-            const ppa = Math.max(0.1, Math.min(5000, Number(ppaInput?.value) || pixelsPerAngstrom));
-            if (ppaInput) ppaInput.disabled = mode !== 'physical';
+            const ppa = Math.max(0.1, Math.min(5000,
+                Number(this.renderer.currentPixelsPerAngstrom()) || pixelsPerAngstrom));
             const scaleNote = document.getElementById('export-scale-note');
             if (scaleNote) {
                 const projectionNote = this.state.display.projectionMode === 'perspective'
                     ? 'Perspective scale is defined at the camera target plane.'
                     : 'Orthographic scale is uniform at every depth.';
                 scaleNote.textContent = mode === 'physical'
-                    ? `Frame span: ${(outputWidth / ppa).toFixed(2)} Å × ${(outputHeight / ppa).toFixed(2)} Å. ${projectionNote}`
+                    ? `Uses View > Atomic scale (${ppa.toFixed(2)} px/Å). Frame span: ${(outputWidth / ppa).toFixed(2)} Å × ${(outputHeight / ppa).toFixed(2)} Å. ${projectionNote}`
                     : 'Preserves the complete live camera composition. A different output aspect ratio is centered with margins instead of cropping or shifting the structure.';
             }
 
@@ -4695,9 +4781,9 @@ class VAseApp {
                 smoothnessNote.textContent = `${segments} sphere segments at ${multiplier.toFixed(2)}×. This affects only the exported image.`;
             }
         };
-        ['export-width', 'export-height', 'export-pixels-per-angstrom', 'export-smoothness-scale']
+        ['export-width', 'export-height', 'export-smoothness-scale']
             .forEach(id => document.getElementById(id)?.addEventListener('input', updateExportSummary));
-        ['export-scale-mode', 'export-sphere-quality']
+        ['export-framing-mode', 'export-sphere-quality']
             .forEach(id => document.getElementById(id)?.addEventListener('change', updateExportSummary));
         updateExportSummary();
 
@@ -4715,17 +4801,17 @@ class VAseApp {
                 const sunIntensity = Math.max(0, Number(document.getElementById('export-sun-intensity').value || 2.2));
                 const sunPosition = [0, 1, 2].map(index => Number(document.getElementById(`export-sun-position-${index}`).value || 0));
                 const sunTarget = [0, 1, 2].map(index => Number(document.getElementById(`export-sun-target-${index}`).value || 0));
-                const selectedScaleMode = document.getElementById('export-scale-mode').value === 'physical'
+                const selectedScaleMode = document.getElementById('export-framing-mode').value === 'physical'
                     ? 'physical'
                     : 'viewport';
                 const exportPixelsPerAngstrom = Math.max(0.1, Math.min(5000,
-                    Number(document.getElementById('export-pixels-per-angstrom').value) || pixelsPerAngstrom));
+                    Number(this.renderer.currentPixelsPerAngstrom()) || pixelsPerAngstrom));
                 const exportSphereQuality = document.getElementById('export-sphere-quality').value;
                 const exportSmoothnessScale = Math.max(0.5, Math.min(2,
                     Number(document.getElementById('export-smoothness-scale').value) || smoothnessScale));
                 Object.assign(this.state.display, {
-                    imageScaleMode: selectedScaleMode,
-                    imagePixelsPerAngstrom: exportPixelsPerAngstrom,
+                    imageFramingMode: selectedScaleMode,
+                    atomicScalePixelsPerAngstrom: exportPixelsPerAngstrom,
                     imageSphereQuality: exportSphereQuality,
                     imageSmoothnessScale: exportSmoothnessScale
                 });
@@ -5391,6 +5477,9 @@ class VAseApp {
         document.getElementById('chk-grid').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('chk-overlays').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('projection-mode').onchange = () => this.safeApplyDisplayOptions();
+        const atomicScale = document.getElementById('atomic-scale');
+        atomicScale.oninput = () => this.applyAtomicScaleFromControl();
+        atomicScale.onchange = () => this.applyAtomicScaleFromControl({ normalize: true });
         document.getElementById('chk-antialias').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('sphere-quality').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('atom-radius-scale').oninput = () => this.safeApplyDisplayOptions();

@@ -22,7 +22,9 @@ small number of GPU batches and explicit render requests.
   live scene.
 - **Non-mutating image cameras**: PNG export renders through a cloned active
   camera. Exact-view mode contains the original aspect in the requested frame,
-  while physical mode derives its projection from an explicit `px/Å` value.
+  while physical mode derives its projection from the live Viewport `Atomic scale`
+  value. Editing that value changes only the active camera, without rebuilding
+  atom, bond, or supercell geometry.
   Neither path refits or changes the viewport camera.
 - **Targeted visibility updates**: label-to-index maps let a Visible checkbox
   update only the affected atom instances. Hidden atoms are also excluded from

@@ -202,8 +202,12 @@ def test_image_export_has_exact_preview_and_option_modal_controls():
     assert "export-transparent" in main_js
     assert "export-grid" in main_js
     assert "export-axes" in main_js
-    assert "export-scale-mode" in main_js
-    assert "export-pixels-per-angstrom" in main_js
+    assert 'id="atomic-scale"' in index_html
+    assert 'id="atomic-scale-span"' in index_html
+    assert "setPixelsPerAngstrom" in renderer_js
+    assert "syncAtomicScaleFromCamera" in main_js
+    assert "export-framing-mode" in main_js
+    assert "export-pixels-per-angstrom" not in main_js
     assert "export-sphere-quality" in main_js
     assert "export-smoothness-scale" in main_js
     assert "scaleMode: selectedScaleMode" in main_js
@@ -549,7 +553,8 @@ def test_frontend_renderer_uses_demand_rendering_and_large_scene_instancing():
     assert "preserveDrawingBuffer: false" in renderer_js
     assert "requestRender()" in renderer_js
     assert "renderFrame()" in renderer_js
-    assert "this.controls.onChange = () => this.requestRender()" in renderer_js
+    assert "this.controls.onChange = () =>" in renderer_js
+    assert "this.onCameraChange?.(" in renderer_js
     assert "requestAnimationFrame(() => this.animate())" not in renderer_js
     assert "rebuildInstancedAtoms" in renderer_js
     assert "new THREE.InstancedMesh" in renderer_js

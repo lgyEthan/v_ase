@@ -1036,6 +1036,51 @@ body.dragging-inspector #inspector-resizer::before {
     margin: 0 0 7px;
 }
 
+.atomic-scale-control {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    overflow: hidden;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--field);
+}
+
+#inspector .atomic-scale-control input[type="number"] {
+    height: 30px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
+#inspector .atomic-scale-control:focus-within {
+    border-color: var(--teal);
+    outline: 2px solid var(--teal-soft);
+}
+
+#inspector .atomic-scale-control input[type="number"]:focus {
+    outline: 0;
+}
+
+.atomic-scale-unit {
+    padding: 0 8px 0 5px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.66rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.atomic-scale-span {
+    margin: -2px 0 10px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.64rem;
+    line-height: 1.4;
+    text-align: right;
+}
+
 body.inspector-wide #inspector .prop-row,
 body.inspector-wide #inspector .supercell-row {
     grid-template-columns: minmax(176px, 0.75fr) minmax(230px, 1.25fr);

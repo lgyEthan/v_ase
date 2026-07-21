@@ -67,15 +67,18 @@ custom value or two midpoint-split segments using the endpoint atom colors.
 Flat ribbons remain camera-facing during navigation. These settings persist in
 visual-settings JSON files and are reproduced in PNG/WebM and Blender export.
 
-PNG export has two explicit framing contracts. `Current viewport` clones the
-active camera and preserves its complete composition; a different output aspect
-ratio is centered with margins rather than cropped or shifted. `Fixed physical
-scale` sets pixels per Angstrom, making images from different structures directly
-comparable (`field width in Å = image width in px / px-per-Å`). Orthographic
-projection is uniform through depth, while perspective uses the camera target
-plane as its scale reference. Export-only sphere quality and a `0.5x`-`2.0x`
-smoothness multiplier temporarily replace atom geometry for the render and then
-restore the live scene.
+Atomic scale belongs to the live Viewport controls. Editing its pixels-per-Angstrom
+value changes the active orthographic zoom or perspective target distance
+immediately; mouse-wheel zoom updates the same value, and a derived readout reports
+the visible width and height in Angstrom. PNG export then has two framing contracts.
+`Current viewport` clones the active camera and preserves its complete composition;
+a different output aspect ratio is centered with margins rather than cropped or
+shifted. `Atomic scale from View` uses that global value, making images from
+different structures directly comparable (`field width in Å = image width in px /
+px-per-Å`). Orthographic projection is uniform through depth, while perspective
+uses the camera target plane as its scale reference. Export-only sphere quality
+and a `0.5x`-`2.0x` smoothness multiplier temporarily replace atom geometry for
+the render and then restore the live scene.
 
 Orthographic projection is the default view, with perspective available as a
 viewport option. Unit cell, axes, grid, and supercell preview controls are

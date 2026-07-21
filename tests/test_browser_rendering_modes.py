@@ -349,10 +349,80 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
             assert zoomed["projection"] != pytest.approx(initial["previewProjection"])
             assert zoomed["previewCount"] > initial["previewCount"]
 
+            page.click('[data-inspector-group="display"]')
+            page.fill('#atomic-scale', '40')
+            page.wait_for_function("Math.abs(window.__ASE_APP__.renderer.currentPixelsPerAngstrom() - 40) < 0.02")
+            scale_40 = page.evaluate("""() => ({
+                zoom: window.__ASE_APP__.renderer.camera.zoom,
+                scale: window.__ASE_APP__.renderer.currentPixelsPerAngstrom()
+            })""")
+            page.fill('#atomic-scale', '80')
+            page.wait_for_function("Math.abs(window.__ASE_APP__.renderer.currentPixelsPerAngstrom() - 80) < 0.02")
+            scale_80 = page.evaluate("""() => ({
+                zoom: window.__ASE_APP__.renderer.camera.zoom,
+                scale: window.__ASE_APP__.renderer.currentPixelsPerAngstrom(),
+                input: Number(document.getElementById('atomic-scale').value),
+                span: document.getElementById('atomic-scale-span').textContent
+            })""")
+            assert scale_40["scale"] == pytest.approx(40, abs=0.02)
+            assert scale_80["scale"] == pytest.approx(80, abs=0.02)
+            assert scale_80["zoom"] == pytest.approx(scale_40["zoom"] * 2, rel=2e-3)
+            assert scale_80["input"] == pytest.approx(80, abs=0.02)
+            assert "Viewport span:" in scale_80["span"]
+
+            page.locator('#atomic-scale').press('Tab')
+            wheel_sync = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.renderer.controls.doZoom(-120);
+                return {
+                    scale: app.renderer.currentPixelsPerAngstrom(),
+                    input: Number(document.getElementById('atomic-scale').value)
+                };
+            }""")
+            assert wheel_sync["scale"] > 80
+            assert wheel_sync["input"] == pytest.approx(wheel_sync["scale"], rel=2e-3)
+            page.fill('#atomic-scale', '80')
+            page.wait_for_function("Math.abs(window.__ASE_APP__.renderer.currentPixelsPerAngstrom() - 80) < 0.02")
+
+            persisted = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const snapshot = app.designSettingsSnapshot();
+                app.renderer.setPixelsPerAngstrom(35);
+                app.applyDesignSettings(snapshot);
+                return {
+                    scale: app.renderer.currentPixelsPerAngstrom(),
+                    saved: snapshot.display.atomicScalePixelsPerAngstrom,
+                    framing: snapshot.display.imageFramingMode,
+                    hasLegacyScale: Object.hasOwn(snapshot.display, 'imagePixelsPerAngstrom')
+                };
+            }""")
+            assert persisted["scale"] == pytest.approx(80, abs=0.02)
+            assert persisted["saved"] == pytest.approx(80, abs=0.02)
+            assert persisted["framing"] == "viewport"
+            assert persisted["hasLegacyScale"] is False
+
+            page.select_option('#projection-mode', 'perspective')
+            page.wait_for_function("window.__ASE_APP__.renderer.camera.isPerspectiveCamera")
+            page.fill('#atomic-scale', '50')
+            page.wait_for_function("Math.abs(window.__ASE_APP__.renderer.currentPixelsPerAngstrom() - 50) < 0.02")
+            perspective_50 = page.evaluate(
+                "window.__ASE_APP__.renderer.camera.position.distanceTo(window.__ASE_APP__.renderer.controls.target)"
+            )
+            page.fill('#atomic-scale', '100')
+            page.wait_for_function("Math.abs(window.__ASE_APP__.renderer.currentPixelsPerAngstrom() - 100) < 0.02")
+            perspective_100 = page.evaluate(
+                "window.__ASE_APP__.renderer.camera.position.distanceTo(window.__ASE_APP__.renderer.controls.target)"
+            )
+            assert perspective_100 == pytest.approx(perspective_50 * 0.5, rel=2e-3)
+            page.select_option('#projection-mode', 'orthographic')
+            page.wait_for_function("window.__ASE_APP__.renderer.camera.isOrthographicCamera")
+            page.fill('#atomic-scale', '80')
+            page.wait_for_function("Math.abs(window.__ASE_APP__.renderer.currentPixelsPerAngstrom() - 80) < 0.02")
+            page.click('[data-inspector-group="output"]')
+
             physical = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
-                app.state.display.imageScaleMode = 'physical';
-                app.state.display.imagePixelsPerAngstrom = 80;
+                app.state.display.imageFramingMode = 'physical';
                 app.syncImageExportPreview();
                 app.renderer.renderNow();
                 const setup = app.renderer.exportCameraSetup(1600, 800, app.imagePreviewOptions());
@@ -367,7 +437,7 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
                     projection: app.renderer.lastExportPreview.cameraProjection,
                     directProjection: camera.projectionMatrix.elements.slice()
                 };
-                app.state.display.imageScaleMode = 'viewport';
+                app.state.display.imageFramingMode = 'viewport';
                 app.syncImageExportPreview();
                 app.renderer.renderNow();
                 return result;
@@ -897,15 +967,17 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             }""", export_contract["dataUrl"])
             assert exported_size == [640, 360]
 
+            page.click('[data-inspector-group="display"]')
+            page.fill('#atomic-scale', '80')
+            page.wait_for_function("Math.abs(window.__ASE_APP__.renderer.currentPixelsPerAngstrom() - 80) < 0.02")
             page.click('[data-inspector-group="output"]')
             page.click('#btn-export-image')
-            assert page.locator('#export-scale-mode').is_visible()
-            assert page.locator('#export-pixels-per-angstrom').is_disabled()
-            page.select_option('#export-scale-mode', 'physical')
+            assert page.locator('#export-framing-mode').is_visible()
+            assert page.locator('#export-pixels-per-angstrom').count() == 0
+            page.select_option('#export-framing-mode', 'physical')
             page.fill('#export-width', '1600')
             page.fill('#export-height', '800')
-            page.fill('#export-pixels-per-angstrom', '80')
-            assert not page.locator('#export-pixels-per-angstrom').is_disabled()
+            assert 'View > Atomic scale (80.00 px/Å)' in page.locator('#export-scale-note').inner_text()
             assert '20.00 Å × 10.00 Å' in page.locator('#export-scale-note').inner_text()
             page.select_option('#export-sphere-quality', 'auto')
             page.fill('#export-smoothness-scale', '1.5')
