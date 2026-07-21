@@ -81,7 +81,8 @@ def _minimum_image_delta(delta, cell, pbc):
 
 
 def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs=None):
-    if display and display.get("showBonds") is False:
+    display = display or {}
+    if display.get("showBonds") is False:
         return []
 
     positions = np.asarray(data.get("positions") or [], dtype=float)
@@ -89,6 +90,8 @@ def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs
     symbols = list(data.get("chemical_symbols") or labels)
     if len(positions) != len(symbols):
         return []
+    if len(labels) != len(symbols):
+        labels = symbols
 
     cell = data.get("cell") or []
     pbc = data.get("pbc") or [False, False, False]
@@ -108,16 +111,18 @@ def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs
         vdw.extend([0.0] * (len(symbols) - len(vdw)))
 
     def pair_key(i, j):
-        return "-".join(sorted((str(symbols[i]), str(symbols[j]))))
+        return "-".join(sorted((str(labels[i]), str(labels[j]))))
 
     def cutoff(i, j):
-        element_cutoffs = display.get("elementBondCutoffs") or {}
-        key = pair_key(i, j)
-        if key in element_cutoffs:
+        if display.get("bondMode") == "element":
+            element_cutoffs = display.get("elementBondCutoffs") or {}
+            key = pair_key(i, j)
+            if key not in element_cutoffs:
+                return 0.0
             try:
                 return max(0.0, float(element_cutoffs[key]))
             except (TypeError, ValueError):
-                pass
+                return 0.0
         scale = float(display.get("bondCutoffScale") or 1.0)
         if vdw[i] > 0 and vdw[j] > 0:
             return 0.6 * (vdw[i] + vdw[j]) * scale
@@ -241,13 +246,30 @@ def get_atom_radius(index, fallback=FALLBACK_RADIUS):
 
 def material(name, color, alpha=1.0):
     mat = bpy.data.materials.new(name)
-    mat.diffuse_color = color
+    rgba = (clamp01(color[0]), clamp01(color[1]), clamp01(color[2]), clamp01(alpha))
+    mat.diffuse_color = rgba
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes.get("Principled BSDF")
+    if bsdf is not None:
+        base_color = bsdf.inputs.get("Base Color")
+        if base_color is not None:
+            base_color.default_value = rgba
+        alpha_input = bsdf.inputs.get("Alpha")
+        if alpha_input is not None:
+            alpha_input.default_value = rgba[3]
+        roughness = bsdf.inputs.get("Roughness")
+        if roughness is not None:
+            roughness.default_value = 0.42
     if alpha < 1.0:
-        mat.use_nodes = True
-        bsdf = mat.node_tree.nodes.get("Principled BSDF")
-        bsdf.inputs["Alpha"].default_value = alpha
-        mat.blend_method = "BLEND"
-        mat.show_transparent_back = True
+        try:
+            mat.surface_render_method = "DITHERED"
+        except (AttributeError, TypeError, ValueError):
+            try:
+                mat.blend_method = "BLEND"
+            except (AttributeError, TypeError, ValueError):
+                pass
+        if hasattr(mat, "show_transparent_back"):
+            mat.show_transparent_back = True
     return mat
 
 ATOM_MATS = {{}}
@@ -569,6 +591,18 @@ def add_hookean_spring(name, start, end, threshold=None, radius_start=0.7, radiu
 
 bpy.ops.object.select_all(action="SELECT")
 bpy.ops.object.delete()
+
+scene = bpy.context.scene
+for render_engine in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"):
+    try:
+        scene.render.engine = render_engine
+        break
+    except (TypeError, ValueError):
+        continue
+try:
+    scene.view_settings.look = "AgX - Medium High Contrast"
+except (TypeError, ValueError):
+    pass
 
 positions = DATA["positions"]
 symbols = DATA["symbols"]

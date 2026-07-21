@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.54">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.55">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.54';
+            : '/static/vendor/three.module.js?v=0.0.55';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -40,7 +40,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.54</span>
+            <span class="version">0.0.55</span>
         </div>
         <div class="status-group">
             <div class="status-item">
@@ -295,7 +295,7 @@
             <button id="btn-wrap" class="btn-block">Wrap Atoms Into Cell</button>
         </details>
 
-        <details class="panel-section" data-panel="transform" data-panel-group="edit" data-edit-only>
+        <details class="panel-section" open data-panel="transform" data-panel-group="edit" data-edit-only>
             <summary class="section-header">Transform</summary>
             <div class="prop-row">
                 <label for="rotate-pivot">Rotate pivot</label>
@@ -323,7 +323,7 @@
             </div>
         </details>
 
-        <details class="panel-section" data-panel="appearance" data-panel-group="scene">
+        <details class="panel-section" open data-panel="appearance" data-panel-group="scene">
             <summary class="section-header">Appearance</summary>
             <div class="prop-row">
                 <label for="chk-antialias">Anti-aliasing</label>
@@ -359,7 +359,7 @@
             </div>
         </details>
 
-        <details class="panel-section" data-panel="cell-transform" data-panel-group="edit" data-edit-only>
+        <details class="panel-section" open data-panel="cell-transform" data-panel-group="edit" data-edit-only>
             <summary class="section-header">Cell Transform</summary>
             <div class="matrix-grid" id="make-supercell-matrix">
                 <input type="number" id="matrix-00" value="1" step="1">
@@ -375,7 +375,7 @@
             <button id="btn-apply-supercell-matrix" class="btn-block">Apply make_supercell Matrix</button>
         </details>
 
-        <details class="panel-section" data-panel="bonding" data-panel-group="scene">
+        <details class="panel-section" open data-panel="bonding" data-panel-group="scene">
             <summary class="section-header">Bonding</summary>
             <div class="prop-row">
                 <label for="chk-bonds">Show Bonds</label>
@@ -389,8 +389,8 @@
                 <label for="bond-mode">Mode</label>
                 <select id="bond-mode">
                     <option value="auto">Auto cutoff</option>
-                    <option value="element">Element cutoffs</option>
-                    <option value="manual">Pair list</option>
+                    <option value="element">Pairwise cutoff</option>
+                    <option value="manual">Manual pair</option>
                 </select>
             </div>
             <div class="prop-row">
@@ -424,7 +424,7 @@
             </div>
             <div id="element-bond-panel" class="bond-element-panel hidden">
                 <div class="mini-table-head">
-                    <span>Element pair</span>
+                    <span>Label pair</span>
                     <span>Rcut / A</span>
                 </div>
                 <div id="element-bond-list"></div>
@@ -436,7 +436,7 @@
             </div>
         </details>
 
-        <details class="panel-section" data-panel="scientific-tools" data-panel-group="edit" data-edit-only>
+        <details class="panel-section" open data-panel="scientific-tools" data-panel-group="edit" data-edit-only>
             <summary class="section-header">Relaxation</summary>
             <div class="relax-grid">
                 <label>fmax</label>
@@ -547,7 +547,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.54';
+            : './static/main.js?v=0.0.55';
         import(modulePath);
     </script>
 </body>

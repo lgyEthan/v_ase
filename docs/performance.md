@@ -13,7 +13,7 @@ small number of GPU batches and explicit render requests.
   sphere geometry and `THREE.InstancedMesh`. Position, radius, color, fixed-atom
   state, and visibility are stored per instance.
 - **Instanced secondary geometry**: large bond sets, large selections, and
-  visualization-mode supercell copies also use instancing.
+  full-material supercell atom/bond copies also use instancing.
 - **Adaptive resolution**: device pixel ratio is capped at 1.5 above 1,000
   atoms, 1.25 above 5,000 atoms, and 1.0 at 15,000 atoms. Export resolution is
   independent and still uses the requested output dimensions.
@@ -30,7 +30,7 @@ small number of GPU batches and explicit render requests.
   disables shadow maps, and does not allocate a continuous render loop. Studio
   Sun activates one directional PBR light only when selected. The soft-shadow
   mode additionally enables a single fitted PCF shadow map.
-- **Incremental live bonds**: interactive auto/element bonding uses a cell-list
+- **Incremental live bonds**: interactive auto/pairwise bonding uses a cell-list
   search above 384 atoms and rebuilds bond instances only when the inferred pair
   topology changes. Manual pairs bypass neighbor inference entirely. Custom-color
   bonds use one instance per pair; split atom colors use two half-length instances
@@ -68,7 +68,8 @@ reference rather than a universal hardware guarantee.
 
 `tests/test_frontend_regressions.py` locks down the demand-rendering and
 instancing architecture. Browser tests also verify live interactive bond
-formation/breaking and preservation of element-pair cutoffs across structure
+formation/breaking, repeated supercell bonds, replica hover without selection,
+and preservation of label-pair cutoffs across structure
 updates. The full test suite covers the optimized LAMMPS reader, binary frame
 metadata, constraints, periodic bonds, supercells, export, CLI entry points,
 and packaging.

@@ -43,7 +43,7 @@ Manual checks:
      - Ensure Show Bonds is checked and Mode is Auto cutoff.
      - Atoms 3 and 4 sit on opposite sides of the periodic X boundary.
      - They should still be bonded through the periodic boundary.
-     - Switch Mode to Element cutoffs.
+     - Switch Mode to Pairwise cutoff.
      - Confirm Na-Na, Na-Cl, and Cl-Cl rcut rows appear and changing Na-Cl updates bonds.
 
   6. Supercell

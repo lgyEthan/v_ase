@@ -32,6 +32,29 @@ export class ASESelection {
         return this.nearestProjectedAtom(e, atomGroup);
     }
 
+    pickHover(e, atomGroup, supercellGroup) {
+        const mouse = this.getMouse(e);
+        this.raycaster.setFromCamera(mouse, this.renderer.camera);
+        const repeatedAtoms = (supercellGroup?.children || [])
+            .filter(object => object.userData?.supercellInstanced && object.visible !== false);
+        const candidates = [...atomGroup.children, ...repeatedAtoms];
+        const intersects = this.raycaster.intersectObjects(candidates)
+            .filter(hit => hit.object.visible !== false);
+        for (const hit of intersects) {
+            if (hit.object.userData.instancedAtoms) {
+                return hit.object.userData.atomIndices?.[hit.instanceId] ?? null;
+            }
+            if (hit.object.userData.supercellInstanced) {
+                const indices = hit.object.userData.atomIndices || [];
+                if (!indices.length || hit.instanceId === undefined || hit.instanceId === null) continue;
+                return indices[hit.instanceId % indices.length] ?? null;
+            }
+            if (hit.object.userData.index !== undefined) return hit.object.userData.index;
+        }
+        if ((this.renderer.atomMeshByIndex?.size || 0) > 2000) return null;
+        return this.nearestProjectedAtom(e, atomGroup);
+    }
+
     nearestProjectedAtom(e, atomGroup) {
         let best = null;
         const tolerance = 24;

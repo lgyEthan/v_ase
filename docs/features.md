@@ -47,12 +47,12 @@ to the same ASE calculator class.
 ### Display Tools
 Bonds are rendered as live cylinder objects and update during transform previews,
 relaxation updates, and trajectory frame changes. In interactive mode, auto and
-element-cutoff bonds are re-inferred from every G/R preview position, so bonds
+pairwise-cutoff bonds are re-inferred from every G/R preview position, so bonds
 break or form as soon as distances cross the active cutoff, before commit.
 Manual pair topology remains fixed and only its cylinder geometry is updated.
-The bond mode, global scale, element-pair `rcut` map, periodic-image policy, and
+The bond mode, global scale, label-pair `rcut` map, periodic-image policy, and
 manual pairs persist across backend structure refreshes and label edits. Bonding
-can use covalent-radius inference, element-pair cutoff rows, or an explicit pair
+can use covalent-radius inference, label-pair cutoff rows, or an explicit pair
 list such as `0-1, 1-2`. Direct current-cell distances are the default, so a bond
 is not drawn toward an atom image that is not visible. `Periodic image bonds`
 opts into minimum-image vectors and image-crossing cylinders. This matches
@@ -69,7 +69,9 @@ Orthographic projection is the default view, with perspective available as a
 viewport option. Unit cell, axes, grid, and supercell preview controls are
 exposed in the inspector. Supercell preview is only enabled when a valid unit
 cell exists and PBC is true in the requested direction; otherwise the UI shows
-a warning and resets the invalid multiplier.
+a warning and resets the invalid multiplier. Every replica uses the base atom's
+full material and repeats the current bond geometry. Replica atoms support hover
+inspection but remain outside click and box selection until committed.
 
 ### Inspector Navigation and Lighting
 The inspector is divided into Inspect, Edit, Scene, and Output sections instead
@@ -142,8 +144,8 @@ blindly copied.
 The viewport renders on demand instead of running a permanent animation loop.
 Camera movement, trajectory playback, transforms, and UI changes request a
 frame; an unchanged viewport remains idle. Large structures use Three.js
-`InstancedMesh` batches for atoms, bonds, selection outlines, and visualization-
-mode supercell repeats. Per-instance transforms, colors, and visibility avoid
+`InstancedMesh` batches for atoms, bonds, selection outlines, and supercell
+repeats. Per-instance transforms, colors, and visibility avoid
 creating one JavaScript object and draw call per atom.
 
 The renderer also lowers device pixel ratio progressively for large atom counts,
@@ -154,7 +156,7 @@ current benchmark results are documented in [Rendering Performance](performance.
 ### Blender Scene Format
 The Blender exporter emits a Python scene because this works without Blender in
 the v_ase Python environment and retains separate atom objects, shared meshes,
-bonds, cell lines, materials, and the viewport camera. Blender can run the script
+bonds, cell lines, Principled BSDF materials, and the viewport camera. Blender can run the script
 headlessly and save a native `.blend` with `bpy.ops.wm.save_as_mainfile`. A named-
 object OBJ exporter is possible, but OBJ would discard camera, constraints,
 trajectory behavior, instancing semantics, and richer material state.

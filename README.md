@@ -59,7 +59,7 @@ terminal.
   supercell, appearance, visual type labels, measurements, projection, wrapping,
   and export controls responsive for large structures.
 - Large scenes use shared unit-sphere geometry, GPU instancing for atoms, bonds,
-  selection outlines, and visualization-mode supercells, adaptive pixel ratio,
+  selection outlines, and supercell replicas, adaptive pixel ratio,
   and demand rendering. An idle viewport does not continuously consume GPU
   frames. See [Rendering Performance](https://github.com/lgyEthan/v_ase/blob/main/docs/performance.md)
   for architecture and reproducible benchmark details.
@@ -68,7 +68,9 @@ terminal.
 - The control panel is organized into Inspect, Edit, Scene, and Output
   sections. It starts collapsed and opens from a compact edge handle, leaving
   the viewport unobstructed until controls are needed. v_ase remembers the
-  active section, explicit collapsed state, and panel width.
+  active section, explicit collapsed state, and panel width. `Tab` toggles the
+  panel while viewport focus is active; controls inside each category start
+  expanded.
 - Viewport lighting is opt-in and its shaded-material-sphere control sits in the
   top toolbar, immediately beside the calculator controls. Modeling keeps the
   original low-overhead, evenly-lit view; Studio Sun adds real-time PBR
@@ -105,10 +107,10 @@ terminal.
   timeline. Static single-structure sessions stay uncluttered until relaxation
   creates frames; loaded trajectory files keep their own movie timeline while a
   separate Relax row exposes the latest optimization path.
-- Cell-local bonds, opt-in periodic-image bonds, element-pair cutoff tables,
-  manual bond pairs, supercell preview, `make_supercell(P)` cell transform, and
-  wrap atoms into cell. In interactive mode, auto and element-cutoff bonds form
-  and break live during G/R previews; the chosen mode, scales, pair-specific
+- Cell-local bonds, opt-in periodic-image bonds, label-pair cutoff tables,
+  manual atom-index pairs, supercell preview, `make_supercell(P)` cell transform,
+  and wrap atoms into cell. In interactive mode, auto and pairwise-cutoff bonds
+  form and break live during G/R previews; the chosen mode, scales, pair-specific
   `rcut` values, MIC policy, and manual pairs persist when the structure or
   trajectory frame changes.
 - Custom extxyz atom type labels such as `H_type5` are preserved for GUI type
@@ -339,7 +341,7 @@ pivot is the selection center of mass, it passes through that COM.
 
 ## Case 4: Bonds, Periodicity, and Supercells
 
-Bonding can be automatic, element-pair based, or manually specified.
+Bonding can be automatic, label-pair based, or manually specified.
 
 - Auto cutoff uses covalent radii.
 - By default, bonds are drawn only when both endpoints are atoms displayed in
@@ -348,9 +350,11 @@ Bonding can be automatic, element-pair based, or manually specified.
   neighboring-cell images. This mirrors [VESTA's boundary-search
   distinction](https://jp-minerals.org/vesta/en/doc/VESTAch8.html) between
   keeping a search inside the boundary and explicitly searching atoms beyond it.
-- Element-pair mode exposes pair-specific `rcut` rows.
-- Manual mode accepts pair strings such as `Na-Cl: 3.2` or `0-1, 1-2`.
-- During interactive G/R previews, auto and element-cutoff pairs are re-inferred
+- `Pairwise cutoff` exposes pair-specific `rcut` rows keyed by editable labels,
+  so `Cu_surface-Cu_bulk` remains distinct even though both atoms are Cu. A
+  cutoff of `0` disables that label pair immediately.
+- `Manual pair` accepts explicit atom-index pairs such as `0-1, 1-2`.
+- During interactive G/R previews, auto and pairwise-cutoff pairs are re-inferred
   immediately. Manual pair topology remains fixed while its cylinders follow the
   moving atoms.
 - Bond settings persist across transform commits, frame changes, structure
@@ -362,7 +366,10 @@ Bonding can be automatic, element-pair based, or manually specified.
   video, and Blender exports.
 - Edited control values commit consistently when you press `Enter`, press
   `Tab`, or move focus to another control.
-- Supercell preview shows repeated atoms and repeated unit-cell lines.
+- Supercell preview shows full-opacity replicas, repeated unit-cell lines, and
+  every currently visible bond in each repeated cell. Replicas expose hover
+  information but are excluded from click and box selection until
+  `Set Supercell as Cell` converts them into real atoms.
 - `Set Supercell as Cell` converts the preview into real editable atoms.
 - `Cell Transform` accepts a full integer `make_supercell(P)` matrix.
 
@@ -506,7 +513,9 @@ objects where practical. Atom objects reuse shared sphere meshes by radius/color
 so large exports avoid duplicating mesh geometry for every atom. Studio lighting
 is exported as a Blender `SUN`: its location matches the v_ase light object,
 local `-Z` points at the same target, and Blender `energy` receives the exact
-v_ase strength value.
+v_ase strength value. Atom, bond, and cell colors are written to standard
+Principled BSDF nodes as well as viewport colors, so they remain colored in
+Blender Rendered mode instead of appearing white.
 
 The current Python scene format is deliberate: it preserves separate editable
 atom objects, shared meshes, bonds, unit cell, materials, and the active camera

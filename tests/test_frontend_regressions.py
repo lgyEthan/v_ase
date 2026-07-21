@@ -22,6 +22,7 @@ from v_ase.server import (
 )
 import v_ase.server as server_module
 from v_ase.export import _display_bonds, export_blender_response, export_pickle_response, export_poscar_response
+from v_ase.io import set_atom_type_labels
 from v_ase.session import EditorSession, sessions
 
 
@@ -317,7 +318,8 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "sphere-quality" in index_html
     assert "chk-antialias" in index_html
     assert "element-bond-list" in index_html
-    assert "Element cutoffs" in index_html
+    assert "Pairwise cutoff" in index_html
+    assert "Manual pair" in index_html
     assert "deleteSelection" in main_js
     assert "api.deleteAtoms" in main_js
     assert "updateCalculatorConfig" in api_js
@@ -325,6 +327,7 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "e.code === 'Delete'" in main_js
     assert "renderElementBondControls" in main_js
     assert "parseElementBondCutoffs" in main_js
+    assert "this.setInspectorCollapsed(!document.body.classList.contains('inspector-collapsed'))" in main_js
     assert "atomHoverText" in main_js
     assert "setHoveredAtom" in main_js
     assert "elementCovalentRadius" in main_js
@@ -360,6 +363,10 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "gapLine" in renderer_js
     assert "lockPin" in renderer_js
     assert "addSupercellCellPreview" in renderer_js
+    assert "rebuildSupercellBonds" in renderer_js
+    assert "supercellBonds" in renderer_js
+    assert "rebuildSupercellAtoms" in renderer_js
+    assert "pickHover" in selection_js
     assert "sphereQualitySegments" in renderer_js
     assert "elementBondCutoff" in renderer_js
     assert "springLine.visible = state !== 'inactive'" in renderer_js
@@ -378,6 +385,11 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "display) body.display = display" in api_js
     assert "bondPairs) body.bond_pairs = bondPairs" in api_js
     assert "threshold: 4.80" in api_js
+    for panel in (
+        "structure-info", "selection", "constraints", "view", "transform",
+        "appearance", "cell-transform", "bonding", "scientific-tools",
+    ):
+        assert f'<details class="panel-section" open data-panel="{panel}"' in index_html
 
 
 def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
@@ -694,6 +706,10 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
     assert 'obj.data.energy = intensity' in script
     assert 'direction.to_track_quat("-Z", "Y")' in script
     assert 'obj.name = "v_ase_studio_sun"' in script
+    assert 'mat.use_nodes = True' in script
+    assert 'bsdf.inputs.get("Base Color")' in script
+    assert 'base_color.default_value = rgba' in script
+    assert 'scene.render.engine = render_engine' in script
     compile(script, "v_ase_blender_scene.py", "exec")
 
 
@@ -721,6 +737,35 @@ def test_bond_appearance_controls_and_instanced_renderer_contract():
     assert "orientFlatBond" in renderer_js
     assert "setupInputCommitBehavior" in main_js
     assert "commitInputValue" in main_js
+
+
+def test_pairwise_cutoff_export_is_label_keyed_and_zero_disables_the_pair():
+    atoms = molecule("H2")
+    atoms.set_cell([8, 8, 8])
+    atoms.set_pbc(False)
+    set_atom_type_labels(atoms, ["H_left", "H_right"])
+    session = EditorSession("label-pair-export", atoms.copy(), atoms.copy())
+    data = session_atoms_to_json(session)
+
+    enabled = _display_bonds(data, {
+        "showBonds": True,
+        "bondMode": "element",
+        "elementBondCutoffs": {"H_left-H_right": 1.0},
+    })
+    disabled = _display_bonds(data, {
+        "showBonds": True,
+        "bondMode": "element",
+        "elementBondCutoffs": {"H_left-H_right": 0.0},
+    })
+    chemical_key_is_not_used = _display_bonds(data, {
+        "showBonds": True,
+        "bondMode": "element",
+        "elementBondCutoffs": {"H-H": 1.0},
+    })
+
+    assert len(enabled) == 1
+    assert disabled == []
+    assert chemical_key_is_not_used == []
 
 
 def test_bond_export_defaults_to_visible_cell_and_periodic_images_are_opt_in():

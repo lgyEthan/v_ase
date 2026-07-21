@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.54';
-import { ASERenderer } from './renderer.js?v=0.0.54';
-import { ASESelection } from './selection.js?v=0.0.54';
-import { ASETransform } from './transform.js?v=0.0.54';
+import { ASEApi } from './api.js?v=0.0.55';
+import { ASERenderer } from './renderer.js?v=0.0.55';
+import { ASESelection } from './selection.js?v=0.0.55';
+import { ASETransform } from './transform.js?v=0.0.55';
 
 class VAseApp {
     constructor() {
@@ -1031,9 +1031,9 @@ class VAseApp {
             this.pruneSelection();
         }
         this.state.display.vizOnly = this.state.vizOnly;
+        this.renderElementBondControls();
         this.renderer.setDisplayOptions(this.state.display, { rebuild: false });
         this.renderer.rebuildAtoms(data, data.metadata.custom_colors || {});
-        this.renderElementBondControls();
         this.renderElementRadiusControls();
         this.updateEditingAvailability();
         this.setHoveredAtom(null);
@@ -1819,7 +1819,11 @@ class VAseApp {
                 this.setHoveredAtom(null);
                 return;
             }
-            this.setHoveredAtom(this.selection.pick(pointer, this.renderer.atomMeshes));
+            this.setHoveredAtom(this.selection.pickHover(
+                pointer,
+                this.renderer.atomMeshes,
+                this.renderer.supercellGroup
+            ));
         }, 32);
     }
 
@@ -2492,12 +2496,19 @@ class VAseApp {
             if (!(newSymbol in map)) map[newSymbol] = map[oldSymbol];
             delete map[oldSymbol];
         });
-        // Bond cutoffs are keyed by backend chemical elements, not editable
-        // display labels. Relabeling must never rename or discard this map.
+        const cutoffs = this.state.display.elementBondCutoffs || {};
+        const partners = new Set([oldSymbol, newSymbol, ...(this.state.atoms?.symbols || [])]);
+        partners.forEach(partner => {
+            const oldKey = this.elementPairKey(oldSymbol, partner);
+            if (!(oldKey in cutoffs)) return;
+            const mappedPartner = partner === oldSymbol ? newSymbol : partner;
+            const newKey = this.elementPairKey(newSymbol, mappedPartner);
+            if (!(newKey in cutoffs)) cutoffs[newKey] = cutoffs[oldKey];
+        });
     }
 
     uniqueElementPairs() {
-        const elements = [...new Set(this.state.atoms?.chemical_symbols || [])].filter(Boolean).sort();
+        const elements = this.uniqueElements();
         const pairs = [];
         for (let i = 0; i < elements.length; i++) {
             for (let j = i; j < elements.length; j++) {
@@ -2508,7 +2519,9 @@ class VAseApp {
     }
 
     defaultElementCutoff(a, b) {
-        return Number((1.2 * (this.elementCovalentRadius(a) + this.elementCovalentRadius(b))).toFixed(3));
+        const elementA = this.chemicalSymbolForLabel(a);
+        const elementB = this.chemicalSymbolForLabel(b);
+        return Number((1.2 * (this.elementCovalentRadius(elementA) + this.elementCovalentRadius(elementB))).toFixed(3));
     }
 
     elementVdwRadius(element) {
@@ -2862,8 +2875,8 @@ class VAseApp {
         this.transferElementDisplaySettings(oldSymbol, label, { appearance: preserveAppearance });
         if (!preserveAppearance) this.setElementBaseDefaults(label, base, { color: true });
         this.replaceTypeOrder(oldSymbol, label);
-        this.renderer.renameAtomType(oldSymbol, label, indices, this.state.display, base);
         this.renderElementBondControls();
+        this.renderer.renameAtomType(oldSymbol, label, indices, this.state.display, base);
         this.renderElementRadiusControls();
         this.updateElementSelectionControls();
         this.updateUI();
@@ -2970,9 +2983,9 @@ class VAseApp {
         });
         this.rebuildTypeIndexCache(this.state.atoms.symbols || []);
         if (!preserveAppearance) this.setElementBaseDefaults(label, baseSymbol, { color: true });
+        this.renderElementBondControls();
         this.renderer.rebuildAtoms(this.state.atoms, this.state.atoms.metadata?.custom_colors || {});
         this.renderer.setSelection(this.state.selected);
-        this.renderElementBondControls();
         this.renderElementRadiusControls();
         this.updateElementSelectionControls();
         this.updateUI();
@@ -3020,7 +3033,7 @@ class VAseApp {
         const cutoffs = {};
         document.querySelectorAll('.element-bond-cutoff').forEach(input => {
             const value = parseFloat(input.value);
-            if (Number.isFinite(value) && value > 0) {
+            if (Number.isFinite(value) && value >= 0) {
                 cutoffs[input.dataset.pairKey] = value;
             }
         });
@@ -4746,6 +4759,12 @@ class VAseApp {
 
         window.addEventListener('keydown', (e) => {
             const tag = e.target?.tagName?.toLowerCase();
+            const isFormControl = ['input', 'textarea', 'select', 'button'].includes(tag) || e.target?.isContentEditable;
+            if ((e.code === 'Tab' || e.key === 'Tab') && !isFormControl && this.transform.mode === 'IDLE') {
+                e.preventDefault();
+                this.setInspectorCollapsed(!document.body.classList.contains('inspector-collapsed'));
+                return;
+            }
             if (['input', 'textarea', 'select'].includes(tag)) return;
             if ((e.ctrlKey || e.metaKey) && this.transform.mode === 'IDLE') {
                 if (this.isPhysicalKey(e, 'KeyC', ['c'])) {

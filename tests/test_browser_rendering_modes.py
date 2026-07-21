@@ -6,6 +6,7 @@ from playwright._impl._errors import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
 from v_ase.session import sessions
+from v_ase.io import set_atom_type_labels
 from v_ase.viewer import find_free_port, view
 
 
@@ -14,6 +15,12 @@ def _expand_inspector(page):
         page.click('#btn-inspector-collapse')
         page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
         page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width >= 336")
+
+
+def _open_panel(page, panel):
+    details = page.locator(f'[data-panel="{panel}"]')
+    if not details.evaluate("element => element.open"):
+        details.locator('summary').click()
 
 
 def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
@@ -64,7 +71,8 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width <= 1")
             assert page.locator('#inspector').evaluate("element => Math.round(element.getBoundingClientRect().width)") == 0
 
-            page.click('#btn-inspector-collapse')
+            page.locator('#app-viewport canvas').focus()
+            page.keyboard.press('Tab')
             page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
             page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width >= 336")
             assert page.locator('#btn-inspector-collapse').get_attribute('aria-expanded') == 'true'
@@ -87,13 +95,16 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             page.click('[data-inspector-group="scene"]')
             assert page.locator('[data-panel="view"]').is_visible()
             assert not page.locator('[data-panel="structure-info"]').is_visible()
-            page.click('#btn-inspector-collapse')
+            for panel in ('view', 'appearance', 'bonding'):
+                assert page.locator(f'[data-panel="{panel}"]').evaluate("element => element.open")
+            page.locator('#app-viewport canvas').focus()
+            page.keyboard.press('Tab')
             page.wait_for_function("document.body.classList.contains('inspector-collapsed')")
             page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width <= 1")
-            page.click('#btn-inspector-collapse')
+            page.keyboard.press('Tab')
             page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
 
-            page.click('[data-panel="bonding"] > summary')
+            _open_panel(page, 'bonding')
             page.check('#chk-periodic-bonds')
             page.wait_for_function("window.__ASE_APP__.renderer.bondPairs.length === 1")
             assert page.locator('#app-viewport canvas').get_attribute('data-periodic-bonds') == 'true'
@@ -402,6 +413,7 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
         cell=[8.0, 8.0, 8.0],
         pbc=False,
     )
+    set_atom_type_labels(atoms, ["H_left", "H_right"])
     port = find_free_port()
     editor = view(
         atoms,
@@ -426,14 +438,21 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
 
             _expand_inspector(page)
             page.click('[data-inspector-group="scene"]')
-            page.click('[data-panel="bonding"] > summary')
+            _open_panel(page, 'bonding')
             page.select_option('#bond-mode', 'element')
-            cutoff = page.locator('.element-bond-cutoff[data-pair-key="H-H"]')
+            cutoff = page.locator('.element-bond-cutoff[data-pair-key="H_left-H_right"]')
             assert cutoff.count() == 1
             cutoff.fill('0.90')
             page.wait_for_function(
-                "Math.abs(window.__ASE_APP__.state.display.elementBondCutoffs['H-H'] - 0.9) < 1e-9"
+                "Math.abs(window.__ASE_APP__.state.display.elementBondCutoffs['H_left-H_right'] - 0.9) < 1e-9"
             )
+            cutoff.fill('0')
+            page.wait_for_function(
+                "window.__ASE_APP__.state.display.elementBondCutoffs['H_left-H_right'] === 0 && "
+                "window.__ASE_APP__.renderer.bondPairs.length === 0"
+            )
+            cutoff.fill('0.90')
+            page.wait_for_function("window.__ASE_APP__.renderer.bondPairs.length === 1")
 
             page.evaluate("""() => {
                 document.activeElement?.blur();
@@ -457,8 +476,8 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
             page.evaluate("async () => { await window.__ASE_APP__.pendingApply; }")
             persisted = page.evaluate("""() => ({
                 mode: window.__ASE_APP__.state.display.bondMode,
-                cutoff: window.__ASE_APP__.state.display.elementBondCutoffs['H-H'],
-                input: Number(document.querySelector('[data-pair-key="H-H"]').value),
+                cutoff: window.__ASE_APP__.state.display.elementBondCutoffs['H_left-H_right'],
+                input: Number(document.querySelector('[data-pair-key="H_left-H_right"]').value),
                 bonds: window.__ASE_APP__.renderer.bondPairs.length
             })""")
             assert persisted == {
@@ -481,14 +500,25 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
                 "window.__ASE_APP__.renderer.bondPairs.length === 0"
             )
 
-            label_cutoffs = page.evaluate("""() => {
+            relabeled = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
-                app.state.display.elementBondCutoffs['H-O'] = 1.23;
-                app.transferElementDisplaySettings('H', 'H_custom');
-                return {...app.state.display.elementBondCutoffs};
+                app.state.display.elementBondCutoffs['H_left-H_right'] = 1.23;
+                app.renameElementTypeForVisualization('H_left', 'H_custom', [0], 'H', {preserveAppearance: true});
+                return {
+                    labels: [...app.state.atoms.symbols],
+                    order: [...app.state.typeOrder],
+                    cutoff: app.state.display.elementBondCutoffs['H_custom-H_right'],
+                    rendererCutoff: app.renderer.bondCutoffForPair(0, 1),
+                    input: Number(document.querySelector('[data-pair-key="H_custom-H_right"]')?.value),
+                };
             }""")
-            assert label_cutoffs['H-O'] == 1.23
-            assert 'H_custom-O' not in label_cutoffs
+            assert relabeled == {
+                "labels": ["H_custom", "H_right"],
+                "order": ["H_custom", "H_right"],
+                "cutoff": 1.23,
+                "rendererCutoff": 1.23,
+                "input": 1.23,
+            }
             browser.close()
     finally:
         sessions.pop(editor.session_id, None)
@@ -498,7 +528,7 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
     atoms = Atoms(
         "HO",
         positions=[[0.0, 0.0, 0.0], [2.4, 0.0, 0.0]],
-        cell=[8.0, 8.0, 8.0],
+        cell=[[8.0, 0.0, 0.0], [1.2, 8.0, 0.0], [0.3, 0.5, 8.0]],
         pbc=True,
     )
     port = find_free_port()
@@ -524,7 +554,7 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
 
             _expand_inspector(page)
             page.click('[data-inspector-group="scene"]')
-            page.click('[data-panel="bonding"] > summary')
+            _open_panel(page, 'bonding')
             page.select_option('#bond-mode', 'manual')
             page.fill('#bond-pairs', '0-1')
             page.click('#btn-bond-apply')
@@ -616,6 +646,55 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
             page.locator('#bond-pairs').click()
             page.wait_for_function("window.__ASE_APP__.state.display.supercell[2] === 2")
             assert page.evaluate("window.__ASE_APP__.state.display.supercell") == [2, 2, 2]
+            repeated = page.evaluate("""() => {
+                const children = window.__ASE_APP__.renderer.supercellGroup.children;
+                const atoms = children.filter(child => child.userData.supercellInstanced);
+                const bonds = children.filter(child => child.userData.supercellBonds);
+                return {
+                    atomInstances: atoms.reduce((sum, mesh) => sum + mesh.count, 0),
+                    bondInstances: bonds.reduce((sum, mesh) => sum + mesh.count, 0),
+                    atomMeshes: atoms.length,
+                    bondMeshes: bonds.length,
+                    atomTransparent: atoms.some(mesh => mesh.material.transparent),
+                    atomOpacity: atoms.map(mesh => mesh.material.opacity),
+                    selectableChildren: window.__ASE_APP__.renderer.atomMeshes.children.length,
+                };
+            }""")
+            assert repeated["atomInstances"] == 14
+            assert repeated["bondInstances"] == 14
+            assert repeated["atomMeshes"] >= 1
+            assert repeated["bondMeshes"] == 2
+            assert repeated["atomTransparent"] is False
+            assert repeated["atomOpacity"] == [1]
+            assert repeated["selectableChildren"] == 2
+            repeated_hover = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const renderer = app.renderer;
+                const Vector3 = renderer.camera.position.constructor;
+                const target = new Vector3(8, 0, 0);
+                renderer.camera.position.set(13, -20, 7);
+                renderer.camera.up.set(0, 0, 1);
+                renderer.controls.target.copy(target);
+                renderer.camera.lookAt(target);
+                renderer.camera.updateMatrixWorld(true);
+                renderer.scene.updateMatrixWorld(true);
+                const screen = target.clone().project(renderer.camera);
+                const pointer = {
+                    clientX: (screen.x + 1) * 0.5 * window.innerWidth,
+                    clientY: (1 - screen.y) * 0.5 * window.innerHeight,
+                };
+                return {
+                    hover: app.selection.pickHover(pointer, renderer.atomMeshes, renderer.supercellGroup),
+                    selectable: app.selection.pick(pointer, renderer.atomMeshes),
+                    clientX: pointer.clientX,
+                    clientY: pointer.clientY,
+                };
+            }""")
+            assert repeated_hover["hover"] == 0
+            assert repeated_hover["selectable"] is None
+            page.mouse.move(repeated_hover["clientX"], repeated_hover["clientY"])
+            page.wait_for_function("window.__ASE_APP__.state.hoveredIndex === 0")
+            assert "#0 H" in page.locator('#hover-readout').inner_text()
             for control in ('#super-x', '#super-y', '#super-z'):
                 page.fill(control, '1')
                 page.keyboard.press('Tab')

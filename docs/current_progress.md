@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.54`.
+Last synchronized with implementation: `v_ase-gui 0.0.55`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -30,7 +30,7 @@ edited_atoms = view(atoms)
 3.  **Constraint Integrity**: ASE constraints are strictly respected during all coordinate updates via the backend.
 4.  **Blender UX**: Mouse and keyboard patterns follow Blender (e.g., Left-drag for selection, G/R for transform).
 5.  **Calculator Inheritance**: Calculators are preserved across structural changes (Addition/Deletion/Relaxation).
-6.  **Interactive Visualization**: Bonds, selection outlines, selected-constraint guides, and supercell ghosts update dynamically without scene resets.
+6.  **Interactive Visualization**: Bonds, selection outlines, selected-constraint guides, and full-material supercell replicas update dynamically without scene resets.
 
 ---
 
@@ -202,11 +202,12 @@ The frontend manages modes: `IDLE`, `MOVE`, `ROTATE`. Transitions are triggered 
 *   **Inference**: Initially created based on covalent radii + scale factor.
 *   **Cell Boundary Default**: Direct current-cell distances are used by default, so cylinders do not point toward invisible neighboring-cell atoms.
 *   **Periodic Images**: `Periodic image bonds` explicitly enables minimum-image vectors and image-crossing cylinders, following VESTA's separate inside-boundary / outside-boundary search policy.
-*   **Interactive**: Auto and element-cutoff bonds are re-inferred from the current preview coordinates during G/R transforms, so cylinders form and disappear before the transform is committed. Manual pairs keep their explicit topology and update cylinder geometry only.
-*   **Element/Type Pairs**: Element-pair cutoff rows are exposed in the Bonding panel.
+*   **Interactive**: Auto and pairwise-cutoff bonds are re-inferred from the current preview coordinates during G/R transforms, so cylinders form and disappear before the transform is committed. Manual pairs keep their explicit topology and update cylinder geometry only.
+*   **Label Pairs**: `Pairwise cutoff` rows are keyed by editable display labels, allowing chemically identical types such as `Cu_surface` and `Cu_bulk` to use different cutoffs. `0` explicitly disables a pair.
 *   **Manual Pairs**: Explicit pair lists such as `0-1, 1-2` can be supplied in the Bonding panel.
-*   **Recalculation**: Auto and element-cutoff modes are re-inferred during interactive previews and whenever the trajectory frame changes. A cell-list search is used above the small-scene threshold, and bond meshes are rebuilt only when the inferred pair list changes.
-*   **Persistent Settings**: Bond mode, global cutoff scale, element-pair `rcut` values, MIC policy, and manual pairs survive structure refreshes, transform commits, trajectory changes, and display-label edits. Element cutoffs remain keyed by backend chemical elements rather than editable labels.
+*   **Recalculation**: Auto and pairwise-cutoff modes are re-inferred during interactive previews and whenever the trajectory frame changes. A cell-list search is used above the small-scene threshold, and bond meshes are rebuilt only when the inferred pair list changes.
+*   **Persistent Settings**: Bond mode, global cutoff scale, label-pair `rcut` values, MIC policy, and manual pairs survive structure refreshes, transform commits, trajectory changes, and display-label edits. Relabeling copies matching pair settings before the renderer rebuilds.
+*   **Supercell Preview**: Atom and bond instances are repeated for every positive supercell shift. Replicas use the original atom material at full opacity, participate in hover readout, and remain outside click/box-selection groups until the supercell is committed as the cell.
 *   **Appearance**: Bond thickness is the cylinder diameter or flat-ribbon width. Bonds can use a lit 3D cylinder or a camera-facing 2D ribbon, with either one custom color or two midpoint-split segments colored from their endpoint atoms. Viewport bonds retain GPU instancing but are grouped by final material color so custom and split colors are rendered exactly instead of relying on fragile per-instance shader colors. Viewport, PNG/WebM, visual-settings pickle, and Blender export share these values.
 
 ---
@@ -337,7 +338,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.54).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.55).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -360,7 +361,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 30**: Added a standalone HTML design preview with five FixedLine and five FixedPlane persistent-marker candidates, plus fixed-atom reference styling.
 *   [x] **Phase 31**: Consolidated the desktop UI into one responsive style system, integrated the atomistic v_ase logo in the app/package/README, added demand rendering and adaptive DPR, and instanced atoms, bonds, selection outlines, and visualization-mode supercells for large-scene performance.
 *   [x] **Phase 32**: Added collapsible inspector navigation, opt-in Studio Sun and soft-shadow rendering with viewport light controls and independent image-export settings, plus a VESTA-style cell-local bond default with explicit periodic-image MIC mode.
-*   [x] **Phase 33**: Auto and element-cutoff bonds now form and break live during interactive G/R previews, while all user bond settings persist across backend structure refreshes, trajectory changes, and label edits.
+*   [x] **Phase 33**: Auto and pairwise-cutoff bonds now form and break live during interactive G/R previews, while all user bond settings persist across backend structure refreshes, trajectory changes, and label edits.
 *   [x] **Phase 34**: Added persistent bond thickness, custom or midpoint-split atom colors, 3D cylinder and camera-facing flat-ribbon styles, GPU-instanced rendering, and matching Blender export.
 *   [x] **Phase 35**: Replaced the ambiguous inspector chevron construction with explicit action glyphs, removed the redundant Workspace header label, and introduced an illuminated-object vector icon for render lighting.
 *   [x] **Phase 36**: Replaced direct Sun-handle dragging with selectable Blender-style `G`/`R` light transforms, including axis locks, numeric input, confirm/cancel, robust viewport focus, and exact Sun transform/intensity export to Blender.
@@ -368,6 +369,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 38**: The inspector handle is centered vertically and slightly enlarged without sacrificing its compact edge-tab form; render lighting now sits to the gizmo's right and uses an explicit Sun-to-sphere illumination icon with a ground shadow.
 *   [x] **Phase 39**: Made custom and midpoint-split bond colors use color-grouped instanced materials for reliable final rendering, and unified number/text/color input commits across Enter, Tab, and focus changes.
 *   [x] **Phase 40**: Reworked Studio Sun as a structure-fitted directional light, eliminating finite shadow-map seams while preserving planar illumination. Source and target are independently selectable and transformable with `G`/`R`; the object-centered shaded-sphere control now lives beside the calculator in the top toolbar, and browser tests cover both handles, shadow bounds, export settings, and responsive placement.
+*   [x] **Phase 41**: Supercell previews now instance full-opacity unselectable-but-hoverable atoms and repeated live bonds in every cell; pairwise cutoffs are label-keyed with explicit zero-disable semantics; `Tab` toggles the inspector and all category panels default open; Blender export writes opaque colors to Principled BSDF and is runtime-render tested in Blender 5.
 
 ---
 

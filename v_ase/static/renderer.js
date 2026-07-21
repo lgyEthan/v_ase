@@ -2034,7 +2034,7 @@ export class ASERenderer {
 
     bondCutoffForPair(i, j) {
         if (this.displayOptions.bondMode === 'element') {
-            return this.elementBondCutoff(this.atomChemicalSymbol(i), this.atomChemicalSymbol(j));
+            return this.elementBondCutoff(this.atomsData.symbols[i], this.atomsData.symbols[j]);
         }
         return this.autoBondCutoff(i, j);
     }
@@ -2209,6 +2209,7 @@ export class ASERenderer {
 
     rebuildBonds(precomputedPairs = null) {
         this.clearGroup(this.bondGroup);
+        this.clearSupercellBonds();
         this.bondPairs = [];
         this.domElement.dataset.bondCount = '0';
         this.domElement.dataset.periodicBonds = this.displayOptions.showPeriodicBonds ? 'true' : 'false';
@@ -2268,23 +2269,27 @@ export class ASERenderer {
             mesh.instanceMatrix.needsUpdate = true;
             this.bondGroup.add(mesh);
         });
+        this.rebuildSupercellBonds();
         this.applyShadowFlags();
         this.requestRender();
     }
 
     updateBondPositions() {
-        if (!this.displayOptions.showBonds || !this.bondGroup.children.length || !this.bondPairs?.length) return;
-        this.bondGroup.children.forEach(bond => {
-            if (bond.userData.instancedBonds) {
-                (bond.userData.bondSegments || []).forEach((segment, instanceId) => {
-                    this.positionBondInstance(bond, instanceId, segment.i, segment.j, segment.t0, segment.t1);
-                });
-                bond.instanceMatrix.needsUpdate = true;
-                return;
-            }
-            const [i, j] = bond.userData.bondPair || [];
-            this.positionBondMesh(bond, i, j);
-        });
+        if (!this.displayOptions.showBonds || !this.bondPairs?.length) return;
+        if (this.bondGroup.children.length) {
+            this.bondGroup.children.forEach(bond => {
+                if (bond.userData.instancedBonds) {
+                    (bond.userData.bondSegments || []).forEach((segment, instanceId) => {
+                        this.positionBondInstance(bond, instanceId, segment.i, segment.j, segment.t0, segment.t1);
+                    });
+                    bond.instanceMatrix.needsUpdate = true;
+                    return;
+                }
+                const [i, j] = bond.userData.bondPair || [];
+                this.positionBondMesh(bond, i, j);
+            });
+        }
+        this.updateSupercellBondPositions();
     }
 
     setStrainViolations(violations = []) {
@@ -2474,7 +2479,7 @@ export class ASERenderer {
         }
     }
 
-    positionBondInstance(mesh, instanceId, i, j, t0 = 0, t1 = 1) {
+    positionBondInstance(mesh, instanceId, i, j, t0 = 0, t1 = 1, shift = null) {
         const a = this.atomMeshByIndex.get(i);
         const b = this.atomMeshByIndex.get(j);
         const dummy = this.bondInstanceDummy;
@@ -2488,7 +2493,9 @@ export class ASERenderer {
         }
         const atomStart = a.position;
         const fullDelta = this.bondDelta(i, j, atomStart);
-        const start = atomStart.clone().addScaledVector(fullDelta, t0);
+        const start = atomStart.clone();
+        if (shift) start.add(shift);
+        start.addScaledVector(fullDelta, t0);
         const delta = fullDelta.multiplyScalar(t1 - t0);
         const length = delta.length();
         if (!Number.isFinite(length) || length < 1e-6) {
@@ -2528,57 +2535,8 @@ export class ASERenderer {
         }
         const cell = this.atomsData.cell.map(v => new THREE.Vector3(...v));
         this.addSupercellCellPreview(cell, reps);
-        if (this.displayOptions.vizOnly) {
-            this.rebuildVizOnlySupercellAtoms(cell, reps);
-            this.applyShadowFlags();
-            this.requestRender();
-            return;
-        }
-        const fixed = new Set(this.atomsData.constraints?.fixed_indices || []);
-        const maxGhostAtoms = 5000;
-        let ghostCount = 0;
-        const ghostSegments = Math.max(10, Math.floor(this.sphereQualitySegments(this.atomsData.symbols.length) * 0.62));
-        for (let ix = 0; ix < reps[0]; ix++) {
-            for (let iy = 0; iy < reps[1]; iy++) {
-                for (let iz = 0; iz < reps[2]; iz++) {
-                    if (ix === 0 && iy === 0 && iz === 0) continue;
-                    const shift = new THREE.Vector3()
-                        .addScaledVector(cell[0], ix)
-                        .addScaledVector(cell[1], iy)
-                        .addScaledVector(cell[2], iz);
-                    this.atomsData.symbols.forEach((sym, i) => {
-                        if (ghostCount >= maxGhostAtoms) return;
-                        const radius = this.atomVisualRadius(i);
-                        const color = this.atomVisualColor(i);
-                        const geometryKey = `${radius}:ghost:${ghostSegments}`;
-                        if (!this.geometryCache.has(geometryKey)) {
-                            this.geometryCache.set(geometryKey, new THREE.SphereGeometry(
-                                radius * 0.88,
-                                ghostSegments,
-                                Math.max(8, Math.floor(ghostSegments * 0.62))
-                            ));
-                        }
-                        const materialKey = `${color}:ghost`;
-                        if (!this.materialCache.has(materialKey)) {
-                            this.materialCache.set(materialKey, new THREE.MeshStandardMaterial({
-                                color,
-                                roughness: 0.54,
-                                transparent: true,
-                                opacity: fixed.has(i) ? 0.32 : 0.48,
-                                depthWrite: false
-                            }));
-                        }
-                        const mesh = new THREE.Mesh(this.geometryCache.get(geometryKey), this.materialCache.get(materialKey));
-                        const p = this.atomMeshByIndex.get(i)?.position || new THREE.Vector3(...this.atomsData.positions[i]);
-                        mesh.position.copy(p).add(shift);
-                        mesh.userData = { ghostFor: i, shift };
-                        mesh.visible = this.atomTypeVisible(i);
-                        this.supercellGroup.add(mesh);
-                        ghostCount++;
-                    });
-                }
-            }
-        }
+        this.rebuildSupercellAtoms(cell, reps);
+        this.rebuildSupercellBonds(cell, reps);
         this.applyShadowFlags();
         this.requestRender();
     }
@@ -2599,7 +2557,7 @@ export class ASERenderer {
         return shifts;
     }
 
-    rebuildVizOnlySupercellAtoms(cell, reps) {
+    rebuildSupercellAtoms(cell, reps) {
         const shifts = this.supercellShifts(cell, reps);
         if (!shifts.length) return;
         const segmentCount = this.sphereQualitySegments(this.atomsData.symbols.length);
@@ -2666,6 +2624,98 @@ export class ASERenderer {
             mesh.instanceMatrix.needsUpdate = true;
             if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
             this.supercellGroup.add(mesh);
+        });
+    }
+
+    clearSupercellBonds() {
+        if (!this.supercellGroup) return;
+        [...this.supercellGroup.children].forEach(child => {
+            if (!child.userData?.supercellBonds) return;
+            this.supercellGroup.remove(child);
+            this.disposeObject(child);
+        });
+    }
+
+    rebuildSupercellBonds(cell = null, reps = null) {
+        this.clearSupercellBonds();
+        if (!this.displayOptions.showBonds || !this.bondPairs?.length || !this.atomsData || !this.hasValidCell()) return;
+        const repeats = reps || this.displayOptions.supercell || [1, 1, 1];
+        if (repeats.every(value => value <= 1)) return;
+        const basis = cell || this.atomsData.cell.map(values => new THREE.Vector3(...values));
+        const shifts = this.supercellShifts(basis, repeats);
+        if (!shifts.length) return;
+
+        const split = this.displayOptions.bondColorMode !== 'custom';
+        const segments = this.bondPairs.flatMap(([i, j]) => split
+            ? [
+                { i, j, t0: 0, t1: 0.5, colorIndex: i },
+                { i, j, t0: 0.5, t1: 1, colorIndex: j }
+            ]
+            : [{ i, j, t0: 0, t1: 1, colorIndex: null }]);
+        const flat = this.displayOptions.bondStyle === 'flat';
+        const segmentsByColor = new Map();
+        segments.forEach(segment => {
+            const color = this.bondSegmentColor(segment);
+            if (!segmentsByColor.has(color)) segmentsByColor.set(color, []);
+            segmentsByColor.get(color).push(segment);
+        });
+
+        segmentsByColor.forEach((colorSegments, color) => {
+            const mesh = new THREE.InstancedMesh(
+                flat ? this.bondFlatGeometry : this.bondCylinderGeometry,
+                this.bondMaterial(flat ? 'flat' : 'cylinder', color),
+                colorSegments.length * shifts.length
+            );
+            mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+            mesh.frustumCulled = false;
+            mesh.renderOrder = -1;
+            mesh.userData = {
+                supercellBonds: true,
+                bondSegments: colorSegments,
+                shifts,
+                bondColor: color,
+                sharedGeometry: true,
+                sharedMaterial: true
+            };
+            let instanceId = 0;
+            shifts.forEach(shift => {
+                colorSegments.forEach(segment => {
+                    this.positionBondInstance(
+                        mesh,
+                        instanceId,
+                        segment.i,
+                        segment.j,
+                        segment.t0,
+                        segment.t1,
+                        shift
+                    );
+                    instanceId++;
+                });
+            });
+            mesh.instanceMatrix.needsUpdate = true;
+            this.supercellGroup.add(mesh);
+        });
+    }
+
+    updateSupercellBondPositions() {
+        this.supercellGroup.children.forEach(mesh => {
+            if (!mesh.userData?.supercellBonds) return;
+            let instanceId = 0;
+            mesh.userData.shifts.forEach(shift => {
+                mesh.userData.bondSegments.forEach(segment => {
+                    this.positionBondInstance(
+                        mesh,
+                        instanceId,
+                        segment.i,
+                        segment.j,
+                        segment.t0,
+                        segment.t1,
+                        shift
+                    );
+                    instanceId++;
+                });
+            });
+            mesh.instanceMatrix.needsUpdate = true;
         });
     }
 
@@ -2736,7 +2786,7 @@ export class ASERenderer {
     updateSupercellPositions() {
         if (!this.supercellGroup.children.length) return;
         this.supercellGroup.children.forEach(mesh => {
-            if (mesh.userData.supercellCellPreview) return;
+            if (mesh.userData.supercellCellPreview || mesh.userData.supercellBonds) return;
             if (mesh.userData.supercellInstanced) {
                 let instanceId = 0;
                 mesh.userData.shifts.forEach(shift => {
@@ -2748,14 +2798,8 @@ export class ASERenderer {
                 mesh.instanceMatrix.needsUpdate = true;
                 return;
             }
-            const atom = this.atomMeshByIndex.get(mesh.userData.ghostFor);
-            if (!atom || !this.atomTypeVisible(mesh.userData.ghostFor)) {
-                mesh.visible = false;
-                return;
-            }
-            mesh.visible = true;
-            mesh.position.copy(atom.position).add(mesh.userData.shift);
         });
+        this.updateSupercellBondPositions();
     }
 
     normalizedVector(values) {
