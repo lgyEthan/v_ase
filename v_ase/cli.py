@@ -44,6 +44,8 @@ INPUT_FORMAT_ALIASES = {
     "data": "lammps-data",
     "lammps-data": "lammps-data",
     "lammps_data": "lammps-data",
+    "vase": "vase-project",
+    "vase-project": "vase-project",
 }
 
 
@@ -51,7 +53,7 @@ def package_version() -> str:
     try:
         return version("v_ase-gui")
     except PackageNotFoundError:
-        return "0.0.58"
+        return "0.0.59"
 
 
 def resolve_input_format(fmt: str | None) -> str | None:
@@ -74,7 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="open a structure or trajectory file in the v_ase GUI",
         description="Open a file like ASE's `ase gui FILE`, but in the v_ase browser editor.",
     )
-    gui.add_argument("file", help="structure or trajectory file readable by ASE, e.g. POSCAR, .vasp, .traj, .extxyz")
+    gui.add_argument("file", help="structure, trajectory, or .vase project, e.g. POSCAR, .vasp, .traj, .extxyz, .vase")
     gui.add_argument(
         "-i",
         "--index",
@@ -89,7 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="FORMAT",
         help=(
             "force the input file format when the filename is ambiguous. "
-            "Common aliases: POSCAR, XDATCAR, vasprun.xml, lammpstrj, traj, xyz, extxyz, data. "
+            "Common aliases: POSCAR, XDATCAR, vasprun.xml, lammpstrj, traj, xyz, extxyz, data, vase. "
             "Raw ASE format names such as vasp-xml and lammps-data also work."
         ),
     )
@@ -161,9 +163,18 @@ def run_gui(args: argparse.Namespace) -> int:
     suffix = path.suffix.lower()
     trajectory_source = None
     initial_frame = 0
+    initial_design_settings = None
+    is_vase_project = suffix == ".vase" or resolved_format == "vase-project"
     is_lammps_dump = resolved_format == "lammps-dump-text" or (args.format is None and suffix in {".lammpstrj", ".dump"})
     viz_only = not args.interactive
-    if viz_only and is_lammps_dump:
+    if is_vase_project:
+        from v_ase.project import read_project_archive
+
+        project = read_project_archive(path)
+        frames = project.frames
+        initial_frame = project.current_frame
+        initial_design_settings = project.settings
+    elif viz_only and is_lammps_dump:
         try:
             fast = read_fast_lammps_dump(path, args.index)
             frames = [fast.atoms]
@@ -187,6 +198,7 @@ def run_gui(args: argparse.Namespace) -> int:
         viz_only=viz_only,
         trajectory_source=trajectory_source,
         initial_frame=initial_frame,
+        initial_design_settings=initial_design_settings,
     )
 
     if args.no_block:

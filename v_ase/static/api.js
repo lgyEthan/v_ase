@@ -265,10 +265,16 @@ export class ASEApi {
             return await this.mockResponse(this.mockState.atoms);
         }
         if (path.includes('/api/settings/save/')) {
-            return new Blob([options.body || '{}'], { type: 'application/octet-stream' });
+            return new Blob([options.body || '{}'], { type: 'application/json' });
         }
         if (path.includes('/api/settings/load/')) {
-            return { schema: 'v_ase.visual_settings.v1', settings: {} };
+            return { schema: 'v_ase.visual_settings.v2', settings: {} };
+        }
+        if (path.includes('/api/project/save/')) {
+            return new Blob(['v_ase mock project\n'], { type: 'application/vnd.v-ase.project+zip' });
+        }
+        if (path.includes('/api/project/load/')) {
+            return { ...await this.mockResponse(this.mockState.atoms), project: { schema: 'v_ase.project.v1', settings: {} } };
         }
         if (path.includes('/api/undo/')) {
             if (this.mockState.history.length) {
@@ -667,6 +673,23 @@ export class ASEApi {
     async loadVisualSettings(file) {
         const body = file instanceof Blob ? await file.arrayBuffer() : file;
         return await this.request(`/api/settings/load/{session_id}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/octet-stream'},
+            body
+        });
+    }
+
+    async saveProject(positions, settings, applyConstraint = true) {
+        return await this.request(`/api/project/save/{session_id}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ positions, settings, apply_constraint: applyConstraint })
+        }, { expect: 'blob' });
+    }
+
+    async loadProject(file) {
+        const body = file instanceof Blob ? await file.arrayBuffer() : file;
+        return await this.request(`/api/project/load/{session_id}`, {
             method: 'POST',
             headers: {'Content-Type': 'application/octet-stream'},
             body

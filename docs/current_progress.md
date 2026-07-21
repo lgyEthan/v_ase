@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.58`.
+Last synchronized with implementation: `v_ase-gui 0.0.59`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -208,7 +208,7 @@ The frontend manages modes: `IDLE`, `MOVE`, `ROTATE`. Transitions are triggered 
 *   **Recalculation**: Auto and pairwise-cutoff modes are re-inferred during interactive previews and whenever the trajectory frame changes. A cell-list search is used above the small-scene threshold, and bond meshes are rebuilt only when the inferred pair list changes.
 *   **Persistent Settings**: Bond mode, global cutoff scale, label-pair `rcut` values, MIC policy, and manual pairs survive structure refreshes, transform commits, trajectory changes, and display-label edits. Relabeling copies matching pair settings before the renderer rebuilds.
 *   **Supercell Preview**: Atom and bond instances are repeated for every positive supercell shift. Replicas use the original atom material at full opacity and participate in hover readout. Visualization mode gives every image a stable base-index/cell-offset identity for click, box, element, and `Ctrl+A` selection plus displayed-coordinate measurements. Interactive mode leaves display images unselectable until the supercell is committed as the cell.
-*   **Appearance**: Bond thickness is the cylinder diameter or flat-ribbon width. Bonds can use a lit 3D cylinder or a camera-facing 2D ribbon, with either one custom color or two midpoint-split segments colored from their endpoint atoms. Viewport bonds retain GPU instancing but are grouped by final material color so custom and split colors are rendered exactly instead of relying on fragile per-instance shader colors. Viewport, PNG/WebM, visual-settings pickle, and Blender export share these values.
+*   **Appearance**: Bond thickness is the cylinder diameter or flat-ribbon width. Bonds can use a lit 3D cylinder or a camera-facing 2D ribbon, with either one custom color or two midpoint-split segments colored from their endpoint atoms. Viewport bonds retain GPU instancing but are grouped by final material color so custom and split colors are rendered exactly instead of relying on fragile per-instance shader colors. Viewport, PNG/WebM, visual-settings JSON, and Blender export share these values.
 
 ---
 
@@ -232,7 +232,7 @@ possible, and update the frontend state. This behavior is covered by
 *   **Reset**: Revert to original input structure (preserving calculator).
 *   **Wrap**: Explicitly call `Atoms.wrap()`.
 *   **Constraint Panel**: Interactive mode can apply or clear `FixAtoms`, `FixedLine`, and `FixedPlane` on selected atoms. FixAtoms uses tri-state selection semantics; partial selections clear first, then can be applied to all selected atoms.
-*   **Inspector Sections**: Inspect, Edit, Scene, and Output tabs replace the single long inspector. The panel starts fully collapsed and opens from a compact 15 x 30 px edge tab backed by a larger transparent hit area. Its active section, explicit collapsed state, and width persist locally.
+*   **Inspector Sections**: Inspect, Structure, Display, and Output tabs replace the single long inspector. Cell & Replication belongs to Structure; camera, appearance, and bonding belong to Display; exports and both save formats belong to Output. The panel starts fully collapsed and opens from a compact edge tab backed by a larger transparent hit area. Its active section, explicit collapsed state, and width persist locally.
 
 ---
 
@@ -246,12 +246,27 @@ possible, and update the frontend state. This behavior is covered by
     complete visible structure so large and off-origin models do not cross a
     finite shadow-frustum boundary.
 *   **WebM Video**: Available for trajectories.
-*   **Blender Script**: Exports separate atom objects with shared meshes, unit
-    cell, bonds, constraints where practical, the current camera, and a Blender
-    Sun whose location, target-derived rotation, color, and energy match the
-    active v_ase Studio Sun values. Blender can
-    run the script and save a native `.blend`; OBJ is possible but loses camera,
-    constraints, trajectory behavior, instancing, and richer materials.
+*   **Blender Script**: Optimized mode groups atoms into editable point meshes
+    by label and uses Geometry Nodes for smooth sphere instancing. Trajectories
+    use point-mesh shape keys, bonds are grouped by material, and the unit cell
+    is one multi-spline curve. Individual atom objects remain an opt-in mode.
+    The current camera and a Blender Sun rig preserve source, target-derived
+    direction, color, and numeric energy. Blender can run the script and save a
+    native `.blend`; OBJ loses camera, trajectory, lighting, instancing, and
+    richer materials.
+
+### Save Formats
+*   **Visual Settings JSON**: Reusable bond topology/appearance, label
+    appearance and visibility, quality, overlays, camera/projection, Sun, and
+    supercell preview without structure coordinates. Loading intersects saved
+    labels with current labels and gives newly encountered labels/pairs defaults.
+*   **`.vase` Project**: Validated ZIP archive containing all trajectory frames,
+    current frame, edited or locally wrapped coordinates, cells/PBC,
+    constraints, labels, safe arrays, JSON-compatible info, cached standard ASE
+    results, and visual settings. Executable calculator objects and undo history
+    are deliberately excluded; cached results restore through
+    `SinglePointCalculator`. The built-in repulsion calculator is reconstructed
+    from validated primitive configuration so relaxation remains available.
 
 ---
 
@@ -322,6 +337,10 @@ method is recorded in `docs/performance.md`.
 *   `POST /api/export/poscar/{session_id}`: Export POSCAR.
 *   `POST /api/export/pickle/{session_id}`: Export pickle.
 *   `POST /api/export/blender/{session_id}`: Export a Blender Python scene.
+*   `POST /api/settings/save/{session_id}`: Export reusable visual settings JSON.
+*   `POST /api/settings/load/{session_id}`: Load validated JSON or restricted legacy settings.
+*   `POST /api/project/save/{session_id}`: Export the complete session as `.vase`.
+*   `POST /api/project/load/{session_id}`: Replace the active session from `.vase`.
 *   `POST /api/relax/start/{session_id}`: Start relaxation.
 *   `POST /api/relax/stop/{session_id}`: Request relaxation stop.
 *   `WS /ws/{session_id}`: Trajectory stream.
@@ -338,7 +357,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.58).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.59).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -373,6 +392,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 42**: Studio Sun now behaves as a coherent light rig: moving the source translates source and target together, moving the target changes aim only, and rotating either selected handle always orbits the target around the source pivot.
 *   [x] **Phase 43**: Appearance relabeling now commits atomically across Enter/change/focus events; visualization-mode supercell images are independently selectable and measurable by cell offset; Selection center fractional coordinates use a dedicated second line; the bottom HUD exposes live selection measurements; and Sun mouse rotation follows atom rotation direction.
 *   [x] **Phase 44**: Split persistent selection measurements from pointer-dependent hover metadata, reduced the viewport summary to distance/angle essentials, replaced the bulb-like lighting glyph with a directional studio spotlight, and regenerated the logo plus README media with the current Sun + Soft Shadow renderer.
+*   [x] **Phase 45**: Added portable JSON visual presets and validated full-state `.vase` projects, reorganized the inspector into Inspect/Structure/Display/Output, optimized Blender export with Geometry Nodes point groups and trajectory shape keys, and runtime-tested a 15,000-atom Blender 5 scene at 0.700 seconds.
 
 ---
 

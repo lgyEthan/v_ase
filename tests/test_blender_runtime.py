@@ -24,6 +24,9 @@ def test_generated_scene_renders_principled_atom_colors_bonds_cell_and_sun(tmp_p
         pbc=True,
     )
     data = atoms_to_json(atoms)
+    moved = atoms.copy()
+    moved.positions += [0.3, 0.2, 0.1]
+    data["frames"] = [atoms_to_json(atoms), atoms_to_json(moved)]
     data["display"] = {
         "showBonds": True,
         "bondStyle": "cylinder",
@@ -69,8 +72,32 @@ sun = bpy.data.objects.get("v_ase_studio_sun")
 assert sun is not None and sun.data.type == "SUN"
 assert abs(sun.data.energy - 3.4) < 1e-5
 assert tuple(round(value, 6) for value in sun["v_ase_target"]) == (1.0, 0.0, 0.0)
-assert len([obj for obj in bpy.data.objects if obj.name.startswith("unit_cell_edge_")]) == 12
-assert len([obj for obj in bpy.data.objects if obj.name.startswith("bond_0_1_")]) == 2
+assert bpy.data.objects.get("v_ase_sun_source") is not None
+assert bpy.data.objects.get("v_ase_sun_target") is not None
+source = bpy.data.objects["v_ase_sun_source"]
+target = bpy.data.objects["v_ase_sun_target"]
+assert tuple(round(value, 6) for value in source.location) == (7.0, -9.0, 12.0)
+assert tuple(round(value, 6) for value in target.location) == (1.0, 0.0, 0.0)
+bpy.context.view_layer.update()
+evaluated_sun = sun.evaluated_get(bpy.context.evaluated_depsgraph_get())
+actual_direction = (evaluated_sun.matrix_world.to_quaternion() @ Vector((0, 0, -1))).normalized()
+expected_direction = (target.matrix_world.translation - source.matrix_world.translation).normalized()
+assert (actual_direction - expected_direction).length < 1e-5
+atom_groups = [obj for obj in bpy.data.objects if obj.get("v_ase_atom_group")]
+assert len(atom_groups) == 2
+assert sum(int(obj.get("v_ase_atom_count", 0)) for obj in atom_groups) == 2
+assert all(any(mod.type == "NODES" for mod in obj.modifiers) for obj in atom_groups)
+assert all(obj.data.shape_keys is not None and len(obj.data.shape_keys.key_blocks) == 3 for obj in atom_groups)
+scene.frame_set(2)
+bpy.context.view_layer.update()
+for group in atom_groups:
+    atom_index = int(group.data.attributes["atom_index"].data[0].value)
+    actual = group.data.shape_keys.key_blocks["frame_00002"].data[0].co
+    expected = Vector({moved.positions.tolist()!r}[atom_index])
+    assert (actual - expected).length < 1e-5
+scene.frame_set(1)
+assert bpy.data.objects.get("unit_cell_edges") is not None
+assert len([obj for obj in bpy.data.objects if obj.name.startswith("bond_group_")]) == 2
 scene.render.resolution_x = 320
 scene.render.resolution_y = 240
 scene.render.resolution_percentage = 100

@@ -16,7 +16,9 @@ The visualizer adopts the modal operator pattern from Blender:
 The current editor supports copy/paste, undo/redo, Delete/Backspace deletion,
 reset, wrap, POSCAR export, pickle export, viewport PNG image
 export, WebM video export, Blender scene export, and calculator-backed
-relaxation controls.
+relaxation controls. Visual presets can be saved as JSON, while `.vase`
+projects preserve complete structures or trajectories together with display
+state.
 
 ### Calculator Handling
 Existing ASE calculators are preserved, including `SinglePointCalculator`.
@@ -63,7 +65,7 @@ Bond appearance is independent of topology inference. Thickness controls the
 3D cylinder diameter or 2D flat-ribbon width. Color can be one freely selected
 custom value or two midpoint-split segments using the endpoint atom colors.
 Flat ribbons remain camera-facing during navigation. These settings persist in
-visual-settings pickle files and are reproduced in PNG/WebM and Blender export.
+visual-settings JSON files and are reproduced in PNG/WebM and Blender export.
 
 Orthographic projection is the default view, with perspective available as a
 viewport option. Unit cell, axes, grid, and supercell preview controls are
@@ -82,9 +84,10 @@ the selected count, distance, or angle with adjacent distances. Hover metadata
 updates independently as the pointer moves over atoms.
 
 ### Inspector Navigation and Lighting
-The inspector is divided into Inspect, Edit, Scene, and Output sections instead
-of one long mixed panel. Edit is omitted in visualization-only mode. The
-inspector starts fully collapsed and opens from a compact panel-edge handle.
+The inspector is divided into Inspect, Structure, Display, and Output sections
+instead of one long mixed panel. Interactive-only constraint and relaxation
+controls remain hidden in visualization mode, while Cell & Replication stays
+available. The inspector starts fully collapsed and opens from a compact panel-edge handle.
 The edge tab is centered vertically on the panel. Its visible 19 x 38 px surface
 sits inside a transparent 28 x 48 px hit area, balancing legibility with reliable
 mouse and touch interaction. Its 60-degree SVG chevron points toward the next
@@ -151,6 +154,27 @@ does not reorder rows. If a label prefix names a real element, for example
 base element changes, stale radius/color overrides from the old label are not
 blindly copied.
 
+### Visual Presets and `.vase` Projects
+Output exposes two intentionally separate save paths:
+
+- Visual Settings is a JSON preset for display, camera, Sun, quality,
+  appearance, supercell preview, and complete bond configuration. Loading a
+  preset intersects label-specific data with labels present in the new
+  structure, ignores absent labels, creates defaults for new labels and label
+  pairs, and drops invalid manual atom-index pairs.
+- A `.vase` project is a validated ZIP archive containing an ASE trajectory,
+  active frame, edited coordinates, cells, PBC, constraints, atom labels,
+  safe per-atom arrays, JSON-compatible frame metadata, cached standard ASE
+  calculator results, and the visual preset. It never unpickles executable
+  Python objects. Cached results are reconstructed with
+  `SinglePointCalculator`; the built-in repulsion calculator is reconstructed
+  from validated primitive configuration. External calculator implementations
+  and undo history are not embedded.
+
+The CLI detects `.vase` directly, so `v_ase gui work.vase` restores the project.
+Visualization-mode coordinates changed locally by Wrap are included in the
+saved current frame.
+
 ### Rendering Performance
 The viewport renders on demand instead of running a permanent animation loop.
 Camera movement, trajectory playback, transforms, and UI changes request a
@@ -166,11 +190,18 @@ current benchmark results are documented in [Rendering Performance](performance.
 
 ### Blender Scene Format
 The Blender exporter emits a Python scene because this works without Blender in
-the v_ase Python environment and retains separate atom objects, shared meshes,
-bonds, cell lines, Principled BSDF materials, and the viewport camera. Blender can run the script
-headlessly and save a native `.blend` with `bpy.ops.wm.save_as_mainfile`. A named-
-object OBJ exporter is possible, but OBJ would discard camera, constraints,
-trajectory behavior, instancing semantics, and richer material state.
+the v_ase Python environment. The default optimized mode groups atoms by visual
+label into editable point meshes and creates smooth sphere instances through
+Geometry Nodes. Trajectory frames become point-mesh shape keys; bonds become
+material-grouped curves or meshes; the cell is one multi-spline object. This
+avoids the Python object-creation bottleneck for large structures. An Individual
+objects mode remains available when atom-per-object editing is required.
+
+Principled atom/bond/cell materials, the viewport camera, and a real Blender
+`SUN` with source and target Empties are retained. Blender can run the script
+headlessly and save a native `.blend` with `bpy.ops.wm.save_as_mainfile`. OBJ
+would discard camera, constraints, trajectory behavior, instancing semantics,
+and the richer material and lighting state.
 
 ### ASE Constraint Compatibility
 The visualizer respects ASE constraints:
@@ -196,6 +227,10 @@ The visualizer respects ASE constraints:
     - `POST /api/export/poscar/{session_id}`: Exports the current structure as POSCAR.
     - `POST /api/export/pickle/{session_id}`: Exports the current structure as a pickle.
     - `POST /api/export/blender/{session_id}`: Exports a Blender Python scene.
+    - `POST /api/settings/save/{session_id}`: Exports reusable visual settings as JSON.
+    - `POST /api/settings/load/{session_id}`: Validates and loads JSON settings, with restricted legacy-pickle migration.
+    - `POST /api/project/save/{session_id}`: Exports the complete current state as `.vase`.
+    - `POST /api/project/load/{session_id}`: Replaces the session from a validated `.vase` archive.
     - `POST /api/relax/start/{session_id}`: Starts geometry optimization.
     - `POST /api/relax/stop/{session_id}`: Requests geometry optimization stop.
     - `WS /ws/{session_id}`: Streams relaxation positions, energy, and fmax. In blocking CLI mode, browser tab/window close is detected through this socket and releases the waiting terminal after a short reconnect grace period.

@@ -35,6 +35,10 @@ small number of GPU batches and explicit render requests.
   topology changes. Manual pairs bypass neighbor inference entirely. Custom-color
   bonds use one instance per pair; split atom colors use two half-length instances
   while retaining one GPU draw call for the complete bond set.
+- **Blender point groups**: optimized Blender export writes one point mesh per
+  visual label, instances smooth spheres with Geometry Nodes, stores trajectory
+  frames as point-mesh shape keys, groups bonds by material, and writes the unit
+  cell as one multi-spline curve. Individual atom objects are opt-in.
 
 Interactive atom edits still commit through ASE. In particular,
 `Atoms.set_positions(..., apply_constraint=True)` remains the final authority
@@ -64,6 +68,26 @@ It does not include Python environment startup. Results depend on browser, GPU,
 storage, trajectory syntax, and machine load, so this table is a regression
 reference rather than a universal hardware guarantee.
 
+### Blender export benchmark
+
+The 0.0.59 Blender integration benchmark generates a 15,000-atom, two-label
+periodic scene, runs the generated Python in Blender 5.0.1, validates that only
+two editable atom point groups contain all 15,000 atoms, and saves a native
+`.blend` file.
+
+| Check | Result |
+| --- | ---: |
+| Generated atoms | 15,000 |
+| Atom scene objects | 2 point groups |
+| Total Blender objects | fewer than 12 |
+| Script execution and `.blend` save | 0.700 s |
+
+The runtime test separately renders a colored Cu-O scene and verifies smooth
+Geometry Nodes atoms, midpoint-split bonds, unit cell, orthographic camera,
+trajectory shape keys, and exact Blender `SUN` source, target, direction, and
+energy. Timing is machine-specific; the test enforces a conservative 20-second
+regression ceiling rather than claiming a universal import time.
+
 ## Regression Checks
 
 `tests/test_frontend_regressions.py` locks down the demand-rendering and
@@ -74,4 +98,5 @@ commits, independent persistent Measure and pointer-driven Hover HUDs, and
 preservation of label-pair cutoffs across structure
 updates. The full test suite covers the optimized LAMMPS reader, binary frame
 metadata, constraints, periodic bonds, supercells, export, CLI entry points,
-and packaging.
+project/settings round-trips, Blender 5 runtime rendering, the 15,000-atom
+Blender benchmark, and packaging.

@@ -10,6 +10,8 @@
 - [x] **Phase 7: Default calculator** (Repulsion fallback, optional torch/CUDA, CPU thread controls)
 - [x] **Phase 8: Calculator API** (`from v_ase.calculators import RepulsionCalculator`)
 - [x] **Phase 9: Interactive constraints** (selected-atom FixAtoms, FixedLine, FixedPlane editing)
+- [x] **Phase 10: Portable state** (cross-structure JSON presets and complete `.vase` projects)
+- [x] **Phase 11: Production export** (Geometry Nodes Blender scenes, exact Sun/camera, 15k-atom runtime benchmark)
 
 ## Core Documentation
 - [Shortcuts & Controls](shortcuts.md)
@@ -24,4 +26,5 @@ To run a comprehensive demo of all features:
 python examples/pro_demo.py
 v_ase gui POSCAR
 v_ase POSCAR
+v_ase gui saved_project.vase
 ```

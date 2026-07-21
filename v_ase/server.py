@@ -1,14 +1,25 @@
 import os
 import threading
 import asyncio
+from contextlib import asynccontextmanager, suppress
 import pickle
+import io
 import json
+import tempfile
 from typing import Dict, Any, List
 from .session import EditorSession, get_session, sessions
 from .serialization import atoms_to_json
 from .websocket_manager import ws_manager
 from .io import atom_type_labels, base_symbol_for_atom_type, normalize_atom_type_label, set_atom_type_labels
 from .repulsion import copy_calculator, is_vase_repulsion_calculator, repulsion_metadata
+from .project import (
+    PROJECT_MIME,
+    SETTINGS_SCHEMA,
+    normalize_visual_settings,
+    read_project_archive,
+    replace_session_from_project,
+    write_project_archive,
+)
 import numpy as np
 from ase import Atom
 from ase.build import make_supercell
@@ -20,12 +31,14 @@ try:
     from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks, HTTPException, Request
     from fastapi.staticfiles import StaticFiles
     from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response
+    from starlette.background import BackgroundTask
     FASTAPI_AVAILABLE = True
 except ModuleNotFoundError:
     FastAPI = None
     WebSocket = Any
     WebSocketDisconnect = Exception
     BackgroundTasks = Any
+    BackgroundTask = None
     Request = Any
     StaticFiles = None
     HTMLResponse = None
@@ -61,10 +74,28 @@ class _MissingFastAPIApp:
         return decorator
 
 
-app = FastAPI() if FASTAPI_AVAILABLE else _MissingFastAPIApp()
+@asynccontextmanager
+async def app_lifespan(_app):
+    broadcaster = asyncio.create_task(ws_manager.broadcaster_task())
+    try:
+        yield
+    finally:
+        broadcaster.cancel()
+        with suppress(asyncio.CancelledError):
+            await broadcaster
+
+
+app = FastAPI(lifespan=app_lifespan) if FASTAPI_AVAILABLE else _MissingFastAPIApp()
 _SESSION_AUTOCLOSE_GRACE_SECONDS = 1.2
 _session_autoclose_timers: Dict[str, threading.Timer] = {}
 _session_autoclose_lock = threading.Lock()
+
+
+def _remove_temporary_file(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
 
 if FASTAPI_AVAILABLE:
     @app.exception_handler(ValueError)
@@ -656,10 +687,6 @@ def configure_repulsion_calculators(session: EditorSession, *, device=None, cpu_
             configured = True
     return configured
 
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(ws_manager.broadcaster_task())
-
 @app.get("/")
 async def get_index():
     with open(os.path.join(static_dir, "index.html"), "r") as f:
@@ -776,16 +803,19 @@ async def reset_coordinates(session_id: str):
 @app.post("/api/settings/save/{session_id}")
 async def save_visual_settings(session_id: str, payload: Dict[str, Any]):
     get_session(session_id)
-    settings = payload.get("settings", payload)
+    try:
+        settings = normalize_visual_settings(payload.get("settings", payload))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     data = {
-        "schema": "v_ase.visual_settings.v1",
+        "schema": SETTINGS_SCHEMA,
         "settings": settings,
     }
-    blob = pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL)
+    blob = json.dumps(data, ensure_ascii=True, indent=2, sort_keys=True).encode("utf-8")
     return Response(
         content=blob,
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": 'attachment; filename="v_ase_visual_settings.pkl"'},
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="v_ase_visual_settings.json"'},
     )
 
 
@@ -793,18 +823,83 @@ async def save_visual_settings(session_id: str, payload: Dict[str, Any]):
 async def load_visual_settings(session_id: str, request: Request):
     get_session(session_id)
     raw = await request.body()
+    if len(raw) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Visual settings file is too large.")
     try:
-        data = pickle.loads(raw)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid v_ase settings pickle: {exc}") from exc
+        data = json.loads(raw.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        class SettingsUnpickler(pickle.Unpickler):
+            def find_class(self, module, name):
+                raise pickle.UnpicklingError("global objects are not allowed in settings files")
+
+        try:
+            data = SettingsUnpickler(io.BytesIO(raw)).load()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid v_ase visual settings file: {exc}") from exc
     if isinstance(data, dict) and "settings" in data:
-        return {
-            "schema": data.get("schema", "v_ase.visual_settings.v1"),
-            "settings": data["settings"],
-        }
+        settings = data["settings"]
     if isinstance(data, dict):
-        return {"schema": "v_ase.visual_settings.v1", "settings": data}
-    raise HTTPException(status_code=400, detail="Settings pickle must contain a dictionary.")
+        settings = settings if "settings" in data else data
+        try:
+            settings = normalize_visual_settings(settings)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"schema": SETTINGS_SCHEMA, "settings": settings}
+    raise HTTPException(status_code=400, detail="Visual settings file must contain a JSON object.")
+
+
+@app.post("/api/project/save/{session_id}")
+async def save_project(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    viz_only = is_viz_only(session)
+    if not viz_only:
+        set_current_payload_positions(session, payload)
+    settings = payload.get("settings") or {}
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".vase")
+    tmp.close()
+    try:
+        write_project_archive(
+            tmp.name,
+            session,
+            settings,
+            current_positions=payload.get("positions") if viz_only else None,
+        )
+    except (TypeError, ValueError, OSError) as exc:
+        _remove_temporary_file(tmp.name)
+        raise HTTPException(status_code=400, detail=f"Could not save .vase project: {exc}") from exc
+    return FileResponse(
+        tmp.name,
+        filename="v_ase_project.vase",
+        media_type=PROJECT_MIME,
+        background=BackgroundTask(_remove_temporary_file, tmp.name),
+    )
+
+
+@app.post("/api/project/load/{session_id}")
+async def load_project(session_id: str, request: Request):
+    session = get_session(session_id)
+    raw = await request.body()
+    if not raw:
+        raise HTTPException(status_code=400, detail="The .vase project is empty.")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".vase")
+    try:
+        tmp.write(raw)
+        tmp.close()
+        project = read_project_archive(tmp.name)
+        replace_session_from_project(session, project)
+    except (TypeError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=400, detail=f"Could not load .vase project: {exc}") from exc
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+    data = session_atoms_to_json(session)
+    data["project"] = {
+        "schema": project.manifest.get("schema"),
+        "settings": project.settings,
+    }
+    return data
 
 
 @app.post("/api/wrap/{session_id}")

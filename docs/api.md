@@ -44,10 +44,11 @@ from v_ase import view_file
 
 view_file("trajectory.extxyz")
 view_file("calculation.traj")
+view_file("saved_project.vase")
 ```
 
-`view_file` delegates to `ase.io.read(..., index=":")`, so any multi-frame
-format supported by ASE can be opened in movie mode.
+`view_file` opens ASE-readable files in movie mode, uses the optimized virtual
+reader for supported large LAMMPS dumps, and restores native `.vase` projects.
 
 ## Command Line
 
@@ -57,12 +58,14 @@ v_ase FILE
 v_ase gui ABCD --format POSCAR
 v_ase gui ABCD --format lammpstrj
 v_ase gui ABCD --format data
+v_ase gui ABCD --format vase
 v_ase gui POSCAR --interactive
+v_ase gui saved_project.vase
 ```
 
 `--format` is used when the filename is ambiguous. Common aliases include
 `POSCAR`, `XDATCAR`, `vasprun.xml`, `lammpstrj`, `traj`, `xyz`, `extxyz`, and
-`data`.
+`data`, and `vase`.
 
 `v_ase gui FILE` opens in lightweight visualization mode by default. Use
 `--interactive` when atom coordinate edits, deletion, copy/paste, constraints
@@ -114,12 +117,36 @@ The browser UI talks to a local FastAPI server bound to `127.0.0.1`.
 - `POST /api/export/poscar/{session_id}`: Exports POSCAR.
 - `POST /api/export/pickle/{session_id}`: Exports pickle.
 - `POST /api/export/blender/{session_id}`: Exports a Blender Python scene.
+- `POST /api/settings/save/{session_id}`: Exports a reusable JSON visual preset.
+- `POST /api/settings/load/{session_id}`: Loads and validates JSON visual settings. Restricted legacy pickle files are accepted only for migration and cannot resolve global Python objects.
+- `POST /api/project/save/{session_id}`: Exports the complete current structure or trajectory and visual setup as a `.vase` project.
+- `POST /api/project/load/{session_id}`: Validates a `.vase` archive and replaces the active session with its saved frames and settings.
 - `POST /api/relax/start/{session_id}`: Starts geometry optimization.
 - `POST /api/relax/stop/{session_id}`: Requests geometry optimization stop.
 - `WS /ws/{session_id}`: Streams relaxation positions, energy, and fmax. For
   blocking CLI sessions, a closed browser tab/window disconnects this socket;
   after a short reconnect grace period the backend finalizes the current
   working structure and releases the terminal.
+
+## Save Formats
+
+Visual Settings JSON is a reusable presentation preset. It includes complete
+bond configuration, atom appearance and visibility, smoothness,
+anti-aliasing, camera/projection, Sun source/target/intensity, axes/grid/cell,
+and supercell preview. It intentionally excludes atomic coordinates. When
+loaded into another structure, label-specific values are applied only to
+matching labels, stale labels are ignored, and new labels and label pairs use
+defaults.
+
+`.vase` is the full project format. It stores every trajectory frame, active
+frame, edited coordinates, cell/PBC, ASE constraints, atom labels, portable
+arrays, JSON-compatible frame metadata, cached standard calculator results,
+and the visual preset. The archive is ZIP-based and validated before extraction;
+it does not contain an executable pickle. Live calculator implementations are
+not serialized, but cached values are restored with `SinglePointCalculator`.
+The built-in v_ase repulsion calculator is the exception: its primitive
+configuration is portable and is reconstructed so interactive relaxation can
+continue after reopening the project.
 
 ## `ASEEditor` class
 Returned when `block=False`.

@@ -65,6 +65,17 @@ Move and rotate snapping can be set in the right-side Transform section. A zero
 increment keeps motion continuous; non-zero increments make mouse transforms step
 in Angstrom or degree units.
 
+## Saving
+
+The Output workspace keeps structure-independent settings separate from project
+state:
+
+- **Save Settings** writes JSON containing bonds, appearance, camera, lighting,
+  quality, overlays, and supercell preview, but no atomic coordinates.
+- **Save .vase** writes the complete structure or trajectory, current frame,
+  edited coordinates, cell/PBC, constraints, labels, cached standard calculator
+  results, and visual setup. Reopen it with `v_ase gui FILE.vase`.
+
 ## Constraint Behavior
 - Atoms constrained with `FixAtoms` in ASE will appear as "Fixed" in the UI.
 - Even if selected, these atoms will not move when transformations are applied.

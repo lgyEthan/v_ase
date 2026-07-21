@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.58';
-import { ASERenderer } from './renderer.js?v=0.0.58';
-import { ASESelection } from './selection.js?v=0.0.58';
-import { ASETransform } from './transform.js?v=0.0.58';
+import { ASEApi } from './api.js?v=0.0.59';
+import { ASERenderer } from './renderer.js?v=0.0.59';
+import { ASESelection } from './selection.js?v=0.0.59';
+import { ASETransform } from './transform.js?v=0.0.59';
 
 class VAseApp {
     constructor() {
@@ -59,7 +59,8 @@ class VAseApp {
                 sunIntensity: 2.2,
                 sunPosition: [8, -10, 14],
                 sunTarget: [0, 0, 0],
-                sunGizmo: false
+                sunGizmo: false,
+                blenderExportMode: 'instanced'
             },
             antiAliasing: true,
             sphereQuality: 'auto',
@@ -146,7 +147,6 @@ class VAseApp {
         document.querySelectorAll('[data-edit-only]').forEach(el => {
             if ('disabled' in el) el.disabled = this.state.vizOnly;
         });
-        if (this.state.vizOnly && this.inspectorGroup === 'edit') this.setInspectorGroup('inspect');
         if (this.state.vizOnly && this.transform.mode !== 'IDLE') {
             this.cancelTransform();
         }
@@ -529,9 +529,10 @@ class VAseApp {
     }
 
     setInspectorGroup(group, persist = true) {
-        const available = new Set(['inspect', 'edit', 'scene', 'output']);
-        let next = available.has(group) ? group : 'inspect';
-        if (this.state.vizOnly && next === 'edit') next = 'inspect';
+        const migrations = { edit: 'structure', scene: 'display' };
+        const available = new Set(['inspect', 'structure', 'display', 'output']);
+        const requested = migrations[group] || group;
+        const next = available.has(requested) ? requested : 'inspect';
         this.inspectorGroup = next;
         document.querySelectorAll('[data-inspector-group]').forEach(button => {
             const active = button.dataset.inspectorGroup === next;
@@ -708,12 +709,14 @@ class VAseApp {
             this.renderElementBondControls();
             this.renderElementRadiusControls();
             this.updateEditingAvailability();
-            if (!this.initialDesignSettings) this.initialDesignSettings = this.designSettingsSnapshot();
             this.updateUI();
             
             this.state.display.vizOnly = this.state.vizOnly;
             this.renderer.setDisplayOptions(this.state.display, { rebuild: false });
             this.renderer.rebuildAtoms(data, data.metadata.custom_colors || {});
+            const projectCamera = data.metadata?.config?.initial_design_settings?.camera;
+            if (projectCamera) this.applyCameraSettings(projectCamera);
+            if (!this.initialDesignSettings) this.initialDesignSettings = this.designSettingsSnapshot();
             
             this.updateSelectionVisuals();
         } catch (err) {
@@ -1045,8 +1048,8 @@ class VAseApp {
         }
     }
 
-    setAtomsData(data, { clearSelection = false } = {}) {
-        this.captureBondSettingsFromControls();
+    setAtomsData(data, { clearSelection = false, preserveDisplay = true } = {}) {
+        if (preserveDisplay) this.captureBondSettingsFromControls();
         this.state.atoms = data;
         this.rebuildTypeIndexCache(data.symbols || []);
         this.state.cachedFmax = this.computeFmax(data.forces || []);
@@ -1293,6 +1296,9 @@ class VAseApp {
         this.syncLightingControls();
         this.updateEditingAvailability();
         this.state.displayConfigLoaded = true;
+        if (config.initial_design_settings) {
+            this.applyDesignSettings(config.initial_design_settings, { render: false });
+        }
     }
 
     updateTrajectoryUI() {
@@ -3396,6 +3402,7 @@ class VAseApp {
         this.state.display.antiAliasing = this.state.antiAliasing;
         this.state.display.sphereQuality = this.state.sphereQuality;
         this.state.display.vizOnly = this.state.vizOnly;
+        this.state.display.blenderExportMode = document.getElementById('blender-export-mode')?.value || 'instanced';
         this.updateRadiusScaleLabel();
         this.pruneSelection();
         this.renderer.setDisplayOptions(this.state.display);
@@ -3424,8 +3431,9 @@ class VAseApp {
     designSettingsSnapshot() {
         this.readTransformSettings();
         return {
-            schema: 'v_ase.visual_settings.v1',
+            schema: 'v_ase.visual_settings.v2',
             display: this.clonePlain(this.state.display),
+            camera: this.currentCameraForExport(),
             applyConstraints: this.state.applyConstraints,
             antiAliasing: this.state.antiAliasing,
             sphereQuality: this.state.sphereQuality,
@@ -3495,6 +3503,7 @@ class VAseApp {
         setValue('bond-thickness', display.bondThickness || 0.11);
         setValue('bond-color-mode', display.bondColorMode || 'split');
         setValue('bond-custom-color', display.bondCustomColor || '#c8ccd0');
+        setValue('blender-export-mode', display.blenderExportMode || 'instanced');
         setValue('atom-radius-scale', display.atomRadiusScale || 1);
         setValue('move-increment', this.state.moveIncrement || 0);
         setValue('rotate-increment', this.state.rotateIncrementDeg || 0);
@@ -3505,19 +3514,126 @@ class VAseApp {
         this.updateBondAppearanceUI();
     }
 
+    reconcileDesignDisplay(nextDisplay = {}) {
+        const labels = [...new Set(this.state.atoms?.symbols || [])];
+        const atomCount = this.state.atoms?.positions?.length || 0;
+        const pickLabelMap = (source, fallback = {}) => {
+            const result = {};
+            labels.forEach(label => {
+                if (source && Object.prototype.hasOwnProperty.call(source, label)) result[label] = source[label];
+                else if (fallback && Object.prototype.hasOwnProperty.call(fallback, label)) result[label] = fallback[label];
+            });
+            return result;
+        };
+
+        const elementRadii = pickLabelMap(nextDisplay.elementRadii);
+        labels.forEach(label => {
+            const radius = Number(elementRadii[label]);
+            if (!Number.isFinite(radius) || radius <= 0) {
+                elementRadii[label] = Number(this.elementVisualRadius(label).toFixed(4));
+            }
+        });
+        const elementColors = pickLabelMap(nextDisplay.elementColors);
+        Object.keys(elementColors).forEach(label => {
+            if (!this.validHexColor(elementColors[label])) delete elementColors[label];
+        });
+        const elementVisible = pickLabelMap(nextDisplay.elementVisible);
+        labels.forEach(label => {
+            elementVisible[label] = elementVisible[label] !== false;
+        });
+
+        const savedCutoffs = nextDisplay.elementBondCutoffs || {};
+        const elementBondCutoffs = {};
+        for (let i = 0; i < labels.length; i++) {
+            for (let j = i; j < labels.length; j++) {
+                const key = this.elementPairKey(labels[i], labels[j]);
+                const saved = Number(savedCutoffs[key]);
+                elementBondCutoffs[key] = Number.isFinite(saved) && saved >= 0
+                    ? saved
+                    : this.defaultElementCutoff(labels[i], labels[j]);
+            }
+        }
+
+        const manualBondPairs = (nextDisplay.manualBondPairs || []).filter(pair => {
+            if (!Array.isArray(pair) || pair.length < 2) return false;
+            const i = Number(pair[0]);
+            const j = Number(pair[1]);
+            return Number.isInteger(i) && Number.isInteger(j) && i >= 0 && j >= 0 && i < atomCount && j < atomCount && i !== j;
+        }).map(pair => [Number(pair[0]), Number(pair[1])]);
+
+        const requestedSupercell = Array.isArray(nextDisplay.supercell) ? nextDisplay.supercell : [1, 1, 1];
+        const pbc = this.state.atoms?.pbc || [false, false, false];
+        const usableCell = this.hasUsableCell();
+        const supercell = [0, 1, 2].map(axis => {
+            const value = Math.max(1, parseInt(requestedSupercell[axis] || 1, 10));
+            return usableCell && (value === 1 || Boolean(pbc[axis])) ? value : 1;
+        });
+
+        return {
+            ...this.clonePlain(nextDisplay),
+            manualBondPairs,
+            elementBondCutoffs,
+            elementRadii,
+            elementColors,
+            elementVisible,
+            supercell
+        };
+    }
+
+    applyCameraSettings(cameraSettings) {
+        if (!cameraSettings || !this.renderer?.camera || !this.renderer?.controls) return;
+        const vector = (value, fallback) => Array.isArray(value) && value.length === 3 && value.every(item => Number.isFinite(Number(item)))
+            ? value.map(Number)
+            : fallback;
+        const projection = cameraSettings.projection === 'perspective' ? 'perspective' : 'orthographic';
+        this.state.display.projectionMode = projection;
+        this.renderer.setProjectionMode(projection);
+        const camera = this.renderer.camera;
+        const target = vector(cameraSettings.target, [0, 0, 0]);
+        const position = vector(cameraSettings.position, [10, 10, 10]);
+        const up = vector(cameraSettings.up, [0, 0, 1]);
+        camera.position.fromArray(position);
+        camera.up.fromArray(up).normalize();
+        this.renderer.controls.target.fromArray(target);
+        const near = Number(cameraSettings.near);
+        const far = Number(cameraSettings.far);
+        if (Number.isFinite(near) && near > 0) camera.near = near;
+        if (Number.isFinite(far) && far > camera.near) camera.far = far;
+        if (camera.isPerspectiveCamera) {
+            const fov = Number(cameraSettings.fov);
+            if (Number.isFinite(fov) && fov > 1 && fov < 179) camera.fov = fov;
+            const zoom = Number(cameraSettings.zoom);
+            camera.zoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+        } else if (camera.isOrthographicCamera) {
+            const scale = Number(cameraSettings.ortho_scale);
+            if (Number.isFinite(scale) && scale > 0) {
+                const aspect = Math.max(0.01, this.renderer.container.clientWidth / Math.max(1, this.renderer.container.clientHeight));
+                camera.zoom = 1;
+                camera.top = scale * 0.5;
+                camera.bottom = -scale * 0.5;
+                camera.left = -scale * 0.5 * aspect;
+                camera.right = scale * 0.5 * aspect;
+            }
+        }
+        camera.lookAt(this.renderer.controls.target);
+        camera.updateProjectionMatrix();
+        camera.updateMatrixWorld(true);
+        this.renderer.requestRender();
+    }
+
     applyDesignSettings(settings, { render = true } = {}) {
         if (!settings) return;
         const source = settings.settings || settings;
-        const nextDisplay = source.display || source;
+        const nextDisplay = this.reconcileDesignDisplay(source.display || source);
         this.state.display = {
             ...this.state.display,
             ...this.clonePlain(nextDisplay),
-            manualBondPairs: this.clonePlain(nextDisplay.manualBondPairs || []),
-            elementBondCutoffs: this.clonePlain(nextDisplay.elementBondCutoffs || {}),
-            elementRadii: this.clonePlain(nextDisplay.elementRadii || {}),
-            elementColors: this.clonePlain(nextDisplay.elementColors || {}),
-            elementVisible: this.clonePlain(nextDisplay.elementVisible || {}),
-            supercell: this.clonePlain(nextDisplay.supercell || [1, 1, 1])
+            manualBondPairs: this.clonePlain(nextDisplay.manualBondPairs),
+            elementBondCutoffs: this.clonePlain(nextDisplay.elementBondCutoffs),
+            elementRadii: this.clonePlain(nextDisplay.elementRadii),
+            elementColors: this.clonePlain(nextDisplay.elementColors),
+            elementVisible: this.clonePlain(nextDisplay.elementVisible),
+            supercell: this.clonePlain(nextDisplay.supercell)
         };
         if ('applyConstraints' in source) this.state.applyConstraints = Boolean(source.applyConstraints);
         if ('antiAliasing' in source) this.state.antiAliasing = Boolean(source.antiAliasing);
@@ -3528,6 +3644,7 @@ class VAseApp {
         this.renderElementBondControls();
         this.renderElementRadiusControls();
         this.syncDesignControls();
+        if (source.camera) this.applyCameraSettings(source.camera);
         if (render) {
             this.renderer.setDisplayOptions(this.state.display);
             this.updateSelectionVisuals();
@@ -3973,6 +4090,12 @@ class VAseApp {
 
     filePickerTypes(filename, mimeType) {
         const lower = filename.toLowerCase();
+        if (lower.endsWith('.vase')) {
+            return [{ description: 'v_ase project', accept: { 'application/vnd.v-ase.project+zip': ['.vase'] } }];
+        }
+        if (lower.endsWith('.json')) {
+            return [{ description: 'JSON settings', accept: { 'application/json': ['.json'] } }];
+        }
         if (lower.endsWith('.py')) {
             return [{ description: 'Python script', accept: { 'text/x-python': ['.py'] } }];
         }
@@ -4050,6 +4173,13 @@ class VAseApp {
                 <span>Esc</span><label>Cancel transform</label>
                 <span>Ctrl+C / V / Z</span><label>Copy, paste, undo</label>
                 <span>Delete</span><label>Delete selected atoms</label>
+            </div>
+            <h3 class="help-section-title">Saving</h3>
+            <div class="help-save-grid">
+                <strong>Visual Settings (.json)</strong>
+                <span>Reusable display preset: bonds, appearance, camera, lighting, quality, and supercell preview. Atomic coordinates are not included.</span>
+                <strong>v_ase Project (.vase)</strong>
+                <span>Complete working state: structures or trajectory, current frame, coordinates, cell, constraints, labels, cached results, and visual setup.</span>
             </div>
         `);
     }
@@ -4655,12 +4785,56 @@ class VAseApp {
         document.getElementById('btn-export-video').onclick = () => {
             this.showExportVideoModal();
         };
+        document.getElementById('btn-save-project').onclick = async () => {
+            try {
+                this.applyDisplayOptions();
+                const saved = await this.saveBlobFromAction(
+                    () => this.api.saveProject(
+                        this.backendPositionsPayload(),
+                        this.designSettingsSnapshot(),
+                        this.state.applyConstraints
+                    ),
+                    'v_ase_project.vase',
+                    'application/vnd.v-ase.project+zip',
+                    'Saving complete v_ase project...'
+                );
+                if (saved) this.toast('Complete .vase project saved.', 'success');
+            } catch (err) {
+                this.toast(`Save project failed: ${err.message}`, 'error');
+            }
+        };
+        document.getElementById('btn-load-project').onclick = () => {
+            document.getElementById('project-file')?.click();
+        };
+        document.getElementById('project-file').onchange = async (event) => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (!file) return;
+            try {
+                this.stopPlayback();
+                const data = await this.withBusy('Restoring complete v_ase project...', () => this.api.loadProject(file));
+                const settings = data.project?.settings || data.metadata?.config?.initial_design_settings;
+                this.state.typeOrder = [];
+                this.setAtomsData(data, { clearSelection: true, preserveDisplay: false });
+                if (settings) {
+                    this.applyDesignSettings(settings);
+                    this.initialDesignSettings = this.clonePlain(settings);
+                }
+                this.toast(`Loaded ${data.metadata?.frame_count || 1} project frame${data.metadata?.frame_count === 1 ? '' : 's'}.`, 'success');
+            } catch (err) {
+                this.toast(`Load project failed: ${err.message}`, 'error');
+            }
+        };
         document.getElementById('btn-save-settings').onclick = async () => {
             try {
                 this.applyDisplayOptions();
-                const blob = await this.api.saveVisualSettings(this.designSettingsSnapshot());
-                this.downloadBlob(blob, 'v_ase_visual_settings.pkl');
-                this.toast('Visual settings saved.', 'success');
+                const saved = await this.saveBlobFromAction(
+                    () => this.api.saveVisualSettings(this.designSettingsSnapshot()),
+                    'v_ase_visual_settings.json',
+                    'application/json',
+                    'Saving visual settings...'
+                );
+                if (saved) this.toast('Visual settings saved without structure data.', 'success');
             } catch (err) {
                 this.toast(`Save settings failed: ${err.message}`, 'error');
             }
@@ -4675,7 +4849,7 @@ class VAseApp {
             try {
                 const data = await this.api.loadVisualSettings(file);
                 this.applyDesignSettings(data.settings || data);
-                this.toast('Visual settings loaded.', 'success');
+                this.toast('Visual settings applied to matching labels; new labels use defaults.', 'success');
             } catch (err) {
                 this.toast(`Load settings failed: ${err.message}`, 'error');
             }
@@ -4749,6 +4923,7 @@ class VAseApp {
         };
         document.getElementById('bond-cutoff').oninput = () => this.safeApplyDisplayOptions();
         document.getElementById('bond-style').onchange = () => this.safeApplyDisplayOptions();
+        document.getElementById('blender-export-mode').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('bond-thickness').oninput = () => {
             this.updateBondAppearanceUI();
             this.safeApplyDisplayOptions();

@@ -659,6 +659,13 @@ body.dragging-inspector #inspector-resizer::before {
     align-items: center;
 }
 
+#inspector .panel-note {
+    margin: -3px 0 12px;
+    color: var(--muted);
+    font-size: 0.68rem;
+    line-height: 1.48;
+}
+
 #inspector .prop-grid {
     display: grid;
     grid-template-columns: 116px minmax(0, 1fr);
@@ -1888,6 +1895,37 @@ body[data-rotate-invalid="true"] #cmd-buffer {
 
 .shortcut-grid label {
     color: var(--text-soft);
+}
+
+.help-section-title {
+    border-top: 1px solid var(--line);
+    font-size: 0.86rem;
+    margin: 1rem 0 0;
+    padding-top: 0.9rem;
+}
+
+.help-save-grid {
+    display: grid;
+    gap: 0.35rem 0.9rem;
+    grid-template-columns: minmax(9.5rem, max-content) minmax(0, 1fr);
+    margin-top: 0.65rem;
+}
+
+.help-save-grid strong {
+    color: var(--amber);
+    font-size: 0.74rem;
+}
+
+.help-save-grid span {
+    color: var(--text-soft);
+    font-size: 0.74rem;
+    line-height: 1.45;
+}
+
+@media (max-width: 640px) {
+    .help-save-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 .confirm-list {

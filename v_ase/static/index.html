@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.58">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.59">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.58';
+            : '/static/vendor/three.module.js?v=0.0.59';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -40,7 +40,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.58</span>
+            <span class="version">0.0.59</span>
         </div>
         <div class="status-group">
             <div class="status-item">
@@ -193,8 +193,8 @@
         </header>
         <nav class="inspector-nav" role="tablist" aria-label="Control panel workspace">
             <button type="button" role="tab" data-inspector-group="inspect" aria-selected="true">Inspect</button>
-            <button type="button" role="tab" data-inspector-group="edit" aria-selected="false" data-edit-only>Edit</button>
-            <button type="button" role="tab" data-inspector-group="scene" aria-selected="false">Scene</button>
+            <button type="button" role="tab" data-inspector-group="structure" aria-selected="false">Structure</button>
+            <button type="button" role="tab" data-inspector-group="display" aria-selected="false">Display</button>
             <button type="button" role="tab" data-inspector-group="output" aria-selected="false">Output</button>
         </nav>
         <div id="inspector-content" class="inspector-content">
@@ -226,9 +226,13 @@
             <button id="btn-delete-selection" class="btn-block danger-soft" data-edit-only>Delete Selected</button>
         </details>
 
-        <details class="panel-section" open data-panel="constraints" data-panel-group="edit" data-edit-only>
+        <details class="panel-section" open data-panel="constraints" data-panel-group="structure" data-edit-only>
             <summary class="section-header">Constraints</summary>
             <div id="constraint-selection-state" class="constraint-hint">Select atoms to edit constraints.</div>
+            <div class="prop-row">
+                <label for="chk-constraints">Apply constraints</label>
+                <input type="checkbox" id="chk-constraints" checked>
+            </div>
             <div class="prop-row">
                 <label for="constraint-fixatoms">FixAtoms</label>
                 <input type="checkbox" id="constraint-fixatoms">
@@ -256,8 +260,8 @@
             </div>
         </details>
 
-        <details class="panel-section" open data-panel="view" data-panel-group="scene">
-            <summary class="section-header">View</summary>
+        <details class="panel-section" open data-panel="view" data-panel-group="display">
+            <summary class="section-header">Viewport</summary>
             <div class="prop-row">
                 <label for="projection-mode">Projection</label>
                 <select id="projection-mode">
@@ -281,12 +285,12 @@
                 <label for="chk-overlays">Show Overlays</label>
                 <input type="checkbox" id="chk-overlays" checked>
             </div>
-            <div class="prop-row">
-                <label for="chk-constraints">Apply constraints</label>
-                <input type="checkbox" id="chk-constraints" checked>
-            </div>
+        </details>
+
+        <details class="panel-section" open data-panel="cell-replication" data-panel-group="structure">
+            <summary class="section-header">Cell &amp; Replication</summary>
             <div class="prop-row supercell-row">
-                <label>Supercell</label>
+                <label>Replicate cell</label>
                 <div class="num-group">
                     <input type="number" id="super-x" value="1" min="1">
                     <input type="number" id="super-y" value="1" min="1">
@@ -297,7 +301,7 @@
             <button id="btn-wrap" class="btn-block">Wrap Atoms Into Cell</button>
         </details>
 
-        <details class="panel-section" open data-panel="transform" data-panel-group="edit" data-edit-only>
+        <details class="panel-section" open data-panel="transform" data-panel-group="structure" data-edit-only>
             <summary class="section-header">Transform</summary>
             <div class="prop-row">
                 <label for="rotate-pivot">Rotate pivot</label>
@@ -325,7 +329,7 @@
             </div>
         </details>
 
-        <details class="panel-section" open data-panel="appearance" data-panel-group="scene">
+        <details class="panel-section" open data-panel="appearance" data-panel-group="display">
             <summary class="section-header">Appearance</summary>
             <div class="prop-row">
                 <label for="chk-antialias">Anti-aliasing</label>
@@ -361,7 +365,7 @@
             </div>
         </details>
 
-        <details class="panel-section" open data-panel="cell-transform" data-panel-group="edit" data-edit-only>
+        <details class="panel-section" open data-panel="cell-transform" data-panel-group="structure" data-edit-only>
             <summary class="section-header">Cell Transform</summary>
             <div class="matrix-grid" id="make-supercell-matrix">
                 <input type="number" id="matrix-00" value="1" step="1">
@@ -377,7 +381,7 @@
             <button id="btn-apply-supercell-matrix" class="btn-block">Apply make_supercell Matrix</button>
         </details>
 
-        <details class="panel-section" open data-panel="bonding" data-panel-group="scene">
+        <details class="panel-section" open data-panel="bonding" data-panel-group="display">
             <summary class="section-header">Bonding</summary>
             <div class="prop-row">
                 <label for="chk-bonds">Show Bonds</label>
@@ -438,7 +442,7 @@
             </div>
         </details>
 
-        <details class="panel-section" open data-panel="scientific-tools" data-panel-group="edit" data-edit-only>
+        <details class="panel-section" open data-panel="scientific-tools" data-panel-group="structure" data-edit-only>
             <summary class="section-header">Relaxation</summary>
             <div class="relax-grid">
                 <label>fmax</label>
@@ -454,6 +458,13 @@
             <div class="section-header static-header">Export</div>
             <button id="btn-export-poscar" class="btn-block">Export POSCAR</button>
             <button id="btn-export-pickle" class="btn-block">Export Pickle</button>
+            <div class="prop-row">
+                <label for="blender-export-mode">Blender atoms</label>
+                <select id="blender-export-mode">
+                    <option value="instanced" selected>Optimized instances</option>
+                    <option value="objects">Individual objects</option>
+                </select>
+            </div>
             <button id="btn-export-blender" class="btn-block">Export Blender</button>
             <div class="relax-grid">
                 <label>image W</label>
@@ -465,13 +476,24 @@
             <button id="btn-export-video" class="btn-block" disabled>Export Video</button>
         </section>
 
+        <section class="panel-section utility-section" data-panel="project" data-panel-group="output">
+            <div class="section-header static-header">v_ase Project</div>
+            <p class="panel-note">Save or restore the complete working structure, trajectory, cell, constraints, labels, and visual setup.</p>
+            <div class="btn-stack-row two">
+                <button id="btn-save-project">Save .vase</button>
+                <button id="btn-load-project">Load .vase</button>
+            </div>
+            <input type="file" id="project-file" class="hidden" accept=".vase,application/vnd.v-ase.project+zip">
+        </section>
+
         <section class="panel-section utility-section" data-panel="settings" data-panel-group="output">
-            <div class="section-header static-header">Settings</div>
+            <div class="section-header static-header">Visual Settings</div>
+            <p class="panel-note">Appearance, bonds, lighting, viewport, and render quality only. Atom coordinates and cell contents are not included.</p>
             <div class="btn-stack-row two">
                 <button id="btn-save-settings">Save Settings</button>
                 <button id="btn-load-settings">Load Settings</button>
             </div>
-            <input type="file" id="settings-file" class="hidden" accept=".pkl,.pickle,.vase,.vase.pkl">
+            <input type="file" id="settings-file" class="hidden" accept=".json,.pkl,.pickle,application/json">
             <div class="btn-stack-row" data-edit-only>
                 <button id="btn-undo" title="Undo (Ctrl+Z)">↺</button>
                 <button id="btn-redo" title="Redo (Ctrl+Shift+Z)">↻</button>
@@ -539,6 +561,13 @@
                     <span>Ctrl+C / V / Z</span><label>Copy, paste, undo</label>
                     <span>Delete</span><label>Delete selected atoms</label>
                 </div>
+                <h3 class="help-section-title">Saving</h3>
+                <div class="help-save-grid">
+                    <strong>Visual Settings (.json)</strong>
+                    <span>Reusable display preset: bonds, appearance, camera, lighting, quality, and supercell preview. Atomic coordinates are not included.</span>
+                    <strong>v_ase Project (.vase)</strong>
+                    <span>Complete working state: structures or trajectory, current frame, coordinates, cell, constraints, labels, cached results, and visual setup.</span>
+                </div>
             </div>
             <div class="modal-actions">
                 <button id="modal-close" class="btn">Close</button>
@@ -558,7 +587,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.58';
+            : './static/main.js?v=0.0.59';
         import(modulePath);
     </script>
 </body>

@@ -1,6 +1,8 @@
 import asyncio
+import json
 import os
 import pickle
+from pathlib import Path
 import time
 
 import numpy as np
@@ -23,6 +25,7 @@ from v_ase.calculator import RepulsionCalculator as SingularRepulsionCalculator
 from v_ase.calculators import Conditioner, DefaultRepulsionCalculator, RepulsionCalculator
 from v_ase.repulsion import RepulsionCalculator as ImplementationRepulsionCalculator
 from v_ase.repulsion import is_vase_repulsion_calculator
+from v_ase.project import read_project_archive
 from v_ase.serialization import atoms_to_json
 from v_ase.server import (
     apply_positions,
@@ -32,9 +35,11 @@ from v_ase.server import (
     delete_atoms,
     get_atoms,
     load_visual_settings,
+    load_project,
     reset,
     reset_coordinates,
     save_visual_settings,
+    save_project,
     schedule_session_autoclose,
     set_frame,
     undo,
@@ -373,7 +378,7 @@ def test_make_supercell_matrix_rejects_nonperiodic_axis_tilt():
     assert "non-periodic axis 3" in excinfo.value.detail
 
 
-def test_visual_settings_save_and_load_pickle_roundtrip():
+def test_visual_settings_save_and_load_json_roundtrip_and_legacy_pickle():
     atoms = molecule("H2O")
     session = make_session(atoms)
     settings = {
@@ -395,8 +400,8 @@ def test_visual_settings_save_and_load_pickle_roundtrip():
     }
 
     response = asyncio.run(save_visual_settings(session.session_id, {"settings": settings}))
-    payload = pickle.loads(response.body)
-    assert payload["schema"] == "v_ase.visual_settings.v1"
+    payload = json.loads(response.body)
+    assert payload["schema"] == "v_ase.visual_settings.v2"
     assert payload["settings"]["display"]["elementBondCutoffs"]["H-O"] == 1.35
     assert payload["settings"]["display"]["bondStyle"] == "flat"
     assert payload["settings"]["display"]["bondThickness"] == 0.24
@@ -406,6 +411,160 @@ def test_visual_settings_save_and_load_pickle_roundtrip():
     assert loaded["settings"]["display"]["atomRadiusScale"] == 1.4
     assert loaded["settings"]["display"]["bondColorMode"] == "custom"
     assert loaded["settings"]["sphereQuality"] == "high"
+
+    legacy = pickle.dumps({"schema": "v_ase.visual_settings.v1", "settings": settings})
+    legacy_loaded = asyncio.run(load_visual_settings(session.session_id, BytesRequest(legacy)))
+    assert legacy_loaded["settings"]["display"]["bondThickness"] == 0.24
+
+    executable_pickle = pickle.dumps(os.system)
+    with pytest.raises(HTTPException, match="global objects are not allowed"):
+        asyncio.run(load_visual_settings(session.session_id, BytesRequest(executable_pickle)))
+
+
+def test_vase_project_rejects_invalid_archives(tmp_path):
+    invalid = tmp_path / "invalid.vase"
+    invalid.write_bytes(b"not a project archive")
+    with pytest.raises(ValueError, match="Invalid .vase project archive"):
+        read_project_archive(invalid)
+
+
+def test_vase_project_roundtrip_restores_trajectory_edits_constraints_and_settings():
+    from ase.constraints import FixedPlane
+    from v_ase.io import atom_type_labels, set_atom_type_labels
+
+    first = molecule("H2O")
+    first.set_cell([8, 8, 8])
+    first.set_pbc(True)
+    first.set_constraint(FixedPlane(0, (0, 0, 1)))
+    set_atom_type_labels(first, ["O_surface", "H_a", "H_b"])
+    first.set_array("site_class", np.array([4, 5, 6], dtype=np.int16))
+    first.info["workflow"] = {"stage": "adsorption", "converged": False}
+    first.calc = SinglePointCalculator(first, energy=-1.25, forces=np.zeros((3, 3)))
+    second = first.copy()
+    second.positions += [0.25, 0.5, 0.0]
+    second.calc = SinglePointCalculator(second, energy=-1.5, forces=np.full((3, 3), 0.2))
+    session = EditorSession(
+        "project-roundtrip",
+        first.copy(),
+        second.copy(),
+        original_frames=[first.copy(), second.copy()],
+        trajectory_frames=[first.copy(), second.copy()],
+        current_frame=1,
+        config={"viz_only": False},
+    )
+    session.trajectory_frames[0].calc = SinglePointCalculator(
+        session.trajectory_frames[0], energy=-1.25, forces=np.zeros((3, 3))
+    )
+    session.trajectory_frames[1].calc = SinglePointCalculator(
+        session.trajectory_frames[1], energy=-1.5, forces=np.full((3, 3), 0.2)
+    )
+    session.working_atoms = session.trajectory_frames[1].copy()
+    session.working_atoms.calc = SinglePointCalculator(
+        session.working_atoms, energy=-1.5, forces=np.full((3, 3), 0.2)
+    )
+    sessions[session.session_id] = session
+    settings = {
+        "schema": "v_ase.visual_settings.v1",
+        "display": {
+            "showBonds": True,
+            "bondMode": "element",
+            "elementBondCutoffs": {"H_a-O_surface": 1.4},
+            "sphereQuality": "ultra",
+            "sunIntensity": 3.75,
+            "sunPosition": [11, -7, 16],
+            "sunTarget": [1, 2, 3],
+            "supercell": [2, 1, 1],
+        },
+    }
+
+    response = asyncio.run(save_project(session.session_id, {
+        "positions": second.positions.tolist(),
+        "settings": settings,
+        "apply_constraint": True,
+    }))
+    archive = Path(response.path)
+    assert archive.suffix == ".vase" and archive.stat().st_size > 500
+
+    target = make_session(molecule("CH4"))
+    loaded = asyncio.run(load_project(target.session_id, BytesRequest(archive.read_bytes())))
+    assert loaded["metadata"]["frame_count"] == 2
+    assert loaded["metadata"]["current_frame"] == 1
+    assert atom_type_labels(target.working_atoms) == ["O_surface", "H_a", "H_b"]
+    assert target.working_atoms.constraints
+    np.testing.assert_allclose(target.working_atoms.positions, second.positions)
+    np.testing.assert_array_equal(target.working_atoms.arrays["site_class"], [4, 5, 6])
+    assert target.working_atoms.info["workflow"]["stage"] == "adsorption"
+    assert target.working_atoms.get_potential_energy() == pytest.approx(-1.5)
+    np.testing.assert_allclose(target.working_atoms.get_forces(apply_constraint=False), 0.2)
+    assert loaded["project"]["settings"]["display"]["sunIntensity"] == 3.75
+    assert loaded["project"]["settings"]["display"]["supercell"] == [2, 1, 1]
+    asyncio.run(response.background())
+
+
+def test_vase_project_captures_client_side_viz_only_coordinates():
+    atoms = molecule("H2O")
+    atoms.set_cell([6, 6, 6])
+    atoms.set_pbc(True)
+    session = EditorSession(
+        "project-viz-only-coordinates",
+        atoms.copy(),
+        atoms.copy(),
+        config={"viz_only": True},
+    )
+    sessions[session.session_id] = session
+    displayed_positions = atoms.positions.copy()
+    displayed_positions[0] += [3.0, 1.0, 0.5]
+
+    response = asyncio.run(save_project(session.session_id, {
+        "positions": displayed_positions.tolist(),
+        "settings": {"display": {"supercell": [2, 2, 1]}},
+        "apply_constraint": False,
+    }))
+    archive = Path(response.path)
+    project = read_project_archive(archive)
+    np.testing.assert_allclose(project.frames[0].positions, displayed_positions)
+    assert project.settings["display"]["supercell"] == [2, 2, 1]
+    asyncio.run(response.background())
+
+
+def test_vase_project_restores_builtin_repulsion_calculator_configuration():
+    atoms = molecule("H2")
+    atoms.calc = RepulsionCalculator(
+        min_bondinfo=1.1,
+        k_repulsion=2.75,
+        max_force_norm=4.5,
+        mic=False,
+        device="cpu",
+        cpu_threads=2,
+        backend="numpy",
+    )
+    session = EditorSession(
+        "project-repulsion-calculator",
+        atoms.copy(),
+        atoms.copy(),
+        config={"viz_only": False},
+    )
+    session.original_atoms.calc = atoms.calc
+    session.working_atoms.calc = atoms.calc
+    session.trajectory_frames[0].calc = atoms.calc
+    sessions[session.session_id] = session
+
+    response = asyncio.run(save_project(session.session_id, {
+        "positions": atoms.positions.tolist(),
+        "settings": {"display": {}},
+        "apply_constraint": True,
+    }))
+    project = read_project_archive(response.path)
+    restored = project.frames[0].calc
+    assert is_vase_repulsion_calculator(restored)
+    assert restored.min_bondinfo == pytest.approx(1.1)
+    assert restored.k_repulsion == pytest.approx(2.75)
+    assert restored.max_force_norm == pytest.approx(4.5)
+    assert restored.mic is False
+    assert restored.cpu_threads == 2
+    assert restored.backend == "numpy"
+    assert np.isfinite(project.frames[0].get_potential_energy())
+    asyncio.run(response.background())
 
 
 def test_blocking_cli_session_finalizes_after_browser_disconnect_grace():

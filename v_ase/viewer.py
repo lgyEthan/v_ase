@@ -3,7 +3,7 @@ import threading
 import uuid
 import time
 import os
-from typing import Optional, Sequence, Union
+from typing import Any, Optional, Sequence, Union
 from ase import Atoms
 from .session import EditorSession, sessions
 from .repulsion import copy_calculator, ensure_default_calculator
@@ -114,6 +114,7 @@ def view(
     return_mode: str = "atoms",
     trajectory_source=None,
     initial_frame: int = 0,
+    initial_design_settings: Optional[dict[str, Any]] = None,
     close_on_disconnect: bool = True,
 ) -> Union[Atoms, ASEEditor, None]:
     """
@@ -129,6 +130,15 @@ def view(
         If True, block execution until 'Done' or 'Cancel' is pressed.
     ...
     """
+    if isinstance(atoms, (str, os.PathLike)) and os.fspath(atoms).lower().endswith(".vase"):
+        from .project import read_project_archive
+
+        project = read_project_archive(atoms)
+        atoms = project.frames
+        initial_frame = project.current_frame
+        if initial_design_settings is None:
+            initial_design_settings = project.settings
+
     session_id = str(uuid.uuid4())
     attach_default = not viz_only
     frames = normalize_atoms_input(atoms, attach_default=attach_default)
@@ -137,7 +147,8 @@ def view(
     original_frames = [_copy_atoms_with_calc(frame, attach_default=attach_default) for frame in frames]
     working_frames = [_copy_atoms_with_calc(frame, attach_default=attach_default) for frame in frames]
     original_atoms = original_frames[0]
-    working_atoms = working_frames[0]
+    initial_frame = max(0, min(int(initial_frame), len(working_frames) - 1))
+    working_atoms = working_frames[initial_frame]
         
     session = EditorSession(
         session_id=session_id,
@@ -146,7 +157,7 @@ def view(
         original_frames=original_frames,
         trajectory_frames=working_frames,
         trajectory_source=trajectory_source,
-        current_frame=int(initial_frame),
+        current_frame=initial_frame,
         config={
             "show_cell": show_cell,
             "show_axes": show_axes,
@@ -155,6 +166,7 @@ def view(
             "allow_relax": allow_relax,
             "viz_only": viz_only,
             "theme": theme,
+            "initial_design_settings": initial_design_settings,
             "auto_close_on_disconnect": bool(close_on_disconnect and not notebook),
         }
     )

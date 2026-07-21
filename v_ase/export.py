@@ -192,6 +192,7 @@ LIGHTING = DATA.get("lighting", {{}})
 BOND_STYLE = DISPLAY.get("bondStyle", "cylinder")
 BOND_COLOR_MODE = DISPLAY.get("bondColorMode", "split")
 BOND_CUSTOM_COLOR = DISPLAY.get("bondCustomColor", "#c8ccd0")
+BLENDER_OBJECT_MODE = DISPLAY.get("blenderExportMode", "instanced")
 try:
     BOND_THICKNESS = max(0.02, min(0.6, float(DISPLAY.get("bondThickness", 0.11))))
 except (TypeError, ValueError):
@@ -202,6 +203,12 @@ ATOM_COLORS = VISUAL.get("colors", [])
 ATOM_RADII = VISUAL.get("radii", VISUAL.get("covalent_radii", []))
 ATOM_LABELS = DATA.get("symbols", [])
 DISPLAY_ELEMENT_COLORS = DISPLAY.get("elementColors", {{}})
+DISPLAY_ELEMENT_RADII = DISPLAY.get("elementRadii", {{}})
+DISPLAY_ELEMENT_VISIBLE = DISPLAY.get("elementVisible", {{}})
+try:
+    ATOM_RADIUS_SCALE = max(0.01, float(DISPLAY.get("atomRadiusScale", 1.0)))
+except (TypeError, ValueError):
+    ATOM_RADIUS_SCALE = 1.0
 FALLBACK_COLOR = (0.8, 0.8, 0.8, 1.0)
 FALLBACK_RADIUS = 0.7
 
@@ -235,14 +242,21 @@ def get_atom_color(index):
     return FALLBACK_COLOR
 
 def get_atom_radius(index, fallback=FALLBACK_RADIUS):
+    if 0 <= index < len(ATOM_LABELS):
+        try:
+            display_radius = float(DISPLAY_ELEMENT_RADII.get(ATOM_LABELS[index], 0.0))
+            if display_radius > 0:
+                return display_radius * ATOM_RADIUS_SCALE
+        except (TypeError, ValueError):
+            pass
     if 0 <= index < len(ATOM_RADII):
         try:
             radius = float(ATOM_RADII[index])
             if radius > 0:
-                return radius
+                return radius * ATOM_RADIUS_SCALE
         except (TypeError, ValueError):
             pass
-    return fallback
+    return fallback * ATOM_RADIUS_SCALE
 
 def material(name, color, alpha=1.0):
     mat = bpy.data.materials.new(name)
@@ -320,6 +334,127 @@ def get_atom_mesh(index, symbol):
         ATOM_MESHES[mesh_key] = mesh
     return ATOM_MESHES[mesh_key]
 
+def safe_name(value):
+    text = "".join(char if char.isalnum() or char in "_-" else "_" for char in str(value))
+    return text[:48] or "type"
+
+def geometry_node_group(name):
+    group = bpy.data.node_groups.new(name, "GeometryNodeTree")
+    if hasattr(group, "interface"):
+        group.interface.new_socket(name="Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
+        group.interface.new_socket(name="Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+    else:
+        group.inputs.new("NodeSocketGeometry", "Geometry")
+        group.outputs.new("NodeSocketGeometry", "Geometry")
+    return group
+
+def add_instanced_atom_group(symbol, indices, positions):
+    name = f"atoms_{{safe_name(symbol)}}"
+    mesh = bpy.data.meshes.new(name + "_points")
+    mesh.from_pydata([positions[index] for index in indices], [], [])
+    mesh.update()
+    atom_index = mesh.attributes.new("atom_index", "INT", "POINT")
+    atom_index.data.foreach_set("value", indices)
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    obj["v_ase_atom_group"] = True
+    obj["v_ase_label"] = str(symbol)
+    obj["v_ase_atom_count"] = len(indices)
+    if DISPLAY_ELEMENT_VISIBLE.get(symbol) is False:
+        obj.hide_viewport = True
+        obj.hide_render = True
+
+    group = geometry_node_group(name + "_instances")
+    nodes = group.nodes
+    links = group.links
+    node_in = nodes.new("NodeGroupInput")
+    node_out = nodes.new("NodeGroupOutput")
+    sphere = nodes.new("GeometryNodeMeshIcoSphere")
+    set_material = nodes.new("GeometryNodeSetMaterial")
+    shade_smooth = nodes.new("GeometryNodeSetShadeSmooth")
+    instances = nodes.new("GeometryNodeInstanceOnPoints")
+    quality = str(DISPLAY.get("sphereQuality", "auto"))
+    subdivisions = {{"low": 1, "medium": 2, "high": 3, "ultra": 4, "auto": 3}}.get(quality, 3)
+    sphere.inputs["Radius"].default_value = get_atom_radius(indices[0])
+    sphere.inputs["Subdivisions"].default_value = subdivisions
+    set_material.inputs["Material"].default_value = get_atom_mat(indices[0], symbol)
+    if "Shade Smooth" in shade_smooth.inputs:
+        shade_smooth.inputs["Shade Smooth"].default_value = True
+    links.new(node_in.outputs["Geometry"], instances.inputs["Points"])
+    links.new(sphere.outputs["Mesh"], set_material.inputs["Geometry"])
+    links.new(set_material.outputs["Geometry"], shade_smooth.inputs["Geometry"])
+    links.new(shade_smooth.outputs["Geometry"], instances.inputs["Instance"])
+    links.new(instances.outputs["Instances"], node_out.inputs["Geometry"])
+    modifier = obj.modifiers.new("v_ase atom instances", "NODES")
+    modifier.node_group = group
+    return obj, list(indices)
+
+def add_instanced_atoms(positions, symbols):
+    grouped = {{}}
+    for index, symbol in enumerate(symbols):
+        color = get_atom_color(index)
+        radius = get_atom_radius(index)
+        key = (str(symbol), round(radius, 6), tuple(round(value, 6) for value in color[:3]))
+        grouped.setdefault(key, []).append(index)
+    groups = []
+    for (symbol, _radius, _color), indices in grouped.items():
+        groups.append(add_instanced_atom_group(symbol, indices, positions))
+    return groups
+
+def animation_fcurves(animated_data):
+    animation_data = getattr(animated_data, "animation_data", None)
+    action = getattr(animation_data, "action", None)
+    if action is None:
+        return []
+    legacy = getattr(action, "fcurves", None)
+    if legacy is not None:
+        return list(legacy)
+    slot = getattr(animation_data, "action_slot", None)
+    curves = []
+    for layer in getattr(action, "layers", []):
+        for strip in getattr(layer, "strips", []):
+            channelbag = None
+            for method_name in ("channelbag", "channelbag_for_slot"):
+                method = getattr(strip, method_name, None)
+                if method is None or slot is None:
+                    continue
+                try:
+                    channelbag = method(slot)
+                    break
+                except (RuntimeError, TypeError, ValueError):
+                    continue
+            if channelbag is not None:
+                curves.extend(list(getattr(channelbag, "fcurves", [])))
+    return curves
+
+def add_group_trajectory_shape_keys(groups, frames):
+    if len(frames) <= 1:
+        return
+    scene = bpy.context.scene
+    scene.frame_start = 1
+    scene.frame_end = len(frames)
+    for obj, indices in groups:
+        obj.shape_key_add(name="Basis")
+        for frame_number, frame_data in enumerate(frames, start=1):
+            key = obj.shape_key_add(name=f"frame_{{frame_number:05d}}")
+            coordinates = []
+            for atom_index in indices:
+                coordinates.extend(frame_data["positions"][atom_index])
+            key.data.foreach_set("co", coordinates)
+            if frame_number > 1:
+                key.value = 0.0
+                key.keyframe_insert(data_path="value", frame=frame_number - 1)
+            key.value = 1.0
+            key.keyframe_insert(data_path="value", frame=frame_number)
+            if frame_number < len(frames):
+                key.value = 0.0
+                key.keyframe_insert(data_path="value", frame=frame_number + 1)
+            key.value = 0.0
+        if obj.data.shape_keys:
+            for fcurve in animation_fcurves(obj.data.shape_keys):
+                for point in fcurve.keyframe_points:
+                    point.interpolation = "LINEAR"
+
 def look_at_axis(obj, direction):
     direction = Vector(direction)
     if direction.length == 0:
@@ -380,10 +515,25 @@ def add_scene_lighting():
             position = Vector((8, -10, 14))
             target = Vector((0, 0, 0))
 
-        bpy.ops.object.light_add(type="SUN", location=position)
-        obj = bpy.context.object
-        obj.name = "v_ase_studio_sun"
-        obj.data.name = "v_ase_studio_sun_data"
+        source = bpy.data.objects.new("v_ase_sun_source", None)
+        source.empty_display_type = "CIRCLE"
+        source.empty_display_size = 0.45
+        source.location = position
+        source["v_ase_role"] = "sun_source"
+        bpy.context.collection.objects.link(source)
+
+        target_handle = bpy.data.objects.new("v_ase_sun_target", None)
+        target_handle.empty_display_type = "SPHERE"
+        target_handle.empty_display_size = 0.32
+        target_handle.location = target
+        target_handle["v_ase_role"] = "sun_target"
+        bpy.context.collection.objects.link(target_handle)
+
+        light_data = bpy.data.lights.new("v_ase_studio_sun_data", type="SUN")
+        obj = bpy.data.objects.new("v_ase_studio_sun", light_data)
+        bpy.context.collection.objects.link(obj)
+        obj.parent = source
+        obj.location = (0, 0, 0)
         obj.data.energy = intensity
         if isinstance(color, (list, tuple)) and len(color) >= 3:
             obj.data.color = tuple(clamp01(value) for value in color[:3])
@@ -391,8 +541,14 @@ def add_scene_lighting():
         if direction.length <= 1e-10:
             direction = Vector((0, 0, -1))
         obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+        track = obj.constraints.new(type="TRACK_TO")
+        track.name = "Aim at v_ase target"
+        track.target = target_handle
+        track.track_axis = "TRACK_NEGATIVE_Z"
+        track.up_axis = "UP_Y"
         obj["v_ase_mode"] = mode
         obj["v_ase_target"] = target[:]
+        obj["v_ase_direction"] = direction.normalized()[:]
         obj["v_ase_intensity"] = intensity
         if hasattr(obj.data, "angle"):
             obj.data.angle = math.radians(2.0 if mode == "studio-shadow" else 0.5)
@@ -456,6 +612,78 @@ def add_bond_piece(name, start, end, mat):
         return add_flat_between(name, start, end, BOND_THICKNESS, mat)
     return add_cylinder_between(name, start, end, BOND_THICKNESS * 0.5, mat)
 
+def add_curve_segments(name, segments, radius, mat):
+    if not segments:
+        return None
+    curve = bpy.data.curves.new(name + "_curve", "CURVE")
+    curve.dimensions = "3D"
+    curve.resolution_u = 1
+    curve.bevel_depth = radius
+    curve.bevel_resolution = 1
+    curve.resolution_v = 0
+    curve.fill_mode = "FULL"
+    for start, end in segments:
+        spline = curve.splines.new("POLY")
+        spline.points.add(1)
+        spline.points[0].co = (*Vector(start), 1.0)
+        spline.points[1].co = (*Vector(end), 1.0)
+    obj = bpy.data.objects.new(name, curve)
+    bpy.context.collection.objects.link(obj)
+    obj.data.materials.append(mat)
+    return obj
+
+def add_flat_segments(name, segments, width, mat):
+    if not segments:
+        return None
+    vertices = []
+    faces = []
+    camera_position = Vector(CAMERA.get("position", (8, -9, 6)))
+    camera_target = Vector(CAMERA.get("target", (0, 0, 0)))
+    view = camera_target - camera_position
+    for start_value, end_value in segments:
+        start = Vector(start_value); end = Vector(end_value)
+        axis = end - start
+        if axis.length <= 1e-8:
+            continue
+        direction = axis.normalized()
+        side = direction.cross(view)
+        if side.length <= 1e-8:
+            side = direction.cross(Vector((0, 0, 1)))
+        if side.length <= 1e-8:
+            side = direction.cross(Vector((0, 1, 0)))
+        side.normalize()
+        half = side * (width * 0.5)
+        offset = len(vertices)
+        vertices.extend([start - half, end - half, end + half, start + half])
+        faces.append((offset, offset + 1, offset + 2, offset + 3))
+    mesh = bpy.data.meshes.new(name + "_mesh")
+    mesh.from_pydata(vertices, [], faces)
+    mesh.update()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    obj.data.materials.append(mat)
+    return obj
+
+def add_bond_groups(bonds):
+    grouped = {{}}
+    for bond_index, bond in enumerate(bonds):
+        i = int(bond.get("i", 0)); j = int(bond.get("j", 0))
+        start = Vector(bond.get("start")); end = Vector(bond.get("end"))
+        pieces = []
+        if BOND_COLOR_MODE == "split":
+            midpoint = (start + end) * 0.5
+            pieces = [(start, midpoint, get_bond_mat(i)), (midpoint, end, get_bond_mat(j))]
+        else:
+            pieces = [(start, end, MAT_BOND)]
+        for piece_start, piece_end, mat in pieces:
+            grouped.setdefault(mat.name, {{"material": mat, "segments": []}})["segments"].append((piece_start, piece_end))
+    for group_index, item in enumerate(grouped.values()):
+        name = f"bond_group_{{group_index:03d}}"
+        if BOND_STYLE == "flat":
+            add_flat_segments(name, item["segments"], BOND_THICKNESS, item["material"])
+        else:
+            add_curve_segments(name, item["segments"], BOND_THICKNESS * 0.5, item["material"])
+
 def add_unit_cell(cell):
     if not isinstance(cell, (list, tuple)) or len(cell) != 3:
         return
@@ -480,8 +708,7 @@ def add_unit_cell(cell):
         (3, 5), (3, 6),
         (4, 7), (5, 7), (6, 7),
     ]
-    for edge_index, (i, j) in enumerate(edges):
-        add_cylinder_between(f"unit_cell_edge_{{edge_index:02d}}", corners[i], corners[j], 0.026, MAT_CELL)
+    add_curve_segments("unit_cell_edges", [(corners[i], corners[j]) for i, j in edges], 0.026, MAT_CELL)
 
 def add_plane_disc(name, center, normal, radius, mat):
     bpy.ops.mesh.primitive_circle_add(vertices=96, radius=radius, fill_type="TRIFAN", location=center)
@@ -607,44 +834,57 @@ except (TypeError, ValueError):
 positions = DATA["positions"]
 symbols = DATA["symbols"]
 atoms = []
-for idx, (symbol, pos) in enumerate(zip(symbols, positions)):
-    obj = bpy.data.objects.new(f"atom_{{idx:04d}}_{{symbol}}", get_atom_mesh(idx, symbol))
-    obj.name = f"atom_{{idx:04d}}_{{symbol}}"
-    obj.location = pos
-    bpy.context.collection.objects.link(obj)
-    atoms.append(obj)
+atom_groups = []
+if BLENDER_OBJECT_MODE == "objects":
+    for idx, (symbol, pos) in enumerate(zip(symbols, positions)):
+        obj = bpy.data.objects.new(f"atom_{{idx:04d}}_{{symbol}}", get_atom_mesh(idx, symbol))
+        obj.name = f"atom_{{idx:04d}}_{{symbol}}"
+        obj.location = pos
+        obj["v_ase_atom_index"] = idx
+        if DISPLAY_ELEMENT_VISIBLE.get(symbol) is False:
+            obj.hide_viewport = True
+            obj.hide_render = True
+        bpy.context.collection.objects.link(obj)
+        atoms.append(obj)
+else:
+    atom_groups = add_instanced_atoms(positions, symbols)
 
 add_unit_cell(CELL)
 
-for bond_index, bond in enumerate(BONDS):
-    i = int(bond.get("i", 0)); j = int(bond.get("j", 0))
-    start = Vector(bond.get("start")); end = Vector(bond.get("end"))
-    name = f"bond_{{i}}_{{j}}_{{bond_index:04d}}"
-    if BOND_COLOR_MODE == "split":
-        midpoint = (start + end) * 0.5
-        add_bond_piece(name + "_start", start, midpoint, get_bond_mat(i))
-        add_bond_piece(name + "_end", midpoint, end, get_bond_mat(j))
-    else:
-        add_bond_piece(name, start, end, MAT_BOND)
+if BLENDER_OBJECT_MODE == "objects":
+    for bond_index, bond in enumerate(BONDS):
+        i = int(bond.get("i", 0)); j = int(bond.get("j", 0))
+        start = Vector(bond.get("start")); end = Vector(bond.get("end"))
+        name = f"bond_{{i}}_{{j}}_{{bond_index:04d}}"
+        if BOND_COLOR_MODE == "split":
+            midpoint = (start + end) * 0.5
+            add_bond_piece(name + "_start", start, midpoint, get_bond_mat(i))
+            add_bond_piece(name + "_end", midpoint, end, get_bond_mat(j))
+        else:
+            add_bond_piece(name, start, end, MAT_BOND)
+else:
+    add_bond_groups(BONDS)
 
 def frame_topology_matches(frame_data):
     return (
         frame_data.get("symbols") == symbols
-        and len(frame_data.get("positions", [])) == len(atoms)
+        and len(frame_data.get("positions", [])) == len(symbols)
     )
 
 if len(FRAMES) > 1 and all(frame_topology_matches(frame) for frame in FRAMES):
-    bpy.context.scene.frame_start = 1
-    bpy.context.scene.frame_end = len(FRAMES)
-    for frame_number, frame_data in enumerate(FRAMES, start=1):
-        for idx, obj in enumerate(atoms):
-            obj.location = frame_data["positions"][idx]
-            obj.keyframe_insert(data_path="location", frame=frame_number)
-    for obj in atoms:
-        if obj.animation_data and obj.animation_data.action:
-            for fcurve in obj.animation_data.action.fcurves:
+    if BLENDER_OBJECT_MODE == "objects":
+        bpy.context.scene.frame_start = 1
+        bpy.context.scene.frame_end = len(FRAMES)
+        for frame_number, frame_data in enumerate(FRAMES, start=1):
+            for idx, obj in enumerate(atoms):
+                obj.location = frame_data["positions"][idx]
+                obj.keyframe_insert(data_path="location", frame=frame_number)
+        for obj in atoms:
+            for fcurve in animation_fcurves(obj):
                 for keyframe in fcurve.keyframe_points:
                     keyframe.interpolation = "LINEAR"
+    else:
+        add_group_trajectory_shape_keys(atom_groups, FRAMES)
 
 constraints = DATA.get("constraints", {{}})
 for idx_text, direction in constraints.get("fixed_line", {{}}).items():

@@ -60,6 +60,8 @@ terminal.
   `FixedPlane`, `FixScaled`, and threshold-aware `Hookean` springs.
 - Render with Modeling, Studio Sun, or Sun + Soft Shadow, then export images,
   video, POSCAR, pickle, or an editable Blender scene script.
+- Save reusable visual presets as JSON or restore the complete scientific and
+  visual working state from a portable `.vase` project.
 
 ## Why v_ase
 
@@ -91,7 +93,7 @@ available in both workflows.
   for architecture and reproducible benchmark details.
 - Orthographic projection is the default view, with perspective available from
   the View panel.
-- The control panel is organized into Inspect, Edit, Scene, and Output
+- The control panel is organized into Inspect, Structure, Display, and Output
   sections. It starts collapsed and opens from a compact edge handle, leaving
   the viewport unobstructed until controls are needed. v_ase remembers the
   active section, explicit collapsed state, and panel width. `Tab` toggles the
@@ -158,7 +160,15 @@ available in both workflows.
   or Sun + Soft Shadow setup. Blender export includes the viewport camera,
   unit cell, bonds, smooth atoms, and a true Blender `SUN` object with the same
   source position, target-derived direction, color, and numeric strength used
-  in v_ase.
+  in v_ase. Optimized export uses editable point groups and Geometry Nodes;
+  individual atom objects remain available as an explicit export mode.
+- Save Visual Settings as a reusable JSON preset. Matching labels recover their
+  appearance and pairwise bond cutoffs, missing labels are ignored, and labels
+  new to the opened structure receive ASE-derived defaults.
+- Save a complete `.vase` project containing the current structure or
+  trajectory, active frame, coordinates, cell, PBC, constraints, labels,
+  portable atom arrays, cached calculator results, camera, lighting, bonds,
+  quality settings, and supercell preview.
 
 ## Installation
 
@@ -203,6 +213,7 @@ v_ase gui POSCAR
 v_ase gui structure.vasp
 v_ase gui trajectory.extxyz
 v_ase gui relaxation.traj
+v_ase gui project.vase
 ```
 
 The direct file form also works:
@@ -233,6 +244,7 @@ v_ase gui ABCD --format XDATCAR
 v_ase gui ABCD --format vasprun.xml
 v_ase gui ABCD --format lammpstrj
 v_ase gui ABCD --format data
+v_ase gui ABCD --format vase
 v_ase gui POSCAR --interactive
 v_ase gui POSCAR --output edited.vasp
 v_ase gui POSCAR --no-block
@@ -240,7 +252,7 @@ v_ase gui POSCAR --no-block
 
 `--format` forces the input reader when the filename is ambiguous. It accepts
 common aliases such as `POSCAR`, `XDATCAR`, `vasprun.xml`, `lammpstrj`, `traj`,
-`xyz`, `extxyz`, and `data`, plus raw ASE format names.
+`xyz`, `extxyz`, `data`, and `vase`, plus raw ASE format names.
 
 ## Example Structures
 
@@ -543,22 +555,73 @@ Blender export downloads `v_ase_blender_scene.py`:
 blender --python v_ase_blender_scene.py
 ```
 
-The generated scene keeps atoms and constraint graphics as editable Blender
-objects where practical. Atom objects reuse shared sphere meshes by radius/color
-so large exports avoid duplicating mesh geometry for every atom. Studio lighting
-is exported as a Blender `SUN`: its location matches the v_ase light object,
-local `-Z` points at the same target, and Blender `energy` receives the exact
-v_ase strength value. Atom, bond, and cell colors are written to standard
-Principled BSDF nodes as well as viewport colors, so they remain colored in
-Blender Rendered mode instead of appearing white.
+`Optimized instances` is the default Blender atom mode. It emits one editable
+point mesh per visual label and uses Geometry Nodes to instance smooth
+icospheres, avoiding thousands of Python object-creation calls. Trajectories
+become point-mesh shape keys, bonds are grouped into multi-spline curves or
+combined flat meshes by material, and the unit cell is one multi-spline object.
+The `Individual objects` option remains available when every atom must be a
+separate Blender object.
 
-The current Python scene format is deliberate: it preserves separate editable
-atom objects, shared meshes, bonds, unit cell, materials, and the active camera
-without requiring Blender to be installed in the Python environment running
-v_ase. The generated script can be converted to a native `.blend` file by
-running it in Blender and saving the main file. OBJ export is also technically
-possible with one named object per atom, but OBJ does not preserve the camera,
-constraints, trajectory behavior, instancing, or the full material setup.
+Studio lighting is exported as a true Blender `SUN` parented to a source Empty
+and aimed at a target Empty. Source position, target-derived direction, RGB
+color, and numeric energy match the v_ase controls. Atom, bond, and cell colors
+use standard Principled BSDF nodes, so they remain colored in Blender Rendered
+mode. The active camera and projection are also reproduced.
+
+The Python scene format works even when Blender is not installed in the Python
+environment running v_ase. Run the script in Blender and save it once to obtain
+a native `.blend`. OBJ is a poor primary interchange format here because it
+does not retain the camera, Sun rig, trajectory animation, constraints,
+instancing semantics, or the complete material setup.
+
+## Case 9: Save and Restore
+
+The Output workspace separates two different operations:
+
+- **Visual Settings (`.json`)** stores reusable presentation state: bond mode,
+  pairwise cutoffs, manual pairs, bond material, label colors/radii/visibility,
+  atom smoothness and anti-aliasing, camera/projection, grid/axes/cell,
+  supercell preview, and Sun source/target/intensity. It does not store atomic
+  coordinates. When applied to another structure, matching labels reuse saved
+  values, absent labels are ignored, and newly encountered labels and bond pairs
+  receive defaults.
+- **v_ase Project (`.vase`)** stores the complete current project: all loaded
+  trajectory frames, current frame, edited or wrapped coordinates, cell, PBC,
+  ASE constraints, atom labels, portable per-atom arrays, JSON-compatible frame
+  metadata, cached standard calculator results, and the complete visual setup.
+
+Open a saved project directly:
+
+```bash
+v_ase gui research_state.vase
+```
+
+`.vase` is a validated ZIP container and does not unpickle arbitrary Python
+objects. Cached standard ASE results are restored through
+`SinglePointCalculator`. The built-in v_ase repulsion calculator is safely
+reconstructed from its numeric/string configuration so relaxation can resume;
+an arbitrary external calculator object is intentionally not embedded because
+it may contain executable code or machine-specific state.
+
+### Desktop Integration
+
+The file format is ready for OS association, but `pip install` does not register
+a universal double-click handler. A packaged desktop launcher is required:
+
+- macOS: an app bundle declaring the document type with
+  [`CFBundleDocumentTypes`](https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundledocumenttypes).
+- Windows: an installer registering a `.vase` ProgID and open command as
+  described by [Microsoft file-type registration](https://learn.microsoft.com/en-us/windows/win32/shell/how-to-register-a-file-type-for-a-new-application).
+- Linux desktops: a MIME definition, `.desktop` launcher, and association under
+  the [freedesktop MIME-apps specification](https://specifications.freedesktop.org/mime-apps/latest-single/).
+
+macOS Finder Quick Look also requires a signed Quick Look preview extension for
+the custom content type. Apple supports view-controller or data-based custom
+previews, but an installed Python wheel alone cannot register one. The `.vase`
+archive therefore does not embed executable HTML; a future macOS app can add a
+read-only rotatable preview through Apple's
+[`QLPreviewingController`](https://developer.apple.com/documentation/quicklookui/qlpreviewingcontroller).
 
 ## Python API
 
@@ -614,10 +677,14 @@ view_file("trajectory.extxyz")
 ## Notes
 
 - The local editor server binds to `127.0.0.1`.
-- Relaxation uses the calculator already attached to the `Atoms` object. If no
-  calculator is attached, v_ase uses its default soft repulsion calculator.
+- Relaxation uses the calculator already attached to the `Atoms` object. In
+  `--interactive`, v_ase adds its default soft repulsion calculator only when
+  no calculator is attached; visualization mode adds no calculator.
 - Torch is optional. It is never required by `pip install v_ase-gui`, but when
   available it can accelerate the default repulsion calculator on CPU or CUDA.
 - POSCAR export stores structural data. Pickle export can include the ASE object;
   calculators may not always be pickleable.
+- Visual Settings JSON is structure-independent presentation state. `.vase` is
+  the full portable project state; it stores cached standard calculator results
+  but not arbitrary executable calculator objects or undo history.
 - The bundled browser UI is local-first; no Node.js build step is required.

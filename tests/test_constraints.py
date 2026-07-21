@@ -262,4 +262,6 @@ def test_blender_export_includes_trajectory_keyframes_when_frames_match():
     assert "'frames':" in script
     assert "FRAMES = DATA.get(\"frames\", [])" in script
     assert "keyframe_insert(data_path=\"location\"" in script
+    assert "add_group_trajectory_shape_keys(atom_groups, FRAMES)" in script
+    assert "key.data.foreach_set(\"co\", coordinates)" in script
     assert "bpy.context.scene.frame_end = len(FRAMES)" in script

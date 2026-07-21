@@ -581,7 +581,13 @@ def test_frontend_reset_video_and_visual_settings_controls_are_wired():
     assert "settings-file" in index_html
     assert "saveVisualSettings" in api_js
     assert "loadVisualSettings" in api_js
-    assert "v_ase_visual_settings.pkl" in main_js
+    assert "v_ase_visual_settings.json" in main_js
+    assert "btn-save-project" in index_html
+    assert "btn-load-project" in index_html
+    assert "project-file" in index_html
+    assert "v_ase_project.vase" in main_js
+    assert "saveProject" in main_js
+    assert "loadProject" in main_js
     assert ".confirm-list" in style_css
     assert "#inspector .btn-block:disabled" in style_css
 
@@ -709,10 +715,17 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
     assert "'intensity': 3.4" in script
     assert "'position': [7, -9, 12]" in script
     assert "'target': [1, 2, 3]" in script
-    assert 'bpy.ops.object.light_add(type="SUN", location=position)' in script
+    assert 'bpy.data.lights.new("v_ase_studio_sun_data", type="SUN")' in script
     assert 'obj.data.energy = intensity' in script
     assert 'direction.to_track_quat("-Z", "Y")' in script
-    assert 'obj.name = "v_ase_studio_sun"' in script
+    assert 'obj = bpy.data.objects.new("v_ase_studio_sun", light_data)' in script
+    assert 'source = bpy.data.objects.new("v_ase_sun_source", None)' in script
+    assert 'target_handle = bpy.data.objects.new("v_ase_sun_target", None)' in script
+    assert 'track.track_axis = "TRACK_NEGATIVE_Z"' in script
+    assert 'BLENDER_OBJECT_MODE = DISPLAY.get("blenderExportMode", "instanced")' in script
+    assert 'GeometryNodeInstanceOnPoints' in script
+    assert 'atom_index = mesh.attributes.new("atom_index", "INT", "POINT")' in script
+    assert 'add_bond_groups(BONDS)' in script
     assert 'mat.use_nodes = True' in script
     assert 'bsdf.inputs.get("Base Color")' in script
     assert 'base_color.default_value = rgba' in script
@@ -814,16 +827,17 @@ def test_control_panel_uses_collapsible_default_hierarchy():
     assert 'inspector-collapse-glyph' not in index_html
     assert '<strong>Workspace</strong>' not in index_html
     assert 'data-inspector-group="inspect"' in index_html
-    assert 'data-inspector-group="edit"' in index_html
-    assert 'data-inspector-group="scene"' in index_html
+    assert 'data-inspector-group="structure"' in index_html
+    assert 'data-inspector-group="display"' in index_html
     assert 'data-inspector-group="output"' in index_html
     assert 'data-panel="structure-info" data-panel-group="inspect"' in index_html
     assert 'data-panel="selection" data-panel-group="inspect"' in index_html
-    assert 'data-panel="view" data-panel-group="scene"' in index_html
-    assert 'data-panel="transform" data-panel-group="edit" data-edit-only' in index_html
-    assert 'data-panel="appearance" data-panel-group="scene"' in index_html
-    assert 'data-panel="cell-transform" data-panel-group="edit" data-edit-only' in index_html
-    assert 'data-panel="scientific-tools" data-panel-group="edit" data-edit-only' in index_html
+    assert 'data-panel="view" data-panel-group="display"' in index_html
+    assert 'data-panel="cell-replication" data-panel-group="structure"' in index_html
+    assert 'data-panel="transform" data-panel-group="structure" data-edit-only' in index_html
+    assert 'data-panel="appearance" data-panel-group="display"' in index_html
+    assert 'data-panel="cell-transform" data-panel-group="structure" data-edit-only' in index_html
+    assert 'data-panel="scientific-tools" data-panel-group="structure" data-edit-only' in index_html
     assert "setupInspectorNavigation" in main_js
     assert "let collapsed = true" in main_js
     assert "savedCollapsed === null ? true" in main_js

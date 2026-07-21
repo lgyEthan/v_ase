@@ -33,6 +33,7 @@ def test_format_aliases_resolve_to_ase_format_names():
     assert resolve_input_format("traj") == "traj"
     assert resolve_input_format("xyz") == "xyz"
     assert resolve_input_format("data") == "lammps-data"
+    assert resolve_input_format("vase") == "vase-project"
     assert resolve_input_format("espresso-in") == "espresso-in"
 
 

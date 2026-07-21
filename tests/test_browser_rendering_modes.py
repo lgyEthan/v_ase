@@ -92,11 +92,17 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             assert edge_geometry['buttonRight'] == pytest.approx(edge_geometry['panelLeft'], abs=1.5)
             assert edge_geometry['verticalCenterDelta'] <= 1.5
 
-            page.click('[data-inspector-group="scene"]')
+            page.click('[data-inspector-group="display"]')
             assert page.locator('[data-panel="view"]').is_visible()
             assert not page.locator('[data-panel="structure-info"]').is_visible()
             for panel in ('view', 'appearance', 'bonding'):
                 assert page.locator(f'[data-panel="{panel}"]').evaluate("element => element.open")
+            page.click('[data-inspector-group="output"]')
+            assert page.locator('[data-panel="project"]').is_visible()
+            assert page.locator('[data-panel="settings"]').is_visible()
+            assert 'complete working structure' in page.locator('[data-panel="project"] .panel-note').inner_text()
+            assert 'coordinates' in page.locator('[data-panel="settings"] .panel-note').inner_text()
+            page.click('[data-inspector-group="display"]')
             page.locator('#app-viewport canvas').focus()
             page.keyboard.press('Tab')
             page.wait_for_function("document.body.classList.contains('inspector-collapsed')")
@@ -486,7 +492,7 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
             page.wait_for_function("window.__ASE_APP__.renderer.bondPairs.length === 1")
 
             _expand_inspector(page)
-            page.click('[data-inspector-group="scene"]')
+            page.click('[data-inspector-group="display"]')
             _open_panel(page, 'bonding')
             page.select_option('#bond-mode', 'element')
             cutoff = page.locator('.element-bond-cutoff[data-pair-key="H_left-H_right"]')
@@ -602,7 +608,7 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
 
             _expand_inspector(page)
-            page.click('[data-inspector-group="scene"]')
+            page.click('[data-inspector-group="display"]')
             _open_panel(page, 'bonding')
             page.select_option('#bond-mode', 'manual')
             page.fill('#bond-pairs', '0-1')
@@ -685,6 +691,7 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
             }""")
             assert split_colors["actual"] == split_colors["expected"]
 
+            page.click('[data-inspector-group="structure"]')
             page.fill('#super-x', '2')
             page.keyboard.press('Tab')
             page.wait_for_function("window.__ASE_APP__.state.display.supercell[0] === 2")
@@ -692,7 +699,7 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
             page.keyboard.press('Enter')
             page.wait_for_function("window.__ASE_APP__.state.display.supercell[1] === 2")
             page.fill('#super-z', '2')
-            page.locator('#bond-pairs').click()
+            page.keyboard.press('Tab')
             page.wait_for_function("window.__ASE_APP__.state.display.supercell[2] === 2")
             assert page.evaluate("window.__ASE_APP__.state.display.supercell") == [2, 2, 2]
             repeated = page.evaluate("""() => {
@@ -821,7 +828,7 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
 
             _expand_inspector(page)
-            page.click('[data-inspector-group="scene"]')
+            page.click('[data-inspector-group="display"]')
             _open_panel(page, 'appearance')
             label_input = page.locator('[data-element-name="Cu2"]')
             label_input.fill('Cu')
@@ -835,6 +842,7 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
             assert sum('Renamed Cu2 to Cu_2' in text for text in toasts) == 1
             assert all('atoms found' not in text for text in toasts)
 
+            page.click('[data-inspector-group="structure"]')
             for control, value in (('#super-x', '2'), ('#super-y', '2'), ('#super-z', '1')):
                 page.fill(control, value)
                 page.keyboard.press('Tab')
