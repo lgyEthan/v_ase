@@ -6,8 +6,9 @@ import pickle
 import io
 import json
 import tempfile
+from pathlib import Path
 from typing import Dict, Any, List
-from .session import EditorSession, get_session, sessions
+from .session import EditorSession, get_session, replace_session_frames, sessions
 from .serialization import atoms_to_json
 from .websocket_manager import ws_manager
 from .io import atom_type_labels, base_symbol_for_atom_type, normalize_atom_type_label, set_atom_type_labels
@@ -112,6 +113,7 @@ if FASTAPI_AVAILABLE:
 
 MAX_INLINE_TRAJECTORY_CACHE_VALUES = 750_000
 MAX_BINARY_TRAJECTORY_CACHE_VALUES = 30_000_000
+MAX_UPLOADED_STRUCTURE_BYTES = 64 * 1024 * 1024 * 1024
 
 
 def trajectory_cacheable(session: EditorSession) -> bool:
@@ -750,6 +752,119 @@ async def active_session():
         return {"session_id": None, "count": len(sessions)}
     return {"session_id": next(iter(sessions.keys())), "count": 1}
 
+
+def _uploaded_format_hint(filename: str, explicit_format: str | None) -> str | None:
+    if explicit_format:
+        return explicit_format
+    lower_name = filename.lower()
+    if lower_name in {"poscar", "contcar"}:
+        return "vasp"
+    if lower_name == "xdatcar":
+        return "vasp-xdatcar"
+    if lower_name == "vasprun.xml":
+        return "vasp-xml"
+    return None
+
+
+@app.post("/api/file/load/{session_id}")
+async def load_structure_file(
+    session_id: str,
+    request: Request,
+    filename: str,
+    input_format: str | None = None,
+    index: str = ":",
+):
+    """Stream a browser-selected structure, trajectory, or project into a session."""
+    session = get_session(session_id)
+    display_name = Path(filename).name.strip()
+    if not display_name or display_name in {".", ".."}:
+        raise HTTPException(status_code=400, detail="The selected file has no valid filename.")
+    try:
+        content_length = int(request.headers.get("content-length", "0") or 0)
+    except ValueError:
+        content_length = 0
+    if content_length > MAX_UPLOADED_STRUCTURE_BYTES:
+        raise HTTPException(status_code=413, detail="The selected structure file is too large.")
+
+    suffix = Path(display_name).suffix
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp_path = tmp.name
+    total = 0
+    keep_temporary_file = False
+    try:
+        async for chunk in request.stream():
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > MAX_UPLOADED_STRUCTURE_BYTES:
+                raise HTTPException(status_code=413, detail="The selected structure file is too large.")
+            tmp.write(chunk)
+        tmp.close()
+        if total == 0:
+            raise HTTPException(status_code=400, detail="The selected structure file is empty.")
+
+        from .cli import _read_frames, resolve_input_format
+        from .io import read_fast_lammps_dump
+
+        format_hint = _uploaded_format_hint(display_name, input_format)
+        resolved_format = resolve_input_format(format_hint)
+        is_project = suffix.lower() == ".vase" or resolved_format == "vase-project"
+        is_lammps_dump = (
+            resolved_format == "lammps-dump-text"
+            or (format_hint is None and suffix.lower() in {".lammpstrj", ".dump"})
+        )
+
+        if is_project:
+            project = await asyncio.to_thread(read_project_archive, tmp_path)
+            session.cleanup_temporary_files()
+            replace_session_from_project(session, project)
+            loaded_kind = "project"
+        elif is_viz_only(session) and is_lammps_dump:
+            try:
+                fast = await asyncio.to_thread(read_fast_lammps_dump, Path(tmp_path), index)
+                session.cleanup_temporary_files()
+                replace_session_frames(
+                    session,
+                    [fast.atoms],
+                    trajectory_source=fast.trajectory,
+                    current_frame=fast.initial_frame,
+                )
+                session.temporary_files.add(tmp_path)
+                keep_temporary_file = True
+            except ValueError:
+                frames = await asyncio.to_thread(_read_frames, Path(tmp_path), index, format_hint)
+                session.cleanup_temporary_files()
+                replace_session_frames(session, frames)
+            loaded_kind = "trajectory" if session.frame_count > 1 else "structure"
+        else:
+            frames = await asyncio.to_thread(_read_frames, Path(tmp_path), index, format_hint)
+            session.cleanup_temporary_files()
+            replace_session_frames(session, frames)
+            loaded_kind = "trajectory" if session.frame_count > 1 else "structure"
+
+        session.config["empty_workspace"] = False
+        data = session_atoms_to_json(session)
+        data["loaded_file"] = {
+            "filename": display_name,
+            "kind": loaded_kind,
+            "format": resolved_format or "auto",
+        }
+        if is_project:
+            data["project"] = {
+                "schema": project.manifest.get("schema"),
+                "settings": project.settings,
+            }
+        return data
+    except HTTPException:
+        raise
+    except (TypeError, ValueError, KeyError, OSError) as exc:
+        raise HTTPException(status_code=400, detail=f"Could not load {display_name}: {exc}") from exc
+    finally:
+        if not tmp.closed:
+            tmp.close()
+        if not keep_temporary_file:
+            _remove_temporary_file(tmp_path)
+
 @app.post("/api/constrain/{session_id}")
 async def constrain_positions(session_id: str, payload: Dict[str, Any]):
     """AUTHORITATIVE: Backend correction of proposed positions."""
@@ -886,7 +1001,9 @@ async def load_project(session_id: str, request: Request):
         tmp.write(raw)
         tmp.close()
         project = read_project_archive(tmp.name)
+        session.cleanup_temporary_files()
         replace_session_from_project(session, project)
+        session.config["empty_workspace"] = False
     except (TypeError, ValueError, OSError) as exc:
         raise HTTPException(status_code=400, detail=f"Could not load .vase project: {exc}") from exc
     finally:

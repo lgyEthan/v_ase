@@ -1,6 +1,8 @@
 from fastapi.responses import FileResponse
 from typing import Dict, Any
 from ase.io import write
+from ase.calculators.singlepoint import SinglePointCalculator
+import copy
 import tempfile
 import pickle
 import numpy as np
@@ -33,26 +35,35 @@ def export_poscar_response(session, payload: Dict[str, Any]):
     return FileResponse(tmp.name, filename="POSCAR", media_type="application/octet-stream")
 
 
-def export_pickle_response(session, payload: Dict[str, Any]):
-    _apply_payload_positions(session, payload)
-    include_calc = payload.get("include_calculator", False)
+def atoms_for_pickle_export(atoms):
+    """Return a portable ASE Atoms copy with valid single-point results only."""
+    atoms_to_save = atoms.copy()
+    atoms_to_save.calc = None
+    source_calculator = getattr(atoms, "calc", None)
+    if not isinstance(source_calculator, SinglePointCalculator):
+        return atoms_to_save
+    try:
+        if source_calculator.check_state(atoms):
+            return atoms_to_save
+    except Exception:
+        return atoms_to_save
+    results = {
+        name: copy.deepcopy(value)
+        for name, value in source_calculator.results.items()
+    }
+    if results:
+        atoms_to_save.calc = SinglePointCalculator(atoms_to_save, **results)
+    return atoms_to_save
 
-    atoms_to_save = session.working_atoms.copy()
-    if not include_calc:
-        atoms_to_save.calc = None
+
+def export_pickle_response(session, payload: Dict[str, Any]):
+    atoms = _apply_payload_positions(session, payload)
+    atoms_to_save = atoms_for_pickle_export(atoms)
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pkl")
     tmp.close()
-    try:
-        with open(tmp.name, "wb") as handle:
-            pickle.dump(atoms_to_save, handle)
-    except Exception as exc:
-        if include_calc:
-            atoms_to_save.calc = None
-            with open(tmp.name, "wb") as handle:
-                pickle.dump(atoms_to_save, handle)
-        else:
-            raise exc
+    with open(tmp.name, "wb") as handle:
+        pickle.dump(atoms_to_save, handle)
     return FileResponse(tmp.name, filename="atoms.pkl", media_type="application/octet-stream")
 
 

@@ -70,11 +70,17 @@ in Angstrom or degree units.
 The Output workspace keeps structure-independent settings separate from project
 state:
 
+- **Export ASE Pickle** writes the current ASE structure for Python use,
+  including labels, cell/PBC, constraints, portable arrays, and valid
+  `SinglePointCalculator` results. It does not include visualization settings.
 - **Save Settings** writes JSON containing bonds, appearance, camera, lighting,
   quality, overlays, and supercell preview, but no atomic coordinates.
 - **Save .vase** writes the complete structure or trajectory, current frame,
   edited coordinates, cell/PBC, constraints, labels, cached standard calculator
   results, and visual setup. Reopen it with `v_ase gui FILE.vase`.
+
+Start with `v_ase gui` to open an empty workspace, then use the top-bar **Open**
+command to load a structure, trajectory, or `.vase` project.
 
 ## Constraint Behavior
 - Atoms constrained with `FixAtoms` in ASE will appear as "Fixed" in the UI.

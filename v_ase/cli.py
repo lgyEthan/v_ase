@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from importlib.metadata import PackageNotFoundError, version
 
+from ase import Atoms
 from ase.io import read, write
 
 from v_ase.io import (
@@ -53,7 +54,7 @@ def package_version() -> str:
     try:
         return version("v_ase-gui")
     except PackageNotFoundError:
-        return "0.0.59"
+        return "0.0.60"
 
 
 def resolve_input_format(fmt: str | None) -> str | None:
@@ -73,10 +74,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     gui = subparsers.add_parser(
         "gui",
-        help="open a structure or trajectory file in the v_ase GUI",
-        description="Open a file like ASE's `ase gui FILE`, but in the v_ase browser editor.",
+        help="open the v_ase GUI, optionally with a structure, trajectory, or project",
+        description="Open an empty v_ase workspace or load a file like ASE's `ase gui FILE`.",
     )
-    gui.add_argument("file", help="structure, trajectory, or .vase project, e.g. POSCAR, .vasp, .traj, .extxyz, .vase")
+    gui.add_argument(
+        "file",
+        nargs="?",
+        help="optional structure, trajectory, or .vase project, e.g. POSCAR, .vasp, .traj, .extxyz, .vase",
+    )
     gui.add_argument(
         "-i",
         "--index",
@@ -155,19 +160,21 @@ def normalize_argv(argv: list[str] | None) -> list[str]:
 
 
 def run_gui(args: argparse.Namespace) -> int:
-    path = Path(args.file).expanduser()
-    if not path.exists():
+    path = Path(args.file).expanduser() if args.file else None
+    if path is not None and not path.exists():
         raise SystemExit(f"v_ase: file not found: {path}")
 
     resolved_format = resolve_input_format(args.format)
-    suffix = path.suffix.lower()
+    suffix = path.suffix.lower() if path is not None else ""
     trajectory_source = None
     initial_frame = 0
     initial_design_settings = None
     is_vase_project = suffix == ".vase" or resolved_format == "vase-project"
     is_lammps_dump = resolved_format == "lammps-dump-text" or (args.format is None and suffix in {".lammpstrj", ".dump"})
     viz_only = not args.interactive
-    if is_vase_project:
+    if path is None:
+        frames = [Atoms()]
+    elif is_vase_project:
         from v_ase.project import read_project_archive
 
         project = read_project_archive(path)

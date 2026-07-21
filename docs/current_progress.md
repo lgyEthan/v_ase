@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.59`.
+Last synchronized with implementation: `v_ase-gui 0.0.60`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -12,7 +12,7 @@ Unlike the default ASE viewer, this tool supports:
 *   **Constraint-Aware Editing**: Real-time backend synchronization using `set_positions(..., apply_constraint=True)`.
 *   **Structural Modification**: Copy/paste appends atoms through the backend.
 *   **Scientific Visualization**: Material-state fixed atoms, selection outlines, selected-constraint guides, cell-local or periodic-image bonds, unit-cell/axes/grid/overlay toggles, opt-in Studio Sun lighting, POSCAR/pickle/PNG/WebM/Blender export, wrap, and supercell preview.
-*   **Default Lightweight CLI Viewer**: `v_ase gui FILE` opens in visualization mode by default; `--interactive` enables atom coordinate editing.
+*   **Default Lightweight CLI Viewer**: `v_ase gui [FILE]` opens in visualization mode by default; omitting the file starts the browser loader and `--interactive` enables atom coordinate editing.
 *   **Trajectory Playback**: Multi-frame `Atoms` inputs and ASE-readable trajectory files expose a movie timeline with live scrubbing, FPS, and frame skip controls.
 *   **Live Simulation**: Real-time relaxation visualization using attached ASE calculators or the default v_ase repulsion calculator via WebSockets. Relaxation frames are collected into an optimization timeline when needed.
 
@@ -232,13 +232,16 @@ possible, and update the frontend state. This behavior is covered by
 *   **Reset**: Revert to original input structure (preserving calculator).
 *   **Wrap**: Explicitly call `Atoms.wrap()`.
 *   **Constraint Panel**: Interactive mode can apply or clear `FixAtoms`, `FixedLine`, and `FixedPlane` on selected atoms. FixAtoms uses tri-state selection semantics; partial selections clear first, then can be applied to all selected atoms.
-*   **Inspector Sections**: Inspect, Structure, Display, and Output tabs replace the single long inspector. Cell & Replication belongs to Structure; camera, appearance, and bonding belong to Display; exports and both save formats belong to Output. The panel starts fully collapsed and opens from a compact edge tab backed by a larger transparent hit area. Its active section, explicit collapsed state, and width persist locally.
+*   **Inspector Sections**: Inspect, Structure, Display, and Output tabs replace the single long inspector. Cell & Replication belongs to Structure; camera, appearance, and bonding belong to Display; exports and the three save formats belong to Output. The panel starts fully collapsed and opens from a compact edge tab backed by a larger transparent hit area. Its active section, explicit collapsed state, and width persist locally.
 
 ---
 
 ## 20. Export
 *   **VASP POSCAR**: Exported using `ase.io.write`.
-*   **Pickle**: The UI exports a structure-only pickle. The Python handle can export with or without a calculator.
+*   **ASE Pickle**: The UI and Python handle export the current ASE `Atoms`
+    structure with labels, cell/PBC, constraints, portable arrays, and a valid
+    `SinglePointCalculator` when present. Visualization state and arbitrary
+    executable calculator implementations are excluded.
 *   **PNG Image**: Export options include resolution, transparent background,
     grid, axes, and an independent Modeling, Studio Sun, or Sun + Soft Shadow
     setup with brightness, source, and direction target. Studio Sun uses
@@ -256,6 +259,8 @@ possible, and update the frontend state. This behavior is covered by
     richer materials.
 
 ### Save Formats
+*   **ASE Pickle**: Current-frame Python interchange for ASE structure data,
+    labels, constraints, arrays, and valid single-point results only.
 *   **Visual Settings JSON**: Reusable bond topology/appearance, label
     appearance and visibility, quality, overlays, camera/projection, Sun, and
     supercell preview without structure coordinates. Loading intersects saved
@@ -267,6 +272,13 @@ possible, and update the frontend state. This behavior is covered by
     are deliberately excluded; cached results restore through
     `SinglePointCalculator`. The built-in repulsion calculator is reconstructed
     from validated primitive configuration so relaxation remains available.
+
+### Empty Workspace and Browser Loading
+*   `v_ase gui` starts a valid empty session without requiring a filename.
+*   The top-bar and empty-state Open commands stream a selected ASE structure,
+    trajectory, or `.vase` project into the session. A reader selector supports
+    ambiguous filenames, and the blocking loading overlay remains active until
+    parsing and frontend replacement complete.
 
 ---
 
@@ -335,7 +347,8 @@ method is recorded in `docs/performance.md`.
 *   `POST /api/frame/{session_id}`: Switch the active trajectory frame.
 *   `POST /api/wrap/{session_id}`: Wrap atoms into the current unit cell.
 *   `POST /api/export/poscar/{session_id}`: Export POSCAR.
-*   `POST /api/export/pickle/{session_id}`: Export pickle.
+*   `POST /api/file/load/{session_id}`: Stream and replace the active document.
+*   `POST /api/export/pickle/{session_id}`: Export current ASE structure data with valid single-point results.
 *   `POST /api/export/blender/{session_id}`: Export a Blender Python scene.
 *   `POST /api/settings/save/{session_id}`: Export reusable visual settings JSON.
 *   `POST /api/settings/load/{session_id}`: Load validated JSON or restricted legacy settings.
@@ -357,7 +370,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.59).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.60).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -393,6 +406,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 43**: Appearance relabeling now commits atomically across Enter/change/focus events; visualization-mode supercell images are independently selectable and measurable by cell offset; Selection center fractional coordinates use a dedicated second line; the bottom HUD exposes live selection measurements; and Sun mouse rotation follows atom rotation direction.
 *   [x] **Phase 44**: Split persistent selection measurements from pointer-dependent hover metadata, reduced the viewport summary to distance/angle essentials, replaced the bulb-like lighting glyph with a directional studio spotlight, and regenerated the logo plus README media with the current Sun + Soft Shadow renderer.
 *   [x] **Phase 45**: Added portable JSON visual presets and validated full-state `.vase` projects, reorganized the inspector into Inspect/Structure/Display/Output, optimized Blender export with Geometry Nodes point groups and trajectory shape keys, and runtime-tested a 15,000-atom Blender 5 scene at 0.700 seconds.
+*   [x] **Phase 46**: Added `v_ase gui` empty-workspace startup, streaming browser file/project loading with explicit reader and frame selection, a three-format save guide, and strict current-frame ASE Pickle export limited to valid `SinglePointCalculator` results.
 
 ---
 

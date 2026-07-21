@@ -154,8 +154,13 @@ does not reorder rows. If a label prefix names a real element, for example
 base element changes, stale radius/color overrides from the old label are not
 blindly copied.
 
-### Visual Presets and `.vase` Projects
-Output exposes two intentionally separate save paths:
+### ASE Pickle, Visual Presets, and `.vase` Projects
+Output exposes three intentionally separate save paths:
+
+- ASE Pickle stores the current ASE `Atoms` structure for Python reuse,
+  including coordinates, labels, cell/PBC, constraints, portable atom arrays,
+  and valid `SinglePointCalculator` results. Visualization state, arbitrary
+  calculator implementations, and other trajectory frames are excluded.
 
 - Visual Settings is a JSON preset for display, camera, Sun, quality,
   appearance, supercell preview, and complete bond configuration. Loading a
@@ -172,6 +177,8 @@ Output exposes two intentionally separate save paths:
   and undo history are not embedded.
 
 The CLI detects `.vase` directly, so `v_ase gui work.vase` restores the project.
+Starting with `v_ase gui` opens an empty workspace whose browser Open flow can
+stream structures, trajectories, and `.vase` projects into the same session.
 Visualization-mode coordinates changed locally by Wrap are included in the
 saved current frame.
 
@@ -225,7 +232,8 @@ The visualizer respects ASE constraints:
     - `POST /api/frame/{session_id}`: Switches the active trajectory frame.
     - `POST /api/wrap/{session_id}`: Wraps atoms into the unit cell.
     - `POST /api/export/poscar/{session_id}`: Exports the current structure as POSCAR.
-    - `POST /api/export/pickle/{session_id}`: Exports the current structure as a pickle.
+    - `POST /api/file/load/{session_id}`: Streams a structure, trajectory, or `.vase` project selected in the browser into the active session.
+    - `POST /api/export/pickle/{session_id}`: Exports the current ASE structure with valid single-point results, without visualization state or arbitrary calculators.
     - `POST /api/export/blender/{session_id}`: Exports a Blender Python scene.
     - `POST /api/settings/save/{session_id}`: Exports reusable visual settings as JSON.
     - `POST /api/settings/load/{session_id}`: Validates and loads JSON settings, with restricted legacy-pickle migration.

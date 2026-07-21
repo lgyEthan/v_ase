@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "v_ase-gui"
-version = "0.0.59"
+version = "0.0.60"
 description = "v_ase: a Blender-style browser GUI and editor for ASE Atoms objects."
 readme = "README.md"
 license = "MIT"

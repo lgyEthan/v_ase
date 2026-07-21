@@ -276,6 +276,12 @@ export class ASEApi {
         if (path.includes('/api/project/load/')) {
             return { ...await this.mockResponse(this.mockState.atoms), project: { schema: 'v_ase.project.v1', settings: {} } };
         }
+        if (path.includes('/api/file/load/')) {
+            return {
+                ...await this.mockResponse(this.mockState.atoms),
+                loaded_file: { filename: 'mock.xyz', kind: 'structure', format: 'auto' }
+            };
+        }
         if (path.includes('/api/undo/')) {
             if (this.mockState.history.length) {
                 this.mockState.redo.push(this.clone(this.mockState.atoms));
@@ -641,11 +647,11 @@ export class ASEApi {
         }, { expect: 'blob' });
     }
 
-    async exportPickle(positions, includeCalculator = false, applyConstraint = true) {
+    async exportPickle(positions, applyConstraint = true) {
         return await this.request(`/api/export/pickle/{session_id}`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ positions, include_calculator: includeCalculator, apply_constraint: applyConstraint })
+            body: JSON.stringify({ positions, apply_constraint: applyConstraint })
         }, { expect: 'blob' });
     }
 
@@ -693,6 +699,19 @@ export class ASEApi {
             method: 'POST',
             headers: {'Content-Type': 'application/octet-stream'},
             body
+        });
+    }
+
+    async loadStructureFile(file, inputFormat = '', index = ':') {
+        const params = new URLSearchParams({
+            filename: file?.name || 'structure',
+            index: index || ':'
+        });
+        if (inputFormat) params.set('input_format', inputFormat);
+        return await this.request(`/api/file/load/{session_id}?${params.toString()}`, {
+            method: 'POST',
+            headers: {'Content-Type': file?.type || 'application/octet-stream'},
+            body: file
         });
     }
 }

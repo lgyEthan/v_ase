@@ -196,6 +196,44 @@ body.dragging-create-atom {
     to { transform: rotate(360deg); }
 }
 
+.empty-workspace {
+    position: absolute;
+    z-index: 90;
+    top: 50%;
+    left: 50%;
+    width: min(390px, calc(100vw - 48px));
+    display: grid;
+    justify-items: center;
+    gap: 14px;
+    transform: translate(-50%, -46%);
+    text-align: center;
+    pointer-events: none;
+}
+
+.empty-workspace img {
+    width: min(230px, 62vw);
+    max-height: 80px;
+    object-fit: contain;
+    opacity: 0.92;
+}
+
+.empty-workspace h1 {
+    margin: 5px 0 0;
+    color: var(--text);
+    font-size: 1.08rem;
+    font-weight: 720;
+}
+
+.empty-workspace .btn {
+    min-width: 132px;
+    pointer-events: auto;
+}
+
+.empty-workspace > span {
+    color: var(--muted);
+    font-size: 0.7rem;
+}
+
 /* Header */
 #top-bar {
     position: absolute;
@@ -290,6 +328,23 @@ body.dragging-create-atom {
     gap: 7px;
 }
 
+.open-file-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding-inline: 11px;
+}
+
+.open-file-btn svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
 .calc-control-group {
     height: 42px;
     display: grid;
@@ -369,6 +424,12 @@ body.dragging-create-atom {
 .btn-stack-row button:active,
 .trajectory-strip button:active {
     background: rgba(88, 213, 189, 0.22);
+}
+
+.btn.primary {
+    border-color: rgba(88, 213, 189, 0.72);
+    background: rgba(88, 213, 189, 0.16);
+    color: #d9fff7;
 }
 
 .icon-btn {
@@ -663,6 +724,33 @@ body.dragging-inspector #inspector-resizer::before {
     margin: -3px 0 12px;
     color: var(--muted);
     font-size: 0.68rem;
+    line-height: 1.48;
+}
+
+#inspector .save-format-guide {
+    display: grid;
+    gap: 11px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+}
+
+#inspector .save-format-guide > div {
+    display: grid;
+    grid-template-columns: 94px minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+}
+
+#inspector .save-format-guide strong {
+    color: var(--amber);
+    font-size: 0.67rem;
+    font-weight: 760;
+    line-height: 1.42;
+}
+
+#inspector .save-format-guide span {
+    color: var(--muted);
+    font-size: 0.65rem;
     line-height: 1.48;
 }
 
@@ -1868,6 +1956,32 @@ body[data-rotate-invalid="true"] #cmd-buffer {
     color: var(--text-soft);
     font-size: 0.8rem;
     line-height: 1.5;
+}
+
+.open-file-summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 14px;
+    padding: 10px 0 12px;
+    border-bottom: 1px solid var(--line);
+}
+
+.open-file-summary strong {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.78rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.open-file-summary span {
+    color: var(--muted);
+    font-size: 0.68rem;
+    white-space: nowrap;
 }
 
 .shortcut-grid {

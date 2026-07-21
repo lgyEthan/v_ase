@@ -71,7 +71,8 @@ class ASEEditor:
 
     def close(self):
         if self.session_id in sessions:
-            del sessions[self.session_id]
+            session = sessions.pop(self.session_id)
+            session.cleanup_temporary_files()
 
     def export_poscar(self, filename="POSCAR"):
         from ase.io import write
@@ -83,11 +84,12 @@ class ASEEditor:
 
     def export_pickle(self, filename="atoms.pkl", include_calculator=False):
         import pickle
+        from .export import atoms_for_pickle_export
+
         atoms = self.get_atoms()
         if atoms is None:
             raise RuntimeError("Editor session is closed")
-        if not include_calculator:
-            atoms.calc = None
+        atoms = atoms_for_pickle_export(atoms)
         with open(filename, "wb") as handle:
             pickle.dump(atoms, handle)
         return filename
@@ -167,6 +169,7 @@ def view(
             "viz_only": viz_only,
             "theme": theme,
             "initial_design_settings": initial_design_settings,
+            "empty_workspace": len(frames) == 1 and len(frames[0]) == 0,
             "auto_close_on_disconnect": bool(close_on_disconnect and not notebook),
         }
     )
@@ -234,7 +237,9 @@ def view(
             else:
                 raise ValueError("return_mode must be one of: 'atoms', 'positions', 'none'")
 
-            sessions.pop(session_id, None)
+            closed_session = sessions.pop(session_id, None)
+            if closed_session is not None:
+                closed_session.cleanup_temporary_files()
             return output
         else:
             return ASEEditor(session_id, port)

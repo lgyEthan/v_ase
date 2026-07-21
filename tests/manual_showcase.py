@@ -101,7 +101,7 @@ Manual checks:
 
   8. Export
      - Click Export POSCAR.
-     - Click Export Pickle.
+     - Click Export ASE Pickle.
      - Click Export Blender.
      - Blender export should download v_ase_blender_scene.py.
      - The script should contain Hookean threshold/gap/marker objects.

@@ -4,7 +4,7 @@ from pathlib import Path
 from ase.build import molecule
 from ase.io import write
 
-from v_ase.cli import _read_frames, build_parser, normalize_argv, resolve_input_format
+from v_ase.cli import _read_frames, build_parser, normalize_argv, resolve_input_format, run_gui
 from v_ase.io import atom_type_labels
 from v_ase.serialization import atoms_to_json
 
@@ -18,6 +18,33 @@ def test_v_ase_gui_parser_accepts_ase_gui_style_file_argument():
     assert args.command == "gui"
     assert args.file == "XXXX.vasp"
     assert args.index == ":"
+
+
+def test_v_ase_gui_parser_accepts_an_empty_workspace():
+    parser = build_parser()
+    args = parser.parse_args(["gui"])
+
+    assert args.command == "gui"
+    assert args.file is None
+    assert args.interactive is False
+
+
+def test_v_ase_gui_without_file_launches_an_empty_visualization_session(monkeypatch):
+    parser = build_parser()
+    args = parser.parse_args(["gui"])
+    captured = {}
+
+    def fake_view(frames, **kwargs):
+        captured["frames"] = frames
+        captured["kwargs"] = kwargs
+        return frames[0]
+
+    monkeypatch.setattr("v_ase.cli.view", fake_view)
+
+    assert run_gui(args) == 0
+    assert len(captured["frames"]) == 1
+    assert len(captured["frames"][0]) == 0
+    assert captured["kwargs"]["viz_only"] is True
 
 
 def test_v_ase_accepts_direct_file_argument_as_gui_alias():

@@ -12,6 +12,7 @@
 - [x] **Phase 9: Interactive constraints** (selected-atom FixAtoms, FixedLine, FixedPlane editing)
 - [x] **Phase 10: Portable state** (cross-structure JSON presets and complete `.vase` projects)
 - [x] **Phase 11: Production export** (Geometry Nodes Blender scenes, exact Sun/camera, 15k-atom runtime benchmark)
+- [x] **Phase 12: Document workflow** (empty GUI, browser file loading, strict ASE Pickle, JSON presets, and `.vase` projects)
 
 ## Core Documentation
 - [Shortcuts & Controls](shortcuts.md)
@@ -24,6 +25,7 @@
 To run a comprehensive demo of all features:
 ```bash
 python examples/pro_demo.py
+v_ase gui
 v_ase gui POSCAR
 v_ase POSCAR
 v_ase gui saved_project.vase

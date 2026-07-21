@@ -24,7 +24,7 @@ import numpy as np
 
 from .io import atom_type_labels, set_atom_type_labels
 from .repulsion import VAseRepulsionCalculator, copy_calculator, is_vase_repulsion_calculator
-from .session import EditorSession, copy_atoms_with_calc
+from .session import EditorSession, copy_atoms_with_calc, replace_session_frames
 
 
 PROJECT_SCHEMA = "v_ase.project.v1"
@@ -46,7 +46,7 @@ def package_version() -> str:
     try:
         return version("v_ase-gui")
     except PackageNotFoundError:
-        return "0.0.59"
+        return "0.0.60"
 
 
 def _json_copy(value: Any) -> Any:
@@ -469,24 +469,9 @@ def read_project_archive(path: str | Path) -> VaseProject:
 
 
 def replace_session_from_project(session: EditorSession, project: VaseProject) -> None:
-    attach_default = not bool((session.config or {}).get("viz_only", False))
-
-    def copied(frame: Atoms) -> Atoms:
-        return copy_atoms_with_calc(frame, attach_default=attach_default)
-
-    original_frames = [copied(frame) for frame in project.frames]
-    working_frames = [copied(frame) for frame in project.frames]
-    current_frame = max(0, min(project.current_frame, len(working_frames) - 1))
-    session.original_frames = original_frames
-    session.trajectory_frames = working_frames
-    session.trajectory_source = None
-    session.current_frame = current_frame
-    session.original_atoms = copied(original_frames[0])
-    session.working_atoms = copied(working_frames[current_frame])
-    session.result_atoms = None
-    session.selection.clear()
-    session.history.clear()
-    session.redo_stack.clear()
-    session.stop_relax = False
-    session.is_relaxing = False
-    session.config["initial_design_settings"] = _json_copy(project.settings)
+    replace_session_frames(
+        session,
+        project.frames,
+        current_frame=project.current_frame,
+        initial_design_settings=_json_copy(project.settings),
+    )

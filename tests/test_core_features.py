@@ -14,6 +14,7 @@ from ase.io import write
 from ase.build import molecule
 from ase.calculators.emt import EMT
 from ase.calculators.singlepoint import SinglePointCalculator
+from ase.constraints import FixedPlane
 from fastapi import HTTPException
 
 import v_ase.relax as relax_module
@@ -25,6 +26,7 @@ from v_ase.calculator import RepulsionCalculator as SingularRepulsionCalculator
 from v_ase.calculators import Conditioner, DefaultRepulsionCalculator, RepulsionCalculator
 from v_ase.repulsion import RepulsionCalculator as ImplementationRepulsionCalculator
 from v_ase.repulsion import is_vase_repulsion_calculator
+from v_ase.io import atom_type_labels, set_atom_type_labels
 from v_ase.project import read_project_archive
 from v_ase.serialization import atoms_to_json
 from v_ase.server import (
@@ -34,6 +36,7 @@ from v_ase.server import (
     cancel_session_autoclose,
     delete_atoms,
     get_atoms,
+    load_structure_file,
     load_visual_settings,
     load_project,
     reset,
@@ -64,6 +67,17 @@ class BytesRequest:
 
     async def body(self):
         return self.data
+
+
+class StreamRequest:
+    def __init__(self, data):
+        self.data = data
+        self.headers = {"content-length": str(len(data))}
+
+    async def stream(self):
+        midpoint = max(1, len(self.data) // 2)
+        yield self.data[:midpoint]
+        yield self.data[midpoint:]
 
 
 def ase_gui_jmol_hex(symbol):
@@ -168,6 +182,103 @@ def test_export_poscar_and_pickle_without_calculator():
         loaded = pickle.load(handle)
     assert loaded.calc is None
     assert len(loaded) == len(atoms)
+
+
+def test_pickle_export_preserves_ase_data_and_valid_single_point_results_only():
+    atoms = molecule("H2O")
+    atoms.set_cell([8, 8, 8])
+    atoms.set_pbc(True)
+    atoms.set_constraint(FixedPlane(0, (0, 0, 1)))
+    set_atom_type_labels(atoms, ["O_surface", "H_a", "H_b"])
+    atoms.set_array("site_class", np.array([4, 5, 6], dtype=np.int16))
+    atoms.calc = SinglePointCalculator(atoms, energy=-1.75, forces=np.full((3, 3), 0.25))
+    session = make_session(atoms)
+    session.working_atoms = atoms
+
+    response = export_pickle_response(session, {"positions": atoms.positions.tolist()})
+    with open(response.path, "rb") as handle:
+        loaded = pickle.load(handle)
+
+    assert atom_type_labels(loaded) == ["O_surface", "H_a", "H_b"]
+    np.testing.assert_array_equal(loaded.arrays["site_class"], [4, 5, 6])
+    assert isinstance(loaded.calc, SinglePointCalculator)
+    assert loaded.get_potential_energy() == pytest.approx(-1.75)
+    np.testing.assert_allclose(loaded.get_forces(apply_constraint=False), 0.25)
+    assert isinstance(loaded.constraints[0], FixedPlane)
+
+
+def test_pickle_export_drops_stale_single_point_results_after_coordinate_edit():
+    atoms = molecule("H2")
+    atoms.calc = SinglePointCalculator(atoms, energy=-0.5, forces=np.zeros((2, 3)))
+    session = make_session(atoms)
+    session.working_atoms = atoms
+    moved = atoms.positions.copy()
+    moved[1, 0] += 0.2
+
+    response = export_pickle_response(session, {"positions": moved.tolist()})
+    with open(response.path, "rb") as handle:
+        loaded = pickle.load(handle)
+
+    assert loaded.calc is None
+    np.testing.assert_allclose(loaded.positions, moved)
+
+
+def test_browser_file_load_replaces_empty_workspace_with_all_trajectory_frames(tmp_path):
+    first = molecule("H2O")
+    second = first.copy()
+    second.positions += [0.5, 0.0, 0.0]
+    source = tmp_path / "water.extxyz"
+    write(source, [first, second], format="extxyz")
+    empty = Atoms()
+    session = EditorSession(
+        "browser-file-load",
+        empty.copy(),
+        empty.copy(),
+        config={"viz_only": True, "empty_workspace": True},
+    )
+    sessions[session.session_id] = session
+
+    data = asyncio.run(load_structure_file(
+        session.session_id,
+        StreamRequest(source.read_bytes()),
+        filename="water.extxyz",
+        input_format=None,
+        index=":",
+    ))
+
+    assert data["loaded_file"]["filename"] == "water.extxyz"
+    assert data["loaded_file"]["kind"] == "trajectory"
+    assert data["metadata"]["frame_count"] == 2
+    assert data["metadata"]["natoms"] == 3
+    assert session.config["empty_workspace"] is False
+    np.testing.assert_allclose(session.trajectory_frames[1].positions, second.positions)
+
+
+def test_browser_file_load_accepts_explicit_format_for_extensionless_input(tmp_path):
+    atoms = molecule("NH3")
+    atoms.set_cell([8, 8, 8])
+    atoms.set_pbc(True)
+    source = tmp_path / "ABCD"
+    write(source, atoms, format="vasp")
+    empty = Atoms()
+    session = EditorSession(
+        "browser-extensionless-load",
+        empty.copy(),
+        empty.copy(),
+        config={"viz_only": True, "empty_workspace": True},
+    )
+    sessions[session.session_id] = session
+
+    data = asyncio.run(load_structure_file(
+        session.session_id,
+        StreamRequest(source.read_bytes()),
+        filename="ABCD",
+        input_format="poscar",
+        index="-1",
+    ))
+
+    assert data["loaded_file"]["format"] == "vasp"
+    assert session.working_atoms.get_chemical_formula() == "H3N"
 
 
 def test_default_repulsion_calculator_is_attached_when_missing():

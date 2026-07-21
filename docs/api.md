@@ -53,6 +53,7 @@ reader for supported large LAMMPS dumps, and restores native `.vase` projects.
 ## Command Line
 
 ```bash
+v_ase gui
 v_ase gui FILE
 v_ase FILE
 v_ase gui ABCD --format POSCAR
@@ -62,6 +63,11 @@ v_ase gui ABCD --format vase
 v_ase gui POSCAR --interactive
 v_ase gui saved_project.vase
 ```
+
+`v_ase gui` creates an empty local session. The browser **Open** command streams
+a selected ASE structure, trajectory, or `.vase` project to that session and
+keeps a loading overlay visible while parsing. The reader and frame index can
+be selected before loading.
 
 `--format` is used when the filename is ambiguous. Common aliases include
 `POSCAR`, `XDATCAR`, `vasprun.xml`, `lammpstrj`, `traj`, `xyz`, `extxyz`, and
@@ -106,6 +112,9 @@ calculator. These controls do not affect user-provided ASE calculators.
 The browser UI talks to a local FastAPI server bound to `127.0.0.1`.
 
 - `GET /api/atoms/{session_id}`: Fetches the current atoms state.
+- `POST /api/file/load/{session_id}`: Streams a browser-selected structure,
+  trajectory, or `.vase` project into the current session. Query parameters are
+  `filename`, optional `input_format`, and optional ASE `index`.
 - `POST /api/apply/{session_id}`: Applies new coordinates through ASE constraint logic.
 - `POST /api/constrain/{session_id}`: Previews constraint-corrected coordinates.
 - `POST /api/add/{session_id}`: Appends atoms for paste operations.
@@ -115,7 +124,10 @@ The browser UI talks to a local FastAPI server bound to `127.0.0.1`.
 - `POST /api/frame/{session_id}`: Switches the active trajectory frame.
 - `POST /api/wrap/{session_id}`: Wraps atoms into the unit cell.
 - `POST /api/export/poscar/{session_id}`: Exports POSCAR.
-- `POST /api/export/pickle/{session_id}`: Exports pickle.
+- `POST /api/export/pickle/{session_id}`: Exports the current ASE `Atoms`,
+  including labels, cell/PBC, constraints, portable arrays, and only valid
+  `SinglePointCalculator` results. Visualization state and arbitrary calculator
+  implementations are excluded.
 - `POST /api/export/blender/{session_id}`: Exports a Blender Python scene.
 - `POST /api/settings/save/{session_id}`: Exports a reusable JSON visual preset.
 - `POST /api/settings/load/{session_id}`: Loads and validates JSON visual settings. Restricted legacy pickle files are accepted only for migration and cannot resolve global Python objects.
@@ -129,6 +141,11 @@ The browser UI talks to a local FastAPI server bound to `127.0.0.1`.
   working structure and releases the terminal.
 
 ## Save Formats
+
+ASE Pickle is the current-frame Python interchange format. It retains ASE
+structure data, labels, constraints, arrays, and a valid
+`SinglePointCalculator`, but intentionally excludes visual settings and
+arbitrary executable calculator implementations.
 
 Visual Settings JSON is a reusable presentation preset. It includes complete
 bond configuration, atom appearance and visibility, smoothness,

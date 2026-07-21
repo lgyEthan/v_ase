@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.59';
-import { ASERenderer } from './renderer.js?v=0.0.59';
-import { ASESelection } from './selection.js?v=0.0.59';
-import { ASETransform } from './transform.js?v=0.0.59';
+import { ASEApi } from './api.js?v=0.0.60';
+import { ASERenderer } from './renderer.js?v=0.0.60';
+import { ASESelection } from './selection.js?v=0.0.60';
+import { ASETransform } from './transform.js?v=0.0.60';
 
 class VAseApp {
     constructor() {
@@ -719,6 +719,7 @@ class VAseApp {
             if (!this.initialDesignSettings) this.initialDesignSettings = this.designSettingsSnapshot();
             
             this.updateSelectionVisuals();
+            this.updateDocumentAvailability();
         } catch (err) {
             console.error("DEBUG: Refresh Failed:", err);
         }
@@ -1079,6 +1080,19 @@ class VAseApp {
         this.setHoveredAtom(null);
         this.updateSelectionVisuals();
         this.updateUI();
+        this.updateDocumentAvailability();
+    }
+
+    hasLoadedAtoms() {
+        return Boolean(this.state.atoms?.positions?.length);
+    }
+
+    updateDocumentAvailability() {
+        const hasAtoms = this.hasLoadedAtoms();
+        document.getElementById('empty-workspace')?.classList.toggle('hidden', hasAtoms);
+        document.querySelectorAll('[data-requires-atoms]').forEach(element => {
+            if ('disabled' in element) element.disabled = !hasAtoms;
+        });
     }
 
     async loadTrajectoryCache({ background = false } = {}) {
@@ -4151,6 +4165,98 @@ class VAseApp {
         actions.querySelector('#modal-close')?.addEventListener('click', () => this.closeModal());
     }
 
+    formatFileSize(bytes) {
+        const value = Number(bytes) || 0;
+        if (value < 1024) return `${value} B`;
+        if (value < 1024 ** 2) return `${(value / 1024).toFixed(1)} KB`;
+        if (value < 1024 ** 3) return `${(value / 1024 ** 2).toFixed(1)} MB`;
+        return `${(value / 1024 ** 3).toFixed(2)} GB`;
+    }
+
+    chooseStructureFile() {
+        const input = document.getElementById('structure-file');
+        if (!input) return;
+        input.value = '';
+        input.click();
+    }
+
+    showOpenFileModal(file) {
+        this.showModal(`
+            <h2>Open File</h2>
+            <div class="open-file-summary">
+                <strong id="open-file-name"></strong>
+                <span id="open-file-size"></span>
+            </div>
+            <div class="export-grid">
+                <label for="open-file-format">Reader</label>
+                <select id="open-file-format">
+                    <option value="" selected>Auto detect</option>
+                    <option value="poscar">POSCAR / CONTCAR</option>
+                    <option value="xdatcar">XDATCAR</option>
+                    <option value="vasprun.xml">vasprun.xml</option>
+                    <option value="lammpstrj">LAMMPS trajectory</option>
+                    <option value="data">LAMMPS data</option>
+                    <option value="traj">ASE trajectory</option>
+                    <option value="xyz">XYZ</option>
+                    <option value="extxyz">Extended XYZ</option>
+                    <option value="vase">v_ase project</option>
+                </select>
+                <label for="open-file-index">Frames</label>
+                <input id="open-file-index" type="text" value=":" autocomplete="off" spellcheck="false">
+            </div>
+            <p class="modal-intro">Use <strong>:</strong> for all frames, <strong>-1</strong> for the last frame, or an integer frame index.</p>
+        `, `
+            <button id="open-file-cancel" class="btn">Cancel</button>
+            <button id="open-file-confirm" class="btn primary">Open</button>
+        `);
+        const name = document.getElementById('open-file-name');
+        const size = document.getElementById('open-file-size');
+        if (name) {
+            name.textContent = file.name;
+            name.title = file.name;
+        }
+        if (size) size.textContent = this.formatFileSize(file.size);
+        document.getElementById('open-file-cancel')?.addEventListener('click', () => this.closeModal(), { once: true });
+        document.getElementById('open-file-confirm')?.addEventListener('click', async () => {
+            const inputFormat = document.getElementById('open-file-format')?.value || '';
+            const index = document.getElementById('open-file-index')?.value.trim() || ':';
+            this.closeModal();
+            await this.loadStructureFile(file, inputFormat, index);
+        }, { once: true });
+    }
+
+    async loadStructureFile(file, inputFormat = '', index = ':') {
+        try {
+            this.stopPlayback();
+            if (this.transform.mode !== 'IDLE') this.cancelTransform();
+            const data = await this.withBusy(
+                `Reading ${file.name}...`,
+                () => this.api.loadStructureFile(file, inputFormat, index)
+            );
+            const isProject = data.loaded_file?.kind === 'project' || Boolean(data.project);
+            const settings = data.project?.settings || data.metadata?.config?.initial_design_settings;
+            this.state.typeOrder = [];
+            this.state.trajectoryBinaryCache = null;
+            this.state.trajectoryBinaryPromise = null;
+            this.state.relaxTrajectory = { frames: [], frame: 0, sourceFrame: 0, active: false, finished: false };
+            this.renderer.needsInitialCameraFit = true;
+            this.setAtomsData(data, { clearSelection: true, preserveDisplay: !isProject });
+            if (isProject && settings) {
+                this.applyDesignSettings(settings);
+                this.initialDesignSettings = this.clonePlain(settings);
+            } else {
+                this.initialDesignSettings = this.designSettingsSnapshot();
+            }
+            const frameCount = data.metadata?.frame_count || 1;
+            this.toast(
+                `Opened ${data.loaded_file?.filename || file.name}${frameCount > 1 ? ` (${frameCount} frames)` : ''}.`,
+                'success'
+            );
+        } catch (err) {
+            this.toast(`Open file failed: ${err.message}`, 'error');
+        }
+    }
+
     showShortcutsModal() {
         this.showModal(`
             <h2>Shortcuts</h2>
@@ -4176,6 +4282,8 @@ class VAseApp {
             </div>
             <h3 class="help-section-title">Saving</h3>
             <div class="help-save-grid">
+                <strong>ASE Pickle (.pkl)</strong>
+                <span>Current ASE Atoms data for Python: coordinates, labels, cell, PBC, constraints, arrays, and valid SinglePointCalculator results. Visual settings are excluded.</span>
                 <strong>Visual Settings (.json)</strong>
                 <span>Reusable display preset: bonds, appearance, camera, lighting, quality, and supercell preview. Atomic coordinates are not included.</span>
                 <strong>v_ase Project (.vase)</strong>
@@ -4638,6 +4746,14 @@ class VAseApp {
 
     setupEventListeners() {
         window.addEventListener('resize', () => this.renderer.onResize());
+
+        document.getElementById('btn-open-file')?.addEventListener('click', () => this.chooseStructureFile());
+        document.getElementById('btn-empty-open')?.addEventListener('click', () => this.chooseStructureFile());
+        document.getElementById('structure-file')?.addEventListener('change', event => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (file) this.showOpenFileModal(file);
+        });
         
         document.getElementById('btn-reset').onclick = async () => {
             try {
@@ -4748,14 +4864,14 @@ class VAseApp {
         document.getElementById('btn-export-pickle').onclick = async () => {
             try {
                 const saved = await this.saveBlobFromAction(
-                    () => this.api.exportPickle(this.backendPositionsPayload(), false, this.state.applyConstraints),
+                    () => this.api.exportPickle(this.backendPositionsPayload(), this.state.applyConstraints),
                     'atoms.pkl',
                     'application/octet-stream',
-                    'Preparing Pickle export...'
+                    'Preparing ASE Pickle export...'
                 );
-                if (saved) this.toast('Pickle export saved.', 'success');
+                if (saved) this.toast('ASE Pickle export saved.', 'success');
             } catch (err) {
-                this.toast(`Pickle export failed: ${err.message}`, 'error');
+                this.toast(`ASE Pickle export failed: ${err.message}`, 'error');
             }
         };
         document.getElementById('btn-export-blender').onclick = async () => {
@@ -4810,20 +4926,7 @@ class VAseApp {
             const file = event.target.files?.[0];
             event.target.value = '';
             if (!file) return;
-            try {
-                this.stopPlayback();
-                const data = await this.withBusy('Restoring complete v_ase project...', () => this.api.loadProject(file));
-                const settings = data.project?.settings || data.metadata?.config?.initial_design_settings;
-                this.state.typeOrder = [];
-                this.setAtomsData(data, { clearSelection: true, preserveDisplay: false });
-                if (settings) {
-                    this.applyDesignSettings(settings);
-                    this.initialDesignSettings = this.clonePlain(settings);
-                }
-                this.toast(`Loaded ${data.metadata?.frame_count || 1} project frame${data.metadata?.frame_count === 1 ? '' : 's'}.`, 'success');
-            } catch (err) {
-                this.toast(`Load project failed: ${err.message}`, 'error');
-            }
+            await this.loadStructureFile(file, 'vase', ':');
         };
         document.getElementById('btn-save-settings').onclick = async () => {
             try {

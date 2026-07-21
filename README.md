@@ -31,13 +31,19 @@ v_ase gui FILE
 For example:
 
 ```bash
+v_ase gui
 v_ase gui POSCAR
 v_ase gui structure.vasp
 v_ase gui movie.extxyz
 v_ase gui relaxation.traj
 ```
 
-The viewer opens locally in your browser. By default, `v_ase gui FILE` starts in
+Run `v_ase gui` without a filename to open an empty workspace, then use **Open**
+to choose an ASE structure, trajectory, or `.vase` project in the browser. A
+reader selector is available for ambiguous filenames, and a blocking loading
+overlay remains visible until the complete file is ready.
+
+The viewer opens locally in your browser. By default, `v_ase gui [FILE]` starts in
 a lightweight visualization mode for fast inspection, trajectory playback,
 bonding, supercell preview, appearance edits, wrapping, and export. Add
 `--interactive` when you want Blender-style atom editing: left click and box
@@ -50,7 +56,8 @@ terminal.
 
 ## Highlights
 
-- Open ASE structures and trajectories directly with `v_ase gui FILE` or
+- Open an empty file-loading workspace with `v_ase gui`, or open ASE structures,
+  trajectories, and `.vase` projects directly with `v_ase gui FILE` or
   `from v_ase.visualize import view`.
 - Inspect large systems in the lightweight default viewer, with GPU-instanced
   atoms, bonds, supercells, and live trajectory playback.
@@ -59,7 +66,7 @@ terminal.
 - Visualize and edit ASE constraints including `FixAtoms`, `FixedLine`,
   `FixedPlane`, `FixScaled`, and threshold-aware `Hookean` springs.
 - Render with Modeling, Studio Sun, or Sun + Soft Shadow, then export images,
-  video, POSCAR, pickle, or an editable Blender scene script.
+  video, POSCAR, a structure-only ASE pickle, or an editable Blender scene script.
 - Save reusable visual presets as JSON or restore the complete scientific and
   visual working state from a portable `.vase` project.
 
@@ -78,8 +85,9 @@ available in both workflows.
 
 ## Feature Reference
 
-- `v_ase gui FILE` command-line workflow for POSCAR, VASP, extxyz, traj, and
-  other ASE-readable files.
+- `v_ase gui` opens an empty workspace with browser file loading; `v_ase gui
+  FILE` opens POSCAR, VASP, extxyz, traj, `.vase`, and other supported files
+  directly.
 - Blocking CLI sessions behave like `ase gui`: the terminal waits while the
   browser tab is open, then continues after the tab/window is closed.
 - Python API for notebooks and scripts: `from v_ase.visualize import view`.
@@ -155,7 +163,10 @@ available in both workflows.
   out-of-range ids fall back to ASE-valid `H` while preserving the raw label.
 - Appearance label edits keep row order stable. Labels with element prefixes
   such as `O_bridge` automatically update the TYPE dropdown and default radius.
-- Export POSCAR, pickle, PNG image, WebM video, and Blender Python scene script.
+- Export POSCAR, a current-frame ASE pickle, PNG image, WebM video, and Blender
+  Python scene script. The pickle preserves labels, cell/PBC, constraints,
+  portable atom arrays, and valid `SinglePointCalculator` results, but excludes
+  visualization settings and arbitrary executable calculator objects.
   Image export can use viewport lighting or an independent Modeling, Studio Sun,
   or Sun + Soft Shadow setup. Blender export includes the viewport camera,
   unit cell, bonds, smooth atoms, and a true Blender `SUN` object with the same
@@ -209,6 +220,7 @@ environment.
 Open a structure file:
 
 ```bash
+v_ase gui
 v_ase gui POSCAR
 v_ase gui structure.vasp
 v_ase gui trajectory.extxyz
@@ -221,6 +233,10 @@ The direct file form also works:
 ```bash
 v_ase POSCAR
 ```
+
+`v_ase gui` opens first and lets you choose a structure, trajectory, or `.vase`
+project from the **Open** button. The reader and ASE frame index can be selected
+before loading, including for an extensionless input.
 
 Use from Python:
 
@@ -540,7 +556,7 @@ atom editing and repulsion-calculator controls out of the UI.
 From the right panel:
 
 - `Export POSCAR`
-- `Export Pickle`
+- `Export ASE Pickle`
 - `Export Blender`
 - `Export Image`
 - `Export Video`
@@ -548,6 +564,13 @@ From the right panel:
 Image export provides its own resolution, transparency, grid, axes, and render
 lighting controls. It can therefore export a Studio Sun or soft-shadow image
 without changing the viewport from the lightweight Modeling mode.
+
+`Export ASE Pickle` writes the current modified `Atoms` object for later Python
+use. Coordinates, chemical types, v_ase labels, cell/PBC, constraints, tags,
+charges, magnetic moments, and portable atom arrays remain attached. A
+calculator is included only when it is a still-valid `SinglePointCalculator`;
+live Python calculator implementations are deliberately omitted. The pickle
+does not contain camera, lighting, bonds, atom appearance, or other visual state.
 
 Blender export downloads `v_ase_blender_scene.py`:
 
@@ -577,7 +600,12 @@ instancing semantics, or the complete material setup.
 
 ## Case 9: Save and Restore
 
-The Output workspace separates two different operations:
+The Output workspace separates three different operations:
+
+- **ASE Pickle (`.pkl`)** stores the current ASE structure for Python reuse:
+  coordinates, chemical types and labels, cell/PBC, constraints, portable atom
+  arrays, and valid `SinglePointCalculator` results. It excludes visualization
+  settings, the rest of a loaded trajectory, and arbitrary calculator objects.
 
 - **Visual Settings (`.json`)** stores reusable presentation state: bond mode,
   pairwise cutoffs, manual pairs, bond material, label colors/radii/visibility,
@@ -596,6 +624,9 @@ Open a saved project directly:
 ```bash
 v_ase gui research_state.vase
 ```
+
+The same project can be selected from the browser **Open** command after starting
+an empty workspace with `v_ase gui`.
 
 `.vase` is a validated ZIP container and does not unpickle arbitrary Python
 objects. Cached standard ASE results are restored through
@@ -682,8 +713,9 @@ view_file("trajectory.extxyz")
   no calculator is attached; visualization mode adds no calculator.
 - Torch is optional. It is never required by `pip install v_ase-gui`, but when
   available it can accelerate the default repulsion calculator on CPU or CUDA.
-- POSCAR export stores structural data. Pickle export can include the ASE object;
-  calculators may not always be pickleable.
+- POSCAR exports a VASP structure. ASE Pickle exports the current `Atoms` with
+  structural metadata and constraints; only valid `SinglePointCalculator`
+  results are carried, and visualization settings are excluded.
 - Visual Settings JSON is structure-independent presentation state. `.vase` is
   the full portable project state; it stores cached standard calculator results
   but not arbitrary executable calculator objects or undo history.

@@ -1,3 +1,4 @@
+import os
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -38,6 +39,7 @@ class EditorSession:
     # Communication
     websockets: List[Any] = field(default_factory=list)
     config: Dict[str, Any] = field(default_factory=dict)
+    temporary_files: Set[str] = field(default_factory=set, repr=False)
 
     def _attach_default_calculator(self) -> bool:
         return not bool((self.config or {}).get("viz_only", False))
@@ -175,6 +177,14 @@ class EditorSession:
         self.current_frame = min(self.current_frame, len(self.trajectory_frames) - 1)
         self.working_atoms = self._copy_atoms(self.trajectory_frames[self.current_frame])
 
+    def cleanup_temporary_files(self):
+        for path in tuple(self.temporary_files):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+        self.temporary_files.clear()
+
 sessions: Dict[str, EditorSession] = {}
 
 def copy_atoms_with_calc(atoms: Atoms, attach_default: bool = True) -> Atoms:
@@ -189,3 +199,40 @@ def get_session(session_id: str) -> EditorSession:
     if session_id not in sessions:
         raise ValueError(f"Session {session_id} not found")
     return sessions[session_id]
+
+
+def replace_session_frames(
+    session: EditorSession,
+    frames: List[Atoms],
+    *,
+    trajectory_source=None,
+    current_frame: int = 0,
+    initial_design_settings: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Replace the loaded document while preserving the session's UI mode."""
+    if not frames or not all(isinstance(frame, Atoms) for frame in frames):
+        raise ValueError("A loaded document must contain at least one ASE Atoms frame.")
+
+    attach_default = not bool((session.config or {}).get("viz_only", False))
+    original_frames = [copy_atoms_with_calc(frame, attach_default=attach_default) for frame in frames]
+    working_frames = [copy_atoms_with_calc(frame, attach_default=attach_default) for frame in frames]
+    frame_index = max(0, min(int(current_frame), len(working_frames) - 1))
+
+    session.original_frames = original_frames
+    session.trajectory_frames = working_frames
+    session.trajectory_source = trajectory_source
+    session.current_frame = frame_index
+    session.original_atoms = copy_atoms_with_calc(original_frames[0], attach_default=attach_default)
+    session.working_atoms = copy_atoms_with_calc(working_frames[frame_index], attach_default=attach_default)
+    session.result_atoms = None
+    session.selection.clear()
+    session.atom_colors.clear()
+    session.element_colors.clear()
+    session.history.clear()
+    session.redo_stack.clear()
+    session.stop_relax = False
+    session.is_relaxing = False
+    session.relax_restart_requested = False
+    session.relax_run_id += 1
+    session.relax_params.clear()
+    session.config["initial_design_settings"] = initial_design_settings

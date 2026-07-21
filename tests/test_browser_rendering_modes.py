@@ -2,6 +2,8 @@ import time
 
 import pytest
 from ase import Atoms
+from ase.build import molecule
+from ase.io import write
 from playwright._impl._errors import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
@@ -21,6 +23,54 @@ def _open_panel(page, panel):
     details = page.locator(f'[data-panel="{panel}"]')
     if not details.evaluate("element => element.open"):
         details.locator('summary').click()
+
+
+def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
+    first = molecule("H2O")
+    second = first.copy()
+    second.positions += [0.4, 0.0, 0.0]
+    source = tmp_path / "browser_movie.extxyz"
+    write(source, [first, second], format="extxyz")
+
+    port = find_free_port()
+    editor = view(
+        Atoms(),
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.state?.atoms?.metadata?.natoms === 0")
+
+            assert page.locator('#empty-workspace').is_visible()
+            assert page.locator('#btn-empty-open').is_visible()
+            assert page.locator('#btn-export-pickle').is_disabled()
+
+            page.set_input_files('#structure-file', str(source))
+            assert page.locator('#open-file-name').inner_text() == source.name
+            assert page.locator('#open-file-format').input_value() == ''
+            assert page.locator('#open-file-index').input_value() == ':'
+            page.click('#open-file-confirm')
+
+            page.wait_for_function("window.__ASE_APP__?.state?.atoms?.metadata?.natoms === 3")
+            page.wait_for_function("window.__ASE_APP__?.state?.atoms?.metadata?.frame_count === 2")
+            page.wait_for_function("document.getElementById('busy-overlay').classList.contains('hidden')")
+            assert not page.locator('#empty-workspace').is_visible()
+            assert not page.locator('#btn-export-pickle').is_disabled()
+            assert page.locator('#frame-label').inner_text() == '1 / 2'
+            browser.close()
+    finally:
+        editor.close()
 
 
 def test_sidebar_sun_renderer_export_and_periodic_bond_contract():

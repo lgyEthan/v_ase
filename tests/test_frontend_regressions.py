@@ -587,7 +587,15 @@ def test_frontend_reset_video_and_visual_settings_controls_are_wired():
     assert "project-file" in index_html
     assert "v_ase_project.vase" in main_js
     assert "saveProject" in main_js
-    assert "loadProject" in main_js
+    assert "loadProject" in api_js
+    assert "btn-open-file" in index_html
+    assert "btn-empty-open" in index_html
+    assert "structure-file" in index_html
+    assert "loadStructureFile" in main_js
+    assert "loadStructureFile" in api_js
+    assert "ASE Pickle" in index_html
+    assert "SinglePointCalculator" in index_html
+    assert "save-format-guide" in index_html
     assert ".confirm-list" in style_css
     assert "#inspector .btn-block:disabled" in style_css
 
@@ -659,7 +667,7 @@ def test_export_downloads_use_save_picker_and_fallback_anchor():
     assert "showSaveFilePicker" in main_js
     assert "document.body.appendChild(a)" in main_js
     assert "Preparing POSCAR export" in main_js
-    assert "Preparing Pickle export" in main_js
+    assert "Preparing ASE Pickle export" in main_js
     assert "Preparing Blender export" in main_js
 
 
