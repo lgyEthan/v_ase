@@ -252,7 +252,11 @@ v_ase POSCAR
 
 `v_ase gui` opens first and lets you choose a structure, trajectory, or `.vase`
 project from the **Open** button. The reader and ASE frame index can be selected
-before loading, including for an extensionless input.
+before loading, including for an extensionless input. Opening another ordinary
+structure or trajectory in the same session retains the current visual setup and
+camera, reconciles label-specific values against the new structure, and assigns
+defaults to newly encountered labels. Opening a `.vase` project instead restores
+that project's complete saved state.
 
 Use from Python:
 
@@ -460,14 +464,14 @@ Bonding can be automatic, label-pair based, or manually specified.
   video, and Blender exports.
 - Edited control values commit consistently when you press `Enter`, press
   `Tab`, or move focus to another control.
-- Supercell preview shows full-opacity replicas, repeated unit-cell lines, and
-  continuous bonds across every internal replica boundary. Bond clipping follows
-  the outer displayed-supercell boundary rather than each source-cell boundary.
-  In the default
-  visualization mode, replicas support click, Shift-click, box selection,
-  `Ctrl+A`, hover metadata, and displayed-coordinate measurements. In
-  interactive mode they remain inspection-only and cannot enter an atom edit;
-  `Set Supercell as Cell` converts them into real editable atoms.
+- Supercell preview shows replicas with exactly the same atom material, color,
+  and lighting response as the source cell in both operating modes, plus
+  repeated unit-cell lines and continuous bonds across every internal replica
+  boundary. Bond clipping follows the outer displayed-supercell boundary rather
+  than each source-cell boundary. In the default visualization mode, replicas
+  support click, Shift-click, box selection, `Ctrl+A`, hover metadata, and
+  displayed-coordinate measurements. In interactive mode they remain
+  inspection-only and cannot enter an atom edit.
 - `Set Supercell as Cell` converts the preview into real editable atoms.
 - `Cell Transform` accepts a full integer `make_supercell(P)` matrix.
 
@@ -685,7 +689,11 @@ v_ase gui research_state.vase
 ```
 
 The same project can be selected from the browser **Open** command after starting
-an empty workspace with `v_ase gui`.
+an empty workspace with `v_ase gui`. A `.vase` load replaces the complete working
+state. By contrast, opening an ordinary structure or trajectory while a document
+is already active preserves the current visual settings and camera; matching
+labels retain their presentation values while missing/new labels are safely
+dropped/defaulted.
 
 `.vase` is a validated ZIP container and does not unpickle arbitrary Python
 objects. Cached standard ASE results are restored through

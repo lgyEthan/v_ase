@@ -1,6 +1,6 @@
 # v_ase Project Specification and Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.67`.
+Last synchronized with implementation: `v_ase-gui 0.0.68`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -208,7 +208,7 @@ The frontend manages modes: `IDLE`, `MOVE`, `ROTATE`. Transitions are triggered 
 *   **Manual Pairs**: Explicit pair lists such as `0-1, 1-2` can be supplied in the Bonding panel.
 *   **Recalculation**: Auto and pairwise-cutoff modes are re-inferred during interactive previews and whenever the trajectory frame changes. A cell-list search is used above the small-scene threshold, and bond meshes are rebuilt only when the inferred pair list changes.
 *   **Persistent Settings**: Bond mode, global cutoff scale, label-pair `rcut` values, MIC policy, and manual pairs survive structure refreshes, transform commits, trajectory changes, and display-label edits. Relabeling copies matching pair settings before the renderer rebuilds.
-*   **Supercell Preview**: Atom and bond instances are repeated for every positive supercell shift. Nearest periodic-image records bridge all internal repeated-cell boundaries, including monoclinic cells, while the outer displayed-supercell boundary remains clipped. Replicas use the original atom material at full opacity and participate in hover readout. Visualization mode gives every image a stable base-index/cell-offset identity for click, box, element, and `Ctrl+A` selection plus displayed-coordinate measurements. Interactive mode leaves display images unselectable until the supercell is committed as the cell.
+*   **Supercell Preview**: Atom and bond instances are repeated for every positive supercell shift. Nearest periodic-image records bridge all internal repeated-cell boundaries, including monoclinic cells, while the outer displayed-supercell boundary remains clipped. Replicas share the original atom's exact material, color, emissive response, roughness, and full opacity in both modes and participate in hover readout. Visualization mode gives every image a stable base-index/cell-offset identity for click, box, element, and `Ctrl+A` selection plus displayed-coordinate measurements. Interactive mode changes only selection policy: display images remain unselectable until the supercell is committed as the cell.
 *   **Appearance**: Bond thickness is the cylinder diameter or flat-ribbon width. Bonds can use a lit 3D cylinder or a camera-facing 2D ribbon, with either one custom color or two midpoint-split segments colored from their endpoint atoms. Viewport bonds retain GPU instancing but are grouped by final material color so custom and split colors are rendered exactly instead of relying on fragile per-instance shader colors. Viewport, PNG/WebM, visual-settings JSON, and Blender export share these values.
 
 ---
@@ -292,6 +292,10 @@ possible, and update the frontend state. This behavior is covered by
     trajectory, or `.vase` project into the session. A reader selector supports
     ambiguous filenames, and the blocking loading overlay remains active until
     parsing and frontend replacement complete.
+*   Opening an ordinary structure or trajectory over an active document keeps
+    the current visual settings and camera, retaining matching label settings
+    while dropping absent labels and defaulting new labels/pairs. Opening a
+    `.vase` project instead restores its complete saved project state.
 
 ---
 
@@ -384,7 +388,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.67).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.68).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -428,6 +432,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 51**: Moved Atomic scale from the image dialog into the live Viewport. The bidirectional `px/Å` control immediately zooms orthographic and perspective cameras, reports the visible Angstrom span, survives projection and viewport-size changes, persists in JSON/`.vase`, and remains available to preview/PNG as `Atomic scale from View`.
 *   [x] **Phase 52**: Made the complete positive supercell the default bond-clipping domain. Periodic nearest-image bond instances now bridge every internal x/y/z replica boundary while bonds terminate only at the displayed outer boundary, with dedicated 1D/2D monoclinic browser regressions.
 *   [x] **Phase 53**: Replaced aspect-ratio letterboxing with a full-frame cloned-camera crop shared exactly by Preview Area and PNG export, and made ASE chemical TYPE the sole default color source so custom labels never acquire implicit hue variants.
+*   [x] **Phase 54**: Unified small-scene supercell replicas with the source atoms' exact cached materials while retaining large-scene instancing, and made browser Open preserve and reconcile the active visual/camera state for ordinary structures while `.vase` remains an authoritative full-project restore.
 
 ---
 

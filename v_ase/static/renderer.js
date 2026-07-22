@@ -3157,9 +3157,25 @@ export class ASERenderer {
             const isFixed = fixed.has(index);
             const atomSegments = isFixed ? this.fixedAtomSegments(segmentCount) : segmentCount;
             const geometryKey = `unit-sphere:${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
-            const materialKey = `unit-sphere:${isFixed ? 'fixed' : 'normal'}:instanced`;
-            const key = `${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
-            if (!groups.has(key)) groups.set(key, { isFixed, atomSegments, geometryKey, materialKey, indices: [] });
+            const color = this.atomVisualColor(index, this.customColors[index]);
+            const perInstanceColor = this.useInstancedAtoms;
+            const materialKey = perInstanceColor
+                ? `unit-sphere:${isFixed ? 'fixed' : 'normal'}:instanced`
+                : `${color}:${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
+            const key = perInstanceColor
+                ? `${isFixed ? 'fixed' : 'normal'}:${atomSegments}`
+                : materialKey;
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    isFixed,
+                    atomSegments,
+                    geometryKey,
+                    materialKey,
+                    color,
+                    perInstanceColor,
+                    indices: []
+                });
+            }
             groups.get(key).indices.push(index);
         });
 
@@ -3171,16 +3187,21 @@ export class ASERenderer {
                 );
             }
             if (!this.materialCache.has(group.materialKey)) {
-                const spec = this.atomMaterialSpec('#ffffff', group.isFixed);
-                const material = new THREE.MeshStandardMaterial({
-                    color: 0xffffff,
-                    roughness: spec.roughness,
-                    metalness: spec.metalness,
-                    emissive: spec.emissive,
-                    emissiveIntensity: spec.emissiveIntensity,
-                    flatShading: spec.flatShading
-                });
-                if (group.isFixed) this.applyFixedAtomEtchedShader(material);
+                const material = group.perInstanceColor
+                    ? (() => {
+                        const spec = this.atomMaterialSpec('#ffffff', group.isFixed);
+                        const instanced = new THREE.MeshStandardMaterial({
+                            color: 0xffffff,
+                            roughness: spec.roughness,
+                            metalness: spec.metalness,
+                            emissive: spec.emissive,
+                            emissiveIntensity: spec.emissiveIntensity,
+                            flatShading: spec.flatShading
+                        });
+                        if (group.isFixed) this.applyFixedAtomEtchedShader(instanced);
+                        return instanced;
+                    })()
+                    : this.createAtomMaterial(group.color, group.isFixed);
                 this.materialCache.set(group.materialKey, material);
             }
             const total = group.indices.length * shifts.length;
@@ -3204,10 +3225,12 @@ export class ASERenderer {
             shifts.forEach(shift => {
                 group.indices.forEach(index => {
                     this.setSupercellInstanceMatrix(mesh, instanceId, index, shift);
-                    mesh.setColorAt(
-                        instanceId,
-                        this.fixedAdjustedColor(this.atomVisualColor(index, this.customColors[index]), group.isFixed)
-                    );
+                    if (group.perInstanceColor) {
+                        mesh.setColorAt(
+                            instanceId,
+                            this.fixedAdjustedColor(this.atomVisualColor(index, this.customColors[index]), group.isFixed)
+                        );
+                    }
                     instanceId++;
                 });
             });

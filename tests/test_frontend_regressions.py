@@ -625,6 +625,10 @@ def test_frontend_reset_video_and_visual_settings_controls_are_wired():
     assert "structure-file" in index_html
     assert "loadStructureFile" in main_js
     assert "loadStructureFile" in api_js
+    assert "const hadLoadedAtoms = this.hasLoadedAtoms();" in main_js
+    assert "const settings = isProject ? projectSettings : inheritedSettings;" in main_js
+    assert "this.renderer.needsInitialCameraFit = !settings?.camera;" in main_js
+    assert "this.renderElementBondControls({ capture: false });" in main_js
     assert "ASE Pickle" in index_html
     assert "SinglePointCalculator" in index_html
     assert "save-format-guide" in index_html

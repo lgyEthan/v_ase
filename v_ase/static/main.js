@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.67&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.67&rev=1';
-import { ASESelection } from './selection.js?v=0.0.67&rev=1';
-import { ASETransform } from './transform.js?v=0.0.67&rev=1';
+import { ASEApi } from './api.js?v=0.0.68&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.68&rev=1';
+import { ASESelection } from './selection.js?v=0.0.68&rev=1';
+import { ASETransform } from './transform.js?v=0.0.68&rev=1';
 
 class VAseApp {
     constructor() {
@@ -3341,10 +3341,10 @@ class VAseApp {
         this.toast(`Updated selected atoms to ${label} for this visualization.`, 'success');
     }
 
-    renderElementBondControls() {
+    renderElementBondControls({ capture = true } = {}) {
         const root = document.getElementById('element-bond-list');
         if (!root || !this.state.atoms?.symbols) return;
-        this.captureBondSettingsFromControls();
+        if (capture) this.captureBondSettingsFromControls();
         const existingFocus = document.activeElement?.dataset?.pairKey;
         root.innerHTML = '';
         this.uniqueElementPairs().forEach(([a, b]) => {
@@ -3821,7 +3821,7 @@ class VAseApp {
         if ('moveIncrement' in source) this.state.moveIncrement = Number(source.moveIncrement) || 0;
         if ('rotateIncrementDeg' in source) this.state.rotateIncrementDeg = Number(source.rotateIncrementDeg) || 0;
         this.syncDesignControls();
-        this.renderElementBondControls();
+        this.renderElementBondControls({ capture: false });
         this.renderElementRadiusControls();
         this.syncDesignControls();
         if (source.camera) this.applyCameraSettings(source.camera, { syncScale: false });
@@ -4543,21 +4543,36 @@ class VAseApp {
         try {
             this.stopPlayback();
             if (this.transform.mode !== 'IDLE') this.cancelTransform();
+            const hadLoadedAtoms = this.hasLoadedAtoms();
+            let inheritedSettings = null;
+            if (hadLoadedAtoms) {
+                try {
+                    this.applyDisplayOptions();
+                } catch {
+                    // Keep the last valid manual topology while preserving all
+                    // other committed visual controls during a document swap.
+                    this.captureBondSettingsFromControls();
+                }
+                inheritedSettings = this.designSettingsSnapshot();
+            }
             const data = await this.withBusy(
                 `Reading ${file.name}...`,
                 () => this.api.loadStructureFile(file, inputFormat, index)
             );
             const isProject = data.loaded_file?.kind === 'project' || Boolean(data.project);
-            const settings = data.project?.settings || data.metadata?.config?.initial_design_settings;
+            const projectSettings = data.project?.settings || data.metadata?.config?.initial_design_settings;
+            const settings = isProject ? projectSettings : inheritedSettings;
             this.state.typeOrder = [];
             this.state.trajectoryBinaryCache = null;
             this.state.trajectoryBinaryPromise = null;
             this.state.relaxTrajectory = { frames: [], frame: 0, sourceFrame: 0, active: false, finished: false };
-            this.renderer.needsInitialCameraFit = true;
+            this.renderer.needsInitialCameraFit = !settings?.camera;
             this.setAtomsData(data, { clearSelection: true, preserveDisplay: !isProject });
-            if (isProject && settings) {
+            if (settings) {
                 this.applyDesignSettings(settings);
-                this.initialDesignSettings = this.clonePlain(settings);
+                this.initialDesignSettings = isProject
+                    ? this.clonePlain(settings)
+                    : this.designSettingsSnapshot();
             } else {
                 this.initialDesignSettings = this.designSettingsSnapshot();
             }

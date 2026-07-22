@@ -86,8 +86,9 @@ Orthographic projection is the default view, with perspective available as a
 viewport option. Unit cell, axes, grid, and supercell preview controls are
 exposed in the inspector. Supercell preview is only enabled when a valid unit
 cell exists and PBC is true in the requested direction; otherwise the UI shows
-a warning and resets the invalid multiplier. Every replica uses the base atom's
-full material. Bonds are instanced in every repeated cell and separately bridge
+a warning and resets the invalid multiplier. Every replica shares the base
+atom's exact material, color, emissive response, roughness, and opacity in both
+operating modes. Bonds are instanced in every repeated cell and separately bridge
 internal supercell boundaries, including skewed/monoclinic cell vectors. In visualization mode,
 replicas have stable `base-index + cell-offset` identities and support click,
 Shift-click, box selection, element selection, `Ctrl+A`, hover metadata, and
@@ -205,6 +206,10 @@ Output exposes three intentionally separate save paths:
 The CLI detects `.vase` directly, so `v_ase gui work.vase` restores the project.
 Starting with `v_ase gui` opens an empty workspace whose browser Open flow can
 stream structures, trajectories, and `.vase` projects into the same session.
+Replacing an active document with an ordinary structure or trajectory preserves
+the current visual setup and camera, reconciles label-keyed appearance and bond
+cutoffs, and supplies defaults for new labels. Opening `.vase` deliberately
+replaces those values with the project's saved state.
 Visualization-mode coordinates changed locally by Wrap are included in the
 saved current frame.
 

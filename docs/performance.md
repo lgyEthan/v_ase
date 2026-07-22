@@ -81,7 +81,7 @@ reference rather than a universal hardware guarantee.
 
 ### Blender export benchmark
 
-The 0.0.67 Blender integration benchmark generates a 15,000-atom, two-label
+The 0.0.68 Blender integration benchmark generates a 15,000-atom, two-label
 periodic scene, runs the generated Python in Blender 5.0.1, validates that only
 two editable atom point groups contain all 15,000 atoms, and saves a native
 `.blend` file.

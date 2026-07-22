@@ -32,6 +32,10 @@ The PyPI distribution is `v_ase-gui`; the Python package and command remain
 - Full-frame output-ratio image preview, PNG/WebM, POSCAR, ASE pickle, and
   optimized Blender Python scene export.
 - Reusable visual-settings JSON and complete validated `.vase` project save/load.
+- Browser Open preserves the active visual settings and camera when replacing an
+  ordinary structure or trajectory; `.vase` restores its own complete state.
+- Supercell replicas share the source atoms' exact material and lighting response
+  in both modes, with mode-specific selection behavior only.
 - ASE chemical TYPE controls default color and radius; custom labels remain
   independently selectable and styleable without implicit color drift.
 - Optional relaxation when an ASE calculator is attached.

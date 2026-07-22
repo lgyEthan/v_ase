@@ -29,10 +29,20 @@ def _open_panel(page, panel):
 
 def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
     first = molecule("H2O")
+    first.set_cell([8.0, 8.0, 8.0])
+    first.set_pbc(True)
     second = first.copy()
     second.positions += [0.4, 0.0, 0.0]
     source = tmp_path / "browser_movie.extxyz"
     write(source, [first, second], format="extxyz")
+    replacement = Atoms(
+        "OC",
+        positions=[[0.0, 0.0, 0.0], [1.25, 0.0, 0.0]],
+        cell=[9.0, 9.0, 9.0],
+        pbc=True,
+    )
+    replacement_source = tmp_path / "replacement.extxyz"
+    write(replacement_source, replacement, format="extxyz")
 
     port = find_free_port()
     editor = view(
@@ -70,6 +80,95 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
             assert not page.locator('#empty-workspace').is_visible()
             assert not page.locator('#btn-export-pickle').is_disabled()
             assert page.locator('#frame-label').inner_text() == '1 / 2'
+
+            inherited_before = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const current = app.designSettingsSnapshot();
+                app.applyDesignSettings({
+                    ...current,
+                    antiAliasing: false,
+                    sphereQuality: 'high',
+                    moveIncrement: 0.15,
+                    rotateIncrementDeg: 7.5,
+                    display: {
+                        ...current.display,
+                        showBonds: true,
+                        showGrid: false,
+                        bondMode: 'element',
+                        atomRadiusScale: 1.35,
+                        elementColors: {H: '#d9d9d9', O: '#2a6fdf'},
+                        elementRadii: {H: 0.31, O: 0.77},
+                        elementVisible: {H: false, O: true},
+                        elementBondCutoffs: {'H-H': 0.8, 'H-O': 1.4, 'O-O': 1.8},
+                        supercell: [2, 1, 1],
+                        projectionMode: 'orthographic',
+                        lightingMode: 'rendered',
+                        sunIntensity: 4.25,
+                        sunPosition: [12, -5, 15],
+                        sunTarget: [1, 2, 3],
+                        atomicScalePixelsPerAngstrom: 36
+                    },
+                    camera: {
+                        projection: 'orthographic',
+                        position: [9, -11, 7],
+                        target: [1, 2, 0.5],
+                        up: [0, 0, 1],
+                        near: 0.01,
+                        far: 5000,
+                        ortho_scale: 10,
+                        zoom: 1
+                    }
+                });
+                return app.designSettingsSnapshot();
+            }""")
+
+            page.set_input_files('#structure-file', str(replacement_source))
+            assert page.locator('#open-file-name').inner_text() == replacement_source.name
+            page.click('#open-file-confirm')
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app?.state?.atoms?.metadata?.natoms === 2
+                    && app.state.atoms.symbols.join(',') === 'O,C'
+                    && document.getElementById('busy-overlay').classList.contains('hidden');
+            }""")
+            inherited_after = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const snapshot = app.designSettingsSnapshot();
+                return {
+                    snapshot,
+                    oColor: app.renderer.atomVisualColor(0).toLowerCase(),
+                    cColor: app.renderer.atomVisualColor(1).toLowerCase()
+                };
+            }""")
+            after = inherited_after["snapshot"]
+            assert after["display"]["showBonds"] is True
+            assert after["display"]["showGrid"] is False
+            assert after["display"]["bondMode"] == "element"
+            assert after["display"]["atomRadiusScale"] == pytest.approx(1.35)
+            assert after["display"]["supercell"] == [2, 1, 1]
+            assert after["display"]["lightingMode"] == "rendered"
+            assert after["display"]["sunIntensity"] == pytest.approx(4.25)
+            assert after["display"]["sunPosition"] == [12, -5, 15]
+            assert after["display"]["sunTarget"] == [1, 2, 3]
+            assert after["display"]["elementColors"] == {"O": "#2a6fdf"}
+            assert after["display"]["elementRadii"]["O"] == pytest.approx(0.77)
+            assert "H" not in after["display"]["elementRadii"]
+            assert after["display"]["elementVisible"] == {"O": True, "C": True}
+            assert after["display"]["elementBondCutoffs"]["O-O"] == pytest.approx(1.8)
+            assert "H-O" not in after["display"]["elementBondCutoffs"]
+            assert set(after["display"]["elementBondCutoffs"]) == {"C-C", "C-O", "O-O"}
+            assert inherited_after["oColor"] == "#2a6fdf"
+            assert inherited_after["cColor"] != "#2a6fdf"
+            assert after["antiAliasing"] is False
+            assert after["sphereQuality"] == "high"
+            assert after["moveIncrement"] == pytest.approx(0.15)
+            assert after["rotateIncrementDeg"] == pytest.approx(7.5)
+            assert after["camera"]["projection"] == inherited_before["camera"]["projection"]
+            assert after["camera"]["position"] == pytest.approx(inherited_before["camera"]["position"])
+            assert after["camera"]["target"] == pytest.approx(inherited_before["camera"]["target"])
+            assert after["display"]["atomicScalePixelsPerAngstrom"] == pytest.approx(
+                inherited_before["display"]["atomicScalePixelsPerAngstrom"]
+            )
             browser.close()
     finally:
         editor.close()
@@ -1475,7 +1574,8 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
             page.wait_for_function("window.__ASE_APP__.state.display.supercell[2] === 2")
             assert page.evaluate("window.__ASE_APP__.state.display.supercell") == [2, 2, 2]
             repeated = page.evaluate("""() => {
-                const children = window.__ASE_APP__.renderer.supercellGroup.children;
+                const renderer = window.__ASE_APP__.renderer;
+                const children = renderer.supercellGroup.children;
                 const atoms = children.filter(child => child.userData.supercellInstanced);
                 const bonds = children.filter(child => child.userData.supercellBonds);
                 return {
@@ -1486,6 +1586,9 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
                     atomTransparent: atoms.some(mesh => mesh.material.transparent),
                     atomOpacity: atoms.map(mesh => mesh.material.opacity),
                     selectableChildren: window.__ASE_APP__.renderer.atomMeshes.children.length,
+                    exactBaseMaterials: atoms.every(mesh => mesh.userData.atomIndices.every(index =>
+                        mesh.material === renderer.atomMeshByIndex.get(index).material
+                    )),
                 };
             }""")
             assert repeated["atomInstances"] == 14
@@ -1493,7 +1596,8 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
             assert repeated["atomMeshes"] >= 1
             assert repeated["bondMeshes"] == 2
             assert repeated["atomTransparent"] is False
-            assert repeated["atomOpacity"] == [1]
+            assert all(opacity == 1 for opacity in repeated["atomOpacity"])
+            assert repeated["exactBaseMaterials"] is True
             assert repeated["selectableChildren"] == 2
             repeated_hover = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
@@ -1636,6 +1740,30 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
                 window.__ASE_APP__.state.display.supercell.join(',') === '2,2,1' &&
                 window.__ASE_APP__.renderer.supercellSelectionReferences().length === 6
             """)
+            replica_material = page.evaluate("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                const base = renderer.atomMeshByIndex.get(0);
+                const replica = renderer.supercellGroup.children.find(mesh =>
+                    mesh.userData.supercellInstanced && mesh.userData.atomIndices.includes(0)
+                );
+                return {
+                    useInstancedAtoms: renderer.useInstancedAtoms,
+                    sameMaterial: base.material === replica.material,
+                    baseColor: base.material.color.getHexString(),
+                    replicaColor: replica.material.color.getHexString(),
+                    baseEmissive: base.material.emissive.getHexString(),
+                    replicaEmissive: replica.material.emissive.getHexString(),
+                    baseRoughness: base.material.roughness,
+                    replicaRoughness: replica.material.roughness,
+                    hasInstanceColor: Boolean(replica.instanceColor)
+                };
+            }""")
+            assert replica_material["useInstancedAtoms"] is False
+            assert replica_material["sameMaterial"] is True
+            assert replica_material["replicaColor"] == replica_material["baseColor"]
+            assert replica_material["replicaEmissive"] == replica_material["baseEmissive"]
+            assert replica_material["replicaRoughness"] == replica_material["baseRoughness"]
+            assert replica_material["hasInstanceColor"] is False
 
             points = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
