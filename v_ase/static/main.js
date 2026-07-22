@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.66&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.66&rev=1';
-import { ASESelection } from './selection.js?v=0.0.66&rev=1';
-import { ASETransform } from './transform.js?v=0.0.66&rev=1';
+import { ASEApi } from './api.js?v=0.0.67&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.67&rev=1';
+import { ASESelection } from './selection.js?v=0.0.67&rev=1';
+import { ASETransform } from './transform.js?v=0.0.67&rev=1';
 
 class VAseApp {
     constructor() {
@@ -4762,7 +4762,7 @@ class VAseApp {
                     : 'Orthographic scale is uniform at every depth.';
                 scaleNote.textContent = mode === 'physical'
                     ? `Uses View > Atomic scale (${ppa.toFixed(2)} px/Å). Frame span: ${(outputWidth / ppa).toFixed(2)} Å × ${(outputHeight / ppa).toFixed(2)} Å. ${projectionNote}`
-                    : 'Preserves the complete live camera composition. A different output aspect ratio is centered with margins instead of cropping or shifting the structure.';
+                    : 'Uses the live camera direction and scale, then crops its projection to fill the requested output aspect ratio. Preview Area shows the exact exported region.';
             }
 
             const qualityInput = document.getElementById('export-sphere-quality');

@@ -154,7 +154,9 @@ def test_read_frames_preserves_custom_extxyz_atom_types(tmp_path):
     assert atom_type_labels(frames[0]) == ["H_type5", "H_type7", "O_type2"]
     assert data["symbols"] == ["H_type5", "H_type7", "O_type2"]
     assert data["chemical_symbols"] == ["H", "H", "O"]
-    assert data["visual"]["colors"][0] != data["visual"]["colors"][1]
+    assert data["visual"]["colors"] == data["visual"]["base_colors"]
+    assert data["visual"]["colors"][0] == data["visual"]["colors"][1]
+    assert data["visual"]["colors"][2] == data["visual"]["element_colors"]["O"]
 
 
 def test_read_frames_keeps_integer_atom_types_as_raw_labels_when_mass_is_missing(tmp_path):

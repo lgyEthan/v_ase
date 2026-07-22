@@ -1880,20 +1880,14 @@ export class ASERenderer {
                 camera.lookAt(target);
             }
         } else {
-            const sourceAspect = camera.isPerspectiveCamera
-                ? camera.aspect
-                : Math.abs((camera.right - camera.left) / Math.max(1e-9, camera.top - camera.bottom));
-            const safeAspect = Number.isFinite(sourceAspect) && sourceAspect > 0
-                ? sourceAspect
-                : this.viewportAspect();
-            if (outputAspect > safeAspect) {
-                renderHeight = outputHeight;
-                renderWidth = Math.max(1, Math.round(outputHeight * safeAspect));
-                offsetX = Math.floor((outputWidth - renderWidth) / 2);
-            } else if (outputAspect < safeAspect) {
-                renderWidth = outputWidth;
-                renderHeight = Math.max(1, Math.round(outputWidth / safeAspect));
-                offsetY = Math.floor((outputHeight - renderHeight) / 2);
+            if (camera.isPerspectiveCamera) {
+                camera.aspect = outputAspect;
+            } else if (camera.isOrthographicCamera) {
+                const centerX = (camera.left + camera.right) / 2;
+                const halfHeight = Math.max(1e-9, Math.abs(camera.top - camera.bottom) / 2);
+                const halfWidth = halfHeight * outputAspect;
+                camera.left = centerX - halfWidth;
+                camera.right = centerX + halfWidth;
             }
         }
         camera.updateProjectionMatrix();

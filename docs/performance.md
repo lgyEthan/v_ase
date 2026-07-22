@@ -21,10 +21,10 @@ small number of GPU batches and explicit render requests.
   scale, then restores the original shared geometries without rebuilding the
   live scene.
 - **Non-mutating image cameras**: PNG export renders through a cloned active
-  camera. Exact-view mode contains the original aspect in the requested frame,
-  while physical mode derives its projection from the live Viewport `Atomic scale`
-  value. Editing that value changes only the active camera, without rebuilding
-  atom, bond, or supercell geometry.
+  camera. Current-view mode changes the clone's projection gate to fill the
+  requested aspect ratio, while physical mode derives its projection from the
+  live Viewport `Atomic scale` value. Editing that value changes only the active
+  camera, without rebuilding atom, bond, or supercell geometry.
   Neither path refits or changes the viewport camera.
 - **Targeted visibility updates**: label-to-index maps let a Visible checkbox
   update only the affected atom instances. Hidden atoms are also excluded from
@@ -81,7 +81,7 @@ reference rather than a universal hardware guarantee.
 
 ### Blender export benchmark
 
-The 0.0.59 Blender integration benchmark generates a 15,000-atom, two-label
+The 0.0.67 Blender integration benchmark generates a 15,000-atom, two-label
 periodic scene, runs the generated Python in Blender 5.0.1, validates that only
 two editable atom point groups contain all 15,000 atoms, and saves a native
 `.blend` file.
@@ -91,7 +91,7 @@ two editable atom point groups contain all 15,000 atoms, and saves a native
 | Generated atoms | 15,000 |
 | Atom scene objects | 2 point groups |
 | Total Blender objects | fewer than 12 |
-| Script execution and `.blend` save | 0.700 s |
+| Script execution and `.blend` save | 0.908 s |
 
 The runtime test separately renders a colored Cu-O scene and verifies smooth
 Geometry Nodes atoms, midpoint-split bonds, unit cell, orthographic camera,

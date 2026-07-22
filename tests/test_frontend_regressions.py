@@ -222,6 +222,10 @@ def test_image_export_has_exact_preview_and_option_modal_controls():
     assert "options.includeGrid !== false" in renderer_js
     assert "exportCameraSetup" in renderer_js
     assert "const camera = this.camera.clone()" in renderer_js
+    assert "camera.aspect = outputAspect" in renderer_js
+    assert "const halfWidth = halfHeight * outputAspect" in renderer_js
+    assert "offsetX = Math.floor" not in renderer_js
+    assert "offsetY = Math.floor" not in renderer_js
     assert "applyExportSphereQuality" in renderer_js
     assert "this.updateCameraProjection(width / height)" not in renderer_js
     assert "alpha: true" in renderer_js

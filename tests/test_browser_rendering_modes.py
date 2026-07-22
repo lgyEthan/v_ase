@@ -301,6 +301,12 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
                     output: preview.outputSize,
                     render: preview.renderSize,
                     offset: preview.offset,
+                    content: [
+                        preview.contentRect.left,
+                        preview.contentRect.bottom,
+                        preview.contentRect.width,
+                        preview.contentRect.height
+                    ],
                     previewProjection: preview.cameraProjection,
                     directProjection: direct.camera.projectionMatrix.elements.slice(),
                     previewCount: app.renderer.previewRenderCount
@@ -314,17 +320,57 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
             assert initial["frame"][0] + initial["frame"][2] <= initial["safeBounds"][1]
             assert initial["frame"][1] + initial["frame"][3] <= initial["safeBounds"][2]
             assert initial["previewProjection"] == pytest.approx(initial["directProjection"])
-            assert initial["render"][0] <= 1600
-            assert initial["render"][1] <= 800
-            assert all(value >= 0 for value in initial["offset"])
+            assert initial["render"] == [1600, 800]
+            assert initial["offset"] == [0, 0]
+            assert initial["content"][2:] == pytest.approx(initial["frame"][2:], abs=1.0)
 
             page.fill('#image-width', '800')
             page.fill('#image-height', '1600')
             page.wait_for_function("window.__ASE_APP__.renderer.lastExportPreview?.outputSize?.[1] === 1600")
-            portrait_aspect = page.locator('#export-preview-frame').evaluate(
-                "element => element.getBoundingClientRect().width / element.getBoundingClientRect().height"
+            portrait = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const frame = document.getElementById('export-preview-frame').getBoundingClientRect();
+                const preview = app.renderer.lastExportPreview;
+                return {
+                    aspect: frame.width / frame.height,
+                    render: preview.renderSize,
+                    offset: preview.offset,
+                    content: [preview.contentRect.width, preview.contentRect.height],
+                    frame: [frame.width, frame.height]
+                };
+            }""")
+            assert portrait["aspect"] == pytest.approx(0.5, abs=0.004)
+            assert portrait["render"] == [800, 1600]
+            assert portrait["offset"] == [0, 0]
+            assert portrait["content"] == pytest.approx(portrait["frame"], abs=1.0)
+
+            # A square output changes the cloned camera gate instead of
+            # letterboxing the live viewport inside the preview frame.
+            page.fill('#image-width', '1920')
+            page.fill('#image-height', '1920')
+            page.wait_for_function(
+                "window.__ASE_APP__.renderer.lastExportPreview?.outputSize?.join(',') === '1920,1920'"
             )
-            assert portrait_aspect == pytest.approx(0.5, abs=0.004)
+            square = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const preview = app.renderer.lastExportPreview;
+                const setup = app.renderer.exportCameraSetup(1920, 1920, app.imagePreviewOptions());
+                const camera = setup.camera;
+                return {
+                    render: preview.renderSize,
+                    offset: preview.offset,
+                    cameraAspect: camera.isPerspectiveCamera
+                        ? camera.aspect
+                        : Math.abs((camera.right - camera.left) / (camera.top - camera.bottom)),
+                    content: [preview.contentRect.width, preview.contentRect.height],
+                    frame: [preview.frameRect.width, preview.frameRect.height]
+                };
+            }""")
+            assert square["render"] == [1920, 1920]
+            assert square["offset"] == [0, 0]
+            assert square["cameraAspect"] == pytest.approx(1.0)
+            assert square["content"] == pytest.approx(square["frame"], abs=1.0)
+
             page.fill('#image-width', '1600')
             page.fill('#image-height', '800')
             page.wait_for_function("window.__ASE_APP__.renderer.lastExportPreview?.outputSize?.[0] === 1600")
@@ -924,7 +970,12 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
                     prefix: dataUrl.slice(0, 22),
                     dataUrl,
                     cloned: viewport.camera !== liveCamera,
-                    viewportProjection: viewport.camera.projectionMatrix.elements.slice(),
+                    viewportAspect: viewport.camera.isPerspectiveCamera
+                        ? viewport.camera.aspect
+                        : Math.abs(
+                            (viewport.camera.right - viewport.camera.left) /
+                            (viewport.camera.top - viewport.camera.bottom)
+                        ),
                     viewportRender: [viewport.renderWidth, viewport.renderHeight],
                     viewportOffset: [viewport.offsetX, viewport.offsetY],
                     physicalSpan: [
@@ -941,12 +992,9 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             }""")
             assert export_contract["prefix"] == "data:image/png;base64,"
             assert export_contract["cloned"] is True
-            assert export_contract["viewportProjection"] == pytest.approx(
-                export_contract["before"]["projection"]
-            )
-            assert max(export_contract["viewportRender"]) == 640
-            assert min(export_contract["viewportRender"]) < 640
-            assert all(value >= 0 for value in export_contract["viewportOffset"])
+            assert export_contract["viewportAspect"] == pytest.approx(1.0)
+            assert export_contract["viewportRender"] == [640, 640]
+            assert export_contract["viewportOffset"] == [0, 0]
             assert export_contract["physicalSpan"] == pytest.approx([10.0, 5.0])
             assert export_contract["geometryRestored"] is True
             assert export_contract["after"]["position"] == pytest.approx(
@@ -1554,6 +1602,20 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
             _expand_inspector(page)
             page.click('[data-inspector-group="display"]')
             _open_panel(page, 'appearance')
+            type_palette = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const labels = ['Cu', 'Cu2'];
+                return {
+                    types: labels.map(label => document.querySelector(`[data-element-type="${label}"]`).value),
+                    controls: labels.map(label => document.querySelector(`[data-element-color="${label}"]`).value.toLowerCase()),
+                    rendered: [0, 1].map(index => app.renderer.atomVisualColor(index).toLowerCase())
+                };
+            }""")
+            assert type_palette["types"] == ["Cu", "Cu"]
+            assert type_palette["controls"][0] == type_palette["controls"][1]
+            assert type_palette["rendered"][0] == type_palette["rendered"][1]
+            assert type_palette["controls"] == type_palette["rendered"]
+
             label_input = page.locator('[data-element-name="Cu2"]')
             label_input.fill('Cu')
             label_input.press('Enter')

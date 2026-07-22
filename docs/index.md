@@ -15,6 +15,7 @@
 - [x] **Phase 12: Document workflow** (empty GUI, browser file loading, strict ASE Pickle, JSON presets, and `.vase` projects)
 - [x] **Phase 13: Commensurate rotation** (cell-boundary strain search, viewport candidate rays, magnetic angle snapping, and consistent free/axis-locked mouse direction)
 - [x] **Phase 14: Scientific image scale** (live global px/Å viewport scale, exact camera framing, and export-only atom smoothness)
+- [x] **Phase 15: Exact output preview** (full-frame output-ratio crop shared by Preview Area and PNG, with chemical-TYPE-based ASE default colors)
 
 ## Core Documentation
 - [Shortcuts & Controls](shortcuts.md)

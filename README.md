@@ -169,16 +169,18 @@ available in both workflows.
   integer type ids are also used as atomic numbers for color/radius distinction;
   out-of-range ids fall back to ASE-valid `H` while preserving the raw label.
 - Appearance label edits keep row order stable. Labels with element prefixes
-  such as `O_bridge` automatically update the TYPE dropdown and default radius.
+  such as `O_bridge` automatically update the TYPE dropdown, ASE GUI color, and
+  default radius. Labels sharing one chemical TYPE share that TYPE's default
+  color; per-label colors change only through an explicit Appearance override.
 - Export POSCAR, a current-frame ASE pickle, PNG image, WebM video, and Blender
   Python scene script. The pickle preserves labels, cell/PBC, constraints,
   portable atom arrays, and valid `SinglePointCalculator` results, but excludes
   visualization settings and arbitrary executable calculator objects.
-  Image export can preserve the complete live camera composition without crop
-  or offset, or use the global View `Atomic scale` for directly comparable images
-  from different structures. `Preview Area` renders that same export camera and
-  scene inside a screen-fixed frame whose aspect follows image W/H; orbiting or
-  zooming changes the atoms inside the frame without moving the frame itself.
+  Image export can keep the live camera direction and magnification while using
+  the requested output ratio as its exact crop gate, or use the global View
+  `Atomic scale` for directly comparable images from different structures.
+  `Preview Area` fills a screen-fixed frame with that exact export camera and
+  scene; orbiting or zooming changes the atoms without moving the frame itself.
   Export-only atom smoothness and its quality multiplier are independent of
   viewport performance settings. Image export can also use
   viewport lighting or an independent Modeling, Studio Sun, or Sun + Soft Shadow
@@ -515,7 +517,8 @@ In v_ase:
 
 - ASE backend uses base element `H`.
 - GUI labels remain `H_type5`.
-- type-specific color variants are generated.
+- default color and radius follow the ASE TYPE (`H`, `O`, and so on), independent
+  of the custom label. Appearance still provides explicit per-label overrides.
 - Appearance radius controls are grouped by `H_type5`, `O_type2`, etc.
 - Bond cutoff pair tables also use the preserved type labels.
 
@@ -600,10 +603,10 @@ and render-lighting controls. Atomic scale is deliberately controlled from
 `Display > Viewport`, where changing `px/Å` zooms the visible structure immediately.
 The accompanying viewport-span readout gives the visible width and height in Å.
 This mirrors VESTA's treatment of magnification as a property of the live 3D view,
-rather than a value hidden inside raster export. `Current viewport`
-preserves the live camera projection and complete composition; when the output
-aspect ratio differs, v_ase centers that view with margins instead of cropping
-or shifting it. `Atomic scale from View` uses the current global pixels per
+rather than a value hidden inside raster export. `Current viewport` preserves
+the live camera direction, target, and magnification, then uses the requested
+output aspect ratio as a centered crop gate. The image always fills the output
+without letterboxing. `Atomic scale from View` uses the current global pixels per
 Angstrom (`px/Å`), so the same value produces the same physical scale across
 different structures. For an output width `W` and scale `s`, the horizontal
 field is `W / s` Å. In perspective projection this scale is defined at the camera
@@ -611,8 +614,8 @@ target plane; orthographic export has uniform scale at every depth.
 
 Set `image W` and `image H`, then enable `Preview Area` to see the actual export
 camera rendered inside a fixed screen-space frame. The frame uses the requested
-pixel aspect ratio and the same scene, camera projection, centered margins,
-lighting, grid/axes policy, and atom-surface quality path as PNG export. Zooming
+pixel aspect ratio and the same full-frame camera projection, lighting,
+grid/axes policy, and atom-surface quality path as PNG export. Zooming
 changes the apparent atom size inside the frame while the frame remains fixed.
 
 `Atom smoothness` selects the export sphere preset, and `Smoothness scale`

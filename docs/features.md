@@ -72,9 +72,10 @@ Atomic scale belongs to the live Viewport controls. Editing its pixels-per-Angst
 value changes the active orthographic zoom or perspective target distance
 immediately; mouse-wheel zoom updates the same value, and a derived readout reports
 the visible width and height in Angstrom. PNG export then has two framing contracts.
-`Current viewport` clones the active camera and preserves its complete composition;
-a different output aspect ratio is centered with margins rather than cropped or
-shifted. `Atomic scale from View` uses that global value, making images from
+`Current viewport` clones the active camera, preserves its direction, target,
+and magnification, and changes only the projection gate to the output aspect
+ratio. The output is filled without letterboxing. `Atomic scale from View` uses
+that global value, making images from
 different structures directly comparable (`field width in Å = image width in px /
 px-per-Å`). Orthographic projection is uniform through depth, while perspective
 uses the camera target plane as its scale reference. Export-only sphere quality
@@ -173,6 +174,11 @@ does not reorder rows. If a label prefix names a real element, for example
 `O_bridge`, the TYPE dropdown and default radius follow that element. When the
 base element changes, stale radius/color overrides from the old label are not
 blindly copied.
+
+Default atom color and radius are derived only from the backend chemical TYPE.
+Custom labels such as `Ob`, `O_bridge`, and `O_type2` therefore share the ASE GUI
+oxygen defaults while remaining separate rows for selection, visibility, bonds,
+and optional explicit color/radius overrides.
 
 ### ASE Pickle, Visual Presets, and `.vase` Projects
 Output exposes three intentionally separate save paths:
