@@ -1,6 +1,6 @@
 # ASE Blender-Style HTML Structure Editor - Project Specification & Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.65`.
+Last synchronized with implementation: `v_ase-gui 0.0.66`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -200,14 +200,14 @@ The frontend manages modes: `IDLE`, `MOVE`, `ROTATE`. Transitions are triggered 
 
 ## 16. Bond Visualization
 *   **Inference**: Initially created based on covalent radii + scale factor.
-*   **Cell Boundary Default**: Direct current-cell distances are used by default, so cylinders do not point toward invisible neighboring-cell atoms.
+*   **Displayed Boundary Default**: The current cell or positive supercell is the bond domain. Bonds cross internal replica boundaries and are clipped only when the other endpoint lies outside the displayed supercell.
 *   **Periodic Images**: `Periodic image bonds` explicitly enables minimum-image vectors and image-crossing cylinders, following VESTA's separate inside-boundary / outside-boundary search policy.
 *   **Interactive**: Auto and pairwise-cutoff bonds are re-inferred from the current preview coordinates during G/R transforms, so cylinders form and disappear before the transform is committed. Manual pairs keep their explicit topology and update cylinder geometry only.
 *   **Label Pairs**: `Pairwise cutoff` rows are keyed by editable display labels, allowing chemically identical types such as `Cu_surface` and `Cu_bulk` to use different cutoffs. `0` explicitly disables a pair.
 *   **Manual Pairs**: Explicit pair lists such as `0-1, 1-2` can be supplied in the Bonding panel.
 *   **Recalculation**: Auto and pairwise-cutoff modes are re-inferred during interactive previews and whenever the trajectory frame changes. A cell-list search is used above the small-scene threshold, and bond meshes are rebuilt only when the inferred pair list changes.
 *   **Persistent Settings**: Bond mode, global cutoff scale, label-pair `rcut` values, MIC policy, and manual pairs survive structure refreshes, transform commits, trajectory changes, and display-label edits. Relabeling copies matching pair settings before the renderer rebuilds.
-*   **Supercell Preview**: Atom and bond instances are repeated for every positive supercell shift. Replicas use the original atom material at full opacity and participate in hover readout. Visualization mode gives every image a stable base-index/cell-offset identity for click, box, element, and `Ctrl+A` selection plus displayed-coordinate measurements. Interactive mode leaves display images unselectable until the supercell is committed as the cell.
+*   **Supercell Preview**: Atom and bond instances are repeated for every positive supercell shift. Nearest periodic-image records bridge all internal repeated-cell boundaries, including monoclinic cells, while the outer displayed-supercell boundary remains clipped. Replicas use the original atom material at full opacity and participate in hover readout. Visualization mode gives every image a stable base-index/cell-offset identity for click, box, element, and `Ctrl+A` selection plus displayed-coordinate measurements. Interactive mode leaves display images unselectable until the supercell is committed as the cell.
 *   **Appearance**: Bond thickness is the cylinder diameter or flat-ribbon width. Bonds can use a lit 3D cylinder or a camera-facing 2D ribbon, with either one custom color or two midpoint-split segments colored from their endpoint atoms. Viewport bonds retain GPU instancing but are grouped by final material color so custom and split colors are rendered exactly instead of relying on fragile per-instance shader colors. Viewport, PNG/WebM, visual-settings JSON, and Blender export share these values.
 
 ---
@@ -383,7 +383,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.65).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.66).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -425,6 +425,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 49**: Image export uses a cloned camera to preserve the complete live composition without crop or shift, supports physical `px/Å` framing, and applies export-only sphere quality plus a bounded smoothness multiplier without rebuilding the live scene.
 *   [x] **Phase 50**: Added an exact, demand-rendered export preview in a fixed screen-space frame. The frame tracks output pixel aspect ratio, shares PNG camera/scene state, remains stationary through zoom, and is Chromium pixel-compared against the final export path.
 *   [x] **Phase 51**: Moved Atomic scale from the image dialog into the live Viewport. The bidirectional `px/Å` control immediately zooms orthographic and perspective cameras, reports the visible Angstrom span, survives projection and viewport-size changes, persists in JSON/`.vase`, and remains available to preview/PNG as `Atomic scale from View`.
+*   [x] **Phase 52**: Made the complete positive supercell the default bond-clipping domain. Periodic nearest-image bond instances now bridge every internal x/y/z replica boundary while bonds terminate only at the displayed outer boundary, with dedicated 1D/2D monoclinic browser regressions.
 
 ---
 

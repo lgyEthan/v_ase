@@ -388,6 +388,9 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "lockPin" in renderer_js
     assert "addSupercellCellPreview" in renderer_js
     assert "rebuildSupercellBonds" in renderer_js
+    assert "inferSupercellBridgeBondRecords" in renderer_js
+    assert "supercellBridgeStartOffsets" in renderer_js
+    assert "supercellBridgeBondCount" in renderer_js
     assert "supercellBonds" in renderer_js
     assert "rebuildSupercellAtoms" in renderer_js
     assert "pickHover" in selection_js

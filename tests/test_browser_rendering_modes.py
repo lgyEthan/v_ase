@@ -1057,6 +1057,134 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
         sessions.pop(editor.session_id, None)
 
 
+def test_cell_local_bonds_clip_at_the_displayed_supercell_boundary():
+    atoms = Atoms(
+        "HHHH",
+        scaled_positions=[
+            [0.95, 0.20, 0.25],
+            [0.05, 0.20, 0.25],
+            [0.70, 0.95, 0.75],
+            [0.70, 0.05, 0.75],
+        ],
+        cell=[[4.0, 0.0, 0.0], [1.2, 3.6, 0.0], [0.0, 0.0, 8.0]],
+        pbc=[True, True, False],
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        show_bonds=True,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 4")
+
+            # The two nearest H-H images lie across +a and +b. A single
+            # displayed cell correctly clips both at its outer boundary.
+            page.wait_for_function("window.__ASE_APP__.renderer.bondPairs.length === 0")
+            assert page.locator('#app-viewport canvas').get_attribute(
+                'data-supercell-bridge-bond-count'
+            ) == '0'
+
+            _expand_inspector(page)
+            page.click('[data-inspector-group="structure"]')
+            page.fill('#super-x', '2')
+            page.keyboard.press('Tab')
+            page.wait_for_function("window.__ASE_APP__.state.display.supercell[0] === 2")
+            page.wait_for_function(
+                "document.querySelector('#app-viewport canvas').dataset.supercellBridgeBondCount === '1'"
+            )
+            doubled = page.evaluate("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                const meshes = renderer.supercellGroup.children.filter(
+                    child => child.userData.supercellBonds
+                );
+                return {
+                    basePairs: renderer.bondPairs.length,
+                    records: renderer.supercellBridgeBondRecords.map(record => ({
+                        i: record.i,
+                        j: record.j,
+                        imageOffset: record.imageOffset
+                    })),
+                    bridgeSegments: meshes.reduce((sum, mesh) => sum +
+                        mesh.userData.bondInstances.filter(instance => instance.bridge).length, 0),
+                    totalSegments: meshes.reduce((sum, mesh) => sum + mesh.count, 0)
+                };
+            }""")
+            assert doubled == {
+                "basePairs": 0,
+                "records": [{"i": 0, "j": 1, "imageOffset": [1, 0, 0]}],
+                "bridgeSegments": 2,
+                "totalSegments": 2,
+            }
+
+            # Three cells contain two internal boundaries. There is no third
+            # bond through the outer edge of the displayed supercell.
+            page.fill('#super-x', '3')
+            page.keyboard.press('Tab')
+            page.wait_for_function(
+                "document.querySelector('#app-viewport canvas').dataset.supercellBridgeBondCount === '2'"
+            )
+            tripled = page.evaluate("""() => {
+                const meshes = window.__ASE_APP__.renderer.supercellGroup.children.filter(
+                    child => child.userData.supercellBonds
+                );
+                return {
+                    bridgeSegments: meshes.reduce((sum, mesh) => sum +
+                        mesh.userData.bondInstances.filter(instance => instance.bridge).length, 0),
+                    totalSegments: meshes.reduce((sum, mesh) => sum + mesh.count, 0)
+                };
+            }""")
+            assert tripled == {"bridgeSegments": 4, "totalSegments": 4}
+
+            # A 2x2x1 display contains two internal a-boundary bonds (one per
+            # b row) and two internal b-boundary bonds (one per a column).
+            page.fill('#super-x', '2')
+            page.fill('#super-y', '2')
+            page.keyboard.press('Tab')
+            page.wait_for_function(
+                "document.querySelector('#app-viewport canvas').dataset.supercellBridgeBondCount === '4'"
+            )
+            doubled_xy = page.evaluate("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                const meshes = renderer.supercellGroup.children.filter(
+                    child => child.userData.supercellBonds
+                );
+                return {
+                    records: renderer.supercellBridgeBondRecords.map(record => ({
+                        i: record.i,
+                        j: record.j,
+                        imageOffset: record.imageOffset
+                    })),
+                    bridgeSegments: meshes.reduce((sum, mesh) => sum +
+                        mesh.userData.bondInstances.filter(instance => instance.bridge).length, 0),
+                    totalSegments: meshes.reduce((sum, mesh) => sum + mesh.count, 0)
+                };
+            }""")
+            assert doubled_xy == {
+                "records": [
+                    {"i": 0, "j": 1, "imageOffset": [1, 0, 0]},
+                    {"i": 2, "j": 3, "imageOffset": [0, 1, 0]},
+                ],
+                "bridgeSegments": 8,
+                "totalSegments": 8,
+            }
+            browser.close()
+    finally:
+        sessions.pop(editor.session_id, None)
+
+
 def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
     atoms = Atoms(
         "HH",

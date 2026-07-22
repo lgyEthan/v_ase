@@ -43,7 +43,9 @@ small number of GPU batches and explicit render requests.
   search above 384 atoms and rebuilds bond instances only when the inferred pair
   topology changes. Manual pairs bypass neighbor inference entirely. Custom-color
   bonds use one instance per pair; split atom colors use two half-length instances
-  while retaining one GPU draw call for the complete bond set.
+  while retaining one GPU draw call for the complete bond set. Positive supercells
+  reuse these batches and add only the nearest-image records needed to bridge
+  internal replica boundaries; the displayed outer boundary remains clipped.
 - **Blender point groups**: optimized Blender export writes one point mesh per
   visual label, instances smooth spheres with Geometry Nodes, stores trajectory
   frames as point-mesh shape keys, groups bonds by material, and writes the unit
@@ -101,7 +103,8 @@ regression ceiling rather than claiming a universal import time.
 
 `tests/test_frontend_regressions.py` locks down the demand-rendering and
 instancing architecture. Browser tests also verify live interactive bond
-formation/breaking, repeated supercell bonds, interactive-mode replica
+formation/breaking, repeated supercell bonds, displayed-supercell boundary
+clipping in monoclinic cells, interactive-mode replica
 exclusion, visualization-mode replica selection/measurement, atomic relabel
 commits, independent persistent Measure and pointer-driven Hover HUDs, and
 preservation of label-pair cutoffs across structure

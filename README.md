@@ -434,8 +434,10 @@ not an electronic-energy calculation. Equations and references are in the
 Bonding can be automatic, label-pair based, or manually specified.
 
 - Auto cutoff uses covalent radii.
-- By default, bonds are drawn only when both endpoints are atoms displayed in
-  the current cell. This avoids periodic bonds ending at invisible image atoms.
+- By default, bonds are drawn only when both endpoint images lie inside the
+  currently displayed cell or supercell. Internal replica boundaries remain
+  bonded; only the outer boundary of the displayed supercell clips the bond.
+  This avoids cylinders ending at invisible image atoms.
 - `Periodic image bonds` enables minimum-image distances and draws bonds toward
   neighboring-cell images. This mirrors [VESTA's boundary-search
   distinction](https://jp-minerals.org/vesta/en/doc/VESTAch8.html) between
@@ -457,7 +459,9 @@ Bonding can be automatic, label-pair based, or manually specified.
 - Edited control values commit consistently when you press `Enter`, press
   `Tab`, or move focus to another control.
 - Supercell preview shows full-opacity replicas, repeated unit-cell lines, and
-  every currently visible bond in each repeated cell. In the default
+  continuous bonds across every internal replica boundary. Bond clipping follows
+  the outer displayed-supercell boundary rather than each source-cell boundary.
+  In the default
   visualization mode, replicas support click, Shift-click, box selection,
   `Ctrl+A`, hover metadata, and displayed-coordinate measurements. In
   interactive mode they remain inspection-only and cannot enter an atom edit;

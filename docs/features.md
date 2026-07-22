@@ -55,9 +55,10 @@ Manual pair topology remains fixed and only its cylinder geometry is updated.
 The bond mode, global scale, label-pair `rcut` map, periodic-image policy, and
 manual pairs persist across backend structure refreshes and label edits. Bonding
 can use covalent-radius inference, label-pair cutoff rows, or an explicit pair
-list such as `0-1, 1-2`. Direct current-cell distances are the default, so a bond
-is not drawn toward an atom image that is not visible. `Periodic image bonds`
-opts into minimum-image vectors and image-crossing cylinders. This matches
+list such as `0-1, 1-2`. The displayed cell or positive supercell is the default
+bond domain: bonds cross internal replica boundaries, but are clipped when the
+other endpoint lies outside the displayed supercell. `Periodic image bonds`
+opts into minimum-image vectors and cylinders extending toward outside images. This matches
 VESTA's explicit distinction between keeping atom searches inside the boundary
 and searching atoms beyond it, as documented in the [VESTA manual](https://jp-minerals.org/vesta/en/doc/VESTAch8.html).
 
@@ -85,7 +86,8 @@ viewport option. Unit cell, axes, grid, and supercell preview controls are
 exposed in the inspector. Supercell preview is only enabled when a valid unit
 cell exists and PBC is true in the requested direction; otherwise the UI shows
 a warning and resets the invalid multiplier. Every replica uses the base atom's
-full material and repeats the current bond geometry. In visualization mode,
+full material. Bonds are instanced in every repeated cell and separately bridge
+internal supercell boundaries, including skewed/monoclinic cell vectors. In visualization mode,
 replicas have stable `base-index + cell-offset` identities and support click,
 Shift-click, box selection, element selection, `Ctrl+A`, hover metadata, and
 displayed-coordinate center/distance/angle measurements. Interactive mode keeps
