@@ -611,6 +611,7 @@ def test_api_browser_close_and_python_view_autoclose_contract_are_wired():
 def test_frontend_reset_video_and_visual_settings_controls_are_wired():
     main_js = (ROOT / "v_ase/static/main.js").read_text()
     api_js = (ROOT / "v_ase/static/api.js").read_text()
+    renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
     index_html = (ROOT / "v_ase/static/index.html").read_text()
     style_css = (ROOT / "v_ase/static/style.css").read_text()
 
@@ -629,6 +630,13 @@ def test_frontend_reset_video_and_visual_settings_controls_are_wired():
     assert "exportTrajectoryVideo" in main_js
     assert "canvas.captureStream" in main_js
     assert "MediaRecorder" in main_js
+    assert "MOV (H.264)" in main_js
+    assert "AVI (MPEG-4)" in main_js
+    assert "video/mp4;codecs=avc1.42E01E" in main_js
+    assert "backgroundColor: '#ffffff'" in main_js
+    assert "beginExportCapture" in renderer_js
+    assert "renderExportCaptureFrame" in renderer_js
+    assert "transcodeVideo" in api_js
     assert "btn-save-settings" in index_html
     assert "btn-load-settings" in index_html
     assert "settings-file" in index_html

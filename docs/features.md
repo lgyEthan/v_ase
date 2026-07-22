@@ -15,7 +15,7 @@ The visualizer adopts the modal operator pattern from Blender:
 ### Editor Actions
 The current editor supports copy/paste, undo/redo, Delete/Backspace deletion,
 reset, wrap, POSCAR export, pickle export, physically scaled PNG image
-export, WebM video export, Blender scene export, and calculator-backed
+export, MOV/AVI video export, Blender scene export, and calculator-backed
 relaxation controls. Visual presets can be saved as JSON, while `.vase`
 projects preserve complete structures or trajectories together with display
 state.
@@ -66,7 +66,7 @@ Bond appearance is independent of topology inference. Thickness controls the
 3D cylinder diameter or 2D flat-ribbon width. Color can be one freely selected
 custom value or two midpoint-split segments using the endpoint atom colors.
 Flat ribbons remain camera-facing during navigation. These settings persist in
-visual-settings JSON files and are reproduced in PNG/WebM and Blender export.
+visual-settings JSON files and are reproduced in PNG/MOV/AVI and Blender export.
 
 Atomic scale belongs to the live Viewport controls. Editing its pixels-per-Angstrom
 value changes the active orthographic zoom or perspective target distance

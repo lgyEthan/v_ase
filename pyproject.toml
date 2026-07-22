@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "v_ase-gui"
-version = "0.0.70"
-description = "v_ase: a Blender-style browser GUI and editor for ASE Atoms objects."
+version = "0.0.71"
+description = "A local 3D viewer and editor for atomic structures and trajectories."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -32,6 +32,7 @@ dependencies = [
   "numpy>=1.24",
   "ipython>=8",
   "requests>=2.31",
+  "imageio-ffmpeg>=0.5",
 ]
 
 [project.urls]

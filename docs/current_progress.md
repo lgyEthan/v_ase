@@ -1,6 +1,6 @@
 # v_ase Project Specification and Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.70`.
+Last synchronized with implementation: `v_ase-gui 0.0.71`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -11,7 +11,7 @@ Unlike the default ASE viewer, this tool supports:
 *   **Blender-Style Transforms**: G (Move), R (Rotate) with X/Y/Z axis locking and numeric input.
 *   **Constraint-Aware Editing**: Real-time backend synchronization using `set_positions(..., apply_constraint=True)`.
 *   **Structural Modification**: Copy/paste appends atoms through the backend.
-*   **Scientific Visualization**: Material-state fixed atoms, selection outlines, selected-constraint guides, cell-local or periodic-image bonds, unit-cell/axes/grid/overlay toggles, opt-in Studio Sun lighting, POSCAR/pickle/PNG/WebM/Blender export, wrap, and supercell preview.
+*   **Scientific Visualization**: Material-state fixed atoms, selection outlines, selected-constraint guides, cell-local or periodic-image bonds, unit-cell/axes/grid/overlay toggles, opt-in Studio Sun lighting, POSCAR/pickle/PNG/MOV/AVI/Blender export, wrap, and supercell preview.
 *   **Default Lightweight CLI Viewer**: `v_ase gui [FILE]` opens in visualization mode by default; omitting the file starts the browser loader and `--interactive` enables atom coordinate editing.
 *   **Trajectory Playback**: Multi-frame `Atoms` inputs and ASE-readable trajectory files expose a movie timeline with live scrubbing, FPS, and frame skip controls.
 *   **Live Simulation**: Real-time relaxation visualization using attached ASE calculators or the default v_ase repulsion calculator via WebSockets. Relaxation frames are collected into an optimization timeline when needed.
@@ -209,7 +209,7 @@ The frontend manages modes: `IDLE`, `MOVE`, `ROTATE`. Transitions are triggered 
 *   **Recalculation**: Auto and pairwise-cutoff modes are re-inferred during interactive previews and whenever the trajectory frame changes. A cell-list search is used above the small-scene threshold, and bond meshes are rebuilt only when the inferred pair list changes.
 *   **Persistent Settings**: Bond mode, global cutoff scale, label-pair `rcut` values, MIC policy, and manual pairs survive structure refreshes, transform commits, trajectory changes, and display-label edits. Relabeling copies matching pair settings before the renderer rebuilds.
 *   **Supercell Preview**: Atom and bond instances are repeated for every positive supercell shift. Nearest periodic-image records bridge all internal repeated-cell boundaries, including monoclinic cells, while the outer displayed-supercell boundary remains clipped. Replicas share the original atom's exact material, color, emissive response, roughness, and full opacity in both modes and participate in hover readout. Visualization mode gives every image a stable base-index/cell-offset identity for click, box, element, and `Ctrl+A` selection plus displayed-coordinate measurements. Interactive mode changes only selection policy: display images remain unselectable until the supercell is committed as the cell.
-*   **Appearance**: Bond thickness is the cylinder diameter or flat-ribbon width. Bonds can use a lit 3D cylinder or a camera-facing 2D ribbon, with either one custom color or two midpoint-split segments colored from their endpoint atoms. Viewport bonds retain GPU instancing but are grouped by final material color so custom and split colors are rendered exactly instead of relying on fragile per-instance shader colors. Viewport, PNG/WebM, visual-settings JSON, and Blender export share these values.
+*   **Appearance**: Bond thickness is the cylinder diameter or flat-ribbon width. Bonds can use a lit 3D cylinder or a camera-facing 2D ribbon, with either one custom color or two midpoint-split segments colored from their endpoint atoms. Viewport bonds retain GPU instancing but are grouped by final material color so custom and split colors are rendered exactly instead of relying on fragile per-instance shader colors. Viewport, PNG/MOV/AVI, visual-settings JSON, and Blender export share these values.
 
 ---
 
@@ -261,7 +261,7 @@ possible, and update the frontend state. This behavior is covered by
     parallel directional rays; its shadow camera is centered and fitted to the
     complete visible structure so large and off-origin models do not cross a
     finite shadow-frustum boundary.
-*   **WebM Video**: Available for trajectories.
+*   **MOV/AVI Video**: Every loaded trajectory frame uses the same cloned camera, crop, lighting, and sphere-quality path as Preview Area and PNG. Browser WebM capture is converted to H.264 MOV or MPEG-4 AVI with a bundled cross-platform FFmpeg runtime; movie backgrounds are white.
 *   **Blender Script**: Optimized mode groups atoms into editable point meshes
     by label and uses Geometry Nodes for smooth sphere instancing. Trajectories
     use point-mesh shape keys, bonds are grouped by material, and the unit cell
@@ -397,7 +397,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.70).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.71).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -444,6 +444,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 54**: Unified small-scene supercell replicas with the source atoms' exact cached materials while retaining large-scene instancing, and made browser Open preserve and reconcile the active visual/camera state for ordinary structures while `.vase` remains an authoritative full-project restore.
 *   [x] **Phase 55**: Added editable Rhino 3DM export behind the optional `rhino3dm` extra, dependency-free OBJ/MTL bundle export, supercell-aware atoms/bonds/cell geometry, and renamed the export workspace to Export & Save.
 *   [x] **Phase 56**: Removed the unnecessary Jupyter application extra; existing notebook embedding continues to use the core IPython dependency. README startup guidance now distinguishes the two supported `v_ase gui` command forms from categorized file examples.
+*   [x] **Phase 57**: Replaced WebM-only movie download with configurable H.264 MOV and MPEG-4 AVI export, shared Preview/PNG/video camera and scene capture, white movie backgrounds, bundled FFmpeg conversion, full-frame browser validation, and a concise user-facing README with regenerated 0.0.71 media.
 
 ---
 

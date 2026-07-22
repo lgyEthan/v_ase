@@ -296,6 +296,11 @@ export class ASEApi {
         if (path.includes('/api/project/load/')) {
             return { ...await this.mockResponse(this.mockState.atoms), project: { schema: 'v_ase.project.v1', settings: {} } };
         }
+        if (path.includes('/api/export/video/')) {
+            return options.body instanceof Blob
+                ? options.body
+                : new Blob([options.body || ''], { type: 'video/quicktime' });
+        }
         if (path.includes('/api/file/load/')) {
             return {
                 ...await this.mockResponse(this.mockState.atoms),
@@ -714,6 +719,21 @@ export class ASEApi {
 
     async exportObj(positions, applyConstraint = true, display = null, bondPairs = null, bondBridges = null) {
         return await this.exportCad('obj', positions, applyConstraint, display, bondPairs, bondBridges);
+    }
+
+    async transcodeVideo(recording, format = 'mov') {
+        const normalized = ['mov', 'avi'].includes(String(format).toLowerCase())
+            ? String(format).toLowerCase()
+            : 'mov';
+        return await this.request(
+            `/api/export/video/{session_id}?format=${encodeURIComponent(normalized)}`,
+            {
+                method: 'POST',
+                headers: {'Content-Type': recording?.type || 'video/webm'},
+                body: recording
+            },
+            { expect: 'blob' }
+        );
     }
 
     async saveVisualSettings(settings) {

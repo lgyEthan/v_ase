@@ -1,4 +1,6 @@
 import math
+import hashlib
+import subprocess
 import time
 
 import numpy as np
@@ -681,6 +683,112 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
             page.click('#btn-preview-image')
             page.wait_for_function("window.__ASE_APP__.renderer.domElement.dataset.exportPreview === 'false'")
             assert page.locator('#export-preview-frame').is_hidden()
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_trajectory_video_export_downloads_preview_matched_mov(tmp_path):
+    first = molecule("H2O")
+    first.set_cell([10.0, 10.0, 10.0])
+    first.center()
+    frames = [first]
+    for shift in (0.35, 0.70):
+        frame = first.copy()
+        frame.positions[1:, 0] += shift
+        frames.append(frame)
+
+    port = find_free_port()
+    editor = view(
+        frames,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800}, accept_downloads=True)
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.state?.atoms?.metadata?.frame_count === 3")
+
+            options = {
+                "width": 320,
+                "height": 256,
+                "fps": 6,
+                "format": "mov",
+                "transparentBackground": False,
+                "backgroundColor": "#ffffff",
+                "includeGrid": False,
+                "includeAxes": False,
+                "scaleMode": "viewport",
+                "pixelsPerAngstrom": 70,
+                "sphereQuality": "medium",
+                "sphereQualityScale": 1,
+                "renderMode": "modeling",
+                "sunIntensity": 2.2,
+                "sunPosition": [8, -10, 14],
+                "sunTarget": [0, 0, 0],
+            }
+            with page.expect_download(timeout=60_000) as download_info:
+                page.evaluate("options => window.__ASE_APP__.exportTrajectoryVideo(options)", options)
+            download = download_info.value
+            output = tmp_path / download.suggested_filename
+            download.save_as(output)
+
+            assert output.suffix == ".mov"
+            assert output.stat().st_size > 1000
+            state = page.evaluate("""() => ({
+                frame: window.__ASE_APP__.state.atoms.metadata.current_frame,
+                captureActive: window.__ASE_APP__.renderer.exportCaptureActive,
+                canvasWidth: window.__ASE_APP__.renderer.domElement.width,
+                canvasHeight: window.__ASE_APP__.renderer.domElement.height
+            })""")
+            assert state["frame"] == 0
+            assert state["captureActive"] is False
+            assert state["canvasWidth"] > 320
+            assert state["canvasHeight"] > 240
+
+            import imageio_ffmpeg
+
+            ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+            probe = subprocess.run(
+                [ffmpeg, "-hide_banner", "-i", str(output)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            assert "h264" in probe.stderr.lower()
+            assert "320x256" in probe.stderr
+
+            decoded = imageio_ffmpeg.read_frames(str(output), pix_fmt="rgb24")
+            metadata = next(decoded)
+            decoded_frames = list(decoded)
+            assert metadata["size"] == (320, 256)
+            assert len(decoded_frames) == 3
+            assert len({hashlib.sha1(frame).hexdigest() for frame in decoded_frames}) == 3
+
+            first_frame = tmp_path / "video-first-frame.png"
+            subprocess.run(
+                [
+                    ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+                    "-i", str(output), "-frames:v", "1", str(first_frame),
+                ],
+                check=True,
+                capture_output=True,
+            )
+            from PIL import Image
+
+            with Image.open(first_frame).convert("RGB") as image:
+                assert image.size == (320, 256)
+                corner = image.getpixel((2, 2))
+            assert min(corner) >= 245
             browser.close()
     finally:
         editor.close()

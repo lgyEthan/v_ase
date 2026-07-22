@@ -115,6 +115,7 @@ if FASTAPI_AVAILABLE:
 MAX_INLINE_TRAJECTORY_CACHE_VALUES = 750_000
 MAX_BINARY_TRAJECTORY_CACHE_VALUES = 30_000_000
 MAX_UPLOADED_STRUCTURE_BYTES = 64 * 1024 * 1024 * 1024
+MAX_UPLOADED_VIDEO_BYTES = 2 * 1024 * 1024 * 1024
 
 
 def trajectory_cacheable(session: EditorSession) -> bool:
@@ -1259,11 +1260,13 @@ if FASTAPI_AVAILABLE:
     from .relax import start_relaxation, stop_relaxation
     from .export import (
         OptionalExportDependencyError,
+        VideoExportError,
         export_3dm_response,
         export_blender_response,
         export_obj_response,
         export_pickle_response,
         export_poscar_response,
+        transcode_video_file,
     )
 
     @app.post("/api/export/poscar/{session_id}")
@@ -1298,6 +1301,57 @@ if FASTAPI_AVAILABLE:
             return export_obj_response(session, payload)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/export/video/{session_id}")
+    async def api_export_video(session_id: str, request: Request, format: str = "mov"):
+        get_session(session_id)
+        declared_size = request.headers.get("content-length")
+        if declared_size:
+            try:
+                if int(declared_size) > MAX_UPLOADED_VIDEO_BYTES:
+                    raise HTTPException(status_code=413, detail="Recorded video exceeds the 2 GB export limit.")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid video content length.")
+
+        source = tempfile.NamedTemporaryFile(delete=False, suffix=".webm")
+        source_path = source.name
+        total = 0
+        try:
+            async for chunk in request.stream():
+                total += len(chunk)
+                if total > MAX_UPLOADED_VIDEO_BYTES:
+                    raise HTTPException(status_code=413, detail="Recorded video exceeds the 2 GB export limit.")
+                source.write(chunk)
+            source.close()
+            if total == 0:
+                raise HTTPException(status_code=400, detail="Recorded video is empty.")
+            target_path, filename, media_type = await asyncio.to_thread(
+                transcode_video_file,
+                source_path,
+                format,
+            )
+        except HTTPException:
+            source.close()
+            raise
+        except OptionalExportDependencyError as exc:
+            source.close()
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except ValueError as exc:
+            source.close()
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except VideoExportError as exc:
+            source.close()
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        finally:
+            source.close()
+            _remove_temporary_file(source_path)
+
+        return FileResponse(
+            target_path,
+            filename=filename,
+            media_type=media_type,
+            background=BackgroundTask(_remove_temporary_file, target_path),
+        )
 
     @app.post("/api/relax/start/{session_id}")
     async def api_relax_start(session_id: str, payload: Dict[str, Any], bt: BackgroundTasks):

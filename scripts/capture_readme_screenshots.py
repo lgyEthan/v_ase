@@ -327,6 +327,19 @@ def set_camera(page, *, target, position, up=(0, 0, 1), fov=38):
     page.wait_for_timeout(250)
 
 
+def set_atomic_scale(page, pixels_per_angstrom: float):
+    page.evaluate(
+        """(value) => {
+            const app = window.__V_ASE_APP__;
+            app.renderer.setPixelsPerAngstrom(value);
+            app.syncAtomicScaleFromCamera?.({ forceInput: true });
+            app.renderer.renderNow();
+        }""",
+        float(pixels_per_angstrom),
+    )
+    page.wait_for_timeout(250)
+
+
 def settle_view(page, *, target=None, position=None, fov=38):
     page.evaluate(
         """() => {
@@ -614,7 +627,7 @@ def main() -> int:
             editor, page = open_scene(browser, fixedline_atoms, show_bonds=True)
             set_display(page, {"atomRadiusScale": 0.54, "showBonds": True, "showGrid": True})
             set_selection(page, [line_idx["ion"]])
-            configure_inspector(page, "edit", ["constraints", "transform"])
+            configure_inspector(page, "structure", ["constraints", "transform"])
             settle_view(
                 page,
                 target=[7.0, 7.0, line_idx["z_length"] * 0.52],
@@ -639,7 +652,7 @@ def main() -> int:
             editor, page = open_scene(browser, fixedplane_atoms, show_bonds=True)
             set_display(page, {"atomRadiusScale": 0.60, "showBonds": True, "showGrid": True})
             set_selection(page, [plane_idx["ion"]])
-            configure_inspector(page, "edit", ["constraints", "transform"])
+            configure_inspector(page, "structure", ["constraints", "transform"])
             settle_view(page, target=[5.1, 4.5, 11.6], position=[11.6, -5.5, 17.2], fov=39)
             set_readme_lighting(page, [5.1, 4.5, 11.6], intensity=2.75)
             base = fixedplane_atoms.get_positions()
@@ -671,6 +684,7 @@ def main() -> int:
             target = (carbon_pos + oxygen_pos) * 0.5 + np.array([0.15, 0.05, 0.12])
             camera = target + np.array([3.90, -4.70, 2.90])
             settle_view(page, target=target.tolist(), position=camera.tolist(), fov=33)
+            set_atomic_scale(page, min(230.0, MEDIA_SIZE[0] / 9.5))
             set_readme_lighting(page, target.tolist(), intensity=3.0, position_offset=(-7.0, -9.0, 12.0))
             active_preview = base.copy()
             preview_delta = direction * 0.62
@@ -697,7 +711,7 @@ def main() -> int:
                 "rotatePivot": "origin"
             })
             set_selection(page, fidx["top_ring"])
-            configure_inspector(page, "edit", ["constraints", "transform"])
+            configure_inspector(page, "structure", ["constraints", "transform"])
             settle_view(page, target=[0, 0, 0], position=[6.2, -7.8, 4.6], fov=36)
             set_readme_lighting(page, [0, 0, 0], intensity=2.9, position_offset=(-7.0, -10.0, 13.0))
             enter_mode(page, "ROTATE", "X")

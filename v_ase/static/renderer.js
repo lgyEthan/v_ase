@@ -291,6 +291,7 @@ export class ASERenderer {
     constructor(container) {
         this.container = container;
         this.renderRequestId = null;
+        this.exportCaptureActive = false;
         this.renderCount = 0;
         this.setupScene();
         this.setLightingOptions(this.lightingOptions);
@@ -2022,7 +2023,11 @@ export class ASERenderer {
             this.scene.background = null;
             this.renderer.setClearColor(0x000000, 0);
         } else {
-            this.scene.background = oldBackground || new THREE.Color(0x303235);
+            const requestedBackground = typeof options.backgroundColor === 'string'
+                && /^#[0-9a-f]{6}$/i.test(options.backgroundColor)
+                ? new THREE.Color(options.backgroundColor)
+                : null;
+            this.scene.background = requestedBackground || oldBackground || new THREE.Color(0x303235);
             this.renderer.setClearColor(
                 this.scene.background?.isColor ? this.scene.background : new THREE.Color(0x303235),
                 1
@@ -2045,6 +2050,99 @@ export class ASERenderer {
                 if (this.axesHelper) this.axesHelper.visible = oldAxesVisible;
             }
         };
+    }
+
+    renderExportView(exportView, sceneState) {
+        this.updateBondPositions();
+        this.syncSelectionOutlines();
+        this.updateHookeanPositions();
+        this.updateViewLighting(exportView.camera, exportView.target);
+        this.renderer.render(this.scene, exportView.camera);
+        if (sceneState.requestedMode === 'studio-shadow') {
+            this.renderer.render(this.scene, exportView.camera);
+        }
+    }
+
+    beginExportCapture(width, height, options = {}) {
+        if (this.exportCaptureActive) throw new Error('Another export capture is already active.');
+        if (this.renderRequestId !== null) {
+            cancelAnimationFrame(this.renderRequestId);
+            this.renderRequestId = null;
+        }
+        const exportView = this.exportCameraSetup(width, height, options);
+        const oldSize = new THREE.Vector2();
+        this.renderer.getSize(oldSize);
+        let capture = null;
+        this.exportCaptureActive = true;
+        try {
+            capture = {
+                exportView,
+                oldSize,
+                oldPixelRatio: this.renderer.getPixelRatio(),
+                oldViewport: this.renderer.getViewport(new THREE.Vector4()),
+                oldScissor: this.renderer.getScissor(new THREE.Vector4()),
+                oldScissorTest: this.renderer.getScissorTest(),
+                sceneState: this.beginExportScene(options),
+                ended: false
+            };
+            this.renderer.setPixelRatio(1);
+            this.renderer.setSize(exportView.outputWidth, exportView.outputHeight, false);
+            this.renderer.setViewport(0, 0, exportView.outputWidth, exportView.outputHeight);
+            this.renderer.setScissorTest(false);
+            return capture;
+        } catch (error) {
+            capture?.sceneState?.restore();
+            this.exportCaptureActive = false;
+            throw error;
+        }
+    }
+
+    renderExportCaptureFrame(capture) {
+        if (!capture || capture.ended) throw new Error('Export capture is not active.');
+        const { exportView, sceneState } = capture;
+        this.renderer.setViewport(0, 0, exportView.outputWidth, exportView.outputHeight);
+        this.renderer.setScissorTest(false);
+        this.renderer.clear(true, true, true);
+        this.renderer.setViewport(
+            exportView.offsetX,
+            exportView.offsetY,
+            exportView.renderWidth,
+            exportView.renderHeight
+        );
+        this.renderer.setScissor(
+            exportView.offsetX,
+            exportView.offsetY,
+            exportView.renderWidth,
+            exportView.renderHeight
+        );
+        this.renderer.setScissorTest(true);
+        this.renderExportView(exportView, sceneState);
+    }
+
+    endExportCapture(capture) {
+        if (!capture || capture.ended) return;
+        capture.ended = true;
+        capture.sceneState.restore();
+        this.renderer.setPixelRatio(capture.oldPixelRatio);
+        this.renderer.setSize(capture.oldSize.x, capture.oldSize.y, false);
+        this.renderer.setViewport(
+            capture.oldViewport.x,
+            capture.oldViewport.y,
+            capture.oldViewport.z,
+            capture.oldViewport.w
+        );
+        this.renderer.setScissor(
+            capture.oldScissor.x,
+            capture.oldScissor.y,
+            capture.oldScissor.z,
+            capture.oldScissor.w
+        );
+        this.renderer.setScissorTest(capture.oldScissorTest);
+        this.updateBondPositions();
+        this.syncSelectionOutlines();
+        this.updateViewLighting();
+        this.exportCaptureActive = false;
+        this.requestRender();
     }
 
     renderExportPreview() {
@@ -2076,14 +2174,7 @@ export class ASERenderer {
             this.renderer.clear(true, true, true);
             this.renderer.setViewport(contentX, contentY, contentWidth, contentHeight);
             this.renderer.setScissor(contentX, contentY, contentWidth, contentHeight);
-            this.updateBondPositions();
-            this.syncSelectionOutlines();
-            this.updateHookeanPositions();
-            this.updateViewLighting(exportView.camera, exportView.target);
-            this.renderer.render(this.scene, exportView.camera);
-            if (sceneState.requestedMode === 'studio-shadow') {
-                this.renderer.render(this.scene, exportView.camera);
-            }
+            this.renderExportView(exportView, sceneState);
             this.previewRenderCount += 1;
             this.domElement.dataset.previewRenderCount = `${this.previewRenderCount}`;
             this.lastExportPreview = {
@@ -4363,58 +4454,17 @@ export class ASERenderer {
     }
 
     exportPNG(width, height, options = {}) {
-        const exportView = this.exportCameraSetup(width, height, options);
-        const oldSize = new THREE.Vector2();
-        this.renderer.getSize(oldSize);
-        const oldPixelRatio = this.renderer.getPixelRatio();
-        const oldViewport = this.renderer.getViewport(new THREE.Vector4());
-        const oldScissor = this.renderer.getScissor(new THREE.Vector4());
-        const oldScissorTest = this.renderer.getScissorTest();
-        const sceneState = this.beginExportScene(options);
-
+        const capture = this.beginExportCapture(width, height, options);
         try {
-            this.renderer.setPixelRatio(1);
-            this.renderer.setSize(exportView.outputWidth, exportView.outputHeight, false);
-            this.renderer.setViewport(0, 0, exportView.outputWidth, exportView.outputHeight);
-            this.renderer.setScissorTest(false);
-            this.renderer.clear(true, true, true);
-            this.renderer.setViewport(
-                exportView.offsetX,
-                exportView.offsetY,
-                exportView.renderWidth,
-                exportView.renderHeight
-            );
-            this.renderer.setScissor(
-                exportView.offsetX,
-                exportView.offsetY,
-                exportView.renderWidth,
-                exportView.renderHeight
-            );
-            this.renderer.setScissorTest(true);
-            this.updateBondPositions();
-            this.syncSelectionOutlines();
-            this.updateHookeanPositions();
-            this.updateViewLighting(exportView.camera, exportView.target);
-            this.renderer.render(this.scene, exportView.camera);
-            if (sceneState.requestedMode === 'studio-shadow') {
-                this.renderer.render(this.scene, exportView.camera);
-            }
+            this.renderExportCaptureFrame(capture);
             return this.renderer.domElement.toDataURL('image/png');
         } finally {
-            sceneState.restore();
-            this.renderer.setPixelRatio(oldPixelRatio);
-            this.renderer.setSize(oldSize.x, oldSize.y, false);
-            this.renderer.setViewport(oldViewport.x, oldViewport.y, oldViewport.z, oldViewport.w);
-            this.renderer.setScissor(oldScissor.x, oldScissor.y, oldScissor.z, oldScissor.w);
-            this.renderer.setScissorTest(oldScissorTest);
-            this.updateBondPositions();
-            this.syncSelectionOutlines();
-            this.updateViewLighting();
-            this.requestRender();
+            this.endExportCapture(capture);
         }
     }
 
     requestRender() {
+        if (this.exportCaptureActive) return;
         if (this.renderRequestId !== null) return;
         this.renderRequestId = requestAnimationFrame(() => {
             this.renderRequestId = null;

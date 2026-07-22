@@ -29,8 +29,9 @@ The PyPI distribution is `v_ase-gui`; the Python package and command remain
   running in interactive mode.
 - Label-pair bond cutoffs, manual bonds, cell-local/MIC display, live bond
   topology updates, supercell preview, and supercell-to-cell conversion.
-- Full-frame output-ratio image preview, PNG/WebM, POSCAR, ASE pickle, and
-  optimized Blender Python scene export.
+- Full-frame output-ratio preview shared by PNG and full-trajectory MOV/AVI
+  export, plus POSCAR, ASE pickle, optimized Blender Python, Rhino 3DM, and
+  OBJ/MTL scene export.
 - Reusable visual-settings JSON and complete validated `.vase` project save/load.
 - Browser Open preserves the active visual settings and camera when replacing an
   ordinary structure or trajectory; `.vase` restores its own complete state.

@@ -6,6 +6,7 @@ import copy
 import math
 import os
 import re
+import subprocess
 import tempfile
 import pickle
 import zipfile
@@ -15,6 +16,94 @@ from .serialization import atoms_to_json
 
 class OptionalExportDependencyError(RuntimeError):
     """Raised when an explicitly optional export backend is unavailable."""
+
+
+class VideoExportError(RuntimeError):
+    """Raised when a recorded browser video cannot be converted."""
+
+
+VIDEO_EXPORT_FORMATS = {
+    "mov": {
+        "suffix": ".mov",
+        "media_type": "video/quicktime",
+        "filename": "v_ase-trajectory.mov",
+        "codec_args": [
+            "-c:v", "libx264",
+            "-preset", "medium",
+            "-crf", "18",
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+        ],
+    },
+    "avi": {
+        "suffix": ".avi",
+        "media_type": "video/x-msvideo",
+        "filename": "v_ase-trajectory.avi",
+        "codec_args": [
+            "-c:v", "mpeg4",
+            "-q:v", "2",
+            "-pix_fmt", "yuv420p",
+        ],
+    },
+}
+
+
+def video_export_format(output_format: str) -> Dict[str, Any]:
+    normalized = str(output_format or "").strip().lower()
+    if normalized not in VIDEO_EXPORT_FORMATS:
+        choices = ", ".join(sorted(VIDEO_EXPORT_FORMATS))
+        raise ValueError(f"Unsupported video format '{output_format}'. Choose one of: {choices}.")
+    return VIDEO_EXPORT_FORMATS[normalized]
+
+
+def transcode_video_file(source_path: str, output_format: str) -> tuple[str, str, str]:
+    """Convert a browser-recorded WebM into a portable MOV or AVI file."""
+    config = video_export_format(output_format)
+    try:
+        import imageio_ffmpeg
+    except ModuleNotFoundError as exc:
+        raise OptionalExportDependencyError(
+            "Video conversion is unavailable because imageio-ffmpeg is not installed. "
+            "Reinstall v_ase-gui to restore the runtime dependency."
+        ) from exc
+
+    target = tempfile.NamedTemporaryFile(delete=False, suffix=config["suffix"])
+    target_path = target.name
+    target.close()
+    command = [
+        imageio_ffmpeg.get_ffmpeg_exe(),
+        "-hide_banner",
+        "-loglevel", "error",
+        "-y",
+        "-i", source_path,
+        "-an",
+        *config["codec_args"],
+        target_path,
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30 * 60,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        try:
+            os.unlink(target_path)
+        except OSError:
+            pass
+        raise VideoExportError(f"Video conversion could not start: {exc}") from exc
+    if completed.returncode != 0 or not os.path.isfile(target_path) or os.path.getsize(target_path) == 0:
+        try:
+            os.unlink(target_path)
+        except OSError:
+            pass
+        detail = (completed.stderr or completed.stdout or "Unknown FFmpeg error").strip()
+        if len(detail) > 1200:
+            detail = detail[-1200:]
+        raise VideoExportError(f"Video conversion failed: {detail}")
+    return target_path, config["filename"], config["media_type"]
 
 
 def _apply_payload_positions(session, payload: Dict[str, Any]):

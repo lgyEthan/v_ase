@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.70&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.70&rev=1';
-import { ASESelection } from './selection.js?v=0.0.70&rev=1';
-import { ASETransform } from './transform.js?v=0.0.70&rev=1';
+import { ASEApi } from './api.js?v=0.0.71&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.71&rev=1';
+import { ASESelection } from './selection.js?v=0.0.71&rev=1';
+import { ASETransform } from './transform.js?v=0.0.71&rev=1';
 
 class VAseApp {
     constructor() {
@@ -70,7 +70,9 @@ class VAseApp {
                 imageFramingMode: 'viewport',
                 atomicScalePixelsPerAngstrom: null,
                 imageSphereQuality: 'viewport',
-                imageSmoothnessScale: 1
+                imageSmoothnessScale: 1,
+                videoFormat: 'mov',
+                videoFps: 12
             },
             antiAliasing: true,
             sphereQuality: 'auto',
@@ -111,6 +113,7 @@ class VAseApp {
             cachedFmax: null,
             displayApplyRequest: null,
             exportPreviewEnabled: false,
+            exportPreviewProfile: null,
             hoverPickTimer: null,
             hoverPointer: null,
             orientationSignature: null,
@@ -1419,7 +1422,7 @@ class VAseApp {
         const exportVideo = document.getElementById('btn-export-video');
         if (exportVideo) {
             exportVideo.disabled = loadedCount <= 1;
-            exportVideo.title = loadedCount <= 1 ? 'Export Video is available for loaded trajectory files only.' : 'Export the loaded trajectory as a WebM video.';
+            exportVideo.title = loadedCount <= 1 ? 'Export Video is available for loaded trajectory files only.' : 'Export the loaded trajectory as a MOV or AVI video.';
         }
     }
 
@@ -3757,6 +3760,10 @@ class VAseApp {
             imageSmoothnessScale: finiteClamped(
                 nextDisplay.imageSmoothnessScale, 1, 0.5, 2
             ),
+            videoFormat: ['mov', 'avi'].includes(nextDisplay.videoFormat)
+                ? nextDisplay.videoFormat
+                : 'mov',
+            videoFps: finiteClamped(nextDisplay.videoFps, 12, 1, 60),
             supercell
         };
     }
@@ -4442,15 +4449,20 @@ class VAseApp {
         if (lower.endsWith('.webm')) {
             return [{ description: 'WebM video', accept: { 'video/webm': ['.webm'] } }];
         }
+        if (lower.endsWith('.mov')) {
+            return [{ description: 'QuickTime movie', accept: { 'video/quicktime': ['.mov'] } }];
+        }
+        if (lower.endsWith('.avi')) {
+            return [{ description: 'AVI movie', accept: { 'video/x-msvideo': ['.avi'] } }];
+        }
         if (lower.endsWith('.png')) {
             return [{ description: 'PNG image', accept: { 'image/png': ['.png'] } }];
         }
         return [{ description: 'v_ase export', accept: { [mimeType]: ['.vasp', '.poscar', '.txt'] } }];
     }
 
-    async saveBlobFromAction(action, filename, mimeType = 'application/octet-stream', busyMessage = 'Preparing export...') {
+    async savePreparedBlob(blob, filename, mimeType = 'application/octet-stream') {
         let writable = null;
-        const blob = await this.withBusy(busyMessage, action);
         const canUseSavePicker = window.showSaveFilePicker && window.isSecureContext && !navigator.webdriver;
         if (canUseSavePicker) {
             try {
@@ -4471,6 +4483,11 @@ class VAseApp {
         }
         this.downloadBlob(blob, filename, mimeType);
         return true;
+    }
+
+    async saveBlobFromAction(action, filename, mimeType = 'application/octet-stream', busyMessage = 'Preparing export...') {
+        const blob = await this.withBusy(busyMessage, action);
+        return await this.savePreparedBlob(blob, filename, mimeType);
     }
 
     closeModal() {
@@ -4651,6 +4668,7 @@ class VAseApp {
             Number(this.renderer.currentPixelsPerAngstrom()) || 100));
         return {
             transparentBackground: false,
+            backgroundColor: '#ffffff',
             includeGrid: display.showGrid !== false,
             includeAxes: display.showAxes !== false,
             scaleMode: display.imageFramingMode === 'physical' ? 'physical' : 'viewport',
@@ -4666,13 +4684,17 @@ class VAseApp {
     }
 
     syncImageExportPreview() {
-        const { width, height } = this.imageOutputDimensions();
+        const profile = this.state.exportPreviewProfile;
+        const dimensions = profile
+            ? { width: profile.width, height: profile.height }
+            : this.imageOutputDimensions();
+        const { width, height } = dimensions;
         const enabled = Boolean(this.state.exportPreviewEnabled && this.state.atoms?.positions?.length);
         this.renderer.setExportPreview({
             enabled,
             width,
             height,
-            options: this.imagePreviewOptions()
+            options: profile?.options || this.imagePreviewOptions()
         });
         const button = document.getElementById('btn-preview-image');
         if (button) {
@@ -4682,6 +4704,8 @@ class VAseApp {
     }
 
     showExportImageModal() {
+        this.state.exportPreviewProfile = null;
+        if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
         const width = Math.max(256, parseInt(document.getElementById('image-width').value || '1920', 10));
         const height = Math.max(256, parseInt(document.getElementById('image-height').value || '1080', 10));
         const lighting = this.state.display;
@@ -4854,6 +4878,7 @@ class VAseApp {
                 if (imageHeightInput) imageHeightInput.value = `${exportHeight}`;
                 const dataUrl = this.renderer.exportPNG(exportWidth, exportHeight, {
                     transparentBackground,
+                    backgroundColor: '#ffffff',
                     includeGrid,
                     includeAxes,
                     scaleMode: selectedScaleMode,
@@ -4882,49 +4907,202 @@ class VAseApp {
             this.toast('Export Video is available only for trajectory files.', 'warning');
             return;
         }
-        const width = Math.max(256, parseInt(document.getElementById('image-width').value || '1280', 10));
-        const height = Math.max(256, parseInt(document.getElementById('image-height').value || '720', 10));
-        const fps = Math.min(60, Math.max(1, parseFloat(document.getElementById('movie-fps').value || '12')));
+        const width = Math.max(256, parseInt(document.getElementById('image-width').value || '1920', 10));
+        const height = Math.max(256, parseInt(document.getElementById('image-height').value || '1080', 10));
+        const fps = Math.min(60, Math.max(1, Number(this.state.display.videoFps) || this.currentPlaybackFps()));
+        const format = ['mov', 'avi'].includes(this.state.display.videoFormat)
+            ? this.state.display.videoFormat
+            : 'mov';
+        const lighting = this.state.display;
+        const position = lighting.sunPosition || [8, -10, 14];
+        const target = lighting.sunTarget || [0, 0, 0];
+        const scaleMode = lighting.imageFramingMode === 'physical' ? 'physical' : 'viewport';
+        const pixelsPerAngstrom = Math.max(0.1, Math.min(5000,
+            Number(this.renderer.currentPixelsPerAngstrom()) || 100));
+        const sphereQuality = ['viewport', 'auto', 'low', 'medium', 'high', 'ultra'].includes(
+            lighting.imageSphereQuality
+        ) ? lighting.imageSphereQuality : 'viewport';
+        const smoothnessScale = Math.max(0.5, Math.min(2,
+            Number(lighting.imageSmoothnessScale) || 1));
+        const selected = (value, current) => value === current ? 'selected' : '';
         this.showModal(`
             <h2>Export Video</h2>
-            <p class="modal-intro">Render the loaded trajectory as a WebM movie.</p>
-            <div class="export-grid">
-                <label for="video-width">Width</label>
-                <input type="number" id="video-width" value="${width}" min="256" step="128">
-                <label for="video-height">Height</label>
-                <input type="number" id="video-height" value="${height}" min="256" step="128">
-                <label for="video-fps">FPS</label>
-                <input type="number" id="video-fps" value="${fps}" min="1" max="60" step="1">
+            <p class="modal-intro">Render every loaded trajectory frame using the exact Preview Area camera and crop.</p>
+            <div class="export-image-columns">
+                <div class="export-image-column">
+                    <div class="export-grid">
+                        <label for="video-format">Format</label>
+                        <select id="video-format">
+                            <option value="mov" ${selected('mov', format)}>MOV (H.264)</option>
+                            <option value="avi" ${selected('avi', format)}>AVI (MPEG-4)</option>
+                        </select>
+                        <label for="video-width">Width</label>
+                        <input type="number" id="video-width" value="${width}" min="256" step="128">
+                        <label for="video-height">Height</label>
+                        <input type="number" id="video-height" value="${height}" min="256" step="128">
+                        <label for="video-fps">FPS</label>
+                        <input type="number" id="video-fps" value="${fps}" min="1" max="60" step="1">
+                    </div>
+                    <label class="check-row" for="video-grid">
+                        <span>Include grid</span>
+                        <input type="checkbox" id="video-grid" ${this.state.display.showGrid ? 'checked' : ''}>
+                    </label>
+                    <label class="check-row" for="video-axes">
+                        <span>Include axes</span>
+                        <input type="checkbox" id="video-axes" ${this.state.display.showAxes ? 'checked' : ''}>
+                    </label>
+                    <div class="export-render-section">
+                        <div class="export-section-title">Framing</div>
+                        <div class="export-grid">
+                            <label for="video-framing-mode">Frame</label>
+                            <select id="video-framing-mode">
+                                <option value="viewport" ${selected('viewport', scaleMode)}>Current viewport</option>
+                                <option value="physical" ${selected('physical', scaleMode)}>Atomic scale from View</option>
+                            </select>
+                        </div>
+                        <p id="video-scale-note" class="export-note"></p>
+                    </div>
+                    <div class="export-render-section">
+                        <div class="export-section-title">Atom surface</div>
+                        <div class="export-grid">
+                            <label for="video-sphere-quality">Atom smoothness</label>
+                            <select id="video-sphere-quality">
+                                <option value="viewport" ${selected('viewport', sphereQuality)}>Viewport setting</option>
+                                <option value="auto" ${selected('auto', sphereQuality)}>Auto</option>
+                                <option value="low" ${selected('low', sphereQuality)}>Low</option>
+                                <option value="medium" ${selected('medium', sphereQuality)}>Medium</option>
+                                <option value="high" ${selected('high', sphereQuality)}>High</option>
+                                <option value="ultra" ${selected('ultra', sphereQuality)}>Ultra</option>
+                            </select>
+                            <label for="video-smoothness-scale">Smoothness scale</label>
+                            <input type="number" id="video-smoothness-scale" value="${smoothnessScale.toFixed(2)}" min="0.5" max="2" step="0.1">
+                        </div>
+                    </div>
+                </div>
+                <div class="export-image-column">
+                    <div class="export-render-section">
+                        <div class="export-section-title">Rendering</div>
+                        <div class="export-grid">
+                            <label for="video-render-mode">Renderer</label>
+                            <select id="video-render-mode">
+                                <option value="current">Viewport setting</option>
+                                <option value="modeling">Modeling</option>
+                                <option value="studio">Studio Sun</option>
+                                <option value="studio-shadow">Sun + Soft Shadow</option>
+                            </select>
+                            <label for="video-sun-intensity">Brightness</label>
+                            <input type="number" id="video-sun-intensity" value="${Number(lighting.sunIntensity ?? 2.2).toFixed(2)}" min="0" max="8" step="0.05">
+                        </div>
+                        <div class="export-light-vector">
+                            <span>Sun position</span>
+                            <div>
+                                ${position.map((value, index) => `<input type="number" id="video-sun-position-${index}" value="${Number(value).toFixed(3)}" step="0.25" aria-label="Video Sun position ${index + 1}">`).join('')}
+                            </div>
+                        </div>
+                        <div class="export-light-vector">
+                            <span>Direction target</span>
+                            <div>
+                                ${target.map((value, index) => `<input type="number" id="video-sun-target-${index}" value="${Number(value).toFixed(3)}" step="0.25" aria-label="Video Sun target ${index + 1}">`).join('')}
+                            </div>
+                        </div>
+                    </div>
+                    <p class="export-video-background-note">Video background is fixed to white. MOV and AVI export do not use transparency.</p>
+                </div>
             </div>
-            <label class="check-row" for="video-grid">
-                <span>Include grid</span>
-                <input type="checkbox" id="video-grid" ${this.state.display.showGrid ? 'checked' : ''}>
-            </label>
-            <label class="check-row" for="video-axes">
-                <span>Include axes</span>
-                <input type="checkbox" id="video-axes" ${this.state.display.showAxes ? 'checked' : ''}>
-            </label>
         `, `
             <button id="modal-close" class="btn">Cancel</button>
             <button id="modal-export-video" class="btn primary">Export</button>
         `);
+        document.querySelector('#modal-container .modal')?.classList.add('export-image-modal');
+
+        const readVideoOptions = () => {
+            const outputWidth = Math.ceil(Math.max(256,
+                parseInt(document.getElementById('video-width')?.value || `${width}`, 10)) / 2) * 2;
+            const outputHeight = Math.ceil(Math.max(256,
+                parseInt(document.getElementById('video-height')?.value || `${height}`, 10)) / 2) * 2;
+            const selectedRenderMode = document.getElementById('video-render-mode')?.value || 'current';
+            const renderMode = selectedRenderMode === 'current'
+                ? (this.state.display.lightingMode || 'modeling')
+                : selectedRenderMode;
+            return {
+                width: outputWidth,
+                height: outputHeight,
+                fps: Math.min(60, Math.max(1,
+                    Number(document.getElementById('video-fps')?.value) || fps)),
+                format: document.getElementById('video-format')?.value === 'avi' ? 'avi' : 'mov',
+                transparentBackground: false,
+                backgroundColor: '#ffffff',
+                includeGrid: Boolean(document.getElementById('video-grid')?.checked),
+                includeAxes: Boolean(document.getElementById('video-axes')?.checked),
+                scaleMode: document.getElementById('video-framing-mode')?.value === 'physical'
+                    ? 'physical'
+                    : 'viewport',
+                pixelsPerAngstrom: Math.max(0.1, Math.min(5000,
+                    Number(this.renderer.currentPixelsPerAngstrom()) || pixelsPerAngstrom)),
+                sphereQuality: document.getElementById('video-sphere-quality')?.value || 'viewport',
+                sphereQualityScale: Math.max(0.5, Math.min(2,
+                    Number(document.getElementById('video-smoothness-scale')?.value) || smoothnessScale)),
+                renderMode,
+                sunIntensity: Math.max(0,
+                    Number(document.getElementById('video-sun-intensity')?.value) || 0),
+                sunPosition: [0, 1, 2].map(index =>
+                    Number(document.getElementById(`video-sun-position-${index}`)?.value) || 0),
+                sunTarget: [0, 1, 2].map(index =>
+                    Number(document.getElementById(`video-sun-target-${index}`)?.value) || 0)
+            };
+        };
+
+        const updateVideoPreview = () => {
+            const options = readVideoOptions();
+            const note = document.getElementById('video-scale-note');
+            if (note) {
+                note.textContent = options.scaleMode === 'physical'
+                    ? `${options.pixelsPerAngstrom.toFixed(2)} px/Å; frame span ${(options.width / options.pixelsPerAngstrom).toFixed(2)} Å × ${(options.height / options.pixelsPerAngstrom).toFixed(2)} Å.`
+                    : 'Uses the current camera direction and magnification with the requested output aspect ratio.';
+            }
+            const { width: previewWidth, height: previewHeight, fps: _fps, format: _format, ...renderOptions } = options;
+            this.state.exportPreviewProfile = {
+                width: previewWidth,
+                height: previewHeight,
+                options: renderOptions
+            };
+            if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+        };
+        [
+            'video-width', 'video-height', 'video-fps', 'video-smoothness-scale',
+            'video-sun-intensity', 'video-sun-position-0', 'video-sun-position-1',
+            'video-sun-position-2', 'video-sun-target-0', 'video-sun-target-1',
+            'video-sun-target-2'
+        ].forEach(id => document.getElementById(id)?.addEventListener('input', updateVideoPreview));
+        [
+            'video-format', 'video-grid', 'video-axes', 'video-framing-mode',
+            'video-sphere-quality', 'video-render-mode'
+        ].forEach(id => document.getElementById(id)?.addEventListener('change', updateVideoPreview));
+        updateVideoPreview();
 
         document.getElementById('modal-export-video')?.addEventListener('click', async () => {
             try {
-                await this.exportTrajectoryVideo({
-                    width: Math.max(256, parseInt(document.getElementById('video-width').value || `${width}`, 10)),
-                    height: Math.max(256, parseInt(document.getElementById('video-height').value || `${height}`, 10)),
-                    fps: Math.min(60, Math.max(1, parseFloat(document.getElementById('video-fps').value || `${fps}`))),
-                    includeGrid: document.getElementById('video-grid').checked,
-                    includeAxes: document.getElementById('video-axes').checked
+                const options = readVideoOptions();
+                Object.assign(this.state.display, {
+                    imageFramingMode: options.scaleMode,
+                    atomicScalePixelsPerAngstrom: options.pixelsPerAngstrom,
+                    imageSphereQuality: options.sphereQuality,
+                    imageSmoothnessScale: options.sphereQualityScale,
+                    videoFormat: options.format,
+                    videoFps: options.fps
                 });
+                const imageWidthInput = document.getElementById('image-width');
+                const imageHeightInput = document.getElementById('image-height');
+                if (imageWidthInput) imageWidthInput.value = `${options.width}`;
+                if (imageHeightInput) imageHeightInput.value = `${options.height}`;
+                await this.exportTrajectoryVideo(options);
             } catch (err) {
                 this.toast(`Video export failed: ${err.message}`, 'error');
             }
         });
     }
 
-    async exportTrajectoryVideo({ width, height, fps, includeGrid, includeAxes }) {
+    async exportTrajectoryVideo({ width, height, fps, format, ...renderOptions }) {
         const meta = this.state.atoms?.metadata || {};
         const frameCount = meta.frame_count || 1;
         if (frameCount <= 1) throw new Error('A trajectory with at least two frames is required.');
@@ -4932,26 +5110,33 @@ class VAseApp {
         if (!canvas.captureStream || !window.MediaRecorder) {
             throw new Error('This browser does not support canvas video recording.');
         }
-
+        const outputWidth = Math.ceil(Math.max(256, Number(width) || 1920) / 2) * 2;
+        const outputHeight = Math.ceil(Math.max(256, Number(height) || 1080) / 2) * 2;
+        const outputFps = Math.min(60, Math.max(1, Number(fps) || 12));
+        const outputFormat = format === 'avi' ? 'avi' : 'mov';
         const originalFrame = meta.current_frame || 0;
-        const oldSize = new THREE.Vector2();
-        this.renderer.renderer.getSize(oldSize);
-        const oldPixelRatio = this.renderer.renderer.getPixelRatio();
-        const oldPerspectiveAspect = this.renderer.perspectiveCamera?.aspect;
-        const oldOrtho = this.renderer.orthographicCamera ? {
-            left: this.renderer.orthographicCamera.left,
-            right: this.renderer.orthographicCamera.right,
-            top: this.renderer.orthographicCamera.top,
-            bottom: this.renderer.orthographicCamera.bottom
-        } : null;
-        const oldGridVisible = this.renderer.gridGroup?.visible;
-        const oldAxesVisible = this.renderer.axesHelper?.visible;
+        if (this.state.trajectoryTimer) {
+            clearTimeout(this.state.trajectoryTimer);
+            this.state.trajectoryTimer = null;
+            this.state.trajectoryPlaybackSource = null;
+            this.updateTrajectoryUI();
+        }
         const chunks = [];
-        const stream = canvas.captureStream(fps);
-        const mimeType = MediaRecorder.isTypeSupported?.('video/webm;codecs=vp9')
-            ? 'video/webm;codecs=vp9'
-            : 'video/webm';
-        const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 });
+        let capture = this.renderer.beginExportCapture(outputWidth, outputHeight, renderOptions);
+        const stream = canvas.captureStream(outputFps);
+        const videoTrack = stream.getVideoTracks()[0];
+        const mimeType = [
+            'video/webm;codecs=vp9',
+            'video/webm;codecs=vp8',
+            'video/webm',
+            'video/mp4;codecs=avc1.42E01E',
+            'video/mp4'
+        ].find(candidate => MediaRecorder.isTypeSupported?.(candidate)) || '';
+        const recorderOptions = {
+            videoBitsPerSecond: Math.max(8_000_000, outputWidth * outputHeight * outputFps * 0.18)
+        };
+        if (mimeType) recorderOptions.mimeType = mimeType;
+        const recorder = new MediaRecorder(stream, recorderOptions);
         const finished = new Promise((resolve, reject) => {
             recorder.ondataavailable = event => {
                 if (event.data && event.data.size) chunks.push(event.data);
@@ -4960,45 +5145,36 @@ class VAseApp {
             recorder.onstop = () => resolve();
         });
 
-        const applyExportVisibility = () => {
-            if (this.renderer.gridGroup) this.renderer.gridGroup.visible = includeGrid && this.state.display.showGrid;
-            if (this.renderer.axesHelper) this.renderer.axesHelper.visible = includeAxes && this.state.display.showAxes;
-        };
-
         this.closeModal();
         this.setBusy(`Rendering ${frameCount} trajectory frames...`);
         recorder.start(100);
         try {
-            this.renderer.renderer.setPixelRatio(1);
-            this.renderer.renderer.setSize(width, height, false);
-            this.renderer.updateCameraProjection(width / height);
+            await new Promise(resolve => setTimeout(resolve, 80));
             for (let frame = 0; frame < frameCount; frame++) {
                 await this.loadFrame(frame);
-                applyExportVisibility();
-                this.renderer.updateBondPositions();
-                this.renderer.syncSelectionOutlines();
-                this.renderer.renderer.render(this.renderer.scene, this.renderer.camera);
-                await new Promise(resolve => setTimeout(resolve, 1000 / fps));
+                this.renderer.renderExportCaptureFrame(capture);
+                videoTrack?.requestFrame?.();
+                this.setBusy(`Rendering trajectory frame ${frame + 1} / ${frameCount}...`);
+                await new Promise(resolve => setTimeout(resolve, 1000 / outputFps));
             }
             recorder.stop();
             await finished;
-            const blob = new Blob(chunks, { type: mimeType });
-            this.downloadBlob(blob, 'v_ase-trajectory.webm', mimeType);
-            this.toast('Video export started.', 'success');
+            stream.getTracks().forEach(track => track.stop());
+            this.renderer.endExportCapture(capture);
+            capture = null;
+            const recording = new Blob(chunks, {
+                type: recorder.mimeType || mimeType || 'application/octet-stream'
+            });
+            this.setBusy(`Encoding ${outputFormat.toUpperCase()} video...`);
+            const video = await this.api.transcodeVideo(recording, outputFormat);
+            const filename = `v_ase-trajectory.${outputFormat}`;
+            const outputMime = outputFormat === 'avi' ? 'video/x-msvideo' : 'video/quicktime';
+            const saved = await this.savePreparedBlob(video, filename, outputMime);
+            if (saved) this.toast(`${outputFormat.toUpperCase()} video saved.`, 'success');
         } finally {
             stream.getTracks().forEach(track => track.stop());
             if (recorder.state !== 'inactive') recorder.stop();
-            this.renderer.renderer.setPixelRatio(oldPixelRatio);
-            this.renderer.renderer.setSize(oldSize.x, oldSize.y, false);
-            if (this.renderer.perspectiveCamera && Number.isFinite(oldPerspectiveAspect)) {
-                this.renderer.perspectiveCamera.aspect = oldPerspectiveAspect;
-            }
-            if (this.renderer.orthographicCamera && oldOrtho) {
-                Object.assign(this.renderer.orthographicCamera, oldOrtho);
-            }
-            this.renderer.camera.updateProjectionMatrix();
-            if (this.renderer.gridGroup) this.renderer.gridGroup.visible = oldGridVisible;
-            if (this.renderer.axesHelper) this.renderer.axesHelper.visible = oldAxesVisible;
+            if (capture) this.renderer.endExportCapture(capture);
             await this.loadFrame(originalFrame);
             this.clearBusy();
         }
@@ -5433,11 +5609,13 @@ class VAseApp {
             this.showExportImageModal();
         };
         document.getElementById('btn-preview-image').onclick = () => {
+            this.state.exportPreviewProfile = null;
             this.state.exportPreviewEnabled = !this.state.exportPreviewEnabled;
             this.syncImageExportPreview();
         };
         ['image-width', 'image-height'].forEach(id => {
             document.getElementById(id)?.addEventListener('input', () => {
+                this.state.exportPreviewProfile = null;
                 if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
             });
         });
