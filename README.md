@@ -29,7 +29,8 @@ available for ambiguous filenames, and a blocking loading overlay remains
 visible until the complete file is ready. File-specific examples are grouped in
 [Quick Start](#quick-start).
 
-The viewer opens locally in your browser. By default, `v_ase gui [FILE]` starts in
+The viewer opens locally in your browser. By default,
+`v_ase gui [structure-filename]` starts in
 a lightweight visualization mode for fast inspection, trajectory playback,
 bonding, supercell preview, appearance edits, wrapping, and export. Add
 `--interactive` when you want Blender-style atom editing: left click and box
@@ -43,7 +44,8 @@ terminal.
 ## Highlights
 
 - Open an empty file-loading workspace with `v_ase gui`, or open ASE structures,
-  trajectories, and `.vase` projects directly with `v_ase gui FILE` or
+  trajectories, and `.vase` projects directly with
+  `v_ase gui [structure-filename]` or
   `from v_ase.visualize import view`.
 - Inspect large systems in the lightweight default viewer, with GPU-instanced
   atoms, bonds, supercells, and live trajectory playback.
@@ -73,8 +75,9 @@ available in both workflows.
 
 ## Feature Reference
 
-- `v_ase gui` opens an empty workspace with browser file loading; `v_ase gui
-  FILE` opens POSCAR, VASP, extxyz, traj, `.vase`, and other supported files
+- `v_ase gui` opens an empty workspace with browser file loading;
+  `v_ase gui [structure-filename]` opens POSCAR, VASP, extxyz, traj, `.vase`,
+  and other supported files
   directly.
 - Blocking CLI sessions behave like `ase gui`: the terminal waits while the
   browser tab is open, then continues after the tab/window is closed.
