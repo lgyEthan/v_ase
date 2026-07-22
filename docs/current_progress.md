@@ -1,6 +1,6 @@
 # v_ase Project Specification and Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.68`.
+Last synchronized with implementation: `v_ase-gui 0.0.69`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -233,7 +233,7 @@ possible, and update the frontend state. This behavior is covered by
 *   **Reset**: Revert to original input structure (preserving calculator).
 *   **Wrap**: Explicitly call `Atoms.wrap()`.
 *   **Constraint Panel**: Interactive mode can apply or clear `FixAtoms`, `FixedLine`, and `FixedPlane` on selected atoms. FixAtoms uses tri-state selection semantics; partial selections clear first, then can be applied to all selected atoms.
-*   **Inspector Sections**: Inspect, Structure, Display, and Output tabs replace the single long inspector. Cell & Replication belongs to Structure; camera, appearance, and bonding belong to Display; exports and the three save formats belong to Output. The panel starts fully collapsed and opens from a compact edge tab backed by a larger transparent hit area. Its active section, explicit collapsed state, and width persist locally.
+*   **Inspector Sections**: Inspect, Structure, Display, and Export & Save tabs replace the single long inspector. Cell & Replication belongs to Structure; camera, appearance, and bonding belong to Display; geometry/image exports and reusable save formats belong to Export & Save. The panel starts fully collapsed and opens from a compact edge tab backed by a larger transparent hit area. Its active section, explicit collapsed state, and width persist locally.
 
 ---
 
@@ -246,7 +246,7 @@ possible, and update the frontend state. This behavior is covered by
 *   **PNG Image**: Export options include resolution, transparent background,
     grid, axes, exact live-viewport composition, the global Viewport `Atomic scale`,
     and export-only sphere quality plus a `0.5x`-`2.0x` smoothness multiplier.
-    Output also provides a demand-rendered, screen-fixed preview frame whose
+    Export & Save also provides a demand-rendered, screen-fixed preview frame whose
     aspect follows the requested image dimensions. It reuses the PNG camera and
     scene-state path, fills the complete frame without letterboxing, and remains
     fixed while zoom changes the structure scale inside it.
@@ -268,8 +268,15 @@ possible, and update the frontend state. This behavior is covered by
     is one multi-spline curve. Individual atom objects remain an opt-in mode.
     The current camera and a Blender Sun rig preserve source, target-derived
     direction, color, and numeric energy. Blender can run the script and save a
-    native `.blend`; OBJ loses camera, trajectory, lighting, instancing, and
-    richer materials.
+    native `.blend`.
+*   **Rhino 3DM**: Optional `rhino3dm` export writes native spheres, editable
+    bond geometry, and unit-cell curves into named `Atoms`, `Bonds`, and
+    `Unit Cell` layers. Model units are Angstroms; atom identity, element,
+    label, and supercell offset remain attached as object metadata.
+*   **OBJ Bundle**: Dependency-free static geometry export downloads a ZIP with
+    `v_ase_scene.obj` and `v_ase_scene.mtl`. Atoms, bonds, and cell edges are
+    named independently and retain configured colors. OBJ intentionally does
+    not carry the live camera, Sun rig, trajectory, constraints, or instancing.
 
 ### Save Formats
 *   **ASE Pickle**: Current-frame Python interchange for ASE structure data,
@@ -368,6 +375,8 @@ method is recorded in `docs/performance.md`.
 *   `POST /api/file/load/{session_id}`: Stream and replace the active document.
 *   `POST /api/export/pickle/{session_id}`: Export current ASE structure data with valid single-point results.
 *   `POST /api/export/blender/{session_id}`: Export a Blender Python scene.
+*   `POST /api/export/3dm/{session_id}`: Export editable Rhino 3DM geometry; returns HTTP 503 with an install command when `rhino3dm` is unavailable.
+*   `POST /api/export/obj/{session_id}`: Export a dependency-free OBJ/MTL ZIP bundle.
 *   `POST /api/settings/save/{session_id}`: Export reusable visual settings JSON.
 *   `POST /api/settings/load/{session_id}`: Load validated JSON or restricted legacy settings.
 *   `POST /api/project/save/{session_id}`: Export the complete session as `.vase`.
@@ -388,7 +397,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.68).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.69).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -423,7 +432,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 42**: Studio Sun now behaves as a coherent light rig: moving the source translates source and target together, moving the target changes aim only, and rotating either selected handle always orbits the target around the source pivot.
 *   [x] **Phase 43**: Appearance relabeling now commits atomically across Enter/change/focus events; visualization-mode supercell images are independently selectable and measurable by cell offset; Selection center fractional coordinates use a dedicated second line; the bottom HUD exposes live selection measurements; and Sun mouse rotation follows atom rotation direction.
 *   [x] **Phase 44**: Split persistent selection measurements from pointer-dependent hover metadata, reduced the viewport summary to distance/angle essentials, replaced the bulb-like lighting glyph with a directional studio spotlight, and regenerated the logo plus README media with the current Sun + Soft Shadow renderer.
-*   [x] **Phase 45**: Added portable JSON visual presets and validated full-state `.vase` projects, reorganized the inspector into Inspect/Structure/Display/Output, optimized Blender export with Geometry Nodes point groups and trajectory shape keys, and runtime-tested a 15,000-atom Blender 5 scene at 0.700 seconds.
+*   [x] **Phase 45**: Added portable JSON visual presets and validated full-state `.vase` projects, reorganized the inspector into Inspect/Structure/Display/Export & Save, optimized Blender export with Geometry Nodes point groups and trajectory shape keys, and runtime-tested a 15,000-atom Blender 5 scene at 0.700 seconds.
 *   [x] **Phase 46**: Added `v_ase gui` empty-workspace startup, streaming browser file/project loading with explicit reader and frame selection, a three-format save guide, and strict current-frame ASE Pickle export limited to valid `SinglePointCalculator` results.
 *   [x] **Phase 47**: Corrected free `R` screen-space direction to agree with axis-locked rotation; replaced bond-length rejection with a CellMatch-style 2D integer-boundary search, principal-strain candidate rays, collision-free angle strip, zero-degree identity target, and optional magnetic angle snapping; made `Tab` open-only and `Esc` close/focus the inspector workflow; and replaced the renderer glyph with matched matte/lit sphere states.
 *   [x] **Phase 48**: Centralized the application chrome into a role-based charcoal/teal/amber/red palette, moved the matte/lit renderer icon gradients onto the same tokens, eliminated isolated light-colored form controls, and synchronized viewport axis/grid colors with their toolbar counterparts.
@@ -433,6 +442,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 52**: Made the complete positive supercell the default bond-clipping domain. Periodic nearest-image bond instances now bridge every internal x/y/z replica boundary while bonds terminate only at the displayed outer boundary, with dedicated 1D/2D monoclinic browser regressions.
 *   [x] **Phase 53**: Replaced aspect-ratio letterboxing with a full-frame cloned-camera crop shared exactly by Preview Area and PNG export, and made ASE chemical TYPE the sole default color source so custom labels never acquire implicit hue variants.
 *   [x] **Phase 54**: Unified small-scene supercell replicas with the source atoms' exact cached materials while retaining large-scene instancing, and made browser Open preserve and reconcile the active visual/camera state for ordinary structures while `.vase` remains an authoritative full-project restore.
+*   [x] **Phase 55**: Added editable Rhino 3DM export behind the optional `rhino3dm` extra, dependency-free OBJ/MTL bundle export, supercell-aware atoms/bonds/cell geometry, and renamed the export workspace to Export & Save.
 
 ---
 

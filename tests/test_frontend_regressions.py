@@ -22,7 +22,13 @@ from v_ase.server import (
     value_error_handler,
 )
 import v_ase.server as server_module
-from v_ase.export import _display_bonds, export_blender_response, export_pickle_response, export_poscar_response
+from v_ase.export import (
+    _display_bonds,
+    export_blender_response,
+    export_obj_response,
+    export_pickle_response,
+    export_poscar_response,
+)
 from v_ase.io import set_atom_type_labels
 from v_ase.session import EditorSession, sessions
 
@@ -90,6 +96,15 @@ def test_ui_button_api_endpoints_respond_without_network_server():
         "positions": positions,
         "include_calculator": False,
     }).filename == "atoms.pkl"
+    obj_response = export_obj_response(session, {
+        "positions": positions,
+        "display": {"showBonds": True, "showCell": False},
+        "bond_pairs": [[0, 1], [0, 2]],
+    })
+    try:
+        assert obj_response.filename == "v_ase_obj_scene.zip"
+    finally:
+        Path(obj_response.path).unlink(missing_ok=True)
 
 
 def test_viz_only_session_blocks_atom_editing_api_calls():
@@ -408,6 +423,12 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "atomVisualColor" in renderer_js
     assert "exportBlender" in api_js
     assert "btn-export-blender" in index_html
+    assert "export3dm" in api_js
+    assert "exportObj" in api_js
+    assert "btn-export-3dm" in index_html
+    assert "btn-export-obj" in index_html
+    assert "Export &amp; Save" in index_html
+    assert "renderer.supercellBridgeBondRecords" in main_js
     assert "selected-measure" in index_html
     assert "getSelectionMeasureText" in main_js
     assert 'id="selection-measure-readout"' in index_html

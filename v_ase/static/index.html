@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.68&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.69&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.68';
+            : '/static/vendor/three.module.js?v=0.0.69';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -57,7 +57,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.68</span>
+            <span class="version">0.0.69</span>
         </div>
         <div class="status-group">
             <div class="status-item">
@@ -234,7 +234,7 @@
             <button type="button" role="tab" data-inspector-group="inspect" aria-selected="true">Inspect</button>
             <button type="button" role="tab" data-inspector-group="structure" aria-selected="false">Structure</button>
             <button type="button" role="tab" data-inspector-group="display" aria-selected="false">Display</button>
-            <button type="button" role="tab" data-inspector-group="output" aria-selected="false">Output</button>
+            <button type="button" role="tab" data-inspector-group="output" aria-selected="false">Export &amp; Save</button>
         </nav>
         <div id="inspector-content" class="inspector-content">
         <details class="panel-section" open data-panel="structure-info" data-panel-group="inspect">
@@ -526,6 +526,13 @@
                 </select>
             </div>
             <button id="btn-export-blender" class="btn-block" data-requires-atoms>Export Blender</button>
+            <div class="btn-stack-row two">
+                <button id="btn-export-3dm" data-requires-atoms title="Editable Rhino 3DM scene; requires the optional rhino3dm package">Export 3DM</button>
+                <button id="btn-export-obj" data-requires-atoms title="Dependency-free OBJ and MTL bundle">Export OBJ</button>
+            </div>
+            <p class="panel-note cad-export-note">
+                3DM keeps native editable objects and requires <code>rhino3dm</code>. OBJ downloads as a ZIP containing the mesh and its color material library.
+            </p>
             <div class="relax-grid">
                 <label>image W</label>
                 <input type="number" id="image-width" value="1920" step="128" min="256">
@@ -569,6 +576,14 @@
             </div>
         </section>
         <section class="panel-section save-format-guide" data-panel="save-guide" data-panel-group="output" aria-label="Save format guide">
+            <div>
+                <strong>Rhino 3DM</strong>
+                <span>Native editable atoms, bonds, and cell layers in Angstrom units. Requires the optional rhino3dm package.</span>
+            </div>
+            <div>
+                <strong>OBJ Bundle</strong>
+                <span>Dependency-free static geometry. The ZIP keeps the OBJ mesh beside its MTL color library.</span>
+            </div>
             <div>
                 <strong>ASE Pickle</strong>
                 <span>Current ASE structure, labels, cell, constraints, arrays, and valid single-point results. No visualization settings.</span>
@@ -676,7 +691,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.68&rev=1';
+            : './static/main.js?v=0.0.69&rev=1';
         import(modulePath);
     </script>
 </body>

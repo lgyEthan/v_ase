@@ -67,7 +67,7 @@ in Angstrom or degree units.
 
 ## Saving
 
-The Output workspace keeps structure-independent settings separate from project
+The Export & Save workspace keeps structure-independent settings separate from project
 state:
 
 - **Export ASE Pickle** writes the current ASE structure for Python use,

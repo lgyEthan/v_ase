@@ -888,6 +888,16 @@ body.dragging-inspector #inspector-resizer::before {
     line-height: 1.48;
 }
 
+#inspector .cad-export-note {
+    margin: 8px 0 14px;
+}
+
+#inspector .cad-export-note code {
+    color: var(--text-soft);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.96em;
+}
+
 #inspector .save-format-guide {
     display: grid;
     gap: 11px;

@@ -3,10 +3,19 @@ from typing import Dict, Any
 from ase.io import write
 from ase.calculators.singlepoint import SinglePointCalculator
 import copy
+import math
+import os
+import re
 import tempfile
 import pickle
+import zipfile
 import numpy as np
 from .serialization import atoms_to_json
+
+
+class OptionalExportDependencyError(RuntimeError):
+    """Raised when an explicitly optional export backend is unavailable."""
+
 
 def _apply_payload_positions(session, payload: Dict[str, Any]):
     if payload and "positions" in payload and not bool((session.config or {}).get("viz_only", False)):
@@ -15,7 +24,8 @@ def _apply_payload_positions(session, payload: Dict[str, Any]):
             apply_constraint=bool(payload.get("apply_constraint", True)),
         )
     return session.working_atoms
- 
+
+
 def _atoms_for_vasp_export(atoms):
     if atoms.cell.rank == 3:
         return atoms
@@ -185,6 +195,568 @@ def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs
             "length": float(np.linalg.norm(delta)),
         })
     return bonds
+
+
+def _valid_hex_color(value, fallback="#c8ccd0"):
+    if isinstance(value, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", value):
+        return value.lower()
+    return fallback
+
+
+def _hex_rgb(value):
+    color = _valid_hex_color(value)
+    return tuple(int(color[index:index + 2], 16) for index in (1, 3, 5))
+
+
+def _safe_name(value, fallback="object"):
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value or "")).strip("_.")
+    return cleaned or fallback
+
+
+def _normalized_supercell(display, data):
+    raw = display.get("supercell") or [1, 1, 1]
+    repetitions = []
+    for axis in range(3):
+        try:
+            value = int(raw[axis])
+        except (IndexError, TypeError, ValueError):
+            value = 1
+        repetitions.append(max(1, min(128, value)))
+
+    cell = np.asarray(data.get("cell") or [], dtype=float)
+    if cell.shape != (3, 3) or abs(float(np.linalg.det(cell))) < 1e-10:
+        return [1, 1, 1], np.zeros((3, 3), dtype=float)
+    return repetitions, cell
+
+
+def _cell_offsets(repetitions):
+    return [
+        (ix, iy, iz)
+        for ix in range(repetitions[0])
+        for iy in range(repetitions[1])
+        for iz in range(repetitions[2])
+    ]
+
+
+def _offset_vector(offset, cell):
+    return np.asarray(offset, dtype=float) @ cell
+
+
+def _scene_cell_edges(cell, repetitions):
+    if not np.any(cell):
+        return []
+    edge_axes = ((1, 2), (0, 2), (0, 1))
+    edges = []
+    seen = set()
+    for offset in _cell_offsets(repetitions):
+        origin = _offset_vector(offset, cell)
+        for axis, (other_a, other_b) in enumerate(edge_axes):
+            for bit_a in (0, 1):
+                for bit_b in (0, 1):
+                    start = origin + bit_a * cell[other_a] + bit_b * cell[other_b]
+                    end = start + cell[axis]
+                    key = tuple(sorted((
+                        tuple(np.round(start, 8)),
+                        tuple(np.round(end, 8)),
+                    )))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    edges.append({"start": start.tolist(), "end": end.tolist()})
+    return edges
+
+
+def _cad_scene_data(session, payload: Dict[str, Any]):
+    """Normalize the current viewport into editable CAD/mesh primitives."""
+    payload = payload or {}
+    atoms = _apply_payload_positions(session, payload)
+    if getattr(session, "trajectory_frames", None):
+        session.sync_current_frame()
+    data = atoms_to_json(atoms)
+    display = payload.get("display") or {}
+    repetitions, cell = _normalized_supercell(display, data)
+    offsets = _cell_offsets(repetitions)
+    total_atoms = len(data.get("positions") or []) * len(offsets)
+    if total_atoms > 1_000_000:
+        raise ValueError(
+            f"CAD export would create {total_atoms:,} atom objects; reduce the supercell below 1,000,000 atoms."
+        )
+
+    labels = list(data.get("symbols") or [])
+    symbols = list(data.get("chemical_symbols") or labels)
+    positions = np.asarray(data.get("positions") or [], dtype=float)
+    visual = data.get("visual") or {}
+    base_colors = list(visual.get("colors") or [])
+    base_radii = list(visual.get("radii") or [])
+    visible_map = display.get("elementVisible") or {}
+    color_map = display.get("elementColors") or {}
+    radius_map = display.get("elementRadii") or {}
+    try:
+        radius_scale = float(display.get("atomRadiusScale", 1.0))
+    except (TypeError, ValueError):
+        radius_scale = 1.0
+    if not np.isfinite(radius_scale) or radius_scale <= 0:
+        radius_scale = 1.0
+
+    atom_specs = []
+    visible_indices = set()
+    for index, position in enumerate(positions):
+        label = labels[index] if index < len(labels) else symbols[index]
+        if visible_map.get(label, True) is False:
+            continue
+        visible_indices.add(index)
+        fallback_color = base_colors[index] if index < len(base_colors) else "#c8ccd0"
+        color = _valid_hex_color(color_map.get(label), _valid_hex_color(fallback_color))
+        try:
+            source_radius = float(radius_map.get(label, base_radii[index]))
+        except (IndexError, TypeError, ValueError):
+            source_radius = 0.5
+        radius = source_radius * radius_scale
+        if not np.isfinite(radius) or radius <= 0:
+            radius = 0.5 * radius_scale
+        for offset in offsets:
+            shifted = position + _offset_vector(offset, cell)
+            atom_specs.append({
+                "index": index,
+                "label": str(label),
+                "symbol": str(symbols[index] if index < len(symbols) else label),
+                "position": shifted.tolist(),
+                "radius": float(radius),
+                "color": color,
+                "cell_offset": list(offset),
+            })
+
+    color_mode = display.get("bondColorMode", "split")
+    custom_bond_color = _valid_hex_color(display.get("bondCustomColor"), "#c8ccd0")
+    try:
+        bond_radius = float(display.get("bondThickness", 0.11))
+    except (TypeError, ValueError):
+        bond_radius = 0.11
+    bond_radius = max(0.02, min(0.6, bond_radius))
+    bond_style = "flat" if display.get("bondStyle") == "flat" else "cylinder"
+
+    def atom_color(index):
+        label = labels[index] if index < len(labels) else symbols[index]
+        fallback = base_colors[index] if index < len(base_colors) else "#c8ccd0"
+        return _valid_hex_color(color_map.get(label), _valid_hex_color(fallback))
+
+    bond_specs = []
+
+    def add_bond(i, j, start, end, suffix):
+        start = np.asarray(start, dtype=float)
+        end = np.asarray(end, dtype=float)
+        if float(np.linalg.norm(end - start)) < 1e-9:
+            return
+        if color_mode == "custom":
+            segments = ((0.0, 1.0, custom_bond_color, "full"),)
+        else:
+            segments = (
+                (0.0, 0.5, atom_color(i), "a"),
+                (0.5, 1.0, atom_color(j), "b"),
+            )
+        delta = end - start
+        for t0, t1, color, half in segments:
+            bond_specs.append({
+                "i": int(i),
+                "j": int(j),
+                "start": (start + delta * t0).tolist(),
+                "end": (start + delta * t1).tolist(),
+                "radius": bond_radius,
+                "style": bond_style,
+                "color": color,
+                "name": f"bond_{i}_{j}_{suffix}_{half}",
+            })
+
+    base_bonds = _display_bonds(data, display, payload.get("bond_pairs"))
+    for bond in base_bonds:
+        i, j = int(bond["i"]), int(bond["j"])
+        if i not in visible_indices or j not in visible_indices:
+            continue
+        for offset in offsets:
+            shift = _offset_vector(offset, cell)
+            add_bond(i, j, np.asarray(bond["start"]) + shift, np.asarray(bond["end"]) + shift,
+                     "_".join(map(str, offset)))
+
+    for record in payload.get("bond_bridges") or []:
+        try:
+            i, j = int(record["i"]), int(record["j"])
+            image_offset = tuple(int(value) for value in record["imageOffset"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if len(image_offset) != 3 or i not in visible_indices or j not in visible_indices:
+            continue
+        for offset in offsets:
+            end_offset = tuple(offset[axis] + image_offset[axis] for axis in range(3))
+            if not all(0 <= end_offset[axis] < repetitions[axis] for axis in range(3)):
+                continue
+            start = positions[i] + _offset_vector(offset, cell)
+            end = positions[j] + _offset_vector(end_offset, cell)
+            add_bond(i, j, start, end, "bridge_" + "_".join(map(str, offset)))
+
+    return {
+        "atoms": atom_specs,
+        "bonds": bond_specs,
+        "cell_edges": _scene_cell_edges(cell, repetitions) if display.get("showCell", True) else [],
+        "cell_color": "#d6bd67",
+        "repetitions": repetitions,
+        "units": "angstrom",
+    }
+
+
+def _cad_object_attributes(rhino3dm, name, layer_index, material_index, color, metadata=None):
+    attributes = rhino3dm.ObjectAttributes()
+    attributes.Name = _safe_name(name)
+    attributes.LayerIndex = layer_index
+    attributes.MaterialIndex = material_index
+    attributes.MaterialSource = rhino3dm.ObjectMaterialSource.MaterialFromObject
+    rgba = (*_hex_rgb(color), 255)
+    attributes.ObjectColor = rgba
+    attributes.ColorSource = rhino3dm.ObjectColorSource.ColorFromObject
+    for key, value in (metadata or {}).items():
+        attributes.SetUserString(str(key), str(value))
+    return attributes
+
+
+def _perpendicular_basis(direction):
+    axis = np.asarray(direction, dtype=float)
+    length = float(np.linalg.norm(axis))
+    if length < 1e-12:
+        return None
+    axis /= length
+    reference = np.array([0.0, 0.0, 1.0]) if abs(axis[2]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    side = np.cross(axis, reference)
+    side /= max(float(np.linalg.norm(side)), 1e-12)
+    normal = np.cross(axis, side)
+    return axis, side, normal, length
+
+
+def export_3dm_response(session, payload: Dict[str, Any]):
+    try:
+        import rhino3dm
+    except ImportError as exc:
+        raise OptionalExportDependencyError(
+            '3DM export requires the optional "rhino3dm" package. Install it with '
+            'python -m pip install "v_ase-gui[rhino]".'
+        ) from exc
+
+    scene = _cad_scene_data(session, payload)
+    model = rhino3dm.File3dm()
+    model.Settings.ModelUnitSystem = rhino3dm.UnitSystem.Angstroms
+    model.ApplicationName = "v_ase"
+    model.ApplicationDetails = "Editable atomistic scene exported by v_ase"
+
+    layer_indices = {}
+    for name, color in (("Atoms", "#d7dce1"), ("Bonds", "#aeb6bf"), ("Unit Cell", "#d6bd67")):
+        layer = rhino3dm.Layer()
+        layer.Name = name
+        layer.Color = (*_hex_rgb(color), 255)
+        layer_indices[name] = model.Layers.Add(layer)
+
+    material_indices = {}
+
+    def material_index(color):
+        color = _valid_hex_color(color)
+        if color in material_indices:
+            return material_indices[color]
+        material = rhino3dm.Material()
+        material.Name = f"v_ase_{color[1:]}"
+        material.DiffuseColor = (*_hex_rgb(color), 255)
+        material_indices[color] = model.Materials.Add(material)
+        return material_indices[color]
+
+    for atom in scene["atoms"]:
+        offset = ",".join(map(str, atom["cell_offset"]))
+        attributes = _cad_object_attributes(
+            rhino3dm,
+            f"atom_{atom['index']}_{atom['label']}_cell_{offset}",
+            layer_indices["Atoms"],
+            material_index(atom["color"]),
+            atom["color"],
+            {
+                "v_ase.kind": "atom",
+                "v_ase.index": atom["index"],
+                "v_ase.label": atom["label"],
+                "v_ase.element": atom["symbol"],
+                "v_ase.cell_offset": offset,
+                "v_ase.units": "angstrom",
+            },
+        )
+        point = rhino3dm.Point3d(*atom["position"])
+        model.Objects.AddSphere(rhino3dm.Sphere(point, atom["radius"]), attributes)
+
+    for bond in scene["bonds"]:
+        start = np.asarray(bond["start"], dtype=float)
+        end = np.asarray(bond["end"], dtype=float)
+        basis = _perpendicular_basis(end - start)
+        if basis is None:
+            continue
+        axis, side, _, length = basis
+        attributes = _cad_object_attributes(
+            rhino3dm,
+            bond["name"],
+            layer_indices["Bonds"],
+            material_index(bond["color"]),
+            bond["color"],
+            {
+                "v_ase.kind": "bond",
+                "v_ase.atom_i": bond["i"],
+                "v_ase.atom_j": bond["j"],
+                "v_ase.style": bond["style"],
+                "v_ase.units": "angstrom",
+            },
+        )
+        if bond["style"] == "flat":
+            half_width = side * bond["radius"]
+            mesh = rhino3dm.Mesh()
+            for point in (start - half_width, start + half_width, end + half_width, end - half_width):
+                mesh.Vertices.Add(*point.tolist())
+            mesh.Faces.AddFace(0, 1, 2, 3)
+            model.Objects.AddMesh(mesh, attributes)
+        else:
+            plane = rhino3dm.Plane(rhino3dm.Point3d(*start.tolist()), rhino3dm.Vector3d(*axis.tolist()))
+            circle = rhino3dm.Circle(bond["radius"])
+            circle.Plane = plane
+            brep = rhino3dm.Cylinder(circle, length).ToBrep(True, True)
+            if brep is not None:
+                model.Objects.AddBrep(brep, attributes)
+
+    cell_color = scene["cell_color"]
+    cell_material = material_index(cell_color)
+    for index, edge in enumerate(scene["cell_edges"]):
+        attributes = _cad_object_attributes(
+            rhino3dm,
+            f"cell_edge_{index}",
+            layer_indices["Unit Cell"],
+            cell_material,
+            cell_color,
+            {"v_ase.kind": "unit_cell", "v_ase.units": "angstrom"},
+        )
+        model.Objects.AddLine(
+            rhino3dm.Point3d(*edge["start"]),
+            rhino3dm.Point3d(*edge["end"]),
+            attributes,
+        )
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".3dm")
+    tmp.close()
+    if not model.Write(tmp.name, 7):
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+        raise RuntimeError("rhino3dm could not write the 3DM scene.")
+    return FileResponse(tmp.name, filename="v_ase_scene.3dm", media_type="model/vnd.3dm")
+
+
+class _ObjWriter:
+    def __init__(self, handle):
+        self.handle = handle
+        self.vertex_index = 1
+
+    def _vertices_with_normals(self, vertices, normals):
+        start = self.vertex_index
+        for vertex in vertices:
+            self.handle.write("v {:.9g} {:.9g} {:.9g}\n".format(*vertex))
+        for normal in normals:
+            self.handle.write("vn {:.9g} {:.9g} {:.9g}\n".format(*normal))
+        self.vertex_index += len(vertices)
+        return start
+
+    def sphere(self, name, center, radius, material, segments, stacks):
+        center = np.asarray(center, dtype=float)
+        vertices = [center + np.array([0.0, 0.0, radius])]
+        normals = [np.array([0.0, 0.0, 1.0])]
+        for stack in range(1, stacks):
+            phi = math.pi * stack / stacks
+            for segment in range(segments):
+                theta = 2.0 * math.pi * segment / segments
+                normal = np.array([
+                    math.sin(phi) * math.cos(theta),
+                    math.sin(phi) * math.sin(theta),
+                    math.cos(phi),
+                ])
+                vertices.append(center + radius * normal)
+                normals.append(normal)
+        vertices.append(center + np.array([0.0, 0.0, -radius]))
+        normals.append(np.array([0.0, 0.0, -1.0]))
+        start = self._vertices_with_normals(vertices, normals)
+        bottom = start + len(vertices) - 1
+        self.handle.write(f"o {_safe_name(name)}\nusemtl {material}\ns 1\n")
+
+        def ref(local):
+            index = start + local
+            return f"{index}//{index}"
+
+        for segment in range(segments):
+            first = 1 + segment
+            second = 1 + (segment + 1) % segments
+            self.handle.write(f"f {ref(0)} {ref(first)} {ref(second)}\n")
+        for stack in range(stacks - 2):
+            ring_a = 1 + stack * segments
+            ring_b = ring_a + segments
+            for segment in range(segments):
+                a = ring_a + segment
+                b = ring_a + (segment + 1) % segments
+                c = ring_b + (segment + 1) % segments
+                d = ring_b + segment
+                self.handle.write(f"f {ref(a)} {ref(d)} {ref(c)} {ref(b)}\n")
+        last_ring = 1 + (stacks - 2) * segments
+        for segment in range(segments):
+            first = last_ring + segment
+            second = last_ring + (segment + 1) % segments
+            self.handle.write(f"f {ref(first)} {ref(bottom - start)} {ref(second)}\n")
+
+    def cylinder(self, name, start_point, end_point, radius, material, segments=12):
+        start_point = np.asarray(start_point, dtype=float)
+        end_point = np.asarray(end_point, dtype=float)
+        basis = _perpendicular_basis(end_point - start_point)
+        if basis is None:
+            return
+        _, side, normal, _ = basis
+        vertices = []
+        normals = []
+        for point in (start_point, end_point):
+            for segment in range(segments):
+                theta = 2.0 * math.pi * segment / segments
+                radial = math.cos(theta) * side + math.sin(theta) * normal
+                vertices.append(point + radius * radial)
+                normals.append(radial)
+        start = self._vertices_with_normals(vertices, normals)
+        self.handle.write(f"o {_safe_name(name)}\nusemtl {material}\ns 1\n")
+
+        def ref(local):
+            index = start + local
+            return f"{index}//{index}"
+
+        for segment in range(segments):
+            next_segment = (segment + 1) % segments
+            self.handle.write(
+                f"f {ref(segment)} {ref(segment + segments)} "
+                f"{ref(next_segment + segments)} {ref(next_segment)}\n"
+            )
+
+    def ribbon(self, name, start_point, end_point, half_width, material):
+        start_point = np.asarray(start_point, dtype=float)
+        end_point = np.asarray(end_point, dtype=float)
+        basis = _perpendicular_basis(end_point - start_point)
+        if basis is None:
+            return
+        _, side, normal, _ = basis
+        vertices = [
+            start_point - side * half_width,
+            start_point + side * half_width,
+            end_point + side * half_width,
+            end_point - side * half_width,
+        ]
+        normals = [normal] * 4
+        start = self._vertices_with_normals(vertices, normals)
+        refs = [f"{start + index}//{start + index}" for index in range(4)]
+        self.handle.write(f"o {_safe_name(name)}\nusemtl {material}\ns off\n")
+        self.handle.write(f"f {' '.join(refs)}\n")
+        self.handle.write(f"f {' '.join(reversed(refs))}\n")
+
+    def line(self, name, start_point, end_point, material):
+        start = self.vertex_index
+        for point in (start_point, end_point):
+            self.handle.write("v {:.9g} {:.9g} {:.9g}\n".format(*point))
+        self.vertex_index += 2
+        self.handle.write(
+            f"o {_safe_name(name)}\nusemtl {material}\nl {start} {start + 1}\n"
+        )
+
+
+def _obj_sphere_resolution(scene, display):
+    count = max(1, len(scene["atoms"]))
+    quality = str(display.get("imageSphereQuality") or "viewport").lower()
+    requested = {
+        "low": (10, 6),
+        "medium": (16, 10),
+        "high": (24, 14),
+        "ultra": (32, 18),
+    }.get(quality, (16, 10))
+    if count > 20_000:
+        return 8, 5
+    if count > 5_000:
+        return min(requested[0], 10), min(requested[1], 6)
+    if count > 1_000:
+        return min(requested[0], 12), min(requested[1], 8)
+    return requested
+
+
+def export_obj_response(session, payload: Dict[str, Any]):
+    scene = _cad_scene_data(session, payload)
+    display = payload.get("display") or {}
+    colors = sorted({
+        item["color"]
+        for collection in (scene["atoms"], scene["bonds"])
+        for item in collection
+    })
+    if scene["cell_edges"]:
+        colors.append(scene["cell_color"])
+        colors = sorted(set(colors))
+    materials = {color: f"v_ase_{color[1:]}" for color in colors}
+    segments, stacks = _obj_sphere_resolution(scene, display)
+
+    workdir = tempfile.mkdtemp(prefix="v_ase_obj_")
+    obj_path = os.path.join(workdir, "v_ase_scene.obj")
+    mtl_path = os.path.join(workdir, "v_ase_scene.mtl")
+    with open(mtl_path, "w", encoding="ascii", newline="\n") as handle:
+        handle.write("# v_ase material library\n")
+        for color in colors:
+            red, green, blue = (channel / 255.0 for channel in _hex_rgb(color))
+            handle.write(
+                f"newmtl {materials[color]}\n"
+                f"Ka {red * 0.18:.6f} {green * 0.18:.6f} {blue * 0.18:.6f}\n"
+                f"Kd {red:.6f} {green:.6f} {blue:.6f}\n"
+                "Ks 0.180000 0.180000 0.180000\nNs 72.000000\nillum 2\n\n"
+            )
+
+    with open(obj_path, "w", encoding="ascii", newline="\n") as handle:
+        handle.write(
+            "# v_ase editable atomistic scene\n"
+            "# Coordinates and radii are in angstrom\n"
+            "mtllib v_ase_scene.mtl\n"
+        )
+        writer = _ObjWriter(handle)
+        for atom in scene["atoms"]:
+            offset = "_".join(map(str, atom["cell_offset"]))
+            writer.sphere(
+                f"atom_{atom['index']}_{atom['label']}_cell_{offset}",
+                atom["position"],
+                atom["radius"],
+                materials[atom["color"]],
+                segments,
+                stacks,
+            )
+        for bond in scene["bonds"]:
+            if bond["style"] == "flat":
+                writer.ribbon(
+                    bond["name"], bond["start"], bond["end"], bond["radius"], materials[bond["color"]]
+                )
+            else:
+                writer.cylinder(
+                    bond["name"], bond["start"], bond["end"], bond["radius"], materials[bond["color"]]
+                )
+        for index, edge in enumerate(scene["cell_edges"]):
+            writer.line(
+                f"cell_edge_{index}",
+                edge["start"],
+                edge["end"],
+                materials[scene["cell_color"]],
+            )
+
+    archive = tempfile.NamedTemporaryFile(delete=False, suffix="_v_ase_obj.zip")
+    archive.close()
+    with zipfile.ZipFile(archive.name, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as bundle:
+        bundle.write(obj_path, arcname="v_ase_scene.obj")
+        bundle.write(mtl_path, arcname="v_ase_scene.mtl")
+    try:
+        os.unlink(obj_path)
+        os.unlink(mtl_path)
+        os.rmdir(workdir)
+    except OSError:
+        pass
+    return FileResponse(archive.name, filename="v_ase_obj_scene.zip", media_type="application/zip")
 
 
 def _blender_script(data: Dict[str, Any]) -> str:

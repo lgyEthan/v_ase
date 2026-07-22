@@ -67,7 +67,8 @@ terminal.
   `FixedPlane`, `FixScaled`, and threshold-aware `Hookean` springs.
 - Preview the exact output frame at the requested pixel aspect ratio, render
   with Modeling, Studio Sun, or Sun + Soft Shadow, then export images, video,
-  POSCAR, a structure-only ASE pickle, or an editable Blender scene script.
+  POSCAR, a structure-only ASE pickle, an editable Blender scene script, Rhino
+  3DM geometry, or a portable OBJ/MTL bundle.
 - Save reusable visual presets as JSON or restore the complete scientific and
   visual working state from a portable `.vase` project.
 
@@ -107,13 +108,14 @@ available in both workflows.
   Å, and wheel zoom updates the value in return. This follows
   [VESTA's live magnification model](https://www.jp-minerals.org/vesta/en/doc/VESTAch11.html)
   and its separation of display magnification from raster-image export.
-- The control panel is organized into Inspect, Structure, Display, and Output
-  sections. It starts collapsed and opens from a compact edge handle, leaving
-  the viewport unobstructed until controls are needed. v_ase remembers the
-  active section, explicit collapsed state, and panel width. `Tab` opens the
-  panel only while it is collapsed. Inside the panel, `Tab` remains normal form
-  navigation; `Esc` commits the active field, closes the panel, and returns
-  keyboard focus to the viewport. Controls inside each category start expanded.
+- The control panel is organized into Inspect, Structure, Display, and
+  Export & Save sections. It starts collapsed and opens from a compact edge
+  handle, leaving the viewport unobstructed until controls are needed. v_ase
+  remembers the active section, explicit collapsed state, and panel width.
+  `Tab` opens the panel only while it is collapsed. Inside the panel, `Tab`
+  remains normal form navigation; `Esc` commits the active field, closes the
+  panel, and returns keyboard focus to the viewport. Controls inside each
+  category start expanded.
 - Viewport lighting is opt-in and its compact rendered-sphere control
   sits in the top toolbar, immediately beside the calculator controls. Its lit
   state adds a clear highlight and ground shadow, while the matte sphere remains
@@ -172,9 +174,10 @@ available in both workflows.
   such as `O_bridge` automatically update the TYPE dropdown, ASE GUI color, and
   default radius. Labels sharing one chemical TYPE share that TYPE's default
   color; per-label colors change only through an explicit Appearance override.
-- Export POSCAR, a current-frame ASE pickle, PNG image, WebM video, and Blender
-  Python scene script. The pickle preserves labels, cell/PBC, constraints,
-  portable atom arrays, and valid `SinglePointCalculator` results, but excludes
+- Export POSCAR, a current-frame ASE pickle, PNG image, WebM video, Blender
+  Python scene script, Rhino 3DM scene, and OBJ/MTL bundle. The pickle preserves
+  labels, cell/PBC, constraints, portable atom arrays, and valid
+  `SinglePointCalculator` results, but excludes
   visualization settings and arbitrary executable calculator objects.
   Image export can keep the live camera direction and magnification while using
   the requested output ratio as its exact crop gate, or use the global View
@@ -189,6 +192,11 @@ available in both workflows.
   source position, target-derived direction, color, and numeric strength used
   in v_ase. Optimized export uses editable point groups and Geometry Nodes;
   individual atom objects remain available as an explicit export mode.
+  Rhino 3DM export uses native spheres, Brep cylinders or flat bond meshes,
+  repeated unit-cell lines, Å model units, layers, materials, and per-object
+  atom metadata. OBJ export needs no extra Python package and downloads a ZIP
+  containing `v_ase_scene.obj` plus `v_ase_scene.mtl` so atom and bond colors
+  survive import.
 - Save Visual Settings as a reusable JSON preset. Matching labels recover their
   appearance and pairwise bond cutoffs, missing labels are ignored, and labels
   new to the opened structure receive ASE-derived defaults.
@@ -215,6 +223,22 @@ python -m pip install -e .
 ```
 
 No conda and no Node.js are required. Three.js is vendored inside the package.
+
+### Optional Packages
+
+Core viewing, editing, Blender/OBJ/image/video export, ASE pickle, POSCAR,
+settings, and `.vase` projects need no package beyond the normal installation.
+Install an extra only for the feature that needs it:
+
+| Feature | Install | When it is needed |
+| --- | --- | --- |
+| Rhino 3DM export | `python -m pip install "v_ase-gui[rhino]"` | Adds `rhino3dm` and enables **Export 3DM**. Without it, v_ase reports the exact install command and leaves all other exports available. |
+| Jupyter integration | `python -m pip install "v_ase-gui[jupyter]"` | Adds Notebook and JupyterLab for notebook workflows; the CLI and Python `view()` API do not require this extra. |
+| Torch acceleration | Follow the [official PyTorch installer](https://pytorch.org/get-started/locally/) for the target CPU/CUDA platform. | Optional acceleration for the interactive fallback repulsion calculator only. It is not used by visualization or any exporter. |
+
+For an editable GitHub checkout, use `python -m pip install -e ".[rhino]"`
+instead. OBJ export is implemented with the Python standard library and has no
+optional dependency.
 
 If pip reports `ERROR: Error while checking for conflicts` after saying
 `Requirement already satisfied: v_ase-gui`, the package is already installed;
@@ -598,6 +622,8 @@ From the right panel:
 - `Export POSCAR`
 - `Export ASE Pickle`
 - `Export Blender`
+- `Export 3DM`
+- `Export OBJ`
 - `Preview Area`
 - `Export Image`
 - `Export Video`
@@ -657,13 +683,33 @@ mode. The active camera and projection are also reproduced.
 
 The Python scene format works even when Blender is not installed in the Python
 environment running v_ase. Run the script in Blender and save it once to obtain
-a native `.blend`. OBJ is a poor primary interchange format here because it
-does not retain the camera, Sun rig, trajectory animation, constraints,
-instancing semantics, or the complete material setup.
+a native `.blend`.
+
+`Export 3DM` is intended for editable CAD handoff. It writes one native sphere
+per displayed atom, editable Brep cylinders or flat meshes for bonds, and unit
+cell curves on separate `Atoms`, `Bonds`, and `Unit Cell` layers. Coordinates
+and document units are Angstrom, label/element/index/cell-offset metadata is
+attached to every atom object, and the current label colors, radii, bond style,
+bond thickness, split/custom colors, visibility, and supercell preview are
+preserved. Install the optional backend first:
+
+```bash
+python -m pip install "v_ase-gui[rhino]"
+```
+
+`Export OBJ` is dependency-free. Because standard OBJ stores color definitions
+in a companion MTL file, v_ase downloads `v_ase_obj_scene.zip` containing both
+`v_ase_scene.obj` and `v_ase_scene.mtl`. Extract both files into the same
+directory before import. Atoms and bond segments are separately named objects,
+with smooth mesh normals, configured radii/thickness/colors, visible supercell
+repetitions, and unit-cell line objects. OBJ is a static geometry interchange
+format: it does not retain the camera, Sun rig, trajectory animation,
+constraints, or Blender instancing semantics. Use Blender export or `.vase`
+when those features matter.
 
 ## Case 9: Save and Restore
 
-The Output workspace separates three different operations:
+The Export & Save workspace separates structure export from two save operations:
 
 - **ASE Pickle (`.pkl`)** stores the current ASE structure for Python reuse:
   coordinates, chemical types and labels, cell/PBC, constraints, portable atom

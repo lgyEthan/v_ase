@@ -46,7 +46,7 @@ def package_version() -> str:
     try:
         return version("v_ase-gui")
     except PackageNotFoundError:
-        return "0.0.68"
+        return "0.0.69"
 
 
 def _json_copy(value: Any) -> Any:

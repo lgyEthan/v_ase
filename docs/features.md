@@ -101,10 +101,11 @@ the selected count, distance, or angle with adjacent distances. Hover metadata
 updates independently as the pointer moves over atoms.
 
 ### Inspector Navigation and Lighting
-The inspector is divided into Inspect, Structure, Display, and Output sections
-instead of one long mixed panel. Interactive-only constraint and relaxation
-controls remain hidden in visualization mode, while Cell & Replication stays
-available. The inspector starts fully collapsed and opens from a compact panel-edge handle.
+The inspector is divided into Inspect, Structure, Display, and Export & Save
+sections instead of one long mixed panel. Interactive-only constraint and
+relaxation controls remain hidden in visualization mode, while Cell &
+Replication stays available. The inspector starts fully collapsed and opens
+from a compact panel-edge handle.
 The edge tab is centered vertically on the panel. Its visible 19 x 38 px surface
 sits inside a transparent 28 x 48 px hit area, balancing legibility with reliable
 mouse and touch interaction. Its 60-degree SVG chevron points toward the next
@@ -182,7 +183,8 @@ oxygen defaults while remaining separate rows for selection, visibility, bonds,
 and optional explicit color/radius overrides.
 
 ### ASE Pickle, Visual Presets, and `.vase` Projects
-Output exposes three intentionally separate save paths:
+Export & Save exposes scientific/geometry exports plus three intentionally
+separate save paths:
 
 - ASE Pickle stores the current ASE `Atoms` structure for Python reuse,
   including coordinates, labels, cell/PBC, constraints, portable atom arrays,
@@ -237,9 +239,10 @@ objects mode remains available when atom-per-object editing is required.
 
 Principled atom/bond/cell materials, the viewport camera, and a real Blender
 `SUN` with source and target Empties are retained. Blender can run the script
-headlessly and save a native `.blend` with `bpy.ops.wm.save_as_mainfile`. OBJ
-would discard camera, constraints, trajectory behavior, instancing semantics,
-and the richer material and lighting state.
+headlessly and save a native `.blend` with `bpy.ops.wm.save_as_mainfile`. The
+separate OBJ/MTL bundle is useful for static geometry exchange, but intentionally
+does not retain camera, constraints, trajectory behavior, instancing semantics,
+or the richer material and lighting state.
 
 ### ASE Constraint Compatibility
 The visualizer respects ASE constraints:
@@ -266,6 +269,8 @@ The visualizer respects ASE constraints:
     - `POST /api/file/load/{session_id}`: Streams a structure, trajectory, or `.vase` project selected in the browser into the active session.
     - `POST /api/export/pickle/{session_id}`: Exports the current ASE structure with valid single-point results, without visualization state or arbitrary calculators.
     - `POST /api/export/blender/{session_id}`: Exports a Blender Python scene.
+    - `POST /api/export/3dm/{session_id}`: Exports native editable Rhino 3DM geometry in Angstrom units. Requires the optional `rhino3dm` package.
+    - `POST /api/export/obj/{session_id}`: Exports a dependency-free ZIP bundle containing OBJ geometry and its MTL color library.
     - `POST /api/settings/save/{session_id}`: Exports reusable visual settings as JSON.
     - `POST /api/settings/load/{session_id}`: Validates and loads JSON settings, with restricted legacy-pickle migration.
     - `POST /api/project/save/{session_id}`: Exports the complete current state as `.vase`.

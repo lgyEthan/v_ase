@@ -696,6 +696,26 @@ export class ASEApi {
         }, { expect: 'blob' });
     }
 
+    async exportCad(format, positions, applyConstraint = true, display = null, bondPairs = null, bondBridges = null) {
+        const body = { positions, apply_constraint: applyConstraint };
+        if (display) body.display = display;
+        if (bondPairs) body.bond_pairs = bondPairs;
+        if (bondBridges) body.bond_bridges = bondBridges;
+        return await this.request(`/api/export/${format}/{session_id}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        }, { expect: 'blob' });
+    }
+
+    async export3dm(positions, applyConstraint = true, display = null, bondPairs = null, bondBridges = null) {
+        return await this.exportCad('3dm', positions, applyConstraint, display, bondPairs, bondBridges);
+    }
+
+    async exportObj(positions, applyConstraint = true, display = null, bondPairs = null, bondBridges = null) {
+        return await this.exportCad('obj', positions, applyConstraint, display, bondPairs, bondBridges);
+    }
+
     async saveVisualSettings(settings) {
         return await this.request(`/api/settings/save/{session_id}`, {
             method: 'POST',

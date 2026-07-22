@@ -1,6 +1,8 @@
 # Runtime dependencies for end users.
 # Tested on Python 3.11 with:
 # ase 3.28.0, fastapi 0.136.1, uvicorn 0.46.0, numpy 2.4.4.
+# Optional Rhino 3DM export: python -m pip install "v_ase-gui[rhino]"
+# OBJ/MTL export uses only the Python standard library.
 ase>=3.23
 fastapi>=0.110
 uvicorn[standard]>=0.29

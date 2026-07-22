@@ -1257,7 +1257,14 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 # Modular endpoints for scientific features
 if FASTAPI_AVAILABLE:
     from .relax import start_relaxation, stop_relaxation
-    from .export import export_blender_response, export_poscar_response, export_pickle_response
+    from .export import (
+        OptionalExportDependencyError,
+        export_3dm_response,
+        export_blender_response,
+        export_obj_response,
+        export_pickle_response,
+        export_poscar_response,
+    )
 
     @app.post("/api/export/poscar/{session_id}")
     async def api_export_poscar(session_id: str, payload: Dict[str, Any]):
@@ -1273,6 +1280,24 @@ if FASTAPI_AVAILABLE:
     async def api_export_blender(session_id: str, payload: Dict[str, Any]):
         session = get_session(session_id)
         return export_blender_response(session, payload)
+
+    @app.post("/api/export/3dm/{session_id}")
+    async def api_export_3dm(session_id: str, payload: Dict[str, Any]):
+        session = get_session(session_id)
+        try:
+            return export_3dm_response(session, payload)
+        except OptionalExportDependencyError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/export/obj/{session_id}")
+    async def api_export_obj(session_id: str, payload: Dict[str, Any]):
+        session = get_session(session_id)
+        try:
+            return export_obj_response(session, payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/relax/start/{session_id}")
     async def api_relax_start(session_id: str, payload: Dict[str, Any], bt: BackgroundTasks):

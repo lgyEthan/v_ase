@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.68&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.68&rev=1';
-import { ASESelection } from './selection.js?v=0.0.68&rev=1';
-import { ASETransform } from './transform.js?v=0.0.68&rev=1';
+import { ASEApi } from './api.js?v=0.0.69&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.69&rev=1';
+import { ASESelection } from './selection.js?v=0.0.69&rev=1';
+import { ASETransform } from './transform.js?v=0.0.69&rev=1';
 
 class VAseApp {
     constructor() {
@@ -558,7 +558,10 @@ class VAseApp {
             panel.classList.toggle('group-hidden', panel.dataset.panelGroup !== next);
         });
         const label = document.getElementById('inspector-context');
-        if (label) label.textContent = next.charAt(0).toUpperCase() + next.slice(1);
+        if (label) {
+            const labels = { output: 'Export & Save' };
+            label.textContent = labels[next] || (next.charAt(0).toUpperCase() + next.slice(1));
+        }
         if (persist) {
             try {
                 window.localStorage?.setItem('v_ase.inspectorGroup', next);
@@ -4427,6 +4430,12 @@ class VAseApp {
         if (lower.endsWith('.py')) {
             return [{ description: 'Python script', accept: { 'text/x-python': ['.py'] } }];
         }
+        if (lower.endsWith('.3dm')) {
+            return [{ description: 'Rhino 3DM scene', accept: { 'model/vnd.3dm': ['.3dm'] } }];
+        }
+        if (lower.endsWith('.zip')) {
+            return [{ description: 'OBJ scene bundle', accept: { 'application/zip': ['.zip'] } }];
+        }
         if (lower.endsWith('.pkl') || lower.endsWith('.pickle')) {
             return [{ description: 'Pickle file', accept: { 'application/octet-stream': ['.pkl', '.pickle'] } }];
         }
@@ -4608,6 +4617,15 @@ class VAseApp {
                 <span>Esc</span><label>Cancel transform, or close the open control panel and return focus to the viewport</label>
                 <span>Ctrl+C / V / Z</span><label>Copy, paste, undo</label>
                 <span>Delete</span><label>Delete selected atoms</label>
+            </div>
+            <h3 class="help-section-title">Geometry Export</h3>
+            <div class="help-save-grid">
+                <strong>Rhino 3DM (.3dm)</strong>
+                <span>Editable native atom, bond, and unit-cell objects in Angstrom units. Requires: python -m pip install "v_ase-gui[rhino]"</span>
+                <strong>OBJ Bundle (.zip)</strong>
+                <span>Dependency-free static geometry with separately named atoms and bonds. Extract the OBJ and MTL into the same directory before import.</span>
+                <strong>Blender Script (.py)</strong>
+                <span>Best for camera, Sun lighting, trajectory animation, bonds, materials, and optimized instancing in Blender.</span>
             </div>
             <h3 class="help-section-title">Saving</h3>
             <div class="help-save-grid">
@@ -5369,6 +5387,46 @@ class VAseApp {
                 if (saved) this.toast('Blender export script saved.', 'success');
             } catch (err) {
                 this.toast(`Blender export failed: ${err.message}`, 'error');
+            }
+        };
+        document.getElementById('btn-export-3dm').onclick = async () => {
+            try {
+                this.applyDisplayOptions();
+                const saved = await this.saveBlobFromAction(
+                    () => this.api.export3dm(
+                        this.backendPositionsPayload(),
+                        this.state.applyConstraints,
+                        this.clonePlain(this.state.display),
+                        this.renderer.bondPairs || [],
+                        this.renderer.supercellBridgeBondRecords || []
+                    ),
+                    'v_ase_scene.3dm',
+                    'model/vnd.3dm',
+                    'Building editable Rhino 3DM scene...'
+                );
+                if (saved) this.toast('Rhino 3DM scene saved.', 'success');
+            } catch (err) {
+                this.toast(`3DM export failed: ${err.message}`, 'error');
+            }
+        };
+        document.getElementById('btn-export-obj').onclick = async () => {
+            try {
+                this.applyDisplayOptions();
+                const saved = await this.saveBlobFromAction(
+                    () => this.api.exportObj(
+                        this.backendPositionsPayload(),
+                        this.state.applyConstraints,
+                        this.clonePlain(this.state.display),
+                        this.renderer.bondPairs || [],
+                        this.renderer.supercellBridgeBondRecords || []
+                    ),
+                    'v_ase_obj_scene.zip',
+                    'application/zip',
+                    'Building OBJ and material bundle...'
+                );
+                if (saved) this.toast('OBJ and MTL bundle saved.', 'success');
+            } catch (err) {
+                this.toast(`OBJ export failed: ${err.message}`, 'error');
             }
         };
         document.getElementById('btn-export-image').onclick = () => {
