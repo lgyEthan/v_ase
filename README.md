@@ -16,32 +16,18 @@ and edited in a real 3D scene. `v_ase` combines those two strengths: an
 `ase gui`-style entry point for scientific files, plus direct 3D editing for
 atomic structures.
 
-It is intended to replace:
-
-```bash
-ase gui FILE
-```
-
-with:
-
-```bash
-v_ase gui FILE
-```
-
-For example:
+It is intended to replace `ase gui` with two clear command forms:
 
 ```bash
 v_ase gui
-v_ase gui POSCAR
-v_ase gui structure.vasp
-v_ase gui movie.extxyz
-v_ase gui relaxation.traj
+v_ase gui [structure-filename]
 ```
 
-Run `v_ase gui` without a filename to open an empty workspace, then use **Open**
-to choose an ASE structure, trajectory, or `.vase` project in the browser. A
-reader selector is available for ambiguous filenames, and a blocking loading
-overlay remains visible until the complete file is ready.
+The first opens an empty workspace and browser file picker. The second opens a
+structure, trajectory, or `.vase` project directly. A reader selector is
+available for ambiguous filenames, and a blocking loading overlay remains
+visible until the complete file is ready. File-specific examples are grouped in
+[Quick Start](#quick-start).
 
 The viewer opens locally in your browser. By default, `v_ase gui [FILE]` starts in
 a lightweight visualization mode for fast inspection, trajectory playback,
@@ -233,7 +219,6 @@ Install an extra only for the feature that needs it:
 | Feature | Install | When it is needed |
 | --- | --- | --- |
 | Rhino 3DM export | `python -m pip install "v_ase-gui[rhino]"` | Adds `rhino3dm` and enables **Export 3DM**. Without it, v_ase reports the exact install command and leaves all other exports available. |
-| Jupyter integration | `python -m pip install "v_ase-gui[jupyter]"` | Adds Notebook and JupyterLab for notebook workflows; the CLI and Python `view()` API do not require this extra. |
 | Torch acceleration | Follow the [official PyTorch installer](https://pytorch.org/get-started/locally/) for the target CPU/CUDA platform. | Optional acceleration for the interactive fallback repulsion calculator only. It is not used by visualization or any exporter. |
 
 For an editable GitHub checkout, use `python -m pip install -e ".[rhino]"`
@@ -257,30 +242,41 @@ environment.
 
 ## Quick Start
 
-Open a structure file:
+### Command Forms
 
 ```bash
 v_ase gui
+v_ase gui [structure-filename]
+```
+
+`v_ase gui` opens an empty workspace where **Open** can load a structure,
+trajectory, or `.vase` project. `v_ase gui [structure-filename]` opens the named
+file immediately.
+
+### Examples
+
+```bash
+# Empty workspace and browser file picker
+v_ase gui
+
+# Static structures
 v_ase gui POSCAR
 v_ase gui structure.vasp
+
+# Trajectories
 v_ase gui trajectory.extxyz
 v_ase gui relaxation.traj
+
+# Saved v_ase project
 v_ase gui project.vase
 ```
 
-The direct file form also works:
-
-```bash
-v_ase POSCAR
-```
-
-`v_ase gui` opens first and lets you choose a structure, trajectory, or `.vase`
-project from the **Open** button. The reader and ASE frame index can be selected
-before loading, including for an extensionless input. Opening another ordinary
-structure or trajectory in the same session retains the current visual setup and
-camera, reconciles label-specific values against the new structure, and assigns
-defaults to newly encountered labels. Opening a `.vase` project instead restores
-that project's complete saved state.
+The reader and ASE frame index can be selected before browser loading, including
+for an extensionless input. Opening another ordinary structure or trajectory in
+the same session retains the current visual setup and camera, reconciles
+label-specific values against the new structure, and assigns defaults to newly
+encountered labels. Opening a `.vase` project instead restores that project's
+complete saved state.
 
 Use from Python:
 

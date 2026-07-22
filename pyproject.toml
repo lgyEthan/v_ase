@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "v_ase-gui"
-version = "0.0.69"
+version = "0.0.70"
 description = "v_ase: a Blender-style browser GUI and editor for ASE Atoms objects."
 readme = "README.md"
 license = "MIT"
@@ -48,10 +48,6 @@ dev = [
   "playwright>=1.40",
   "build>=1.2",
   "twine>=5",
-]
-jupyter = [
-  "notebook>=7",
-  "jupyterlab>=4",
 ]
 rhino = [
   "rhino3dm>=8.0",

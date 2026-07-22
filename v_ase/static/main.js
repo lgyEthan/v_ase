@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.69&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.69&rev=1';
-import { ASESelection } from './selection.js?v=0.0.69&rev=1';
-import { ASETransform } from './transform.js?v=0.0.69&rev=1';
+import { ASEApi } from './api.js?v=0.0.70&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.70&rev=1';
+import { ASESelection } from './selection.js?v=0.0.70&rev=1';
+import { ASETransform } from './transform.js?v=0.0.70&rev=1';
 
 class VAseApp {
     constructor() {
