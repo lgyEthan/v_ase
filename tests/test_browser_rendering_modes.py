@@ -1,3 +1,5 @@
+import base64
+import io
 import math
 import hashlib
 import subprocess
@@ -8,6 +10,7 @@ import pytest
 from ase import Atoms
 from ase.build import molecule
 from ase.io import write
+from PIL import Image
 from playwright._impl._errors import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
@@ -569,8 +572,15 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
 
             physical = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
-                app.state.display.imageFramingMode = 'physical';
-                app.syncImageExportPreview();
+                const profile = app.currentImageExportProfile();
+                app.setImageExportProfile({
+                    ...profile,
+                    options: {
+                        ...profile.options,
+                        scaleMode: 'physical',
+                        pixelsPerAngstrom: 80
+                    }
+                });
                 app.renderer.renderNow();
                 const setup = app.renderer.exportCameraSetup(1600, 800, app.imagePreviewOptions());
                 const camera = setup.camera;
@@ -584,8 +594,10 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
                     projection: app.renderer.lastExportPreview.cameraProjection,
                     directProjection: camera.projectionMatrix.elements.slice()
                 };
-                app.state.display.imageFramingMode = 'viewport';
-                app.syncImageExportPreview();
+                app.setImageExportProfile({
+                    ...profile,
+                    options: { ...profile.options, scaleMode: 'viewport' }
+                });
                 app.renderer.renderNow();
                 return result;
             }""")
@@ -683,6 +695,213 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
             page.click('#btn-preview-image')
             page.wait_for_function("window.__ASE_APP__.renderer.domElement.dataset.exportPreview === 'false'")
             assert page.locator('#export-preview-frame').is_hidden()
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_image_export_modal_is_the_authoritative_retina_preview(tmp_path):
+    atoms = molecule("C6H6")
+    atoms.set_cell([12.0, 12.0, 8.0])
+    atoms.center()
+    atoms.set_pbc(True)
+    atoms = atoms.repeat((2, 2, 1))
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        show_bonds=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            context = browser.new_context(
+                viewport={"width": 1440, "height": 900},
+                device_scale_factor=2,
+                accept_downloads=True,
+            )
+            page = context.new_page()
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 48")
+            _expand_inspector(page)
+            page.click('[data-inspector-group="output"]')
+            page.fill('#image-width', '1280')
+            page.fill('#image-height', '720')
+            page.click('#btn-preview-image')
+            page.wait_for_function(
+                "window.__ASE_APP__.renderer.lastExportPreview?.outputSize?.join(',') === '1280,720'"
+            )
+
+            page.click('#btn-export-image')
+            page.fill('#export-width', '640')
+            page.fill('#export-height', '640')
+            page.uncheck('#export-grid')
+            page.uncheck('#export-axes')
+            page.select_option('#export-sphere-quality', 'medium')
+            page.fill('#export-smoothness-scale', '1.30')
+            page.select_option('#export-render-mode', 'studio-shadow')
+            page.fill('#export-sun-intensity', '3.75')
+            page.fill('#export-sun-position-0', '11.5')
+            page.fill('#export-sun-position-1', '-7.25')
+            page.fill('#export-sun-position-2', '16.0')
+            page.fill('#export-sun-target-0', '1.25')
+            page.fill('#export-sun-target-1', '0.50')
+            page.fill('#export-sun-target-2', '-0.75')
+            page.wait_for_function(
+                "window.__ASE_APP__.renderer.exportPreview?.width === 640 && "
+                "window.__ASE_APP__.renderer.exportPreview?.height === 640 && "
+                "window.__ASE_APP__.renderer.exportPreview?.options?.renderMode === 'studio-shadow'"
+            )
+
+            live = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.renderer.renderNow();
+                return {
+                    panelSize: [
+                        Number(document.getElementById('image-width').value),
+                        Number(document.getElementById('image-height').value)
+                    ],
+                    frameSize: [
+                        Number(document.getElementById('export-preview-frame').dataset.outputWidth),
+                        Number(document.getElementById('export-preview-frame').dataset.outputHeight)
+                    ],
+                    profile: app.state.imageExportProfile,
+                    preview: app.renderer.exportPreview,
+                    previewProjection: app.renderer.lastExportPreview.cameraProjection,
+                    directProjection: app.renderer.exportCameraSetup(
+                        640,
+                        640,
+                        app.state.imageExportProfile.options
+                    ).camera.projectionMatrix.elements.slice()
+                };
+            }""")
+            assert live["panelSize"] == [640, 640]
+            assert live["frameSize"] == [640, 640]
+            assert live["profile"]["width"] == 640
+            assert live["profile"]["height"] == 640
+            assert live["profile"]["options"] == live["preview"]["options"]
+            assert live["profile"]["options"]["includeGrid"] is False
+            assert live["profile"]["options"]["includeAxes"] is False
+            assert live["profile"]["options"]["sphereQuality"] == "medium"
+            assert live["profile"]["options"]["sphereQualityScale"] == pytest.approx(1.3)
+            assert live["profile"]["options"]["renderModeSelection"] == "studio-shadow"
+            assert live["profile"]["options"]["sunIntensity"] == pytest.approx(3.75)
+            assert live["profile"]["options"]["sunPosition"] == pytest.approx([11.5, -7.25, 16.0])
+            assert live["profile"]["options"]["sunTarget"] == pytest.approx([1.25, 0.5, -0.75])
+            assert live["previewProjection"] == pytest.approx(live["directProjection"])
+
+            with page.expect_download(timeout=60_000) as download_info:
+                page.click('#modal-export-image')
+            download = download_info.value
+            output = tmp_path / download.suggested_filename
+            download.save_as(output)
+            page.wait_for_function(
+                "document.getElementById('modal-container').classList.contains('hidden') && "
+                "window.__ASE_APP__.renderer.lastExportPreview?.outputSize?.join(',') === '640,640'"
+            )
+
+            exported = Image.open(output).convert('RGBA')
+            assert exported.size == (640, 640)
+            contract = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.renderer.renderNow();
+                return {
+                    profile: app.state.imageExportProfile,
+                    preview: app.renderer.lastExportPreview,
+                    capture: app.renderer.lastExportCapture
+                };
+            }""")
+            assert contract["capture"]["outputSize"] == [640, 640]
+            assert contract["capture"]["options"] == contract["profile"]["options"]
+            assert contract["preview"]["options"] == contract["profile"]["options"]
+            assert contract["capture"]["cameraProjection"] == pytest.approx(
+                contract["preview"]["cameraProjection"]
+            )
+            assert contract["capture"]["cameraPosition"] == pytest.approx(
+                contract["preview"]["cameraPosition"]
+            )
+            assert contract["capture"]["cameraQuaternion"] == pytest.approx(
+                contract["preview"]["cameraQuaternion"]
+            )
+
+            preview_url = page.evaluate("""async () => {
+                const renderer = window.__ASE_APP__.renderer;
+                renderer.renderNow();
+                const rect = renderer.lastExportPreview.frameRect;
+                const sourceUrl = renderer.domElement.toDataURL('image/png');
+                const source = await new Promise((resolve, reject) => {
+                    const image = new Image();
+                    image.onload = () => resolve(image);
+                    image.onerror = reject;
+                    image.src = sourceUrl;
+                });
+                const ratioX = source.naturalWidth / renderer.domElement.clientWidth;
+                const ratioY = source.naturalHeight / renderer.domElement.clientHeight;
+                const canvas = document.createElement('canvas');
+                canvas.width = 640;
+                canvas.height = 640;
+                const context = canvas.getContext('2d');
+                context.drawImage(
+                    source,
+                    rect.left * ratioX,
+                    rect.top * ratioY,
+                    rect.width * ratioX,
+                    rect.height * ratioY,
+                    0,
+                    0,
+                    640,
+                    640
+                );
+                return canvas.toDataURL('image/png');
+            }""")
+            preview_bytes = base64.b64decode(preview_url.split(',', 1)[1])
+            preview = Image.open(io.BytesIO(preview_bytes)).convert('RGBA')
+            preview_pixels = np.asarray(preview, dtype=np.int16)
+            export_pixels = np.asarray(exported, dtype=np.int16)
+            absolute_difference = np.abs(preview_pixels - export_pixels)
+            assert absolute_difference.mean() < 3.0
+            assert np.quantile(absolute_difference, 0.99) < 24
+
+            page.click('#btn-export-image')
+            page.fill('#export-width', '768')
+            page.fill('#export-height', '432')
+            page.check('#export-transparent')
+            page.select_option('#export-render-mode', 'modeling')
+            page.wait_for_function(
+                "window.__ASE_APP__.renderer.exportPreview?.width === 768 && "
+                "window.__ASE_APP__.renderer.exportPreview?.height === 432 && "
+                "window.__ASE_APP__.renderer.exportPreview?.options?.transparentBackground === true"
+            )
+            with page.expect_download(timeout=60_000) as transparent_download_info:
+                page.click('#modal-export-image')
+            transparent_download = transparent_download_info.value
+            transparent_output = tmp_path / f"transparent-{transparent_download.suggested_filename}"
+            transparent_download.save_as(transparent_output)
+            transparent_image = Image.open(transparent_output).convert('RGBA')
+            assert transparent_image.size == (768, 432)
+            transparent_pixels = np.asarray(transparent_image)
+            assert transparent_pixels[0, 0, 3] == 0
+            transparent_contract = page.evaluate("""() => ({
+                profile: window.__ASE_APP__.state.imageExportProfile,
+                preview: window.__ASE_APP__.renderer.lastExportPreview,
+                capture: window.__ASE_APP__.renderer.lastExportCapture
+            })""")
+            assert transparent_contract["profile"]["options"]["transparentBackground"] is True
+            assert transparent_contract["capture"]["options"] == transparent_contract["profile"]["options"]
+            assert transparent_contract["preview"]["options"] == transparent_contract["profile"]["options"]
+            assert transparent_contract["capture"]["cameraProjection"] == pytest.approx(
+                transparent_contract["preview"]["cameraProjection"]
+            )
+
+            context.close()
             browser.close()
     finally:
         editor.close()

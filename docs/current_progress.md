@@ -1,6 +1,6 @@
 # v_ase Project Specification and Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.71`.
+Last synchronized with implementation: `v_ase-gui 0.0.72`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -397,7 +397,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.71).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.72).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -445,6 +445,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 55**: Added editable Rhino 3DM export behind the optional `rhino3dm` extra, dependency-free OBJ/MTL bundle export, supercell-aware atoms/bonds/cell geometry, and renamed the export workspace to Export & Save.
 *   [x] **Phase 56**: Removed the unnecessary Jupyter application extra; existing notebook embedding continues to use the core IPython dependency. README startup guidance now distinguishes the two supported `v_ase gui` command forms from categorized file examples.
 *   [x] **Phase 57**: Replaced WebM-only movie download with configurable H.264 MOV and MPEG-4 AVI export, shared Preview/PNG/video camera and scene capture, white movie backgrounds, bundled FFmpeg conversion, full-frame browser validation, and a concise user-facing README with regenerated 0.0.71 media.
+*   [x] **Phase 58**: Made one persistent image-export profile authoritative for Preview Area and PNG capture. Every image-dialog option now updates the preview immediately, survives settings/project save, and is verified against downloaded square, landscape, transparent, Studio Sun, soft-shadow, and Retina PNG output.
 
 ---
 

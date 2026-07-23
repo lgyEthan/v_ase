@@ -232,7 +232,9 @@ supercell.
 
 Use **Preview Area** before image or video export. Its fixed frame has the exact
 output aspect ratio; orbiting or zooming changes the structure inside the frame
-without moving the frame itself.
+without moving the frame itself. Image-dialog changes to dimensions, framing,
+grid, axes, transparency, atom smoothness, renderer, and Sun settings update the
+preview immediately; PNG export uses that same profile without recomputing it.
 
 Rhino 3DM export needs one optional package:
 

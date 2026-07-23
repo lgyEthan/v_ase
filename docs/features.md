@@ -80,7 +80,10 @@ different structures directly comparable (`field width in Å = image width in px
 px-per-Å`). Orthographic projection is uniform through depth, while perspective
 uses the camera target plane as its scale reference. Export-only sphere quality
 and a `0.5x`-`2.0x` smoothness multiplier temporarily replace atom geometry for
-the render and then restore the live scene.
+the render and then restore the live scene. The image dialog is authoritative:
+its dimensions, framing, grid/axes, transparency, atom quality, renderer, and
+Sun values update Preview Area immediately and the same profile is passed to
+PNG capture. The profile is retained in visual settings and `.vase` projects.
 
 Orthographic projection is the default view, with perspective available as a
 viewport option. Unit cell, axes, grid, and supercell preview controls are

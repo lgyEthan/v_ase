@@ -225,9 +225,11 @@ def test_image_export_has_exact_preview_and_option_modal_controls():
     assert "export-pixels-per-angstrom" not in main_js
     assert "export-sphere-quality" in main_js
     assert "export-smoothness-scale" in main_js
-    assert "scaleMode: selectedScaleMode" in main_js
-    assert "pixelsPerAngstrom: exportPixelsPerAngstrom" in main_js
-    assert "sphereQualityScale: exportSmoothnessScale" in main_js
+    assert "normalizedImageExportProfile" in main_js
+    assert "setImageExportProfile(readImageProfile())" in main_js
+    assert "const profile = this.state.exportPreviewProfile || this.currentImageExportProfile()" in main_js
+    assert "options: profile.options" in main_js
+    assert "const dataUrl = this.renderer.exportPNG(exportWidth, exportHeight, options)" in main_js
     assert "this.renderer.exportPNG(exportWidth, exportHeight" in main_js
     assert "modalContainer?.addEventListener('pointerdown'" in main_js
     assert "e.stopPropagation()" in main_js

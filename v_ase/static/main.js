@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.71&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.71&rev=1';
-import { ASESelection } from './selection.js?v=0.0.71&rev=1';
-import { ASETransform } from './transform.js?v=0.0.71&rev=1';
+import { ASEApi } from './api.js?v=0.0.72&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.72&rev=1';
+import { ASESelection } from './selection.js?v=0.0.72&rev=1';
+import { ASETransform } from './transform.js?v=0.0.72&rev=1';
 
 class VAseApp {
     constructor() {
@@ -113,6 +113,7 @@ class VAseApp {
             cachedFmax: null,
             displayApplyRequest: null,
             exportPreviewEnabled: false,
+            imageExportProfile: null,
             exportPreviewProfile: null,
             hoverPickTimer: null,
             hoverPointer: null,
@@ -3565,7 +3566,8 @@ class VAseApp {
             antiAliasing: this.state.antiAliasing,
             sphereQuality: this.state.sphereQuality,
             moveIncrement: this.state.moveIncrement,
-            rotateIncrementDeg: this.state.rotateIncrementDeg
+            rotateIncrementDeg: this.state.rotateIncrementDeg,
+            imageExportProfile: this.clonePlain(this.currentImageExportProfile())
         };
     }
 
@@ -3830,6 +3832,12 @@ class VAseApp {
         if ('sphereQuality' in source) this.state.sphereQuality = source.sphereQuality || 'auto';
         if ('moveIncrement' in source) this.state.moveIncrement = Number(source.moveIncrement) || 0;
         if ('rotateIncrementDeg' in source) this.state.rotateIncrementDeg = Number(source.rotateIncrementDeg) || 0;
+        this.state.imageExportProfile = source.imageExportProfile
+            ? this.normalizedImageExportProfile(source.imageExportProfile)
+            : null;
+        if (this.state.imageExportProfile) {
+            this.setImageExportProfile(this.state.imageExportProfile, { syncPreview: false });
+        }
         this.syncDesignControls();
         this.renderElementBondControls({ capture: false });
         this.renderElementRadiusControls();
@@ -3846,6 +3854,7 @@ class VAseApp {
             this.updateBondModeUI();
             this.updateUI();
         }
+        if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
     }
 
     showConfirmModal({ title, intro, items, confirmText = 'Yes', cancelText = 'No', danger = false }) {
@@ -4662,7 +4671,7 @@ class VAseApp {
         return { width, height };
     }
 
-    imagePreviewOptions() {
+    defaultImageExportOptions() {
         const display = this.state.display;
         const pixelsPerAngstrom = Math.max(0.1, Math.min(5000,
             Number(this.renderer.currentPixelsPerAngstrom()) || 100));
@@ -4683,18 +4692,82 @@ class VAseApp {
         };
     }
 
-    syncImageExportPreview() {
-        const profile = this.state.exportPreviewProfile;
+    imagePreviewOptions() {
+        return { ...this.currentImageExportProfile().options };
+    }
+
+    normalizedImageExportProfile(profile = null) {
+        const fallback = this.defaultImageExportOptions();
+        const source = profile?.options || {};
         const dimensions = profile
             ? { width: profile.width, height: profile.height }
             : this.imageOutputDimensions();
-        const { width, height } = dimensions;
+        const renderModeSelection = ['current', 'modeling', 'studio', 'studio-shadow'].includes(
+            source.renderModeSelection
+        ) ? source.renderModeSelection : 'current';
+        const renderMode = renderModeSelection === 'current'
+            ? (this.state.display.lightingMode || 'modeling')
+            : renderModeSelection;
+        const vector = (value, defaultValue) => (
+            Array.isArray(value) && value.length === 3 && value.every(item => Number.isFinite(Number(item)))
+                ? value.map(Number)
+                : [...defaultValue]
+        );
+        return {
+            kind: 'image',
+            width: Math.max(256, Math.round(Number(dimensions.width) || 1920)),
+            height: Math.max(256, Math.round(Number(dimensions.height) || 1080)),
+            options: {
+                transparentBackground: source.transparentBackground ?? fallback.transparentBackground,
+                backgroundColor: source.backgroundColor || fallback.backgroundColor,
+                includeGrid: source.includeGrid ?? fallback.includeGrid,
+                includeAxes: source.includeAxes ?? fallback.includeAxes,
+                scaleMode: source.scaleMode === 'physical' ? 'physical' : 'viewport',
+                pixelsPerAngstrom: Math.max(0.1, Math.min(5000,
+                    Number(source.pixelsPerAngstrom) || fallback.pixelsPerAngstrom)),
+                sphereQuality: ['viewport', 'auto', 'low', 'medium', 'high', 'ultra'].includes(
+                    source.sphereQuality
+                ) ? source.sphereQuality : fallback.sphereQuality,
+                sphereQualityScale: Math.max(0.5, Math.min(2,
+                    Number(source.sphereQualityScale) || fallback.sphereQualityScale)),
+                renderModeSelection,
+                renderMode,
+                sunIntensity: Math.max(0, Number(source.sunIntensity ?? fallback.sunIntensity)),
+                sunPosition: vector(source.sunPosition, fallback.sunPosition),
+                sunTarget: vector(source.sunTarget, fallback.sunTarget)
+            }
+        };
+    }
+
+    currentImageExportProfile() {
+        const profile = this.normalizedImageExportProfile(this.state.imageExportProfile);
+        this.state.imageExportProfile = profile;
+        return profile;
+    }
+
+    setImageExportProfile(profile, { syncInputs = true, syncPreview = true } = {}) {
+        const normalized = this.normalizedImageExportProfile(profile);
+        this.state.imageExportProfile = normalized;
+        this.state.exportPreviewProfile = null;
+        if (syncInputs) {
+            const widthInput = document.getElementById('image-width');
+            const heightInput = document.getElementById('image-height');
+            if (widthInput) widthInput.value = `${normalized.width}`;
+            if (heightInput) heightInput.value = `${normalized.height}`;
+        }
+        if (syncPreview && this.state.exportPreviewEnabled) this.syncImageExportPreview();
+        return normalized;
+    }
+
+    syncImageExportPreview() {
+        const profile = this.state.exportPreviewProfile || this.currentImageExportProfile();
+        const { width, height } = profile;
         const enabled = Boolean(this.state.exportPreviewEnabled && this.state.atoms?.positions?.length);
         this.renderer.setExportPreview({
             enabled,
             width,
             height,
-            options: profile?.options || this.imagePreviewOptions()
+            options: profile.options
         });
         const button = document.getElementById('btn-preview-image');
         if (button) {
@@ -4705,20 +4778,15 @@ class VAseApp {
 
     showExportImageModal() {
         this.state.exportPreviewProfile = null;
+        const initialProfile = this.currentImageExportProfile();
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
-        const width = Math.max(256, parseInt(document.getElementById('image-width').value || '1920', 10));
-        const height = Math.max(256, parseInt(document.getElementById('image-height').value || '1080', 10));
-        const lighting = this.state.display;
-        const position = lighting.sunPosition || [8, -10, 14];
-        const target = lighting.sunTarget || [0, 0, 0];
-        const scaleMode = lighting.imageFramingMode === 'physical' ? 'physical' : 'viewport';
-        const pixelsPerAngstrom = Math.max(0.1, Math.min(5000,
-            Number(this.renderer.currentPixelsPerAngstrom()) || 100));
-        const sphereQuality = ['viewport', 'auto', 'low', 'medium', 'high', 'ultra'].includes(
-            lighting.imageSphereQuality
-        ) ? lighting.imageSphereQuality : 'viewport';
-        const smoothnessScale = Math.max(0.5, Math.min(2,
-            Number(lighting.imageSmoothnessScale) || 1));
+        const { width, height, options: imageOptions } = initialProfile;
+        const position = imageOptions.sunPosition;
+        const target = imageOptions.sunTarget;
+        const scaleMode = imageOptions.scaleMode;
+        const pixelsPerAngstrom = imageOptions.pixelsPerAngstrom;
+        const sphereQuality = imageOptions.sphereQuality;
+        const smoothnessScale = imageOptions.sphereQualityScale;
         const selected = (value, current) => value === current ? 'selected' : '';
         this.showModal(`
             <h2>Export Image</h2>
@@ -4732,15 +4800,15 @@ class VAseApp {
                 </div>
                 <label class="check-row" for="export-transparent">
                     <span>Transparent background</span>
-                    <input type="checkbox" id="export-transparent">
+                    <input type="checkbox" id="export-transparent" ${imageOptions.transparentBackground ? 'checked' : ''}>
                 </label>
                 <label class="check-row" for="export-grid">
                     <span>Include grid</span>
-                    <input type="checkbox" id="export-grid" ${this.state.display.showGrid ? 'checked' : ''}>
+                    <input type="checkbox" id="export-grid" ${imageOptions.includeGrid ? 'checked' : ''}>
                 </label>
                 <label class="check-row" for="export-axes">
                     <span>Include axes</span>
-                    <input type="checkbox" id="export-axes" ${this.state.display.showAxes ? 'checked' : ''}>
+                    <input type="checkbox" id="export-axes" ${imageOptions.includeAxes ? 'checked' : ''}>
                 </label>
                 <div class="export-render-section">
                     <div class="export-section-title">Framing</div>
@@ -4777,13 +4845,13 @@ class VAseApp {
                 <div class="export-grid">
                     <label for="export-render-mode">Renderer</label>
                     <select id="export-render-mode">
-                        <option value="current">Viewport setting</option>
-                        <option value="modeling">Modeling</option>
-                        <option value="studio">Studio Sun</option>
-                        <option value="studio-shadow">Sun + Soft Shadow</option>
+                        <option value="current" ${selected('current', imageOptions.renderModeSelection)}>Viewport setting</option>
+                        <option value="modeling" ${selected('modeling', imageOptions.renderModeSelection)}>Modeling</option>
+                        <option value="studio" ${selected('studio', imageOptions.renderModeSelection)}>Studio Sun</option>
+                        <option value="studio-shadow" ${selected('studio-shadow', imageOptions.renderModeSelection)}>Sun + Soft Shadow</option>
                     </select>
                     <label for="export-sun-intensity">Brightness</label>
-                    <input type="number" id="export-sun-intensity" value="${Number(lighting.sunIntensity ?? 2.2).toFixed(2)}" min="0" max="8" step="0.05">
+                    <input type="number" id="export-sun-intensity" value="${Number(imageOptions.sunIntensity).toFixed(2)}" min="0" max="8" step="0.05">
                 </div>
                 <div class="export-light-vector">
                     <span>Sun position</span>
@@ -4806,12 +4874,44 @@ class VAseApp {
         `);
         document.querySelector('#modal-container .modal')?.classList.add('export-image-modal');
 
+        const readImageProfile = () => {
+            const renderModeSelection = document.getElementById('export-render-mode')?.value || 'current';
+            return this.normalizedImageExportProfile({
+                width: Math.max(256, parseInt(document.getElementById('export-width')?.value || `${width}`, 10)),
+                height: Math.max(256, parseInt(document.getElementById('export-height')?.value || `${height}`, 10)),
+                options: {
+                    transparentBackground: Boolean(document.getElementById('export-transparent')?.checked),
+                    backgroundColor: '#ffffff',
+                    includeGrid: Boolean(document.getElementById('export-grid')?.checked),
+                    includeAxes: Boolean(document.getElementById('export-axes')?.checked),
+                    scaleMode: document.getElementById('export-framing-mode')?.value === 'physical'
+                        ? 'physical'
+                        : 'viewport',
+                    pixelsPerAngstrom: Math.max(0.1, Math.min(5000,
+                        Number(this.renderer.currentPixelsPerAngstrom()) || pixelsPerAngstrom)),
+                    sphereQuality: document.getElementById('export-sphere-quality')?.value || 'viewport',
+                    sphereQualityScale: Math.max(0.5, Math.min(2,
+                        Number(document.getElementById('export-smoothness-scale')?.value) || smoothnessScale)),
+                    renderModeSelection,
+                    renderMode: renderModeSelection === 'current'
+                        ? (this.state.display.lightingMode || 'modeling')
+                        : renderModeSelection,
+                    sunIntensity: Math.max(0,
+                        Number(document.getElementById('export-sun-intensity')?.value) || 0),
+                    sunPosition: [0, 1, 2].map(index =>
+                        Number(document.getElementById(`export-sun-position-${index}`)?.value) || 0),
+                    sunTarget: [0, 1, 2].map(index =>
+                        Number(document.getElementById(`export-sun-target-${index}`)?.value) || 0)
+                }
+            });
+        };
+
         const updateExportSummary = () => {
-            const mode = document.getElementById('export-framing-mode')?.value || 'viewport';
-            const outputWidth = Math.max(256, parseInt(document.getElementById('export-width')?.value || `${width}`, 10));
-            const outputHeight = Math.max(256, parseInt(document.getElementById('export-height')?.value || `${height}`, 10));
-            const ppa = Math.max(0.1, Math.min(5000,
-                Number(this.renderer.currentPixelsPerAngstrom()) || pixelsPerAngstrom));
+            const profile = this.setImageExportProfile(readImageProfile());
+            const mode = profile.options.scaleMode;
+            const outputWidth = profile.width;
+            const outputHeight = profile.height;
+            const ppa = profile.options.pixelsPerAngstrom;
             const scaleNote = document.getElementById('export-scale-note');
             if (scaleNote) {
                 const projectionNote = this.state.display.projectionMode === 'perspective'
@@ -4835,61 +4935,34 @@ class VAseApp {
             );
             const smoothnessNote = document.getElementById('export-smoothness-note');
             if (smoothnessNote) {
-                smoothnessNote.textContent = `${segments} sphere segments at ${multiplier.toFixed(2)}×. This affects only the exported image.`;
+                smoothnessNote.textContent = `${segments} sphere segments at ${multiplier.toFixed(2)}× in both Preview Area and the exported image.`;
             }
         };
-        ['export-width', 'export-height', 'export-smoothness-scale']
+        [
+            'export-width', 'export-height', 'export-smoothness-scale',
+            'export-sun-intensity', 'export-sun-position-0', 'export-sun-position-1',
+            'export-sun-position-2', 'export-sun-target-0', 'export-sun-target-1',
+            'export-sun-target-2'
+        ]
             .forEach(id => document.getElementById(id)?.addEventListener('input', updateExportSummary));
-        ['export-framing-mode', 'export-sphere-quality']
+        [
+            'export-transparent', 'export-grid', 'export-axes', 'export-framing-mode',
+            'export-sphere-quality', 'export-render-mode'
+        ]
             .forEach(id => document.getElementById(id)?.addEventListener('change', updateExportSummary));
         updateExportSummary();
 
         document.getElementById('modal-export-image')?.addEventListener('click', () => {
             try {
-                const exportWidth = Math.max(256, parseInt(document.getElementById('export-width').value || `${width}`, 10));
-                const exportHeight = Math.max(256, parseInt(document.getElementById('export-height').value || `${height}`, 10));
-                const transparentBackground = document.getElementById('export-transparent').checked;
-                const includeGrid = document.getElementById('export-grid').checked;
-                const includeAxes = document.getElementById('export-axes').checked;
-                const selectedRenderMode = document.getElementById('export-render-mode').value;
-                const renderMode = selectedRenderMode === 'current'
-                    ? (this.state.display.lightingMode || 'modeling')
-                    : selectedRenderMode;
-                const sunIntensity = Math.max(0, Number(document.getElementById('export-sun-intensity').value || 2.2));
-                const sunPosition = [0, 1, 2].map(index => Number(document.getElementById(`export-sun-position-${index}`).value || 0));
-                const sunTarget = [0, 1, 2].map(index => Number(document.getElementById(`export-sun-target-${index}`).value || 0));
-                const selectedScaleMode = document.getElementById('export-framing-mode').value === 'physical'
-                    ? 'physical'
-                    : 'viewport';
-                const exportPixelsPerAngstrom = Math.max(0.1, Math.min(5000,
-                    Number(this.renderer.currentPixelsPerAngstrom()) || pixelsPerAngstrom));
-                const exportSphereQuality = document.getElementById('export-sphere-quality').value;
-                const exportSmoothnessScale = Math.max(0.5, Math.min(2,
-                    Number(document.getElementById('export-smoothness-scale').value) || smoothnessScale));
+                const profile = this.setImageExportProfile(readImageProfile());
+                const { width: exportWidth, height: exportHeight, options } = profile;
                 Object.assign(this.state.display, {
-                    imageFramingMode: selectedScaleMode,
-                    atomicScalePixelsPerAngstrom: exportPixelsPerAngstrom,
-                    imageSphereQuality: exportSphereQuality,
-                    imageSmoothnessScale: exportSmoothnessScale
+                    imageFramingMode: options.scaleMode,
+                    atomicScalePixelsPerAngstrom: options.pixelsPerAngstrom,
+                    imageSphereQuality: options.sphereQuality,
+                    imageSmoothnessScale: options.sphereQualityScale
                 });
-                const imageWidthInput = document.getElementById('image-width');
-                const imageHeightInput = document.getElementById('image-height');
-                if (imageWidthInput) imageWidthInput.value = `${exportWidth}`;
-                if (imageHeightInput) imageHeightInput.value = `${exportHeight}`;
-                const dataUrl = this.renderer.exportPNG(exportWidth, exportHeight, {
-                    transparentBackground,
-                    backgroundColor: '#ffffff',
-                    includeGrid,
-                    includeAxes,
-                    scaleMode: selectedScaleMode,
-                    pixelsPerAngstrom: exportPixelsPerAngstrom,
-                    sphereQuality: exportSphereQuality,
-                    sphereQualityScale: exportSmoothnessScale,
-                    renderMode,
-                    sunIntensity,
-                    sunPosition,
-                    sunTarget
-                });
+                const dataUrl = this.renderer.exportPNG(exportWidth, exportHeight, options);
                 this.syncImageExportPreview();
                 this.downloadDataUrl(dataUrl, `v_ase-${exportWidth}x${exportHeight}.png`);
                 this.closeModal();
@@ -5100,6 +5173,10 @@ class VAseApp {
                 this.toast(`Video export failed: ${err.message}`, 'error');
             }
         });
+        document.getElementById('modal-close')?.addEventListener('click', () => {
+            this.state.exportPreviewProfile = null;
+            if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+        }, { once: true });
     }
 
     async exportTrajectoryVideo({ width, height, fps, format, ...renderOptions }) {
@@ -5176,6 +5253,8 @@ class VAseApp {
             if (recorder.state !== 'inactive') recorder.stop();
             if (capture) this.renderer.endExportCapture(capture);
             await this.loadFrame(originalFrame);
+            this.state.exportPreviewProfile = null;
+            if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
             this.clearBusy();
         }
     }
@@ -5615,8 +5694,13 @@ class VAseApp {
         };
         ['image-width', 'image-height'].forEach(id => {
             document.getElementById(id)?.addEventListener('input', () => {
-                this.state.exportPreviewProfile = null;
-                if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+                const dimensions = this.imageOutputDimensions();
+                const profile = this.currentImageExportProfile();
+                this.setImageExportProfile({
+                    ...profile,
+                    width: dimensions.width,
+                    height: dimensions.height
+                }, { syncInputs: false });
             });
         });
         document.getElementById('btn-export-video').onclick = () => {

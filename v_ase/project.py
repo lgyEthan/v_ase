@@ -8,7 +8,6 @@ execute Python objects from an untrusted file.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from importlib.metadata import PackageNotFoundError, version
 import json
 from pathlib import Path
 import tempfile
@@ -22,6 +21,7 @@ from ase.io import read
 from ase.io.trajectory import Trajectory
 import numpy as np
 
+from ._version import __version__
 from .io import atom_type_labels, set_atom_type_labels
 from .repulsion import VAseRepulsionCalculator, copy_calculator, is_vase_repulsion_calculator
 from .session import EditorSession, copy_atoms_with_calc, replace_session_frames
@@ -43,10 +43,7 @@ class VaseProject:
 
 
 def package_version() -> str:
-    try:
-        return version("v_ase-gui")
-    except PackageNotFoundError:
-        return "0.0.71"
+    return __version__
 
 
 def _json_copy(value: Any) -> Any:

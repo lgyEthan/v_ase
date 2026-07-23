@@ -2070,6 +2070,17 @@ export class ASERenderer {
             this.renderRequestId = null;
         }
         const exportView = this.exportCameraSetup(width, height, options);
+        this.lastExportCapture = {
+            outputSize: [exportView.outputWidth, exportView.outputHeight],
+            renderSize: [exportView.renderWidth, exportView.renderHeight],
+            offset: [exportView.offsetX, exportView.offsetY],
+            scaleMode: exportView.scaleMode,
+            pixelsPerAngstrom: exportView.pixelsPerAngstrom,
+            cameraProjection: exportView.camera.projectionMatrix.elements.slice(),
+            cameraPosition: exportView.camera.position.toArray(),
+            cameraQuaternion: exportView.camera.quaternion.toArray(),
+            options: JSON.parse(JSON.stringify(options || {}))
+        };
         const oldSize = new THREE.Vector2();
         this.renderer.getSize(oldSize);
         let capture = null;
@@ -2191,7 +2202,9 @@ export class ASERenderer {
                 scaleMode: exportView.scaleMode,
                 pixelsPerAngstrom: exportView.pixelsPerAngstrom,
                 cameraProjection: exportView.camera.projectionMatrix.elements.slice(),
-                cameraPosition: exportView.camera.position.toArray()
+                cameraPosition: exportView.camera.position.toArray(),
+                cameraQuaternion: exportView.camera.quaternion.toArray(),
+                options: JSON.parse(JSON.stringify(options || {}))
             };
         } finally {
             sceneState.restore();

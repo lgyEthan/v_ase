@@ -6,11 +6,11 @@ import argparse
 import sys
 import time
 from pathlib import Path
-from importlib.metadata import PackageNotFoundError, version
 
 from ase import Atoms
 from ase.io import read, write
 
+from v_ase._version import __version__
 from v_ase.io import (
     read_custom_extxyz,
     read_custom_lammps_data,
@@ -51,10 +51,7 @@ INPUT_FORMAT_ALIASES = {
 
 
 def package_version() -> str:
-    try:
-        return version("v_ase-gui")
-    except PackageNotFoundError:
-        return "0.0.71"
+    return __version__
 
 
 def resolve_input_format(fmt: str | None) -> str | None:

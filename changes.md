@@ -32,6 +32,9 @@ The PyPI distribution is `v_ase-gui`; the Python package and command remain
 - Full-frame output-ratio preview shared by PNG and full-trajectory MOV/AVI
   export, plus POSCAR, ASE pickle, optimized Blender Python, Rhino 3DM, and
   OBJ/MTL scene export.
+- Image dimensions, framing, grid/axes, transparency, atom smoothness,
+  renderer, and Sun controls update one authoritative Preview/PNG profile;
+  the same profile is retained by visual settings and `.vase` projects.
 - Reusable visual-settings JSON and complete validated `.vase` project save/load.
 - Browser Open preserves the active visual settings and camera when replacing an
   ordinary structure or trajectory; `.vase` restores its own complete state.
