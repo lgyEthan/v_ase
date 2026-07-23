@@ -243,9 +243,10 @@ objects mode remains available when atom-per-object editing is required.
 Principled atom/bond/cell materials, the viewport camera, and a real Blender
 `SUN` with source and target Empties are retained. Blender can run the script
 headlessly and save a native `.blend` with `bpy.ops.wm.save_as_mainfile`. The
-separate OBJ/MTL bundle is useful for static geometry exchange, but intentionally
-does not retain camera, constraints, trajectory behavior, instancing semantics,
-or the richer material and lighting state.
+unit cell is optional. The separate OBJ bundle is useful for static geometry
+exchange; its JSON sidecar preserves the v_ase camera and object metadata that
+standard OBJ cannot represent. OBJ still does not retain constraints,
+trajectory behavior, instancing semantics, or the richer lighting state.
 
 ### ASE Constraint Compatibility
 The visualizer respects ASE constraints:
@@ -271,9 +272,9 @@ The visualizer respects ASE constraints:
     - `POST /api/export/poscar/{session_id}`: Exports the current structure as POSCAR.
     - `POST /api/file/load/{session_id}`: Streams a structure, trajectory, or `.vase` project selected in the browser into the active session.
     - `POST /api/export/pickle/{session_id}`: Exports the current ASE structure with valid single-point results, without visualization state or arbitrary calculators.
-    - `POST /api/export/blender/{session_id}`: Exports a Blender Python scene.
-    - `POST /api/export/3dm/{session_id}`: Exports native editable Rhino 3DM geometry in Angstrom units. Requires the optional `rhino3dm` package.
-    - `POST /api/export/obj/{session_id}`: Exports a dependency-free ZIP bundle containing OBJ geometry and its MTL color library.
+    - `POST /api/export/blender/{session_id}`: Exports a Blender Python scene with optional cell geometry.
+    - `POST /api/export/3dm/{session_id}`: Exports instanced Rhino 3DM atoms and logical bonds, optional cell geometry, metadata, and saved camera views in Angstrom units. Requires the optional `rhino3dm` package.
+    - `POST /api/export/obj/{session_id}`: Exports a dependency-free ZIP containing OBJ geometry, MTL colors, and a JSON camera/metadata sidecar.
     - `POST /api/settings/save/{session_id}`: Exports reusable visual settings as JSON.
     - `POST /api/settings/load/{session_id}`: Validates and loads JSON settings, with restricted legacy-pickle migration.
     - `POST /api/project/save/{session_id}`: Exports the complete current state as `.vase`.

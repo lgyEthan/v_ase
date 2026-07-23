@@ -2005,6 +2005,10 @@ export class ASERenderer {
         const oldClearAlpha = this.renderer.getClearAlpha();
         const oldGridVisible = this.gridGroup?.visible;
         const oldAxesVisible = this.axesHelper?.visible;
+        const oldCellVisible = this.cellGroup?.visible;
+        const supercellCellPreviews = (this.supercellGroup?.children || [])
+            .filter(child => child.userData?.supercellCellPreview)
+            .map(child => ({ child, visible: child.visible }));
         const restoreSphereQuality = this.applyExportSphereQuality(
             options.sphereQuality || 'viewport',
             options.sphereQualityScale ?? 1
@@ -2039,6 +2043,9 @@ export class ASERenderer {
         if (this.axesHelper) {
             this.axesHelper.visible = options.includeAxes !== false && this.displayOptions.showAxes;
         }
+        const includeCell = options.includeCell !== false;
+        if (this.cellGroup) this.cellGroup.visible = includeCell;
+        supercellCellPreviews.forEach(({ child }) => { child.visible = includeCell; });
         return {
             requestedMode,
             restore: () => {
@@ -2048,6 +2055,8 @@ export class ASERenderer {
                 this.renderer.setClearColor(oldClearColor, oldClearAlpha);
                 if (this.gridGroup) this.gridGroup.visible = oldGridVisible;
                 if (this.axesHelper) this.axesHelper.visible = oldAxesVisible;
+                if (this.cellGroup) this.cellGroup.visible = oldCellVisible;
+                supercellCellPreviews.forEach(({ child, visible }) => { child.visible = visible; });
             }
         };
     }

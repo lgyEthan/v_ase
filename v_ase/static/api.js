@@ -688,12 +688,13 @@ export class ASEApi {
         }, { expect: 'blob' });
     }
 
-    async exportBlender(positions, applyConstraint = true, camera = null, display = null, bondPairs = null, lighting = null) {
+    async exportBlender(positions, applyConstraint = true, camera = null, display = null, bondPairs = null, lighting = null, includeCell = true) {
         const body = { positions, apply_constraint: applyConstraint };
         if (camera) body.camera = camera;
         if (display) body.display = display;
         if (bondPairs) body.bond_pairs = bondPairs;
         if (lighting) body.lighting = lighting;
+        body.include_cell = includeCell !== false;
         return await this.request(`/api/export/blender/{session_id}`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -701,11 +702,13 @@ export class ASEApi {
         }, { expect: 'blob' });
     }
 
-    async exportCad(format, positions, applyConstraint = true, display = null, bondPairs = null, bondBridges = null) {
+    async exportCad(format, positions, applyConstraint = true, display = null, bondPairs = null, bondBridges = null, camera = null, includeCell = true) {
         const body = { positions, apply_constraint: applyConstraint };
         if (display) body.display = display;
         if (bondPairs) body.bond_pairs = bondPairs;
         if (bondBridges) body.bond_bridges = bondBridges;
+        if (camera) body.camera = camera;
+        body.include_cell = includeCell !== false;
         return await this.request(`/api/export/${format}/{session_id}`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -713,12 +716,12 @@ export class ASEApi {
         }, { expect: 'blob' });
     }
 
-    async export3dm(positions, applyConstraint = true, display = null, bondPairs = null, bondBridges = null) {
-        return await this.exportCad('3dm', positions, applyConstraint, display, bondPairs, bondBridges);
+    async export3dm(positions, applyConstraint = true, display = null, bondPairs = null, bondBridges = null, camera = null, includeCell = true) {
+        return await this.exportCad('3dm', positions, applyConstraint, display, bondPairs, bondBridges, camera, includeCell);
     }
 
-    async exportObj(positions, applyConstraint = true, display = null, bondPairs = null, bondBridges = null) {
-        return await this.exportCad('obj', positions, applyConstraint, display, bondPairs, bondBridges);
+    async exportObj(positions, applyConstraint = true, display = null, bondPairs = null, bondBridges = null, camera = null, includeCell = true) {
+        return await this.exportCad('obj', positions, applyConstraint, display, bondPairs, bondBridges, camera, includeCell);
     }
 
     async transcodeVideo(recording, format = 'mov') {

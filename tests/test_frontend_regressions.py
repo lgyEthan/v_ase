@@ -805,7 +805,24 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
     assert 'bsdf.inputs.get("Base Color")' in script
     assert 'base_color.default_value = rgba' in script
     assert 'scene.render.engine = render_engine' in script
+    assert 'INCLUDE_CELL = bool(DATA.get("include_cell", True))' in script
+    assert 'if INCLUDE_CELL:\n    add_unit_cell(CELL)' in script
     compile(script, "v_ase_blender_scene.py", "exec")
+
+
+def test_export_unit_cell_option_is_shared_across_geometry_and_render_outputs():
+    index_html = (ROOT / "v_ase/static/index.html").read_text()
+    main_js = (ROOT / "v_ase/static/main.js").read_text()
+    api_js = (ROOT / "v_ase/static/api.js").read_text()
+    renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
+
+    assert 'id="export-include-cell"' in index_html
+    assert 'id="export-cell"' in main_js
+    assert 'id="video-cell"' in main_js
+    assert "includeCell: source.includeCell ?? fallback.includeCell" in main_js
+    assert "body.include_cell = includeCell !== false" in api_js
+    assert "const includeCell = options.includeCell !== false" in renderer_js
+    assert "child.userData?.supercellCellPreview" in renderer_js
 
 
 def test_bond_appearance_controls_and_instanced_renderer_contract():

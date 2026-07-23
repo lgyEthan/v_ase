@@ -224,17 +224,23 @@ supercell.
 | Export ASE Pickle | ASE `Atoms` data, labels, constraints, and valid `SinglePointCalculator` results |
 | Export Image | PNG using the requested dimensions and Preview Area crop |
 | Export Video | Complete trajectory as MOV or AVI |
-| Export Blender | Python scene script with atoms, cell, bonds, camera, and Sun settings |
-| Export 3DM | Editable Rhino geometry with atom and bond metadata |
-| Export OBJ | OBJ/MTL scene bundle in a ZIP file |
+| Export Blender | Python scene script with atoms, optional cell, bonds, camera, Sun settings, and trajectory animation |
+| Export 3DM | Instanced Rhino geometry with atom/bond metadata and saved camera views |
+| Export OBJ | OBJ/MTL geometry plus a camera/metadata JSON sidecar in one ZIP |
 | Save Project | Complete structure, trajectory, edits, labels, and visual state in `.vase` |
 | Save Settings | Reusable appearance, bonds, camera, lighting, quality, and supercell settings in JSON |
 
 Use **Preview Area** before image or video export. Its fixed frame has the exact
 output aspect ratio; orbiting or zooming changes the structure inside the frame
 without moving the frame itself. Image-dialog changes to dimensions, framing,
-grid, axes, transparency, atom smoothness, renderer, and Sun settings update the
-preview immediately; PNG export uses that same profile without recomputing it.
+grid, axes, unit cell, transparency, atom smoothness, renderer, and Sun settings
+update the preview immediately; PNG export uses that same profile without
+recomputing it. **Include unit cell** independently controls cell geometry in
+Blender, 3DM, OBJ, image, and video output, regardless of the live View toggle.
+
+`.vase` projects are self-contained: the complete structure or trajectory is
+stored inside the project together with labels and visual settings. The original
+input file is not required when the project is opened again.
 
 Rhino 3DM export needs one optional package:
 
@@ -242,7 +248,9 @@ Rhino 3DM export needs one optional package:
 python -m pip install "v_ase-gui[rhino]"
 ```
 
-OBJ export needs no optional dependency.
+OBJ export needs no optional dependency. Keep the extracted `.obj`, `.mtl`, and
+`.json` files together; the JSON sidecar preserves the v_ase camera and object
+metadata that the OBJ standard cannot store itself.
 
 ## Python
 

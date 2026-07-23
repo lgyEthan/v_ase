@@ -735,12 +735,17 @@ def test_image_export_modal_is_the_authoritative_retina_preview(tmp_path):
             page.click('[data-inspector-group="output"]')
             page.fill('#image-width', '1280')
             page.fill('#image-height', '720')
+            page.uncheck('#export-include-cell')
+            page.wait_for_function(
+                "window.__ASE_APP__.state.imageExportProfile?.options?.includeCell === false"
+            )
             page.click('#btn-preview-image')
             page.wait_for_function(
                 "window.__ASE_APP__.renderer.lastExportPreview?.outputSize?.join(',') === '1280,720'"
             )
 
             page.click('#btn-export-image')
+            assert page.locator('#export-cell').is_checked() is False
             page.fill('#export-width', '640')
             page.fill('#export-height', '640')
             page.uncheck('#export-grid')
@@ -763,6 +768,10 @@ def test_image_export_modal_is_the_authoritative_retina_preview(tmp_path):
 
             live = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
+                const cellVisibleBefore = app.renderer.cellGroup.visible;
+                const sceneState = app.renderer.beginExportScene(app.state.imageExportProfile.options);
+                const cellVisibleDuring = app.renderer.cellGroup.visible;
+                sceneState.restore();
                 app.renderer.renderNow();
                 return {
                     panelSize: [
@@ -780,7 +789,12 @@ def test_image_export_modal_is_the_authoritative_retina_preview(tmp_path):
                         640,
                         640,
                         app.state.imageExportProfile.options
-                    ).camera.projectionMatrix.elements.slice()
+                    ).camera.projectionMatrix.elements.slice(),
+                    cellVisibility: [
+                        cellVisibleBefore,
+                        cellVisibleDuring,
+                        app.renderer.cellGroup.visible
+                    ]
                 };
             }""")
             assert live["panelSize"] == [640, 640]
@@ -790,6 +804,8 @@ def test_image_export_modal_is_the_authoritative_retina_preview(tmp_path):
             assert live["profile"]["options"] == live["preview"]["options"]
             assert live["profile"]["options"]["includeGrid"] is False
             assert live["profile"]["options"]["includeAxes"] is False
+            assert live["profile"]["options"]["includeCell"] is False
+            assert live["cellVisibility"] == [True, False, True]
             assert live["profile"]["options"]["sphereQuality"] == "medium"
             assert live["profile"]["options"]["sphereQualityScale"] == pytest.approx(1.3)
             assert live["profile"]["options"]["renderModeSelection"] == "studio-shadow"

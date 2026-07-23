@@ -133,13 +133,15 @@ The browser UI talks to a local FastAPI server bound to `127.0.0.1`.
   including labels, cell/PBC, constraints, portable arrays, and only valid
   `SinglePointCalculator` results. Visualization state and arbitrary calculator
   implementations are excluded.
-- `POST /api/export/blender/{session_id}`: Exports a Blender Python scene.
+- `POST /api/export/blender/{session_id}`: Exports a Blender Python scene with optional unit-cell geometry.
 - `POST /api/export/3dm/{session_id}`: Exports an editable Rhino 3DM scene with
-  atom/bond/cell layers, materials, and Angstrom document units. This endpoint
-  returns a clear `503` install instruction when the optional `rhino3dm`
-  dependency is unavailable.
+  instanced atoms and logical bonds, optional cell geometry, per-object
+  metadata, saved document/named camera views, and Angstrom document units.
+  Bond thickness is a diameter. This endpoint returns a clear `503` install
+  instruction when the optional `rhino3dm` dependency is unavailable.
 - `POST /api/export/obj/{session_id}`: Exports a ZIP containing
-  `v_ase_scene.obj` and `v_ase_scene.mtl`. No optional dependency is required.
+  `v_ase_scene.obj`, `v_ase_scene.mtl`, and `v_ase_scene.json`. The sidecar
+  stores camera and object metadata; no optional dependency is required.
 - `POST /api/settings/save/{session_id}`: Exports a reusable JSON visual preset.
 - `POST /api/settings/load/{session_id}`: Loads and validates JSON visual settings. Restricted legacy pickle files are accepted only for migration and cannot resolve global Python objects.
 - `POST /api/project/save/{session_id}`: Exports the complete current structure or trajectory and visual setup as a `.vase` project.

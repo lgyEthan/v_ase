@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.72&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.72&rev=1';
-import { ASESelection } from './selection.js?v=0.0.72&rev=1';
-import { ASETransform } from './transform.js?v=0.0.72&rev=1';
+import { ASEApi } from './api.js?v=0.0.73&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.73&rev=1';
+import { ASESelection } from './selection.js?v=0.0.73&rev=1';
+import { ASETransform } from './transform.js?v=0.0.73&rev=1';
 
 class VAseApp {
     constructor() {
@@ -67,6 +67,7 @@ class VAseApp {
                 sunTarget: [0, 0, 0],
                 sunGizmo: false,
                 blenderExportMode: 'instanced',
+                exportIncludeCell: true,
                 imageFramingMode: 'viewport',
                 atomicScalePixelsPerAngstrom: null,
                 imageSphereQuality: 'viewport',
@@ -1645,6 +1646,7 @@ class VAseApp {
     currentCameraForExport() {
         const camera = this.renderer.camera;
         const controls = this.renderer.controls;
+        const canvas = this.renderer.domElement;
         camera.updateMatrixWorld();
         return {
             position: [camera.position.x, camera.position.y, camera.position.z],
@@ -1655,7 +1657,8 @@ class VAseApp {
             zoom: camera.zoom || 1,
             ortho_scale: camera.isOrthographicCamera ? (camera.top - camera.bottom) / Math.max(camera.zoom || 1, 1e-6) : null,
             near: camera.near,
-            far: camera.far
+            far: camera.far,
+            aspect: Math.max(1, canvas?.clientWidth || 1) / Math.max(1, canvas?.clientHeight || 1)
         };
     }
 
@@ -3499,6 +3502,7 @@ class VAseApp {
         this.state.display.showGrid = document.getElementById('chk-grid').checked;
         this.state.display.showOverlays = document.getElementById('chk-overlays')?.checked !== false;
         this.state.display.showPeriodicBonds = Boolean(document.getElementById('chk-periodic-bonds')?.checked);
+        this.state.display.exportIncludeCell = document.getElementById('export-include-cell')?.checked !== false;
         this.state.display.projectionMode = document.getElementById('projection-mode')?.value || 'perspective';
         this.state.applyConstraints = document.getElementById('chk-constraints').checked;
         this.state.antiAliasing = document.getElementById('chk-antialias').checked;
@@ -3619,6 +3623,7 @@ class VAseApp {
         setChecked('chk-grid', display.showGrid);
         setChecked('chk-overlays', display.showOverlays !== false);
         setChecked('chk-periodic-bonds', display.showPeriodicBonds);
+        setChecked('export-include-cell', display.exportIncludeCell !== false);
         setValue('projection-mode', display.projectionMode || 'perspective');
         const atomicScale = Number(display.atomicScalePixelsPerAngstrom);
         if (Number.isFinite(atomicScale) && atomicScale > 0) {
@@ -4647,9 +4652,9 @@ class VAseApp {
             <h3 class="help-section-title">Geometry Export</h3>
             <div class="help-save-grid">
                 <strong>Rhino 3DM (.3dm)</strong>
-                <span>Editable native atom, bond, and unit-cell objects in Angstrom units. Requires: python -m pip install "v_ase-gui[rhino]"</span>
+                <span>Editable instanced atoms and bonds, optional unit-cell layers, and saved camera views in Angstrom units. Requires: python -m pip install "v_ase-gui[rhino]"</span>
                 <strong>OBJ Bundle (.zip)</strong>
-                <span>Dependency-free static geometry with separately named atoms and bonds. Extract the OBJ and MTL into the same directory before import.</span>
+                <span>Dependency-free static geometry with separately named atoms and bonds. Extract the OBJ, MTL, and camera/metadata JSON into the same directory.</span>
                 <strong>Blender Script (.py)</strong>
                 <span>Best for camera, Sun lighting, trajectory animation, bonds, materials, and optimized instancing in Blender.</span>
             </div>
@@ -4680,6 +4685,7 @@ class VAseApp {
             backgroundColor: '#ffffff',
             includeGrid: display.showGrid !== false,
             includeAxes: display.showAxes !== false,
+            includeCell: display.exportIncludeCell !== false,
             scaleMode: display.imageFramingMode === 'physical' ? 'physical' : 'viewport',
             pixelsPerAngstrom,
             sphereQuality: display.imageSphereQuality || 'viewport',
@@ -4722,6 +4728,7 @@ class VAseApp {
                 backgroundColor: source.backgroundColor || fallback.backgroundColor,
                 includeGrid: source.includeGrid ?? fallback.includeGrid,
                 includeAxes: source.includeAxes ?? fallback.includeAxes,
+                includeCell: source.includeCell ?? fallback.includeCell,
                 scaleMode: source.scaleMode === 'physical' ? 'physical' : 'viewport',
                 pixelsPerAngstrom: Math.max(0.1, Math.min(5000,
                     Number(source.pixelsPerAngstrom) || fallback.pixelsPerAngstrom)),
@@ -4810,6 +4817,10 @@ class VAseApp {
                     <span>Include axes</span>
                     <input type="checkbox" id="export-axes" ${imageOptions.includeAxes ? 'checked' : ''}>
                 </label>
+                <label class="check-row" for="export-cell">
+                    <span>Include unit cell</span>
+                    <input type="checkbox" id="export-cell" ${imageOptions.includeCell ? 'checked' : ''}>
+                </label>
                 <div class="export-render-section">
                     <div class="export-section-title">Framing</div>
                     <div class="export-grid">
@@ -4884,6 +4895,7 @@ class VAseApp {
                     backgroundColor: '#ffffff',
                     includeGrid: Boolean(document.getElementById('export-grid')?.checked),
                     includeAxes: Boolean(document.getElementById('export-axes')?.checked),
+                    includeCell: Boolean(document.getElementById('export-cell')?.checked),
                     scaleMode: document.getElementById('export-framing-mode')?.value === 'physical'
                         ? 'physical'
                         : 'viewport',
@@ -4946,7 +4958,7 @@ class VAseApp {
         ]
             .forEach(id => document.getElementById(id)?.addEventListener('input', updateExportSummary));
         [
-            'export-transparent', 'export-grid', 'export-axes', 'export-framing-mode',
+            'export-transparent', 'export-grid', 'export-axes', 'export-cell', 'export-framing-mode',
             'export-sphere-quality', 'export-render-mode'
         ]
             .forEach(id => document.getElementById(id)?.addEventListener('change', updateExportSummary));
@@ -5023,6 +5035,10 @@ class VAseApp {
                     <label class="check-row" for="video-axes">
                         <span>Include axes</span>
                         <input type="checkbox" id="video-axes" ${this.state.display.showAxes ? 'checked' : ''}>
+                    </label>
+                    <label class="check-row" for="video-cell">
+                        <span>Include unit cell</span>
+                        <input type="checkbox" id="video-cell" ${this.state.display.exportIncludeCell !== false ? 'checked' : ''}>
                     </label>
                     <div class="export-render-section">
                         <div class="export-section-title">Framing</div>
@@ -5107,6 +5123,7 @@ class VAseApp {
                 backgroundColor: '#ffffff',
                 includeGrid: Boolean(document.getElementById('video-grid')?.checked),
                 includeAxes: Boolean(document.getElementById('video-axes')?.checked),
+                includeCell: Boolean(document.getElementById('video-cell')?.checked),
                 scaleMode: document.getElementById('video-framing-mode')?.value === 'physical'
                     ? 'physical'
                     : 'viewport',
@@ -5148,7 +5165,7 @@ class VAseApp {
             'video-sun-target-2'
         ].forEach(id => document.getElementById(id)?.addEventListener('input', updateVideoPreview));
         [
-            'video-format', 'video-grid', 'video-axes', 'video-framing-mode',
+            'video-format', 'video-grid', 'video-axes', 'video-cell', 'video-framing-mode',
             'video-sphere-quality', 'video-render-mode'
         ].forEach(id => document.getElementById(id)?.addEventListener('change', updateVideoPreview));
         updateVideoPreview();
@@ -5633,7 +5650,8 @@ class VAseApp {
                         this.currentCameraForExport(),
                         this.clonePlain(this.state.display),
                         this.renderer.bondPairs || [],
-                        this.currentLightingForExport()
+                        this.currentLightingForExport(),
+                        this.state.display.exportIncludeCell !== false
                     ),
                     'v_ase_blender_scene.py',
                     'text/x-python',
@@ -5653,7 +5671,9 @@ class VAseApp {
                         this.state.applyConstraints,
                         this.clonePlain(this.state.display),
                         this.renderer.bondPairs || [],
-                        this.renderer.supercellBridgeBondRecords || []
+                        this.renderer.supercellBridgeBondRecords || [],
+                        this.currentCameraForExport(),
+                        this.state.display.exportIncludeCell !== false
                     ),
                     'v_ase_scene.3dm',
                     'model/vnd.3dm',
@@ -5673,13 +5693,15 @@ class VAseApp {
                         this.state.applyConstraints,
                         this.clonePlain(this.state.display),
                         this.renderer.bondPairs || [],
-                        this.renderer.supercellBridgeBondRecords || []
+                        this.renderer.supercellBridgeBondRecords || [],
+                        this.currentCameraForExport(),
+                        this.state.display.exportIncludeCell !== false
                     ),
                     'v_ase_obj_scene.zip',
                     'application/zip',
-                    'Building OBJ and material bundle...'
+                    'Building OBJ scene and metadata bundle...'
                 );
-                if (saved) this.toast('OBJ and MTL bundle saved.', 'success');
+                if (saved) this.toast('OBJ scene bundle saved.', 'success');
             } catch (err) {
                 this.toast(`OBJ export failed: ${err.message}`, 'error');
             }
@@ -5835,6 +5857,14 @@ class VAseApp {
         document.getElementById('bond-cutoff').oninput = () => this.safeApplyDisplayOptions();
         document.getElementById('bond-style').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('blender-export-mode').onchange = () => this.safeApplyDisplayOptions();
+        document.getElementById('export-include-cell').onchange = event => {
+            const includeCell = event.target.checked;
+            this.state.display.exportIncludeCell = includeCell;
+            const profile = this.currentImageExportProfile();
+            profile.options.includeCell = includeCell;
+            this.setImageExportProfile(profile);
+            this.safeApplyDisplayOptions();
+        };
         document.getElementById('bond-thickness').oninput = () => {
             this.updateBondAppearanceUI();
             this.safeApplyDisplayOptions();

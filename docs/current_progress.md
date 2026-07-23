@@ -1,6 +1,6 @@
 # v_ase Project Specification and Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.72`.
+Last synchronized with implementation: `v_ase-gui 0.0.73`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -244,7 +244,7 @@ possible, and update the frontend state. This behavior is covered by
     `SinglePointCalculator` when present. Visualization state and arbitrary
     executable calculator implementations are excluded.
 *   **PNG Image**: Export options include resolution, transparent background,
-    grid, axes, exact live-viewport composition, the global Viewport `Atomic scale`,
+    grid, axes, unit-cell visibility, exact live-viewport composition, the global Viewport `Atomic scale`,
     and export-only sphere quality plus a `0.5x`-`2.0x` smoothness multiplier.
     Export & Save also provides a demand-rendered, screen-fixed preview frame whose
     aspect follows the requested image dimensions. It reuses the PNG camera and
@@ -261,22 +261,25 @@ possible, and update the frontend state. This behavior is covered by
     parallel directional rays; its shadow camera is centered and fitted to the
     complete visible structure so large and off-origin models do not cross a
     finite shadow-frustum boundary.
-*   **MOV/AVI Video**: Every loaded trajectory frame uses the same cloned camera, crop, lighting, and sphere-quality path as Preview Area and PNG. Browser WebM capture is converted to H.264 MOV or MPEG-4 AVI with a bundled cross-platform FFmpeg runtime; movie backgrounds are white.
+*   **MOV/AVI Video**: Every loaded trajectory frame uses the same cloned camera, crop, lighting, sphere-quality, and unit-cell visibility path as Preview Area and PNG. Browser WebM capture is converted to H.264 MOV or MPEG-4 AVI with a bundled cross-platform FFmpeg runtime; movie backgrounds are white.
 *   **Blender Script**: Optimized mode groups atoms into editable point meshes
     by label and uses Geometry Nodes for smooth sphere instancing. Trajectories
-    use point-mesh shape keys, bonds are grouped by material, and the unit cell
-    is one multi-spline curve. Individual atom objects remain an opt-in mode.
+    use point-mesh shape keys, bonds are grouped by material, and the optional
+    unit cell is one multi-spline curve. Individual atom objects remain an opt-in mode.
     The current camera and a Blender Sun rig preserve source, target-derived
     direction, color, and numeric energy. Blender can run the script and save a
     native `.blend`.
-*   **Rhino 3DM**: Optional `rhino3dm` export writes native spheres, editable
-    bond geometry, and unit-cell curves into named `Atoms`, `Bonds`, and
-    `Unit Cell` layers. Model units are Angstroms; atom identity, element,
-    label, and supercell offset remain attached as object metadata.
+*   **Rhino 3DM**: Optional `rhino3dm` export writes reusable sphere and
+    split-color bond definitions with individually addressable instance
+    references, plus optional unit-cell curves in named layers. Bond thickness
+    is consistently treated as a diameter. Model units are Angstroms; atom
+    identity, element, label, and supercell offset remain attached as object
+    metadata. The current camera is stored as both a document view and named view.
 *   **OBJ Bundle**: Dependency-free static geometry export downloads a ZIP with
-    `v_ase_scene.obj` and `v_ase_scene.mtl`. Atoms, bonds, and cell edges are
-    named independently and retain configured colors. OBJ intentionally does
-    not carry the live camera, Sun rig, trajectory, constraints, or instancing.
+    `v_ase_scene.obj`, `v_ase_scene.mtl`, and `v_ase_scene.json`. Atoms, bonds,
+    and optional cell edges are named independently and retain configured colors;
+    bond diameter matches the viewport. The JSON sidecar stores camera and v_ase
+    metadata because standard OBJ has no camera or instancing model.
 
 ### Save Formats
 *   **ASE Pickle**: Current-frame Python interchange for ASE structure data,
@@ -374,9 +377,9 @@ method is recorded in `docs/performance.md`.
 *   `POST /api/export/poscar/{session_id}`: Export POSCAR.
 *   `POST /api/file/load/{session_id}`: Stream and replace the active document.
 *   `POST /api/export/pickle/{session_id}`: Export current ASE structure data with valid single-point results.
-*   `POST /api/export/blender/{session_id}`: Export a Blender Python scene.
-*   `POST /api/export/3dm/{session_id}`: Export editable Rhino 3DM geometry; returns HTTP 503 with an install command when `rhino3dm` is unavailable.
-*   `POST /api/export/obj/{session_id}`: Export a dependency-free OBJ/MTL ZIP bundle.
+*   `POST /api/export/blender/{session_id}`: Export a Blender Python scene with optional cell geometry.
+*   `POST /api/export/3dm/{session_id}`: Export instanced Rhino geometry with metadata and saved camera views; returns HTTP 503 with an install command when `rhino3dm` is unavailable.
+*   `POST /api/export/obj/{session_id}`: Export a dependency-free OBJ/MTL/JSON ZIP bundle.
 *   `POST /api/settings/save/{session_id}`: Export reusable visual settings JSON.
 *   `POST /api/settings/load/{session_id}`: Load validated JSON or restricted legacy settings.
 *   `POST /api/project/save/{session_id}`: Export the complete session as `.vase`.
@@ -397,7 +400,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.72).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.73).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -446,6 +449,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 56**: Removed the unnecessary Jupyter application extra; existing notebook embedding continues to use the core IPython dependency. README startup guidance now distinguishes the two supported `v_ase gui` command forms from categorized file examples.
 *   [x] **Phase 57**: Replaced WebM-only movie download with configurable H.264 MOV and MPEG-4 AVI export, shared Preview/PNG/video camera and scene capture, white movie backgrounds, bundled FFmpeg conversion, full-frame browser validation, and a concise user-facing README with regenerated 0.0.71 media.
 *   [x] **Phase 58**: Made one persistent image-export profile authoritative for Preview Area and PNG capture. Every image-dialog option now updates the preview immediately, survives settings/project save, and is verified against downloaded square, landscape, transparent, Studio Sun, soft-shadow, and Retina PNG output.
+*   [x] **Phase 59**: Unified optional unit-cell visibility across Blender, 3DM, OBJ, PNG, and video export; corrected CAD bond diameter semantics; added Rhino document/named camera views and block instancing; added an OBJ camera/metadata sidecar; and made large pairwise-cutoff CAD export use a spatial neighbor search.
 
 ---
 

@@ -3,6 +3,7 @@ from typing import Dict, Any
 from ase.io import write
 from ase.calculators.singlepoint import SinglePointCalculator
 import copy
+import json
 import math
 import os
 import re
@@ -259,14 +260,53 @@ def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs
             if 0 <= i < len(symbols) and 0 <= j < len(symbols) and i != j:
                 pairs.append((min(i, j), max(i, j)))
     else:
-        max_atoms = 3500
-        if len(symbols) > max_atoms:
-            return []
-        for i in range(len(symbols)):
-            for j in range(i + 1, len(symbols)):
-                delta = bond_delta(i, j)
-                if float(np.linalg.norm(delta)) <= cutoff(i, j):
-                    pairs.append((i, j))
+        if display.get("bondMode") == "element":
+            candidates = []
+            for value in (display.get("elementBondCutoffs") or {}).values():
+                try:
+                    parsed = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if np.isfinite(parsed) and parsed > 0:
+                    candidates.append(parsed)
+            search_radius = max(candidates, default=0.0)
+        else:
+            scale = float(display.get("bondCutoffScale") or 1.0)
+            search_radius = max(
+                1.2 * max(vdw, default=0.0) * scale,
+                (2.0 * max(covalent, default=0.75) + 0.4) * scale,
+            )
+
+        candidate_pairs = []
+        if search_radius > 0 and len(symbols) > 1:
+            if include_periodic_images and any(pbc):
+                from ase import Atoms
+                from ase.neighborlist import neighbor_list
+
+                probe = Atoms(
+                    numbers=np.ones(len(symbols), dtype=int),
+                    positions=positions,
+                    cell=cell,
+                    pbc=pbc,
+                )
+                first, second = neighbor_list("ij", probe, search_radius, self_interaction=False)
+                candidate_pairs = sorted({
+                    (min(int(i), int(j)), max(int(i), int(j)))
+                    for i, j in zip(first, second)
+                    if int(i) != int(j)
+                })
+            else:
+                from scipy.spatial import cKDTree
+
+                candidate_pairs = cKDTree(positions).query_pairs(
+                    search_radius,
+                    output_type="ndarray",
+                )
+        for i, j in candidate_pairs:
+            i, j = int(i), int(j)
+            delta = bond_delta(i, j)
+            if float(np.linalg.norm(delta)) <= cutoff(i, j):
+                pairs.append((i, j))
 
     seen = set()
     bonds = []
@@ -418,10 +458,11 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
     color_mode = display.get("bondColorMode", "split")
     custom_bond_color = _valid_hex_color(display.get("bondCustomColor"), "#c8ccd0")
     try:
-        bond_radius = float(display.get("bondThickness", 0.11))
+        bond_diameter = float(display.get("bondThickness", 0.11))
     except (TypeError, ValueError):
-        bond_radius = 0.11
-    bond_radius = max(0.02, min(0.6, bond_radius))
+        bond_diameter = 0.11
+    bond_diameter = max(0.02, min(0.6, bond_diameter))
+    bond_radius = bond_diameter * 0.5
     bond_style = "flat" if display.get("bondStyle") == "flat" else "cylinder"
 
     def atom_color(index):
@@ -444,6 +485,7 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
                 (0.5, 1.0, atom_color(j), "b"),
             )
         delta = end - start
+        logical_name = f"bond_{i}_{j}_{suffix}"
         for t0, t1, color, half in segments:
             bond_specs.append({
                 "i": int(i),
@@ -451,9 +493,14 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
                 "start": (start + delta * t0).tolist(),
                 "end": (start + delta * t1).tolist(),
                 "radius": bond_radius,
+                "diameter": bond_diameter,
                 "style": bond_style,
                 "color": color,
-                "name": f"bond_{i}_{j}_{suffix}_{half}",
+                "name": f"{logical_name}_{half}",
+                "logical_name": logical_name,
+                "segment": half,
+                "full_start": start.tolist(),
+                "full_end": end.tolist(),
             })
 
     base_bonds = _display_bonds(data, display, payload.get("bond_pairs"))
@@ -482,11 +529,16 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
             end = positions[j] + _offset_vector(end_offset, cell)
             add_bond(i, j, start, end, "bridge_" + "_".join(map(str, offset)))
 
+    include_cell = payload.get("include_cell")
+    if include_cell is None:
+        include_cell = display.get("showCell", True)
     return {
         "atoms": atom_specs,
         "bonds": bond_specs,
-        "cell_edges": _scene_cell_edges(cell, repetitions) if display.get("showCell", True) else [],
+        "cell_edges": _scene_cell_edges(cell, repetitions) if include_cell else [],
         "cell_color": "#d6bd67",
+        "camera": copy.deepcopy(payload.get("camera") or {}),
+        "include_cell": bool(include_cell),
         "repetitions": repetitions,
         "units": "angstrom",
     }
@@ -517,6 +569,122 @@ def _perpendicular_basis(direction):
     side /= max(float(np.linalg.norm(side)), 1e-12)
     normal = np.cross(axis, side)
     return axis, side, normal, length
+
+
+def _rhino_parent_attributes(rhino3dm, layer_index):
+    attributes = rhino3dm.ObjectAttributes()
+    attributes.LayerIndex = layer_index
+    attributes.MaterialSource = rhino3dm.ObjectMaterialSource.MaterialFromParent
+    attributes.ColorSource = rhino3dm.ObjectColorSource.ColorFromParent
+    return attributes
+
+
+def _rhino_instance_transform(rhino3dm, x_axis, y_axis, z_axis, origin):
+    """Create an affine transform from local basis columns and an origin."""
+    x_axis = np.asarray(x_axis, dtype=float)
+    y_axis = np.asarray(y_axis, dtype=float)
+    z_axis = np.asarray(z_axis, dtype=float)
+    origin = np.asarray(origin, dtype=float)
+    transform = rhino3dm.Transform.Identity()
+    transform.M00, transform.M10, transform.M20 = x_axis.tolist()
+    transform.M01, transform.M11, transform.M21 = y_axis.tolist()
+    transform.M02, transform.M12, transform.M22 = z_axis.tolist()
+    transform.M03, transform.M13, transform.M23 = origin.tolist()
+    return transform
+
+
+def _add_rhino_definition(model, rhino3dm, name, geometry, layer_index):
+    attributes = _rhino_parent_attributes(rhino3dm, layer_index)
+    index = model.InstanceDefinitions.Add(
+        name,
+        "Reusable v_ase export primitive",
+        "",
+        "",
+        rhino3dm.Point3d(0.0, 0.0, 0.0),
+        (geometry,),
+        (attributes,),
+    )
+    if index < 0:
+        raise RuntimeError(f"rhino3dm could not create the {name!r} instance definition.")
+    return model.InstanceDefinitions.FindIndex(index).Id
+
+
+def _normalized_camera_payload(camera):
+    camera = camera if isinstance(camera, dict) else {}
+
+    def vector(name, fallback):
+        value = camera.get(name)
+        if isinstance(value, (list, tuple)) and len(value) == 3:
+            parsed = np.asarray(value, dtype=float)
+            if np.all(np.isfinite(parsed)):
+                return parsed
+        return np.asarray(fallback, dtype=float)
+
+    position = vector("position", [8.0, -9.0, 6.0])
+    target = vector("target", [0.0, 0.0, 0.0])
+    up = vector("up", [0.0, 0.0, 1.0])
+    direction = target - position
+    distance = float(np.linalg.norm(direction))
+    if distance < 1e-8:
+        position = target + np.array([8.0, -9.0, 6.0])
+        direction = target - position
+        distance = float(np.linalg.norm(direction))
+    if float(np.linalg.norm(up)) < 1e-8:
+        up = np.array([0.0, 0.0, 1.0])
+    up /= float(np.linalg.norm(up))
+
+    def finite_float(name, fallback, minimum=None):
+        try:
+            value = float(camera.get(name, fallback))
+        except (TypeError, ValueError):
+            value = float(fallback)
+        if not np.isfinite(value):
+            value = float(fallback)
+        return max(minimum, value) if minimum is not None else value
+
+    near = finite_float("near", max(0.001, distance / 1000.0), 1e-6)
+    far = finite_float("far", max(1000.0, distance * 10.0), near + 1e-3)
+    aspect = finite_float("aspect", 16.0 / 9.0, 1e-3)
+    return {
+        "position": position,
+        "target": target,
+        "up": up,
+        "direction": direction,
+        "distance": distance,
+        "projection": "perspective" if camera.get("projection") == "perspective" else "orthographic",
+        "fov": min(179.0, finite_float("fov", 50.0, 1e-3)),
+        "ortho_scale": finite_float("ortho_scale", max(1.0, distance * 0.75), 1e-6),
+        "near": near,
+        "far": far,
+        "aspect": aspect,
+    }
+
+
+def _rhino_view_info(rhino3dm, camera, name="v_ase View"):
+    normalized = _normalized_camera_payload(camera)
+    view = rhino3dm.ViewInfo()
+    view.Name = name
+    viewport = view.Viewport
+    viewport.SetCameraLocation(rhino3dm.Point3d(*normalized["position"].tolist()))
+    viewport.SetCameraDirection(rhino3dm.Vector3d(*normalized["direction"].tolist()))
+    viewport.SetCameraUp(rhino3dm.Vector3d(*normalized["up"].tolist()))
+    viewport.TargetPoint = rhino3dm.Point3d(*normalized["target"].tolist())
+    if normalized["projection"] == "perspective":
+        viewport.ChangeToPerspectiveProjection(normalized["distance"], True, 50.0)
+        half_height = normalized["near"] * math.tan(math.radians(normalized["fov"]) * 0.5)
+    else:
+        viewport.ChangeToParallelProjection(True)
+        half_height = normalized["ortho_scale"] * 0.5
+    half_width = half_height * normalized["aspect"]
+    viewport.SetFrustum(
+        -half_width,
+        half_width,
+        -half_height,
+        half_height,
+        normalized["near"],
+        normalized["far"],
+    )
+    return view
 
 
 def export_3dm_response(session, payload: Dict[str, Any]):
@@ -553,6 +721,66 @@ def export_3dm_response(session, payload: Dict[str, Any]):
         material_indices[color] = model.Materials.Add(material)
         return material_indices[color]
 
+    definition_ids = {}
+    if scene["atoms"]:
+        sphere = rhino3dm.Sphere(rhino3dm.Point3d(0.0, 0.0, 0.0), 1.0).ToNurbsSurface()
+        definition_ids["atom"] = _add_rhino_definition(
+            model, rhino3dm, "v_ase_atom_unit_sphere", sphere, layer_indices["Atoms"]
+        )
+    bond_definition_ids = {}
+
+    def bond_definition(style, colors):
+        key = (style, tuple(colors))
+        if key in bond_definition_ids:
+            return bond_definition_ids[key]
+        fractions = [(0.0, 1.0)] if len(colors) == 1 else [(0.0, 0.5), (0.5, 1.0)]
+        geometry = []
+        attributes = []
+        for index, ((start_fraction, end_fraction), color) in enumerate(zip(fractions, colors)):
+            if style == "flat":
+                primitive = rhino3dm.Mesh()
+                for point in (
+                    (-0.5, 0.0, start_fraction),
+                    (0.5, 0.0, start_fraction),
+                    (0.5, 0.0, end_fraction),
+                    (-0.5, 0.0, end_fraction),
+                ):
+                    primitive.Vertices.Add(*point)
+                primitive.Faces.AddFace(0, 1, 2, 3)
+            else:
+                plane = rhino3dm.Plane(
+                    rhino3dm.Point3d(0.0, 0.0, start_fraction),
+                    rhino3dm.Vector3d(0.0, 0.0, 1.0),
+                )
+                circle = rhino3dm.Circle(0.5)
+                circle.Plane = plane
+                primitive = rhino3dm.Cylinder(circle, end_fraction - start_fraction).ToBrep(True, True)
+            geometry.append(primitive)
+            attributes.append(_cad_object_attributes(
+                rhino3dm,
+                f"bond_segment_{index}",
+                layer_indices["Bonds"],
+                material_index(color),
+                color,
+            ))
+        definition_name = _safe_name(
+            f"v_ase_bond_{style}_{'_'.join(color.lstrip('#') for color in colors)}"
+        )
+        definition_index = model.InstanceDefinitions.Add(
+            definition_name,
+            "Reusable v_ase bond primitive; parent scale stores diameter and length",
+            "",
+            "",
+            rhino3dm.Point3d(0.0, 0.0, 0.0),
+            tuple(geometry),
+            tuple(attributes),
+        )
+        if definition_index < 0:
+            raise RuntimeError("rhino3dm could not create a bond instance definition.")
+        identifier = model.InstanceDefinitions.FindIndex(definition_index).Id
+        bond_definition_ids[key] = identifier
+        return identifier
+
     for atom in scene["atoms"]:
         offset = ",".join(map(str, atom["cell_offset"]))
         attributes = _cad_object_attributes(
@@ -570,44 +798,55 @@ def export_3dm_response(session, payload: Dict[str, Any]):
                 "v_ase.units": "angstrom",
             },
         )
-        point = rhino3dm.Point3d(*atom["position"])
-        model.Objects.AddSphere(rhino3dm.Sphere(point, atom["radius"]), attributes)
+        radius = float(atom["radius"])
+        transform = _rhino_instance_transform(
+            rhino3dm,
+            [radius, 0.0, 0.0],
+            [0.0, radius, 0.0],
+            [0.0, 0.0, radius],
+            atom["position"],
+        )
+        reference = rhino3dm.InstanceReference(definition_ids["atom"], transform)
+        model.Objects.AddInstanceObject(reference, attributes)
 
+    grouped_bonds = {}
     for bond in scene["bonds"]:
-        start = np.asarray(bond["start"], dtype=float)
-        end = np.asarray(bond["end"], dtype=float)
+        grouped_bonds.setdefault(bond["logical_name"], []).append(bond)
+
+    for logical_name, segments in grouped_bonds.items():
+        bond = segments[0]
+        start = np.asarray(bond["full_start"], dtype=float)
+        end = np.asarray(bond["full_end"], dtype=float)
         basis = _perpendicular_basis(end - start)
         if basis is None:
             continue
-        axis, side, _, length = basis
+        axis, side, normal, length = basis
+        colors = tuple(segment["color"] for segment in segments)
         attributes = _cad_object_attributes(
             rhino3dm,
-            bond["name"],
+            logical_name,
             layer_indices["Bonds"],
-            material_index(bond["color"]),
-            bond["color"],
+            material_index(colors[0]),
+            colors[0],
             {
                 "v_ase.kind": "bond",
                 "v_ase.atom_i": bond["i"],
                 "v_ase.atom_j": bond["j"],
                 "v_ase.style": bond["style"],
+                "v_ase.colors": ",".join(colors),
                 "v_ase.units": "angstrom",
             },
         )
-        if bond["style"] == "flat":
-            half_width = side * bond["radius"]
-            mesh = rhino3dm.Mesh()
-            for point in (start - half_width, start + half_width, end + half_width, end - half_width):
-                mesh.Vertices.Add(*point.tolist())
-            mesh.Faces.AddFace(0, 1, 2, 3)
-            model.Objects.AddMesh(mesh, attributes)
-        else:
-            plane = rhino3dm.Plane(rhino3dm.Point3d(*start.tolist()), rhino3dm.Vector3d(*axis.tolist()))
-            circle = rhino3dm.Circle(bond["radius"])
-            circle.Plane = plane
-            brep = rhino3dm.Cylinder(circle, length).ToBrep(True, True)
-            if brep is not None:
-                model.Objects.AddBrep(brep, attributes)
+        diameter = float(bond.get("diameter", float(bond["radius"]) * 2.0))
+        transform = _rhino_instance_transform(
+            rhino3dm,
+            side * diameter,
+            normal * diameter,
+            axis * length,
+            start,
+        )
+        reference = rhino3dm.InstanceReference(bond_definition(bond["style"], colors), transform)
+        model.Objects.AddInstanceObject(reference, attributes)
 
     cell_color = scene["cell_color"]
     cell_material = material_index(cell_color)
@@ -625,6 +864,9 @@ def export_3dm_response(session, payload: Dict[str, Any]):
             rhino3dm.Point3d(*edge["end"]),
             attributes,
         )
+
+    model.Views.Add(_rhino_view_info(rhino3dm, scene.get("camera"), "v_ase View"))
+    model.NamedViews.Add(_rhino_view_info(rhino3dm, scene.get("camera"), "v_ase Saved View"))
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".3dm")
     tmp.close()
@@ -789,6 +1031,7 @@ def export_obj_response(session, payload: Dict[str, Any]):
     workdir = tempfile.mkdtemp(prefix="v_ase_obj_")
     obj_path = os.path.join(workdir, "v_ase_scene.obj")
     mtl_path = os.path.join(workdir, "v_ase_scene.mtl")
+    metadata_path = os.path.join(workdir, "v_ase_scene.json")
     with open(mtl_path, "w", encoding="ascii", newline="\n") as handle:
         handle.write("# v_ase material library\n")
         for color in colors:
@@ -804,6 +1047,8 @@ def export_obj_response(session, payload: Dict[str, Any]):
         handle.write(
             "# v_ase editable atomistic scene\n"
             "# Coordinates and radii are in angstrom\n"
+            "# Bond thickness is stored as a diameter in angstrom\n"
+            f"# v_ase.camera {json.dumps(scene.get('camera') or {}, separators=(',', ':'))}\n"
             "mtllib v_ase_scene.mtl\n"
         )
         writer = _ObjWriter(handle)
@@ -834,14 +1079,34 @@ def export_obj_response(session, payload: Dict[str, Any]):
                 materials[scene["cell_color"]],
             )
 
+    with open(metadata_path, "w", encoding="utf-8", newline="\n") as handle:
+        json.dump(
+            {
+                "schema": "v_ase.obj_scene.v1",
+                "units": scene["units"],
+                "camera": scene.get("camera") or {},
+                "include_cell": scene["include_cell"],
+                "repetitions": scene["repetitions"],
+                "atoms": scene["atoms"],
+                "bonds": scene["bonds"],
+                "cell_edges": scene["cell_edges"],
+                "bond_thickness_semantics": "diameter",
+            },
+            handle,
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
+
     archive = tempfile.NamedTemporaryFile(delete=False, suffix="_v_ase_obj.zip")
     archive.close()
     with zipfile.ZipFile(archive.name, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as bundle:
         bundle.write(obj_path, arcname="v_ase_scene.obj")
         bundle.write(mtl_path, arcname="v_ase_scene.mtl")
+        bundle.write(metadata_path, arcname="v_ase_scene.json")
     try:
         os.unlink(obj_path)
         os.unlink(mtl_path)
+        os.unlink(metadata_path)
         os.rmdir(workdir)
     except OSError:
         pass
@@ -859,6 +1124,7 @@ FRAMES = DATA.get("frames", [])
 CAMERA = DATA.get("camera", {{}})
 BONDS = DATA.get("bonds", [])
 CELL = DATA.get("cell", [])
+INCLUDE_CELL = bool(DATA.get("include_cell", True))
 DISPLAY = DATA.get("display", {{}})
 LIGHTING = DATA.get("lighting", {{}})
 BOND_STYLE = DISPLAY.get("bondStyle", "cylinder")
@@ -1521,7 +1787,8 @@ if BLENDER_OBJECT_MODE == "objects":
 else:
     atom_groups = add_instanced_atoms(positions, symbols)
 
-add_unit_cell(CELL)
+if INCLUDE_CELL:
+    add_unit_cell(CELL)
 
 if BLENDER_OBJECT_MODE == "objects":
     for bond_index, bond in enumerate(BONDS):
@@ -1632,6 +1899,7 @@ def export_blender_response(session, payload: Dict[str, Any]):
     }
     data["lighting"] = lighting
     data["bonds"] = _display_bonds(data, display, payload.get("bond_pairs"))
+    data["include_cell"] = bool(payload.get("include_cell", True))
     if payload.get("camera"):
         data["camera"] = payload["camera"]
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix="_v_ase_blender.py", mode="w", encoding="utf-8")
