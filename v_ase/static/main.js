@@ -1,16 +1,22 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.76&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.76&rev=1';
-import { ASESelection } from './selection.js?v=0.0.76&rev=1';
-import { ASETransform } from './transform.js?v=0.0.76&rev=1';
+import { ASEApi } from './api.js?v=0.0.77&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.77&rev=1';
+import { ASESelection } from './selection.js?v=0.0.77&rev=1';
+import { ASETransform } from './transform.js?v=0.0.77&rev=1';
 
 class VAseApp {
     constructor() {
-        this.sessionId = new URLSearchParams(window.location.search).get('session_id');
+        const urlParams = new URLSearchParams(window.location.search);
+        this.sessionId = urlParams.get('session_id');
+        this.workspaceId = urlParams.get('workspace_id');
+        this.workspaceChild = urlParams.get('workspace_child') === '1';
+        this.workspaceActive = !this.workspaceChild;
+        this.workspaceNeedsRefresh = false;
         this.api = new ASEApi(this.sessionId);
         this.pendingApply = Promise.resolve();
         
         this.renderer = new ASERenderer(document.getElementById('app-viewport'));
+        if (this.workspaceChild) this.renderer.setSuspended(true);
         this.selection = new ASESelection(this.renderer);
         this.transform = new ASETransform(this.renderer.scene);
         this.initialDesignSettings = null;
@@ -129,6 +135,10 @@ class VAseApp {
         };
 
         this.inspectorGroup = 'inspect';
+        this.handleWorkspaceMessage = this.handleWorkspaceMessage.bind(this);
+        if (this.workspaceChild) {
+            window.addEventListener('message', this.handleWorkspaceMessage);
+        }
 
         this.init();
     }
@@ -151,11 +161,82 @@ class VAseApp {
             this.setupInputCommitBehavior();
             this.setupNumberInputHoldGuards();
             await this.refresh();
+            this.notifyWorkspaceDocument('v_ase:document-ready');
         } catch (err) {
             console.error("v_ase initialization failed:", err);
             this.toast(`Initialization failed: ${err.message}`, 'error');
         } finally {
             this.clearBusy();
+        }
+    }
+
+    workspaceDocumentTitle() {
+        const configured = this.state.atoms?.metadata?.config?.document_name;
+        const title = String(configured || 'Untitled').trim();
+        return title || 'Untitled';
+    }
+
+    projectFilename() {
+        const title = this.workspaceDocumentTitle();
+        const withoutProjectExtension = title.replace(/\.vase$/i, '');
+        const stem = withoutProjectExtension.includes('.')
+            ? withoutProjectExtension.replace(/\.[^.]+$/, '')
+            : withoutProjectExtension;
+        const safe = stem
+            .replace(/[\\/:*?"<>|]+/g, '_')
+            .replace(/^\.+|\.+$/g, '')
+            .trim();
+        return `${safe || 'v_ase_project'}.vase`;
+    }
+
+    notifyWorkspaceDocument(type = 'v_ase:document-title') {
+        const title = this.workspaceDocumentTitle();
+        document.title = `${title} - v_ase`;
+        if (!this.workspaceChild || window.parent === window) return;
+        window.parent.postMessage({
+            type,
+            sessionId: this.sessionId,
+            title,
+        }, window.location.origin);
+    }
+
+    async setWorkspaceActive(active) {
+        const next = Boolean(active);
+        if (this.workspaceActive === next && !this.workspaceNeedsRefresh) return;
+        this.workspaceActive = next;
+        if (!next) {
+            this.stopPlayback();
+            if (this.transform.mode !== 'IDLE') this.cancelTransform();
+            this.renderer.setSuspended(true);
+            return;
+        }
+        this.renderer.setSuspended(false);
+        if (this.workspaceNeedsRefresh) {
+            this.workspaceNeedsRefresh = false;
+            await this.refresh();
+        } else {
+            this.renderer.onResize();
+            this.renderer.requestRender();
+        }
+    }
+
+    handleWorkspaceMessage(event) {
+        if (event.origin !== window.location.origin || event.source !== window.parent) return;
+        const message = event.data || {};
+        if (message.type === 'v_ase:workspace-active') {
+            this.setWorkspaceActive(message.active).catch(err => {
+                console.error('Failed to activate workspace document:', err);
+            });
+        } else if (message.type === 'v_ase:workspace-dispose') {
+            this.stopPlayback();
+            this.renderer.setSuspended(true);
+            try {
+                if (this.ws && this.ws.readyState <= WebSocket.OPEN) {
+                    this.ws.close(1000, 'document tab closed');
+                }
+            } catch {
+                // The parent removes this frame immediately after disposal.
+            }
         }
     }
 
@@ -891,6 +972,7 @@ class VAseApp {
             this.updateSelectionVisuals();
             this.updateDocumentAvailability();
             if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+            this.notifyWorkspaceDocument();
         } catch (err) {
             console.error("DEBUG: Refresh Failed:", err);
         }
@@ -4774,7 +4856,11 @@ class VAseApp {
                 this.state.atoms.positions = msg.positions;
                 this.state.originalPositions = msg.positions.map(p => [...p]);
                 this.appendRelaxFrame(msg.positions);
-                this.renderer.updatePositions(msg.positions);
+                if (this.workspaceActive) {
+                    this.renderer.updatePositions(msg.positions);
+                } else {
+                    this.workspaceNeedsRefresh = true;
+                }
                 const energy = document.getElementById('val-energy');
                 const fmax = document.getElementById('val-fmax');
                 if (energy) energy.innerText = msg.energy.toFixed(6);
@@ -4786,13 +4872,21 @@ class VAseApp {
                     this.appendRelaxFrame(msg.positions, { force: this.relaxFrameCount() <= 1 });
                     this.state.atoms.positions = msg.positions;
                     this.state.originalPositions = msg.positions.map(p => [...p]);
-                    this.renderer.updatePositions(msg.positions);
+                    if (this.workspaceActive) {
+                        this.renderer.updatePositions(msg.positions);
+                    } else {
+                        this.workspaceNeedsRefresh = true;
+                    }
                 } else if (this.state.atoms?.positions?.length) {
                     this.appendRelaxFrame(this.state.atoms.positions, { force: this.relaxFrameCount() <= 1 });
                 }
                 this.state.relaxTrajectory.finished = true;
                 this.toast(`Relax ${msg.status}.`, msg.status === 'error' ? 'error' : 'success');
                 this.updateUI();
+                if (!this.workspaceActive) {
+                    this.workspaceNeedsRefresh = true;
+                    return;
+                }
                 this.refresh().then(() => {
                     if (this.state.atoms?.positions?.length) {
                         this.appendRelaxFrame(this.state.atoms.positions, { force: this.relaxFrameCount() <= 1 });
@@ -5011,6 +5105,7 @@ class VAseApp {
                 `Opened ${data.loaded_file?.filename || file.name}${frameCount > 1 ? ` (${frameCount} frames)` : ''}.`,
                 'success'
             );
+            this.notifyWorkspaceDocument();
         } catch (err) {
             this.toast(`Open file failed: ${err.message}`, 'error');
         }
@@ -6127,7 +6222,7 @@ class VAseApp {
                         this.designSettingsSnapshot(),
                         this.state.applyConstraints
                     ),
-                    'v_ase_project.vase',
+                    this.projectFilename(),
                     'application/vnd.v-ase.project+zip',
                     'Saving complete v_ase project...'
                 );

@@ -187,6 +187,144 @@ class EditorSession:
 
 sessions: Dict[str, EditorSession] = {}
 
+
+@dataclass
+class EditorWorkspace:
+    """A browser workspace containing independent editor documents."""
+
+    workspace_id: str
+    host_session: EditorSession
+    session_ids: List[str] = field(default_factory=list)
+    closed: bool = False
+    lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
+
+    @property
+    def host_session_id(self) -> str:
+        return self.host_session.session_id
+
+
+workspaces: Dict[str, EditorWorkspace] = {}
+_workspaces_lock = threading.RLock()
+
+
+def create_workspace(host_session: EditorSession) -> EditorWorkspace:
+    workspace_id = str(uuid.uuid4())
+    host_session.config["workspace_id"] = workspace_id
+    host_session.config["auto_close_on_disconnect"] = False
+    host_session.config.setdefault("document_name", "Untitled")
+    workspace = EditorWorkspace(
+        workspace_id=workspace_id,
+        host_session=host_session,
+        session_ids=[host_session.session_id],
+    )
+    with _workspaces_lock:
+        workspaces[workspace_id] = workspace
+    return workspace
+
+
+def get_workspace(workspace_id: str) -> EditorWorkspace:
+    with _workspaces_lock:
+        workspace = workspaces.get(workspace_id)
+    if workspace is None or workspace.closed:
+        raise ValueError(f"Workspace {workspace_id} not found")
+    return workspace
+
+
+def create_workspace_session(
+    workspace: EditorWorkspace,
+    *,
+    source_session_id: str | None = None,
+) -> EditorSession:
+    """Create a blank document with the workspace's operating mode."""
+    with workspace.lock:
+        source = sessions.get(source_session_id or "") or workspace.host_session
+        source_config = source.config or {}
+        config = {
+            key: source_config.get(key)
+            for key in (
+                "show_cell",
+                "show_axes",
+                "show_bonds",
+                "apply_constraint",
+                "allow_relax",
+                "viz_only",
+                "theme",
+            )
+            if key in source_config
+        }
+        config.update({
+            "initial_design_settings": None,
+            "empty_workspace": True,
+            "auto_close_on_disconnect": False,
+            "workspace_id": workspace.workspace_id,
+            "document_name": "Untitled",
+        })
+        session_id = str(uuid.uuid4())
+        original = Atoms()
+        working = Atoms()
+        session = EditorSession(
+            session_id=session_id,
+            original_atoms=original,
+            working_atoms=working,
+            original_frames=[original.copy()],
+            trajectory_frames=[working.copy()],
+            config=config,
+        )
+        sessions[session_id] = session
+        workspace.session_ids.append(session_id)
+        return session
+
+
+def remove_workspace_session(workspace: EditorWorkspace, session_id: str) -> None:
+    """Remove one document without finalizing the surrounding workspace."""
+    with workspace.lock:
+        if session_id not in workspace.session_ids:
+            raise ValueError(f"Session {session_id} is not part of workspace {workspace.workspace_id}")
+        workspace.session_ids.remove(session_id)
+        session = sessions.get(session_id)
+        if session is None:
+            return
+        session.stop_relax = True
+        session.relax_restart_requested = False
+        session.relax_run_id += 1
+        if session_id != workspace.host_session_id:
+            sessions.pop(session_id, None)
+            session.cleanup_temporary_files()
+
+
+def finalize_workspace(workspace_id: str) -> None:
+    """Close all child documents and release the blocking host session."""
+    with _workspaces_lock:
+        workspace = workspaces.get(workspace_id)
+    if workspace is None:
+        return
+    with workspace.lock:
+        if workspace.closed:
+            return
+        workspace.closed = True
+        host = workspace.host_session
+        host.stop_relax = True
+        host.relax_restart_requested = False
+        host.relax_run_id += 1
+        host.result_atoms = copy_atoms_with_calc(
+            host.working_atoms,
+            attach_default=not bool((host.config or {}).get("viz_only", False)),
+        )
+        for session_id in tuple(workspace.session_ids):
+            session = sessions.get(session_id)
+            if session is None:
+                continue
+            session.stop_relax = True
+            session.relax_restart_requested = False
+            session.relax_run_id += 1
+            if session_id != workspace.host_session_id:
+                sessions.pop(session_id, None)
+                session.cleanup_temporary_files()
+        workspace.session_ids.clear()
+        host.done_event.set()
+    with _workspaces_lock:
+        workspaces.pop(workspace_id, None)
+
 def copy_atoms_with_calc(atoms: Atoms, attach_default: bool = True) -> Atoms:
     copied = atoms.copy()
     if atoms.calc:

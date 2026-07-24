@@ -54,6 +54,19 @@ v_ase gui [structure-filename]
 The terminal waits while the viewer is open and becomes available again when
 the browser tab is closed.
 
+### Multiple Structures
+
+Use the **+** button in the document bar to open another independent structure
+tab in the same v_ase window. Each tab keeps its own structure or trajectory,
+selection, camera, display settings, undo history, calculator, relaxation, and
+`.vase` project. **Open** replaces only the active tab, and **Save Project**
+saves only that tab.
+
+Inactive tabs pause viewport rendering and trajectory playback. A calculation
+already started in another tab can continue, but all tabs still use the same
+physical CPU/GPU through the operating system; v_ase does not reserve one CPU
+core per tab.
+
 ### View And Interactive Modes
 
 The default mode is optimized for viewing, trajectory playback, measurements,
@@ -245,7 +258,7 @@ supercell.
 | Export Blender | Python scene script with atoms, optional cell, bonds, camera, Sun settings, and trajectory animation |
 | Export 3DM | Instanced Rhino geometry with atom/bond metadata and saved camera views |
 | Export OBJ | OBJ/MTL geometry plus a camera/metadata JSON sidecar in one ZIP |
-| Save Project | Complete structure, trajectory, edits, labels, and visual state in `.vase` |
+| Save Project | Active tab's complete structure, trajectory, edits, labels, and visual state in `.vase` |
 | Save Settings | Reusable appearance, bonds, camera, lighting, quality, and supercell settings in JSON |
 
 Use **Preview Area** before image or video export. Its fixed frame has the exact

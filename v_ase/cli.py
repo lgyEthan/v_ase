@@ -203,10 +203,11 @@ def run_gui(args: argparse.Namespace) -> int:
         trajectory_source=trajectory_source,
         initial_frame=initial_frame,
         initial_design_settings=initial_design_settings,
+        document_name=path.name if path is not None else "Untitled",
     )
 
     if args.no_block:
-        print(f"Viewer URL: http://127.0.0.1:{result.port}/?session_id={result.session_id}")
+        print(f"Viewer URL: {result.url}")
         print("Server is kept alive for manual testing. Press Ctrl+C here to stop it.")
         try:
             while True:

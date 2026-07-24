@@ -686,7 +686,8 @@ def test_frontend_reset_video_and_visual_settings_controls_are_wired():
     assert "btn-save-project" in index_html
     assert "btn-load-project" in index_html
     assert "project-file" in index_html
-    assert "v_ase_project.vase" in main_js
+    assert "projectFilename()" in main_js
+    assert "this.projectFilename()" in main_js
     assert "saveProject" in main_js
     assert "loadProject" in api_js
     assert "btn-open-file" in index_html

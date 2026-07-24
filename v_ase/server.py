@@ -8,7 +8,16 @@ import json
 import tempfile
 from pathlib import Path
 from typing import Dict, Any, List
-from .session import EditorSession, get_session, replace_session_frames, sessions
+from .session import (
+    EditorSession,
+    create_workspace_session,
+    finalize_workspace,
+    get_session,
+    get_workspace,
+    remove_workspace_session,
+    replace_session_frames,
+    sessions,
+)
 from .serialization import atoms_to_json
 from .websocket_manager import ws_manager
 from .io import atom_type_labels, base_symbol_for_atom_type, normalize_atom_type_label, set_atom_type_labels
@@ -91,6 +100,8 @@ app = FastAPI(lifespan=app_lifespan) if FASTAPI_AVAILABLE else _MissingFastAPIAp
 _SESSION_AUTOCLOSE_GRACE_SECONDS = 1.2
 _session_autoclose_timers: Dict[str, threading.Timer] = {}
 _session_autoclose_lock = threading.Lock()
+_workspace_autoclose_timers: Dict[str, threading.Timer] = {}
+_workspace_autoclose_lock = threading.Lock()
 
 
 def _remove_temporary_file(path: str) -> None:
@@ -236,6 +247,34 @@ def schedule_session_autoclose(session_id: str, delay: float = _SESSION_AUTOCLOS
     timer.daemon = True
     with _session_autoclose_lock:
         _session_autoclose_timers[session_id] = timer
+    timer.start()
+
+
+def cancel_workspace_autoclose(workspace_id: str) -> None:
+    with _workspace_autoclose_lock:
+        timer = _workspace_autoclose_timers.pop(workspace_id, None)
+    if timer is not None:
+        timer.cancel()
+
+
+def schedule_workspace_autoclose(
+    workspace_id: str,
+    delay: float = _SESSION_AUTOCLOSE_GRACE_SECONDS,
+) -> None:
+    cancel_workspace_autoclose(workspace_id)
+
+    def close_if_still_disconnected() -> None:
+        try:
+            if not ws_manager.has_session_connection(f"workspace:{workspace_id}"):
+                finalize_workspace(workspace_id)
+        finally:
+            with _workspace_autoclose_lock:
+                _workspace_autoclose_timers.pop(workspace_id, None)
+
+    timer = threading.Timer(delay, close_if_still_disconnected)
+    timer.daemon = True
+    with _workspace_autoclose_lock:
+        _workspace_autoclose_timers[workspace_id] = timer
     timer.start()
 
 
@@ -696,6 +735,59 @@ async def get_index():
     with open(os.path.join(static_dir, "index.html"), "r") as f:
         return HTMLResponse(f.read())
 
+
+@app.get("/workspace")
+async def get_workspace_index():
+    with open(os.path.join(static_dir, "workspace.html"), "r") as f:
+        return HTMLResponse(f.read())
+
+
+def workspace_session_payload(session: EditorSession) -> Dict[str, Any]:
+    return {
+        "session_id": session.session_id,
+        "title": str((session.config or {}).get("document_name") or "Untitled"),
+        "empty": bool((session.config or {}).get("empty_workspace", False)),
+        "viz_only": is_viz_only(session),
+    }
+
+
+@app.get("/api/workspace/{workspace_id}")
+async def workspace_state(workspace_id: str):
+    workspace = get_workspace(workspace_id)
+    with workspace.lock:
+        documents = [
+            workspace_session_payload(sessions[session_id])
+            for session_id in workspace.session_ids
+            if session_id in sessions
+        ]
+    return {
+        "workspace_id": workspace.workspace_id,
+        "host_session_id": workspace.host_session_id,
+        "documents": documents,
+    }
+
+
+@app.post("/api/workspace/{workspace_id}/sessions")
+async def create_workspace_document(workspace_id: str, payload: Dict[str, Any] | None = None):
+    workspace = get_workspace(workspace_id)
+    source_session_id = (payload or {}).get("source_session_id")
+    session = create_workspace_session(
+        workspace,
+        source_session_id=str(source_session_id) if source_session_id else None,
+    )
+    return workspace_session_payload(session)
+
+
+@app.post("/api/workspace/{workspace_id}/sessions/{session_id}/close")
+async def close_workspace_document(workspace_id: str, session_id: str):
+    workspace = get_workspace(workspace_id)
+    with workspace.lock:
+        if len(workspace.session_ids) <= 1:
+            raise HTTPException(status_code=409, detail="A workspace must keep at least one document tab.")
+        remove_workspace_session(workspace, session_id)
+    return {"status": "closed", "session_id": session_id}
+
+
 @app.get("/api/atoms/{session_id}")
 async def get_atoms(session_id: str):
     session = get_session(session_id)
@@ -845,6 +937,7 @@ async def load_structure_file(
             loaded_kind = "trajectory" if session.frame_count > 1 else "structure"
 
         session.config["empty_workspace"] = False
+        session.config["document_name"] = display_name
         data = session_atoms_to_json(session)
         data["loaded_file"] = {
             "filename": display_name,
@@ -1254,6 +1347,22 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
         schedule_session_autoclose(session_id)
+
+
+@app.websocket("/ws/workspace/{workspace_id}")
+async def workspace_websocket_endpoint(websocket: WebSocket, workspace_id: str):
+    get_workspace(workspace_id)
+    connection_id = f"workspace:{workspace_id}"
+    await ws_manager.connect(websocket, connection_id)
+    cancel_workspace_autoclose(workspace_id)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        ws_manager.disconnect(websocket)
+        schedule_workspace_autoclose(workspace_id)
 
 # Modular endpoints for scientific features
 if FASTAPI_AVAILABLE:

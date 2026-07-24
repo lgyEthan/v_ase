@@ -69,6 +69,10 @@ a selected ASE structure, trajectory, or `.vase` project to that session and
 keeps a loading overlay visible while parsing. The reader and frame index can
 be selected before loading.
 
+The desktop viewer includes a document bar. Its **+** button creates another
+independent session in the same window. File loading, editing, trajectory state,
+relaxation, and project export remain scoped to the selected document tab.
+
 `--format` is used when the filename is ambiguous. Common aliases include
 `POSCAR`, `XDATCAR`, `vasprun.xml`, `lammpstrj`, `traj`, `xyz`, `extxyz`, and
 `data`, and `vase`.
@@ -112,6 +116,12 @@ calculator. These controls do not affect user-provided ASE calculators.
 The browser UI talks to a local FastAPI server bound to `127.0.0.1`.
 
 - `GET /api/atoms/{session_id}`: Fetches the current atoms state.
+- `GET /api/workspace/{workspace_id}`: Lists document sessions in one browser
+  workspace.
+- `POST /api/workspace/{workspace_id}/sessions`: Creates an independent blank
+  document session.
+- `POST /api/workspace/{workspace_id}/sessions/{session_id}/close`: Closes one
+  document without affecting the other tabs.
 - `POST /api/file/load/{session_id}`: Streams a browser-selected structure,
   trajectory, or `.vase` project into the current session. Query parameters are
   `filename`, optional `input_format`, and optional ASE `index`.
@@ -152,6 +162,8 @@ The browser UI talks to a local FastAPI server bound to `127.0.0.1`.
   blocking CLI sessions, a closed browser tab/window disconnects this socket;
   after a short reconnect grace period the backend finalizes the current
   working structure and releases the terminal.
+- `WS /ws/workspace/{workspace_id}`: Owns the desktop window lifetime. Closing
+  the workspace releases all child document sessions and the blocking CLI.
 
 ## Save Formats
 
@@ -183,4 +195,6 @@ Returned when `block=False`.
 
 - **get_atoms()**: Returns a copy of the currently edited atoms.
 - **get_positions()**: Returns the current positions.
+- **url**: Returns the workspace URL for desktop sessions or the direct editor
+  URL for notebook sessions.
 - **close()**: Closes the session.

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>v_ase</title>
+    <link rel="icon" type="image/png" href="/static/v_ase-logo.png">
+    <link rel="stylesheet" href="/static/workspace.css?v=0.0.77">
+</head>
+<body>
+    <header id="document-bar" class="document-bar">
+        <div id="document-tabs" class="document-tabs" role="tablist" aria-label="Open structures"></div>
+        <button id="new-document" class="new-document" type="button"
+                aria-label="New structure tab" title="New structure tab">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 5v14M5 12h14"></path>
+            </svg>
+        </button>
+    </header>
+    <main id="document-panes" class="document-panes"></main>
+    <section id="workspace-error" class="workspace-error" hidden>
+        <strong>Workspace unavailable</strong>
+        <span id="workspace-error-message"></span>
+    </section>
+    <script type="module" src="/static/workspace.js?v=0.0.77"></script>
+</body>
+</html>

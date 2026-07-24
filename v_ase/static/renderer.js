@@ -292,6 +292,7 @@ export class ASERenderer {
         this.container = container;
         this.renderRequestId = null;
         this.exportCaptureActive = false;
+        this.suspended = false;
         this.renderCount = 0;
         this.setupScene();
         this.setLightingOptions(this.lightingOptions);
@@ -4607,6 +4608,7 @@ export class ASERenderer {
     }
 
     onResize() {
+        if (this.suspended) return;
         const pixelsPerAngstrom = this.currentPixelsPerAngstrom();
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.updateCameraProjection();
@@ -4625,16 +4627,34 @@ export class ASERenderer {
         }
     }
 
+    setSuspended(suspended) {
+        const next = Boolean(suspended);
+        if (this.suspended === next) return;
+        this.suspended = next;
+        if (next) {
+            if (this.renderRequestId !== null) {
+                cancelAnimationFrame(this.renderRequestId);
+                this.renderRequestId = null;
+            }
+            this.controls.enabled = false;
+            return;
+        }
+        this.controls.enabled = true;
+        this.onResize();
+    }
+
     requestRender() {
-        if (this.exportCaptureActive) return;
+        if (this.suspended || this.exportCaptureActive) return;
         if (this.renderRequestId !== null) return;
         this.renderRequestId = requestAnimationFrame(() => {
             this.renderRequestId = null;
+            if (this.suspended) return;
             this.renderFrame();
         });
     }
 
     renderFrame() {
+        if (this.suspended) return;
         this.controls.update();
         if (this.effectiveBondStyle() === 'flat') this.updateBondPositions();
         this.syncSelectionOutlines();
@@ -4647,6 +4667,7 @@ export class ASERenderer {
     }
 
     renderNow() {
+        if (this.suspended) return;
         if (this.renderRequestId !== null) {
             cancelAnimationFrame(this.renderRequestId);
             this.renderRequestId = null;

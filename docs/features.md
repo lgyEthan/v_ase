@@ -4,6 +4,16 @@
 ### Interactive Editing
 Users can select atoms and transform them in 3D space. The positions are synchronized back to the Python ASE `Atoms` object in real-time.
 
+### Multi-Document Workspace
+The desktop browser shell can host multiple structure tabs on one FastAPI
+server. Every tab owns a separate `EditorSession`, iframe application, ASE
+working copy, trajectory, history, calculator, relaxation state, camera, and
+visual settings. Opening a file or saving `.vase` affects only the active tab.
+Inactive documents suspend demand rendering and stop movie playback; ongoing
+backend calculations may continue. Compute tasks are independently scheduled,
+while physical CPU/GPU capacity remains shared by the process and operating
+system.
+
 ### Blender-Style Workflow
 The visualizer adopts the modal operator pattern from Blender:
 1. Select atoms.

@@ -1,6 +1,6 @@
 # v_ase Project Specification and Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.76`.
+Last synchronized with implementation: `v_ase-gui 0.0.77`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -414,7 +414,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.76).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.77).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -467,6 +467,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 60**: Added selectable dark/white live backgrounds with matched grid contrast and a persistent GPU-batched 2D atom/flat-bond display mode.
 *   [x] **Phase 61**: Replaced the camera popover and world-axis labels with six direct VESTA-style arrow controls for screen-relative orbit and roll, retained exact degree steps, and added shader-based black atom edges only for white-background 2D display.
 *   [x] **Phase 62**: Added an immediate synchronized viewport-grid button and ordered `a1...a4` measurement overlays for distance, angle-at-`a2`, and signed torsion, with deterministic box-selection mapping and count-only behavior for larger selections.
+*   [x] **Phase 63**: One desktop workspace supports multiple independent structure tabs. Each tab owns a separate backend session and `.vase` state; inactive tabs suspend WebGL rendering and trajectory playback while calculations remain independently schedulable.
 
 ---
 

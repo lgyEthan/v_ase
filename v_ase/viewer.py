@@ -5,7 +5,7 @@ import time
 import os
 from typing import Any, Optional, Sequence, Union
 from ase import Atoms
-from .session import EditorSession, sessions
+from .session import EditorSession, create_workspace, finalize_workspace, sessions
 from .repulsion import copy_calculator, ensure_default_calculator
 
 def find_free_port():
@@ -42,9 +42,19 @@ def normalize_atoms_input(atoms_or_frames, *, attach_default: bool = True) -> li
 
 class ASEEditor:
     """Handle for non-blocking viewer sessions."""
-    def __init__(self, session_id: str, port: int):
+    def __init__(self, session_id: str, port: int, workspace_id: str | None = None):
         self.session_id = session_id
         self.port = port
+        self.workspace_id = workspace_id
+
+    @property
+    def url(self) -> str:
+        if self.workspace_id:
+            return (
+                f"http://127.0.0.1:{self.port}/workspace"
+                f"?workspace_id={self.workspace_id}&session_id={self.session_id}"
+            )
+        return f"http://127.0.0.1:{self.port}/?session_id={self.session_id}"
 
     def get_atoms(self) -> Optional[Atoms]:
         if self.session_id in sessions:
@@ -70,6 +80,8 @@ class ASEEditor:
                     ensure_default_calculator(session.working_atoms)
 
     def close(self):
+        if self.workspace_id:
+            finalize_workspace(self.workspace_id)
         if self.session_id in sessions:
             session = sessions.pop(self.session_id)
             session.cleanup_temporary_files()
@@ -117,6 +129,7 @@ def view(
     trajectory_source=None,
     initial_frame: int = 0,
     initial_design_settings: Optional[dict[str, Any]] = None,
+    document_name: str | None = None,
     close_on_disconnect: bool = True,
 ) -> Union[Atoms, ASEEditor, None]:
     """
@@ -132,7 +145,11 @@ def view(
         If True, block execution until 'Done' or 'Cancel' is pressed.
     ...
     """
-    if isinstance(atoms, (str, os.PathLike)) and os.fspath(atoms).lower().endswith(".vase"):
+    source_path = os.fspath(atoms) if isinstance(atoms, (str, os.PathLike)) else None
+    if document_name is None:
+        document_name = os.path.basename(source_path) if source_path else "Untitled"
+
+    if source_path and source_path.lower().endswith(".vase"):
         from .project import read_project_archive
 
         project = read_project_archive(atoms)
@@ -171,9 +188,11 @@ def view(
             "initial_design_settings": initial_design_settings,
             "empty_workspace": len(frames) == 1 and len(frames[0]) == 0,
             "auto_close_on_disconnect": bool(close_on_disconnect and not notebook),
+            "document_name": document_name or "Untitled",
         }
     )
     sessions[session_id] = session
+    workspace = None
     
     server_enabled = True
     if port is None:
@@ -201,7 +220,14 @@ def view(
         server_thread.start()
         time.sleep(0.8)
     
-    url = f"http://127.0.0.1:{port}/?session_id={session_id}"
+    if server_enabled and not notebook:
+        workspace = create_workspace(session)
+        url = (
+            f"http://127.0.0.1:{port}/workspace"
+            f"?workspace_id={workspace.workspace_id}&session_id={session_id}"
+        )
+    else:
+        url = f"http://127.0.0.1:{port}/?session_id={session_id}"
     
     if notebook:
         try:
@@ -221,6 +247,8 @@ def view(
                 session.done_event.wait()
             except KeyboardInterrupt:
                 pass
+            if workspace is not None:
+                finalize_workspace(workspace.workspace_id)
             
             if session.cancelled:
                 res = _copy_atoms_with_calc(session.original_atoms, attach_default=attach_default)
@@ -242,7 +270,11 @@ def view(
                 closed_session.cleanup_temporary_files()
             return output
         else:
-            return ASEEditor(session_id, port)
+            return ASEEditor(
+                session_id,
+                port,
+                workspace_id=workspace.workspace_id if workspace else None,
+            )
 
 
 def view_edit(
