@@ -1,20 +1,14 @@
-# API Reference
+# Public API
 
-## `view` function
+## Python
+
+### `view`
 
 ```python
 from v_ase.visualize import view
 
-edited_atoms = view(atoms)
-```
-
-`view_edit` remains available as an alias for existing examples.
-
-## `view_edit` function
-
-```python
-def view_edit(
-    atoms,
+viewer_result = view(
+    atoms_or_frames,
     *,
     notebook=False,
     block=True,
@@ -24,77 +18,114 @@ def view_edit(
     show_bonds=False,
     respect_constraints=True,
     allow_relax=True,
-    export=True,
+    viz_only=True,
+    theme="auto",
     return_mode="atoms",
+    close_on_disconnect=True,
 )
 ```
 
-### Parameters
-- **atoms**: An ASE `Atoms` object, a sequence of `Atoms` frames, or an ASE-readable trajectory file path.
-- **notebook**: Set to `True` when using in Jupyter. Renders as an IFrame.
-- **block**: If `True`, the function waits until the local session is finalized through the API. The visible top-bar Done/Cancel buttons are intentionally not shown to avoid accidental closure during editing.
-- **port**: Optional port for the local server.
-- **respect_constraints**: If `True`, prevents moving atoms marked as fixed in ASE.
-- **allow_relax**: Enables the "Relax" button if a calculator is attached.
+Accepted input:
 
-## `view_file` function
+- one ASE `Atoms`;
+- a sequence of `Atoms` frames;
+- a supported structure, trajectory, or `.vase` path.
+
+Important options:
+
+- `viz_only=True` uses the lightweight viewer and does not attach the fallback
+  calculator.
+- `viz_only=False` enables atom editing, constraints editing, history,
+  copy/paste, deletion, creation, and relaxation.
+- `block=True` waits until the browser document closes or the local API
+  finalizes the session.
+- `block=False` returns an `ASEEditor` handle.
+- `return_mode` is `atoms`, `positions`, or `none`.
+- `respect_constraints=True` commits coordinates through ASE constraint logic.
+- `close_on_disconnect=True` lets a closed browser document release a blocking
+  Python or CLI call.
+
+The caller's input object is copied and is never mutated.
+
+### Compatibility Alias
+
+```python
+from v_ase import view_edit
+
+edited = view_edit(atoms)
+```
+
+`view_edit()` is retained for compatibility and is equivalent to
+`view(atoms, viz_only=False, ...)`. New code should use `view()`.
+
+### `view_file`
 
 ```python
 from v_ase import view_file
 
 view_file("trajectory.extxyz")
-view_file("calculation.traj")
 view_file("saved_project.vase")
 ```
 
-`view_file` opens ASE-readable files in movie mode, uses the optimized virtual
-reader for supported large LAMMPS dumps, and restores native `.vase` projects.
+`view_file()` forwards to `view()` and uses the canonical v_ase input pipeline.
+Supported large numeric LAMMPS dumps receive the virtual, byte-indexed
+trajectory path automatically.
 
-## Command Line
+### `ASEEditor`
+
+Returned by `view(..., block=False)`.
+
+```python
+editor.url
+editor.get_atoms()
+editor.get_positions()
+editor.set_atoms(atoms)
+editor.export_poscar("POSCAR")
+editor.export_pickle("atoms.pkl")
+editor.close()
+```
+
+`get_atoms()` returns a detached copy. `close()` releases the session,
+temporary files, workspace documents, and the managed local server when it is
+the final owner.
+
+## CLI
 
 ```bash
 v_ase gui
 v_ase gui FILE
-v_ase FILE
-v_ase gui ABCD --format POSCAR
-v_ase gui ABCD --format lammpstrj
-v_ase gui ABCD --format data
-v_ase gui ABCD --format vase
-v_ase gui POSCAR --interactive
-v_ase gui saved_project.vase
+v_ase gui FILE --interactive
+v_ase gui AMBIGUOUS --format FORMAT
 ```
 
-`v_ase gui` creates an empty local session. The browser **Open** command streams
-a selected ASE structure, trajectory, or `.vase` project to that session and
-keeps a loading overlay visible while parsing. The reader and frame index can
-be selected before loading.
+The default is visualization mode. `--interactive` enables structural editing.
 
-The desktop viewer includes a document bar. Its **+** button creates another
-independent session in the same window. File loading, editing, trajectory state,
-relaxation, and project export remain scoped to the selected document tab.
+Common format aliases:
 
-`--format` is used when the filename is ambiguous. Common aliases include
-`POSCAR`, `XDATCAR`, `vasprun.xml`, `lammpstrj`, `traj`, `xyz`, `extxyz`, and
-`data`, and `vase`.
+| Alias | Reader |
+| --- | --- |
+| `POSCAR`, `CONTCAR`, `vasp` | VASP structure |
+| `XDATCAR` | VASP trajectory |
+| `vasprun.xml`, `vasp-xml` | VASP XML |
+| `lammpstrj` | LAMMPS text dump |
+| `data` | LAMMPS data |
+| `xyz`, `extxyz` | XYZ/extended XYZ |
+| `traj` | ASE trajectory |
+| `vase` | v_ase project |
 
-`v_ase gui FILE` opens in lightweight visualization mode by default. Use
-`--interactive` when atom coordinate edits, deletion, copy/paste, constraints
-editing, or interactive relaxation restart are needed.
+`--index :` loads all frames, `--index -1` loads the last frame, and an integer
+loads one frame.
 
-LAMMPS dump/data integer types are preserved as raw GUI labels. Valid type ids
-are interpreted as atomic numbers for default visualization; out-of-range ids
-fall back to internal `H` while keeping the raw label.
+LAMMPS integer types remain distinct GUI labels. Valid integer values are used
+as atomic numbers for initial element defaults; invalid values use internal
+hydrogen while preserving the raw label. Custom extxyz labels such as
+`H_type5` are mapped to ASE-valid chemical symbols without losing the label.
 
-## Calculator Behavior
+## Calculator
 
-Existing ASE calculators are preserved and used directly. In the default
-lightweight visualization mode, v_ase does not attach a fallback calculator.
-When `--interactive` is enabled and no calculator is attached, v_ase attaches
-its default soft repulsion calculator. This default calculator can use torch CPU
-or CUDA when torch is installed, but torch is not a package dependency; NumPy is
-used automatically when torch is absent.
-
-The same model can be loaded directly and used like any other ASE calculator:
+User-supplied ASE calculators are preserved. Interactive mode attaches the
+built-in soft repulsion calculator only when the input has no calculator.
+Visualization mode does not attach it.
 
 ```python
 from v_ase.calculators import RepulsionCalculator
@@ -104,97 +135,78 @@ energy = atoms.get_potential_energy()
 forces = atoms.get_forces()
 ```
 
-`from v_ase import RepulsionCalculator`, `from v_ase.calculator import
-RepulsionCalculator`, and `from v_ase.repulsion import RepulsionCalculator` are
-also supported. `Conditioner` is an alias for the same class.
+Torch is optional. The calculator uses NumPy when torch is absent and can use
+torch CPU or CUDA when available. Browser DEVICE/CPU controls apply only to
+this built-in calculator.
 
-The browser exposes `DEVICE` and `CPU` controls only for the default repulsion
-calculator. These controls do not affect user-provided ASE calculators.
-
-## Local Editing Endpoints
-
-The browser UI talks to a local FastAPI server bound to `127.0.0.1`.
-
-- `GET /api/atoms/{session_id}`: Fetches the current atoms state.
-- `GET /api/workspace/{workspace_id}`: Lists document sessions in one browser
-  workspace.
-- `POST /api/workspace/{workspace_id}/sessions`: Creates an independent blank
-  document session.
-- `POST /api/workspace/{workspace_id}/sessions/{session_id}/close`: Closes one
-  document without affecting the other tabs.
-- `POST /api/file/load/{session_id}`: Streams a browser-selected structure,
-  trajectory, or `.vase` project into the current session. Query parameters are
-  `filename`, optional `input_format`, and optional ASE `index`.
-- `POST /api/apply/{session_id}`: Applies new coordinates through ASE constraint logic.
-- `POST /api/constrain/{session_id}`: Previews constraint-corrected coordinates.
-- `POST /api/add/{session_id}`: Appends atoms for paste operations.
-- `POST /api/delete/{session_id}`: Deletes atoms and remaps constraints.
-- `POST /api/constraints/{session_id}`: Applies or clears selected-atom `FixAtoms`, `FixedLine`, and `FixedPlane` constraints.
-- `POST /api/commensurate/{session_id}`: Searches low-strain integer
-  cell-boundary matches for an axis-locked 2D rotation. The request includes
-  `axis`, `max_index`, and fractional `strain_tolerance`; the response includes
-  signed angles, principal boundary strain, integer matrices, and area
-  multipliers.
-- `POST /api/calculator/{session_id}`: Updates default repulsion calculator device/thread settings.
-- `POST /api/frame/{session_id}`: Switches the active trajectory frame.
-- `POST /api/wrap/{session_id}`: Wraps atoms into the unit cell.
-- `POST /api/export/poscar/{session_id}`: Exports POSCAR.
-- `POST /api/export/pickle/{session_id}`: Exports the current ASE `Atoms`,
-  including labels, cell/PBC, constraints, portable arrays, and only valid
-  `SinglePointCalculator` results. Visualization state and arbitrary calculator
-  implementations are excluded.
-- `POST /api/export/blender/{session_id}`: Exports a Blender Python scene with optional unit-cell geometry.
-- `POST /api/export/3dm/{session_id}`: Exports an editable Rhino 3DM scene with
-  instanced atoms and logical bonds, optional cell geometry, per-object
-  metadata, saved document/named camera views, and Angstrom document units.
-  Bond thickness is a diameter. This endpoint returns a clear `503` install
-  instruction when the optional `rhino3dm` dependency is unavailable.
-- `POST /api/export/obj/{session_id}`: Exports a ZIP containing
-  `v_ase_scene.obj`, `v_ase_scene.mtl`, and `v_ase_scene.json`. The sidecar
-  stores camera and object metadata; no optional dependency is required.
-- `POST /api/settings/save/{session_id}`: Exports a reusable JSON visual preset.
-- `POST /api/settings/load/{session_id}`: Loads and validates JSON visual settings. Restricted legacy pickle files are accepted only for migration and cannot resolve global Python objects.
-- `POST /api/project/save/{session_id}`: Exports the complete current structure or trajectory and visual setup as a `.vase` project.
-- `POST /api/project/load/{session_id}`: Validates a `.vase` archive and replaces the active session with its saved frames and settings.
-- `POST /api/relax/start/{session_id}`: Starts geometry optimization.
-- `POST /api/relax/stop/{session_id}`: Requests geometry optimization stop.
-- `WS /ws/{session_id}`: Streams relaxation positions, energy, and fmax. For
-  blocking CLI sessions, a closed browser tab/window disconnects this socket;
-  after a short reconnect grace period the backend finalizes the current
-  working structure and releases the terminal.
-- `WS /ws/workspace/{workspace_id}`: Owns the desktop window lifetime. Closing
-  the workspace releases all child document sessions and the blocking CLI.
+Compatibility imports remain available from `v_ase`, `v_ase.calculator`, and
+`v_ase.repulsion`. `Conditioner` is an alias for the same class.
 
 ## Save Formats
 
-ASE Pickle is the current-frame Python interchange format. It retains ASE
-structure data, labels, constraints, arrays, and a valid
-`SinglePointCalculator`, but intentionally excludes visual settings and
-arbitrary executable calculator implementations.
+### ASE Pickle
 
-Visual Settings JSON is a reusable presentation preset. It includes complete
-bond configuration, atom appearance and visibility, smoothness,
-anti-aliasing, camera/projection, Sun source/target/intensity, axes/grid/cell,
-and supercell preview. It intentionally excludes atomic coordinates. When
-loaded into another structure, label-specific values are applied only to
-matching labels, stale labels are ignored, and new labels and label pairs use
-defaults.
+Current-frame Python interchange. It retains:
 
-`.vase` is the full project format. It stores every trajectory frame, active
-frame, edited coordinates, cell/PBC, ASE constraints, atom labels, portable
-arrays, JSON-compatible frame metadata, cached standard calculator results,
-and the visual preset. The archive is ZIP-based and validated before extraction;
-it does not contain an executable pickle. Live calculator implementations are
-not serialized, but cached values are restored with `SinglePointCalculator`.
-The built-in v_ase repulsion calculator is the exception: its primitive
-configuration is portable and is reconstructed so interactive relaxation can
-continue after reopening the project.
+- coordinates, chemical symbols, labels, cell, and PBC;
+- ASE constraints and portable arrays;
+- valid cached `SinglePointCalculator` results.
 
-## `ASEEditor` class
-Returned when `block=False`.
+It excludes visual settings, other trajectory frames, and arbitrary executable
+calculator implementations.
 
-- **get_atoms()**: Returns a copy of the currently edited atoms.
-- **get_positions()**: Returns the current positions.
-- **url**: Returns the workspace URL for desktop sessions or the direct editor
-  URL for notebook sessions.
-- **close()**: Closes the session.
+### Visual Settings JSON
+
+Reusable presentation preset containing:
+
+- label appearance and visibility;
+- bond configuration;
+- camera, projection, and atomic scale;
+- lighting, quality, and overlays;
+- supercell preview.
+
+Coordinates are never included. Loading reconciles label-specific values with
+the new structure, ignores absent labels, and creates defaults for new labels
+and pairs.
+
+### `.vase`
+
+Self-contained project archive containing:
+
+- all trajectory frames and the active frame;
+- edited coordinates, cells/PBC, constraints, labels, safe arrays, and metadata;
+- cached standard calculator results and supported built-in calculator config;
+- complete visual settings.
+
+The archive is ZIP-based, validated before extraction, and does not unpickle
+executable Python objects.
+
+## Local Application API
+
+The browser communicates only with a FastAPI server bound to `127.0.0.1`.
+Endpoint groups:
+
+- session and workspace lifecycle;
+- structure load, frame switching, wrap, reset, history, copy/paste, add/delete;
+- coordinate commit and constraint editing;
+- calculator and relaxation control;
+- POSCAR, ASE Pickle, image/video support, Blender, 3DM, and OBJ export;
+- visual-settings and `.vase` save/load;
+- binary current-frame and full-trajectory coordinate transfer.
+
+Canonical atom identity update:
+
+```text
+POST /api/atom-identity/{session_id}
+```
+
+Large compatible trajectories expose contiguous float32 coordinates through:
+
+```text
+GET /api/trajectory/positions/{session_id}
+GET /api/frame/positions/{session_id}/{frame}
+```
+
+WebSockets stream relaxation updates and own browser-document/workspace
+lifetime. Closing the last connected browser document finalizes blocking calls
+after a short reconnect grace period.

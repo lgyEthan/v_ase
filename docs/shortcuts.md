@@ -85,8 +85,14 @@ Start with `v_ase gui` to open an empty workspace, then use the top-bar **Open**
 command to load a structure, trajectory, or `.vase` project.
 
 ## Constraint Behavior
-- Atoms constrained with `FixAtoms` in ASE will appear as "Fixed" in the UI.
-- Even if selected, these atoms will not move when transformations are applied.
+
+- Confirmed transforms are committed through ASE with constraints enabled.
+- `FixAtoms` remains immobile.
+- `FixedLine` moves only along its direction.
+- `FixedPlane` moves only within its plane.
+- `FixScaled` follows its allowed fractional cell directions.
+- Disable **Apply constraints** for unrestricted editing without removing the
+  saved constraints.
 
 ## Calculator Controls
 - The top-right `DEVICE` and `CPU` controls are active only for the default

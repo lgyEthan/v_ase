@@ -184,7 +184,7 @@ def test_complete_user_requested_workflow_showcase():
     assert "rotate-increment" in index_html
     assert "hover-readout" in index_html
     assert "sphere-quality" in index_html
-    assert "element-bond-list" in index_html
+    assert "pairwise-bond-list" in index_html
     assert "this.constrainedMoveDelta(idx, rotatedTarget.sub(origVec))" in main_js
     assert "this.transform.rotationAngle -= delta" in main_js
     assert "snapMoveDelta" in main_js
@@ -196,8 +196,8 @@ def test_complete_user_requested_workflow_showcase():
     assert "showMarquee" in main_js
     assert "deleteSelection" in main_js
     assert "e.code === 'Delete'" in main_js
-    assert "renderElementBondControls" in main_js
-    assert "parseElementBondCutoffs" in main_js
+    assert "renderPairwiseBondControls" in main_js
+    assert "parsePairwiseBondCutoffs" in main_js
     assert "state.applyConstraints" in main_js
     assert "apply_constraint" in api_js
     assert "applySupercell" in api_js
@@ -206,7 +206,7 @@ def test_complete_user_requested_workflow_showcase():
     assert "cartToFrac" in renderer_js
     assert "addSupercellCellPreview" in renderer_js
     assert "sphereQualitySegments" in renderer_js
-    assert "elementBondCutoff" in renderer_js
+    assert "pairwiseBondCutoff" in renderer_js
     assert "hookeanDistance" in renderer_js
     assert "hookeanThreshold" in renderer_js
     assert "hookeanExtension" in renderer_js

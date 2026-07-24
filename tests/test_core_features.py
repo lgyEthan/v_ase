@@ -26,10 +26,11 @@ from v_ase.calculator import RepulsionCalculator as SingularRepulsionCalculator
 from v_ase.calculators import Conditioner, DefaultRepulsionCalculator, RepulsionCalculator
 from v_ase.repulsion import RepulsionCalculator as ImplementationRepulsionCalculator
 from v_ase.repulsion import is_vase_repulsion_calculator
-from v_ase.io import atom_type_labels, set_atom_type_labels
+from v_ase.io import atom_labels, set_atom_labels
 from v_ase.project import read_project_archive
 from v_ase.serialization import atoms_to_json
 from v_ase.server import (
+    add_atoms,
     apply_positions,
     apply_supercell,
     apply_supercell_matrix,
@@ -137,6 +138,29 @@ def test_apply_reset_undo_and_wrap_endpoints():
     assert np.allclose(reset_data["positions"], atoms.positions)
 
 
+def test_add_endpoint_appends_every_requested_atom_and_label():
+    session = make_session(Atoms("C", positions=[[0.0, 0.0, 0.0]]))
+
+    payload = asyncio.run(
+        add_atoms(
+            session.session_id,
+            {
+                "symbols": ["O_bridge", "H_water"],
+                "base_symbols": ["O", "H"],
+                "positions": [[1.2, 0.0, 0.0], [1.8, 0.6, 0.0]],
+            },
+        )
+    )
+
+    assert payload["metadata"]["natoms"] == 3
+    assert session.working_atoms.get_chemical_symbols() == ["C", "O", "H"]
+    assert atom_labels(session.working_atoms) == ["C", "O_bridge", "H_water"]
+    np.testing.assert_allclose(
+        session.working_atoms.positions,
+        [[0.0, 0.0, 0.0], [1.2, 0.0, 0.0], [1.8, 0.6, 0.0]],
+    )
+
+
 def test_delete_endpoint_removes_atoms_and_remaps_supported_constraints():
     from ase import Atoms
     from ase.constraints import FixAtoms, FixedLine, FixedPlane, Hookean
@@ -189,7 +213,7 @@ def test_pickle_export_preserves_ase_data_and_valid_single_point_results_only():
     atoms.set_cell([8, 8, 8])
     atoms.set_pbc(True)
     atoms.set_constraint(FixedPlane(0, (0, 0, 1)))
-    set_atom_type_labels(atoms, ["O_surface", "H_a", "H_b"])
+    set_atom_labels(atoms, ["O_surface", "H_a", "H_b"])
     atoms.set_array("site_class", np.array([4, 5, 6], dtype=np.int16))
     atoms.calc = SinglePointCalculator(atoms, energy=-1.75, forces=np.full((3, 3), 0.25))
     session = make_session(atoms)
@@ -199,7 +223,7 @@ def test_pickle_export_preserves_ase_data_and_valid_single_point_results_only():
     with open(response.path, "rb") as handle:
         loaded = pickle.load(handle)
 
-    assert atom_type_labels(loaded) == ["O_surface", "H_a", "H_b"]
+    assert atom_labels(loaded) == ["O_surface", "H_a", "H_b"]
     np.testing.assert_array_equal(loaded.arrays["site_class"], [4, 5, 6])
     assert isinstance(loaded.calc, SinglePointCalculator)
     assert loaded.get_potential_energy() == pytest.approx(-1.75)
@@ -496,14 +520,14 @@ def test_visual_settings_save_and_load_json_roundtrip_and_legacy_pickle():
         "schema": "v_ase.visual_settings.v1",
         "display": {
             "showBonds": True,
-            "bondMode": "element",
-            "elementBondCutoffs": {"H-O": 1.35},
+            "bondMode": "pairwise",
+            "pairwiseBondCutoffs": {"H-O": 1.35},
             "bondStyle": "flat",
             "bondThickness": 0.24,
             "bondColorMode": "custom",
             "bondCustomColor": "#18a7d8",
             "atomRadiusScale": 1.4,
-            "elementRadii": {"O": 0.72},
+            "labelRadii": {"O": 0.72},
             "supercell": [1, 1, 1],
         },
         "applyConstraints": False,
@@ -512,8 +536,8 @@ def test_visual_settings_save_and_load_json_roundtrip_and_legacy_pickle():
 
     response = asyncio.run(save_visual_settings(session.session_id, {"settings": settings}))
     payload = json.loads(response.body)
-    assert payload["schema"] == "v_ase.visual_settings.v2"
-    assert payload["settings"]["display"]["elementBondCutoffs"]["H-O"] == 1.35
+    assert payload["schema"] == "v_ase.visual_settings.v3"
+    assert payload["settings"]["display"]["pairwiseBondCutoffs"]["H-O"] == 1.35
     assert payload["settings"]["display"]["bondStyle"] == "flat"
     assert payload["settings"]["display"]["bondThickness"] == 0.24
     assert payload["settings"]["display"]["bondCustomColor"] == "#18a7d8"
@@ -532,6 +556,38 @@ def test_visual_settings_save_and_load_json_roundtrip_and_legacy_pickle():
         asyncio.run(load_visual_settings(session.session_id, BytesRequest(executable_pickle)))
 
 
+def test_visual_settings_migrate_legacy_element_named_display_keys():
+    atoms = molecule("H2O")
+    session = make_session(atoms)
+    legacy_settings = {
+        "schema": "v_ase.visual_settings.v2",
+        "display": {
+            "bondMode": "element",
+            "elementBondCutoffs": {"H-O": 1.2},
+            "elementRadii": {"O_surface": 0.7},
+            "elementColors": {"O_surface": "#e51c23"},
+            "elementVisible": {"H_water": False},
+        },
+    }
+
+    response = asyncio.run(
+        save_visual_settings(session.session_id, {"settings": legacy_settings})
+    )
+    payload = json.loads(response.body)
+    display = payload["settings"]["display"]
+
+    assert payload["schema"] == "v_ase.visual_settings.v3"
+    assert display["bondMode"] == "pairwise"
+    assert display["pairwiseBondCutoffs"] == {"H-O": 1.2}
+    assert display["labelRadii"] == {"O_surface": 0.7}
+    assert display["labelColors"] == {"O_surface": "#e51c23"}
+    assert display["labelVisible"] == {"H_water": False}
+    assert "elementBondCutoffs" not in display
+    assert "elementRadii" not in display
+    assert "elementColors" not in display
+    assert "elementVisible" not in display
+
+
 def test_vase_project_rejects_invalid_archives(tmp_path):
     invalid = tmp_path / "invalid.vase"
     invalid.write_bytes(b"not a project archive")
@@ -541,13 +597,13 @@ def test_vase_project_rejects_invalid_archives(tmp_path):
 
 def test_vase_project_roundtrip_restores_trajectory_edits_constraints_and_settings():
     from ase.constraints import FixedPlane
-    from v_ase.io import atom_type_labels, set_atom_type_labels
+    from v_ase.io import atom_labels, set_atom_labels
 
     first = molecule("H2O")
     first.set_cell([8, 8, 8])
     first.set_pbc(True)
     first.set_constraint(FixedPlane(0, (0, 0, 1)))
-    set_atom_type_labels(first, ["O_surface", "H_a", "H_b"])
+    set_atom_labels(first, ["O_surface", "H_a", "H_b"])
     first.set_array("site_class", np.array([4, 5, 6], dtype=np.int16))
     first.info["workflow"] = {"stage": "adsorption", "converged": False}
     first.calc = SinglePointCalculator(first, energy=-1.25, forces=np.zeros((3, 3)))
@@ -578,8 +634,8 @@ def test_vase_project_roundtrip_restores_trajectory_edits_constraints_and_settin
         "schema": "v_ase.visual_settings.v1",
         "display": {
             "showBonds": True,
-            "bondMode": "element",
-            "elementBondCutoffs": {"H_a-O_surface": 1.4},
+            "bondMode": "pairwise",
+            "pairwiseBondCutoffs": {"H_a-O_surface": 1.4},
             "sphereQuality": "ultra",
             "sunIntensity": 3.75,
             "sunPosition": [11, -7, 16],
@@ -600,7 +656,7 @@ def test_vase_project_roundtrip_restores_trajectory_edits_constraints_and_settin
     loaded = asyncio.run(load_project(target.session_id, BytesRequest(archive.read_bytes())))
     assert loaded["metadata"]["frame_count"] == 2
     assert loaded["metadata"]["current_frame"] == 1
-    assert atom_type_labels(target.working_atoms) == ["O_surface", "H_a", "H_b"]
+    assert atom_labels(target.working_atoms) == ["O_surface", "H_a", "H_b"]
     assert target.working_atoms.constraints
     np.testing.assert_allclose(target.working_atoms.positions, second.positions)
     np.testing.assert_array_equal(target.working_atoms.arrays["site_class"], [4, 5, 6])

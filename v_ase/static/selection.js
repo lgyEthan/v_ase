@@ -68,7 +68,7 @@ export class ASESelection {
         const tolerance = 24;
         const pos = new THREE.Vector3();
         this.renderer.forEachAtomProxy((mesh, index) => {
-            if (mesh.visible === false || !this.renderer.atomTypeVisible(index)) return;
+            if (mesh.visible === false || !this.renderer.atomLabelVisible(index)) return;
             pos.copy(mesh.position);
             const screenPos = pos.project(this.renderer.camera);
             if (screenPos.z > 1 || screenPos.z < -1) return;
@@ -88,7 +88,7 @@ export class ASESelection {
         const pos = new THREE.Vector3();
         
         this.renderer.forEachAtomProxy((mesh, index) => {
-            if (mesh.visible === false || !this.renderer.atomTypeVisible(index)) return;
+            if (mesh.visible === false || !this.renderer.atomLabelVisible(index)) return;
             pos.copy(mesh.position);
             
             // Project to screen space
@@ -113,7 +113,7 @@ export class ASESelection {
                 mesh.updateMatrixWorld(true);
                 for (let instanceId = 0; instanceId < mesh.count; instanceId++) {
                     const reference = this.renderer.supercellAtomReference(mesh, instanceId);
-                    if (!reference || !this.renderer.atomTypeVisible(reference.index)) continue;
+                    if (!reference || !this.renderer.atomLabelVisible(reference.index)) continue;
                     mesh.getMatrixAt(instanceId, matrix);
                     pos.setFromMatrixPosition(matrix).applyMatrix4(mesh.matrixWorld);
                     const screenPos = pos.clone().project(camera);

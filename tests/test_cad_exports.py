@@ -12,7 +12,7 @@ from v_ase.export import (
     export_3dm_response,
     export_obj_response,
 )
-from v_ase.io import set_atom_type_labels
+from v_ase.io import set_atom_labels
 from v_ase.session import EditorSession
 
 
@@ -23,7 +23,7 @@ def cad_session():
         cell=[[4.0, 0.0, 0.0], [0.5, 4.2, 0.0], [0.0, 0.0, 5.0]],
         pbc=True,
     )
-    set_atom_type_labels(atoms, ["O_surface", "H_water", "H_water"])
+    set_atom_labels(atoms, ["O_surface", "H_water", "H_water"])
     return EditorSession("cad-export-test", atoms.copy(), atoms.copy())
 
 
@@ -37,8 +37,8 @@ def cad_payload():
             "bondStyle": "cylinder",
             "bondThickness": 0.12,
             "atomRadiusScale": 1.1,
-            "elementColors": {"O_surface": "#12ab34"},
-            "elementRadii": {"O_surface": 0.72},
+            "labelColors": {"O_surface": "#12ab34"},
+            "labelRadii": {"O_surface": 0.72},
         },
         "bond_pairs": [[0, 1], [0, 2]],
         "camera": {
@@ -79,7 +79,7 @@ def test_cad_scene_preserves_display_overrides_supercell_and_bridge_bonds():
 def test_cad_scene_respects_hidden_atom_types():
     session = cad_session()
     payload = cad_payload()
-    payload["display"]["elementVisible"] = {"H_water": False}
+    payload["display"]["labelVisible"] = {"H_water": False}
     scene = _cad_scene_data(session, payload)
 
     assert len(scene["atoms"]) == 2

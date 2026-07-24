@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.77&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.78&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.77';
+            : '/static/vendor/three.module.js?v=0.0.78';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -57,7 +57,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.77</span>
+            <span class="version">0.0.78</span>
         </div>
         <div class="status-group">
             <div class="status-item">
@@ -477,8 +477,8 @@
                 </div>
                 <input type="range" id="atom-radius-scale" value="1" min="0.25" max="2.5" step="0.05">
             </div>
-            <div id="element-radius-panel" class="element-radius-panel">
-                <div class="mini-table-head element-appearance-head">
+            <div id="appearance-table" class="appearance-table">
+                <div class="mini-table-head appearance-table-head">
                     <span>Type</span>
                     <span>Visible</span>
                     <span>Select</span>
@@ -486,7 +486,7 @@
                     <span>Color</span>
                     <span>Radius / A</span>
                 </div>
-                <div id="element-radius-list"></div>
+                <div id="appearance-table-body"></div>
             </div>
         </details>
 
@@ -520,7 +520,7 @@
                 <label for="bond-mode">Mode</label>
                 <select id="bond-mode">
                     <option value="auto">Auto cutoff</option>
-                    <option value="element">Pairwise cutoff</option>
+                    <option value="pairwise">Pairwise cutoff</option>
                     <option value="manual">Manual pair</option>
                 </select>
             </div>
@@ -553,12 +553,12 @@
                 <label for="bond-custom-color">Bond color</label>
                 <input type="color" id="bond-custom-color" value="#c8ccd0">
             </div>
-            <div id="element-bond-panel" class="bond-element-panel hidden">
+            <div id="pairwise-bond-panel" class="pairwise-bond-panel hidden">
                 <div class="mini-table-head">
                     <span>Label pair</span>
                     <span>Rcut / A</span>
                 </div>
-                <div id="element-bond-list"></div>
+                <div id="pairwise-bond-list"></div>
             </div>
             <textarea id="bond-pairs" rows="4" placeholder="Na-Cl: 3.2&#10;or 0-1, 1-2"></textarea>
             <div class="btn-stack-row two">
@@ -760,7 +760,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.77&rev=1';
+            : './static/main.js?v=0.0.78&rev=1';
         import(modulePath);
     </script>
 </body>

@@ -1,297 +1,212 @@
-# Features & Architecture
+# Architecture And Feature Contracts
 
-## Core Features
-### Interactive Editing
-Users can select atoms and transform them in 3D space. The positions are synchronized back to the Python ASE `Atoms` object in real-time.
+## Application Model
 
-### Multi-Document Workspace
-The desktop browser shell can host multiple structure tabs on one FastAPI
-server. Every tab owns a separate `EditorSession`, iframe application, ASE
-working copy, trajectory, history, calculator, relaxation state, camera, and
-visual settings. Opening a file or saving `.vase` affects only the active tab.
-Inactive documents suspend demand rendering and stop movie playback; ongoing
-backend calculations may continue. Compute tasks are independently scheduled,
-while physical CPU/GPU capacity remains shared by the process and operating
-system.
+v_ase is a local FastAPI application with a Three.js frontend. A document maps
+to one `EditorSession`; a desktop window maps to one workspace containing one
+or more document sessions.
 
-### Blender-Style Workflow
-The visualizer adopts the modal operator pattern from Blender:
-1. Select atoms.
-2. Press `G` or `R`.
-3. (Optional) Press `X`, `Y`, or `Z` to lock axis.
-4. Move mouse to transform.
-5. Click or press `Enter` to confirm, or `Esc` to cancel.
+Each document owns:
 
-### Editor Actions
-The current editor supports copy/paste, undo/redo, Delete/Backspace deletion,
-reset, wrap, POSCAR export, pickle export, physically scaled PNG image
-export, MOV/AVI video export, Blender scene export, and calculator-backed
-relaxation controls. Visual presets can be saved as JSON, while `.vase`
-projects preserve complete structures or trajectories together with display
-state.
+- original and working ASE structures;
+- loaded or virtual trajectory state;
+- current frame and optional relaxation trajectory;
+- calculator and constraint state;
+- undo/redo history in interactive mode;
+- browser selection, camera, and visual settings;
+- independent `.vase` save state.
 
-### Calculator Handling
-Existing ASE calculators are preserved, including `SinglePointCalculator`.
-In the default lightweight visualization mode, v_ase does not attach a fallback
-calculator and hides repulsion calculator controls. When `--interactive` is
-enabled and no calculator is attached, v_ase installs a default soft repulsion
-calculator so Relax can still remove close contacts. The default calculator uses
-NumPy when torch is unavailable. If torch is installed, it can run on CPU or
-CUDA; torch is optional and is not a package dependency.
+Inactive document iframes suspend rendering and movie playback. Backend
+calculations may continue, but all documents share physical CPU/GPU resources
+through the process and operating system.
 
-The top-right `DEVICE` and `CPU` controls apply only to this default repulsion
-calculator and are applied immediately when changed. User-provided calculators
-are expected to manage their own execution backend and are not modified by these
-controls.
+## Input Pipeline
 
-The default model is available through the public calculator API:
+`v_ase.io.read_structure_frames()` is the canonical structure reader used by
+the CLI, browser file Open, and Python file API. Format aliases are resolved by
+`resolve_input_format()`.
+
+Specialized readers preserve data ASE cannot represent directly:
+
+- custom extxyz labels map to ASE-valid chemical symbols and remain separate
+  labels;
+- LAMMPS dump/data integer types remain raw labels;
+- masses may infer chemical TYPE where available;
+- large numeric LAMMPS dumps use a memory-mapped frame index.
+
+Label identity is stored in the `v_ase_atom_type` ASE array for archive
+compatibility. New code accesses it through `atom_labels()` and
+`set_atom_labels()`.
+
+## Visualization And Interactive Modes
+
+Visualization mode is the default. It supports:
+
+- camera navigation and axis alignment;
+- click/box/label selection and measurements;
+- trajectory scrubbing and playback;
+- bonds, appearance, wrapping, supercells, lighting, and exports.
+
+It does not attach the fallback calculator or invoke edit-only workflows.
+Positive supercell images are selectable and measurable using a base index and
+cell offset.
+
+Interactive mode additionally enables:
+
+- modal `G` move and `R` rotate;
+- numeric input, axis locking, pivot and increment controls;
+- add, delete, copy, paste, undo, and redo;
+- constraints editing and calculator-backed relaxation.
+
+Display-only supercell images remain uneditable until **Set Supercell as Cell**
+creates a real ASE supercell.
+
+## Constraint Contract
+
+Frontend transforms are previews. A confirmed transform is sent to Python and
+committed through:
 
 ```python
-from v_ase.calculators import RepulsionCalculator
-
-atoms.calc = RepulsionCalculator(device="cpu", cpu_threads=4)
+atoms.set_positions(candidate, apply_constraint=True)
 ```
 
-`Conditioner`, `DefaultRepulsionCalculator`, `from v_ase import
-RepulsionCalculator`, and the compatibility module `v_ase.calculator` all point
-to the same ASE calculator class.
+The backend result replaces the preview. This keeps ASE authoritative for
+`FixAtoms`, `FixCartesian`, `FixScaled`, `FixedLine`, `FixedPlane`, Hookean, and
+other supported position constraints.
 
-### Display Tools
-Bonds are rendered as live cylinder objects and update during transform previews,
-relaxation updates, and trajectory frame changes. In interactive mode, auto and
-pairwise-cutoff bonds are re-inferred from every G/R preview position, so bonds
-break or form as soon as distances cross the active cutoff, before commit.
-Manual pair topology remains fixed and only its cylinder geometry is updated.
-The bond mode, global scale, label-pair `rcut` map, periodic-image policy, and
-manual pairs persist across backend structure refreshes and label edits. Bonding
-can use covalent-radius inference, label-pair cutoff rows, or an explicit pair
-list such as `0-1, 1-2`. The displayed cell or positive supercell is the default
-bond domain: bonds cross internal replica boundaries, but are clipped when the
-other endpoint lies outside the displayed supercell. `Periodic image bonds`
-opts into minimum-image vectors and cylinders extending toward outside images. This matches
-VESTA's explicit distinction between keeping atom searches inside the boundary
-and searching atoms beyond it, as documented in the [VESTA manual](https://jp-minerals.org/vesta/en/doc/VESTAch8.html).
+Constraint rendering:
 
-Bond appearance is independent of topology inference. Thickness controls the
-3D cylinder diameter or 2D flat-ribbon width. Color can be one freely selected
-custom value or two midpoint-split segments using the endpoint atom colors.
-Flat ribbons remain camera-facing during navigation. These settings persist in
-visual-settings JSON files and are reproduced in PNG/MOV/AVI and Blender export.
+- `FixAtoms`: element color is retained with a distinct fixed material surface.
+- `FixedLine`: each constrained atom receives its own directional guide.
+- `FixedPlane`: each atom receives its own bounded plane guide; multiple
+  constraints are never collapsed to a selection center.
+- `FixScaled`: allowed fractional directions are converted through the current
+  cell and displayed as line/plane/fixed behavior.
+- Hookean: threshold, inactive gap, and active spring state update from the
+  current distance.
 
-Atomic scale belongs to the live Viewport controls. Editing its pixels-per-Angstrom
-value changes the active orthographic zoom or perspective target distance
-immediately; mouse-wheel zoom updates the same value, and a derived readout reports
-the visible width and height in Angstrom. PNG export then has two framing contracts.
-`Current viewport` clones the active camera, preserves its direction, target,
-and magnification, and changes only the projection gate to the output aspect
-ratio. The output is filled without letterboxing. `Atomic scale from View` uses
-that global value, making images from
-different structures directly comparable (`field width in Å = image width in px /
-px-per-Å`). Orthographic projection is uniform through depth, while perspective
-uses the camera target plane as its scale reference. Export-only sphere quality
-and a `0.5x`-`2.0x` smoothness multiplier temporarily replace atom geometry for
-the render and then restore the live scene. The image dialog is authoritative:
-its dimensions, framing, grid/axes, transparency, atom quality, renderer, and
-Sun values update Preview Area immediately and the same profile is passed to
-PNG capture. The profile is retained in visual settings and `.vase` projects.
+Turning **Apply constraints** off permits unrestricted coordinate editing
+without deleting the ASE constraints.
 
-Orthographic projection is the default view, with perspective available as a
-viewport option. Unit cell, axes, grid, and supercell preview controls are
-exposed in the inspector. Supercell preview is only enabled when a valid unit
-cell exists and PBC is true in the requested direction; otherwise the UI shows
-a warning and resets the invalid multiplier. Every replica shares the base
-atom's exact material, color, emissive response, roughness, and opacity in both
-operating modes. Bonds are instanced in every repeated cell and separately bridge
-internal supercell boundaries, including skewed/monoclinic cell vectors. In visualization mode,
-replicas have stable `base-index + cell-offset` identities and support click,
-Shift-click, box selection, element selection, `Ctrl+A`, hover metadata, and
-displayed-coordinate center/distance/angle/torsion measurements. Interactive mode keeps
-replicas outside atom edit selection until the supercell is committed.
+## Labels And Appearance
 
-Selection measurements and hover inspection use separate viewport HUDs. The
-Measure HUD remains visible while the selection is retained. One through four
-ordered atoms receive `a1...a4` viewport labels and concise point, distance,
-angle-at-`a2`, or signed-torsion guides; five or more show only a count. Box
-selection follows a deterministic visible order. Hover metadata updates
-independently as the pointer moves over atoms.
+Chemical TYPE and visual LABEL are independent:
 
-### Inspector Navigation and Lighting
-The inspector is divided into Inspect, Structure, Display, and Export & Save
-sections instead of one long mixed panel. Interactive-only constraint and
-relaxation controls remain hidden in visualization mode, while Cell &
-Replication stays available. The inspector starts fully collapsed and opens
-from a compact panel-edge handle.
-The edge tab is centered vertically on the panel. Its visible 19 x 38 px surface
-sits inside a transparent 28 x 48 px hit area, balancing legibility with reliable
-mouse and touch interaction. Its 60-degree SVG chevron points toward the next
-panel state without using text glyphs. Width, explicit collapsed state, and
-active section are persisted locally.
+- TYPE is an ASE chemical symbol and controls element defaults and calculators.
+- LABEL identifies a visual/chemical group and keys selection, visibility,
+  explicit color/radius overrides, and pairwise bond cutoffs.
 
-The lighting control sits in the top toolbar immediately to the right of the
-calculator controls, away from the viewport orientation gizmo. Its compact
-icon uses the same sphere in both states: a matte object for Modeling and a
-highlighted object with a ground shadow when rendered lighting is active. The
-settings card opens directly below the toolbar control.
+Changing a TYPE updates element color/radius defaults but keeps the label.
+Changing a label to a valid element name or `Element_suffix` updates TYPE to the
+parsed element. A non-element label changes only the label.
 
-`Tab` opens the inspector only while it is collapsed. Once open, Tab remains
-available for normal form navigation. `Esc` commits the active field, collapses
-the inspector, focuses the viewport, and makes `G`/`R` immediately available
-again; during a transform, Esc retains its usual cancel behavior.
+Appearance row order is established from the first loaded label order and does
+not change after edits. Labels with the same chemical TYPE remain distinct.
 
-The viewport renderer has three explicit modes:
+## Bonds
 
-- **Modeling**: the original balanced-light path, with no shadow map and no
-  extra render loop.
-- **Studio Sun**: physically based materials under ambient, hemisphere, and one
-  directional Sun light.
-- **Sun + Soft Shadow**: the same setup with one PCF soft shadow map. The
-  orthographic shadow camera is fitted around the complete visible structure,
-  including positive supercell previews, while the directional rays remain
-  parallel and independent of source distance.
+Bond topology modes:
 
-Sun brightness, source, and target update in real time. Enable Direction handles,
-select either the source or target in the viewport, and use Blender-style `G`/`R`,
-optional `X`/`Y`/`Z` axis locking, numeric input, `Enter`, and `Esc`. `Source + G`
-translates source and target together, preserving the light direction. `Target + G`
-moves only the target. `R` always rotates the target around the source, regardless
-of which handle initiated the transform, and free mouse rotation follows the
-same visible direction as atom rotation. Direct handle dragging does not change
-the light. Image export accepts independent lighting values, so a
-high-quality still can be produced while the live viewport remains in Modeling.
-Blender export creates a `SUN` at the same position, rotates its local `-Z` toward
-the same target, and assigns the same numeric intensity to Blender light energy.
-The implementation stays on stable Three.js WebGL2 because the project's fixed-
-atom material uses a custom shader hook; Three.js currently documents WebGPU as
-experimental and does not support `onBeforeCompile()` materials there. See the
-[Three.js WebGPU renderer notes](https://threejs.org/manual/en/webgpurenderer).
+- **Automatic**: covalent radii with a global scale and conservative tolerance.
+- **Pairwise cutoff**: explicit label-pair distance; `0` disables the pair.
+- **Manual pair**: explicit atom-index topology.
 
-### Trajectory/Movie Playback
-`view()` and `view_edit()` accept an `Atoms` object, a sequence of `Atoms`
-frames, or an ASE-readable trajectory path. Multi-frame inputs expose an
-OVITO-style timeline panel with previous/next, play/pause, frame slider, FPS,
-and frame skip controls. Skip advances by `skip + 1` frames per playback tick,
-so `0` means no skipped frames.
+Automatic and pairwise topology is inferred for each trajectory frame and every
+interactive transform preview. Manual topology remains fixed while geometry
+stretches.
 
-In the default visualization mode, large numeric LAMMPS text dumps use an
-offset-indexed virtual trajectory path. v_ase parses the first frame into ASE,
-keeps the remaining frames as file offsets, and serves frame changes as binary
-float32 coordinates instead of rebuilding every frame as a full ASE object.
+For large structures, a cell-list search and displacement-validated neighbor
+candidate cache replace the quadratic pair loop. Actual distances and cutoffs
+are still checked every frame. Periodic nearest-image candidates are reused to
+derive direct base-cell bonds and supercell bridge records. Repeated bonds
+cross internal supercell boundaries and are clipped only at the displayed
+outer boundary. **Periodic image bonds** separately enables bonds extending
+toward images outside the displayed cell.
 
-### File Type and Label Handling
-The CLI accepts ASE-readable formats plus v_ase-specific helpers for custom
-labels. extxyz labels such as `H_type5` are preserved as GUI labels while being
-mapped to ASE-valid base elements. LAMMPS dump/data integer types are preserved
-as raw GUI labels; valid integer ids are also interpreted as atomic numbers for
-default color/radius distinction, while out-of-range ids fall back to internal
-`H`.
+Bond appearance is independent of topology: cylinder or flat style, diameter,
+custom color, or midpoint-split endpoint colors.
 
-### Appearance Editing
-The Appearance table is label-oriented and stable under edits. Changing a label
-does not reorder rows. If a label prefix names a real element, for example
-`O_bridge`, the TYPE dropdown and default radius follow that element. When the
-base element changes, stale radius/color overrides from the old label are not
-blindly copied.
+## Trajectories And Relaxation
 
-Default atom color and radius are derived only from the backend chemical TYPE.
-Custom labels such as `Ob`, `O_bridge`, and `O_type2` therefore share the ASE GUI
-oxygen defaults while remaining separate rows for selection, visibility, bonds,
-and optional explicit color/radius overrides.
+Compatible in-memory trajectories can be serialized as contiguous float32
+coordinates. Large numeric LAMMPS dumps retain only the active ASE frame plus
+file offsets and expose the same binary coordinate contract.
 
-### ASE Pickle, Visual Presets, and `.vase` Projects
-Export & Save exposes scientific/geometry exports plus three intentionally
-separate save paths:
+Playback loads the binary array once, then updates GPU instance translations
+without per-frame HTTP, JSON, geometry rebuilds, or complete matrix rewrites.
+Manual scrubbing still synchronizes the backend frame.
 
-- ASE Pickle stores the current ASE `Atoms` structure for Python reuse,
-  including coordinates, labels, cell/PBC, constraints, portable atom arrays,
-  and valid `SinglePointCalculator` results. Visualization state, arbitrary
-  calculator implementations, and other trajectory frames are excluded.
+Relaxation has its own timeline. For a loaded trajectory, each source frame can
+own a relaxation path. Space-bar playback follows the loaded trajectory and
+uses a relaxed override when one exists. A single loaded structure with a
+relaxation path plays the optimization timeline.
 
-- Visual Settings is a JSON preset for display, camera, Sun, quality,
-  appearance, supercell preview, and complete bond configuration. Loading a
-  preset intersects label-specific data with labels present in the new
-  structure, ignores absent labels, creates defaults for new labels and label
-  pairs, and drops invalid manual atom-index pairs.
-- A `.vase` project is a validated ZIP archive containing an ASE trajectory,
-  active frame, edited coordinates, cells, PBC, constraints, atom labels,
-  safe per-atom arrays, JSON-compatible frame metadata, cached standard ASE
-  calculator results, and the visual preset. It never unpickles executable
-  Python objects. Cached results are reconstructed with
-  `SinglePointCalculator`; the built-in repulsion calculator is reconstructed
-  from validated primitive configuration. External calculator implementations
-  and undo history are not embedded.
+## Rendering
 
-The CLI detects `.vase` directly, so `v_ase gui work.vase` restores the project.
-Starting with `v_ase gui` opens an empty workspace whose browser Open flow can
-stream structures, trajectories, and `.vase` projects into the same session.
-Replacing an active document with an ordinary structure or trajectory preserves
-the current visual setup and camera, reconciles label-keyed appearance and bond
-cutoffs, and supplies defaults for new labels. Opening `.vase` deliberately
-replaces those values with the project's saved state.
-Visualization-mode coordinates changed locally by Wrap are included in the
-saved current frame.
+The viewport is demand-rendered. Camera input, frame updates, transforms, and
+display changes request a frame; an unchanged scene remains idle.
 
-### Rendering Performance
-The viewport renders on demand instead of running a permanent animation loop.
-Camera movement, trajectory playback, transforms, and UI changes request a
-frame; an unchanged viewport remains idle. Large structures use Three.js
-`InstancedMesh` batches for atoms, bonds, selection outlines, and supercell
-repeats. Per-instance transforms, colors, and visibility avoid
-creating one JavaScript object and draw call per atom.
+GPU batching covers:
 
-The renderer also lowers device pixel ratio progressively for large atom counts,
-uses a cell-list bond search, caches type/cell/force summaries, and serves large
-LAMMPS trajectory frames as binary float32 positions. Measurement method and
-current benchmark results are documented in [Rendering Performance](performance.md).
+- atoms grouped by geometry/material;
+- bonds grouped by style/material;
+- selection outlines;
+- visualization-mode supercell replicas.
 
-### Blender Scene Format
-The Blender exporter emits a Python scene because this works without Blender in
-the v_ase Python environment. The default optimized mode groups atoms by visual
-label into editable point meshes and creates smooth sphere instances through
-Geometry Nodes. Trajectory frames become point-mesh shape keys; bonds become
-material-grouped curves or meshes; the cell is one multi-spline object. This
-avoids the Python object-creation bottleneck for large structures. An Individual
-objects mode remains available when atom-per-object editing is required.
+Position-only updates alter translation columns in instance matrices. Cached
+geometries, materials, label indices, cell bases, and selection proxies are
+reused.
 
-Principled atom/bond/cell materials, the viewport camera, and a real Blender
-`SUN` with source and target Empties are retained. Blender can run the script
-headlessly and save a native `.blend` with `bpy.ops.wm.save_as_mainfile`. The
-unit cell is optional. The separate OBJ bundle is useful for static geometry
-exchange; its JSON sidecar preserves the v_ase camera and object metadata that
-standard OBJ cannot represent. OBJ still does not retain constraints,
-trajectory behavior, instancing semantics, or the richer lighting state.
+Rendering modes:
 
-### ASE Constraint Compatibility
-The visualizer respects ASE constraints:
-- **FixAtoms**: Atoms marked as fixed cannot be moved or rotated and are shown by a micro-etched atom material shader on the atom itself, with normal depth occlusion and no extra see-through marker.
-- **FixedLine / FixedPlane**: Selected atoms move only along the line or inside the plane. Guides are selected-only: FixedLine uses a thin fading axis, and FixedPlane uses a translucent plane with perimeter, crosshair, and normal tick.
-- **Show Overlays**: A viewport toggle hides selection outlines, selected constraint guides, Hookean overlays, and fixed-atom material marking when users need a clean structure view.
-- **Grid**: The top-bar grid button and Display inspector checkbox are synchronized and update the viewport immediately.
-- **Interactive constraints**: The Constraints panel can apply or clear `FixAtoms`, `FixedLine`, and `FixedPlane` for the selected atoms.
-- **Set Positions**: The backend uses `atoms.set_positions(..., apply_constraint=True)`, ensuring that even if the UI sends a move, ASE will enforce the physical constraints.
+- **Modeling**: balanced lightweight lighting, no shadow map.
+- **Studio Sun**: physically based materials under one directional Sun rig.
+- **Sun + Soft Shadow**: one fitted PCF shadow map added to Studio Sun.
 
-## Architecture
-- **Backend**: FastAPI running through Uvicorn in a daemon thread. It serves static assets and provides REST endpoints for state updates, export, wrap/reset, and relaxation control.
-- **Frontend**: A single-page application built with **Three.js**. It uses `Raycaster` for selection and a state-machine for transformations.
-- **Communication**: JSON-over-HTTP for editing/export plus WebSockets for live relaxation updates.
-    - `GET /api/atoms/{session_id}`: Fetches the current atoms state.
-    - `GET /api/frame/positions/{session_id}/{frame_index}`: Fetches one virtual LAMMPS trajectory frame as binary float32 positions.
-    - `POST /api/apply/{session_id}`: Applies new coordinates through ASE constraint logic.
-    - `POST /api/add/{session_id}`: Appends atoms for paste operations.
-    - `POST /api/delete/{session_id}`: Deletes selected atoms and remaps constraints.
-    - `POST /api/constraints/{session_id}`: Applies or clears selected-atom FixAtoms, FixedLine, and FixedPlane constraints.
-    - `POST /api/calculator/{session_id}`: Updates default repulsion calculator CPU/CUDA settings.
-    - `POST /api/frame/{session_id}`: Switches the active trajectory frame.
-    - `POST /api/wrap/{session_id}`: Wraps atoms into the unit cell.
-    - `POST /api/export/poscar/{session_id}`: Exports the current structure as POSCAR.
-    - `POST /api/file/load/{session_id}`: Streams a structure, trajectory, or `.vase` project selected in the browser into the active session.
-    - `POST /api/export/pickle/{session_id}`: Exports the current ASE structure with valid single-point results, without visualization state or arbitrary calculators.
-    - `POST /api/export/blender/{session_id}`: Exports a Blender Python scene with optional cell geometry.
-    - `POST /api/export/3dm/{session_id}`: Exports instanced Rhino 3DM atoms and logical bonds, optional cell geometry, metadata, and saved camera views in Angstrom units. Requires the optional `rhino3dm` package.
-    - `POST /api/export/obj/{session_id}`: Exports a dependency-free ZIP containing OBJ geometry, MTL colors, and a JSON camera/metadata sidecar.
-    - `POST /api/settings/save/{session_id}`: Exports reusable visual settings as JSON.
-    - `POST /api/settings/load/{session_id}`: Validates and loads JSON settings, with restricted legacy-pickle migration.
-    - `POST /api/project/save/{session_id}`: Exports the complete current state as `.vase`.
-    - `POST /api/project/load/{session_id}`: Replaces the session from a validated `.vase` archive.
-    - `POST /api/relax/start/{session_id}`: Starts geometry optimization.
-    - `POST /api/relax/stop/{session_id}`: Requests geometry optimization stop.
-    - `WS /ws/{session_id}`: Streams relaxation positions, energy, and fmax. In blocking CLI mode, browser tab/window close is detected through this socket and releases the waiting terminal after a short reconnect grace period.
+The Sun is directional: rays remain parallel regardless of source distance.
+Source and target can be selected and transformed. Moving the source translates
+the complete rig; moving the target changes aim; rotating either handle pivots
+the target around the source.
+
+## Camera, Measurement, And Output Preview
+
+Orthographic projection is default; perspective is optional. Atomic scale is a
+live pixels-per-Angstrom contract and updates with wheel zoom.
+
+Sequential one-to-four atom selections produce ordered point, distance, angle,
+and signed torsion measurements. Selection measurements and pointer hover
+metadata use separate persistent HUDs.
+
+Output Preview uses a cloned camera and a fixed screen-space frame with the
+requested output aspect ratio. Preview, PNG, and trajectory video share one
+authoritative profile for:
+
+- camera and framing;
+- dimensions and atom smoothness;
+- background/transparency;
+- grid, axes, and unit cell;
+- renderer and Sun settings.
+
+## Save And Export
+
+- ASE Pickle: current-frame ASE interchange only.
+- Visual Settings JSON: structure-independent presentation preset.
+- `.vase`: complete validated project archive.
+- Blender: optimized label-group point meshes, Geometry Nodes spheres,
+  trajectory shape keys, bonds, optional cell, camera, and Sun.
+- Rhino 3DM: block-instanced atoms/bonds with metadata and saved views; optional
+  `rhino3dm` dependency.
+- OBJ: static OBJ/MTL plus camera/metadata JSON sidecar; no optional dependency.
+
+Blender's optimized mode intentionally avoids one object per atom. Individual
+objects remain available only when atom-by-atom Blender editing is required.
+
+## Browser Lifetime
+
+The CLI and blocking Python API wait while their browser document is connected.
+The document WebSocket tolerates short reload/reconnect gaps. Closing the tab or
+window finalizes the session, returns the current working structure, cleans
+temporary files, stops the managed local server, and releases the terminal.
+
+Multi-document desktop mode uses an additional workspace WebSocket so closing
+the shell releases all child documents.

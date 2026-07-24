@@ -1393,8 +1393,8 @@ body.inspector-wide #inspector .supercell-row {
 }
 
 /* Appearance and bond tables */
-.element-radius-panel,
-.bond-element-panel {
+.appearance-table,
+.pairwise-bond-panel {
     margin: 8px 0 10px;
     overflow: hidden;
     border: 1px solid var(--line);
@@ -1402,14 +1402,14 @@ body.inspector-wide #inspector .supercell-row {
     background: var(--neutral-875);
 }
 
-#inspector #element-radius-panel {
+#inspector #appearance-table {
     overflow-x: auto;
     overflow-y: hidden;
     scrollbar-width: thin;
 }
 
-#inspector #element-radius-panel .mini-table-head,
-#inspector .element-appearance-row {
+#inspector #appearance-table .mini-table-head,
+#inspector .appearance-row {
     min-width: 860px;
     display: grid;
     grid-template-columns: 118px 68px 68px minmax(220px, 1fr) 58px 126px;
@@ -1417,13 +1417,13 @@ body.inspector-wide #inspector .supercell-row {
     align-items: center;
 }
 
-body.inspector-wide #inspector .element-appearance-row,
-body.inspector-wide #inspector #element-radius-panel .mini-table-head {
+body.inspector-wide #inspector .appearance-row,
+body.inspector-wide #inspector #appearance-table .mini-table-head {
     min-width: 940px;
     grid-template-columns: 132px 72px 72px minmax(260px, 1fr) 64px 142px;
 }
 
-#inspector #element-radius-panel .mini-table-head {
+#inspector #appearance-table .mini-table-head {
     position: sticky;
     top: 0;
     z-index: 2;
@@ -1436,45 +1436,45 @@ body.inspector-wide #inspector #element-radius-panel .mini-table-head {
     text-transform: uppercase;
 }
 
-#inspector #element-radius-list {
+#inspector #appearance-table-body {
     min-width: 860px;
 }
 
-body.inspector-wide #inspector #element-radius-list {
+body.inspector-wide #inspector #appearance-table-body {
     min-width: 940px;
 }
 
-#inspector .element-appearance-row {
+#inspector .appearance-row {
     min-height: 48px;
     padding: 7px 10px;
     border-bottom: 1px solid var(--line);
     background: transparent;
 }
 
-#inspector .element-appearance-row:last-child {
+#inspector .appearance-row:last-child {
     border-bottom: 0;
 }
 
-#inspector .element-appearance-row:hover {
+#inspector .appearance-row:hover {
     background: var(--surface-subtle);
 }
 
-#inspector .element-type-select,
-#inspector .element-name-input,
-#inspector .element-radius-input {
+#inspector .chemical-type-select,
+#inspector .atom-label-input,
+#inspector .label-radius-input {
     width: 100%;
 }
 
-#inspector .element-name-input {
+#inspector .atom-label-input {
     text-align: left;
 }
 
-#inspector .element-radius-input {
+#inspector .label-radius-input {
     text-align: right;
 }
 
 #inspector input[type="color"],
-#inspector .element-color-input {
+#inspector .label-color-input {
     justify-self: center;
     width: 42px;
     min-width: 42px;
@@ -1484,8 +1484,8 @@ body.inspector-wide #inspector #element-radius-list {
     cursor: pointer;
 }
 
-#inspector .element-radius-row input.element-check,
-#inspector .element-check {
+#inspector .appearance-row input.label-check,
+#inspector .label-check {
     appearance: none;
     -webkit-appearance: none;
     justify-self: center;
@@ -1499,8 +1499,8 @@ body.inspector-wide #inspector #element-radius-list {
     background: var(--toggle-off);
 }
 
-#inspector .element-radius-row input.element-check::after,
-#inspector .element-check::after {
+#inspector .appearance-row input.label-check::after,
+#inspector .label-check::after {
     content: "";
     position: absolute;
     inset: 3px;
@@ -1509,54 +1509,54 @@ body.inspector-wide #inspector #element-radius-list {
     transform: none;
 }
 
-#inspector .element-radius-row input.element-check:checked,
-#inspector .element-check:checked {
+#inspector .appearance-row input.label-check:checked,
+#inspector .label-check:checked {
     border-color: var(--teal);
     background: var(--teal-soft);
 }
 
-#inspector .element-radius-row input.element-check:checked::after,
-#inspector .element-check:checked::after {
+#inspector .appearance-row input.label-check:checked::after,
+#inspector .label-check:checked::after {
     background: var(--teal);
 }
 
-#inspector .element-radius-row input.element-check:indeterminate,
-#inspector .element-check:indeterminate {
+#inspector .appearance-row input.label-check:indeterminate,
+#inspector .label-check:indeterminate {
     border-color: var(--amber);
     background: var(--amber-soft);
 }
 
-#inspector .element-radius-row input.element-check:indeterminate::after,
-#inspector .element-check:indeterminate::after {
+#inspector .appearance-row input.label-check:indeterminate::after,
+#inspector .label-check:indeterminate::after {
     inset: 7px 3px;
     background: var(--amber);
 }
 
 .mini-table-head,
-.element-bond-row {
+.pairwise-bond-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 112px;
     gap: 12px;
     align-items: center;
 }
 
-.bond-element-panel .mini-table-head {
+.pairwise-bond-panel .mini-table-head {
     padding: 8px 10px;
     border-bottom: 1px solid var(--line);
     background: var(--panel-raised);
 }
 
-.element-bond-row {
+.pairwise-bond-row {
     min-height: 40px;
     padding: 5px 10px;
     border-bottom: 1px solid var(--line);
 }
 
-.element-bond-row:last-child {
+.pairwise-bond-row:last-child {
     border-bottom: 0;
 }
 
-.element-bond-row input {
+.pairwise-bond-row input {
     width: 112px;
     text-align: right;
 }

@@ -16,7 +16,7 @@ from PIL import Image
 from playwright.sync_api import sync_playwright
 
 from tests.manual_showcase import make_frames
-from v_ase import view_edit
+from v_ase import view
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -167,10 +167,10 @@ def set_display(page, options):
             const merged = {
                 ...current,
                 ...options,
-                elementRadii: options.elementRadii || current.elementRadii || {},
-                elementColors: options.elementColors || current.elementColors || {},
-                elementVisible: options.elementVisible || current.elementVisible || {},
-                elementBondCutoffs: options.elementBondCutoffs || current.elementBondCutoffs || {},
+                labelRadii: options.labelRadii || current.labelRadii || {},
+                labelColors: options.labelColors || current.labelColors || {},
+                labelVisible: options.labelVisible || current.labelVisible || {},
+                pairwiseBondCutoffs: options.pairwiseBondCutoffs || current.pairwiseBondCutoffs || {},
                 manualBondPairs: options.manualBondPairs || current.manualBondPairs || [],
                 supercell: options.supercell || current.supercell || [1, 1, 1]
             };
@@ -250,8 +250,8 @@ def capture_logo(browser):
             "showBonds": False,
             "showOverlays": False,
             "atomRadiusScale": 1.0,
-            "elementRadii": {"Cu": 1.278, "O": 0.80},
-            "elementColors": {"Cu": "#71493f", "O": "#d7f26f"},
+            "labelRadii": {"Cu": 1.278, "O": 0.80},
+            "labelColors": {"Cu": "#71493f", "O": "#d7f26f"},
             "projectionMode": "orthographic",
         })
         page.evaluate(
@@ -517,9 +517,10 @@ def make_ferrocene_scene() -> tuple[Atoms, dict[str, list[int]]]:
 
 
 def open_scene(browser, atoms_or_frames, *, show_bonds=False):
-    editor = view_edit(
+    editor = view(
         atoms_or_frames,
         block=False,
+        viz_only=False,
         show_cell=True,
         show_axes=True,
         show_bonds=show_bonds,
@@ -670,7 +671,7 @@ def main() -> int:
             editor, page = open_scene(browser, hookean_atoms, show_bonds=True)
             set_display(page, {
                 "atomRadiusScale": 0.54,
-                "elementRadii": {"Cu": 0.42, "C": 0.56, "O": 0.60, "H": 0.28},
+                "labelRadii": {"Cu": 0.42, "C": 0.56, "O": 0.60, "H": 0.28},
                 "showBonds": True,
                 "showGrid": True
             })

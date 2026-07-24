@@ -1,5 +1,38 @@
 import * as THREE from 'three';
 
+function numberArrayEqual(first = [], second = []) {
+    if (first === second) return true;
+    if (first.length !== second.length) return false;
+    for (let index = 0; index < first.length; index++) {
+        if (Number(first[index]) !== Number(second[index])) return false;
+    }
+    return true;
+}
+
+function flatPairArrayEqual(first = [], second = []) {
+    if (first === second) return true;
+    if (first.length !== second.length) return false;
+    for (let index = 0; index < first.length; index++) {
+        const a = first[index];
+        const b = second[index];
+        if (!a || !b || a[0] !== b[0] || a[1] !== b[1]) return false;
+    }
+    return true;
+}
+
+function scalarRecordEqual(first = {}, second = {}) {
+    if (first === second) return true;
+    const firstKeys = Object.keys(first);
+    const secondKeys = Object.keys(second);
+    if (firstKeys.length !== secondKeys.length) return false;
+    for (const key of firstKeys) {
+        if (!Object.prototype.hasOwnProperty.call(second, key) || first[key] !== second[key]) {
+            return false;
+        }
+    }
+    return true;
+}
+
 class BlenderTumbleControls {
     constructor(camera, domElement) {
         this.camera = camera;
@@ -434,15 +467,17 @@ export class ASERenderer {
         this.atomMeshByIndex = new Map();
         this.atomInstanceRefs = new Map();
         this.atomInstanceMeshes = new Set();
-        this.atomIndicesBySymbol = new Map();
+        this.atomIndicesByLabel = new Map();
         this.useInstancedAtoms = false;
         this.instanceDummy = new THREE.Object3D();
         this.bondInstanceDummy = new THREE.Object3D();
+        this.bondDeltaScratch = new THREE.Vector3();
         this.yAxis = new THREE.Vector3(0, 1, 0);
         this.geometryCache = new Map();
         this.materialCache = new Map();
         this.atomsData = null;
         this.cellCache = null;
+        this.bondNeighborCache = null;
         this.needsInitialCameraFit = true;
         this.customColors = {};
         this.displayOptions = {
@@ -454,15 +489,15 @@ export class ASERenderer {
             bondMode: 'auto',
             bondCutoffScale: 1.0,
             manualBondPairs: [],
-            elementBondCutoffs: {},
+            pairwiseBondCutoffs: {},
             bondStyle: 'cylinder',
             bondThickness: 0.11,
             bondColorMode: 'split',
             bondCustomColor: '#c8ccd0',
             atomRadiusScale: 1.0,
-            elementRadii: {},
-            elementColors: {},
-            elementVisible: {},
+            labelRadii: {},
+            labelColors: {},
+            labelVisible: {},
             rotatePivot: 'selection',
             commensurateGuide: false,
             commensurateSnap: true,
@@ -851,7 +886,7 @@ export class ASERenderer {
         const low = new THREE.Vector3();
         const high = new THREE.Vector3();
         this.forEachAtomProxy?.((proxy, index) => {
-            if (!proxy || proxy.visible === false || !this.atomTypeVisible(index)) return;
+            if (!proxy || proxy.visible === false || !this.atomLabelVisible(index)) return;
             const radius = Math.max(0.05, Number(this.atomVisualRadius(index) || 0.5));
             low.copy(proxy.position).addScalar(-radius);
             high.copy(proxy.position).addScalar(radius);
@@ -1069,10 +1104,10 @@ export class ASERenderer {
     }
 
     atomVisualRadius(index) {
-        const symbol = this.atomsData?.symbols?.[index];
-        const elementRadius = Number(this.displayOptions?.elementRadii?.[symbol]);
-        const sourceRadius = Number.isFinite(elementRadius) && elementRadius > 0
-            ? elementRadius
+        const label = this.atomsData?.symbols?.[index];
+        const labelRadius = Number(this.displayOptions?.labelRadii?.[label]);
+        const sourceRadius = Number.isFinite(labelRadius) && labelRadius > 0
+            ? labelRadius
             : Number(this.atomsData?.visual?.radii?.[index]);
         const scale = Number(this.displayOptions?.atomRadiusScale || 1);
         const radius = Number.isFinite(sourceRadius) && sourceRadius > 0 ? sourceRadius : FALLBACK_ATOM_RADIUS;
@@ -1098,9 +1133,9 @@ export class ASERenderer {
     }
 
     atomVisualColor(index, explicitColor = null) {
-        const symbol = this.atomsData?.symbols?.[index];
-        const elementColor = this.displayOptions?.elementColors?.[symbol];
-        if (this.validHexColor(elementColor)) return elementColor;
+        const label = this.atomsData?.symbols?.[index];
+        const labelColor = this.displayOptions?.labelColors?.[label];
+        if (this.validHexColor(labelColor)) return labelColor;
         if (this.validHexColor(explicitColor)) return explicitColor;
         const color = this.atomsData?.visual?.colors?.[index];
         return this.validHexColor(color) ? color : FALLBACK_ATOM_COLOR;
@@ -1297,28 +1332,28 @@ export class ASERenderer {
         return this.atomMaterialSpec(color, isFixed).color;
     }
 
-    atomTypeVisible(index) {
-        const symbol = this.atomsData?.symbols?.[index];
-        return !symbol || this.displayOptions?.elementVisible?.[symbol] !== false;
+    atomLabelVisible(index) {
+        const label = this.atomsData?.symbols?.[index];
+        return !label || this.displayOptions?.labelVisible?.[label] !== false;
     }
 
-    rebuildAtomSymbolIndex() {
-        this.atomIndicesBySymbol.clear();
-        (this.atomsData?.symbols || []).forEach((symbol, index) => {
-            if (!this.atomIndicesBySymbol.has(symbol)) this.atomIndicesBySymbol.set(symbol, []);
-            this.atomIndicesBySymbol.get(symbol).push(index);
+    rebuildAtomLabelIndex() {
+        this.atomIndicesByLabel.clear();
+        (this.atomsData?.symbols || []).forEach((label, index) => {
+            if (!this.atomIndicesByLabel.has(label)) this.atomIndicesByLabel.set(label, []);
+            this.atomIndicesByLabel.get(label).push(index);
         });
     }
 
     applyAtomVisibility(changedSymbols = null) {
         const affectedIndices = changedSymbols?.length
-            ? changedSymbols.flatMap(symbol => this.atomIndicesBySymbol.get(symbol) || [])
+            ? changedSymbols.flatMap(symbol => this.atomIndicesByLabel.get(symbol) || [])
             : null;
         if (this.useInstancedAtoms) {
             const updateIndex = (index) => {
                 const proxy = this.atomMeshByIndex.get(index);
                 if (!proxy) return;
-                proxy.visible = this.atomTypeVisible(index);
+                proxy.visible = this.atomLabelVisible(index);
                 this.updateAtomInstanceMatrix(index);
             };
             if (affectedIndices) affectedIndices.forEach(updateIndex);
@@ -1333,11 +1368,11 @@ export class ASERenderer {
                     return;
                 }
                 const idx = outline.userData.outlineFor;
-                outline.visible = this.atomTypeVisible(idx);
+                outline.visible = this.atomLabelVisible(idx);
             });
             this.constraintMarkGroup.children.forEach(group => {
                 const idx = group.userData.constraintGuideFor;
-                group.visible = this.atomTypeVisible(idx);
+                group.visible = this.atomLabelVisible(idx);
             });
             this.constraintGuideGroup.children.forEach(group => {
                 group.visible = this.constraintGuideVisible(group);
@@ -1352,15 +1387,15 @@ export class ASERenderer {
         const targets = affectedIndices || [...this.atomMeshByIndex.keys()];
         targets.forEach(index => {
             const mesh = this.atomMeshByIndex.get(index);
-            if (mesh) mesh.visible = this.atomTypeVisible(index);
+            if (mesh) mesh.visible = this.atomLabelVisible(index);
         });
         this.selectionOutlines.children.forEach(outline => {
             const idx = outline.userData.outlineFor;
-            outline.visible = this.atomTypeVisible(idx);
+            outline.visible = this.atomLabelVisible(idx);
         });
         this.constraintMarkGroup.children.forEach(group => {
             const idx = group.userData.constraintGuideFor;
-            group.visible = this.atomTypeVisible(idx);
+            group.visible = this.atomLabelVisible(idx);
         });
         this.constraintGuideGroup.children.forEach(group => {
             group.visible = this.constraintGuideVisible(group);
@@ -1504,16 +1539,17 @@ export class ASERenderer {
         this.atomMeshByIndex.clear();
         this.atomInstanceRefs.clear();
         this.atomInstanceMeshes.clear();
-        this.atomIndicesBySymbol.clear();
+        this.atomIndicesByLabel.clear();
         this.atomsData = atoms;
         this.invalidateCellCache();
+        this.invalidateBondNeighborCache();
         this.customColors = customColors || {};
         this.updateRenderQuality();
         this.refreshViewportGuidesForStructure();
         
         if (!atoms || !atoms.symbols) return;
 
-        this.rebuildAtomSymbolIndex();
+        this.rebuildAtomLabelIndex();
         const fixed = this.fixedAtomDisplayEnabled() ? new Set(atoms.constraints?.fixed_indices || []) : new Set();
         const segmentCount = this.sphereQualitySegments(atoms.symbols.length);
         this.useInstancedAtoms = this.shouldUseInstancedAtoms(atoms);
@@ -1558,7 +1594,7 @@ export class ASERenderer {
             mesh.position.set(pos[0], pos[1], pos[2]);
             mesh.scale.setScalar(radius);
             mesh.userData = { index: i, symbol: sym, fixed: isFixed };
-            mesh.visible = this.atomTypeVisible(i);
+            mesh.visible = this.atomLabelVisible(i);
             
             this.atomMeshes.add(mesh);
             this.atomMeshByIndex.set(i, mesh);
@@ -1587,7 +1623,7 @@ export class ASERenderer {
     atomProxy(index, position, symbol, fixed = false) {
         return {
             position: position.clone(),
-            visible: this.atomTypeVisible(index),
+            visible: this.atomLabelVisible(index),
             userData: { index, symbol, fixed }
         };
     }
@@ -1650,7 +1686,7 @@ export class ASERenderer {
         const ref = this.atomInstanceRefs.get(index);
         const proxy = this.atomMeshByIndex.get(index);
         if (!ref || !proxy) return;
-        const visible = proxy.visible !== false && this.atomTypeVisible(index);
+        const visible = proxy.visible !== false && this.atomLabelVisible(index);
         const scale = visible ? this.atomVisualRadius(index) : 0;
         const matrix = ref.mesh.instanceMatrix.array;
         const offset = ref.instanceId * 16;
@@ -1670,6 +1706,18 @@ export class ASERenderer {
         matrix[offset + 13] = visible ? proxy.position.y : 0;
         matrix[offset + 14] = visible ? proxy.position.z : 0;
         matrix[offset + 15] = 1;
+    }
+
+    updateAtomInstanceTranslation(index, x, y, z) {
+        const ref = this.atomInstanceRefs.get(index);
+        const proxy = this.atomMeshByIndex.get(index);
+        if (!ref || !proxy) return;
+        proxy.position.set(x, y, z);
+        const matrix = ref.mesh.instanceMatrix.array;
+        const offset = ref.instanceId * 16;
+        matrix[offset + 12] = x;
+        matrix[offset + 13] = y;
+        matrix[offset + 14] = z;
     }
 
     flushAtomInstances(indices = null) {
@@ -2371,6 +2419,7 @@ export class ASERenderer {
     rebuildCell(cell) {
         this.clearGroup(this.cellGroup);
         this.invalidateCellCache();
+        this.invalidateBondNeighborCache();
         if (!cell || cell.length !== 3) {
             this.requestRender();
             return;
@@ -2408,20 +2457,25 @@ export class ASERenderer {
             this.atomsData.positions = positions;
         }
         if (this.useInstancedAtoms) {
-            positions.forEach((p, idx) => {
-                const proxy = this.atomMeshByIndex.get(idx);
-                if (!proxy || !p) return;
-                proxy.position.set(p[0], p[1], p[2]);
-                proxy.visible = this.atomTypeVisible(idx);
-                this.updateAtomInstanceMatrix(idx);
+            for (let index = 0; index < positions.length; index++) {
+                const position = positions[index];
+                if (!position) continue;
+                this.updateAtomInstanceTranslation(
+                    index, position[0], position[1], position[2]
+                );
+            }
+            this.atomInstanceMeshes.forEach(mesh => {
+                mesh.instanceMatrix.needsUpdate = true;
             });
-            this.flushAtomInstances();
             this.syncSelectionOutlines();
             this.syncConstraintGuides();
             this.refreshBondsForCurrentPositions();
-            this.updateSupercellPositions();
-            this.updateHookeanPositions();
+            if (this.supercellGroup.children.length) {
+                this.updateSupercellPositions({ translationsOnly: true });
+            }
+            if (this.hookeanGroup.children.length) this.updateHookeanPositions();
             this.refreshStudioSunForStructure();
+            this.requestRender();
             return;
         }
         this.atomMeshes.children.forEach(mesh => {
@@ -2437,7 +2491,7 @@ export class ASERenderer {
         this.syncSelectionOutlines();
         this.syncConstraintGuides();
         this.refreshBondsForCurrentPositions();
-        this.updateSupercellPositions();
+        this.updateSupercellPositions({ translationsOnly: true });
         this.updateHookeanPositions();
         this.refreshStudioSunForStructure();
         this.requestRender();
@@ -2446,21 +2500,24 @@ export class ASERenderer {
     updatePositionsFlat(values, offset = 0, count = this.atomsData?.positions?.length || 0) {
         if (!values || !count) return;
         if (this.useInstancedAtoms) {
-            for (let idx = 0; idx < count; idx++) {
-                const base = offset + idx * 3;
-                const proxy = this.atomMeshByIndex.get(idx);
-                if (!proxy) continue;
-                proxy.position.set(values[base], values[base + 1], values[base + 2]);
-                proxy.visible = this.atomTypeVisible(idx);
-                this.updateAtomInstanceMatrix(idx);
+            for (let index = 0; index < count; index++) {
+                const base = offset + index * 3;
+                this.updateAtomInstanceTranslation(
+                    index, values[base], values[base + 1], values[base + 2]
+                );
             }
-            this.flushAtomInstances();
+            this.atomInstanceMeshes.forEach(mesh => {
+                mesh.instanceMatrix.needsUpdate = true;
+            });
             this.syncSelectionOutlines();
             this.syncConstraintGuides();
             this.refreshBondsForCurrentPositions();
-            this.updateSupercellPositions();
-            this.updateHookeanPositions();
+            if (this.supercellGroup.children.length) {
+                this.updateSupercellPositions({ translationsOnly: true });
+            }
+            if (this.hookeanGroup.children.length) this.updateHookeanPositions();
             this.refreshStudioSunForStructure();
+            this.requestRender();
             return;
         }
         this.atomMeshes.children.forEach(mesh => {
@@ -2472,32 +2529,22 @@ export class ASERenderer {
         this.syncSelectionOutlines();
         this.syncConstraintGuides();
         this.refreshBondsForCurrentPositions();
-        this.updateSupercellPositions();
+        this.updateSupercellPositions({ translationsOnly: true });
         this.updateHookeanPositions();
         this.refreshStudioSunForStructure();
         this.requestRender();
     }
 
     setDisplayOptions(options, { rebuild = true } = {}) {
-        const previous = {
-            ...this.displayOptions,
-            manualBondPairs: [...(this.displayOptions.manualBondPairs || [])],
-            elementBondCutoffs: { ...(this.displayOptions.elementBondCutoffs || {}) },
-            elementRadii: { ...(this.displayOptions.elementRadii || {}) },
-            elementColors: { ...(this.displayOptions.elementColors || {}) },
-            elementVisible: { ...(this.displayOptions.elementVisible || {}) },
-            supercell: [...(this.displayOptions.supercell || [1, 1, 1])],
-            sunPosition: [...(this.displayOptions.sunPosition || [8, -10, 14])],
-            sunTarget: [...(this.displayOptions.sunTarget || [0, 0, 0])]
-        };
+        const previous = this.displayOptions;
         this.displayOptions = {
             ...this.displayOptions,
             ...options,
             manualBondPairs: [...(options.manualBondPairs || this.displayOptions.manualBondPairs || [])],
-            elementBondCutoffs: { ...(options.elementBondCutoffs || this.displayOptions.elementBondCutoffs || {}) },
-            elementRadii: { ...(options.elementRadii || this.displayOptions.elementRadii || {}) },
-            elementColors: { ...(options.elementColors || this.displayOptions.elementColors || {}) },
-            elementVisible: { ...(options.elementVisible || this.displayOptions.elementVisible || {}) },
+            pairwiseBondCutoffs: { ...(options.pairwiseBondCutoffs || this.displayOptions.pairwiseBondCutoffs || {}) },
+            labelRadii: { ...(options.labelRadii || this.displayOptions.labelRadii || {}) },
+            labelColors: { ...(options.labelColors || this.displayOptions.labelColors || {}) },
+            labelVisible: { ...(options.labelVisible || this.displayOptions.labelVisible || {}) },
             supercell: [...(options.supercell || this.displayOptions.supercell || [1, 1, 1])],
             sunPosition: [...(options.sunPosition || this.displayOptions.sunPosition || [8, -10, 14])],
             sunTarget: [...(options.sunTarget || this.displayOptions.sunTarget || [0, 0, 0])]
@@ -2510,22 +2557,22 @@ export class ASERenderer {
             previous.atomDisplayMode === '2d' || this.displayOptions.atomDisplayMode === '2d'
         );
         const radiusChanged = previous.atomRadiusScale !== this.displayOptions.atomRadiusScale ||
-            JSON.stringify(previous.elementRadii || {}) !== JSON.stringify(this.displayOptions.elementRadii || {});
-        const colorChanged = JSON.stringify(previous.elementColors || {}) !== JSON.stringify(this.displayOptions.elementColors || {});
+            !scalarRecordEqual(previous.labelRadii, this.displayOptions.labelRadii);
+        const colorChanged = !scalarRecordEqual(previous.labelColors, this.displayOptions.labelColors);
         const overlayChanged = previous.showOverlays !== this.displayOptions.showOverlays;
-        const visibilityChanged = JSON.stringify(previous.elementVisible || {}) !== JSON.stringify(this.displayOptions.elementVisible || {});
-        const changedVisibilitySymbols = visibilityChanged
+        const visibilityChanged = !scalarRecordEqual(previous.labelVisible, this.displayOptions.labelVisible);
+        const changedVisibilityLabels = visibilityChanged
             ? [...new Set([
-                ...Object.keys(previous.elementVisible || {}),
-                ...Object.keys(this.displayOptions.elementVisible || {})
-            ])].filter(symbol => previous.elementVisible?.[symbol] !== this.displayOptions.elementVisible?.[symbol])
+                ...Object.keys(previous.labelVisible || {}),
+                ...Object.keys(this.displayOptions.labelVisible || {})
+            ])].filter(label => previous.labelVisible?.[label] !== this.displayOptions.labelVisible?.[label])
             : [];
-        const supercellChanged = JSON.stringify(previous.supercell || [1, 1, 1]) !== JSON.stringify(this.displayOptions.supercell || [1, 1, 1]);
+        const supercellChanged = !numberArrayEqual(previous.supercell, this.displayOptions.supercell);
         const lightingChanged = previous.lightingMode !== this.displayOptions.lightingMode ||
             previous.sunIntensity !== this.displayOptions.sunIntensity ||
             previous.sunGizmo !== this.displayOptions.sunGizmo ||
-            JSON.stringify(previous.sunPosition || []) !== JSON.stringify(this.displayOptions.sunPosition || []) ||
-            JSON.stringify(previous.sunTarget || []) !== JSON.stringify(this.displayOptions.sunTarget || []);
+            !numberArrayEqual(previous.sunPosition, this.displayOptions.sunPosition) ||
+            !numberArrayEqual(previous.sunTarget, this.displayOptions.sunTarget);
         if (previous.projectionMode !== this.displayOptions.projectionMode) {
             this.setProjectionMode(this.displayOptions.projectionMode);
         }
@@ -2572,10 +2619,11 @@ export class ASERenderer {
             previous.bondColorMode !== this.displayOptions.bondColorMode ||
             previous.bondCustomColor !== this.displayOptions.bondCustomColor ||
             (colorChanged && this.displayOptions.bondColorMode === 'split') ||
-            JSON.stringify(previous.manualBondPairs || []) !== JSON.stringify(this.displayOptions.manualBondPairs || []) ||
-            JSON.stringify(previous.elementBondCutoffs || {}) !== JSON.stringify(this.displayOptions.elementBondCutoffs || {}) ||
+            !flatPairArrayEqual(previous.manualBondPairs, this.displayOptions.manualBondPairs) ||
+            !scalarRecordEqual(previous.pairwiseBondCutoffs, this.displayOptions.pairwiseBondCutoffs) ||
             visibilityChanged;
-        if (visibilityChanged) this.applyAtomVisibility(changedVisibilitySymbols);
+        if (bondsChanged) this.invalidateBondNeighborCache();
+        if (visibilityChanged) this.applyAtomVisibility(changedVisibilityLabels);
         else if (bondsChanged) this.rebuildBonds();
         if (supercellChanged) this.rebuildSupercell();
         if ((radiusChanged || supercellChanged) && !visibilityChanged) {
@@ -2593,7 +2641,7 @@ export class ASERenderer {
         if (this.hookeanGroup) this.hookeanGroup.visible = visible;
     }
 
-    renameAtomType(oldSymbol, label, indices = [], displayOptions = null, baseSymbol = null) {
+    renameAtomLabel(oldSymbol, label, indices = [], displayOptions = null, baseSymbol = null) {
         if (!this.atomsData?.symbols) return;
         indices.forEach(index => {
             if (this.atomsData.symbols[index] === oldSymbol) {
@@ -2605,20 +2653,21 @@ export class ASERenderer {
             const mesh = this.atomMeshByIndex.get(index);
             if (mesh?.userData) mesh.userData.symbol = label;
         });
-        this.rebuildAtomSymbolIndex();
+        this.rebuildAtomLabelIndex();
         if (displayOptions) {
             this.displayOptions = {
                 ...this.displayOptions,
                 ...displayOptions,
                 manualBondPairs: [...(displayOptions.manualBondPairs || this.displayOptions.manualBondPairs || [])],
-                elementBondCutoffs: { ...(displayOptions.elementBondCutoffs || this.displayOptions.elementBondCutoffs || {}) },
-                elementRadii: { ...(displayOptions.elementRadii || this.displayOptions.elementRadii || {}) },
-                elementColors: { ...(displayOptions.elementColors || this.displayOptions.elementColors || {}) },
-                elementVisible: { ...(displayOptions.elementVisible || this.displayOptions.elementVisible || {}) },
+                pairwiseBondCutoffs: { ...(displayOptions.pairwiseBondCutoffs || this.displayOptions.pairwiseBondCutoffs || {}) },
+                labelRadii: { ...(displayOptions.labelRadii || this.displayOptions.labelRadii || {}) },
+                labelColors: { ...(displayOptions.labelColors || this.displayOptions.labelColors || {}) },
+                labelVisible: { ...(displayOptions.labelVisible || this.displayOptions.labelVisible || {}) },
                 supercell: [...(displayOptions.supercell || this.displayOptions.supercell || [1, 1, 1])]
             };
         }
         this.refreshAtomAppearance(indices);
+        this.invalidateBondNeighborCache();
         this.rebuildBonds();
         this.rebuildSupercell();
         this.applyAtomVisibility();
@@ -2669,7 +2718,7 @@ export class ASERenderer {
             mesh.geometry = this.geometryCache.get(geometryKey);
             mesh.material = this.materialCache.get(materialKey);
             mesh.scale.setScalar(radius);
-            mesh.visible = this.atomTypeVisible(index);
+            mesh.visible = this.atomLabelVisible(index);
         });
         this.requestRender();
     }
@@ -2682,35 +2731,39 @@ export class ASERenderer {
         const pairs = [];
         const hookeanExcluded = this.hookeanBondExclusions();
         const count = this.atomsData.positions.length;
+        const cellCache = usePeriodicImages ? this.ensureCellCache() : null;
         for (let i = 0; i < count; i++) {
-            if (!this.atomTypeVisible(i)) continue;
-            const pi = this.getAtomPosition(i);
+            if (!this.atomLabelVisible(i)) continue;
             for (let j = i + 1; j < count; j++) {
-                if (!this.atomTypeVisible(j)) continue;
+                if (!this.atomLabelVisible(j)) continue;
                 if (hookeanExcluded.has(this.hookeanPairKey(i, j))) continue;
                 const cutoff = this.bondCutoffForPair(i, j);
                 if (!Number.isFinite(cutoff) || cutoff <= 0) continue;
-                const d = this.bondDeltaForMode(i, j, pi, usePeriodicImages).length();
-                if (d > 0.15 && d <= cutoff) pairs.push([i, j]);
+                const distanceSquared = this.bondDistanceSquared(
+                    i, j, null, usePeriodicImages, cellCache
+                );
+                if (distanceSquared > 0.0225 && distanceSquared <= cutoff * cutoff) {
+                    pairs.push([i, j]);
+                }
             }
         }
         return pairs;
     }
 
     bondCutoffForPair(i, j) {
-        if (this.displayOptions.bondMode === 'element') {
-            return this.elementBondCutoff(this.atomsData.symbols[i], this.atomsData.symbols[j]);
+        if (this.displayOptions.bondMode === 'pairwise') {
+            return this.pairwiseBondCutoff(this.atomsData.symbols[i], this.atomsData.symbols[j]);
         }
         return this.autoBondCutoff(i, j);
     }
 
-    elementPairKey(a, b) {
+    labelPairKey(a, b) {
         return [a, b].sort().join('-');
     }
 
-    elementBondCutoff(a, b) {
-        const cutoffs = this.displayOptions.elementBondCutoffs || {};
-        const value = Number(cutoffs[this.elementPairKey(a, b)]);
+    pairwiseBondCutoff(a, b) {
+        const cutoffs = this.displayOptions.pairwiseBondCutoffs || {};
+        const value = Number(cutoffs[this.labelPairKey(a, b)]);
         return Number.isFinite(value) ? value : null;
     }
 
@@ -2719,45 +2772,223 @@ export class ASERenderer {
         return COVALENT_BOND_TOLERANCE * (this.atomCovalentRadius(i) + this.atomCovalentRadius(j)) * scale;
     }
 
-    maxPossibleBondCutoff() {
-        if (!this.atomsData?.positions?.length) return 0;
-        if (this.displayOptions.bondMode === 'element') {
-            const values = Object.values(this.displayOptions.elementBondCutoffs || {})
-                .map(Number)
-                .filter(value => Number.isFinite(value) && value > 0);
-            return values.length ? Math.max(...values) : 0;
+    buildBondSearchContext() {
+        const count = this.atomsData?.positions?.length || 0;
+        const visible = new Uint8Array(count);
+        for (let index = 0; index < count; index++) {
+            visible[index] = this.atomLabelVisible(index) ? 1 : 0;
         }
+
+        if (this.displayOptions.bondMode === 'pairwise') {
+            const labels = this.atomsData?.symbols || [];
+            const uniqueLabels = [...new Set(labels)];
+            const labelIndex = new Map(
+                uniqueLabels.map((label, index) => [label, index])
+            );
+            const labelIds = new Int32Array(count);
+            for (let index = 0; index < count; index++) {
+                labelIds[index] = labelIndex.get(labels[index]) ?? -1;
+            }
+            const matrixSize = uniqueLabels.length;
+            const cutoffSquared = new Float64Array(matrixSize * matrixSize);
+            const requested = this.displayOptions.pairwiseBondCutoffs || {};
+            let maxCutoff = 0;
+            for (let first = 0; first < matrixSize; first++) {
+                for (let second = first; second < matrixSize; second++) {
+                    const value = Number(
+                        requested[this.labelPairKey(
+                            uniqueLabels[first],
+                            uniqueLabels[second]
+                        )]
+                    );
+                    const cutoff = Number.isFinite(value) && value > 0 ? value : 0;
+                    const squared = cutoff * cutoff;
+                    cutoffSquared[first * matrixSize + second] = squared;
+                    cutoffSquared[second * matrixSize + first] = squared;
+                    maxCutoff = Math.max(maxCutoff, cutoff);
+                }
+            }
+            return {
+                count,
+                visible,
+                pairwise: true,
+                labelIds,
+                matrixSize,
+                cutoffSquared,
+                maxCutoff
+            };
+        }
+
         const scale = Math.max(0.1, Number(this.displayOptions.bondCutoffScale || 1));
+        const factor = COVALENT_BOND_TOLERANCE * scale;
+        const sourceRadii = (
+            this.atomsData?.visual?.bond_radii
+            || this.atomsData?.visual?.covalent_radii
+            || []
+        );
+        const radii = new Float64Array(count);
         let maxCovalent = 0;
-        for (let i = 0; i < this.atomsData.positions.length; i++) {
-            if (!this.atomTypeVisible(i)) continue;
-            maxCovalent = Math.max(maxCovalent, this.atomCovalentRadius(i));
+        for (let index = 0; index < count; index++) {
+            const value = Number(sourceRadii[index]);
+            const radius = Number.isFinite(value) && value > 0
+                ? value
+                : FALLBACK_COVALENT_RADIUS;
+            radii[index] = radius;
+            if (visible[index]) maxCovalent = Math.max(maxCovalent, radius);
         }
-        return COVALENT_BOND_TOLERANCE * 2 * maxCovalent * scale;
+        return {
+            count,
+            visible,
+            pairwise: false,
+            radii,
+            factor,
+            maxCutoff: factor * 2 * maxCovalent
+        };
+    }
+
+    bondCutoffSquaredFromSearch(search, i, j) {
+        if (search.pairwise) {
+            const firstLabel = search.labelIds[i];
+            const secondLabel = search.labelIds[j];
+            return firstLabel < 0 || secondLabel < 0
+                ? 0
+                : search.cutoffSquared[
+                    firstLabel * search.matrixSize + secondLabel
+                ];
+        }
+        const cutoff = search.factor * (search.radii[i] + search.radii[j]);
+        return cutoff * cutoff;
+    }
+
+    reusableBondNeighborCandidates(search, usePeriodicImages) {
+        const cache = this.bondNeighborCache;
+        const pbc = this.atomsData?.pbc || [false, false, false];
+        if (
+            !cache
+            || cache.count !== search.count
+            || cache.usePeriodicImages !== usePeriodicImages
+            || cache.cellSource !== this.atomsData?.cell
+            || cache.pbc[0] !== Boolean(pbc[0])
+            || cache.pbc[1] !== Boolean(pbc[1])
+            || cache.pbc[2] !== Boolean(pbc[2])
+            || Math.abs(cache.maxCutoff - search.maxCutoff) > 1e-12
+        ) {
+            return null;
+        }
+        const thresholdSquared = (cache.skin * 0.5) ** 2;
+        for (let index = 0; index < search.count; index++) {
+            if (!search.visible[index]) continue;
+            const position = this.atomMeshByIndex.get(index)?.position;
+            if (!position) return null;
+            const offset = index * 3;
+            const dx = position.x - cache.referencePositions[offset];
+            const dy = position.y - cache.referencePositions[offset + 1];
+            const dz = position.z - cache.referencePositions[offset + 2];
+            if (dx * dx + dy * dy + dz * dz > thresholdSquared) return null;
+        }
+        return cache.candidatePairs;
+    }
+
+    cacheBondNeighborCandidates(
+        candidatePairs,
+        search,
+        usePeriodicImages,
+        skin
+    ) {
+        const referencePositions = new Float32Array(search.count * 3);
+        for (let index = 0; index < search.count; index++) {
+            const position = this.atomMeshByIndex.get(index)?.position;
+            if (!position) continue;
+            const offset = index * 3;
+            referencePositions[offset] = position.x;
+            referencePositions[offset + 1] = position.y;
+            referencePositions[offset + 2] = position.z;
+        }
+        const pbc = this.atomsData?.pbc || [false, false, false];
+        this.bondNeighborCache = {
+            count: search.count,
+            search,
+            usePeriodicImages,
+            cellSource: this.atomsData?.cell,
+            pbc: [Boolean(pbc[0]), Boolean(pbc[1]), Boolean(pbc[2])],
+            maxCutoff: search.maxCutoff,
+            skin,
+            referencePositions,
+            candidatePairs
+        };
+    }
+
+    filterBondNeighborCandidates(candidatePairs, search, usePeriodicImages) {
+        const pairs = [];
+        const cellCache = usePeriodicImages ? this.ensureCellCache() : null;
+        for (let offset = 0; offset < candidatePairs.length; offset += 2) {
+            const i = candidatePairs[offset];
+            const j = candidatePairs[offset + 1];
+            const cutoffSquared = this.bondCutoffSquaredFromSearch(search, i, j);
+            if (!Number.isFinite(cutoffSquared) || cutoffSquared <= 0) continue;
+            const distanceSquared = this.bondDistanceSquared(
+                i,
+                j,
+                this.atomMeshByIndex.get(i)?.position || null,
+                usePeriodicImages,
+                cellCache
+            );
+            if (distanceSquared > 0.0225 && distanceSquared <= cutoffSquared) {
+                pairs.push([i, j]);
+            }
+        }
+        return pairs;
     }
 
     inferBondPairsCellList(usePeriodicImages = this.displayOptions.showPeriodicBonds) {
         const count = this.atomsData?.positions?.length || 0;
         if (!count) return [];
-        const maxCutoff = this.maxPossibleBondCutoff();
+        const search = this.bondNeighborCache?.search || this.buildBondSearchContext();
+        const maxCutoff = search.maxCutoff;
         if (!Number.isFinite(maxCutoff) || maxCutoff <= 0) return [];
 
-        const pairs = [];
+        const cachedCandidates = this.reusableBondNeighborCandidates(
+            search,
+            usePeriodicImages
+        );
+        if (cachedCandidates) {
+            return this.filterBondNeighborCandidates(
+                cachedCandidates,
+                search,
+                usePeriodicImages
+            );
+        }
+
+        const skin = Math.max(0.35, maxCutoff * 0.2);
+        const neighborRadius = maxCutoff + skin;
+        const candidatePairs = [];
         const hookeanExcluded = this.hookeanBondExclusions();
         const pbc = this.atomsData?.pbc || [false, false, false];
-        const basis = this.hasValidCell() ? this.cellBasis() : null;
-        const useFractionalGrid = Boolean(usePeriodicImages && basis && pbc.some(Boolean));
+        const cellCache = this.hasValidCell() ? this.ensureCellCache() : null;
+        const basis = cellCache?.valid ? cellCache.basis : null;
+        const reciprocal = cellCache?.valid ? cellCache.reciprocal : null;
+        const useFractionalGrid = Boolean(
+            usePeriodicImages && basis && reciprocal && pbc.some(Boolean)
+        );
         const positions = new Array(count);
         const sortable = [];
 
         if (useFractionalGrid) {
-            const lengths = basis.map(v => Math.max(1e-6, v.length()));
-            const bins = lengths.map(length => Math.max(1, Math.floor(length / maxCutoff)));
+            // |b_i| converts a Cartesian cutoff to its maximum fractional
+            // extent along cell coordinate i. This remains valid for skewed
+            // and monoclinic cells, unlike direct lattice-vector lengths.
+            const bins = reciprocal.map(vector => {
+                const fractionalExtent = Math.max(
+                    1e-12,
+                    neighborRadius * vector.length()
+                );
+                return Math.max(1, Math.floor(1 / fractionalExtent));
+            });
             for (let i = 0; i < count; i++) {
-                if (!this.atomTypeVisible(i)) continue;
-                const pos = this.getAtomPosition(i);
+                if (!search.visible[i]) continue;
+                const pos = this.atomMeshByIndex.get(i)?.position || this.getAtomPosition(i);
                 positions[i] = pos;
-                const frac = this.cartToFrac(pos, basis);
+                const frac = this.cartToFrac(pos, basis, reciprocal);
                 for (let axis = 0; axis < 3; axis++) {
                     if (pbc[axis]) {
                         const value = frac.getComponent(axis);
@@ -2770,15 +3001,33 @@ export class ASERenderer {
                 sortable.push({ index: i, ix, iy, iz });
             }
             this.collectBondPairsFromCells(
-                sortable, bins, positions, hookeanExcluded, pairs, pbc, usePeriodicImages
+                sortable,
+                bins,
+                positions,
+                hookeanExcluded,
+                candidatePairs,
+                pbc,
+                usePeriodicImages,
+                search,
+                neighborRadius * neighborRadius
             );
-            return pairs;
+            this.cacheBondNeighborCandidates(
+                candidatePairs,
+                search,
+                usePeriodicImages,
+                skin
+            );
+            return this.filterBondNeighborCandidates(
+                candidatePairs,
+                search,
+                usePeriodicImages
+            );
         }
 
         const box = new THREE.Box3();
         for (let i = 0; i < count; i++) {
-            if (!this.atomTypeVisible(i)) continue;
-            const pos = this.getAtomPosition(i);
+            if (!search.visible[i]) continue;
+            const pos = this.atomMeshByIndex.get(i)?.position || this.getAtomPosition(i);
             positions[i] = pos;
             box.expandByPoint(pos);
         }
@@ -2787,16 +3036,16 @@ export class ASERenderer {
         const size = new THREE.Vector3();
         box.getSize(size);
         const bins = [
-            Math.max(1, Math.ceil(size.x / maxCutoff)),
-            Math.max(1, Math.ceil(size.y / maxCutoff)),
-            Math.max(1, Math.ceil(size.z / maxCutoff))
+            Math.max(1, Math.floor(size.x / neighborRadius)),
+            Math.max(1, Math.floor(size.y / neighborRadius)),
+            Math.max(1, Math.floor(size.z / neighborRadius))
         ];
         for (let i = 0; i < count; i++) {
             const pos = positions[i];
             if (!pos) continue;
-            const ix = Math.max(0, Math.min(bins[0] - 1, Math.floor((pos.x - min.x) / maxCutoff)));
-            const iy = Math.max(0, Math.min(bins[1] - 1, Math.floor((pos.y - min.y) / maxCutoff)));
-            const iz = Math.max(0, Math.min(bins[2] - 1, Math.floor((pos.z - min.z) / maxCutoff)));
+            const ix = Math.max(0, Math.min(bins[0] - 1, Math.floor((pos.x - min.x) / neighborRadius)));
+            const iy = Math.max(0, Math.min(bins[1] - 1, Math.floor((pos.y - min.y) / neighborRadius)));
+            const iz = Math.max(0, Math.min(bins[2] - 1, Math.floor((pos.z - min.z) / neighborRadius)));
             sortable.push({
                 index: i,
                 ix,
@@ -2805,9 +3054,27 @@ export class ASERenderer {
             });
         }
         this.collectBondPairsFromCells(
-            sortable, bins, positions, hookeanExcluded, pairs, [false, false, false], usePeriodicImages
+            sortable,
+            bins,
+            positions,
+            hookeanExcluded,
+            candidatePairs,
+            [false, false, false],
+            usePeriodicImages,
+            search,
+            neighborRadius * neighborRadius
         );
-        return pairs;
+        this.cacheBondNeighborCandidates(
+            candidatePairs,
+            search,
+            usePeriodicImages,
+            skin
+        );
+        return this.filterBondNeighborCandidates(
+            candidatePairs,
+            search,
+            usePeriodicImages
+        );
     }
 
     collectBondPairsFromCells(
@@ -2817,23 +3084,27 @@ export class ASERenderer {
         hookeanExcluded,
         pairs,
         periodicAxes = [false, false, false],
-        usePeriodicImages = false
+        usePeriodicImages = false,
+        search = this.buildBondSearchContext(),
+        candidateRadiusSquared = null
     ) {
         const cells = new Map();
-        const keyOf = (ix, iy, iz) => `${ix}|${iy}|${iz}`;
+        const keyOf = (ix, iy, iz) => ix + bins[0] * (iy + bins[1] * iz);
         const wrap = (value, size, axis) => {
             if (!periodicAxes[axis]) return value;
             return ((value % size) + size) % size;
         };
-        items.forEach(item => {
+        for (const item of items) {
             const key = keyOf(item.ix, item.iy, item.iz);
             if (!cells.has(key)) cells.set(key, []);
             cells.get(key).push(item.index);
-        });
-        items.forEach(item => {
-            const i = item.index;
-            const pi = positions[i];
-            if (!pi) return;
+        }
+
+        const neighborBuckets = new Map();
+        const bucketsFor = item => {
+            const sourceKey = keyOf(item.ix, item.iy, item.iz);
+            if (neighborBuckets.has(sourceKey)) return neighborBuckets.get(sourceKey);
+            const buckets = [];
             const visitedCells = new Set();
             for (let dx = -1; dx <= 1; dx++) {
                 const ix = wrap(item.ix + dx, bins[0], 0);
@@ -2848,18 +3119,40 @@ export class ASERenderer {
                         if (visitedCells.has(cellKey)) continue;
                         visitedCells.add(cellKey);
                         const bucket = cells.get(cellKey);
-                        if (!bucket) continue;
-                        bucket.forEach(j => {
-                            if (j <= i || hookeanExcluded.has(this.hookeanPairKey(i, j))) return;
-                            const cutoff = this.bondCutoffForPair(i, j);
-                            if (!Number.isFinite(cutoff) || cutoff <= 0) return;
-                            const d = this.bondDeltaForMode(i, j, pi, usePeriodicImages).length();
-                            if (d > 0.15 && d <= cutoff) pairs.push([i, j]);
-                        });
+                        if (bucket) buckets.push(bucket);
                     }
                 }
             }
-        });
+            neighborBuckets.set(sourceKey, buckets);
+            return buckets;
+        };
+
+        for (const item of items) {
+            const i = item.index;
+            if (!positions[i]) continue;
+            for (const bucket of bucketsFor(item)) {
+                for (const j of bucket) {
+                    if (j <= i || hookeanExcluded.has(i * search.count + j)) continue;
+                    const cutoffSquared = candidateRadiusSquared
+                        ?? this.bondCutoffSquaredFromSearch(search, i, j);
+                    if (!Number.isFinite(cutoffSquared) || cutoffSquared <= 0) continue;
+                    const distanceSquared = this.bondDistanceSquared(
+                        i,
+                        j,
+                        positions[i],
+                        usePeriodicImages,
+                        usePeriodicImages ? this.cellCache : null
+                    );
+                    if (
+                        distanceSquared > 0.0225
+                        && distanceSquared <= cutoffSquared
+                    ) {
+                        if (candidateRadiusSquared === null) pairs.push([i, j]);
+                        else pairs.push(i, j);
+                    }
+                }
+            }
+        }
     }
 
     bondPairsEqual(a = [], b = []) {
@@ -2870,9 +3163,38 @@ export class ASERenderer {
         return true;
     }
 
+    inferCurrentBondTopology() {
+        const repeats = this.displayOptions.supercell || [1, 1, 1];
+        if (this.displayOptions.bondMode === 'manual') {
+            return {
+                pairs: null,
+                bridgeRecords: this.inferSupercellBridgeBondRecords(repeats)
+            };
+        }
+        if (!this.needsSupercellBridgeBonds(repeats)) {
+            return {
+                pairs: this.inferBondPairs(),
+                bridgeRecords: []
+            };
+        }
+
+        const periodicPairs = this.inferBondPairs(true);
+        const directPairs = periodicPairs.filter(([i, j]) => {
+            const cutoff = this.bondCutoffForPair(i, j);
+            if (!Number.isFinite(cutoff) || cutoff <= 0) return false;
+            const distanceSquared = this.bondDistanceSquared(i, j);
+            return distanceSquared > 0.0225 && distanceSquared <= cutoff * cutoff;
+        });
+        return {
+            pairs: directPairs,
+            bridgeRecords: this.inferSupercellBridgeBondRecords(repeats, periodicPairs)
+        };
+    }
+
     refreshBondsForCurrentPositions() {
         if (!this.displayOptions.showBonds) return;
-        const nextBridgeRecords = this.inferSupercellBridgeBondRecords();
+        const topology = this.inferCurrentBondTopology();
+        const nextBridgeRecords = topology.bridgeRecords;
         if (this.displayOptions.bondMode === 'manual') {
             if (this.supercellBridgeBondRecordsEqual(
                 nextBridgeRecords, this.supercellBridgeBondRecords
@@ -2883,7 +3205,7 @@ export class ASERenderer {
             }
             return;
         }
-        const nextPairs = this.inferBondPairs();
+        const nextPairs = topology.pairs;
         const bridgeRecordsEqual = this.supercellBridgeBondRecordsEqual(
             nextBridgeRecords, this.supercellBridgeBondRecords
         );
@@ -2910,11 +3232,20 @@ export class ASERenderer {
             this.requestRender();
             return;
         }
+        if (
+            precomputedPairs === null
+            && precomputedBridgeRecords === null
+            && this.displayOptions.bondMode !== 'manual'
+        ) {
+            const topology = this.inferCurrentBondTopology();
+            precomputedPairs = topology.pairs;
+            precomputedBridgeRecords = topology.bridgeRecords;
+        }
         const hookeanExcluded = this.hookeanBondExclusions();
         this.bondPairs = precomputedPairs || (this.displayOptions.bondMode === 'manual'
             ? this.displayOptions.manualBondPairs.filter(([i, j]) =>
                 this.atomMeshByIndex.has(i) && this.atomMeshByIndex.has(j) &&
-                this.atomTypeVisible(i) && this.atomTypeVisible(j) &&
+                this.atomLabelVisible(i) && this.atomLabelVisible(j) &&
                 !hookeanExcluded.has(this.hookeanPairKey(i, j)))
             : this.inferBondPairs());
         this.domElement.dataset.bondCount = String(this.bondPairs.length);
@@ -2949,8 +3280,19 @@ export class ASERenderer {
                 sharedGeometry: true,
                 sharedMaterial: true
             };
+            const thickness = this.bondThickness();
             colorSegments.forEach((segment, instanceId) => {
-                this.positionBondInstance(mesh, instanceId, segment.i, segment.j, segment.t0, segment.t1);
+                this.positionBondInstance(
+                    mesh,
+                    instanceId,
+                    segment.i,
+                    segment.j,
+                    segment.t0,
+                    segment.t1,
+                    null,
+                    null,
+                    thickness
+                );
             });
             mesh.instanceMatrix.needsUpdate = true;
             this.bondGroup.add(mesh);
@@ -2963,10 +3305,21 @@ export class ASERenderer {
     updateBondPositions() {
         if (!this.displayOptions.showBonds || !this.bondPairs?.length) return;
         if (this.bondGroup.children.length) {
+            const thickness = this.bondThickness();
             this.bondGroup.children.forEach(bond => {
                 if (bond.userData.instancedBonds) {
                     (bond.userData.bondSegments || []).forEach((segment, instanceId) => {
-                        this.positionBondInstance(bond, instanceId, segment.i, segment.j, segment.t0, segment.t1);
+                        this.positionBondInstance(
+                            bond,
+                            instanceId,
+                            segment.i,
+                            segment.j,
+                            segment.t0,
+                            segment.t1,
+                            null,
+                            null,
+                            thickness
+                        );
                     });
                     bond.instanceMatrix.needsUpdate = true;
                     return;
@@ -3136,11 +3489,14 @@ export class ASERenderer {
         this.cellCache = null;
     }
 
+    invalidateBondNeighborCache() {
+        this.bondNeighborCache = null;
+    }
+
     ensureCellCache() {
         const cell = this.atomsData?.cell;
         if (!cell || cell.length !== 3) return null;
-        const key = cell.flat().join(',');
-        if (this.cellCache?.key === key) return this.cellCache;
+        if (this.cellCache?.source === cell) return this.cellCache;
         const basis = cell.map(values => new THREE.Vector3(...values));
         const determinant = basis[0].dot(new THREE.Vector3().crossVectors(basis[1], basis[2]));
         const valid = basis.some(vector => vector.lengthSq() > 1e-12) && Math.abs(determinant) > 1e-12;
@@ -3149,7 +3505,7 @@ export class ASERenderer {
             new THREE.Vector3().crossVectors(basis[2], basis[0]).divideScalar(determinant),
             new THREE.Vector3().crossVectors(basis[0], basis[1]).divideScalar(determinant)
         ] : null;
-        this.cellCache = { key, basis, reciprocal, valid };
+        this.cellCache = { source: cell, basis, reciprocal, valid };
         return this.cellCache;
     }
 
@@ -3167,11 +3523,14 @@ export class ASERenderer {
             .addScaledVector(cell[2], frac.z);
     }
 
-    cartToFrac(cart, basis = null) {
-        const cache = basis ? null : this.ensureCellCache();
+    cartToFrac(cart, basis = null, reciprocal = null) {
+        const cache = basis && reciprocal ? null : this.ensureCellCache();
         const cell = basis || cache?.basis;
         if (!cell) return cart.clone();
-        const reciprocal = cache?.reciprocal || (() => {
+        const cachedReciprocal = reciprocal || (
+            !basis || basis === cache?.basis ? cache?.reciprocal : null
+        );
+        const reciprocalBasis = cachedReciprocal || (() => {
             const det = cell[0].dot(new THREE.Vector3().crossVectors(cell[1], cell[2]));
             if (Math.abs(det) < 1e-10) return null;
             return [
@@ -3180,11 +3539,11 @@ export class ASERenderer {
                 new THREE.Vector3().crossVectors(cell[0], cell[1]).divideScalar(det)
             ];
         })();
-        if (!reciprocal) return cart.clone();
+        if (!reciprocalBasis) return cart.clone();
         return new THREE.Vector3(
-            cart.dot(reciprocal[0]),
-            cart.dot(reciprocal[1]),
-            cart.dot(reciprocal[2])
+            cart.dot(reciprocalBasis[0]),
+            cart.dot(reciprocalBasis[1]),
+            cart.dot(reciprocalBasis[2])
         );
     }
 
@@ -3199,8 +3558,9 @@ export class ASERenderer {
         const pbc = this.atomsData?.pbc || [false, false, false];
         const imageOffset = [0, 0, 0];
         if (!this.hasValidCell() || !pbc.some(Boolean)) return { delta, imageOffset };
-        const basis = this.cellBasis();
-        const frac = this.cartToFrac(delta, basis);
+        const cache = this.ensureCellCache();
+        const basis = cache?.basis;
+        const frac = this.cartToFrac(delta, basis, cache?.reciprocal);
         for (let axis = 0; axis < 3; axis++) {
             if (!pbc[axis]) continue;
             const nearestImage = Math.round(frac.getComponent(axis));
@@ -3214,6 +3574,39 @@ export class ASERenderer {
         const start = startOverride || this.getAtomPosition(i);
         const end = this.getAtomPosition(j);
         return new THREE.Vector3().subVectors(end, start);
+    }
+
+    bondDistanceSquared(
+        i,
+        j,
+        startOverride = null,
+        usePeriodicImages = false,
+        cellCache = null
+    ) {
+        const start = startOverride || this.atomMeshByIndex.get(i)?.position;
+        const end = this.atomMeshByIndex.get(j)?.position;
+        const fallbackStart = this.atomsData?.positions?.[i];
+        const fallbackEnd = this.atomsData?.positions?.[j];
+        let dx = (end?.x ?? fallbackEnd?.[0] ?? 0) - (start?.x ?? fallbackStart?.[0] ?? 0);
+        let dy = (end?.y ?? fallbackEnd?.[1] ?? 0) - (start?.y ?? fallbackStart?.[1] ?? 0);
+        let dz = (end?.z ?? fallbackEnd?.[2] ?? 0) - (start?.z ?? fallbackStart?.[2] ?? 0);
+
+        const pbc = this.atomsData?.pbc || [false, false, false];
+        const cache = cellCache || (usePeriodicImages ? this.ensureCellCache() : null);
+        if (usePeriodicImages && cache?.valid && pbc.some(Boolean)) {
+            const reciprocal = cache.reciprocal;
+            let fx = dx * reciprocal[0].x + dy * reciprocal[0].y + dz * reciprocal[0].z;
+            let fy = dx * reciprocal[1].x + dy * reciprocal[1].y + dz * reciprocal[1].z;
+            let fz = dx * reciprocal[2].x + dy * reciprocal[2].y + dz * reciprocal[2].z;
+            if (pbc[0]) fx -= Math.round(fx);
+            if (pbc[1]) fy -= Math.round(fy);
+            if (pbc[2]) fz -= Math.round(fz);
+            const basis = cache.basis;
+            dx = fx * basis[0].x + fy * basis[1].x + fz * basis[2].x;
+            dy = fx * basis[0].y + fy * basis[1].y + fz * basis[2].y;
+            dz = fx * basis[0].z + fy * basis[1].z + fz * basis[2].z;
+        }
+        return dx * dx + dy * dy + dz * dz;
     }
 
     bondDeltaForImageOffset(i, j, imageOffset = [0, 0, 0], startOverride = null) {
@@ -3289,7 +3682,7 @@ export class ASERenderer {
     positionBondMesh(bond, i, j) {
         const a = this.atomMeshByIndex.get(i);
         const b = this.atomMeshByIndex.get(j);
-        if (!a || !b || !this.atomTypeVisible(i) || !this.atomTypeVisible(j)) {
+        if (!a || !b || !this.atomLabelVisible(i) || !this.atomLabelVisible(j)) {
             bond.visible = false;
             return;
         }
@@ -3319,46 +3712,145 @@ export class ASERenderer {
         t0 = 0,
         t1 = 1,
         shift = null,
-        imageOffset = null
+        imageOffset = null,
+        thickness = this.bondThickness()
     ) {
         const a = this.atomMeshByIndex.get(i);
         const b = this.atomMeshByIndex.get(j);
         const dummy = this.bondInstanceDummy;
-        if (!a || !b || !this.atomTypeVisible(i) || !this.atomTypeVisible(j)) {
-            dummy.position.set(0, 0, 0);
-            dummy.quaternion.identity();
-            dummy.scale.set(0, 0, 0);
-            dummy.updateMatrix();
-            mesh.setMatrixAt(instanceId, dummy.matrix);
+        if (!a || !b || !this.atomLabelVisible(i) || !this.atomLabelVisible(j)) {
+            this.hideBondInstance(mesh, instanceId);
             return;
         }
         const atomStart = a.position;
-        const fullDelta = imageOffset
-            ? this.bondDeltaForImageOffset(i, j, imageOffset, atomStart)
-            : this.bondDelta(i, j, atomStart);
-        const start = atomStart.clone();
-        if (shift) start.add(shift);
-        start.addScaledVector(fullDelta, t0);
-        const delta = fullDelta.multiplyScalar(t1 - t0);
-        const length = delta.length();
+        const fullDelta = this.bondDeltaInto(
+            this.bondDeltaScratch,
+            i,
+            j,
+            atomStart,
+            imageOffset
+        );
+        const fullLength = fullDelta.length();
+        const length = fullLength * Math.abs(t1 - t0);
         if (!Number.isFinite(length) || length < 1e-6) {
-            dummy.position.set(0, 0, 0);
-            dummy.quaternion.identity();
-            dummy.scale.set(0, 0, 0);
-            dummy.updateMatrix();
-            mesh.setMatrixAt(instanceId, dummy.matrix);
+            this.hideBondInstance(mesh, instanceId);
             return;
         }
-        dummy.position.copy(start).addScaledVector(delta, 0.5);
+        const midpointFactor = (t0 + t1) * 0.5;
+        const centerX = atomStart.x + (shift?.x || 0) + fullDelta.x * midpointFactor;
+        const centerY = atomStart.y + (shift?.y || 0) + fullDelta.y * midpointFactor;
+        const centerZ = atomStart.z + (shift?.z || 0) + fullDelta.z * midpointFactor;
         if (this.effectiveBondStyle() === 'flat') {
-            dummy.scale.set(this.bondThickness(), length, 1);
-            this.orientFlatBond(dummy, delta);
+            dummy.position.set(centerX, centerY, centerZ);
+            dummy.scale.set(thickness, length, 1);
+            this.orientFlatBond(dummy, fullDelta);
+            dummy.updateMatrix();
+            mesh.setMatrixAt(instanceId, dummy.matrix);
         } else {
-            dummy.scale.set(this.bondThickness(), length, this.bondThickness());
-            dummy.quaternion.setFromUnitVectors(this.yAxis, delta.normalize());
+            this.writeCylinderBondInstance(
+                mesh,
+                instanceId,
+                fullDelta,
+                fullLength,
+                length,
+                thickness,
+                centerX,
+                centerY,
+                centerZ
+            );
         }
-        dummy.updateMatrix();
-        mesh.setMatrixAt(instanceId, dummy.matrix);
+    }
+
+    bondDeltaInto(target, i, j, startOverride = null, imageOffset = null) {
+        const start = startOverride || this.atomMeshByIndex.get(i)?.position;
+        const end = this.atomMeshByIndex.get(j)?.position;
+        const fallbackStart = this.atomsData?.positions?.[i];
+        const fallbackEnd = this.atomsData?.positions?.[j];
+        let dx = (end?.x ?? fallbackEnd?.[0] ?? 0) - (start?.x ?? fallbackStart?.[0] ?? 0);
+        let dy = (end?.y ?? fallbackEnd?.[1] ?? 0) - (start?.y ?? fallbackStart?.[1] ?? 0);
+        let dz = (end?.z ?? fallbackEnd?.[2] ?? 0) - (start?.z ?? fallbackStart?.[2] ?? 0);
+        const needsCell = Boolean(imageOffset || this.displayOptions.showPeriodicBonds);
+        const cache = needsCell ? this.ensureCellCache() : null;
+
+        if (imageOffset && cache?.valid) {
+            const basis = cache.basis;
+            dx += basis[0].x * (Number(imageOffset[0]) || 0)
+                + basis[1].x * (Number(imageOffset[1]) || 0)
+                + basis[2].x * (Number(imageOffset[2]) || 0);
+            dy += basis[0].y * (Number(imageOffset[0]) || 0)
+                + basis[1].y * (Number(imageOffset[1]) || 0)
+                + basis[2].y * (Number(imageOffset[2]) || 0);
+            dz += basis[0].z * (Number(imageOffset[0]) || 0)
+                + basis[1].z * (Number(imageOffset[1]) || 0)
+                + basis[2].z * (Number(imageOffset[2]) || 0);
+        } else if (
+            this.displayOptions.showPeriodicBonds
+            && cache?.valid
+            && (this.atomsData?.pbc || []).some(Boolean)
+        ) {
+            const reciprocal = cache.reciprocal;
+            const pbc = this.atomsData.pbc;
+            let fx = dx * reciprocal[0].x + dy * reciprocal[0].y + dz * reciprocal[0].z;
+            let fy = dx * reciprocal[1].x + dy * reciprocal[1].y + dz * reciprocal[1].z;
+            let fz = dx * reciprocal[2].x + dy * reciprocal[2].y + dz * reciprocal[2].z;
+            if (pbc[0]) fx -= Math.round(fx);
+            if (pbc[1]) fy -= Math.round(fy);
+            if (pbc[2]) fz -= Math.round(fz);
+            const basis = cache.basis;
+            dx = fx * basis[0].x + fy * basis[1].x + fz * basis[2].x;
+            dy = fx * basis[0].y + fy * basis[1].y + fz * basis[2].y;
+            dz = fx * basis[0].z + fy * basis[1].z + fz * basis[2].z;
+        }
+        return target.set(dx, dy, dz);
+    }
+
+    hideBondInstance(mesh, instanceId) {
+        const matrix = mesh.instanceMatrix.array;
+        const offset = instanceId * 16;
+        for (let index = 0; index < 15; index++) matrix[offset + index] = 0;
+        matrix[offset + 15] = 1;
+    }
+
+    writeCylinderBondInstance(
+        mesh,
+        instanceId,
+        delta,
+        fullLength,
+        segmentLength,
+        thickness,
+        centerX,
+        centerY,
+        centerZ
+    ) {
+        const inverseLength = 1 / fullLength;
+        const ux = delta.x * inverseLength;
+        const uy = delta.y * inverseLength;
+        const uz = delta.z * inverseLength;
+        const horizontal = Math.hypot(ux, uz);
+        const xx = horizontal > 1e-10 ? uz / horizontal : 1;
+        const xy = 0;
+        const xz = horizontal > 1e-10 ? -ux / horizontal : 0;
+        const zx = xy * uz - xz * uy;
+        const zy = xz * ux - xx * uz;
+        const zz = xx * uy - xy * ux;
+        const matrix = mesh.instanceMatrix.array;
+        const offset = instanceId * 16;
+        matrix[offset] = xx * thickness;
+        matrix[offset + 1] = xy * thickness;
+        matrix[offset + 2] = xz * thickness;
+        matrix[offset + 3] = 0;
+        matrix[offset + 4] = ux * segmentLength;
+        matrix[offset + 5] = uy * segmentLength;
+        matrix[offset + 6] = uz * segmentLength;
+        matrix[offset + 7] = 0;
+        matrix[offset + 8] = zx * thickness;
+        matrix[offset + 9] = zy * thickness;
+        matrix[offset + 10] = zz * thickness;
+        matrix[offset + 11] = 0;
+        matrix[offset + 12] = centerX;
+        matrix[offset + 13] = centerY;
+        matrix[offset + 14] = centerZ;
+        matrix[offset + 15] = 1;
     }
 
     hasValidCell() {
@@ -3522,7 +4014,7 @@ export class ASERenderer {
             const cellOffsets = mesh.userData.cellOffsets || [];
             cellOffsets.forEach(cellOffset => {
                 atomIndices.forEach(index => {
-                    if (!this.atomTypeVisible(index)) return;
+                    if (!this.atomLabelVisible(index)) return;
                     if (symbol !== null && this.atomsData?.symbols?.[index] !== symbol) return;
                     references.push({
                         kind: 'replica',
@@ -3557,7 +4049,10 @@ export class ASERenderer {
         );
     }
 
-    inferSupercellBridgeBondRecords(repeats = this.displayOptions.supercell || [1, 1, 1]) {
+    inferSupercellBridgeBondRecords(
+        repeats = this.displayOptions.supercell || [1, 1, 1],
+        candidatePairs = null
+    ) {
         if (!this.needsSupercellBridgeBonds(repeats)) return [];
         const hookeanExcluded = this.hookeanBondExclusions();
         const count = this.atomsData?.positions?.length || 0;
@@ -3565,10 +4060,10 @@ export class ASERenderer {
             ? (this.displayOptions.manualBondPairs || []).filter(([i, j]) => (
                 Number.isInteger(i) && Number.isInteger(j) &&
                 i >= 0 && j >= 0 && i < count && j < count && i !== j &&
-                this.atomTypeVisible(i) && this.atomTypeVisible(j) &&
+                this.atomLabelVisible(i) && this.atomLabelVisible(j) &&
                 !hookeanExcluded.has(this.hookeanPairKey(i, j))
             ))
-            : this.inferBondPairs(true);
+            : (candidatePairs || this.inferBondPairs(true));
         const records = [];
         const seen = new Set();
         pairs.forEach(([first, second]) => {
@@ -3653,6 +4148,7 @@ export class ASERenderer {
             ]
             : [{ i, j, t0: 0, t1: 1, colorIndex: null }];
         const flat = this.effectiveBondStyle() === 'flat';
+        const thickness = this.bondThickness();
         const instancesByColor = new Map();
         const addInstance = (segment, shift, imageOffset = null, bridge = false) => {
             const color = this.bondSegmentColor(segment);
@@ -3712,7 +4208,8 @@ export class ASERenderer {
                     segment.t0,
                     segment.t1,
                     instance.shift,
-                    instance.imageOffset
+                    instance.imageOffset,
+                    thickness
                 );
             });
             mesh.instanceMatrix.needsUpdate = true;
@@ -3721,6 +4218,7 @@ export class ASERenderer {
     }
 
     updateSupercellBondPositions() {
+        const thickness = this.bondThickness();
         this.supercellGroup.children.forEach(mesh => {
             if (!mesh.userData?.supercellBonds) return;
             (mesh.userData.bondInstances || []).forEach((instance, instanceId) => {
@@ -3733,7 +4231,8 @@ export class ASERenderer {
                     segment.t0,
                     segment.t1,
                     instance.shift,
-                    instance.imageOffset
+                    instance.imageOffset,
+                    thickness
                 );
             });
             mesh.instanceMatrix.needsUpdate = true;
@@ -3742,7 +4241,7 @@ export class ASERenderer {
 
     setSupercellInstanceMatrix(mesh, instanceId, index, shift) {
         const atom = this.atomMeshByIndex.get(index);
-        const visible = atom && this.atomTypeVisible(index);
+        const visible = atom && this.atomLabelVisible(index);
         const scale = visible ? this.atomVisualRadius(index) : 0;
         const matrix = mesh.instanceMatrix.array;
         const offset = instanceId * 16;
@@ -3762,6 +4261,16 @@ export class ASERenderer {
         matrix[offset + 13] = visible ? atom.position.y + shift.y : 0;
         matrix[offset + 14] = visible ? atom.position.z + shift.z : 0;
         matrix[offset + 15] = 1;
+    }
+
+    setSupercellInstanceTranslation(mesh, instanceId, index, shift) {
+        const atom = this.atomMeshByIndex.get(index);
+        if (!atom) return;
+        const matrix = mesh.instanceMatrix.array;
+        const offset = instanceId * 16;
+        matrix[offset + 12] = atom.position.x + shift.x;
+        matrix[offset + 13] = atom.position.y + shift.y;
+        matrix[offset + 14] = atom.position.z + shift.z;
     }
 
     addSupercellCellPreview(cell, reps) {
@@ -3804,7 +4313,7 @@ export class ASERenderer {
         this.supercellGroup.add(lines);
     }
 
-    updateSupercellPositions() {
+    updateSupercellPositions({ translationsOnly = false } = {}) {
         if (!this.supercellGroup.children.length) return;
         this.supercellGroup.children.forEach(mesh => {
             if (mesh.userData.supercellCellPreview || mesh.userData.supercellBonds) return;
@@ -3812,7 +4321,11 @@ export class ASERenderer {
                 let instanceId = 0;
                 mesh.userData.shifts.forEach(shift => {
                     mesh.userData.atomIndices.forEach(index => {
-                        this.setSupercellInstanceMatrix(mesh, instanceId, index, shift);
+                        if (translationsOnly) {
+                            this.setSupercellInstanceTranslation(mesh, instanceId, index, shift);
+                        } else {
+                            this.setSupercellInstanceMatrix(mesh, instanceId, index, shift);
+                        }
                         instanceId++;
                     });
                 });
@@ -3844,7 +4357,7 @@ export class ASERenderer {
 
     constraintGuideVisible(group) {
         const indices = this.constraintGuideIndices(group);
-        return indices.some(idx => this.atomTypeVisible(idx));
+        return indices.some(idx => this.atomLabelVisible(idx));
     }
 
     orientYAxis(object, direction) {
@@ -3854,7 +4367,8 @@ export class ASERenderer {
     hookeanPairKey(i, j) {
         const a = Math.min(i, j);
         const b = Math.max(i, j);
-        return `${a}-${b}`;
+        const atomCount = this.atomsData?.positions?.length || 1;
+        return a * atomCount + b;
     }
 
     hookeanBondExclusions() {
@@ -4016,7 +4530,7 @@ export class ASERenderer {
         let count = 0;
         indices.forEach(idx => {
             const atom = this.atomMeshByIndex.get(idx);
-            if (!atom || !this.atomTypeVisible(idx)) return;
+            if (!atom || !this.atomLabelVisible(idx)) return;
             center.add(atom.position);
             count += 1;
         });
@@ -4301,7 +4815,7 @@ export class ASERenderer {
             if (spec.kind === 'plane') {
                 const item = spec.item;
                 const atom = this.atomMeshByIndex.get(item.index);
-                if (!atom || !this.atomTypeVisible(item.index)) {
+                if (!atom || !this.atomLabelVisible(item.index)) {
                     group.visible = false;
                     return;
                 }
@@ -4324,7 +4838,7 @@ export class ASERenderer {
             }
 
             const atom = this.atomMeshByIndex.get(spec.i);
-            if (!atom || !this.atomTypeVisible(spec.i) || (spec.kind === 'two_atoms' && !this.atomTypeVisible(spec.j))) {
+            if (!atom || !this.atomLabelVisible(spec.i) || (spec.kind === 'two_atoms' && !this.atomLabelVisible(spec.j))) {
                 group.visible = false;
                 return;
             }
@@ -4397,7 +4911,7 @@ export class ASERenderer {
             if (!child.userData.fixedPlaneAtomMarker) return;
             const idx = child.userData.atomIndex;
             const atom = this.atomMeshByIndex.get(idx);
-            if (!atom || !this.atomTypeVisible(idx)) {
+            if (!atom || !this.atomLabelVisible(idx)) {
                 child.visible = false;
                 return;
             }
@@ -4425,7 +4939,7 @@ export class ASERenderer {
         this.clearReplicaSelectionOutlines();
         const visible = [...references].filter(reference =>
             reference?.kind === 'replica' &&
-            this.atomTypeVisible(reference.index) &&
+            this.atomLabelVisible(reference.index) &&
             this.replicaSelectionPosition(reference)
         );
         if (!visible.length) {
@@ -4462,7 +4976,7 @@ export class ASERenderer {
     setSelection(selectedIndices) {
         this.clearSelectionOutlines();
         const selected = new Set(selectedIndices);
-        const visibleIndices = [...selected].filter(idx => this.atomMeshByIndex.has(idx) && this.atomTypeVisible(idx));
+        const visibleIndices = [...selected].filter(idx => this.atomMeshByIndex.has(idx) && this.atomLabelVisible(idx));
         if (visibleIndices.length >= 64) {
             const outline = new THREE.InstancedMesh(
                 this.selectionOutlineGeometry,
@@ -4488,7 +5002,7 @@ export class ASERenderer {
         }
         selected.forEach(idx => {
             const mesh = this.atomMeshByIndex.get(idx);
-            if (!mesh || !this.atomTypeVisible(idx)) return;
+            if (!mesh || !this.atomLabelVisible(idx)) return;
             const radius = this.atomVisualRadius(idx);
             const outlineGeo = new THREE.SphereGeometry(radius * 1.18, 32, 18);
             const outlineMat = new THREE.MeshBasicMaterial({
@@ -4526,7 +5040,7 @@ export class ASERenderer {
 
     setSelectionInstanceMatrix(mesh, instanceId, index) {
         const atom = this.atomMeshByIndex.get(index);
-        const visible = atom && this.atomTypeVisible(index);
+        const visible = atom && this.atomLabelVisible(index);
         const scale = visible ? this.atomVisualRadius(index) * 1.18 : 0;
         const matrix = mesh.instanceMatrix.array;
         const offset = instanceId * 16;
@@ -4550,7 +5064,7 @@ export class ASERenderer {
 
     setReplicaSelectionInstanceMatrix(mesh, instanceId, reference) {
         const position = this.replicaSelectionPosition(reference);
-        const visible = position && this.atomTypeVisible(reference.index);
+        const visible = position && this.atomLabelVisible(reference.index);
         const scale = visible ? this.atomVisualRadius(reference.index) * 1.18 : 0;
         const matrix = mesh.instanceMatrix.array;
         const offset = instanceId * 16;
@@ -4593,7 +5107,7 @@ export class ASERenderer {
             }
             const idx = outline.userData.outlineFor;
             const mesh = this.atomMeshByIndex.get(idx);
-            if (!mesh || !this.atomTypeVisible(idx)) {
+            if (!mesh || !this.atomLabelVisible(idx)) {
                 outline.visible = false;
                 return;
             }

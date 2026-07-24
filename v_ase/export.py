@@ -191,6 +191,19 @@ def _minimum_image_delta(delta, cell, pbc):
     return matrix.T @ fractional
 
 
+def _normalized_bond_mode(display: Dict[str, Any]) -> str:
+    mode = display.get("bondMode", "auto")
+    return "pairwise" if mode == "element" else mode
+
+
+def _pairwise_bond_cutoffs(display: Dict[str, Any]) -> Dict[str, Any]:
+    return (
+        display.get("pairwiseBondCutoffs")
+        or display.get("elementBondCutoffs")
+        or {}
+    )
+
+
 def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs=None):
     display = display or {}
     if display.get("showBonds") is False:
@@ -225,13 +238,13 @@ def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs
         return "-".join(sorted((str(labels[i]), str(labels[j]))))
 
     def cutoff(i, j):
-        if display.get("bondMode") == "element":
-            element_cutoffs = display.get("elementBondCutoffs") or {}
+        if _normalized_bond_mode(display) == "pairwise":
+            pairwise_cutoffs = _pairwise_bond_cutoffs(display)
             key = pair_key(i, j)
-            if key not in element_cutoffs:
+            if key not in pairwise_cutoffs:
                 return 0.0
             try:
-                return max(0.0, float(element_cutoffs[key]))
+                return max(0.0, float(pairwise_cutoffs[key]))
             except (TypeError, ValueError):
                 return 0.0
         scale = float(display.get("bondCutoffScale") or 1.0)
@@ -240,7 +253,7 @@ def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs
         return (covalent[i] + covalent[j] + 0.4) * scale
 
     raw_pairs = explicit_pairs
-    if not raw_pairs and display.get("bondMode") == "manual":
+    if not raw_pairs and _normalized_bond_mode(display) == "manual":
         raw_pairs = display.get("manualBondPairs") or []
 
     pairs = []
@@ -260,9 +273,9 @@ def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs
             if 0 <= i < len(symbols) and 0 <= j < len(symbols) and i != j:
                 pairs.append((min(i, j), max(i, j)))
     else:
-        if display.get("bondMode") == "element":
+        if _normalized_bond_mode(display) == "pairwise":
             candidates = []
-            for value in (display.get("elementBondCutoffs") or {}).values():
+            for value in _pairwise_bond_cutoffs(display).values():
                 try:
                     parsed = float(value)
                 except (TypeError, ValueError):
@@ -417,9 +430,9 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
     visual = data.get("visual") or {}
     base_colors = list(visual.get("colors") or [])
     base_radii = list(visual.get("radii") or [])
-    visible_map = display.get("elementVisible") or {}
-    color_map = display.get("elementColors") or {}
-    radius_map = display.get("elementRadii") or {}
+    visible_map = display.get("labelVisible") or display.get("elementVisible") or {}
+    color_map = display.get("labelColors") or display.get("elementColors") or {}
+    radius_map = display.get("labelRadii") or display.get("elementRadii") or {}
     try:
         radius_scale = float(display.get("atomRadiusScale", 1.0))
     except (TypeError, ValueError):
@@ -1140,9 +1153,9 @@ VISUAL = DATA.get("visual", {{}})
 ATOM_COLORS = VISUAL.get("colors", [])
 ATOM_RADII = VISUAL.get("radii", VISUAL.get("covalent_radii", []))
 ATOM_LABELS = DATA.get("symbols", [])
-DISPLAY_ELEMENT_COLORS = DISPLAY.get("elementColors", {{}})
-DISPLAY_ELEMENT_RADII = DISPLAY.get("elementRadii", {{}})
-DISPLAY_ELEMENT_VISIBLE = DISPLAY.get("elementVisible", {{}})
+DISPLAY_LABEL_COLORS = DISPLAY.get("labelColors", DISPLAY.get("elementColors", {{}}))
+DISPLAY_LABEL_RADII = DISPLAY.get("labelRadii", DISPLAY.get("elementRadii", {{}}))
+DISPLAY_LABEL_VISIBLE = DISPLAY.get("labelVisible", DISPLAY.get("elementVisible", {{}}))
 try:
     ATOM_RADIUS_SCALE = max(0.01, float(DISPLAY.get("atomRadiusScale", 1.0)))
 except (TypeError, ValueError):
@@ -1172,7 +1185,7 @@ def hex_to_rgba(value):
 
 def get_atom_color(index):
     if 0 <= index < len(ATOM_LABELS):
-        display_color = DISPLAY_ELEMENT_COLORS.get(ATOM_LABELS[index])
+        display_color = DISPLAY_LABEL_COLORS.get(ATOM_LABELS[index])
         if display_color:
             return hex_to_rgba(display_color)
     if 0 <= index < len(ATOM_COLORS):
@@ -1182,7 +1195,7 @@ def get_atom_color(index):
 def get_atom_radius(index, fallback=FALLBACK_RADIUS):
     if 0 <= index < len(ATOM_LABELS):
         try:
-            display_radius = float(DISPLAY_ELEMENT_RADII.get(ATOM_LABELS[index], 0.0))
+            display_radius = float(DISPLAY_LABEL_RADII.get(ATOM_LABELS[index], 0.0))
             if display_radius > 0:
                 return display_radius * ATOM_RADIUS_SCALE
         except (TypeError, ValueError):
@@ -1298,7 +1311,7 @@ def add_instanced_atom_group(symbol, indices, positions):
     obj["v_ase_atom_group"] = True
     obj["v_ase_label"] = str(symbol)
     obj["v_ase_atom_count"] = len(indices)
-    if DISPLAY_ELEMENT_VISIBLE.get(symbol) is False:
+    if DISPLAY_LABEL_VISIBLE.get(symbol) is False:
         obj.hide_viewport = True
         obj.hide_render = True
 
@@ -1779,7 +1792,7 @@ if BLENDER_OBJECT_MODE == "objects":
         obj.name = f"atom_{{idx:04d}}_{{symbol}}"
         obj.location = pos
         obj["v_ase_atom_index"] = idx
-        if DISPLAY_ELEMENT_VISIBLE.get(symbol) is False:
+        if DISPLAY_LABEL_VISIBLE.get(symbol) is False:
             obj.hide_viewport = True
             obj.hide_render = True
         bpy.context.collection.objects.link(obj)

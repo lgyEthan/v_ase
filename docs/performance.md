@@ -1,114 +1,123 @@
 # Rendering Performance
 
-v_ase keeps ASE as the authoritative scientific backend while avoiding an ASE
-object rebuild for every visual operation. The frontend is designed around a
-small number of GPU batches and explicit render requests.
+## Performance Rules
 
-## Rendering Pipeline
+v_ase keeps the lightweight viewer path independent from optional editing and
+rendering costs:
 
-- **Demand rendering**: the viewport requests a frame only for camera movement,
-  trajectory playback, transforms, selection, or display changes. There is no
-  permanent `requestAnimationFrame` loop while the scene is idle.
-- **Instanced atoms**: structures above the renderer threshold use shared unit
-  sphere geometry and `THREE.InstancedMesh`. Position, radius, color, fixed-atom
-  state, and visibility are stored per instance.
-- **Instanced secondary geometry**: large bond sets, large selections, and
-  full-material supercell atom/bond copies also use instancing.
-- **Adaptive resolution**: device pixel ratio is capped at 1.5 above 1,000
-  atoms, 1.25 above 5,000 atoms, and 1.0 at 15,000 atoms. Export resolution is
-  independent and still uses the requested output dimensions. PNG export can
-  temporarily substitute a chosen sphere quality and `0.5x`-`2.0x` tessellation
-  scale, then restores the original shared geometries without rebuilding the
-  live scene.
-- **Non-mutating image cameras**: PNG export renders through a cloned active
-  camera. Current-view mode changes the clone's projection gate to fill the
-  requested aspect ratio, while physical mode derives its projection from the
-  live Viewport `Atomic scale` value. Editing that value changes only the active
-  camera, without rebuilding atom, bond, or supercell geometry.
-  Neither path refits or changes the viewport camera.
-- **Targeted visibility updates**: label-to-index maps let a Visible checkbox
-  update only the affected atom instances. Hidden atoms are also excluded from
-  selection and bond display.
-- **Cached summaries**: cell basis data, reciprocal transforms, atom-type
-  indices, force maximum, and orientation-widget state are reused until their
-  source data changes.
-- **Binary trajectory frames**: large LAMMPS dumps are byte-offset indexed and
-  subsequent frames are served as float32 positions instead of large JSON
-  payloads or complete ASE object lists.
-- **Opt-in lighting cost**: Modeling mode keeps the existing balanced lights,
-  disables shadow maps, and does not allocate a continuous render loop. Studio
-  Sun activates one directional PBR light only when selected. The soft-shadow
-  mode additionally enables a single fitted PCF shadow map.
-- **Incremental live bonds**: interactive auto/pairwise bonding uses a cell-list
-  search above 384 atoms and rebuilds bond instances only when the inferred pair
-  topology changes. Manual pairs bypass neighbor inference entirely. Custom-color
-  bonds use one instance per pair; split atom colors use two half-length instances
-  while retaining one GPU draw call for the complete bond set. Positive supercells
-  reuse these batches and add only the nearest-image records needed to bridge
-  internal replica boundaries; the displayed outer boundary remains clipped.
-- **Blender point groups**: optimized Blender export writes one point mesh per
-  visual label, instances smooth spheres with Geometry Nodes, stores trajectory
-  frames as point-mesh shape keys, groups bonds by material, and writes the unit
-  cell as one multi-spline curve. Individual atom objects are opt-in.
+- visualization mode does not attach the fallback calculator or invoke
+  interactive edit paths;
+- Modeling lighting creates no shadow map;
+- renderer updates are demand-driven;
+- inactive document tabs suspend rendering and playback.
 
-Interactive atom edits still commit through ASE. In particular,
-`Atoms.set_positions(..., apply_constraint=True)` remains the final authority
-for constrained coordinates. Visualization-only mode skips calculator and edit
-state that it cannot use, but preserves appearance, bonds, periodicity,
-supercells, wrapping, trajectories, and exports.
+The viewport uses GPU instancing for atoms, bonds, selections, and supercell
+replicas. Large scenes reduce device pixel ratio adaptively, reuse geometry and
+materials, and avoid one JavaScript/Three.js object per visible atom.
 
-## Validation
+## Large LAMMPS Pipeline
 
-The 0.0.46 browser benchmark used a generated LAMMPS dump with 15,000 atoms and
-16 frames (7.07 MiB) in default visualization mode. A fresh local server origin
-was opened in the in-app Chromium browser at a 1280 x 720 CSS viewport.
+Numeric LAMMPS text dumps use:
+
+1. memory-mapped frame boundary indexing;
+2. one ASE template from the first requested frame;
+3. byte-range numeric parsing through NumPy;
+4. one contiguous float32 trajectory payload for browser playback;
+5. translation-only instance-matrix updates for each frame.
+
+The initial browser JSON never embeds every trajectory frame. Manual frame
+scrubbing can read one indexed frame and synchronize Python; active playback
+uses the browser's binary cache with no per-frame HTTP or JSON.
+
+The local Uvicorn server is readiness-polled instead of using a fixed startup
+sleep. `ASEEditor.close()` and blocking session finalization stop and join the
+owned server, so repeated test and API sessions do not leave background
+threads.
+
+## Bond Pipeline
+
+Automatic and pairwise bonds use a spatial cell list above the small-scene
+threshold. For repeated cells, one periodic candidate search supplies both
+base-cell topology and internal supercell bridge records. Manual pairs bypass
+neighbor inference.
+
+Large scenes cache a `maximum cutoff + skin` neighbor candidate list. Actual
+distances and pair cutoffs are still evaluated every frame, so bonds form and
+break live. The candidate list is rebuilt when an atom moves more than half the
+skin or when labels, visibility, cutoffs, cell, PBC, periodic policy, or
+constraints change. Cylinder instance matrices are written directly to the GPU
+buffer; unchanged topology reuses the existing instanced bond batches.
+
+## Browser Benchmark
+
+Run:
+
+```bash
+python scripts/benchmark_large_trajectory.py
+python scripts/benchmark_large_trajectory.py --benchmark-bonds
+```
+
+The default workload is a deterministic 15,000-atom, 16-frame numeric LAMMPS
+dump. The benchmark starts a fresh local server and Chromium page at
+1280 x 720, waits for all atom instances and the first rendered canvas frame,
+loads the binary trajectory cache, verifies idle rendering, and updates all
+frames.
+
+Reference result for the 0.0.78 working tree on the project development Mac:
 
 | Check | Result |
 | --- | ---: |
-| Fully rendered first frame | 4.06 s |
+| Input size | 8,719,654 bytes |
+| Backend input + server ready | 0.46 s |
+| Browser navigation + first render | 0.38 s |
+| Fully ready total | 0.84 s |
 | Displayed atoms | 15,000 |
-| Detected trajectory frames | 16 |
-| Canvas backing size | 1280 x 720 |
+| Trajectory frames | 16 |
+| Browser trajectory cache | 2,880,000 bytes |
+| 16-frame translation update sweep | 18.1 ms |
+| Mean position update | 1.13 ms/frame |
 | Extra render frames during 0.9 s idle | 0 |
-| Default lighting / shadow map | Modeling / off |
-| Studio Sun activation | 79 ms |
 
-The timing includes page navigation, static asset loading from the fresh origin,
-API fetch, scene construction, camera fit, and the first completed canvas render.
-It does not include Python environment startup. Results depend on browser, GPU,
-storage, trajectory syntax, and machine load, so this table is a regression
-reference rather than a universal hardware guarantee.
+With automatic bonds enabled, the same synthetic scene contains 73,062 logical
+bonds. Cached topology inference measured 8.3 ms, direct geometry-buffer update
+12.5 ms, and a four-frame sweep that includes candidate-list rebuilds averaged
+26.35 ms/frame.
 
-### Blender export benchmark
+Browser, GPU, storage, trajectory columns, bond density, and machine load
+affect absolute timing; these values are regression references, not universal
+guarantees. Background browser tabs may throttle timer frequency, so playback
+FPS is not inferred from a headless hidden-tab timer.
 
-The 0.0.69 Blender integration benchmark generates a 15,000-atom, two-label
-periodic scene, runs the generated Python in Blender 5.0.1, validates that only
-two editable atom point groups contain all 15,000 atoms, and saves a native
-`.blend` file.
+## Blender Benchmark
 
-| Check | Result |
-| --- | ---: |
-| Generated atoms | 15,000 |
-| Atom scene objects | 2 point groups |
-| Total Blender objects | fewer than 12 |
-| Script execution and `.blend` save | 0.908 s |
+`tests/test_blender_performance.py` generates a 15,000-atom, two-label periodic
+scene. Optimized export writes one point mesh per visual label and instances
+smooth spheres through Geometry Nodes. Trajectory frames become point-mesh
+shape keys; bonds are grouped by material; the unit cell is one multi-spline
+curve.
 
-The runtime test separately renders a colored Cu-O scene and verifies smooth
-Geometry Nodes atoms, midpoint-split bonds, unit cell, orthographic camera,
-trajectory shape keys, and exact Blender `SUN` source, target, direction, and
-energy. Timing is machine-specific; the test enforces a conservative 20-second
-regression ceiling rather than claiming a universal import time.
+The regression verifies:
 
-## Regression Checks
+- all 15,000 atoms are retained;
+- atom data is held in a small number of editable point groups;
+- total scene object count remains small;
+- Blender executes the generated script and saves a native `.blend`;
+- the runtime remains below a conservative machine-independent ceiling.
 
-`tests/test_frontend_regressions.py` locks down the demand-rendering and
-instancing architecture. Browser tests also verify live interactive bond
-formation/breaking, repeated supercell bonds, displayed-supercell boundary
-clipping in monoclinic cells, interactive-mode replica
-exclusion, visualization-mode replica selection/measurement, atomic relabel
-commits, independent persistent Measure and pointer-driven Hover HUDs, and
-preservation of label-pair cutoffs across structure
-updates. The full test suite covers the optimized LAMMPS reader, binary frame
-metadata, constraints, periodic bonds, supercells, export, CLI entry points,
-project/settings round-trips, Blender 5 runtime rendering, the 15,000-atom
-Blender benchmark, and packaging.
+`tests/test_blender_runtime.py` separately renders a colored bonded scene and
+checks smooth atoms, split bond materials, camera, cell, trajectory animation,
+and exact directional Sun source/target/intensity.
+
+## Regression Coverage
+
+Performance-sensitive static contracts are locked by
+`tests/test_frontend_regressions.py`. Real browser tests cover:
+
+- zero idle render loop;
+- binary trajectory initialization and frame changes;
+- live bond formation/breaking;
+- supercell atom and bond instancing in skewed cells;
+- label visibility and appearance updates;
+- visualization-mode replica selection;
+- output preview/capture parity;
+- inactive multi-document suspension.

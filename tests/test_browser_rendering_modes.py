@@ -15,8 +15,7 @@ from PIL import Image
 from playwright._impl._errors import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
-from v_ase.session import sessions
-from v_ase.io import set_atom_type_labels
+from v_ase.io import set_atom_labels
 from v_ase.viewer import find_free_port, view
 
 
@@ -100,12 +99,12 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
                         ...current.display,
                         showBonds: true,
                         showGrid: false,
-                        bondMode: 'element',
+                        bondMode: 'pairwise',
                         atomRadiusScale: 1.35,
-                        elementColors: {H: '#d9d9d9', O: '#2a6fdf'},
-                        elementRadii: {H: 0.31, O: 0.77},
-                        elementVisible: {H: false, O: true},
-                        elementBondCutoffs: {'H-H': 0.8, 'H-O': 1.4, 'O-O': 1.8},
+                        labelColors: {H: '#d9d9d9', O: '#2a6fdf'},
+                        labelRadii: {H: 0.31, O: 0.77},
+                        labelVisible: {H: false, O: true},
+                        pairwiseBondCutoffs: {'H-H': 0.8, 'H-O': 1.4, 'O-O': 1.8},
                         supercell: [2, 1, 1],
                         projectionMode: 'orthographic',
                         viewportBackground: 'white',
@@ -152,7 +151,7 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
             after = inherited_after["snapshot"]
             assert after["display"]["showBonds"] is True
             assert after["display"]["showGrid"] is False
-            assert after["display"]["bondMode"] == "element"
+            assert after["display"]["bondMode"] == "pairwise"
             assert after["display"]["atomRadiusScale"] == pytest.approx(1.35)
             assert after["display"]["supercell"] == [2, 1, 1]
             assert after["display"]["viewportBackground"] == "white"
@@ -162,13 +161,13 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
             assert after["display"]["sunIntensity"] == pytest.approx(4.25)
             assert after["display"]["sunPosition"] == [12, -5, 15]
             assert after["display"]["sunTarget"] == [1, 2, 3]
-            assert after["display"]["elementColors"] == {"O": "#2a6fdf"}
-            assert after["display"]["elementRadii"]["O"] == pytest.approx(0.77)
-            assert "H" not in after["display"]["elementRadii"]
-            assert after["display"]["elementVisible"] == {"O": True, "C": True}
-            assert after["display"]["elementBondCutoffs"]["O-O"] == pytest.approx(1.8)
-            assert "H-O" not in after["display"]["elementBondCutoffs"]
-            assert set(after["display"]["elementBondCutoffs"]) == {"C-C", "C-O", "O-O"}
+            assert after["display"]["labelColors"] == {"O": "#2a6fdf"}
+            assert after["display"]["labelRadii"]["O"] == pytest.approx(0.77)
+            assert "H" not in after["display"]["labelRadii"]
+            assert after["display"]["labelVisible"] == {"O": True, "C": True}
+            assert after["display"]["pairwiseBondCutoffs"]["O-O"] == pytest.approx(1.8)
+            assert "H-O" not in after["display"]["pairwiseBondCutoffs"]
+            assert set(after["display"]["pairwiseBondCutoffs"]) == {"C-C", "C-O", "O-O"}
             assert inherited_after["oColor"] == "#2a6fdf"
             assert inherited_after["cColor"] != "#2a6fdf"
             assert after["antiAliasing"] is False
@@ -1551,7 +1550,7 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
 
             browser.close()
     finally:
-        sessions.pop(editor.session_id, None)
+        editor.close()
 
 
 def test_grid_button_and_ordered_distance_angle_torsion_measurements():
@@ -1779,7 +1778,7 @@ def test_grid_button_and_ordered_distance_angle_torsion_measurements():
             assert boxed["overlaps"] is False
             browser.close()
     finally:
-        sessions.pop(editor.session_id, None)
+        editor.close()
 
 
 def test_cell_local_bonds_clip_at_the_displayed_supercell_boundary():
@@ -1907,7 +1906,7 @@ def test_cell_local_bonds_clip_at_the_displayed_supercell_boundary():
             }
             browser.close()
     finally:
-        sessions.pop(editor.session_id, None)
+        editor.close()
 
 
 def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
@@ -1917,7 +1916,7 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
         cell=[8.0, 8.0, 8.0],
         pbc=False,
     )
-    set_atom_type_labels(atoms, ["H_left", "H_right"])
+    set_atom_labels(atoms, ["H_left", "H_right"])
     port = find_free_port()
     editor = view(
         atoms,
@@ -1943,16 +1942,16 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
             _expand_inspector(page)
             page.click('[data-inspector-group="display"]')
             _open_panel(page, 'bonding')
-            page.select_option('#bond-mode', 'element')
-            cutoff = page.locator('.element-bond-cutoff[data-pair-key="H_left-H_right"]')
+            page.select_option('#bond-mode', 'pairwise')
+            cutoff = page.locator('.pairwise-bond-cutoff[data-pair-key="H_left-H_right"]')
             assert cutoff.count() == 1
             cutoff.fill('0.90')
             page.wait_for_function(
-                "Math.abs(window.__ASE_APP__.state.display.elementBondCutoffs['H_left-H_right'] - 0.9) < 1e-9"
+                "Math.abs(window.__ASE_APP__.state.display.pairwiseBondCutoffs['H_left-H_right'] - 0.9) < 1e-9"
             )
             cutoff.fill('0')
             page.wait_for_function(
-                "window.__ASE_APP__.state.display.elementBondCutoffs['H_left-H_right'] === 0 && "
+                "window.__ASE_APP__.state.display.pairwiseBondCutoffs['H_left-H_right'] === 0 && "
                 "window.__ASE_APP__.renderer.bondPairs.length === 0"
             )
             cutoff.fill('0.90')
@@ -1980,12 +1979,12 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
             page.evaluate("async () => { await window.__ASE_APP__.pendingApply; }")
             persisted = page.evaluate("""() => ({
                 mode: window.__ASE_APP__.state.display.bondMode,
-                cutoff: window.__ASE_APP__.state.display.elementBondCutoffs['H_left-H_right'],
+                cutoff: window.__ASE_APP__.state.display.pairwiseBondCutoffs['H_left-H_right'],
                 input: Number(document.querySelector('[data-pair-key="H_left-H_right"]').value),
                 bonds: window.__ASE_APP__.renderer.bondPairs.length
             })""")
             assert persisted == {
-                "mode": "element",
+                "mode": "pairwise",
                 "cutoff": 0.9,
                 "input": 0.9,
                 "bonds": 0,
@@ -2006,12 +2005,12 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
 
             relabeled = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
-                app.state.display.elementBondCutoffs['H_left-H_right'] = 1.23;
-                app.renameElementTypeForVisualization('H_left', 'H_custom', [0], 'H', {preserveAppearance: true});
+                app.state.display.pairwiseBondCutoffs['H_left-H_right'] = 1.23;
+                app.renameAtomLabelForVisualization('H_left', 'H_custom', [0], 'H', {preserveAppearance: true});
                 return {
                     labels: [...app.state.atoms.symbols],
-                    order: [...app.state.typeOrder],
-                    cutoff: app.state.display.elementBondCutoffs['H_custom-H_right'],
+                    order: [...app.state.labelOrder],
+                    cutoff: app.state.display.pairwiseBondCutoffs['H_custom-H_right'],
                     rendererCutoff: app.renderer.bondCutoffForPair(0, 1),
                     input: Number(document.querySelector('[data-pair-key="H_custom-H_right"]')?.value),
                 };
@@ -2025,7 +2024,95 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
             }
             browser.close()
     finally:
-        sessions.pop(editor.session_id, None)
+        editor.close()
+
+
+def test_large_scene_neighbor_cache_keeps_live_bond_topology_exact():
+    positions = [[0.0, 0.0, 0.0], [1.1, 0.0, 0.0]]
+    positions.extend(
+        [10.0 + (index % 20) * 3.0, 10.0 + (index // 20) * 3.0, 0.0]
+        for index in range(398)
+    )
+    atoms = Atoms(
+        "H400",
+        positions=positions,
+        cell=[80.0, 80.0, 10.0],
+        pbc=False,
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        show_bonds=True,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 400"
+            )
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.state.display.bondMode = 'pairwise';
+                app.state.display.pairwiseBondCutoffs = {'H-H': 1.0};
+                app.renderer.setDisplayOptions(app.state.display);
+            }""")
+            page.wait_for_function(
+                "window.__ASE_APP__.renderer.bondPairs.length === 0 && "
+                "window.__ASE_APP__.renderer.bondNeighborCache !== null"
+            )
+            initial_cache = page.evaluate("""() => {
+                const cache = window.__ASE_APP__.renderer.bondNeighborCache;
+                return {
+                    referenceX: cache.referencePositions[3],
+                    hasPair: cache.candidatePairs.some(
+                        (value, offset) => offset % 2 === 0
+                            && value === 0
+                            && cache.candidatePairs[offset + 1] === 1
+                    )
+                };
+            }""")
+            assert initial_cache["referenceX"] == pytest.approx(1.1, abs=1e-5)
+            assert initial_cache["hasPair"] is True
+
+            within_skin = page.evaluate("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                const positions = renderer.currentPositions();
+                positions[1] = [0.95, 0, 0];
+                renderer.updatePositions(positions);
+                return {
+                    bonds: renderer.bondPairs,
+                    referenceX: renderer.bondNeighborCache.referencePositions[3]
+                };
+            }""")
+            assert within_skin["bonds"] == [[0, 1]]
+            assert within_skin["referenceX"] == pytest.approx(1.1, abs=1e-5)
+
+            beyond_skin = page.evaluate("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                const positions = renderer.currentPositions();
+                positions[1] = [1.6, 0, 0];
+                renderer.updatePositions(positions);
+                return {
+                    bonds: renderer.bondPairs,
+                    referenceX: renderer.bondNeighborCache.referencePositions[3]
+                };
+            }""")
+            assert beyond_skin["bonds"] == []
+            assert beyond_skin["referenceX"] == pytest.approx(1.6, abs=1e-5)
+            browser.close()
+    finally:
+        editor.close()
 
 
 def test_bond_style_thickness_and_color_modes_render_and_persist():
@@ -2250,7 +2337,7 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
             }
             browser.close()
     finally:
-        sessions.pop(editor.session_id, None)
+        editor.close()
 
 
 def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
@@ -2260,7 +2347,7 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
         cell=[4.0, 4.0, 4.0],
         pbc=True,
     )
-    set_atom_type_labels(atoms, ["Cu", "Cu2"])
+    set_atom_labels(atoms, ["Cu", "Cu2"])
     port = find_free_port()
     editor = view(
         atoms,
@@ -2288,8 +2375,8 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
                 const app = window.__ASE_APP__;
                 const labels = ['Cu', 'Cu2'];
                 return {
-                    types: labels.map(label => document.querySelector(`[data-element-type="${label}"]`).value),
-                    controls: labels.map(label => document.querySelector(`[data-element-color="${label}"]`).value.toLowerCase()),
+                    types: labels.map(label => document.querySelector(`.chemical-type-select[data-atom-label="${label}"]`).value),
+                    controls: labels.map(label => document.querySelector(`.label-color-input[data-atom-label="${label}"]`).value.toLowerCase()),
                     rendered: [0, 1].map(index => app.renderer.atomVisualColor(index).toLowerCase())
                 };
             }""")
@@ -2298,7 +2385,7 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
             assert type_palette["rendered"][0] == type_palette["rendered"][1]
             assert type_palette["controls"] == type_palette["rendered"]
 
-            label_input = page.locator('[data-element-name="Cu2"]')
+            label_input = page.locator('.atom-label-input[data-atom-label="Cu2"]')
             label_input.fill('Cu')
             label_input.press('Enter')
             page.wait_for_function("""() => {
@@ -2446,7 +2533,7 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
             }""") == 6
             browser.close()
     finally:
-        sessions.pop(editor.session_id, None)
+        editor.close()
 
 
 def test_camera_toolbar_white_background_and_flat_2d_display():
@@ -2742,4 +2829,4 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             ) == before_rotation["positions"]
             browser.close()
     finally:
-        sessions.pop(editor.session_id, None)
+        editor.close()

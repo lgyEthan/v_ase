@@ -20,7 +20,7 @@ from .session import (
 )
 from .serialization import atoms_to_json
 from .websocket_manager import ws_manager
-from .io import atom_type_labels, base_symbol_for_atom_type, normalize_atom_type_label, set_atom_type_labels
+from .io import atom_labels, base_symbol_for_atom_type, normalize_atom_type_label, set_atom_labels
 from .repulsion import copy_calculator, is_vase_repulsion_calculator, repulsion_metadata
 from .commensurate import find_commensurate_angles
 from .project import (
@@ -129,47 +129,90 @@ MAX_UPLOADED_STRUCTURE_BYTES = 64 * 1024 * 1024 * 1024
 MAX_UPLOADED_VIDEO_BYTES = 2 * 1024 * 1024 * 1024
 
 
-def trajectory_cacheable(session: EditorSession) -> bool:
-    if session.trajectory_source is not None:
-        return False
+def trajectory_layout_compatible(session: EditorSession) -> bool:
+    """Return whether every frame shares atom identity, cell, and PBC."""
+    if session._trajectory_layout_compatible is not None:
+        return session._trajectory_layout_compatible
     if session.frame_count <= 1:
+        session._trajectory_layout_compatible = False
         return False
+    if session.trajectory_source is not None:
+        source = session.trajectory_source
+        if int(getattr(source, "natoms", -1)) != len(session.working_atoms):
+            session._trajectory_layout_compatible = False
+            return False
+        cells = np.asarray(getattr(source, "cells", []), dtype=float)
+        pbc = np.asarray(getattr(source, "pbc", []), dtype=bool)
+        compatible = bool(
+            cells.shape == (session.frame_count, 3, 3)
+            and pbc.shape == (session.frame_count, 3)
+            and np.allclose(cells, cells[0])
+            and np.all(pbc == pbc[0])
+        )
+        session._trajectory_layout_compatible = compatible
+        return compatible
     natoms = len(session.working_atoms)
-    base_labels = atom_type_labels(session.working_atoms)
+    base_labels = atom_labels(session.working_atoms)
     base_cell = np.asarray(session.working_atoms.cell.array)
     base_pbc = np.asarray(session.working_atoms.pbc, dtype=bool)
     for frame in session.trajectory_frames:
         if len(frame) != natoms:
+            session._trajectory_layout_compatible = False
             return False
-        if atom_type_labels(frame) != base_labels:
+        if atom_labels(frame) != base_labels:
+            session._trajectory_layout_compatible = False
             return False
         if not np.array_equal(np.asarray(frame.pbc, dtype=bool), base_pbc):
+            session._trajectory_layout_compatible = False
             return False
         if not np.allclose(np.asarray(frame.cell.array), base_cell):
+            session._trajectory_layout_compatible = False
             return False
+    session._trajectory_layout_compatible = True
     return True
 
 
-def trajectory_position_cache(session: EditorSession):
+def trajectory_position_cache(
+    session: EditorSession,
+    *,
+    layout_compatible: bool | None = None,
+):
     natoms = len(session.working_atoms)
     if session.frame_count * natoms * 3 > MAX_INLINE_TRAJECTORY_CACHE_VALUES:
         return None
-    if not trajectory_cacheable(session):
+    if layout_compatible is None:
+        layout_compatible = trajectory_layout_compatible(session)
+    if not layout_compatible:
         return None
-    positions = []
-    for frame in session.trajectory_frames:
-        positions.append(frame.get_positions().tolist())
-    return positions
+    if session.trajectory_source is not None:
+        # Virtual trajectories stay off the initial JSON path. The browser
+        # requests their compact float32 cache in the background instead.
+        return None
+    return [frame.get_positions().tolist() for frame in session.trajectory_frames]
 
 
-def trajectory_position_array(session: EditorSession):
+def trajectory_position_array(
+    session: EditorSession,
+    *,
+    layout_compatible: bool | None = None,
+):
     natoms = len(session.working_atoms)
     value_count = session.frame_count * natoms * 3
     if value_count > MAX_BINARY_TRAJECTORY_CACHE_VALUES:
         return None
-    if not trajectory_cacheable(session):
+    if layout_compatible is None:
+        layout_compatible = trajectory_layout_compatible(session)
+    if not layout_compatible:
         return None
-    return np.asarray([frame.get_positions() for frame in session.trajectory_frames], dtype=np.float32)
+    if session.trajectory_source is not None:
+        array = np.empty((session.frame_count, natoms, 3), dtype=np.float32)
+        for frame_index in range(session.frame_count):
+            array[frame_index] = session.trajectory_source.read_positions(frame_index)
+        return array
+    return np.asarray(
+        [frame.get_positions() for frame in session.trajectory_frames],
+        dtype=np.float32,
+    )
 
 
 def session_atoms_to_json(session: EditorSession, include_inline_trajectory: bool = True):
@@ -182,7 +225,12 @@ def session_atoms_to_json(session: EditorSession, include_inline_trajectory: boo
     if is_vase_repulsion_calculator(session.working_atoms.calc):
         data["metadata"]["calculator"] = "Repulsion"
         data["metadata"]["has_calculator"] = True
-    trajectory_positions = trajectory_position_cache(session) if include_inline_trajectory else None
+    layout_compatible = trajectory_layout_compatible(session)
+    trajectory_positions = (
+        trajectory_position_cache(session, layout_compatible=layout_compatible)
+        if include_inline_trajectory
+        else None
+    )
     data["metadata"]["trajectory_positions_cached"] = trajectory_positions is not None
     if trajectory_positions is not None:
         data["trajectory_positions"] = trajectory_positions
@@ -190,9 +238,14 @@ def session_atoms_to_json(session: EditorSession, include_inline_trajectory: boo
         trajectory_positions is None
         and session.frame_count > 1
         and session.frame_count * len(session.working_atoms) * 3 <= MAX_BINARY_TRAJECTORY_CACHE_VALUES
-        and trajectory_cacheable(session)
+        and layout_compatible
     )
     return data
+
+
+def session_update_to_json(session: EditorSession):
+    """Serialize an update without retransmitting inline trajectory frames."""
+    return session_atoms_to_json(session, include_inline_trajectory=False)
 
 
 def payload_apply_constraint(payload: Dict[str, Any] | None) -> bool:
@@ -628,19 +681,19 @@ def inferred_base_symbol_for_label(label) -> str | None:
     return None
 
 
-def update_atom_type_labels(atoms, indices, label, base_symbol=None):
+def update_atom_identity_on_atoms(atoms, indices, label, base_symbol=None):
     indices = sorted({int(i) for i in indices})
     if not indices:
         return atoms.copy()
     if indices[0] < 0 or indices[-1] >= len(atoms):
-        raise HTTPException(status_code=400, detail="Atom type indices are out of range.")
+        raise HTTPException(status_code=400, detail="Atom indices are out of range.")
     normalized = normalize_atom_type_label(label)
     if not normalized:
-        raise HTTPException(status_code=400, detail="Atom type label cannot be empty.")
+        raise HTTPException(status_code=400, detail="Atom label cannot be empty.")
 
     updated = atoms.copy()
     symbols = updated.get_chemical_symbols()
-    type_labels = atom_type_labels(updated)
+    type_labels = atom_labels(updated)
     outside_labels = {atom_type for idx, atom_type in enumerate(type_labels) if idx not in indices}
     if normalized in outside_labels:
         suffix = 2
@@ -655,7 +708,7 @@ def update_atom_type_labels(atoms, indices, label, base_symbol=None):
             symbols[idx] = base_symbol
         type_labels[idx] = normalized
     updated.set_chemical_symbols(symbols)
-    set_atom_type_labels(updated, type_labels)
+    set_atom_labels(updated, type_labels)
     if atoms.calc:
         updated.calc = copy_calculator(atoms.calc)
     return updated
@@ -797,7 +850,7 @@ async def get_atoms(session_id: str):
 @app.get("/api/trajectory/positions/{session_id}")
 async def get_trajectory_positions(session_id: str):
     session = get_session(session_id)
-    array = trajectory_position_array(session)
+    array = await asyncio.to_thread(trajectory_position_array, session)
     if array is None:
         raise HTTPException(status_code=404, detail="Trajectory position cache is not available for this session.")
     return Response(
@@ -817,7 +870,10 @@ async def get_frame_positions(session_id: str, frame_index: int):
     if session.trajectory_source is None:
         raise HTTPException(status_code=404, detail="Virtual trajectory positions are not available for this session.")
     try:
-        positions = session.trajectory_source.read_positions(frame_index)
+        positions = await asyncio.to_thread(
+            session.trajectory_source.read_positions,
+            frame_index,
+        )
     except IndexError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     session.current_frame = int(frame_index)
@@ -897,8 +953,7 @@ async def load_structure_file(
         if total == 0:
             raise HTTPException(status_code=400, detail="The selected structure file is empty.")
 
-        from .cli import _read_frames, resolve_input_format
-        from .io import read_fast_lammps_dump
+        from .io import read_fast_lammps_dump, read_structure_frames, resolve_input_format
 
         format_hint = _uploaded_format_hint(display_name, input_format)
         resolved_format = resolve_input_format(format_hint)
@@ -926,12 +981,16 @@ async def load_structure_file(
                 session.temporary_files.add(tmp_path)
                 keep_temporary_file = True
             except ValueError:
-                frames = await asyncio.to_thread(_read_frames, Path(tmp_path), index, format_hint)
+                frames = await asyncio.to_thread(
+                    read_structure_frames, Path(tmp_path), index, format_hint
+                )
                 session.cleanup_temporary_files()
                 replace_session_frames(session, frames)
             loaded_kind = "trajectory" if session.frame_count > 1 else "structure"
         else:
-            frames = await asyncio.to_thread(_read_frames, Path(tmp_path), index, format_hint)
+            frames = await asyncio.to_thread(
+                read_structure_frames, Path(tmp_path), index, format_hint
+            )
             session.cleanup_temporary_files()
             replace_session_frames(session, frames)
             loaded_kind = "trajectory" if session.frame_count > 1 else "structure"
@@ -1003,7 +1062,7 @@ async def apply_positions(session_id: str, payload: Dict[str, Any]):
         from .relax import request_relax_restart
         request_relax_restart(session)
     
-    return session_atoms_to_json(session)
+    return session_update_to_json(session)
 
 
 @app.post("/api/reset/{session_id}")
@@ -1012,8 +1071,7 @@ async def reset(session_id: str):
     require_editable(session, "Full reset")
     session.push_history()
     session.reset_all_frames()
-    session.selection.clear()
-    return session_atoms_to_json(session)
+    return session_update_to_json(session)
 
 
 @app.post("/api/reset-coordinates/{session_id}")
@@ -1022,8 +1080,7 @@ async def reset_coordinates(session_id: str):
     require_editable(session, "Coordinate reset")
     session.push_history()
     session.reset_all_frames()
-    session.selection.clear()
-    return session_atoms_to_json(session)
+    return session_update_to_json(session)
 
 
 @app.post("/api/settings/save/{session_id}")
@@ -1145,7 +1202,7 @@ async def wrap(session_id: str, payload: Dict[str, Any] | None = None):
         return wrapped
 
     apply_all_frames(session, wrap_frame)
-    return session_atoms_to_json(session)
+    return session_update_to_json(session)
 
 
 @app.post("/api/undo/{session_id}")
@@ -1155,7 +1212,7 @@ async def undo(session_id: str):
     atoms = session.undo()
     if atoms is not None:
         session.sync_current_frame()
-    return session_atoms_to_json(session)
+    return session_update_to_json(session)
 
 
 @app.post("/api/redo/{session_id}")
@@ -1165,7 +1222,7 @@ async def redo(session_id: str):
     atoms = session.redo()
     if atoms is not None:
         session.sync_current_frame()
-    return session_atoms_to_json(session)
+    return session_update_to_json(session)
 
 
 @app.post("/api/add/{session_id}")
@@ -1187,17 +1244,22 @@ async def add_atoms(session_id: str, payload: Dict[str, Any]):
         raise HTTPException(status_code=400, detail="base_symbols must match symbols when provided")
 
     session.push_history()
-    type_labels = atom_type_labels(session.working_atoms)
+    labels = atom_labels(session.working_atoms)
     for symbol, position, base_symbol in zip(symbols, positions, base_symbols):
         label = normalize_atom_type_label(symbol)
         if not label:
             raise HTTPException(status_code=400, detail="Atom type label cannot be empty.")
-        type_labels.append(label)
-        atom_symbol = base_symbol_for_atom_type(base_symbol) if base_symbol else base_symbol_for_atom_type(label)
+        labels.append(label)
+        atom_symbol = (
+            base_symbol_for_atom_type(base_symbol)
+            if base_symbol
+            else base_symbol_for_atom_type(label)
+        )
         session.working_atoms.append(Atom(atom_symbol, position=position))
-    set_atom_type_labels(session.working_atoms, type_labels)
+    set_atom_labels(session.working_atoms, labels)
+    session.invalidate_trajectory_layout()
     session.sync_current_frame()
-    return session_atoms_to_json(session)
+    return session_update_to_json(session)
 
 
 @app.post("/api/delete/{session_id}")
@@ -1206,29 +1268,43 @@ async def delete_atoms(session_id: str, payload: Dict[str, Any]):
     require_editable(session, "Deleting atoms")
     indices = payload.get("indices", [])
     if not indices:
-        return session_atoms_to_json(session)
+        return session_update_to_json(session)
 
     session.push_history()
     session.working_atoms = delete_indices_from_atoms(session.working_atoms, indices)
-    session.selection.clear()
+    session.invalidate_trajectory_layout()
     session.sync_current_frame()
-    return session_atoms_to_json(session)
+    return session_update_to_json(session)
 
 
-@app.post("/api/atom-types/{session_id}")
-async def update_atom_types(session_id: str, payload: Dict[str, Any]):
+@app.post("/api/atom-identity/{session_id}")
+@app.post("/api/atom-types/{session_id}", include_in_schema=False)
+async def update_atom_identity(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
-    require_editable(session, "Atom type editing")
+    require_editable(session, "Atom identity editing")
     indices = payload.get("indices", [])
     label = payload.get("label", "")
     if not indices:
-        return session_atoms_to_json(session)
+        return session_update_to_json(session)
 
     session.push_history()
     set_current_payload_positions(session, payload)
     base_symbol = payload.get("base_symbol")
-    apply_all_frames(session, lambda atoms: update_atom_type_labels(atoms, indices, label, base_symbol))
-    return session_atoms_to_json(session)
+    apply_all_frames(
+        session,
+        lambda atoms: update_atom_identity_on_atoms(
+            atoms,
+            indices,
+            label,
+            base_symbol,
+        ),
+    )
+    session.invalidate_trajectory_layout()
+    return session_update_to_json(session)
+
+
+# Compatibility name for direct imports used before 0.0.78.
+update_atom_types = update_atom_identity
 
 
 @app.post("/api/constraints/{session_id}")
@@ -1237,7 +1313,7 @@ async def update_constraints(session_id: str, payload: Dict[str, Any]):
     require_editable(session, "Constraint editing")
     indices = payload.get("indices", [])
     if not indices:
-        return session_atoms_to_json(session)
+        return session_update_to_json(session)
 
     session.push_history()
     set_current_payload_positions(session, payload)
@@ -1254,7 +1330,7 @@ async def update_constraints(session_id: str, payload: Dict[str, Any]):
             vector=vector,
         )
     )
-    return session_atoms_to_json(session)
+    return session_update_to_json(session)
 
 
 @app.post("/api/calculator/{session_id}")
@@ -1269,7 +1345,7 @@ async def update_calculator(session_id: str, payload: Dict[str, Any]):
         cpu_threads=payload.get("cpu_threads"),
     )
     session.sync_current_frame()
-    return session_atoms_to_json(session)
+    return session_update_to_json(session)
 
 
 @app.post("/api/frame/{session_id}")
@@ -1317,7 +1393,8 @@ async def apply_supercell(session_id: str, payload: Dict[str, Any]):
     session.push_history()
     set_current_payload_positions(session, payload)
     apply_all_frames(session, lambda atoms: repeat_atoms_as_supercell(atoms, reps))
-    return session_atoms_to_json(session)
+    session.invalidate_trajectory_layout()
+    return session_update_to_json(session)
 
 
 @app.post("/api/supercell/matrix/{session_id}")
@@ -1328,7 +1405,8 @@ async def apply_supercell_matrix(session_id: str, payload: Dict[str, Any]):
     session.push_history()
     set_current_payload_positions(session, payload)
     apply_all_frames(session, lambda atoms: make_supercell_atoms(atoms, P))
-    return session_atoms_to_json(session)
+    session.invalidate_trajectory_layout()
+    return session_update_to_json(session)
 
 @app.post("/api/cancel/{session_id}")
 async def cancel(session_id: str):

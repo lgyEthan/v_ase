@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import mmap
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -10,11 +11,51 @@ from typing import Iterable
 import numpy as np
 from ase import Atoms
 from ase.data import atomic_masses, atomic_numbers, chemical_symbols
+from ase.io import read
 from ase.io.extxyz import key_val_str_to_dict
 from ase.io.formats import string2index
 from ase.io.lammpsdata import read_lammps_data
 
-ATOM_TYPE_ARRAY = "v_ase_atom_type"
+ATOM_LABEL_ARRAY = "v_ase_atom_type"
+# Compatibility name for code written against v_ase <= 0.0.77.
+ATOM_TYPE_ARRAY = ATOM_LABEL_ARRAY
+
+INPUT_FORMAT_ALIASES = {
+    "poscar": "vasp",
+    "contcar": "vasp",
+    "vasp": "vasp",
+    "xdatcar": "vasp-xdatcar",
+    "vasp-xdatcar": "vasp-xdatcar",
+    "vasp_xdatcar": "vasp-xdatcar",
+    "vasprun": "vasp-xml",
+    "vasprun.xml": "vasp-xml",
+    "vasp-xml": "vasp-xml",
+    "vasp_xml": "vasp-xml",
+    "lammpstrj": "lammps-dump-text",
+    "lammpsdump": "lammps-dump-text",
+    "lammps-dump": "lammps-dump-text",
+    "lammps_dump": "lammps-dump-text",
+    "lammps-dump-text": "lammps-dump-text",
+    "lammps_dump_text": "lammps-dump-text",
+    "traj": "traj",
+    "trajectory": "traj",
+    "xyz": "xyz",
+    "extxyz": "extxyz",
+    "extendedxyz": "extxyz",
+    "data": "lammps-data",
+    "lammps-data": "lammps-data",
+    "lammps_data": "lammps-data",
+    "vase": "vase-project",
+    "vase-project": "vase-project",
+}
+
+
+def resolve_input_format(fmt: str | None) -> str | None:
+    """Resolve user-facing format aliases to ASE reader names."""
+    if not fmt:
+        return None
+    key = fmt.strip().lower()
+    return INPUT_FORMAT_ALIASES.get(key, fmt)
 
 
 @dataclass
@@ -29,6 +70,7 @@ class FastLammpsDumpTrajectory:
     cells: np.ndarray
     pbc: np.ndarray
     position_columns: tuple[int, int, int]
+    atom_end_offsets: list[int] | None = None
     scaled_positions: bool = False
     template_atoms: Atoms | None = None
     id_column: int | None = None
@@ -44,12 +86,19 @@ class FastLammpsDumpTrajectory:
     def frame_count(self) -> int:
         return len(self.atom_offsets)
 
+    def __len__(self) -> int:
+        return self.frame_count
+
     def _read_numeric_table(self, frame_index: int) -> np.ndarray:
         if frame_index < 0 or frame_index >= self.frame_count:
             raise IndexError(f"Frame index {frame_index} is out of range")
         with open(self.path, "rb", buffering=1024 * 1024) as handle:
-            handle.seek(self.atom_offsets[frame_index])
-            block = b"".join(handle.readline() for _ in range(self.natoms))
+            start = self.atom_offsets[frame_index]
+            handle.seek(start)
+            if self.atom_end_offsets and frame_index < len(self.atom_end_offsets):
+                block = handle.read(self.atom_end_offsets[frame_index] - start)
+            else:
+                block = b"".join(handle.readline() for _ in range(self.natoms))
         values = np.fromstring(block, sep=" ", dtype=np.float32)
         expected = self.natoms * len(self.columns)
         if values.size != expected:
@@ -111,7 +160,7 @@ class FastLammpsDumpTrajectory:
         positions = self._positions_from_table(table, frame_index)
         atoms = Atoms(symbols=symbols, positions=positions, cell=self.cells[frame_index], pbc=self.pbc[frame_index])
         atoms.info["timestep"] = int(self.timesteps[frame_index])
-        set_atom_type_labels(atoms, labels)
+        set_atom_labels(atoms, labels)
         if self.id_column is not None:
             atoms.set_array("lammps_id", table[:, self.id_column].astype(np.int64))
         if self.mol_column is not None:
@@ -208,16 +257,23 @@ def base_symbol_for_lammps_type(label: object, mass: object | None = None) -> st
     return base_symbol_for_atom_type(label, mass)
 
 
-def atom_type_labels(atoms: Atoms) -> list[str]:
-    labels = atoms.arrays.get(ATOM_TYPE_ARRAY)
+def atom_labels(atoms: Atoms) -> list[str]:
+    """Return user-facing labels, distinct from ASE chemical symbols."""
+    labels = atoms.arrays.get(ATOM_LABEL_ARRAY)
     if labels is None or len(labels) != len(atoms):
         return atoms.get_chemical_symbols()
     return [normalize_atom_type_label(label) for label in labels]
 
 
-def set_atom_type_labels(atoms: Atoms, labels: Iterable[object]) -> None:
+def set_atom_labels(atoms: Atoms, labels: Iterable[object]) -> None:
+    """Store user-facing labels without changing ASE chemical symbols."""
     normalized = [normalize_atom_type_label(label) for label in labels]
-    atoms.set_array(ATOM_TYPE_ARRAY, np.asarray(normalized, dtype="U64"))
+    atoms.set_array(ATOM_LABEL_ARRAY, np.asarray(normalized, dtype="U64"))
+
+
+# Compatibility aliases for code written against v_ase <= 0.0.77.
+atom_type_labels = atom_labels
+set_atom_type_labels = set_atom_labels
 
 
 def _parse_properties(properties: str) -> list[tuple[str, str, int]]:
@@ -314,53 +370,87 @@ def _fast_lammps_selected_initial_frame(index: str | int | slice | None, frame_c
 def index_lammps_dump(path: str | Path) -> FastLammpsDumpTrajectory:
     """Build a compact frame-offset index for numeric LAMMPS text dumps."""
     path = Path(path)
+    if path.stat().st_size == 0:
+        raise ValueError("No frames found in LAMMPS dump.")
     atom_offsets: list[int] = []
+    atom_end_offsets: list[int] = []
     timesteps: list[int] = []
     cells: list[np.ndarray] = []
     pbc_values: list[list[bool]] = []
     columns: list[str] | None = None
     natoms: int | None = None
 
-    with path.open("rb", buffering=1024 * 1024) as handle:
-        while True:
-            line = handle.readline()
-            if not line:
-                break
-            if not line.startswith(b"ITEM: TIMESTEP"):
-                continue
-            timestep_line = handle.readline()
-            if not timestep_line:
-                break
-            timestep = int(float(timestep_line.strip()))
-            if not handle.readline().startswith(b"ITEM: NUMBER OF ATOMS"):
-                raise ValueError("LAMMPS dump is missing NUMBER OF ATOMS after TIMESTEP.")
-            frame_natoms = int(handle.readline().strip())
-            bounds_header = handle.readline()
-            if not bounds_header.startswith(b"ITEM: BOX BOUNDS"):
-                raise ValueError("LAMMPS dump is missing BOX BOUNDS.")
-            bounds_lines = [handle.readline(), handle.readline(), handle.readline()]
-            cell, pbc = _parse_lammps_box_bytes(bounds_header, bounds_lines)
-            atom_header = handle.readline()
-            if not atom_header.startswith(b"ITEM: ATOMS"):
-                raise ValueError("LAMMPS dump is missing ATOMS columns.")
-            frame_columns = [token.decode("utf-8", errors="replace") for token in atom_header.split()[2:]]
-            if "element" in frame_columns:
-                raise ValueError("Fast LAMMPS parser supports numeric dump columns; element-string dumps use the safe parser.")
-            if natoms is None:
-                natoms = frame_natoms
-                columns = frame_columns
-                _fast_lammps_position_columns(columns)
-            elif frame_natoms != natoms:
-                raise ValueError("Fast LAMMPS trajectory requires a constant atom count.")
-            elif frame_columns != columns:
-                raise ValueError("Fast LAMMPS trajectory requires constant ATOMS columns.")
+    with path.open("rb") as handle:
+        with mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as mapped:
+            size = len(mapped)
 
-            atom_offsets.append(handle.tell())
-            timesteps.append(timestep)
-            cells.append(cell)
-            pbc_values.append(pbc)
-            for _ in range(frame_natoms):
-                handle.readline()
+            def read_line(position: int) -> tuple[bytes, int]:
+                if position >= size:
+                    return b"", size
+                end = mapped.find(b"\n", position)
+                if end < 0:
+                    return mapped[position:size].rstrip(b"\r"), size
+                return mapped[position:end].rstrip(b"\r"), end + 1
+
+            cursor = 0
+            while cursor < size:
+                marker = mapped.find(b"ITEM: TIMESTEP", cursor)
+                if marker < 0:
+                    break
+                if marker > 0 and mapped[marker - 1:marker] not in {b"\n", b"\r"}:
+                    cursor = marker + 1
+                    continue
+
+                line, cursor = read_line(marker)
+                if line != b"ITEM: TIMESTEP":
+                    cursor = marker + 1
+                    continue
+                timestep_line, cursor = read_line(cursor)
+                number_header, cursor = read_line(cursor)
+                if number_header != b"ITEM: NUMBER OF ATOMS":
+                    raise ValueError("LAMMPS dump is missing NUMBER OF ATOMS after TIMESTEP.")
+                natoms_line, cursor = read_line(cursor)
+                bounds_header, cursor = read_line(cursor)
+                if not bounds_header.startswith(b"ITEM: BOX BOUNDS"):
+                    raise ValueError("LAMMPS dump is missing BOX BOUNDS.")
+                bounds_lines = []
+                for _ in range(3):
+                    bounds_line, cursor = read_line(cursor)
+                    bounds_lines.append(bounds_line)
+                atom_header, cursor = read_line(cursor)
+                if not atom_header.startswith(b"ITEM: ATOMS"):
+                    raise ValueError("LAMMPS dump is missing ATOMS columns.")
+
+                timestep = int(float(timestep_line.strip()))
+                frame_natoms = int(natoms_line.strip())
+                cell, pbc = _parse_lammps_box_bytes(bounds_header, bounds_lines)
+                frame_columns = [
+                    token.decode("utf-8", errors="replace")
+                    for token in atom_header.split()[2:]
+                ]
+                if "element" in frame_columns:
+                    raise ValueError(
+                        "Fast LAMMPS parser supports numeric dump columns; "
+                        "element-string dumps use the safe parser."
+                    )
+                if natoms is None:
+                    natoms = frame_natoms
+                    columns = frame_columns
+                    _fast_lammps_position_columns(columns)
+                elif frame_natoms != natoms:
+                    raise ValueError("Fast LAMMPS trajectory requires a constant atom count.")
+                elif frame_columns != columns:
+                    raise ValueError("Fast LAMMPS trajectory requires constant ATOMS columns.")
+
+                atom_start = cursor
+                next_marker = mapped.find(b"\nITEM: TIMESTEP", atom_start)
+                atom_end = size if next_marker < 0 else next_marker + 1
+                atom_offsets.append(atom_start)
+                atom_end_offsets.append(atom_end)
+                timesteps.append(timestep)
+                cells.append(cell)
+                pbc_values.append(pbc)
+                cursor = size if next_marker < 0 else next_marker + 1
 
     if natoms is None or columns is None or not atom_offsets:
         raise ValueError("No frames found in LAMMPS dump.")
@@ -379,6 +469,7 @@ def index_lammps_dump(path: str | Path) -> FastLammpsDumpTrajectory:
         cells=np.asarray(cells, dtype=float),
         pbc=np.asarray(pbc_values, dtype=bool),
         position_columns=position_columns,
+        atom_end_offsets=atom_end_offsets,
         scaled_positions=scaled,
         id_column=column_map.get("id"),
         type_column=column_map.get("type"),
@@ -393,8 +484,8 @@ def read_fast_lammps_dump(path: str | Path, index: str | int | slice | None = ":
     """Read a large numeric LAMMPS dump as a first-frame Atoms plus virtual trajectory."""
     trajectory = index_lammps_dump(path)
     initial_frame = _fast_lammps_selected_initial_frame(index, trajectory.frame_count)
-    trajectory.build_template(0)
-    atoms = trajectory.read_atoms(initial_frame)
+    template = trajectory.build_template(0)
+    atoms = template.copy() if initial_frame == 0 else trajectory.read_atoms(initial_frame)
     return FastLammpsDumpResult(atoms=atoms, trajectory=trajectory, initial_frame=initial_frame)
 
 
@@ -442,7 +533,7 @@ def read_custom_lammps_dump(path: str | Path, index: str | int | slice | None = 
         positions = [_lammps_position(row, cell) for row in rows]
         atoms = Atoms(symbols=symbols, positions=np.asarray(positions, dtype=float), cell=cell, pbc=pbc)
         atoms.info["timestep"] = timestep
-        set_atom_type_labels(atoms, labels)
+        set_atom_labels(atoms, labels)
         if any(value is not None for value in raw_masses):
             atoms.set_masses([float(value) if value is not None else atomic_masses[atomic_numbers[symbol]]
                               for value, symbol in zip(raw_masses, symbols)])
@@ -599,7 +690,7 @@ def _read_lammps_data_minimal(path: Path) -> Atoms:
     symbols = [base_symbol_for_lammps_type(label, mass) for label, mass in zip(labels, masses)]
     positions = np.asarray([row["position"] for row in atom_rows], dtype=float)
     atoms = Atoms(symbols=symbols, positions=positions, cell=cell, pbc=[True, True, True])
-    set_atom_type_labels(atoms, labels)
+    set_atom_labels(atoms, labels)
     atoms.set_array("lammps_id", np.asarray([row["id"] for row in atom_rows], dtype=int))
     atoms.set_array("type", np.asarray([int(float(raw_type)) if _integer_type_suffix(raw_type) is not None else raw_type
                                         for raw_type in raw_types]))
@@ -647,7 +738,7 @@ def read_custom_lammps_data(
 
     raw_types = atoms.arrays.get("type")
     if raw_types is None or len(raw_types) != len(atoms):
-        labels = atom_type_labels(atoms)
+        labels = atom_labels(atoms)
         masses = [None] * len(atoms)
     else:
         raw_masses = atoms.arrays.get("masses")
@@ -660,7 +751,7 @@ def read_custom_lammps_data(
 
     symbols = [base_symbol_for_lammps_type(label, mass) for label, mass in zip(labels, masses)]
     atoms.set_chemical_symbols(symbols)
-    set_atom_type_labels(atoms, labels)
+    set_atom_labels(atoms, labels)
     return _select_frames([atoms], index)
 
 
@@ -708,7 +799,7 @@ def read_custom_extxyz(path: str | Path, index: str | int | slice | None = ":") 
             symbols = [base_symbol_for_atom_type(label, mass) for label, mass in zip(labels, masses)]
             atoms = Atoms(symbols=symbols, positions=np.asarray(positions, dtype=float))
             if labels:
-                set_atom_type_labels(atoms, labels)
+                set_atom_labels(atoms, labels)
 
             lattice = info.get("Lattice")
             if lattice is not None:
@@ -737,3 +828,49 @@ def read_custom_extxyz(path: str | Path, index: str | int | slice | None = ":") 
                     atoms.set_array(name, array)
             frames.append(atoms)
     return _select_frames(frames, index)
+
+
+def read_structure_frames(
+    path: str | Path,
+    index: str | int | slice | None = ":",
+    fmt: str | None = None,
+) -> list[Atoms]:
+    """Read one or more frames through the canonical v_ase input pipeline."""
+    source = Path(path)
+    resolved_format = resolve_input_format(fmt)
+    suffix = source.suffix.lower()
+
+    if resolved_format == "lammps-dump-text" or (
+        fmt is None and suffix in {".lammpstrj", ".dump"}
+    ):
+        return read_custom_lammps_dump(source, index)
+    if resolved_format == "lammps-data" or (fmt is None and suffix == ".data"):
+        return read_custom_lammps_data(source, index)
+
+    read_kwargs = {"index": index}
+    if resolved_format:
+        read_kwargs["format"] = resolved_format
+
+    custom_extxyz_allowed = (
+        resolved_format in {None, "extxyz", "xyz"}
+        and suffix in {".xyz", ".extxyz"}
+    )
+
+    def needs_custom_extxyz(frames: list[Atoms]) -> bool:
+        if not custom_extxyz_allowed:
+            return False
+        return any(
+            "atom_type" in atoms.arrays
+            and any(symbol == "X" for symbol in atoms.get_chemical_symbols())
+            for atoms in frames
+        )
+
+    try:
+        loaded = read(source, **read_kwargs)
+    except (KeyError, TypeError, ValueError):
+        if not custom_extxyz_allowed:
+            raise
+        return read_custom_extxyz(source, index)
+
+    frames = loaded if isinstance(loaded, list) else [loaded]
+    return read_custom_extxyz(source, index) if needs_custom_extxyz(frames) else frames

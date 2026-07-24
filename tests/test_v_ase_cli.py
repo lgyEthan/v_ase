@@ -4,8 +4,9 @@ from pathlib import Path
 from ase.build import molecule
 from ase.io import write
 
-from v_ase.cli import _read_frames, build_parser, normalize_argv, resolve_input_format, run_gui
-from v_ase.io import atom_type_labels
+from v_ase.cli import build_parser, normalize_argv, run_gui
+from v_ase.io import read_structure_frames, resolve_input_format
+from v_ase.io import atom_labels
 from v_ase.serialization import atoms_to_json
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -96,45 +97,45 @@ def test_pyproject_exposes_v_ase_console_script():
     assert config["project"]["name"] == "v_ase-gui"
 
 
-def test_read_frames_supports_single_structure_files(tmp_path):
+def test_read_structure_frames_supports_single_structure_files(tmp_path):
     path = tmp_path / "POSCAR"
     atoms = molecule("H2O")
     atoms.set_cell([8, 8, 8])
     atoms.set_pbc([True, True, True])
     write(path, atoms, format="vasp")
 
-    frames = _read_frames(path, "-1", None)
+    frames = read_structure_frames(path, "-1", None)
 
     assert len(frames) == 1
     assert frames[0].get_chemical_formula() == "H2O"
 
 
-def test_read_frames_uses_format_alias_for_extensionless_poscar(tmp_path):
+def test_read_structure_frames_uses_format_alias_for_extensionless_poscar(tmp_path):
     path = tmp_path / "ABCD"
     atoms = molecule("H2O")
     atoms.set_cell([8, 8, 8])
     atoms.set_pbc([True, True, True])
     write(path, atoms, format="vasp")
 
-    frames = _read_frames(path, "-1", "POSCAR")
+    frames = read_structure_frames(path, "-1", "POSCAR")
 
     assert len(frames) == 1
     assert frames[0].get_chemical_formula() == "H2O"
 
 
-def test_read_frames_supports_multi_frame_files(tmp_path):
+def test_read_structure_frames_supports_multi_frame_files(tmp_path):
     path = tmp_path / "movie.extxyz"
     first = molecule("H2O")
     second = molecule("H2O")
     second.positions += [1.0, 0.0, 0.0]
     write(path, [first, second])
 
-    frames = _read_frames(path, ":", None)
+    frames = read_structure_frames(path, ":", None)
 
     assert len(frames) == 2
 
 
-def test_read_frames_preserves_custom_extxyz_atom_types(tmp_path):
+def test_read_structure_frames_preserves_custom_extxyz_atom_types(tmp_path):
     path = tmp_path / "typed.extxyz"
     path.write_text(
         "\n".join([
@@ -147,11 +148,11 @@ def test_read_frames_preserves_custom_extxyz_atom_types(tmp_path):
         ])
     )
 
-    frames = _read_frames(path, ":", None)
+    frames = read_structure_frames(path, ":", None)
     data = atoms_to_json(frames[0])
 
     assert frames[0].get_chemical_symbols() == ["H", "H", "O"]
-    assert atom_type_labels(frames[0]) == ["H_type5", "H_type7", "O_type2"]
+    assert atom_labels(frames[0]) == ["H_type5", "H_type7", "O_type2"]
     assert data["symbols"] == ["H_type5", "H_type7", "O_type2"]
     assert data["chemical_symbols"] == ["H", "H", "O"]
     assert data["visual"]["colors"] == data["visual"]["base_colors"]
@@ -159,7 +160,7 @@ def test_read_frames_preserves_custom_extxyz_atom_types(tmp_path):
     assert data["visual"]["colors"][2] == data["visual"]["element_colors"]["O"]
 
 
-def test_read_frames_keeps_integer_atom_types_as_raw_labels_when_mass_is_missing(tmp_path):
+def test_read_structure_frames_keeps_integer_atom_types_as_raw_labels_when_mass_is_missing(tmp_path):
     path = tmp_path / "typed_integer.extxyz"
     path.write_text(
         "\n".join([
@@ -172,16 +173,16 @@ def test_read_frames_keeps_integer_atom_types_as_raw_labels_when_mass_is_missing
         ])
     )
 
-    frames = _read_frames(path, ":", None)
+    frames = read_structure_frames(path, ":", None)
     data = atoms_to_json(frames[0])
 
     assert frames[0].get_chemical_symbols() == ["H", "H", "H"]
-    assert atom_type_labels(frames[0]) == ["1", "2", "3"]
+    assert atom_labels(frames[0]) == ["1", "2", "3"]
     assert data["symbols"] == ["1", "2", "3"]
     assert data["chemical_symbols"] == ["H", "H", "H"]
 
 
-def test_read_frames_uses_mass_to_guess_integer_atom_type_base_symbol(tmp_path):
+def test_read_structure_frames_uses_mass_to_guess_integer_atom_type_base_symbol(tmp_path):
     path = tmp_path / "typed_integer_mass.extxyz"
     path.write_text(
         "\n".join([
@@ -193,10 +194,10 @@ def test_read_frames_uses_mass_to_guess_integer_atom_type_base_symbol(tmp_path):
         ])
     )
 
-    frames = _read_frames(path, ":", None)
+    frames = read_structure_frames(path, ":", None)
 
     assert frames[0].get_chemical_symbols() == ["O", "Si"]
-    assert atom_type_labels(frames[0]) == ["1", "2"]
+    assert atom_labels(frames[0]) == ["1", "2"]
 
 
 def test_lammpstrj_integer_types_are_raw_labels_and_valid_atomic_numbers(tmp_path):
@@ -219,10 +220,10 @@ def test_lammpstrj_integer_types_are_raw_labels_and_valid_atomic_numbers(tmp_pat
         ])
     )
 
-    frames = _read_frames(path, ":", None)
+    frames = read_structure_frames(path, ":", None)
 
     assert frames[0].get_chemical_symbols() == ["O", "H", "H"]
-    assert atom_type_labels(frames[0]) == ["8", "1", "1"]
+    assert atom_labels(frames[0]) == ["8", "1", "1"]
 
 
 def test_lammpstrj_mass_column_guesses_integer_type_base_symbol(tmp_path):
@@ -245,10 +246,10 @@ def test_lammpstrj_mass_column_guesses_integer_type_base_symbol(tmp_path):
         ])
     )
 
-    frames = _read_frames(path, ":", None)
+    frames = read_structure_frames(path, ":", None)
 
     assert frames[0].get_chemical_symbols() == ["O", "H", "H"]
-    assert atom_type_labels(frames[0]) == ["8", "1", "1"]
+    assert atom_labels(frames[0]) == ["8", "1", "1"]
 
 
 def test_lammps_data_reads_type_labels_and_mass_guessed_symbols(tmp_path):
@@ -278,10 +279,10 @@ def test_lammps_data_reads_type_labels_and_mass_guessed_symbols(tmp_path):
         ])
     )
 
-    frames = _read_frames(path, ":", None)
+    frames = read_structure_frames(path, ":", None)
 
     assert frames[0].get_chemical_symbols() == ["O", "H", "H"]
-    assert atom_type_labels(frames[0]) == ["1", "2", "2"]
+    assert atom_labels(frames[0]) == ["1", "2", "2"]
     assert frames[0].get_initial_charges().tolist() == [-0.8, 0.4, 0.4]
 
 
@@ -306,10 +307,10 @@ def test_lammps_data_without_masses_uses_valid_type_ids_as_atomic_numbers(tmp_pa
         ])
     )
 
-    frames = _read_frames(path, ":", None)
+    frames = read_structure_frames(path, ":", None)
 
     assert frames[0].get_chemical_symbols() == ["O", "H"]
-    assert atom_type_labels(frames[0]) == ["8", "1"]
+    assert atom_labels(frames[0]) == ["8", "1"]
 
 
 def test_lammps_data_arbitrary_type_ids_fall_back_to_raw_labels(tmp_path):
@@ -333,7 +334,7 @@ def test_lammps_data_arbitrary_type_ids_fall_back_to_raw_labels(tmp_path):
         ])
     )
 
-    frames = _read_frames(path, ":", None)
+    frames = read_structure_frames(path, ":", None)
 
     assert frames[0].get_chemical_symbols() == ["H", "H"]
-    assert atom_type_labels(frames[0]) == ["999", "119"]
+    assert atom_labels(frames[0]) == ["999", "119"]

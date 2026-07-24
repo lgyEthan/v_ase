@@ -8,65 +8,23 @@ import time
 from pathlib import Path
 
 from ase import Atoms
-from ase.io import read, write
+from ase.io import write
 
 from v_ase._version import __version__
 from v_ase.io import (
-    read_custom_extxyz,
-    read_custom_lammps_data,
-    read_custom_lammps_dump,
     read_fast_lammps_dump,
+    read_structure_frames,
+    resolve_input_format,
 )
 from v_ase.viewer import view
-
-
-INPUT_FORMAT_ALIASES = {
-    "poscar": "vasp",
-    "contcar": "vasp",
-    "vasp": "vasp",
-    "xdatcar": "vasp-xdatcar",
-    "vasp-xdatcar": "vasp-xdatcar",
-    "vasp_xdatcar": "vasp-xdatcar",
-    "vasprun": "vasp-xml",
-    "vasprun.xml": "vasp-xml",
-    "vasp-xml": "vasp-xml",
-    "vasp_xml": "vasp-xml",
-    "lammpstrj": "lammps-dump-text",
-    "lammpsdump": "lammps-dump-text",
-    "lammps-dump": "lammps-dump-text",
-    "lammps_dump": "lammps-dump-text",
-    "lammps-dump-text": "lammps-dump-text",
-    "lammps_dump_text": "lammps-dump-text",
-    "traj": "traj",
-    "trajectory": "traj",
-    "xyz": "xyz",
-    "extxyz": "extxyz",
-    "extendedxyz": "extxyz",
-    "data": "lammps-data",
-    "lammps-data": "lammps-data",
-    "lammps_data": "lammps-data",
-    "vase": "vase-project",
-    "vase-project": "vase-project",
-}
-
-
-def package_version() -> str:
-    return __version__
-
-
-def resolve_input_format(fmt: str | None) -> str | None:
-    if not fmt:
-        return None
-    key = fmt.strip().lower()
-    return INPUT_FORMAT_ALIASES.get(key, fmt)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="v_ase",
-        description="Blender-style browser GUI for ASE structures and trajectories.",
+        description="Local browser viewer and editor for ASE structures and trajectories.",
     )
-    parser.add_argument("--version", action="version", version=f"%(prog)s {package_version()}")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command")
 
     gui = subparsers.add_parser(
@@ -110,43 +68,15 @@ def build_parser() -> argparse.ArgumentParser:
     gui.add_argument(
         "--interactive",
         action="store_true",
-        help="enable Blender-style atom editing, deletion, constraints editing, relaxation, undo, copy, and paste. By default v_ase opens in lightweight visualization mode.",
+        help=(
+            "enable atom editing, deletion, constraints editing, relaxation, "
+            "undo, copy, and paste. By default v_ase opens in lightweight "
+            "visualization mode."
+        ),
     )
     gui.set_defaults(func=run_gui)
 
     return parser
-
-
-def _read_frames(path: Path, index: str, fmt: str | None):
-    read_kwargs = {"index": index}
-    resolved_format = resolve_input_format(fmt)
-    if resolved_format:
-        read_kwargs["format"] = resolved_format
-
-    suffix = path.suffix.lower()
-    if resolved_format == "lammps-dump-text" or (fmt is None and suffix in {".lammpstrj", ".dump"}):
-        return read_custom_lammps_dump(path, index)
-    if resolved_format == "lammps-data" or (fmt is None and suffix == ".data"):
-        return read_custom_lammps_data(path, index)
-
-    def should_use_custom_extxyz(frames):
-        if fmt not in {None, "extxyz", "xyz"} or suffix not in {".xyz", ".extxyz"}:
-            return False
-        for atoms in frames:
-            if "atom_type" in atoms.arrays and any(symbol == "X" for symbol in atoms.get_chemical_symbols()):
-                return True
-        return False
-
-    try:
-        loaded = read(path, **read_kwargs)
-    except (KeyError, TypeError, ValueError):
-        if fmt not in {None, "extxyz", "xyz"} or path.suffix.lower() not in {".xyz", ".extxyz"}:
-            raise
-        loaded = read_custom_extxyz(path, index)
-    frames = loaded if isinstance(loaded, list) else [loaded]
-    if should_use_custom_extxyz(frames):
-        return read_custom_extxyz(path, index)
-    return frames
 
 
 def normalize_argv(argv: list[str] | None) -> list[str]:
@@ -167,7 +97,9 @@ def run_gui(args: argparse.Namespace) -> int:
     initial_frame = 0
     initial_design_settings = None
     is_vase_project = suffix == ".vase" or resolved_format == "vase-project"
-    is_lammps_dump = resolved_format == "lammps-dump-text" or (args.format is None and suffix in {".lammpstrj", ".dump"})
+    is_lammps_dump = resolved_format == "lammps-dump-text" or (
+        args.format is None and suffix in {".lammpstrj", ".dump"}
+    )
     viz_only = not args.interactive
     if path is None:
         frames = [Atoms()]
@@ -185,10 +117,14 @@ def run_gui(args: argparse.Namespace) -> int:
             trajectory_source = fast.trajectory
             initial_frame = fast.initial_frame
         except ValueError as exc:
-            print(f"v_ase: fast LAMMPS loader unavailable ({exc}); falling back to ASE-compatible loader.", file=sys.stderr)
-            frames = _read_frames(path, args.index, args.format)
+            print(
+                f"v_ase: fast LAMMPS loader unavailable ({exc}); "
+                "falling back to the compatible loader.",
+                file=sys.stderr,
+            )
+            frames = read_structure_frames(path, args.index, args.format)
     else:
-        frames = _read_frames(path, args.index, args.format)
+        frames = read_structure_frames(path, args.index, args.format)
     if not frames:
         raise SystemExit(f"v_ase: no frames found in {path}")
 

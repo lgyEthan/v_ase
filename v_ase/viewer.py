@@ -1,34 +1,117 @@
+import os
 import socket
 import threading
-import uuid
 import time
-import os
+import uuid
+from dataclasses import dataclass
 from typing import Any, Optional, Sequence, Union
-from ase import Atoms
-from .session import EditorSession, create_workspace, finalize_workspace, sessions
-from .repulsion import copy_calculator, ensure_default_calculator
 
-def find_free_port():
+from ase import Atoms
+
+from .io import read_fast_lammps_dump, read_structure_frames
+from .repulsion import copy_calculator, ensure_default_calculator
+from .session import (
+    EditorSession,
+    copy_atoms_with_calc,
+    create_workspace,
+    finalize_workspace,
+    sessions,
+)
+
+
+@dataclass
+class _LocalServer:
+    server: Any
+    thread: threading.Thread
+    owners: int = 1
+
+
+_local_servers: dict[int, _LocalServer] = {}
+_local_servers_lock = threading.RLock()
+
+
+def find_free_port() -> int:
+    """Return an available local TCP port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(('', 0))
         return s.getsockname()[1]
 
 
-def _copy_atoms_with_calc(atoms: Atoms, attach_default: bool = True) -> Atoms:
-    copied = atoms.copy()
-    if atoms.calc:
-        copied.calc = copy_calculator(atoms.calc)
-    elif attach_default:
-        ensure_default_calculator(copied)
-    return copied
+def wait_for_local_server(port: int, timeout: float = 5.0) -> None:
+    """Wait until the local HTTP server accepts connections."""
+    deadline = time.monotonic() + timeout
+    last_error: OSError | None = None
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                return
+        except OSError as exc:
+            last_error = exc
+            time.sleep(0.01)
+    raise RuntimeError(
+        f"v_ase local server did not start on port {port} within {timeout:.1f}s"
+    ) from last_error
+
+
+def acquire_local_server(app, port: int) -> None:
+    """Start or retain one managed Uvicorn server for a local port."""
+    with _local_servers_lock:
+        existing = _local_servers.get(port)
+        if existing and existing.thread.is_alive():
+            existing.owners += 1
+            wait_for_local_server(port)
+            return
+
+        import uvicorn
+
+        config = uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=port,
+            log_level="error",
+            timeout_graceful_shutdown=1,
+        )
+        server = uvicorn.Server(config)
+        thread = threading.Thread(
+            target=server.run,
+            name=f"v_ase-server-{port}",
+            daemon=True,
+        )
+        _local_servers[port] = _LocalServer(server=server, thread=thread)
+        thread.start()
+
+    try:
+        wait_for_local_server(port)
+    except Exception:
+        release_local_server(port, force=True)
+        raise
+
+
+def release_local_server(port: int, *, force: bool = False) -> None:
+    """Release an owner and stop the server after its final session closes."""
+    with _local_servers_lock:
+        handle = _local_servers.get(port)
+        if handle is None:
+            return
+        if not force:
+            handle.owners -= 1
+            if handle.owners > 0:
+                return
+        _local_servers.pop(port, None)
+        handle.server.should_exit = True
+
+    if handle.thread is threading.current_thread():
+        return
+    handle.thread.join(timeout=3)
+    if handle.thread.is_alive():
+        handle.server.force_exit = True
+        handle.thread.join(timeout=1)
 
 
 def normalize_atoms_input(atoms_or_frames, *, attach_default: bool = True) -> list[Atoms]:
     """Accept an Atoms object, an Atoms sequence, or an ASE-readable trajectory file."""
     if isinstance(atoms_or_frames, (str, os.PathLike)):
-        from ase.io import read
-        loaded = read(os.fspath(atoms_or_frames), index=":")
-        frames = loaded if isinstance(loaded, list) else [loaded]
+        frames = read_structure_frames(os.fspath(atoms_or_frames), index=":")
     elif isinstance(atoms_or_frames, Atoms):
         frames = [atoms_or_frames]
     elif isinstance(atoms_or_frames, Sequence):
@@ -38,7 +121,8 @@ def normalize_atoms_input(atoms_or_frames, *, attach_default: bool = True) -> li
 
     if not frames or not all(isinstance(frame, Atoms) for frame in frames):
         raise TypeError("Trajectory input must contain one or more ase.Atoms objects")
-    return [_copy_atoms_with_calc(frame, attach_default=attach_default) for frame in frames]
+    return [copy_atoms_with_calc(frame, attach_default=attach_default) for frame in frames]
+
 
 class ASEEditor:
     """Handle for non-blocking viewer sessions."""
@@ -46,6 +130,20 @@ class ASEEditor:
         self.session_id = session_id
         self.port = port
         self.workspace_id = workspace_id
+        self._closed = False
+        self._close_lock = threading.Lock()
+        if workspace_id and session_id in sessions:
+            done_event = sessions[session_id].done_event
+            threading.Thread(
+                target=self._close_after_workspace_finishes,
+                args=(done_event,),
+                name=f"v_ase-session-watch-{session_id[:8]}",
+                daemon=True,
+            ).start()
+
+    def _close_after_workspace_finishes(self, done_event: threading.Event) -> None:
+        done_event.wait()
+        self.close()
 
     @property
     def url(self) -> str:
@@ -60,7 +158,7 @@ class ASEEditor:
         if self.session_id in sessions:
             session = sessions[self.session_id]
             attach_default = not bool((session.config or {}).get("viz_only", False))
-            return _copy_atoms_with_calc(session.working_atoms, attach_default=attach_default)
+            return copy_atoms_with_calc(session.working_atoms, attach_default=attach_default)
         return None
 
     def get_positions(self):
@@ -80,11 +178,16 @@ class ASEEditor:
                     ensure_default_calculator(session.working_atoms)
 
     def close(self):
+        with self._close_lock:
+            if self._closed:
+                return
+            self._closed = True
         if self.workspace_id:
             finalize_workspace(self.workspace_id)
         if self.session_id in sessions:
             session = sessions.pop(self.session_id)
             session.cleanup_temporary_files()
+        release_local_server(self.port)
 
     def export_poscar(self, filename="POSCAR"):
         from ase.io import write
@@ -123,7 +226,7 @@ def view(
     show_bonds: bool = False,
     respect_constraints: bool = True,
     allow_relax: bool = True,
-    viz_only: bool = False,
+    viz_only: bool = True,
     theme: str = "auto",
     return_mode: str = "atoms",
     trajectory_source=None,
@@ -142,7 +245,8 @@ def view(
     notebook : bool
         If True, render inside a Jupyter IFrame.
     block : bool
-        If True, block execution until 'Done' or 'Cancel' is pressed.
+        If True, block execution until the browser document is closed or the
+        session is finalized through the local API.
     ...
     """
     source_path = os.fspath(atoms) if isinstance(atoms, (str, os.PathLike)) else None
@@ -157,14 +261,26 @@ def view(
         initial_frame = project.current_frame
         if initial_design_settings is None:
             initial_design_settings = project.settings
+    elif source_path and viz_only and trajectory_source is None:
+        suffix = os.path.splitext(source_path)[1].lower()
+        if suffix in {".lammpstrj", ".dump"}:
+            try:
+                fast = read_fast_lammps_dump(source_path, ":")
+            except ValueError:
+                pass
+            else:
+                atoms = [fast.atoms]
+                trajectory_source = fast.trajectory
+                initial_frame = fast.initial_frame
 
     session_id = str(uuid.uuid4())
     attach_default = not viz_only
     frames = normalize_atoms_input(atoms, attach_default=attach_default)
     
-    # Create independent copies and preserve the calculator reference explicitly.
-    original_frames = [_copy_atoms_with_calc(frame, attach_default=attach_default) for frame in frames]
-    working_frames = [_copy_atoms_with_calc(frame, attach_default=attach_default) for frame in frames]
+    # normalize_atoms_input() already owns independent copies. Keep those as
+    # immutable reset sources and create only the separate working trajectory.
+    original_frames = frames
+    working_frames = [copy_atoms_with_calc(frame, attach_default=attach_default) for frame in frames]
     original_atoms = original_frames[0]
     initial_frame = max(0, min(int(initial_frame), len(working_frames) - 1))
     working_atoms = working_frames[initial_frame]
@@ -204,7 +320,6 @@ def view(
 
     if server_enabled:
         try:
-            import uvicorn
             import webbrowser
             from .server import app
         except ModuleNotFoundError as exc:
@@ -213,12 +328,7 @@ def view(
                 "Install them with: pip install fastapi uvicorn"
             ) from exc
 
-        def start_uvicorn():
-            uvicorn.run(app, host="127.0.0.1", port=port, log_level="error")
-
-        server_thread = threading.Thread(target=start_uvicorn, daemon=True)
-        server_thread.start()
-        time.sleep(0.8)
+        acquire_local_server(app, port)
     
     if server_enabled and not notebook:
         workspace = create_workspace(session)
@@ -247,28 +357,32 @@ def view(
                 session.done_event.wait()
             except KeyboardInterrupt:
                 pass
-            if workspace is not None:
-                finalize_workspace(workspace.workspace_id)
-            
-            if session.cancelled:
-                res = _copy_atoms_with_calc(session.original_atoms, attach_default=attach_default)
-            else:
-                res = session.result_atoms if session.result_atoms else session.working_atoms
-                res = _copy_atoms_with_calc(res, attach_default=attach_default)
+            try:
+                if session.cancelled:
+                    res = copy_atoms_with_calc(
+                        session.original_atoms,
+                        attach_default=attach_default,
+                    )
+                else:
+                    res = session.result_atoms if session.result_atoms else session.working_atoms
+                    res = copy_atoms_with_calc(res, attach_default=attach_default)
 
-            if return_mode == "atoms":
-                output = res
-            elif return_mode == "positions":
-                output = res.get_positions()
-            elif return_mode == "none":
-                output = None
-            else:
-                raise ValueError("return_mode must be one of: 'atoms', 'positions', 'none'")
-
-            closed_session = sessions.pop(session_id, None)
-            if closed_session is not None:
-                closed_session.cleanup_temporary_files()
-            return output
+                if return_mode == "atoms":
+                    return res
+                if return_mode == "positions":
+                    return res.get_positions()
+                if return_mode == "none":
+                    return None
+                raise ValueError(
+                    "return_mode must be one of: 'atoms', 'positions', 'none'"
+                )
+            finally:
+                if workspace is not None:
+                    finalize_workspace(workspace.workspace_id)
+                closed_session = sessions.pop(session_id, None)
+                if closed_session is not None:
+                    closed_session.cleanup_temporary_files()
+                release_local_server(port)
         else:
             return ASEEditor(
                 session_id,
@@ -292,7 +406,7 @@ def view_edit(
     return_mode: str = "atoms",
     close_on_disconnect: bool = True,
 ):
-    """Open an interactive Blender-style ASE Atoms editor."""
+    """Compatibility alias for opening v_ase in interactive mode."""
     return view(
         atoms,
         notebook=notebook,

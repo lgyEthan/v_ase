@@ -18,7 +18,7 @@ from v_ase.server import (
     undo,
     update_calculator,
     update_constraints,
-    update_atom_types,
+    update_atom_identity,
     value_error_handler,
 )
 import v_ase.server as server_module
@@ -29,7 +29,7 @@ from v_ase.export import (
     export_pickle_response,
     export_poscar_response,
 )
-from v_ase.io import set_atom_type_labels
+from v_ase.io import set_atom_labels
 from v_ase.session import EditorSession, sessions
 
 
@@ -59,19 +59,19 @@ def test_ui_button_api_endpoints_respond_without_network_server():
     assert asyncio.run(apply_positions(session.session_id, {"positions": positions}))["metadata"]["natoms"] == 3
     assert asyncio.run(delete_atoms(session.session_id, {"indices": [2]}))["metadata"]["natoms"] == 2
     assert asyncio.run(undo(session.session_id))["metadata"]["natoms"] == 3
-    renamed = asyncio.run(update_atom_types(session.session_id, {"indices": [0], "label": "O_surface"}))
+    renamed = asyncio.run(update_atom_identity(session.session_id, {"indices": [0], "label": "O_surface"}))
     assert renamed["symbols"][0] == "O_surface"
     assert renamed["chemical_symbols"][0] == "O"
-    unknown = asyncio.run(update_atom_types(session.session_id, {"indices": [0], "label": "surface_site"}))
+    unknown = asyncio.run(update_atom_identity(session.session_id, {"indices": [0], "label": "surface_site"}))
     assert unknown["symbols"][0] == "surface_site"
     assert unknown["chemical_symbols"][0] == "O"
-    typed = asyncio.run(update_atom_types(session.session_id, {"indices": [1], "label": "Si", "base_symbol": "Si"}))
+    typed = asyncio.run(update_atom_identity(session.session_id, {"indices": [1], "label": "Si", "base_symbol": "Si"}))
     assert typed["symbols"][1] == "Si"
     assert typed["chemical_symbols"][1] == "Si"
-    numeric = asyncio.run(update_atom_types(session.session_id, {"indices": [1], "label": "2"}))
+    numeric = asyncio.run(update_atom_identity(session.session_id, {"indices": [1], "label": "2"}))
     assert numeric["symbols"][1] == "2"
     assert numeric["chemical_symbols"][1] == "Si"
-    duplicate = asyncio.run(update_atom_types(session.session_id, {"indices": [2], "label": "surface_site", "base_symbol": "H"}))
+    duplicate = asyncio.run(update_atom_identity(session.session_id, {"indices": [2], "label": "surface_site", "base_symbol": "H"}))
     assert duplicate["symbols"][2] == "surface_site_2"
     assert duplicate["chemical_symbols"][2] == "H"
     added = asyncio.run(add_atoms(session.session_id, {
@@ -155,6 +155,7 @@ def test_trajectory_position_cache_is_only_sent_for_same_topology_frames():
 
     different_topology = molecule("CO")
     session.trajectory_frames[1] = different_topology
+    session.invalidate_trajectory_layout()
     data = session_atoms_to_json(session)
 
     assert data["metadata"]["trajectory_positions_cached"] is False
@@ -362,7 +363,7 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "rotate-increment" in index_html
     assert "sphere-quality" in index_html
     assert "chk-antialias" in index_html
-    assert "element-bond-list" in index_html
+    assert "pairwise-bond-list" in index_html
     assert "Pairwise cutoff" in index_html
     assert "Manual pair" in index_html
     assert "deleteSelection" in main_js
@@ -370,8 +371,8 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "updateCalculatorConfig" in api_js
     assert "currentCalculatorPayload" in main_js
     assert "e.code === 'Delete'" in main_js
-    assert "renderElementBondControls" in main_js
-    assert "parseElementBondCutoffs" in main_js
+    assert "renderPairwiseBondControls" in main_js
+    assert "parsePairwiseBondCutoffs" in main_js
     assert "this.setInspectorCollapsed(!document.body.classList.contains('inspector-collapsed'))" in main_js
     assert "atomHoverText" in main_js
     assert "setHoveredAtom" in main_js
@@ -416,7 +417,7 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "rebuildSupercellAtoms" in renderer_js
     assert "pickHover" in selection_js
     assert "sphereQualitySegments" in renderer_js
-    assert "elementBondCutoff" in renderer_js
+    assert "pairwiseBondCutoff" in renderer_js
     assert "springLine.visible = state !== 'inactive'" in renderer_js
     assert "hookeanBondExclusions" in renderer_js
     assert "minimumImageDelta" in renderer_js
@@ -467,9 +468,9 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "Applying ${reps.join(' x ')} supercell" in main_js
     assert "Wrapping ${frameCount} frame" in main_js
     assert "atom-radius-scale" in index_html
-    assert "element-radius-list" in index_html
-    assert "renderElementRadiusControls" in main_js
-    assert "return this.reconcileTypeOrder(this.state.atoms?.symbols || []);" in main_js
+    assert "appearance-table-body" in index_html
+    assert "renderAppearanceRows" in main_js
+    assert "return this.reconcileLabelOrder(this.state.atoms?.symbols || []);" in main_js
     assert "naturalTypeCompare" in main_js
     assert ".sort((a, b) => this.naturalTypeCompare(a, b))" in main_js
     assert "uniqueTypeLabel" in main_js
@@ -479,7 +480,7 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "typeSelect.value = inferredBase" in main_js
     assert "nameInput.value = this.labelForBaseTypeChange(symbol, typeSelect.value)" in main_js
     assert "Label ${desiredLabel} already exists; using ${label}" in main_js
-    assert "pendingTypeRenames" in main_js
+    assert "pendingLabelRenames" in main_js
     assert "expectedIndices" in main_js
     assert "No ${oldSymbol} atoms found" not in main_js
     assert "nameInput.addEventListener('change', () => commitRename())" in main_js
@@ -489,23 +490,23 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "appearance: preserveAppearance" in main_js
     assert "element_radii" in main_js
     assert "element_colors" in main_js
-    assert "parseElementRadii" in main_js
-    assert "parseElementVisibility" in main_js
-    assert "element-color-input" in main_js
-    assert "element-visible-checkbox" in main_js
-    assert "element-select-checkbox" in main_js
+    assert "parseLabelRadii" in main_js
+    assert "parseLabelVisibility" in main_js
+    assert "label-color-input" in main_js
+    assert "label-visible-checkbox" in main_js
+    assert "label-select-checkbox" in main_js
     assert "indeterminate" in main_js
-    assert "renameElementType" in main_js
-    assert "renameElementTypeForVisualization" in main_js
+    assert "renameAtomLabel" in main_js
+    assert "renameAtomLabelForVisualization" in main_js
     assert "nameInput.disabled = this.state.vizOnly" not in main_js
     assert "canViewportSelectAtoms()" in main_js
     assert "this.canViewportSelectAtoms() && this.transform.mode === 'IDLE'" in main_js
-    assert "this.renderer.renameAtomType(oldSymbol, label, indices, this.state.display, base)" in main_js
+    assert "this.renderer.renameAtomLabel(oldSymbol, label, indices, this.state.display, base)" in main_js
     assert "applySelectedTypeForVisualization" in main_js
-    assert "selectElement(symbol)" in main_js
-    assert "toggleElementSelection" in main_js
-    assert "elementVisible" in renderer_js
-    assert "atomTypeVisible" in renderer_js
+    assert "selectLabel(symbol)" in main_js
+    assert "toggleLabelSelection" in main_js
+    assert "labelVisible" in renderer_js
+    assert "atomLabelVisible" in renderer_js
     assert "handleLostPointerCapture(event)" in renderer_js
     assert "Chrome/Safari can drop pointer capture during middle-button drags" in renderer_js
     assert "window.addEventListener('pointermove', this.onPointerMove, true)" in renderer_js
@@ -513,7 +514,7 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "window.addEventListener('blur', this.onWindowBlur, true)" in renderer_js
     assert "this.onLostPointerCapture = (event) => this.handleLostPointerCapture(event)" in renderer_js
     assert "this.onLostPointerCapture = (event) => this.endGesture(event)" not in renderer_js
-    assert "renameAtomType(oldSymbol, label, indices = [], displayOptions = null, baseSymbol = null)" in renderer_js
+    assert "renameAtomLabel(oldSymbol, label, indices = [], displayOptions = null, baseSymbol = null)" in renderer_js
     assert "refreshAtomAppearance(indices)" in renderer_js
     assert "rebuildInstancedAtoms" in renderer_js
     assert "inferBondPairsCellList" in renderer_js
@@ -526,7 +527,7 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "v-ase-fixed-micro-etched-faceted-v3" in renderer_js
     assert "const supercellChanged" in renderer_js
     assert "if (supercellChanged) this.rebuildSupercell()" in renderer_js
-    assert "elementVisible: { ...(options.elementVisible" in renderer_js
+    assert "labelVisible: { ...(options.labelVisible" in renderer_js
     assert "mesh.visible === false" in (ROOT / "v_ase/static/selection.js").read_text()
     assert "btn-apply-selected-type" not in index_html
     assert "selection-textbox" in index_html
@@ -549,7 +550,7 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "Repulsion Calc" in index_html
     assert "Repulsion calculator settings only" in index_html
     assert 'id="calc-controls" class="calc-control-group" title="Repulsion calculator settings only" data-edit-only' in index_html
-    assert "updateAtomTypes" in (ROOT / "v_ase/static/api.js").read_text()
+    assert "updateAtomIdentity" in (ROOT / "v_ase/static/api.js").read_text()
     assert 'id="projection-mode"' in index_html
     assert '<option value="orthographic" selected>Orthographic</option>' in index_html
     assert 'id="inspector-resizer"' in index_html
@@ -560,21 +561,21 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "updateOrientationWidget" in main_js
     assert "setupInspectorResizer" in main_js
     assert "atomRadiusScale" in renderer_js
-    assert "elementRadii" in renderer_js
-    assert "elementColors" in renderer_js
+    assert "labelRadii" in renderer_js
+    assert "labelColors" in renderer_js
     assert "new THREE.SphereGeometry(1, group.atomSegments" in renderer_js
     assert "mesh.setColorAt(" in renderer_js
     assert "mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)" in renderer_js
     assert "previous.atomRadiusScale" in renderer_js
-    assert "reconcileTypeOrder" in main_js
-    assert "replaceTypeOrder(oldSymbol, label)" in main_js
+    assert "reconcileLabelOrder" in main_js
+    assert "replaceLabelOrder(oldSymbol, label)" in main_js
     assert "#inspector .panel-section" in style_css
-    assert ".element-radius-panel" in style_css
+    assert ".appearance-table" in style_css
     assert "overflow-x: auto" in style_css
-    assert ".element-check:indeterminate" in style_css
-    assert ".element-appearance-row" in style_css
+    assert ".label-check:indeterminate" in style_css
+    assert ".appearance-row" in style_css
     assert "--inspector-width" in style_css
-    assert "body.inspector-wide #inspector .element-appearance-row" in style_css
+    assert "body.inspector-wide #inspector .appearance-row" in style_css
     assert 'body[data-viz-only="true"] [data-edit-only]' in style_css
     assert ".busy-spinner" in style_css
     assert ".orientation-widget" in style_css
@@ -594,7 +595,7 @@ def test_frontend_renderer_uses_demand_rendering_and_large_scene_instancing():
     assert "requestAnimationFrame(() => this.animate())" not in renderer_js
     assert "rebuildInstancedAtoms" in renderer_js
     assert "new THREE.InstancedMesh" in renderer_js
-    assert "this.atomIndicesBySymbol = new Map()" in renderer_js
+    assert "this.atomIndicesByLabel = new Map()" in renderer_js
     assert "applyAtomVisibility(changedSymbols = null)" in renderer_js
     assert "updateRenderQuality()" in renderer_js
     assert "if (atomCount >= 15000) cap = 1" in renderer_js
@@ -698,7 +699,7 @@ def test_frontend_reset_video_and_visual_settings_controls_are_wired():
     assert "const hadLoadedAtoms = this.hasLoadedAtoms();" in main_js
     assert "const settings = isProject ? projectSettings : inheritedSettings;" in main_js
     assert "this.renderer.needsInitialCameraFit = !settings?.camera;" in main_js
-    assert "this.renderElementBondControls({ capture: false });" in main_js
+    assert "this.renderPairwiseBondControls({ capture: false });" in main_js
     assert "ASE Pickle" in index_html
     assert "SinglePointCalculator" in index_html
     assert "save-format-guide" in index_html
@@ -762,7 +763,9 @@ def test_trajectory_controls_update_live_and_space_toggles_playback():
     assert "constraintGuideIndices" in renderer_js
     assert "planeAggregate" in renderer_js
     assert "refreshBondsForCurrentPositions" in renderer_js
-    assert "const nextPairs = this.inferBondPairs()" in renderer_js
+    assert "inferCurrentBondTopology" in renderer_js
+    assert "const periodicPairs = this.inferBondPairs(true)" in renderer_js
+    assert "bridgeRecords: this.inferSupercellBridgeBondRecords(repeats, periodicPairs)" in renderer_js
     assert "this.refreshBondsForCurrentPositions()" in renderer_js
 
 
@@ -894,24 +897,24 @@ def test_pairwise_cutoff_export_is_label_keyed_and_zero_disables_the_pair():
     atoms = molecule("H2")
     atoms.set_cell([8, 8, 8])
     atoms.set_pbc(False)
-    set_atom_type_labels(atoms, ["H_left", "H_right"])
+    set_atom_labels(atoms, ["H_left", "H_right"])
     session = EditorSession("label-pair-export", atoms.copy(), atoms.copy())
     data = session_atoms_to_json(session)
 
     enabled = _display_bonds(data, {
         "showBonds": True,
-        "bondMode": "element",
-        "elementBondCutoffs": {"H_left-H_right": 1.0},
+        "bondMode": "pairwise",
+        "pairwiseBondCutoffs": {"H_left-H_right": 1.0},
     })
     disabled = _display_bonds(data, {
         "showBonds": True,
-        "bondMode": "element",
-        "elementBondCutoffs": {"H_left-H_right": 0.0},
+        "bondMode": "pairwise",
+        "pairwiseBondCutoffs": {"H_left-H_right": 0.0},
     })
     chemical_key_is_not_used = _display_bonds(data, {
         "showBonds": True,
-        "bondMode": "element",
-        "elementBondCutoffs": {"H-H": 1.0},
+        "bondMode": "pairwise",
+        "pairwiseBondCutoffs": {"H-H": 1.0},
     })
 
     assert len(enabled) == 1

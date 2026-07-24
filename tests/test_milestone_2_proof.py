@@ -31,7 +31,7 @@ def test_milestone_2_proof():
     def run_viewer():
         # block=True returns when the session is finalized through the API.
         # We run it in a thread so Playwright can interact with it
-        result["edited"] = view(atoms, block=True, port=port)
+        result["edited"] = view(atoms, block=True, port=port, viz_only=False)
     
     viewer_thread = threading.Thread(target=run_viewer, daemon=True)
     viewer_thread.start()
@@ -112,7 +112,7 @@ def test_milestone_2_proof():
         page.wait_for_function("window.__ASE_APP__.transform.mode === 'IDLE'")
         print("Committed movement to backend via left click.")
         
-        # 6. Top-level Done/Cancel buttons are intentionally not exposed.
+        # 6. Session-finalization buttons are intentionally not exposed.
         assert page.locator("#btn-done").count() == 0
         assert page.locator("#btn-cancel").count() == 0
         page.evaluate("""async () => {

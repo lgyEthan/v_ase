@@ -2,10 +2,12 @@ import os
 import threading
 import uuid
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Set, Optional
+from typing import Any, Dict, List, Optional, Set
+
 from ase import Atoms
-import numpy as np
+
 from .repulsion import copy_calculator, ensure_default_calculator
+
 
 @dataclass
 class EditorSession:
@@ -17,11 +19,6 @@ class EditorSession:
     trajectory_frames: List[Atoms] = field(default_factory=list)
     trajectory_source: Any = None
     current_frame: int = 0
-    
-    # State
-    selection: Set[int] = field(default_factory=set)
-    atom_colors: Dict[int, str] = field(default_factory=dict) # index -> hex
-    element_colors: Dict[str, str] = field(default_factory=dict) # element -> hex
     
     # History
     history: List[Atoms] = field(default_factory=list)
@@ -40,6 +37,10 @@ class EditorSession:
     websockets: List[Any] = field(default_factory=list)
     config: Dict[str, Any] = field(default_factory=dict)
     temporary_files: Set[str] = field(default_factory=set, repr=False)
+    _trajectory_layout_compatible: Optional[bool] = field(
+        default=None,
+        repr=False,
+    )
 
     def _attach_default_calculator(self) -> bool:
         return not bool((self.config or {}).get("viz_only", False))
@@ -53,10 +54,10 @@ class EditorSession:
 
     def __post_init__(self):
         self._ensure_session_calculator(self.original_atoms)
-        self._ensure_session_calculator(self.working_atoms)
-        # Ensure working atoms has the calculator
-        if self.original_atoms.calc:
+        if self.working_atoms.calc is None and self.original_atoms.calc:
             self.working_atoms.calc = copy_calculator(self.original_atoms.calc)
+        else:
+            self._ensure_session_calculator(self.working_atoms)
         if not self.original_frames:
             self.original_frames = [self._copy_atoms(self.original_atoms)]
         if self.trajectory_source is None and not self.trajectory_frames:
@@ -69,42 +70,27 @@ class EditorSession:
 
     def push_history(self):
         """Save current state to history for Undo."""
-        # We store copies to prevent mutation
-        state = self.working_atoms.copy()
-        if self.working_atoms.calc:
-            state.calc = copy_calculator(self.working_atoms.calc)
-        
-        self.history.append(state)
+        self.history.append(self._copy_atoms(self.working_atoms))
         if len(self.history) > 50:
             self.history.pop(0)
-        self.redo_stack.clear() # New action clears redo stack
+        self.redo_stack.clear()
 
     def undo(self) -> Optional[Atoms]:
         if not self.history:
             return None
-        
-        # Save current to redo
-        current = self.working_atoms.copy()
-        if self.working_atoms.calc:
-            current.calc = copy_calculator(self.working_atoms.calc)
-        self.redo_stack.append(current)
-        
-        # Restore from history
+
+        self.redo_stack.append(self._copy_atoms(self.working_atoms))
         self.working_atoms = self.history.pop()
+        self.invalidate_trajectory_layout()
         return self.working_atoms
 
     def redo(self) -> Optional[Atoms]:
         if not self.redo_stack:
             return None
-            
-        # Save current to history
-        current = self.working_atoms.copy()
-        if self.working_atoms.calc:
-            current.calc = copy_calculator(self.working_atoms.calc)
-        self.history.append(current)
-        
-        # Restore from redo
+
+        self.history.append(self._copy_atoms(self.working_atoms))
         self.working_atoms = self.redo_stack.pop()
+        self.invalidate_trajectory_layout()
         return self.working_atoms
 
     def preserve_calculator(self, new_atoms: Atoms):
@@ -114,6 +100,7 @@ class EditorSession:
         else:
             self._ensure_session_calculator(new_atoms)
         self.working_atoms = new_atoms
+        self.invalidate_trajectory_layout()
 
     @property
     def frame_count(self) -> int:
@@ -121,14 +108,15 @@ class EditorSession:
             return int(self.trajectory_source.frame_count)
         return len(self.trajectory_frames)
 
+    def invalidate_trajectory_layout(self) -> None:
+        self._trajectory_layout_compatible = None
+
     def sync_current_frame(self):
         if self.trajectory_source is not None:
             return
         if not self.trajectory_frames:
             return
-        self.trajectory_frames[self.current_frame] = self.working_atoms.copy()
-        if self.working_atoms.calc:
-            self.trajectory_frames[self.current_frame].calc = copy_calculator(self.working_atoms.calc)
+        self.trajectory_frames[self.current_frame] = self._copy_atoms(self.working_atoms)
 
     def set_frame(self, frame_index: int) -> Atoms:
         if self.trajectory_source is not None:
@@ -146,11 +134,7 @@ class EditorSession:
         if frame_index < 0 or frame_index >= len(self.trajectory_frames):
             raise IndexError(f"Frame index {frame_index} is out of range")
         self.current_frame = frame_index
-        self.working_atoms = self.trajectory_frames[frame_index].copy()
-        if self.trajectory_frames[frame_index].calc:
-            self.working_atoms.calc = copy_calculator(self.trajectory_frames[frame_index].calc)
-        else:
-            self._ensure_session_calculator(self.working_atoms)
+        self.working_atoms = self._copy_atoms(self.trajectory_frames[frame_index])
         return self.working_atoms
 
     def reset_current_frame(self):
@@ -158,11 +142,8 @@ class EditorSession:
             self.set_frame(self.current_frame)
             return
         source = self.original_frames[self.current_frame] if self.current_frame < len(self.original_frames) else self.original_atoms
-        self.working_atoms = source.copy()
-        if source.calc:
-            self.working_atoms.calc = copy_calculator(source.calc)
-        else:
-            self._ensure_session_calculator(self.working_atoms)
+        self.working_atoms = self._copy_atoms(source)
+        self.invalidate_trajectory_layout()
         self.sync_current_frame()
 
     def reset_all_frames(self):
@@ -176,6 +157,7 @@ class EditorSession:
             self.trajectory_frames = [self._copy_atoms(self.original_atoms)]
         self.current_frame = min(self.current_frame, len(self.trajectory_frames) - 1)
         self.working_atoms = self._copy_atoms(self.trajectory_frames[self.current_frame])
+        self.invalidate_trajectory_layout()
 
     def cleanup_temporary_files(self):
         for path in tuple(self.temporary_files):
@@ -363,9 +345,6 @@ def replace_session_frames(
     session.original_atoms = copy_atoms_with_calc(original_frames[0], attach_default=attach_default)
     session.working_atoms = copy_atoms_with_calc(working_frames[frame_index], attach_default=attach_default)
     session.result_atoms = None
-    session.selection.clear()
-    session.atom_colors.clear()
-    session.element_colors.clear()
     session.history.clear()
     session.redo_stack.clear()
     session.stop_relax = False
@@ -373,4 +352,5 @@ def replace_session_frames(
     session.relax_restart_requested = False
     session.relax_run_id += 1
     session.relax_params.clear()
+    session.invalidate_trajectory_layout()
     session.config["initial_design_settings"] = initial_design_settings

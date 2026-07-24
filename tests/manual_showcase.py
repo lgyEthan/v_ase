@@ -32,7 +32,7 @@ from ase.build import bulk
 from ase.constraints import FixAtoms, FixedLine, FixedPlane, Hookean
 from ase.io import write
 
-from v_ase import view_edit
+from v_ase import view
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -201,7 +201,7 @@ def main() -> int:
     )
 
     if args.no_block:
-        editor = view_edit(frames, block=False, **view_kwargs)
+        editor = view(frames, block=False, viz_only=False, **view_kwargs)
         print(f"Viewer URL: http://127.0.0.1:{editor.port}/?session_id={editor.session_id}")
         print("Server is kept alive for manual testing. Press Ctrl+C here to stop it.")
         try:
@@ -211,7 +211,7 @@ def main() -> int:
             editor.close()
         return 0
 
-    view_edit(frames, block=True, **view_kwargs)
+    view(frames, block=True, viz_only=False, **view_kwargs)
     return 0
 
 

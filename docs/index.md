@@ -1,35 +1,32 @@
-# v_ase Documentation Board
+# v_ase Documentation
 
-## Project Status
-- [x] **Phase 1: Basic viewer** (Three.js, Box selection, Blender navigation)
-- [x] **Phase 2: Basic editing** (G/R modal, numeric input, axis locking)
-- [x] **Phase 3: ASE compatibility** (Constraints enforcement, Fixed atom visualization)
-- [x] **Phase 4: Export** (POSCAR, Pickle, PNG image, Blender Python scene)
-- [x] **Phase 5: Relax** (Real-time sync via WebSockets, fmax/energy monitoring)
-- [x] **Phase 6: Jupyter** (IFrame support, non-blocking handle)
-- [x] **Phase 7: Default calculator** (Repulsion fallback, optional torch/CUDA, CPU thread controls)
-- [x] **Phase 8: Calculator API** (`from v_ase.calculators import RepulsionCalculator`)
-- [x] **Phase 9: Interactive constraints** (selected-atom FixAtoms, FixedLine, FixedPlane editing)
-- [x] **Phase 10: Portable state** (cross-structure JSON presets and complete `.vase` projects)
-- [x] **Phase 11: Production export** (Geometry Nodes Blender scenes, exact Sun/camera, 15k-atom runtime benchmark)
-- [x] **Phase 12: Document workflow** (empty GUI, browser file loading, strict ASE Pickle, JSON presets, and `.vase` projects)
-- [x] **Phase 13: Commensurate rotation** (cell-boundary strain search, viewport candidate rays, magnetic angle snapping, and consistent free/axis-locked mouse direction)
-- [x] **Phase 14: Scientific image scale** (live global px/Å viewport scale, exact camera framing, and export-only atom smoothness)
-- [x] **Phase 15: Exact output preview** (full-frame output-ratio crop shared by Preview Area and PNG, with chemical-TYPE-based ASE default colors)
+## User Documentation
 
-## Core Documentation
-- [Shortcuts & Controls](shortcuts.md)
-- [Features & Architecture](features.md)
-- [API Reference](api.md)
-- [Rendering Performance](performance.md)
-- [Commensurate Cell-Aware Rotation](unit_cell_aware_rotate.md)
+- [README](../README.md): installation, commands, controls, workflows, and exports.
+- [Shortcuts](shortcuts.md): complete mouse and keyboard reference.
+- [Commensurate Rotation](unit_cell_aware_rotate.md): cell-boundary matching,
+  angle guides, snapping, and scientific references.
 
-## Getting Started
-To run a comprehensive demo of all features:
+## Developer Documentation
+
+- [Public API](api.md): Python API, CLI contract, save formats, and local API.
+- [Architecture And Features](features.md): ownership boundaries and feature
+  implementation contracts.
+- [Performance](performance.md): large-system design, benchmark method, and
+  regression checks.
+- [Current Implementation](current_progress.md): concise source of truth for
+  invariants, schemas, compatibility aliases, and release validation.
+
+## Manual Validation
+
+Open the all-features solid-state scene:
+
 ```bash
-python examples/pro_demo.py
-v_ase gui
-v_ase gui POSCAR
-v_ase POSCAR
-v_ase gui saved_project.vase
+python tests/manual_showcase.py
+```
+
+Run the reproducible 15,000-atom browser benchmark:
+
+```bash
+python scripts/benchmark_large_trajectory.py
 ```

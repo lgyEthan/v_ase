@@ -32,7 +32,7 @@ def test_generated_scene_renders_principled_atom_colors_bonds_cell_and_sun(tmp_p
         "bondStyle": "cylinder",
         "bondThickness": 0.18,
         "bondColorMode": "split",
-        "elementColors": {"Cu": "#c47a2c", "O": "#e51c23"},
+        "labelColors": {"Cu": "#c47a2c", "O": "#e51c23"},
         "lightingMode": "studio-shadow",
     }
     data["bonds"] = [{

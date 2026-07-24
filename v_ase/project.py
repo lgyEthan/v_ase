@@ -22,16 +22,22 @@ from ase.io.trajectory import Trajectory
 import numpy as np
 
 from ._version import __version__
-from .io import atom_type_labels, set_atom_type_labels
+from .io import atom_labels, set_atom_labels
 from .repulsion import VAseRepulsionCalculator, copy_calculator, is_vase_repulsion_calculator
 from .session import EditorSession, copy_atoms_with_calc, replace_session_frames
 
 
 PROJECT_SCHEMA = "v_ase.project.v1"
-SETTINGS_SCHEMA = "v_ase.visual_settings.v2"
+SETTINGS_SCHEMA = "v_ase.visual_settings.v3"
 PROJECT_MIME = "application/vnd.v-ase.project+zip"
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 MAX_ARCHIVE_UNCOMPRESSED_BYTES = 16 * 1024 * 1024 * 1024
+LEGACY_PAIRWISE_CUTOFF_KEY = "elementBondCutoffs"
+LEGACY_LABEL_DISPLAY_KEYS = {
+    "elementRadii": "labelRadii",
+    "elementColors": "labelColors",
+    "elementVisible": "labelVisible",
+}
 
 
 @dataclass(frozen=True)
@@ -40,10 +46,6 @@ class VaseProject:
     settings: dict[str, Any]
     current_frame: int
     manifest: dict[str, Any]
-
-
-def package_version() -> str:
-    return __version__
 
 
 def _json_copy(value: Any) -> Any:
@@ -63,6 +65,19 @@ def normalize_visual_settings(settings: Any) -> dict[str, Any]:
     if not isinstance(source, dict):
         raise ValueError("Visual settings payload must contain an object.")
     clean = _json_copy(source)
+    display = clean.get("display") if isinstance(clean.get("display"), dict) else clean
+    if (
+        "pairwiseBondCutoffs" not in display
+        and LEGACY_PAIRWISE_CUTOFF_KEY in display
+    ):
+        display["pairwiseBondCutoffs"] = display[LEGACY_PAIRWISE_CUTOFF_KEY]
+    display.pop(LEGACY_PAIRWISE_CUTOFF_KEY, None)
+    for legacy_key, current_key in LEGACY_LABEL_DISPLAY_KEYS.items():
+        if current_key not in display and legacy_key in display:
+            display[current_key] = display[legacy_key]
+        display.pop(legacy_key, None)
+    if display.get("bondMode") == "element":
+        display["bondMode"] = "pairwise"
     clean["schema"] = SETTINGS_SCHEMA
     return clean
 
@@ -144,7 +159,7 @@ def _write_frames(path: Path, frames: Iterable[Atoms]) -> int:
 
 
 def _label_payload(frames: list[Atoms]) -> dict[str, Any]:
-    labels = [atom_type_labels(frame) for frame in frames]
+    labels = [atom_labels(frame) for frame in frames]
     if labels and all(frame_labels == labels[0] for frame_labels in labels[1:]):
         return {"shared": True, "labels": labels[0]}
     return {"shared": False, "frames": labels}
@@ -162,7 +177,7 @@ def _restore_labels(frames: list[Atoms], payload: Any) -> None:
     for frame, labels in zip(frames, labels_by_frame):
         if not isinstance(labels, list) or len(labels) != len(frame):
             raise ValueError("The .vase project atom labels do not match the saved structure.")
-        set_atom_type_labels(frame, labels)
+        set_atom_labels(frame, labels)
 
 
 def _safe_array(array: Any) -> np.ndarray | None:
@@ -332,7 +347,7 @@ def write_project_archive(
     manifest = {
         "schema": PROJECT_SCHEMA,
         "format_version": 1,
-        "created_with": {"application": "v_ase", "version": package_version()},
+        "created_with": {"application": "v_ase", "version": __version__},
         "structure": {
             "path": "structure.traj",
             "format": "ase-trajectory",

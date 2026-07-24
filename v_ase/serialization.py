@@ -1,8 +1,10 @@
+from functools import lru_cache
+
 import numpy as np
 from ase.data import chemical_symbols as ase_chemical_symbols, covalent_radii, vdw_radii
 from ase.data.colors import jmol_colors
 from ase.constraints import FixAtoms, FixCartesian, FixedLine, FixedPlane, FixScaled, Hookean
-from v_ase.io import atom_type_labels
+from v_ase.io import atom_labels
 
 try:
     from ase.gui.defaults import defaults as ase_gui_defaults
@@ -89,6 +91,7 @@ def _per_atom_values(atoms, getter, fallback):
     return fallback
 
 
+@lru_cache(maxsize=1)
 def _element_visual_defaults():
     colors = {}
     radii = {}
@@ -106,10 +109,14 @@ def atoms_to_json(atoms):
     """
     atomic_numbers = atoms.get_atomic_numbers()
     chemical_symbols = atoms.get_chemical_symbols()
-    display_symbols = atom_type_labels(atoms)
+    display_symbols = atom_labels(atoms)
     base_colors = [_ase_gui_jmol_hex(number) for number in atomic_numbers]
-    element_colors, element_radii = _element_visual_defaults()
+    cached_element_colors, cached_element_radii = _element_visual_defaults()
+    element_colors = dict(cached_element_colors)
+    element_radii = dict(cached_element_radii)
     data = {
+        "labels": display_symbols,
+        # Kept for compatibility with the pre-0.0.78 browser payload.
         "symbols": display_symbols,
         "atom_types": display_symbols,
         "chemical_symbols": chemical_symbols,

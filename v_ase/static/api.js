@@ -288,7 +288,7 @@ export class ASEApi {
             return new Blob([options.body || '{}'], { type: 'application/json' });
         }
         if (path.includes('/api/settings/load/')) {
-            return { schema: 'v_ase.visual_settings.v2', settings: {} };
+            return { schema: 'v_ase.visual_settings.v3', settings: {} };
         }
         if (path.includes('/api/project/save/')) {
             return new Blob(['v_ase mock project\n'], { type: 'application/vnd.v-ase.project+zip' });
@@ -589,11 +589,15 @@ export class ASEApi {
         return await this.jsonPost(`/api/delete/{session_id}`, { indices });
     }
 
-    async updateAtomTypes(indices, label, positions = null, applyConstraint = true, baseSymbol = null) {
+    async updateAtomIdentity(indices, label, positions = null, applyConstraint = true, baseSymbol = null) {
         const payload = { indices, label, apply_constraint: applyConstraint };
         if (baseSymbol) payload.base_symbol = baseSymbol;
         if (positions) payload.positions = positions;
-        return await this.jsonPost(`/api/atom-types/{session_id}`, payload);
+        return await this.jsonPost(`/api/atom-identity/{session_id}`, payload);
+    }
+
+    async updateAtomTypes(...args) {
+        return await this.updateAtomIdentity(...args);
     }
 
     async updateConstraints(indices, options = {}, positions = null, applyConstraint = true) {
