@@ -438,6 +438,12 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "getSelectionMeasureSummary" in main_js
     assert "measure=${measure}" not in main_js
     assert "selectionAngle" in main_js
+    assert "selectionTorsion" in main_js
+    assert "selectionMeasurementMap" in main_js
+    assert "updateSelectionMeasurementOverlay" in main_js
+    assert 'id="measurement-overlay"' in index_html
+    assert 'id="btn-grid-toggle"' in index_html
+    assert "setViewportGridVisible" in main_js
     assert "currentCameraForExport" in main_js
     assert "camera) body.camera = camera" in api_js
     assert "display) body.display = display" in api_js

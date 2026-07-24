@@ -100,6 +100,9 @@ arrows orbit left, right, up, or down relative to the current screen; the
 curved arrows roll the view counterclockwise or clockwise. The adjacent degree
 field sets the exact step. Atomic coordinates are never changed.
 
+The adjacent grid icon shows or hides the viewport grid immediately. It stays
+synchronized with **Display > Grid**.
+
 ## Trajectories
 
 Multi-frame files receive a timeline at the bottom of the viewport. You can:
@@ -209,8 +212,15 @@ The control panel provides:
 - editable Sun brightness, source, and target;
 - per-label element type, name, visibility, color, and radius;
 - selectable sphere smoothness and anti-aliasing;
-- atom-index, element, center, distance, and angle measurements;
+- atom-index, element, center, distance, angle, and torsion measurements;
 - unit-cell display, wrapping, and periodic supercell replication.
+
+Sequential selections are marked `a1` through `a4` without changing the yellow
+selection outline. Two atoms show `a1-a2` distance, three show the
+`a1-a2-a3` angle centered on `a2`, and four show the signed
+`a1-a2-a3-a4` torsion. The viewport draws the corresponding connectors and
+angle guide. Five or more atoms switch to a compact selection count. Box
+selection uses a stable visible order and shows the same `a1...a4` mapping.
 
 ## Bonds
 

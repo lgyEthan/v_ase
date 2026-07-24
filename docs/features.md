@@ -95,13 +95,15 @@ operating modes. Bonds are instanced in every repeated cell and separately bridg
 internal supercell boundaries, including skewed/monoclinic cell vectors. In visualization mode,
 replicas have stable `base-index + cell-offset` identities and support click,
 Shift-click, box selection, element selection, `Ctrl+A`, hover metadata, and
-displayed-coordinate center/distance/angle measurements. Interactive mode keeps
+displayed-coordinate center/distance/angle/torsion measurements. Interactive mode keeps
 replicas outside atom edit selection until the supercell is committed.
 
 Selection measurements and hover inspection use separate viewport HUDs. The
-Measure HUD remains visible while the selection is retained and summarizes only
-the selected count, distance, or angle with adjacent distances. Hover metadata
-updates independently as the pointer moves over atoms.
+Measure HUD remains visible while the selection is retained. One through four
+ordered atoms receive `a1...a4` viewport labels and concise point, distance,
+angle-at-`a2`, or signed-torsion guides; five or more show only a count. Box
+selection follows a deterministic visible order. Hover metadata updates
+independently as the pointer moves over atoms.
 
 ### Inspector Navigation and Lighting
 The inspector is divided into Inspect, Structure, Display, and Export & Save
@@ -253,6 +255,7 @@ The visualizer respects ASE constraints:
 - **FixAtoms**: Atoms marked as fixed cannot be moved or rotated and are shown by a micro-etched atom material shader on the atom itself, with normal depth occlusion and no extra see-through marker.
 - **FixedLine / FixedPlane**: Selected atoms move only along the line or inside the plane. Guides are selected-only: FixedLine uses a thin fading axis, and FixedPlane uses a translucent plane with perimeter, crosshair, and normal tick.
 - **Show Overlays**: A viewport toggle hides selection outlines, selected constraint guides, Hookean overlays, and fixed-atom material marking when users need a clean structure view.
+- **Grid**: The top-bar grid button and Display inspector checkbox are synchronized and update the viewport immediately.
 - **Interactive constraints**: The Constraints panel can apply or clear `FixAtoms`, `FixedLine`, and `FixedPlane` for the selected atoms.
 - **Set Positions**: The backend uses `atoms.set_positions(..., apply_constraint=True)`, ensuring that even if the UI sends a move, ASE will enforce the physical constraints.
 

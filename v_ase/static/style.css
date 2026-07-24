@@ -46,6 +46,12 @@
     --amber-border: rgba(243, 190, 87, 0.38);
     --amber-border-strong: rgba(243, 190, 87, 0.88);
     --amber-contrast: #ffd77c;
+    --measure-line: rgba(88, 213, 189, 0.92);
+    --measure-value-border: rgba(88, 213, 189, 0.82);
+    --measure-axis: rgba(255, 196, 76, 0.96);
+    --measure-leader: rgba(255, 216, 77, 0.82);
+    --measure-badge: rgba(18, 22, 23, 0.94);
+    --measure-badge-border: rgba(255, 196, 76, 0.94);
     --red: #ff7269;
     --red-soft: rgba(255, 114, 105, 0.08);
     --red-border: rgba(255, 114, 105, 0.32);
@@ -1603,6 +1609,75 @@ body.inspector-wide #inspector #element-radius-list {
     dominant-baseline: central;
 }
 
+.measurement-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 170;
+    width: 100vw;
+    height: 100vh;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.measurement-overlay .measure-connector {
+    fill: none;
+    stroke: var(--measure-line);
+    stroke-width: 1.55;
+    stroke-dasharray: 5 4;
+    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+}
+
+.measurement-overlay .measure-torsion-axis {
+    stroke: var(--measure-axis);
+    stroke-width: 2.35;
+    stroke-dasharray: none;
+}
+
+.measurement-overlay .measure-angle-arc {
+    fill: none;
+    stroke: var(--measure-axis);
+    stroke-width: 2;
+    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+}
+
+.measurement-overlay .measure-label-leader {
+    stroke: var(--measure-leader);
+    stroke-width: 1.1;
+    vector-effect: non-scaling-stroke;
+}
+
+.measurement-overlay .measure-atom-badge rect,
+.measurement-overlay .measure-value-badge rect {
+    fill: var(--measure-badge);
+    stroke: var(--measure-badge-border);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+}
+
+.measurement-overlay .measure-atom-badge text {
+    fill: var(--amber-contrast);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px;
+    font-weight: 800;
+    text-anchor: middle;
+    dominant-baseline: central;
+}
+
+.measurement-overlay .measure-value-badge rect {
+    stroke: var(--measure-value-border);
+}
+
+.measurement-overlay .measure-value-badge text {
+    fill: var(--teal-contrast);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 10px;
+    font-weight: 720;
+    text-anchor: middle;
+    dominant-baseline: central;
+}
+
 .view-toolbar {
     position: relative;
     z-index: 313;
@@ -1705,6 +1780,45 @@ body.inspector-wide #inspector #element-radius-list {
 .view-step-compact > span {
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     font-size: 0.65rem;
+}
+
+.viewport-grid-toggle {
+    width: 38px;
+    height: 38px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--chrome-raised);
+    color: var(--muted);
+    box-shadow: inset 0 1px var(--surface-glint);
+    cursor: pointer;
+    transition: border-color 90ms ease, background 90ms ease, color 90ms ease;
+}
+
+.viewport-grid-toggle svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.35;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.viewport-grid-toggle:hover,
+.viewport-grid-toggle:focus-visible,
+.viewport-grid-toggle[aria-pressed="true"] {
+    border-color: var(--teal-border);
+    background: var(--teal-soft);
+    color: var(--teal-contrast);
+    outline: none;
+}
+
+.viewport-grid-toggle[aria-pressed="false"] {
+    color: var(--neutral-600);
 }
 
 .lighting-widget {

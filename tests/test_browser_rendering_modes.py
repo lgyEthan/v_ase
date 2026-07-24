@@ -1554,6 +1554,234 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
         sessions.pop(editor.session_id, None)
 
 
+def test_grid_button_and_ordered_distance_angle_torsion_measurements():
+    positions = np.array([
+        [-3.0, -1.0, 0.0],
+        [-1.0, -1.0, 0.0],
+        [0.5, 0.5, 0.0],
+        [2.5, 0.5, 1.2],
+        [4.5, 3.5, 0.0],
+    ])
+    atoms = Atoms("H5", positions=positions, cell=[14.0, 12.0, 10.0], pbc=False)
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 5")
+
+            grid_state = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const button = document.getElementById('btn-grid-toggle');
+                const rect = button.getBoundingClientRect();
+                return {
+                    state: app.state.display.showGrid,
+                    visible: app.renderer.gridGroup.visible,
+                    checked: document.getElementById('chk-grid').checked,
+                    pressed: button.getAttribute('aria-pressed'),
+                    buttonVisible: rect.width > 0 && rect.height > 0 &&
+                        rect.left >= 0 && rect.right <= window.innerWidth
+                };
+            }""")
+            assert grid_state == {
+                "state": True,
+                "visible": True,
+                "checked": True,
+                "pressed": "true",
+                "buttonVisible": True,
+            }
+            page.click("#btn-grid-toggle")
+            page.wait_for_function("window.__ASE_APP__.renderer.gridGroup.visible === false")
+            assert page.evaluate("""() => ({
+                state: window.__ASE_APP__.state.display.showGrid,
+                checked: document.getElementById('chk-grid').checked,
+                pressed: document.getElementById('btn-grid-toggle').getAttribute('aria-pressed'),
+                label: document.getElementById('btn-grid-toggle').getAttribute('aria-label')
+            })""") == {
+                "state": False,
+                "checked": False,
+                "pressed": "false",
+                "label": "Show viewport grid",
+            }
+            page.click("#btn-grid-toggle")
+            page.wait_for_function("window.__ASE_APP__.renderer.gridGroup.visible === true")
+
+            points = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const renderer = app.renderer;
+                const target = renderer.controls.target;
+                target.set(0.5, 0.5, 0);
+                renderer.camera.position.set(0.5, 0.5, 22);
+                renderer.camera.up.set(0, 1, 0);
+                renderer.camera.lookAt(target);
+                renderer.camera.updateMatrixWorld(true);
+                app.completeCameraViewChange('ordered-measurement-test');
+                const rect = renderer.domElement.getBoundingClientRect();
+                return app.state.atoms.positions.map((values, index) => {
+                    const position = renderer.getAtomPosition(index).clone().project(renderer.camera);
+                    return {
+                        x: rect.left + (position.x + 1) * rect.width / 2,
+                        y: rect.top + (1 - position.y) * rect.height / 2
+                    };
+                });
+            }""")
+
+            def click_atom(index, additive=False):
+                if additive:
+                    page.keyboard.down("Shift")
+                page.mouse.click(points[index]["x"], points[index]["y"])
+                if additive:
+                    page.keyboard.up("Shift")
+                page.wait_for_function(
+                    f"window.__ASE_APP__.selectionCount() === {index + 1}"
+                )
+
+            def measurement_state():
+                return page.evaluate("""() => {
+                    const overlay = document.getElementById('measurement-overlay');
+                    const badges = [...overlay.querySelectorAll('.measure-atom-badge')];
+                    const boxes = badges.map(badge => {
+                        const rect = badge.getBoundingClientRect();
+                        return {left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom};
+                    });
+                    const overlaps = boxes.some((a, index) => boxes.slice(index + 1).some(b =>
+                        Math.min(a.right, b.right) > Math.max(a.left, b.left) &&
+                        Math.min(a.bottom, b.bottom) > Math.max(a.top, b.top)
+                    ));
+                    return {
+                        order: [...window.__ASE_APP__.state.selectionOrder],
+                        kind: overlay.dataset.measureKind,
+                        hidden: overlay.classList.contains('hidden'),
+                        labels: badges.map(badge => badge.textContent),
+                        references: badges.map(badge => badge.dataset.reference),
+                        connectors: overlay.querySelectorAll('.measure-connector').length,
+                        torsionAxes: overlay.querySelectorAll('.measure-torsion-axis').length,
+                        angleArcs: overlay.querySelectorAll('.measure-angle-arc').length,
+                        values: [...overlay.querySelectorAll('.measure-value-badge text')]
+                            .map(value => value.textContent),
+                        detail: document.getElementById('selected-measure').innerText,
+                        summary: document.getElementById('selection-measure-value').innerText,
+                        overlaps
+                    };
+                }""")
+
+            click_atom(0)
+            one = measurement_state()
+            assert one["order"] == ["atom:0"]
+            assert one["kind"] == "point"
+            assert one["labels"] == ["a1"]
+            assert one["references"] == ["0"]
+            assert one["connectors"] == 0
+            assert one["detail"] == "a1=#0 H"
+
+            click_atom(1, additive=True)
+            two = measurement_state()
+            assert two["order"] == ["atom:0", "atom:1"]
+            assert two["kind"] == "distance"
+            assert two["labels"] == ["a1", "a2"]
+            assert two["connectors"] == 1
+            assert "d(a1-a2) = 2.0000 A" in two["detail"]
+            assert two["summary"] == "Distance a1-a2 2.0000 A"
+            assert two["overlaps"] is False
+
+            click_atom(2, additive=True)
+            three = measurement_state()
+            assert three["order"] == ["atom:0", "atom:1", "atom:2"]
+            assert three["kind"] == "angle"
+            assert three["labels"] == ["a1", "a2", "a3"]
+            assert three["connectors"] == 2
+            assert three["angleArcs"] == 1
+            assert three["torsionAxes"] == 0
+            assert "angle(a1-a2-a3) = 135.00 deg" in three["detail"]
+            assert three["summary"] == "Angle a1-a2-a3 135.00 deg"
+            assert three["values"] == ["135.0 deg"]
+            assert three["overlaps"] is False
+
+            click_atom(3, additive=True)
+            four = measurement_state()
+            first = positions[1] - positions[0]
+            middle = positions[2] - positions[1]
+            last = positions[3] - positions[2]
+            first_normal = np.cross(first, middle)
+            second_normal = np.cross(middle, last)
+            first_normal /= np.linalg.norm(first_normal)
+            second_normal /= np.linalg.norm(second_normal)
+            expected_torsion = math.degrees(math.atan2(
+                np.dot(
+                    np.cross(first_normal, second_normal),
+                    middle / np.linalg.norm(middle),
+                ),
+                np.dot(first_normal, second_normal),
+            ))
+            ase_torsion = atoms.get_dihedral(0, 1, 2, 3, mic=False)
+            ase_signed_torsion = (
+                ase_torsion - 360.0 if ase_torsion > 180.0 else ase_torsion
+            )
+            assert expected_torsion == pytest.approx(ase_signed_torsion, abs=1e-8)
+            browser_torsion = page.evaluate(
+                "() => window.__ASE_APP__.selectionTorsion(...window.__ASE_APP__.selectionEntries())"
+            )
+            assert browser_torsion == pytest.approx(expected_torsion, abs=1e-8)
+            assert four["order"] == ["atom:0", "atom:1", "atom:2", "atom:3"]
+            assert four["kind"] == "torsion"
+            assert four["labels"] == ["a1", "a2", "a3", "a4"]
+            assert four["connectors"] == 3
+            assert four["torsionAxes"] == 1
+            assert four["angleArcs"] == 0
+            assert "torsion(a1-a2-a3-a4)" in four["detail"]
+            assert four["summary"].startswith("Torsion a1-a2-a3-a4")
+            assert four["values"] == [f"torsion {expected_torsion:.1f} deg"]
+            assert four["overlaps"] is False
+
+            click_atom(4, additive=True)
+            five = measurement_state()
+            assert five["kind"] == "none"
+            assert five["hidden"] is True
+            assert five["labels"] == []
+            assert five["connectors"] == 0
+            assert five["detail"] == "5 atoms selected"
+            assert five["summary"] == "5 atoms selected"
+
+            page.locator("#app-viewport canvas").focus()
+            page.keyboard.press("Alt+a")
+            page.wait_for_function("window.__ASE_APP__.selectionCount() === 0")
+            box_points = points[:3]
+            left = min(point["x"] for point in box_points) - 10
+            right = max(point["x"] for point in box_points) + 10
+            top = min(point["y"] for point in box_points) - 10
+            bottom = max(point["y"] for point in box_points) + 10
+            page.mouse.move(left, top)
+            page.mouse.down()
+            page.mouse.move(right, bottom, steps=8)
+            page.mouse.up()
+            page.wait_for_function("window.__ASE_APP__.selectionCount() === 3")
+            boxed = measurement_state()
+            assert boxed["order"] == ["atom:0", "atom:1", "atom:2"]
+            assert boxed["kind"] == "angle"
+            assert boxed["labels"] == ["a1", "a2", "a3"]
+            assert boxed["references"] == ["0", "1", "2"]
+            assert boxed["connectors"] == 2
+            assert boxed["angleArcs"] == 1
+            assert boxed["summary"] == "Angle a1-a2-a3 135.00 deg"
+            assert boxed["overlaps"] is False
+            browser.close()
+    finally:
+        sessions.pop(editor.session_id, None)
+
+
 def test_cell_local_bonds_clip_at_the_displayed_supercell_boundary():
     atoms = Atoms(
         "HHHH",
@@ -2164,6 +2392,13 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
                 measureVisible: !document.getElementById('selection-measure-readout').classList.contains('hidden'),
                 replicaOutlines: window.__ASE_APP__.renderer.replicaSelectionOutlines.children
                     .reduce((sum, mesh) => sum + mesh.count, 0),
+                overlayKind: document.getElementById('measurement-overlay').dataset.measureKind,
+                overlayLabels: [...document.querySelectorAll('.measure-atom-badge text')]
+                    .map(label => label.textContent),
+                overlayReferences: [...document.querySelectorAll('.measure-atom-badge')]
+                    .map(label => label.dataset.reference),
+                connectorCount: document.querySelectorAll('.measure-connector').length,
+                angleArcCount: document.querySelectorAll('.measure-angle-arc').length,
             })""")
             assert selected['count'] == 3
             assert selected['indices'] == '0@[1,0,0], 0, 0@[0,1,0]'
@@ -2172,10 +2407,18 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
                 '(frac 0.3333, 0.3333, 0.0000)',
             ]
             assert selected['centerLineDelta'] > 5
-            assert 'angle(0@[1,0,0]-0-0@[0,1,0]) = 90.00 deg' in selected['measure']
-            assert selected['measureSummary'] == 'Angle 90.00 deg | D1 4.0000 A | D2 4.0000 A'
+            assert 'a1=#0@[1,0,0] Cu' in selected['measure']
+            assert 'a2=#0 Cu' in selected['measure']
+            assert 'a3=#0@[0,1,0] Cu' in selected['measure']
+            assert 'angle(a1-a2-a3) = 90.00 deg' in selected['measure']
+            assert selected['measureSummary'] == 'Angle a1-a2-a3 90.00 deg'
             assert selected['measureVisible'] is True
             assert selected['replicaOutlines'] == 2
+            assert selected['overlayKind'] == 'angle'
+            assert selected['overlayLabels'] == ['a1', 'a2', 'a3']
+            assert selected['overlayReferences'] == ['0@[1,0,0]', '0', '0@[0,1,0]']
+            assert selected['connectorCount'] == 2
+            assert selected['angleArcCount'] == 1
 
             page.mouse.move(points['yReplica']['x'], points['yReplica']['y'])
             page.wait_for_function("window.__ASE_APP__.state.hoveredReference?.key === 'replica:0:0,1,0'")
@@ -2188,6 +2431,8 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
             page.keyboard.press('Control+a')
             page.wait_for_function("window.__ASE_APP__.selectionCount() === 8")
             assert page.locator('#prop-selected').inner_text() == '8'
+            assert page.locator('#measurement-overlay').get_attribute('data-measure-kind') == 'none'
+            assert page.locator('.measure-atom-badge').count() == 0
             assert page.evaluate("""() => {
                 const app = window.__ASE_APP__;
                 const selected = app.selection.boxSelect(

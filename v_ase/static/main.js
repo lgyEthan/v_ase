@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.75&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.75&rev=1';
-import { ASESelection } from './selection.js?v=0.0.75&rev=1';
-import { ASETransform } from './transform.js?v=0.0.75&rev=1';
+import { ASEApi } from './api.js?v=0.0.76&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.76&rev=1';
+import { ASESelection } from './selection.js?v=0.0.76&rev=1';
+import { ASETransform } from './transform.js?v=0.0.76&rev=1';
 
 class VAseApp {
     constructor() {
@@ -17,7 +17,10 @@ class VAseApp {
         this.frameLoadInFlight = false;
         this.pendingFrameIndex = null;
         this.controlCommitState = new WeakMap();
-        this.renderer.onFrame = () => this.updateOrientationWidget();
+        this.renderer.onFrame = () => {
+            this.updateOrientationWidget();
+            this.updateSelectionMeasurementOverlay();
+        };
         this.renderer.onCameraChange = event => this.syncAtomicScaleFromCamera({
             forceInput: event?.source !== 'scale-input'
         });
@@ -609,13 +612,21 @@ class VAseApp {
     syncViewControls(options = this.state.display) {
         const background = options.viewportBackground === 'white' ? 'white' : 'dark';
         const displayMode = options.atomDisplayMode === '2d' ? '2d' : '3d';
+        const showGrid = options.showGrid !== false;
         const step = this.normalizedViewRotationStep(options.viewRotationStepDeg);
         const backgroundSelect = document.getElementById('viewport-background');
         const displaySelect = document.getElementById('atom-display-mode');
         const stepInput = document.getElementById('view-rotate-step');
+        const gridButton = document.getElementById('btn-grid-toggle');
         if (backgroundSelect && document.activeElement !== backgroundSelect) backgroundSelect.value = background;
         if (displaySelect && document.activeElement !== displaySelect) displaySelect.value = displayMode;
         if (stepInput && document.activeElement !== stepInput) stepInput.value = `${step}`;
+        if (gridButton) {
+            const action = showGrid ? 'Hide' : 'Show';
+            gridButton.setAttribute('aria-pressed', showGrid ? 'true' : 'false');
+            gridButton.setAttribute('aria-label', `${action} viewport grid`);
+            gridButton.title = `${action} viewport grid`;
+        }
         document.body.dataset.viewportBackground = background;
         document.body.dataset.atomDisplayMode = displayMode;
     }
@@ -630,6 +641,15 @@ class VAseApp {
         }
         this.syncViewControls();
         this.renderer.setDisplayOptions(this.state.display);
+        if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+    }
+
+    setViewportGridVisible(visible) {
+        this.state.display.showGrid = Boolean(visible);
+        const checkbox = document.getElementById('chk-grid');
+        if (checkbox) checkbox.checked = this.state.display.showGrid;
+        this.syncViewControls();
+        this.renderer.setDisplayOptions(this.state.display, { rebuild: false });
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
     }
 
@@ -708,6 +728,9 @@ class VAseApp {
                 commitStep();
                 this.rotateCameraView(button.dataset.viewRotate, this.state.display.viewRotationStepDeg);
             });
+        });
+        document.getElementById('btn-grid-toggle')?.addEventListener('click', () => {
+            this.setViewportGridVisible(this.state.display.showGrid === false);
         });
         this.syncViewControls();
     }
@@ -1552,6 +1575,7 @@ class VAseApp {
     updateSelectionVisuals() {
         this.renderer.setSelection(this.state.selected);
         this.renderer.setReplicaSelection(this.state.vizOnly ? this.state.replicaSelected.values() : []);
+        this.updateSelectionMeasurementOverlay();
     }
 
     getFixedIndices() {
@@ -2030,14 +2054,40 @@ class VAseApp {
         return THREE.MathUtils.radToDeg(ji.angleTo(jk));
     }
 
+    selectionTorsion(i, j, k, l) {
+        const ij = this.selectionDelta(i, j);
+        const jk = this.selectionDelta(j, k);
+        const kl = this.selectionDelta(k, l);
+        if (!ij || !jk || !kl || ij.lengthSq() < 1e-12 || jk.lengthSq() < 1e-12 || kl.lengthSq() < 1e-12) {
+            return NaN;
+        }
+        const firstNormal = ij.clone().cross(jk);
+        const secondNormal = jk.clone().cross(kl);
+        if (firstNormal.lengthSq() < 1e-12 || secondNormal.lengthSq() < 1e-12) return NaN;
+        firstNormal.normalize();
+        secondNormal.normalize();
+        const middle = jk.clone().normalize();
+        return THREE.MathUtils.radToDeg(Math.atan2(
+            firstNormal.clone().cross(secondNormal).dot(middle),
+            firstNormal.dot(secondNormal)
+        ));
+    }
+
+    selectionMeasurementMap(selectedReferences) {
+        return selectedReferences.map((reference, index) => (
+            `a${index + 1}=#${this.selectionReferenceLabel(reference)} ${this.selectionReferenceSymbol(reference)}`
+        )).join(', ');
+    }
+
     getSelectionMeasureText(selectedReferences = this.selectionEntries()) {
         if (!this.state.atoms || selectedReferences.length === 0) return '-';
-        if (selectedReferences.length === 1) return '1 atom selected';
+        const referenceMap = this.selectionMeasurementMap(selectedReferences);
+        if (selectedReferences.length === 1) return referenceMap;
         if (selectedReferences.length === 2) {
             const [i, j] = selectedReferences;
             const distance = this.selectionDistance(i, j);
             return Number.isFinite(distance)
-                ? `d(${this.selectionReferenceLabel(i)}-${this.selectionReferenceLabel(j)}) = ${this.formatNumber(distance, 4)} A`
+                ? `${referenceMap} | d(a1-a2) = ${this.formatNumber(distance, 4)} A`
                 : '-';
         }
         if (selectedReferences.length === 3) {
@@ -2046,28 +2096,45 @@ class VAseApp {
             const right = this.selectionDistance(j, k);
             const angle = this.selectionAngle(i, j, k);
             if (![left, right, angle].every(Number.isFinite)) return '-';
-            const labels = [i, j, k].map(reference => this.selectionReferenceLabel(reference));
-            return `d(${labels[0]}-${labels[1]}) = ${this.formatNumber(left, 4)} A | d(${labels[1]}-${labels[2]}) = ${this.formatNumber(right, 4)} A | angle(${labels.join('-')}) = ${this.formatNumber(angle, 2)} deg`;
+            return `${referenceMap} | d(a1-a2) = ${this.formatNumber(left, 4)} A | d(a2-a3) = ${this.formatNumber(right, 4)} A | angle(a1-a2-a3) = ${this.formatNumber(angle, 2)} deg`;
+        }
+        if (selectedReferences.length === 4) {
+            const [i, j, k, l] = selectedReferences;
+            const distances = [
+                this.selectionDistance(i, j),
+                this.selectionDistance(j, k),
+                this.selectionDistance(k, l)
+            ];
+            const torsion = this.selectionTorsion(i, j, k, l);
+            if (![...distances, torsion].every(Number.isFinite)) return '-';
+            return `${referenceMap} | d(a1-a2) = ${this.formatNumber(distances[0], 4)} A | d(a2-a3) = ${this.formatNumber(distances[1], 4)} A | d(a3-a4) = ${this.formatNumber(distances[2], 4)} A | torsion(a1-a2-a3-a4) = ${this.formatNumber(torsion, 2)} deg`;
         }
         return `${selectedReferences.length} atoms selected`;
     }
 
     getSelectionMeasureSummary(selectedReferences = this.selectionEntries()) {
         if (!this.state.atoms || selectedReferences.length === 0) return '-';
-        if (selectedReferences.length === 1) return '1 atom selected';
+        if (selectedReferences.length === 1) {
+            return `a1 = #${this.selectionReferenceLabel(selectedReferences[0])}`;
+        }
         if (selectedReferences.length === 2) {
             const distance = this.selectionDistance(selectedReferences[0], selectedReferences[1]);
             return Number.isFinite(distance)
-                ? `Distance ${this.formatNumber(distance, 4)} A`
+                ? `Distance a1-a2 ${this.formatNumber(distance, 4)} A`
                 : 'Distance unavailable';
         }
         if (selectedReferences.length === 3) {
             const [i, j, k] = selectedReferences;
-            const left = this.selectionDistance(i, j);
-            const right = this.selectionDistance(j, k);
             const angle = this.selectionAngle(i, j, k);
-            if (![left, right, angle].every(Number.isFinite)) return 'Angle unavailable';
-            return `Angle ${this.formatNumber(angle, 2)} deg | D1 ${this.formatNumber(left, 4)} A | D2 ${this.formatNumber(right, 4)} A`;
+            return Number.isFinite(angle)
+                ? `Angle a1-a2-a3 ${this.formatNumber(angle, 2)} deg`
+                : 'Angle unavailable';
+        }
+        if (selectedReferences.length === 4) {
+            const torsion = this.selectionTorsion(...selectedReferences);
+            return Number.isFinite(torsion)
+                ? `Torsion a1-a2-a3-a4 ${this.formatNumber(torsion, 2)} deg`
+                : 'Torsion unavailable';
         }
         return `${selectedReferences.length} atoms selected`;
     }
@@ -2078,6 +2145,189 @@ class VAseApp {
             (projected.x + 1) * window.innerWidth / 2,
             (-projected.y + 1) * window.innerHeight / 2
         );
+    }
+
+    updateSelectionMeasurementOverlay(selectedReferences = this.selectionEntries()) {
+        const overlay = document.getElementById('measurement-overlay');
+        if (!overlay) return;
+        const count = selectedReferences.length;
+        const enabled = this.state.display.showOverlays !== false &&
+            !this.state.exportPreviewEnabled &&
+            count > 0 && count <= 4;
+        overlay.replaceChildren();
+        overlay.classList.toggle('hidden', !enabled);
+        overlay.dataset.measureCount = enabled ? String(count) : '0';
+        overlay.dataset.measureKind = enabled
+            ? (count === 1 ? 'point' : count === 2 ? 'distance' : count === 3 ? 'angle' : 'torsion')
+            : 'none';
+        if (!enabled) return;
+
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        overlay.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        overlay.setAttribute('width', `${width}`);
+        overlay.setAttribute('height', `${height}`);
+        const camera = this.renderer.camera;
+        camera.updateMatrixWorld(true);
+        const points = selectedReferences.map((reference, index) => {
+            const position = this.selectionReferencePosition(reference);
+            if (!position) return null;
+            const projected = position.clone().project(camera);
+            if (![projected.x, projected.y, projected.z].every(Number.isFinite) ||
+                projected.z < -1 || projected.z > 1) {
+                return null;
+            }
+            return {
+                x: (projected.x + 1) * width / 2,
+                y: (-projected.y + 1) * height / 2,
+                reference,
+                order: index + 1
+            };
+        });
+        if (points.some(point => !point)) {
+            overlay.classList.add('hidden');
+            overlay.dataset.measureCount = '0';
+            overlay.dataset.measureKind = 'none';
+            return;
+        }
+
+        const namespace = 'http://www.w3.org/2000/svg';
+        const appendSvg = (name, attributes = {}, parent = overlay) => {
+            const node = document.createElementNS(namespace, name);
+            Object.entries(attributes).forEach(([key, value]) => node.setAttribute(key, String(value)));
+            parent.appendChild(node);
+            return node;
+        };
+        const shortenedSegment = (start, end, padding = 13) => {
+            const dx = end.x - start.x;
+            const dy = end.y - start.y;
+            const length = Math.hypot(dx, dy);
+            if (length <= padding * 2 + 1) return [start, end];
+            const ux = dx / length;
+            const uy = dy / length;
+            return [
+                { x: start.x + ux * padding, y: start.y + uy * padding },
+                { x: end.x - ux * padding, y: end.y - uy * padding }
+            ];
+        };
+        const appendLine = (start, end, className) => {
+            const [a, b] = shortenedSegment(start, end);
+            return appendSvg('line', {
+                x1: a.x.toFixed(2),
+                y1: a.y.toFixed(2),
+                x2: b.x.toFixed(2),
+                y2: b.y.toFixed(2),
+                class: className
+            });
+        };
+        const appendValueBadge = (x, y, text) => {
+            const group = appendSvg('g', {
+                class: 'measure-value-badge',
+                transform: `translate(${x.toFixed(2)} ${y.toFixed(2)})`
+            });
+            const badgeWidth = Math.max(62, Math.min(150, text.length * 6.3 + 16));
+            appendSvg('rect', {
+                x: (-badgeWidth / 2).toFixed(2),
+                y: -10,
+                width: badgeWidth.toFixed(2),
+                height: 20,
+                rx: 5
+            }, group);
+            const label = appendSvg('text', { x: 0, y: 0.5 }, group);
+            label.textContent = text;
+        };
+
+        for (let index = 0; index < points.length - 1; index++) {
+            const className = count === 4 && index === 1
+                ? 'measure-connector measure-torsion-axis'
+                : 'measure-connector';
+            appendLine(points[index], points[index + 1], className);
+        }
+
+        if (count === 3) {
+            const center = points[1];
+            const firstAngle = Math.atan2(points[0].y - center.y, points[0].x - center.x);
+            const lastAngle = Math.atan2(points[2].y - center.y, points[2].x - center.x);
+            let sweep = lastAngle - firstAngle;
+            while (sweep > Math.PI) sweep -= Math.PI * 2;
+            while (sweep < -Math.PI) sweep += Math.PI * 2;
+            const firstLength = Math.hypot(points[0].x - center.x, points[0].y - center.y);
+            const lastLength = Math.hypot(points[2].x - center.x, points[2].y - center.y);
+            const radius = Math.max(15, Math.min(34, Math.min(firstLength, lastLength) * 0.24));
+            const start = {
+                x: center.x + Math.cos(firstAngle) * radius,
+                y: center.y + Math.sin(firstAngle) * radius
+            };
+            const end = {
+                x: center.x + Math.cos(firstAngle + sweep) * radius,
+                y: center.y + Math.sin(firstAngle + sweep) * radius
+            };
+            appendSvg('path', {
+                class: 'measure-angle-arc',
+                d: `M ${start.x.toFixed(2)} ${start.y.toFixed(2)} A ${radius.toFixed(2)} ${radius.toFixed(2)} 0 0 ${sweep >= 0 ? 1 : 0} ${end.x.toFixed(2)} ${end.y.toFixed(2)}`
+            });
+            const angle = this.selectionAngle(...selectedReferences);
+            if (Number.isFinite(angle)) {
+                const middleAngle = firstAngle + sweep / 2;
+                appendValueBadge(
+                    center.x + Math.cos(middleAngle) * (radius + 20),
+                    center.y + Math.sin(middleAngle) * (radius + 20),
+                    `${this.formatNumber(angle, 1)} deg`
+                );
+            }
+        } else if (count === 4) {
+            const center = {
+                x: (points[1].x + points[2].x) / 2,
+                y: (points[1].y + points[2].y) / 2
+            };
+            const dx = points[2].x - points[1].x;
+            const dy = points[2].y - points[1].y;
+            const length = Math.max(1, Math.hypot(dx, dy));
+            const torsion = this.selectionTorsion(...selectedReferences);
+            if (Number.isFinite(torsion)) {
+                appendValueBadge(
+                    center.x - dy / length * 24,
+                    center.y + dx / length * 24,
+                    `torsion ${this.formatNumber(torsion, 1)} deg`
+                );
+            }
+        }
+
+        const centroid = points.reduce(
+            (sum, point) => ({ x: sum.x + point.x / count, y: sum.y + point.y / count }),
+            { x: 0, y: 0 }
+        );
+        points.forEach((point, index) => {
+            let dx = point.x - centroid.x;
+            let dy = point.y - centroid.y;
+            let length = Math.hypot(dx, dy);
+            if (length < 7) {
+                const fallbackAngle = -Math.PI / 2 + index * Math.PI * 2 / Math.max(1, count);
+                dx = Math.cos(fallbackAngle);
+                dy = Math.sin(fallbackAngle);
+                length = 1;
+            }
+            const labelPoint = {
+                x: point.x + dx / length * 25,
+                y: point.y + dy / length * 25
+            };
+            appendSvg('line', {
+                class: 'measure-label-leader',
+                x1: point.x.toFixed(2),
+                y1: point.y.toFixed(2),
+                x2: labelPoint.x.toFixed(2),
+                y2: labelPoint.y.toFixed(2)
+            });
+            const group = appendSvg('g', {
+                class: 'measure-atom-badge',
+                'data-measure-order': point.order,
+                'data-reference': this.selectionReferenceLabel(point.reference),
+                transform: `translate(${labelPoint.x.toFixed(2)} ${labelPoint.y.toFixed(2)})`
+            });
+            appendSvg('rect', { x: -14, y: -9, width: 28, height: 18, rx: 5 }, group);
+            const text = appendSvg('text', { x: 0, y: 0.5 }, group);
+            text.textContent = `a${point.order}`;
+        });
     }
 
     showMarquee(left, top, width, height) {

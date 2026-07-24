@@ -57,9 +57,11 @@ Interactive mode keeps replicas unselectable until `Set Supercell as Cell` is
 used, preventing a display-only image from entering an atom edit.
 
 The bottom `MEASURE` HUD is tied to the retained selection, not the mouse
-pointer: two atoms show one distance, three show the angle plus its two adjacent
-distances, and larger selections show only the atom count. The separate Hover
-HUD continues to update atom metadata as the pointer moves.
+pointer. Ordered selections are labeled `a1` through `a4`: two atoms measure
+`a1-a2`, three measure the `a1-a2-a3` angle at `a2`, and four measure the
+signed `a1-a2-a3-a4` torsion. Five or more atoms show only the selected count.
+Box selection uses a deterministic visible order. The separate Hover HUD
+continues to update atom metadata as the pointer moves.
 
 Move and rotate snapping can be set in the right-side Transform section. A zero
 increment keeps motion continuous; non-zero increments make mouse transforms step

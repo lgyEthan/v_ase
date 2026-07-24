@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.75&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.76&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.75';
+            : '/static/vendor/three.module.js?v=0.0.76';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -57,7 +57,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.75</span>
+            <span class="version">0.0.76</span>
         </div>
         <div class="status-group">
             <div class="status-item">
@@ -138,6 +138,13 @@
                     <span aria-hidden="true">&deg;</span>
                 </label>
             </div>
+            <button id="btn-grid-toggle" class="viewport-grid-toggle" type="button"
+                    aria-pressed="true" aria-label="Hide viewport grid" title="Hide viewport grid">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 4h16v16H4z"></path>
+                    <path d="M9.33 4v16M14.67 4v16M4 9.33h16M4 14.67h16"></path>
+                </svg>
+            </button>
             <div id="lighting-widget" class="lighting-widget">
                 <button id="btn-lighting-toggle" class="lighting-trigger" type="button" aria-expanded="false" aria-label="Open render lighting settings" title="Render lighting settings">
                     <svg class="render-light-icon" viewBox="0 0 34 30" aria-hidden="true">
@@ -228,6 +235,7 @@
             <g id="ow-pos-group"></g>
         </svg>
     </div>
+    <svg id="measurement-overlay" class="measurement-overlay hidden" aria-hidden="true"></svg>
 
     <datalist id="element-type-options"></datalist>
 
@@ -752,7 +760,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.75&rev=1';
+            : './static/main.js?v=0.0.76&rev=1';
         import(modulePath);
     </script>
 </body>
