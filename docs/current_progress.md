@@ -1,6 +1,6 @@
 # v_ase Project Specification and Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.73`.
+Last synchronized with implementation: `v_ase-gui 0.0.74`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -167,6 +167,14 @@ overrides are not blindly copied to the new label.
 *   **Shift + Middle Drag**: Pan camera.
 *   **Wheel**: Zoom.
 *   **Left Click**: Select single atom.
+*   **Camera View Toolbar**: A top-row popover changes only the camera. It
+    accepts an exact degree step, applies signed world-axis view rotations, and
+    aligns directly to the six `+/-X`, `+/-Y`, and `+/-Z` views. Atomic
+    coordinates are never modified by these controls.
+*   **Viewport Presentation**: Dark/white backgrounds and 3D-solid/2D-flat
+    display modes are mirrored between the top Camera View popover and the
+    Display inspector. Both settings persist in visual-settings JSON and
+    `.vase` projects.
 
 ---
 
@@ -210,6 +218,11 @@ The frontend manages modes: `IDLE`, `MOVE`, `ROTATE`. Transitions are triggered 
 *   **Persistent Settings**: Bond mode, global cutoff scale, label-pair `rcut` values, MIC policy, and manual pairs survive structure refreshes, transform commits, trajectory changes, and display-label edits. Relabeling copies matching pair settings before the renderer rebuilds.
 *   **Supercell Preview**: Atom and bond instances are repeated for every positive supercell shift. Nearest periodic-image records bridge all internal repeated-cell boundaries, including monoclinic cells, while the outer displayed-supercell boundary remains clipped. Replicas share the original atom's exact material, color, emissive response, roughness, and full opacity in both modes and participate in hover readout. Visualization mode gives every image a stable base-index/cell-offset identity for click, box, element, and `Ctrl+A` selection plus displayed-coordinate measurements. Interactive mode changes only selection policy: display images remain unselectable until the supercell is committed as the cell.
 *   **Appearance**: Bond thickness is the cylinder diameter or flat-ribbon width. Bonds can use a lit 3D cylinder or a camera-facing 2D ribbon, with either one custom color or two midpoint-split segments colored from their endpoint atoms. Viewport bonds retain GPU instancing but are grouped by final material color so custom and split colors are rendered exactly instead of relying on fragile per-instance shader colors. Viewport, PNG/MOV/AVI, visual-settings JSON, and Blender export share these values.
+*   **2D Display Mode**: Atom batches keep the existing instanced geometry and
+    selection identities but switch to unlit, flat-color circular symbols.
+    Bonds use the existing camera-facing instanced ribbon path regardless of
+    the stored 3D bond style. Switching back restores the requested cylinder or
+    ribbon style without losing bond settings.
 
 ---
 
@@ -400,7 +413,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.73).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.74).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -450,6 +463,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 57**: Replaced WebM-only movie download with configurable H.264 MOV and MPEG-4 AVI export, shared Preview/PNG/video camera and scene capture, white movie backgrounds, bundled FFmpeg conversion, full-frame browser validation, and a concise user-facing README with regenerated 0.0.71 media.
 *   [x] **Phase 58**: Made one persistent image-export profile authoritative for Preview Area and PNG capture. Every image-dialog option now updates the preview immediately, survives settings/project save, and is verified against downloaded square, landscape, transparent, Studio Sun, soft-shadow, and Retina PNG output.
 *   [x] **Phase 59**: Unified optional unit-cell visibility across Blender, 3DM, OBJ, PNG, and video export; corrected CAD bond diameter semantics; added Rhino document/named camera views and block instancing; added an OBJ camera/metadata sidecar; and made large pairwise-cutoff CAD export use a spatial neighbor search.
+*   [x] **Phase 60**: Added a top-row camera-only view controller with exact signed axis steps and six-direction alignment, selectable dark/white live backgrounds with matched grid contrast, and a persistent GPU-batched 2D atom/flat-bond display mode.
 
 ---
 

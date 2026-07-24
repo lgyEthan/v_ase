@@ -11,7 +11,7 @@
 `v_ase` is a local 3D viewer and editor for atomic structures and trajectories.
 Open ASE-compatible files from the terminal or Python, inspect large systems,
 edit atoms when needed, and export publication-ready images, movies, and 3D
-scenes.
+scenes. The same viewport can also switch to a clean 2D atom-and-bond display.
 
 ![v_ase overview](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_overview.png)
 
@@ -94,6 +94,12 @@ v_ase gui structure.vasp --interactive
 
 The **?** button in the top bar shows the same shortcut reference inside the
 app.
+
+The **Camera View** button in the top bar changes only the camera. Set an exact
+degree step, rotate around `+/-X`, `+/-Y`, or `+/-Z`, or align directly to any
+of the six axis views. After aligning to `+Z`, a `+Z` step of `45 deg` rotates
+the visible structure counterclockwise by exactly 45 degrees without changing
+any atomic coordinate.
 
 ## Trajectories
 
@@ -196,6 +202,9 @@ v_ase gui examples/readme_scene_assets/ferrocene.traj --show-bonds --interactive
 The control panel provides:
 
 - orthographic or perspective projection;
+- exact camera-only axis rotation and six-direction view alignment;
+- dark or white live viewport backgrounds;
+- 3D solid or 2D flat atom-and-bond display;
 - live atomic scale in px/Å;
 - Modeling, Studio Sun, and Sun + Soft Shadow rendering;
 - editable Sun brightness, source, and target;
@@ -241,6 +250,9 @@ Blender, 3DM, OBJ, image, and video output, regardless of the live View toggle.
 `.vase` projects are self-contained: the complete structure or trajectory is
 stored inside the project together with labels and visual settings. The original
 input file is not required when the project is opened again.
+
+Viewport background, 2D/3D display choice, and the camera rotation step are
+included in both `.vase` projects and reusable visual settings.
 
 Rhino 3DM export needs one optional package:
 

@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.73&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.73&rev=1';
-import { ASESelection } from './selection.js?v=0.0.73&rev=1';
-import { ASETransform } from './transform.js?v=0.0.73&rev=1';
+import { ASEApi } from './api.js?v=0.0.74&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.74&rev=1';
+import { ASESelection } from './selection.js?v=0.0.74&rev=1';
+import { ASETransform } from './transform.js?v=0.0.74&rev=1';
 
 class VAseApp {
     constructor() {
@@ -61,6 +61,9 @@ class VAseApp {
                 commensurateSnapRangeDeg: 2.0,
                 supercell: [1, 1, 1],
                 projectionMode: 'orthographic',
+                viewportBackground: 'dark',
+                atomDisplayMode: '3d',
+                viewRotationStepDeg: 15,
                 lightingMode: 'modeling',
                 sunIntensity: 2.2,
                 sunPosition: [8, -10, 14],
@@ -138,6 +141,7 @@ class VAseApp {
             this.setupWebSocket();
             this.setupInspectorResizer();
             this.setupInspectorNavigation();
+            this.setupViewControls();
             this.setupLightingControls();
             this.setupCreateAtomWidget();
             this.setupEventListeners();
@@ -595,6 +599,159 @@ class VAseApp {
         });
         this.setInspectorGroup(savedGroup, false);
         this.setInspectorCollapsed(collapsed, false);
+    }
+
+    normalizedViewRotationStep(value = this.state.display.viewRotationStepDeg) {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? Math.max(0.1, Math.min(360, parsed)) : 15;
+    }
+
+    syncViewControls(options = this.state.display) {
+        const background = options.viewportBackground === 'white' ? 'white' : 'dark';
+        const displayMode = options.atomDisplayMode === '2d' ? '2d' : '3d';
+        const step = this.normalizedViewRotationStep(options.viewRotationStepDeg);
+        const backgroundSelect = document.getElementById('viewport-background');
+        const displaySelect = document.getElementById('atom-display-mode');
+        const stepInput = document.getElementById('view-rotate-step');
+        if (backgroundSelect && document.activeElement !== backgroundSelect) backgroundSelect.value = background;
+        if (displaySelect && document.activeElement !== displaySelect) displaySelect.value = displayMode;
+        if (stepInput && document.activeElement !== stepInput) stepInput.value = `${step}`;
+        document.querySelectorAll('[data-view-background]').forEach(button => {
+            button.setAttribute('aria-pressed', button.dataset.viewBackground === background ? 'true' : 'false');
+        });
+        document.querySelectorAll('[data-atom-display-mode]').forEach(button => {
+            button.setAttribute('aria-pressed', button.dataset.atomDisplayMode === displayMode ? 'true' : 'false');
+        });
+        document.body.dataset.viewportBackground = background;
+        document.body.dataset.atomDisplayMode = displayMode;
+    }
+
+    applyViewDisplayOption(key, value) {
+        if (key === 'viewportBackground') {
+            this.state.display.viewportBackground = value === 'white' ? 'white' : 'dark';
+        } else if (key === 'atomDisplayMode') {
+            this.state.display.atomDisplayMode = value === '2d' ? '2d' : '3d';
+        } else {
+            return;
+        }
+        this.syncViewControls();
+        this.renderer.setDisplayOptions(this.state.display);
+        if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+    }
+
+    completeCameraViewChange(source = 'view-toolbar') {
+        const camera = this.renderer.camera;
+        camera.lookAt(this.renderer.controls.target);
+        camera.updateMatrixWorld(true);
+        this.renderer.controls.endGesture?.();
+        this.renderer.controls.update?.();
+        this.renderer.syncSelectionOutlines();
+        this.transform.updateGuides(camera);
+        this.renderer.onCameraChange?.({ source });
+        this.updateOrientationWidget();
+        this.renderer.requestRender();
+    }
+
+    rotateCameraView(axis, visualDegrees) {
+        const vectors = {
+            X: new THREE.Vector3(1, 0, 0),
+            Y: new THREE.Vector3(0, 1, 0),
+            Z: new THREE.Vector3(0, 0, 1)
+        };
+        const worldAxis = vectors[axis];
+        const degrees = Number(visualDegrees);
+        if (!worldAxis || !Number.isFinite(degrees) || Math.abs(degrees) < 1e-12) return;
+        const camera = this.renderer.camera;
+        const target = this.renderer.controls.target.clone();
+        const inverseViewRotation = new THREE.Quaternion().setFromAxisAngle(
+            worldAxis,
+            -THREE.MathUtils.degToRad(degrees)
+        );
+        const offset = camera.position.clone().sub(target).applyQuaternion(inverseViewRotation);
+        camera.position.copy(target).add(offset);
+        camera.up.applyQuaternion(inverseViewRotation).normalize();
+        this.completeCameraViewChange('view-rotate');
+        this.toast(`View rotated ${degrees > 0 ? '+' : ''}${degrees.toFixed(2)} deg around ${axis}.`, 'success');
+    }
+
+    setViewToAxis(axis, sign = 1) {
+        const vectors = {
+            X: new THREE.Vector3(1, 0, 0),
+            Y: new THREE.Vector3(0, 1, 0),
+            Z: new THREE.Vector3(0, 0, 1)
+        };
+        const base = vectors[axis];
+        if (!base) return;
+        const normalizedSign = Number(sign) < 0 ? -1 : 1;
+        const camera = this.renderer.camera;
+        const target = this.renderer.controls.target.clone();
+        const distance = Math.max(camera.position.distanceTo(target), 4);
+        camera.position.copy(target).addScaledVector(base, normalizedSign * distance);
+        camera.up.copy(axis === 'Z'
+            ? new THREE.Vector3(0, 1, 0)
+            : new THREE.Vector3(0, 0, 1));
+        this.completeCameraViewChange('view-align');
+        this.toast(`View aligned to ${normalizedSign > 0 ? '+' : '-'}${axis}.`, 'success');
+    }
+
+    setupViewControls() {
+        const widget = document.getElementById('view-widget');
+        const card = document.getElementById('view-card');
+        const trigger = document.getElementById('btn-view-toggle');
+        const setOpen = open => {
+            card?.classList.toggle('hidden', !open);
+            trigger?.setAttribute('aria-expanded', open ? 'true' : 'false');
+            widget?.classList.toggle('open', open);
+        };
+        trigger?.addEventListener('click', event => {
+            event.stopPropagation();
+            setOpen(card?.classList.contains('hidden'));
+        });
+        document.getElementById('btn-view-close')?.addEventListener('click', () => setOpen(false));
+        document.addEventListener('pointerdown', event => {
+            if (!card?.classList.contains('hidden') && widget && !widget.contains(event.target)) setOpen(false);
+        });
+        document.querySelectorAll('[data-view-background]').forEach(button => {
+            button.addEventListener('click', () => {
+                this.applyViewDisplayOption('viewportBackground', button.dataset.viewBackground);
+            });
+        });
+        document.querySelectorAll('[data-atom-display-mode]').forEach(button => {
+            button.addEventListener('click', () => {
+                this.applyViewDisplayOption('atomDisplayMode', button.dataset.atomDisplayMode);
+            });
+        });
+        document.getElementById('viewport-background')?.addEventListener('change', event => {
+            this.applyViewDisplayOption('viewportBackground', event.target.value);
+        });
+        document.getElementById('atom-display-mode')?.addEventListener('change', event => {
+            this.applyViewDisplayOption('atomDisplayMode', event.target.value);
+        });
+        const stepInput = document.getElementById('view-rotate-step');
+        const commitStep = () => {
+            const step = this.normalizedViewRotationStep(stepInput?.value);
+            this.state.display.viewRotationStepDeg = step;
+            if (stepInput) stepInput.value = `${step}`;
+            this.syncViewControls();
+        };
+        stepInput?.addEventListener('change', commitStep);
+        stepInput?.addEventListener('blur', commitStep);
+        document.querySelectorAll('[data-view-rotate-axis]').forEach(button => {
+            button.addEventListener('click', () => {
+                commitStep();
+                const sign = Number(button.dataset.viewRotateSign) < 0 ? -1 : 1;
+                this.rotateCameraView(
+                    button.dataset.viewRotateAxis,
+                    sign * this.state.display.viewRotationStepDeg
+                );
+            });
+        });
+        document.querySelectorAll('[data-view-align-axis]').forEach(button => {
+            button.addEventListener('click', () => {
+                this.setViewToAxis(button.dataset.viewAlignAxis, Number(button.dataset.viewAlignSign));
+            });
+        });
+        this.syncViewControls();
     }
 
     lightingVectorFromInputs(prefix, fallback) {
@@ -1334,6 +1491,11 @@ class VAseApp {
             ? Math.max(0, Math.min(15, initialSnapRange))
             : this.state.display.commensurateSnapRangeDeg;
         this.state.display.projectionMode = config.projection_mode || this.state.display.projectionMode;
+        this.state.display.viewportBackground = config.viewport_background === 'white' ? 'white' : 'dark';
+        this.state.display.atomDisplayMode = config.atom_display_mode === '2d' ? '2d' : '3d';
+        this.state.display.viewRotationStepDeg = this.normalizedViewRotationStep(
+            config.view_rotation_step_deg ?? this.state.display.viewRotationStepDeg
+        );
         this.state.vizOnly = Boolean(config.viz_only);
         this.state.display.vizOnly = this.state.vizOnly;
         document.getElementById('chk-bonds').checked = this.state.display.showBonds;
@@ -1359,6 +1521,7 @@ class VAseApp {
         document.getElementById('commensurate-snap-range').value = this.state.display.commensurateSnapRangeDeg;
         const projectionMode = document.getElementById('projection-mode');
         if (projectionMode) projectionMode.value = this.state.display.projectionMode;
+        this.syncViewControls();
         this.syncAtomicScaleFromCamera({ forceInput: true, syncPreview: false });
         this.updateRadiusScaleLabel();
         this.syncLightingControls();
@@ -3504,6 +3667,15 @@ class VAseApp {
         this.state.display.showPeriodicBonds = Boolean(document.getElementById('chk-periodic-bonds')?.checked);
         this.state.display.exportIncludeCell = document.getElementById('export-include-cell')?.checked !== false;
         this.state.display.projectionMode = document.getElementById('projection-mode')?.value || 'perspective';
+        this.state.display.viewportBackground = document.getElementById('viewport-background')?.value === 'white'
+            ? 'white'
+            : 'dark';
+        this.state.display.atomDisplayMode = document.getElementById('atom-display-mode')?.value === '2d'
+            ? '2d'
+            : '3d';
+        this.state.display.viewRotationStepDeg = this.normalizedViewRotationStep(
+            document.getElementById('view-rotate-step')?.value
+        );
         this.state.applyConstraints = document.getElementById('chk-constraints').checked;
         this.state.antiAliasing = document.getElementById('chk-antialias').checked;
         this.state.sphereQuality = document.getElementById('sphere-quality').value;
@@ -3534,6 +3706,7 @@ class VAseApp {
         this.state.display.vizOnly = this.state.vizOnly;
         this.state.display.blenderExportMode = document.getElementById('blender-export-mode')?.value || 'instanced';
         this.updateRadiusScaleLabel();
+        this.syncViewControls();
         this.pruneSelection();
         this.renderer.setDisplayOptions(this.state.display);
         this.updateSelectionVisuals();
@@ -3625,6 +3798,9 @@ class VAseApp {
         setChecked('chk-periodic-bonds', display.showPeriodicBonds);
         setChecked('export-include-cell', display.exportIncludeCell !== false);
         setValue('projection-mode', display.projectionMode || 'perspective');
+        setValue('viewport-background', display.viewportBackground === 'white' ? 'white' : 'dark');
+        setValue('atom-display-mode', display.atomDisplayMode === '2d' ? '2d' : '3d');
+        setValue('view-rotate-step', this.normalizedViewRotationStep(display.viewRotationStepDeg));
         const atomicScale = Number(display.atomicScalePixelsPerAngstrom);
         if (Number.isFinite(atomicScale) && atomicScale > 0) {
             setValue('atomic-scale', this.atomicScaleText(atomicScale));
@@ -3650,6 +3826,7 @@ class VAseApp {
         setValue('rotate-increment', this.state.rotateIncrementDeg || 0);
         this.setSupercellInputs(display.supercell || [1, 1, 1]);
         this.writeBondPairs(display.manualBondPairs || []);
+        this.syncViewControls(display);
         this.syncLightingControls(display);
         this.updateRadiusScaleLabel();
         this.updateBondAppearanceUI();
@@ -3766,6 +3943,11 @@ class VAseApp {
             ) ? nextDisplay.imageSphereQuality : 'viewport',
             imageSmoothnessScale: finiteClamped(
                 nextDisplay.imageSmoothnessScale, 1, 0.5, 2
+            ),
+            viewportBackground: nextDisplay.viewportBackground === 'white' ? 'white' : 'dark',
+            atomDisplayMode: nextDisplay.atomDisplayMode === '2d' ? '2d' : '3d',
+            viewRotationStepDeg: finiteClamped(
+                nextDisplay.viewRotationStepDeg, 15, 0.1, 360
             ),
             videoFormat: ['mov', 'avi'].includes(nextDisplay.videoFormat)
                 ? nextDisplay.videoFormat

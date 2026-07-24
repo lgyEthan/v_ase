@@ -300,6 +300,7 @@ export class ASERenderer {
 
     setupScene() {
         this.scene = new THREE.Scene();
+        this.viewportBackgroundMode = 'dark';
         const viewportBackground = cssColor('--viewport-bg', '#2d3333');
         this.scene.background = new THREE.Color(viewportBackground);
         
@@ -468,6 +469,9 @@ export class ASERenderer {
             commensurateMaxIndex: 32,
             commensurateSnapRangeDeg: 2.0,
             projectionMode: 'orthographic',
+            viewportBackground: 'dark',
+            atomDisplayMode: '3d',
+            viewRotationStepDeg: 15,
             showOverlays: true,
             supercell: [1, 1, 1],
             antiAliasing: true,
@@ -1029,6 +1033,40 @@ export class ASERenderer {
         this.requestRender();
     }
 
+    normalizedViewportBackground(value = this.displayOptions?.viewportBackground) {
+        return value === 'white' ? 'white' : 'dark';
+    }
+
+    viewportBackgroundColor(mode = this.viewportBackgroundMode) {
+        return mode === 'white'
+            ? new THREE.Color(0xffffff)
+            : new THREE.Color(cssColor('--viewport-bg', '#2d3333'));
+    }
+
+    setViewportBackground(mode, { rebuildGuides = true } = {}) {
+        const next = this.normalizedViewportBackground(mode);
+        const changed = next !== this.viewportBackgroundMode;
+        this.viewportBackgroundMode = next;
+        const color = this.viewportBackgroundColor(next);
+        this.scene.background = color;
+        this.renderer.setClearColor(color, 1);
+        if (changed && rebuildGuides && this.gridGroup && this.axesHelper) {
+            this.replaceViewportGuides(this.gridGroup.userData?.guideSize || this.desiredGuideSize());
+        }
+        this.domElement.dataset.viewportBackground = next;
+        this.requestRender();
+    }
+
+    atomDisplayMode() {
+        return this.displayOptions?.atomDisplayMode === '2d' ? '2d' : '3d';
+    }
+
+    effectiveBondStyle() {
+        return this.atomDisplayMode() === '2d'
+            ? 'flat'
+            : (this.displayOptions?.bondStyle === 'flat' ? 'flat' : 'cylinder');
+    }
+
     atomVisualRadius(index) {
         const symbol = this.atomsData?.symbols?.[index];
         const elementRadius = Number(this.displayOptions?.elementRadii?.[symbol]);
@@ -1094,6 +1132,14 @@ export class ASERenderer {
     }
 
     createAtomMaterial(color, isFixed = false) {
+        if (this.atomDisplayMode() === '2d') {
+            const material = new THREE.MeshBasicMaterial({
+                color: new THREE.Color(color),
+                toneMapped: false
+            });
+            if (isFixed) this.applyFixedAtomEtchedFlatShader(material);
+            return material;
+        }
         const spec = this.atomMaterialSpec(color, isFixed);
         const material = new THREE.MeshStandardMaterial({
             color: spec.color,
@@ -1106,6 +1152,57 @@ export class ASERenderer {
             opacity: 1.0
         });
         if (isFixed) this.applyFixedAtomEtchedShader(material);
+        return material;
+    }
+
+    createInstancedAtomMaterial(isFixed = false) {
+        if (this.atomDisplayMode() === '2d') {
+            const material = new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                toneMapped: false
+            });
+            if (isFixed) this.applyFixedAtomEtchedFlatShader(material);
+            return material;
+        }
+        const spec = this.atomMaterialSpec('#ffffff', isFixed);
+        const material = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            roughness: spec.roughness,
+            metalness: spec.metalness,
+            emissive: spec.emissive,
+            emissiveIntensity: spec.emissiveIntensity,
+            flatShading: spec.flatShading
+        });
+        if (isFixed) this.applyFixedAtomEtchedShader(material);
+        return material;
+    }
+
+    atomMaterialCacheKey(color, isFixed, atomSegments, instanced = false) {
+        const mode = this.atomDisplayMode();
+        return instanced
+            ? `unit-sphere:${mode}:${isFixed ? 'fixed' : 'normal'}:instanced`
+            : `${mode}:${color}:${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
+    }
+
+    applyFixedAtomEtchedFlatShader(material) {
+        if (!material || material.userData?.fixedEtchedFlatApplied) return material;
+        material.userData.fixedEtchedFlatApplied = true;
+        material.onBeforeCompile = shader => {
+            shader.fragmentShader = shader.fragmentShader.replace(
+                '#include <color_fragment>',
+                `
+                #include <color_fragment>
+                vec2 etchedUv = gl_FragCoord.xy * 0.022;
+                float etchedLineA = abs(fract(etchedUv.x * 14.0) - 0.5);
+                float etchedLineB = abs(fract(etchedUv.y * 11.0 + etchedUv.x * 0.5) - 0.5);
+                float etchedGrid = 1.0 - smoothstep(0.030, 0.082, min(etchedLineA, etchedLineB));
+                diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.30 + vec3(0.055), etchedGrid * 0.88);
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.74, 0.28), etchedGrid * 0.10);
+                `
+            );
+        };
+        material.customProgramCacheKey = () => 'v-ase-fixed-flat-micro-etched-v1';
+        material.needsUpdate = true;
         return material;
     }
 
@@ -1275,11 +1372,13 @@ export class ASERenderer {
         const half = guideSize / 2;
         const divisions = this.gridDivisionsForSize(guideSize);
         const gridGroup = new THREE.Group();
+        const lightViewport = this.viewportBackgroundMode === 'white';
         const grid = new THREE.GridHelper(guideSize, divisions,
-            cssColor('--neutral-600', '#56625e'), cssColor('--neutral-650', '#35403d'));
+            lightViewport ? '#7d8985' : cssColor('--neutral-600', '#56625e'),
+            lightViewport ? '#c8cecb' : cssColor('--neutral-650', '#35403d'));
         grid.rotation.x = Math.PI / 2;
         grid.material.transparent = true;
-        grid.material.opacity = 0.58;
+        grid.material.opacity = lightViewport ? 0.72 : 0.58;
         grid.userData = { guide: true, guideSize, divisions };
         gridGroup.add(grid);
 
@@ -1394,7 +1493,7 @@ export class ASERenderer {
                     new THREE.SphereGeometry(1, atomSegments, Math.max(8, Math.floor(atomSegments * 0.65)))
                 );
             }
-            const materialKey = `${color}:${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
+            const materialKey = this.atomMaterialCacheKey(color, isFixed, atomSegments);
             if (!this.materialCache.has(materialKey)) {
                 this.materialCache.set(materialKey, this.createAtomMaterial(color, isFixed));
             }
@@ -1446,7 +1545,7 @@ export class ASERenderer {
             const isFixed = fixed.has(i);
             const atomSegments = isFixed ? this.fixedAtomSegments(segmentCount) : segmentCount;
             const geometryKey = `unit-sphere:${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
-            const materialKey = `unit-sphere:${isFixed ? 'fixed' : 'normal'}:instanced`;
+            const materialKey = this.atomMaterialCacheKey('#ffffff', isFixed, atomSegments, true);
             const key = `${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
             if (!groups.has(key)) {
                 groups.set(key, { geometryKey, materialKey, fixed: isFixed, segments: atomSegments, indices: [] });
@@ -1462,17 +1561,7 @@ export class ASERenderer {
                 );
             }
             if (!this.materialCache.has(group.materialKey)) {
-                const spec = this.atomMaterialSpec('#ffffff', group.fixed);
-                const material = new THREE.MeshStandardMaterial({
-                    color: 0xffffff,
-                    roughness: spec.roughness,
-                    metalness: spec.metalness,
-                    emissive: spec.emissive,
-                    emissiveIntensity: spec.emissiveIntensity,
-                    flatShading: spec.flatShading
-                });
-                if (group.fixed) this.applyFixedAtomEtchedShader(material);
-                this.materialCache.set(group.materialKey, material);
+                this.materialCache.set(group.materialKey, this.createInstancedAtomMaterial(group.fixed));
             }
             const mesh = new THREE.InstancedMesh(
                 this.geometryCache.get(group.geometryKey),
@@ -2362,6 +2451,8 @@ export class ASERenderer {
         };
         const antiAliasingChanged = previous.antiAliasing !== this.displayOptions.antiAliasing;
         const sphereQualityChanged = previous.sphereQuality !== this.displayOptions.sphereQuality;
+        const atomDisplayModeChanged = previous.atomDisplayMode !== this.displayOptions.atomDisplayMode;
+        const viewportBackgroundChanged = previous.viewportBackground !== this.displayOptions.viewportBackground;
         const radiusChanged = previous.atomRadiusScale !== this.displayOptions.atomRadiusScale ||
             JSON.stringify(previous.elementRadii || {}) !== JSON.stringify(this.displayOptions.elementRadii || {});
         const colorChanged = JSON.stringify(previous.elementColors || {}) !== JSON.stringify(this.displayOptions.elementColors || {});
@@ -2382,6 +2473,10 @@ export class ASERenderer {
         if (previous.projectionMode !== this.displayOptions.projectionMode) {
             this.setProjectionMode(this.displayOptions.projectionMode);
         }
+        if (viewportBackgroundChanged || this.viewportBackgroundMode !== this.normalizedViewportBackground()) {
+            this.setViewportBackground(this.displayOptions.viewportBackground);
+        }
+        this.domElement.dataset.atomDisplayMode = this.atomDisplayMode();
         if (lightingChanged) this.setLightingOptions(this.displayOptions);
         if (!rebuild) {
             if (antiAliasingChanged) this.updateRenderQuality();
@@ -2393,7 +2488,7 @@ export class ASERenderer {
             return;
         }
         if (antiAliasingChanged) this.updateRenderQuality();
-        if (sphereQualityChanged || overlayChanged) {
+        if (sphereQualityChanged || overlayChanged || atomDisplayModeChanged) {
             if (this.atomsData) {
                 this.rebuildAtoms(this.atomsData, this.customColors);
             }
@@ -2416,6 +2511,7 @@ export class ASERenderer {
             previous.bondMode !== this.displayOptions.bondMode ||
             previous.bondCutoffScale !== this.displayOptions.bondCutoffScale ||
             previous.bondStyle !== this.displayOptions.bondStyle ||
+            atomDisplayModeChanged ||
             previous.bondThickness !== this.displayOptions.bondThickness ||
             previous.bondColorMode !== this.displayOptions.bondColorMode ||
             previous.bondCustomColor !== this.displayOptions.bondCustomColor ||
@@ -2510,7 +2606,7 @@ export class ASERenderer {
                     new THREE.SphereGeometry(1, atomSegments, Math.max(8, Math.floor(atomSegments * 0.65)))
                 );
             }
-            const materialKey = `${color}:${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
+            const materialKey = this.atomMaterialCacheKey(color, isFixed, atomSegments);
             if (!this.materialCache.has(materialKey)) {
                 this.materialCache.set(materialKey, this.createAtomMaterial(color, isFixed));
             }
@@ -2750,7 +2846,8 @@ export class ASERenderer {
         this.domElement.dataset.bondCount = '0';
         this.domElement.dataset.supercellBridgeBondCount = '0';
         this.domElement.dataset.periodicBonds = this.displayOptions.showPeriodicBonds ? 'true' : 'false';
-        this.domElement.dataset.bondStyle = this.displayOptions.bondStyle || 'cylinder';
+        this.domElement.dataset.bondStyle = this.effectiveBondStyle();
+        this.domElement.dataset.requestedBondStyle = this.displayOptions.bondStyle || 'cylinder';
         this.domElement.dataset.bondColorMode = this.displayOptions.bondColorMode || 'split';
         this.domElement.dataset.bondThickness = String(this.bondThickness());
         if (!this.displayOptions.showBonds || !this.atomsData) {
@@ -2772,7 +2869,7 @@ export class ASERenderer {
                 { i, j, t0: 0.5, t1: 1, colorIndex: j }
             ]
             : [{ i, j, t0: 0, t1: 1, colorIndex: null }]);
-        const flat = this.displayOptions.bondStyle === 'flat';
+        const flat = this.effectiveBondStyle() === 'flat';
         const segmentsByColor = new Map();
         segments.forEach(segment => {
             const color = this.bondSegmentColor(segment);
@@ -3149,7 +3246,7 @@ export class ASERenderer {
         }
         bond.visible = true;
         bond.position.copy(start).addScaledVector(delta, 0.5);
-        if (this.displayOptions.bondStyle === 'flat') {
+        if (this.effectiveBondStyle() === 'flat') {
             bond.scale.set(this.bondThickness(), length, 1);
             this.orientFlatBond(bond, delta);
         } else {
@@ -3197,7 +3294,7 @@ export class ASERenderer {
             return;
         }
         dummy.position.copy(start).addScaledVector(delta, 0.5);
-        if (this.displayOptions.bondStyle === 'flat') {
+        if (this.effectiveBondStyle() === 'flat') {
             dummy.scale.set(this.bondThickness(), length, 1);
             this.orientFlatBond(dummy, delta);
         } else {
@@ -3273,8 +3370,8 @@ export class ASERenderer {
             const color = this.atomVisualColor(index, this.customColors[index]);
             const perInstanceColor = this.useInstancedAtoms;
             const materialKey = perInstanceColor
-                ? `unit-sphere:${isFixed ? 'fixed' : 'normal'}:instanced`
-                : `${color}:${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
+                ? this.atomMaterialCacheKey('#ffffff', isFixed, atomSegments, true)
+                : this.atomMaterialCacheKey(color, isFixed, atomSegments);
             const key = perInstanceColor
                 ? `${isFixed ? 'fixed' : 'normal'}:${atomSegments}`
                 : materialKey;
@@ -3301,19 +3398,7 @@ export class ASERenderer {
             }
             if (!this.materialCache.has(group.materialKey)) {
                 const material = group.perInstanceColor
-                    ? (() => {
-                        const spec = this.atomMaterialSpec('#ffffff', group.isFixed);
-                        const instanced = new THREE.MeshStandardMaterial({
-                            color: 0xffffff,
-                            roughness: spec.roughness,
-                            metalness: spec.metalness,
-                            emissive: spec.emissive,
-                            emissiveIntensity: spec.emissiveIntensity,
-                            flatShading: spec.flatShading
-                        });
-                        if (group.isFixed) this.applyFixedAtomEtchedShader(instanced);
-                        return instanced;
-                    })()
+                    ? this.createInstancedAtomMaterial(group.isFixed)
                     : this.createAtomMaterial(group.color, group.isFixed);
                 this.materialCache.set(group.materialKey, material);
             }
@@ -3511,7 +3596,7 @@ export class ASERenderer {
                 { i, j, t0: 0.5, t1: 1, colorIndex: j }
             ]
             : [{ i, j, t0: 0, t1: 1, colorIndex: null }];
-        const flat = this.displayOptions.bondStyle === 'flat';
+        const flat = this.effectiveBondStyle() === 'flat';
         const instancesByColor = new Map();
         const addInstance = (segment, shift, imageOffset = null, bridge = false) => {
             const color = this.bondSegmentColor(segment);
@@ -4496,7 +4581,7 @@ export class ASERenderer {
 
     renderFrame() {
         this.controls.update();
-        if (this.displayOptions.bondStyle === 'flat') this.updateBondPositions();
+        if (this.effectiveBondStyle() === 'flat') this.updateBondPositions();
         this.syncSelectionOutlines();
         this.onFrame?.();
         this.updateViewLighting();

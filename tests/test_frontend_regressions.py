@@ -595,6 +595,32 @@ def test_frontend_renderer_uses_demand_rendering_and_large_scene_instancing():
     assert "orientationSignature" in main_js
 
 
+def test_camera_view_background_and_2d_display_controls_are_wired():
+    renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
+    main_js = (ROOT / "v_ase/static/main.js").read_text()
+    index_html = (ROOT / "v_ase/static/index.html").read_text()
+    style_css = (ROOT / "v_ase/static/style.css").read_text()
+
+    assert 'id="btn-view-toggle"' in index_html
+    assert 'id="view-rotate-step"' in index_html
+    assert 'data-view-rotate-axis="Z"' in index_html
+    assert 'data-view-align-axis="X"' in index_html
+    assert 'id="viewport-background"' in index_html
+    assert 'id="atom-display-mode"' in index_html
+    assert "setupViewControls()" in main_js
+    assert "rotateCameraView(axis, visualDegrees)" in main_js
+    assert "-THREE.MathUtils.degToRad(degrees)" in main_js
+    assert "setViewToAxis(axis, sign = 1)" in main_js
+    assert "viewportBackground: 'dark'" in main_js
+    assert "atomDisplayMode: '3d'" in main_js
+    assert "setViewportBackground(mode" in renderer_js
+    assert "effectiveBondStyle()" in renderer_js
+    assert "this.atomDisplayMode() === '2d'" in renderer_js
+    assert "new THREE.MeshBasicMaterial" in renderer_js
+    assert ".view-card" in style_css
+    assert ".view-turn-grid" in style_css
+
+
 def test_api_browser_close_and_python_view_autoclose_contract_are_wired():
     main_js = (ROOT / "v_ase/static/main.js").read_text()
     viewer_py = (ROOT / "v_ase/viewer.py").read_text()

@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from ase import Atoms
 from ase.build import molecule
+from ase.constraints import FixAtoms
 from ase.io import write
 from PIL import Image
 from playwright._impl._errors import Error as PlaywrightError
@@ -107,6 +108,9 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
                         elementBondCutoffs: {'H-H': 0.8, 'H-O': 1.4, 'O-O': 1.8},
                         supercell: [2, 1, 1],
                         projectionMode: 'orthographic',
+                        viewportBackground: 'white',
+                        atomDisplayMode: '2d',
+                        viewRotationStepDeg: 22.5,
                         lightingMode: 'rendered',
                         sunIntensity: 4.25,
                         sunPosition: [12, -5, 15],
@@ -151,6 +155,9 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
             assert after["display"]["bondMode"] == "element"
             assert after["display"]["atomRadiusScale"] == pytest.approx(1.35)
             assert after["display"]["supercell"] == [2, 1, 1]
+            assert after["display"]["viewportBackground"] == "white"
+            assert after["display"]["atomDisplayMode"] == "2d"
+            assert after["display"]["viewRotationStepDeg"] == pytest.approx(22.5)
             assert after["display"]["lightingMode"] == "rendered"
             assert after["display"]["sunIntensity"] == pytest.approx(4.25)
             assert after["display"]["sunPosition"] == [12, -5, 15]
@@ -2192,6 +2199,257 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
                 );
                 return [...selected].filter(value => value?.kind === 'replica').length;
             }""") == 6
+            browser.close()
+    finally:
+        sessions.pop(editor.session_id, None)
+
+
+def test_camera_toolbar_white_background_and_flat_2d_display():
+    atoms = molecule("H2O")
+    atoms.set_cell([8.0, 8.0, 8.0])
+    atoms.set_pbc(True)
+    atoms.set_constraint(FixAtoms(indices=[0]))
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        show_bonds=True,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.bondPairs?.length === 2")
+
+            toolbar_geometry = page.evaluate("""() => {
+                const calc = document.getElementById('calc-controls').getBoundingClientRect();
+                const trigger = document.getElementById('btn-view-toggle').getBoundingClientRect();
+                return {
+                    calcCenterY: calc.top + calc.height / 2,
+                    triggerCenterY: trigger.top + trigger.height / 2,
+                    triggerVisible: trigger.width > 0 && trigger.height > 0
+                };
+            }""")
+            assert toolbar_geometry["triggerVisible"] is True
+            assert toolbar_geometry["triggerCenterY"] == pytest.approx(
+                toolbar_geometry["calcCenterY"], abs=1
+            )
+
+            page.click("#btn-view-toggle")
+            assert page.locator("#view-card").is_visible()
+            card_geometry = page.locator("#view-card").evaluate("""element => {
+                const rect = element.getBoundingClientRect();
+                return {
+                    left: rect.left,
+                    top: rect.top,
+                    right: rect.right,
+                    bottom: rect.bottom,
+                    width: rect.width,
+                    viewportWidth: window.innerWidth,
+                    viewportHeight: window.innerHeight
+                };
+            }""")
+            assert card_geometry["width"] >= 300
+            assert card_geometry["left"] >= 0
+            assert card_geometry["top"] >= 0
+            assert card_geometry["right"] <= card_geometry["viewportWidth"]
+            assert card_geometry["bottom"] <= card_geometry["viewportHeight"]
+
+            page.click('[data-view-background="white"]')
+            page.wait_for_function(
+                "window.__ASE_APP__.state.display.viewportBackground === 'white'"
+            )
+            white_state = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const grid = app.renderer.gridGroup.children[0];
+                return {
+                    background: `#${app.renderer.scene.background.getHexString()}`,
+                    clear: `#${app.renderer.renderer.getClearColor(
+                        new app.renderer.scene.background.constructor()
+                    ).getHexString()}`,
+                    dataset: app.renderer.domElement.dataset.viewportBackground,
+                    sidebar: document.getElementById('viewport-background').value,
+                    gridOpacity: grid.material.opacity
+                };
+            }""")
+            assert white_state == {
+                "background": "#ffffff",
+                "clear": "#ffffff",
+                "dataset": "white",
+                "sidebar": "white",
+                "gridOpacity": pytest.approx(0.72),
+            }
+
+            page.click('[data-atom-display-mode="2d"]')
+            page.wait_for_function(
+                "window.__ASE_APP__.renderer.domElement.dataset.atomDisplayMode === '2d'"
+            )
+            page.wait_for_function(
+                "window.__ASE_APP__.renderer.domElement.dataset.bondStyle === 'flat'"
+            )
+            flat_state = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                return {
+                    mode: app.state.display.atomDisplayMode,
+                    requestedBondStyle: app.state.display.bondStyle,
+                    effectiveBondStyle: app.renderer.effectiveBondStyle(),
+                    atomMaterials: app.renderer.atomMeshes.children.map(
+                        mesh => mesh.material.type
+                    ),
+                    fixedFlatMaterialCount: app.renderer.atomMeshes.children.filter(
+                        mesh => mesh.userData.fixed
+                            && mesh.material.userData.fixedEtchedFlatApplied === true
+                    ).length,
+                    bondGeometry: app.renderer.bondGroup.children.map(
+                        mesh => mesh.geometry.type
+                    ),
+                    sidebar: document.getElementById('atom-display-mode').value
+                };
+            }""")
+            assert flat_state["mode"] == "2d"
+            assert flat_state["requestedBondStyle"] == "cylinder"
+            assert flat_state["effectiveBondStyle"] == "flat"
+            assert set(flat_state["atomMaterials"]) == {"MeshBasicMaterial"}
+            assert flat_state["fixedFlatMaterialCount"] == 1
+            assert set(flat_state["bondGeometry"]) == {"PlaneGeometry"}
+            assert flat_state["sidebar"] == "2d"
+
+            page.click('[data-atom-display-mode="3d"]')
+            page.wait_for_function(
+                "window.__ASE_APP__.renderer.domElement.dataset.atomDisplayMode === '3d'"
+            )
+            solid_state = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                return {
+                    atomMaterials: app.renderer.atomMeshes.children.map(
+                        mesh => mesh.material.type
+                    ),
+                    bondGeometry: app.renderer.bondGroup.children.map(
+                        mesh => mesh.geometry.type
+                    )
+                };
+            }""")
+            assert set(solid_state["atomMaterials"]) == {"MeshStandardMaterial"}
+            assert set(solid_state["bondGeometry"]) == {"CylinderGeometry"}
+
+            page.click('[data-view-align-axis="Z"][data-view-align-sign="1"]')
+            page.fill("#view-rotate-step", "45")
+            before_rotation = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const renderer = app.renderer;
+                const target = renderer.controls.target.clone();
+                const point = target.clone().add({x: 1, y: 0, z: 0});
+                const projected = point.project(renderer.camera);
+                return {
+                    positions: JSON.stringify(app.state.atoms.positions),
+                    cameraPosition: renderer.camera.position.toArray(),
+                    target: target.toArray(),
+                    projected: [
+                        projected.x * renderer.domElement.clientWidth,
+                        projected.y * renderer.domElement.clientHeight
+                    ]
+                };
+            }""")
+            assert math.degrees(math.atan2(
+                before_rotation["projected"][1],
+                before_rotation["projected"][0],
+            )) == pytest.approx(0, abs=1e-5)
+
+            page.click('[data-view-rotate-axis="Z"][data-view-rotate-sign="1"]')
+            rotated = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const renderer = app.renderer;
+                const target = renderer.controls.target.clone();
+                const point = target.clone().add({x: 1, y: 0, z: 0});
+                const projected = point.project(renderer.camera);
+                return {
+                    positions: JSON.stringify(app.state.atoms.positions),
+                    cameraPosition: renderer.camera.position.toArray(),
+                    cameraUp: renderer.camera.up.toArray(),
+                    projected: [
+                        projected.x * renderer.domElement.clientWidth,
+                        projected.y * renderer.domElement.clientHeight
+                    ],
+                    step: app.state.display.viewRotationStepDeg,
+                    saved: app.designSettingsSnapshot().display
+                };
+            }""")
+            assert rotated["positions"] == before_rotation["positions"]
+            assert rotated["cameraPosition"] == pytest.approx(
+                before_rotation["cameraPosition"], abs=1e-8
+            )
+            assert rotated["cameraUp"] == pytest.approx(
+                [math.sqrt(0.5), math.sqrt(0.5), 0], abs=1e-7
+            )
+            assert math.degrees(math.atan2(
+                rotated["projected"][1],
+                rotated["projected"][0],
+            )) == pytest.approx(45, abs=1e-5)
+            assert rotated["step"] == pytest.approx(45)
+            assert rotated["saved"]["viewportBackground"] == "white"
+            assert rotated["saved"]["atomDisplayMode"] == "3d"
+            assert rotated["saved"]["viewRotationStepDeg"] == pytest.approx(45)
+
+            for axis, expected_axis in (
+                ("X", [1, 0, 0]),
+                ("Y", [0, 1, 0]),
+                ("Z", [0, 0, 1]),
+            ):
+                for sign in (-1, 1):
+                    page.click(
+                        f'[data-view-align-axis="{axis}"][data-view-align-sign="{sign}"]'
+                    )
+                    aligned = page.evaluate("""() => {
+                        const renderer = window.__ASE_APP__.renderer;
+                        return renderer.camera.position.clone()
+                            .sub(renderer.controls.target).normalize().toArray();
+                    }""")
+                    assert aligned == pytest.approx(
+                        [sign * component for component in expected_axis],
+                        abs=1e-8,
+                    )
+
+            for axis in ("X", "Y", "Z"):
+                camera_before_pair = page.evaluate("""() => {
+                    const renderer = window.__ASE_APP__.renderer;
+                    return {
+                        position: renderer.camera.position.toArray(),
+                        up: renderer.camera.up.toArray()
+                    };
+                }""")
+                page.click(
+                    f'[data-view-rotate-axis="{axis}"][data-view-rotate-sign="1"]'
+                )
+                page.click(
+                    f'[data-view-rotate-axis="{axis}"][data-view-rotate-sign="-1"]'
+                )
+                camera_after_pair = page.evaluate("""() => {
+                    const renderer = window.__ASE_APP__.renderer;
+                    return {
+                        position: renderer.camera.position.toArray(),
+                        up: renderer.camera.up.toArray()
+                    };
+                }""")
+                assert camera_after_pair["position"] == pytest.approx(
+                    camera_before_pair["position"], abs=1e-8
+                )
+                assert camera_after_pair["up"] == pytest.approx(
+                    camera_before_pair["up"], abs=1e-8
+                )
+
+            assert page.evaluate(
+                "JSON.stringify(window.__ASE_APP__.state.atoms.positions)"
+            ) == before_rotation["positions"]
             browser.close()
     finally:
         sessions.pop(editor.session_id, None)
