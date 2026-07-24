@@ -601,24 +601,30 @@ def test_camera_view_background_and_2d_display_controls_are_wired():
     index_html = (ROOT / "v_ase/static/index.html").read_text()
     style_css = (ROOT / "v_ase/static/style.css").read_text()
 
-    assert 'id="btn-view-toggle"' in index_html
+    assert 'id="view-toolbar"' in index_html
     assert 'id="view-rotate-step"' in index_html
-    assert 'data-view-rotate-axis="Z"' in index_html
-    assert 'data-view-align-axis="X"' in index_html
+    for direction in ("left", "right", "up", "down", "roll-ccw", "roll-cw"):
+        assert f'data-view-rotate="{direction}"' in index_html
+    assert 'data-view-rotate-axis=' not in index_html
+    assert 'data-view-align-axis=' not in index_html
+    assert 'id="btn-view-toggle"' not in index_html
     assert 'id="viewport-background"' in index_html
     assert 'id="atom-display-mode"' in index_html
     assert "setupViewControls()" in main_js
-    assert "rotateCameraView(axis, visualDegrees)" in main_js
-    assert "-THREE.MathUtils.degToRad(degrees)" in main_js
-    assert "setViewToAxis(axis, sign = 1)" in main_js
+    assert "cameraViewBasis()" in main_js
+    assert "rotateCameraView(direction, stepDegrees" in main_js
+    assert "'roll-ccw': { axis: basis.forward, sign: 1 }" in main_js
     assert "viewportBackground: 'dark'" in main_js
     assert "atomDisplayMode: '3d'" in main_js
     assert "setViewportBackground(mode" in renderer_js
     assert "effectiveBondStyle()" in renderer_js
     assert "this.atomDisplayMode() === '2d'" in renderer_js
     assert "new THREE.MeshBasicMaterial" in renderer_js
-    assert ".view-card" in style_css
-    assert ".view-turn-grid" in style_css
+    assert "applyFlatAtomShader(material, isFixed)" in renderer_js
+    assert "material.userData.flatOutlineEnabled = outline" in renderer_js
+    assert "vec3(0.012)" in renderer_js
+    assert ".view-toolbar" in style_css
+    assert ".view-arrow-btn" in style_css
 
 
 def test_api_browser_close_and_python_view_autoclose_contract_are_wired():

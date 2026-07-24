@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.74&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.74&rev=1';
-import { ASESelection } from './selection.js?v=0.0.74&rev=1';
-import { ASETransform } from './transform.js?v=0.0.74&rev=1';
+import { ASEApi } from './api.js?v=0.0.75&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.75&rev=1';
+import { ASESelection } from './selection.js?v=0.0.75&rev=1';
+import { ASETransform } from './transform.js?v=0.0.75&rev=1';
 
 class VAseApp {
     constructor() {
@@ -616,12 +616,6 @@ class VAseApp {
         if (backgroundSelect && document.activeElement !== backgroundSelect) backgroundSelect.value = background;
         if (displaySelect && document.activeElement !== displaySelect) displaySelect.value = displayMode;
         if (stepInput && document.activeElement !== stepInput) stepInput.value = `${step}`;
-        document.querySelectorAll('[data-view-background]').forEach(button => {
-            button.setAttribute('aria-pressed', button.dataset.viewBackground === background ? 'true' : 'false');
-        });
-        document.querySelectorAll('[data-atom-display-mode]').forEach(button => {
-            button.setAttribute('aria-pressed', button.dataset.atomDisplayMode === displayMode ? 'true' : 'false');
-        });
         document.body.dataset.viewportBackground = background;
         document.body.dataset.atomDisplayMode = displayMode;
     }
@@ -652,75 +646,48 @@ class VAseApp {
         this.renderer.requestRender();
     }
 
-    rotateCameraView(axis, visualDegrees) {
-        const vectors = {
-            X: new THREE.Vector3(1, 0, 0),
-            Y: new THREE.Vector3(0, 1, 0),
-            Z: new THREE.Vector3(0, 0, 1)
-        };
-        const worldAxis = vectors[axis];
-        const degrees = Number(visualDegrees);
-        if (!worldAxis || !Number.isFinite(degrees) || Math.abs(degrees) < 1e-12) return;
+    cameraViewBasis() {
         const camera = this.renderer.camera;
         const target = this.renderer.controls.target.clone();
-        const inverseViewRotation = new THREE.Quaternion().setFromAxisAngle(
-            worldAxis,
-            -THREE.MathUtils.degToRad(degrees)
-        );
-        const offset = camera.position.clone().sub(target).applyQuaternion(inverseViewRotation);
-        camera.position.copy(target).add(offset);
-        camera.up.applyQuaternion(inverseViewRotation).normalize();
-        this.completeCameraViewChange('view-rotate');
-        this.toast(`View rotated ${degrees > 0 ? '+' : ''}${degrees.toFixed(2)} deg around ${axis}.`, 'success');
+        const offset = camera.position.clone().sub(target);
+        const backward = offset.clone().normalize();
+        const forward = backward.clone().negate();
+        let right = forward.clone().cross(camera.up).normalize();
+        if (right.lengthSq() < 1e-10) {
+            const fallbackUp = Math.abs(forward.z) < 0.9
+                ? new THREE.Vector3(0, 0, 1)
+                : new THREE.Vector3(0, 1, 0);
+            right = forward.clone().cross(fallbackUp).normalize();
+        }
+        const up = right.clone().cross(forward).normalize();
+        return { target, offset, forward, right, up };
     }
 
-    setViewToAxis(axis, sign = 1) {
-        const vectors = {
-            X: new THREE.Vector3(1, 0, 0),
-            Y: new THREE.Vector3(0, 1, 0),
-            Z: new THREE.Vector3(0, 0, 1)
+    rotateCameraView(direction, stepDegrees = this.state.display.viewRotationStepDeg) {
+        const degrees = this.normalizedViewRotationStep(stepDegrees);
+        const basis = this.cameraViewBasis();
+        const directions = {
+            left: { axis: basis.up, sign: -1 },
+            right: { axis: basis.up, sign: 1 },
+            up: { axis: basis.right, sign: -1 },
+            down: { axis: basis.right, sign: 1 },
+            'roll-ccw': { axis: basis.forward, sign: 1 },
+            'roll-cw': { axis: basis.forward, sign: -1 }
         };
-        const base = vectors[axis];
-        if (!base) return;
-        const normalizedSign = Number(sign) < 0 ? -1 : 1;
+        const rotation = directions[direction];
+        if (!rotation) return;
+        const viewRotation = new THREE.Quaternion().setFromAxisAngle(
+            rotation.axis,
+            rotation.sign * THREE.MathUtils.degToRad(degrees)
+        );
         const camera = this.renderer.camera;
-        const target = this.renderer.controls.target.clone();
-        const distance = Math.max(camera.position.distanceTo(target), 4);
-        camera.position.copy(target).addScaledVector(base, normalizedSign * distance);
-        camera.up.copy(axis === 'Z'
-            ? new THREE.Vector3(0, 1, 0)
-            : new THREE.Vector3(0, 0, 1));
-        this.completeCameraViewChange('view-align');
-        this.toast(`View aligned to ${normalizedSign > 0 ? '+' : '-'}${axis}.`, 'success');
+        const offset = basis.offset.applyQuaternion(viewRotation);
+        camera.position.copy(basis.target).add(offset);
+        camera.up.copy(basis.up).applyQuaternion(viewRotation).normalize();
+        this.completeCameraViewChange('view-rotate');
     }
 
     setupViewControls() {
-        const widget = document.getElementById('view-widget');
-        const card = document.getElementById('view-card');
-        const trigger = document.getElementById('btn-view-toggle');
-        const setOpen = open => {
-            card?.classList.toggle('hidden', !open);
-            trigger?.setAttribute('aria-expanded', open ? 'true' : 'false');
-            widget?.classList.toggle('open', open);
-        };
-        trigger?.addEventListener('click', event => {
-            event.stopPropagation();
-            setOpen(card?.classList.contains('hidden'));
-        });
-        document.getElementById('btn-view-close')?.addEventListener('click', () => setOpen(false));
-        document.addEventListener('pointerdown', event => {
-            if (!card?.classList.contains('hidden') && widget && !widget.contains(event.target)) setOpen(false);
-        });
-        document.querySelectorAll('[data-view-background]').forEach(button => {
-            button.addEventListener('click', () => {
-                this.applyViewDisplayOption('viewportBackground', button.dataset.viewBackground);
-            });
-        });
-        document.querySelectorAll('[data-atom-display-mode]').forEach(button => {
-            button.addEventListener('click', () => {
-                this.applyViewDisplayOption('atomDisplayMode', button.dataset.atomDisplayMode);
-            });
-        });
         document.getElementById('viewport-background')?.addEventListener('change', event => {
             this.applyViewDisplayOption('viewportBackground', event.target.value);
         });
@@ -736,19 +703,10 @@ class VAseApp {
         };
         stepInput?.addEventListener('change', commitStep);
         stepInput?.addEventListener('blur', commitStep);
-        document.querySelectorAll('[data-view-rotate-axis]').forEach(button => {
+        document.querySelectorAll('[data-view-rotate]').forEach(button => {
             button.addEventListener('click', () => {
                 commitStep();
-                const sign = Number(button.dataset.viewRotateSign) < 0 ? -1 : 1;
-                this.rotateCameraView(
-                    button.dataset.viewRotateAxis,
-                    sign * this.state.display.viewRotationStepDeg
-                );
-            });
-        });
-        document.querySelectorAll('[data-view-align-axis]').forEach(button => {
-            button.addEventListener('click', () => {
-                this.setViewToAxis(button.dataset.viewAlignAxis, Number(button.dataset.viewAlignSign));
+                this.rotateCameraView(button.dataset.viewRotate, this.state.display.viewRotationStepDeg);
             });
         });
         this.syncViewControls();

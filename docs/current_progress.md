@@ -1,6 +1,6 @@
 # v_ase Project Specification and Progress
 
-Last synchronized with implementation: `v_ase-gui 0.0.74`.
+Last synchronized with implementation: `v_ase-gui 0.0.75`.
 
 ## 1. Project Goal
 This project implements an interactive HTML-based structure editor for ASE `Atoms` objects.
@@ -167,14 +167,15 @@ overrides are not blindly copied to the new label.
 *   **Shift + Middle Drag**: Pan camera.
 *   **Wheel**: Zoom.
 *   **Left Click**: Select single atom.
-*   **Camera View Toolbar**: A top-row popover changes only the camera. It
-    accepts an exact degree step, applies signed world-axis view rotations, and
-    aligns directly to the six `+/-X`, `+/-Y`, and `+/-Z` views. Atomic
-    coordinates are never modified by these controls.
+*   **Camera View Toolbar**: Six always-visible arrow buttons change only the
+    camera relative to the current screen: left/right orbit, up/down orbit, and
+    counterclockwise/clockwise roll. An adjacent field sets the exact degree
+    step. Atomic coordinates are never modified by these controls.
 *   **Viewport Presentation**: Dark/white backgrounds and 3D-solid/2D-flat
-    display modes are mirrored between the top Camera View popover and the
-    Display inspector. Both settings persist in visual-settings JSON and
-    `.vase` projects.
+    display modes are controlled in the Display inspector. White-background 2D
+    atoms receive a black edge for contrast; dark-background 2D atoms remain
+    unoutlined. Both settings persist in visual-settings JSON and `.vase`
+    projects.
 
 ---
 
@@ -413,7 +414,7 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 4-5**: Selection Outlines, Interactive Bonds, Display Controls (Completed).
 *   [x] **Phase 6-8**: Copy/Paste Append, Export, Live Relaxation (Completed).
 *   [x] **Phase 9**: Jupyter IFrame Support (Completed).
-*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.74).
+*   [x] **Phase 10**: Focused Unit, API, Browser-Flow, and Packaging Tests (kept current through 0.0.75).
 *   [x] **Phase 11**: Manual Bonds, Grid, Image Export, and Trajectory Movie Controls.
 *   [x] **Phase 12**: LAMMPS dump/data parsing, custom atom-type labels, default visualization mode, Appearance panel editing, frame skip, and PyPI packaging.
 *   [x] **Phase 13**: Default repulsion calculator, optional torch/CUDA controls, CPU thread selection, and relaxation restart on interactive edits.
@@ -463,7 +464,8 @@ Each editor instance is assigned a unique `UUID` session. Multiple editors can r
 *   [x] **Phase 57**: Replaced WebM-only movie download with configurable H.264 MOV and MPEG-4 AVI export, shared Preview/PNG/video camera and scene capture, white movie backgrounds, bundled FFmpeg conversion, full-frame browser validation, and a concise user-facing README with regenerated 0.0.71 media.
 *   [x] **Phase 58**: Made one persistent image-export profile authoritative for Preview Area and PNG capture. Every image-dialog option now updates the preview immediately, survives settings/project save, and is verified against downloaded square, landscape, transparent, Studio Sun, soft-shadow, and Retina PNG output.
 *   [x] **Phase 59**: Unified optional unit-cell visibility across Blender, 3DM, OBJ, PNG, and video export; corrected CAD bond diameter semantics; added Rhino document/named camera views and block instancing; added an OBJ camera/metadata sidecar; and made large pairwise-cutoff CAD export use a spatial neighbor search.
-*   [x] **Phase 60**: Added a top-row camera-only view controller with exact signed axis steps and six-direction alignment, selectable dark/white live backgrounds with matched grid contrast, and a persistent GPU-batched 2D atom/flat-bond display mode.
+*   [x] **Phase 60**: Added selectable dark/white live backgrounds with matched grid contrast and a persistent GPU-batched 2D atom/flat-bond display mode.
+*   [x] **Phase 61**: Replaced the camera popover and world-axis labels with six direct VESTA-style arrow controls for screen-relative orbit and roll, retained exact degree steps, and added shader-based black atom edges only for white-background 2D display.
 
 ---
 

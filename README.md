@@ -95,11 +95,10 @@ v_ase gui structure.vasp --interactive
 The **?** button in the top bar shows the same shortcut reference inside the
 app.
 
-The **Camera View** button in the top bar changes only the camera. Set an exact
-degree step, rotate around `+/-X`, `+/-Y`, or `+/-Z`, or align directly to any
-of the six axis views. After aligning to `+Z`, a `+Z` step of `45 deg` rotates
-the visible structure counterclockwise by exactly 45 degrees without changing
-any atomic coordinate.
+The six arrow buttons in the top bar change only the camera. The straight
+arrows orbit left, right, up, or down relative to the current screen; the
+curved arrows roll the view counterclockwise or clockwise. The adjacent degree
+field sets the exact step. Atomic coordinates are never changed.
 
 ## Trajectories
 
@@ -202,9 +201,9 @@ v_ase gui examples/readme_scene_assets/ferrocene.traj --show-bonds --interactive
 The control panel provides:
 
 - orthographic or perspective projection;
-- exact camera-only axis rotation and six-direction view alignment;
+- current-view camera rotation with six direct arrow controls and an exact step;
 - dark or white live viewport backgrounds;
-- 3D solid or 2D flat atom-and-bond display;
+- 3D solid or 2D flat atom-and-bond display, with black atom outlines on white;
 - live atomic scale in px/Å;
 - Modeling, Studio Sun, and Sun + Soft Shadow rendering;
 - editable Sun brightness, source, and target;

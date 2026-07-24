@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.74&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.75&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.74';
+            : '/static/vendor/three.module.js?v=0.0.75';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -57,7 +57,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.74</span>
+            <span class="version">0.0.75</span>
         </div>
         <div class="status-group">
             <div class="status-item">
@@ -95,82 +95,48 @@
                 <label for="calc-cpus">CPU threads</label>
                 <select id="calc-cpus"></select>
             </div>
-            <div id="view-widget" class="view-widget">
-                <button id="btn-view-toggle" class="view-trigger" type="button" aria-expanded="false" aria-label="Open camera view controls" title="Camera view controls">
-                    <svg viewBox="0 0 32 32" aria-hidden="true">
-                        <circle class="view-orbit-ring" cx="16" cy="16" r="10.5"></circle>
-                        <path class="view-orbit-arrow" d="M7.1 11.2A10.5 10.5 0 0 1 22.8 7.8"></path>
-                        <path class="view-orbit-arrowhead" d="m21.2 4.9 2.2 3.5-4.1.3"></path>
-                        <circle class="view-orbit-object" cx="16" cy="16" r="4.1"></circle>
-                        <path class="view-orbit-axis" d="M16 11.9v8.2M11.9 16h8.2"></path>
+            <div id="view-toolbar" class="view-toolbar" role="group" aria-label="Camera rotation controls">
+                <button class="view-arrow-btn" type="button" data-view-rotate="left" aria-label="Orbit view left" title="Orbit view left">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M20 12H5"></path>
+                        <path d="m10 7-5 5 5 5"></path>
                     </svg>
                 </button>
-                <section id="view-card" class="view-card glass-panel hidden" aria-label="Camera view controls">
-                    <header class="view-card-head">
-                        <div>
-                            <strong>Camera View</strong>
-                            <span>View only</span>
-                        </div>
-                        <button id="btn-view-close" type="button" aria-label="Close camera view controls">&times;</button>
-                    </header>
-                    <div class="view-card-body">
-                        <div class="view-option-row">
-                            <span>Background</span>
-                            <div class="view-segmented" role="group" aria-label="Viewport background">
-                                <button type="button" data-view-background="dark" aria-pressed="true">
-                                    <span class="view-swatch dark" aria-hidden="true"></span>Dark
-                                </button>
-                                <button type="button" data-view-background="white" aria-pressed="false">
-                                    <span class="view-swatch white" aria-hidden="true"></span>White
-                                </button>
-                            </div>
-                        </div>
-                        <div class="view-option-row">
-                            <span>Display</span>
-                            <div class="view-segmented" role="group" aria-label="Atom and bond display">
-                                <button type="button" data-atom-display-mode="3d" aria-pressed="true">3D</button>
-                                <button type="button" data-atom-display-mode="2d" aria-pressed="false">2D</button>
-                            </div>
-                        </div>
-                        <label class="view-step-field" for="view-rotate-step">
-                            <span>Rotation step</span>
-                            <span class="view-number-field">
-                                <input id="view-rotate-step" type="number" min="0.1" max="360" step="0.1" value="15" inputmode="decimal">
-                                <span>deg</span>
-                            </span>
-                        </label>
-                        <div class="view-control-label">Rotate around world axis</div>
-                        <div class="view-turn-grid">
-                            <button type="button" data-view-rotate-axis="X" data-view-rotate-sign="-1" title="Rotate view -X">
-                                <span class="view-turn-glyph clockwise" aria-hidden="true"></span><small>-X</small>
-                            </button>
-                            <button type="button" data-view-rotate-axis="X" data-view-rotate-sign="1" title="Rotate view +X">
-                                <span class="view-turn-glyph" aria-hidden="true"></span><small>+X</small>
-                            </button>
-                            <button type="button" data-view-rotate-axis="Y" data-view-rotate-sign="-1" title="Rotate view -Y">
-                                <span class="view-turn-glyph clockwise" aria-hidden="true"></span><small>-Y</small>
-                            </button>
-                            <button type="button" data-view-rotate-axis="Y" data-view-rotate-sign="1" title="Rotate view +Y">
-                                <span class="view-turn-glyph" aria-hidden="true"></span><small>+Y</small>
-                            </button>
-                            <button type="button" data-view-rotate-axis="Z" data-view-rotate-sign="-1" title="Rotate view -Z">
-                                <span class="view-turn-glyph clockwise" aria-hidden="true"></span><small>-Z</small>
-                            </button>
-                            <button type="button" data-view-rotate-axis="Z" data-view-rotate-sign="1" title="Rotate view +Z">
-                                <span class="view-turn-glyph" aria-hidden="true"></span><small>+Z</small>
-                            </button>
-                        </div>
-                        <div class="view-control-label">Align view</div>
-                        <div class="view-align-grid">
-                            <button type="button" data-view-align-axis="X" data-view-align-sign="1">+X</button>
-                            <button type="button" data-view-align-axis="X" data-view-align-sign="-1">-X</button>
-                            <button type="button" data-view-align-axis="Y" data-view-align-sign="1">+Y</button>
-                            <button type="button" data-view-align-axis="Y" data-view-align-sign="-1">-Y</button>
-                            <button type="button" data-view-align-axis="Z" data-view-align-sign="1">+Z</button>
-                            <button type="button" data-view-align-axis="Z" data-view-align-sign="-1">-Z</button>
-                        </div>
-                    </div>
-                </section>
+                <button class="view-arrow-btn" type="button" data-view-rotate="right" aria-label="Orbit view right" title="Orbit view right">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 12h15"></path>
+                        <path d="m14 7 5 5-5 5"></path>
+                    </svg>
+                </button>
+                <button class="view-arrow-btn" type="button" data-view-rotate="up" aria-label="Orbit view up" title="Orbit view up">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M12 20V5"></path>
+                        <path d="m7 10 5-5 5 5"></path>
+                    </svg>
+                </button>
+                <button class="view-arrow-btn" type="button" data-view-rotate="down" aria-label="Orbit view down" title="Orbit view down">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M12 4v15"></path>
+                        <path d="m7 14 5 5 5-5"></path>
+                    </svg>
+                </button>
+                <span class="view-toolbar-divider" aria-hidden="true"></span>
+                <button class="view-arrow-btn" type="button" data-view-rotate="roll-ccw" aria-label="Roll view counterclockwise" title="Roll view counterclockwise">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M6.2 8.1A7.5 7.5 0 1 1 4.7 14"></path>
+                        <path d="M5 4.8v5h5"></path>
+                    </svg>
+                </button>
+                <button class="view-arrow-btn" type="button" data-view-rotate="roll-cw" aria-label="Roll view clockwise" title="Roll view clockwise">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M17.8 8.1A7.5 7.5 0 1 0 19.3 14"></path>
+                        <path d="M19 4.8v5h-5"></path>
+                    </svg>
+                </button>
+                <label class="view-step-compact" for="view-rotate-step" title="Camera rotation step">
+                    <input id="view-rotate-step" type="number" min="0.1" max="360" step="0.1" value="15" inputmode="decimal" aria-label="Camera rotation step in degrees">
+                    <span aria-hidden="true">&deg;</span>
+                </label>
             </div>
             <div id="lighting-widget" class="lighting-widget">
                 <button id="btn-lighting-toggle" class="lighting-trigger" type="button" aria-expanded="false" aria-label="Open render lighting settings" title="Render lighting settings">
@@ -786,7 +752,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.74&rev=1';
+            : './static/main.js?v=0.0.75&rev=1';
         import(modulePath);
     </script>
 </body>

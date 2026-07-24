@@ -1137,7 +1137,7 @@ export class ASERenderer {
                 color: new THREE.Color(color),
                 toneMapped: false
             });
-            if (isFixed) this.applyFixedAtomEtchedFlatShader(material);
+            this.applyFlatAtomShader(material, isFixed);
             return material;
         }
         const spec = this.atomMaterialSpec(color, isFixed);
@@ -1161,7 +1161,7 @@ export class ASERenderer {
                 color: 0xffffff,
                 toneMapped: false
             });
-            if (isFixed) this.applyFixedAtomEtchedFlatShader(material);
+            this.applyFlatAtomShader(material, isFixed);
             return material;
         }
         const spec = this.atomMaterialSpec('#ffffff', isFixed);
@@ -1179,29 +1179,81 @@ export class ASERenderer {
 
     atomMaterialCacheKey(color, isFixed, atomSegments, instanced = false) {
         const mode = this.atomDisplayMode();
+        const outline = mode === '2d' && this.viewportBackgroundMode === 'white'
+            ? 'outline'
+            : 'plain';
         return instanced
-            ? `unit-sphere:${mode}:${isFixed ? 'fixed' : 'normal'}:instanced`
-            : `${mode}:${color}:${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
+            ? `unit-sphere:${mode}:${outline}:${isFixed ? 'fixed' : 'normal'}:instanced`
+            : `${mode}:${outline}:${color}:${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
     }
 
-    applyFixedAtomEtchedFlatShader(material) {
-        if (!material || material.userData?.fixedEtchedFlatApplied) return material;
-        material.userData.fixedEtchedFlatApplied = true;
-        material.onBeforeCompile = shader => {
-            shader.fragmentShader = shader.fragmentShader.replace(
-                '#include <color_fragment>',
-                `
-                #include <color_fragment>
+    applyFlatAtomShader(material, isFixed = false) {
+        if (!material || material.userData?.flatAtomShaderApplied) return material;
+        const outline = this.viewportBackgroundMode === 'white';
+        material.userData.flatAtomShaderApplied = true;
+        material.userData.flatOutlineEnabled = outline;
+        material.userData.fixedEtchedFlatApplied = Boolean(isFixed);
+        const etchedCode = isFixed
+            ? `
                 vec2 etchedUv = gl_FragCoord.xy * 0.022;
                 float etchedLineA = abs(fract(etchedUv.x * 14.0) - 0.5);
                 float etchedLineB = abs(fract(etchedUv.y * 11.0 + etchedUv.x * 0.5) - 0.5);
                 float etchedGrid = 1.0 - smoothstep(0.030, 0.082, min(etchedLineA, etchedLineB));
                 diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.30 + vec3(0.055), etchedGrid * 0.88);
                 diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.74, 0.28), etchedGrid * 0.10);
+            `
+            : '';
+        const outlineCode = outline
+            ? `
+                float flatFacing = abs(normalize(vFlatViewNormal).z);
+                float flatEdgeAA = max(fwidth(flatFacing) * 1.35, 0.008);
+                float flatInterior = smoothstep(0.30 - flatEdgeAA, 0.42 + flatEdgeAA, flatFacing);
+                diffuseColor.rgb = mix(vec3(0.012), diffuseColor.rgb, flatInterior);
+            `
+            : '';
+        material.onBeforeCompile = shader => {
+            if (outline) {
+                shader.vertexShader = shader.vertexShader
+                    .replace(
+                        '#include <common>',
+                        '#include <common>\nvarying vec3 vFlatViewNormal;'
+                    )
+                    .replace(
+                        '#include <begin_vertex>',
+                        `
+                        vec3 vAseFlatObjectNormal = normal;
+                        #ifdef USE_INSTANCING
+                            mat3 vAseFlatInstanceNormal = mat3(instanceMatrix);
+                            vAseFlatObjectNormal /= vec3(
+                                dot(vAseFlatInstanceNormal[0], vAseFlatInstanceNormal[0]),
+                                dot(vAseFlatInstanceNormal[1], vAseFlatInstanceNormal[1]),
+                                dot(vAseFlatInstanceNormal[2], vAseFlatInstanceNormal[2])
+                            );
+                            vAseFlatObjectNormal = vAseFlatInstanceNormal * vAseFlatObjectNormal;
+                        #endif
+                        vFlatViewNormal = normalize(normalMatrix * vAseFlatObjectNormal);
+                        #include <begin_vertex>
+                        `
+                    );
+                shader.fragmentShader = shader.fragmentShader.replace(
+                    '#include <common>',
+                    '#include <common>\nvarying vec3 vFlatViewNormal;'
+                );
+            }
+            shader.fragmentShader = shader.fragmentShader.replace(
+                '#include <color_fragment>',
+                `
+                #include <color_fragment>
+                ${etchedCode}
+                ${outlineCode}
                 `
             );
         };
-        material.customProgramCacheKey = () => 'v-ase-fixed-flat-micro-etched-v1';
+        material.customProgramCacheKey = () => [
+            'v-ase-flat-atom-v2',
+            isFixed ? 'fixed' : 'normal',
+            outline ? 'outline' : 'plain'
+        ].join(':');
         material.needsUpdate = true;
         return material;
     }
@@ -2453,6 +2505,9 @@ export class ASERenderer {
         const sphereQualityChanged = previous.sphereQuality !== this.displayOptions.sphereQuality;
         const atomDisplayModeChanged = previous.atomDisplayMode !== this.displayOptions.atomDisplayMode;
         const viewportBackgroundChanged = previous.viewportBackground !== this.displayOptions.viewportBackground;
+        const flatOutlineChanged = viewportBackgroundChanged && (
+            previous.atomDisplayMode === '2d' || this.displayOptions.atomDisplayMode === '2d'
+        );
         const radiusChanged = previous.atomRadiusScale !== this.displayOptions.atomRadiusScale ||
             JSON.stringify(previous.elementRadii || {}) !== JSON.stringify(this.displayOptions.elementRadii || {});
         const colorChanged = JSON.stringify(previous.elementColors || {}) !== JSON.stringify(this.displayOptions.elementColors || {});
@@ -2488,7 +2543,7 @@ export class ASERenderer {
             return;
         }
         if (antiAliasingChanged) this.updateRenderQuality();
-        if (sphereQualityChanged || overlayChanged || atomDisplayModeChanged) {
+        if (sphereQualityChanged || overlayChanged || atomDisplayModeChanged || flatOutlineChanged) {
             if (this.atomsData) {
                 this.rebuildAtoms(this.atomsData, this.customColors);
             }

@@ -2227,45 +2227,49 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             except PlaywrightError as exc:
                 pytest.skip(f"Playwright Chromium is not installed: {exc}")
             page = browser.new_page(viewport={"width": 1440, "height": 900})
+            console_errors = []
+            page.on(
+                "console",
+                lambda message: console_errors.append(message.text)
+                if message.type == "error"
+                else None,
+            )
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
             page.wait_for_function("window.__ASE_APP__?.renderer?.bondPairs?.length === 2")
 
             toolbar_geometry = page.evaluate("""() => {
                 const calc = document.getElementById('calc-controls').getBoundingClientRect();
-                const trigger = document.getElementById('btn-view-toggle').getBoundingClientRect();
+                const toolbar = document.getElementById('view-toolbar').getBoundingClientRect();
+                const arrows = [...document.querySelectorAll('[data-view-rotate]')];
                 return {
                     calcCenterY: calc.top + calc.height / 2,
-                    triggerCenterY: trigger.top + trigger.height / 2,
-                    triggerVisible: trigger.width > 0 && trigger.height > 0
+                    toolbarCenterY: toolbar.top + toolbar.height / 2,
+                    toolbarVisible: toolbar.width > 0 && toolbar.height > 0,
+                    toolbarLeft: toolbar.left,
+                    toolbarRight: toolbar.right,
+                    viewportWidth: window.innerWidth,
+                    arrowCount: arrows.length,
+                    arrowText: arrows.map(button => button.textContent.trim()),
+                    popupExists: Boolean(
+                        document.getElementById('btn-view-toggle')
+                        || document.getElementById('view-card')
+                    )
                 };
             }""")
-            assert toolbar_geometry["triggerVisible"] is True
-            assert toolbar_geometry["triggerCenterY"] == pytest.approx(
+            assert toolbar_geometry["toolbarVisible"] is True
+            assert toolbar_geometry["toolbarCenterY"] == pytest.approx(
                 toolbar_geometry["calcCenterY"], abs=1
             )
+            assert toolbar_geometry["toolbarLeft"] >= 0
+            assert toolbar_geometry["toolbarRight"] <= toolbar_geometry["viewportWidth"]
+            assert toolbar_geometry["arrowCount"] == 6
+            assert toolbar_geometry["arrowText"] == [""] * 6
+            assert toolbar_geometry["popupExists"] is False
 
-            page.click("#btn-view-toggle")
-            assert page.locator("#view-card").is_visible()
-            card_geometry = page.locator("#view-card").evaluate("""element => {
-                const rect = element.getBoundingClientRect();
-                return {
-                    left: rect.left,
-                    top: rect.top,
-                    right: rect.right,
-                    bottom: rect.bottom,
-                    width: rect.width,
-                    viewportWidth: window.innerWidth,
-                    viewportHeight: window.innerHeight
-                };
-            }""")
-            assert card_geometry["width"] >= 300
-            assert card_geometry["left"] >= 0
-            assert card_geometry["top"] >= 0
-            assert card_geometry["right"] <= card_geometry["viewportWidth"]
-            assert card_geometry["bottom"] <= card_geometry["viewportHeight"]
-
-            page.click('[data-view-background="white"]')
+            _expand_inspector(page)
+            page.click('[data-inspector-group="display"]')
+            page.select_option("#viewport-background", "white")
             page.wait_for_function(
                 "window.__ASE_APP__.state.display.viewportBackground === 'white'"
             )
@@ -2290,7 +2294,7 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                 "gridOpacity": pytest.approx(0.72),
             }
 
-            page.click('[data-atom-display-mode="2d"]')
+            page.select_option("#atom-display-mode", "2d")
             page.wait_for_function(
                 "window.__ASE_APP__.renderer.domElement.dataset.atomDisplayMode === '2d'"
             )
@@ -2310,6 +2314,10 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                         mesh => mesh.userData.fixed
                             && mesh.material.userData.fixedEtchedFlatApplied === true
                     ).length,
+                    outlineMaterialCount: app.renderer.atomMeshes.children.filter(
+                        mesh => mesh.material.userData.flatOutlineEnabled === true
+                    ).length,
+                    atomMeshCount: app.renderer.atomMeshes.children.length,
                     bondGeometry: app.renderer.bondGroup.children.map(
                         mesh => mesh.geometry.type
                     ),
@@ -2321,10 +2329,29 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             assert flat_state["effectiveBondStyle"] == "flat"
             assert set(flat_state["atomMaterials"]) == {"MeshBasicMaterial"}
             assert flat_state["fixedFlatMaterialCount"] == 1
+            assert flat_state["outlineMaterialCount"] == flat_state["atomMeshCount"]
             assert set(flat_state["bondGeometry"]) == {"PlaneGeometry"}
             assert flat_state["sidebar"] == "2d"
+            page.wait_for_timeout(150)
+            assert not [
+                message
+                for message in console_errors
+                if "Shader Error" in message or "WebGLProgram" in message
+            ]
 
-            page.click('[data-atom-display-mode="3d"]')
+            page.select_option("#viewport-background", "dark")
+            page.wait_for_function(
+                "window.__ASE_APP__.state.display.viewportBackground === 'dark'"
+            )
+            assert page.evaluate("""() => window.__ASE_APP__.renderer.atomMeshes.children.every(
+                mesh => mesh.material.userData.flatOutlineEnabled === false
+            )""") is True
+
+            page.select_option("#viewport-background", "white")
+            page.wait_for_function(
+                "window.__ASE_APP__.state.display.viewportBackground === 'white'"
+            )
+            page.select_option("#atom-display-mode", "3d")
             page.wait_for_function(
                 "window.__ASE_APP__.renderer.domElement.dataset.atomDisplayMode === '3d'"
             )
@@ -2342,7 +2369,15 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             assert set(solid_state["atomMaterials"]) == {"MeshStandardMaterial"}
             assert set(solid_state["bondGeometry"]) == {"CylinderGeometry"}
 
-            page.click('[data-view-align-axis="Z"][data-view-align-sign="1"]')
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const camera = app.renderer.camera;
+                const target = app.renderer.controls.target;
+                const distance = Math.max(camera.position.distanceTo(target), 4);
+                camera.position.set(target.x, target.y, target.z + distance);
+                camera.up.set(0, 1, 0);
+                app.completeCameraViewChange('test-top-view');
+            }""")
             page.fill("#view-rotate-step", "45")
             before_rotation = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
@@ -2365,7 +2400,7 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                 before_rotation["projected"][0],
             )) == pytest.approx(0, abs=1e-5)
 
-            page.click('[data-view-rotate-axis="Z"][data-view-rotate-sign="1"]')
+            page.click('[data-view-rotate="roll-ccw"]')
             rotated = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
                 const renderer = app.renderer;
@@ -2400,26 +2435,34 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             assert rotated["saved"]["atomDisplayMode"] == "3d"
             assert rotated["saved"]["viewRotationStepDeg"] == pytest.approx(45)
 
-            for axis, expected_axis in (
-                ("X", [1, 0, 0]),
-                ("Y", [0, 1, 0]),
-                ("Z", [0, 0, 1]),
-            ):
-                for sign in (-1, 1):
-                    page.click(
-                        f'[data-view-align-axis="{axis}"][data-view-align-sign="{sign}"]'
-                    )
-                    aligned = page.evaluate("""() => {
-                        const renderer = window.__ASE_APP__.renderer;
-                        return renderer.camera.position.clone()
-                            .sub(renderer.controls.target).normalize().toArray();
-                    }""")
-                    assert aligned == pytest.approx(
-                        [sign * component for component in expected_axis],
-                        abs=1e-8,
-                    )
+            page.click('[data-view-rotate="roll-cw"]')
+            camera_after_roll_pair = page.evaluate("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                return {
+                    position: renderer.camera.position.toArray(),
+                    up: renderer.camera.up.toArray()
+                };
+            }""")
+            assert camera_after_roll_pair["position"] == pytest.approx(
+                before_rotation["cameraPosition"], abs=1e-8
+            )
+            assert camera_after_roll_pair["up"] == pytest.approx([0, 1, 0], abs=1e-8)
 
-            for axis in ("X", "Y", "Z"):
+            for first, inverse, component, expected_sign in (
+                ("left", "right", 0, -1),
+                ("right", "left", 0, 1),
+                ("up", "down", 1, 1),
+                ("down", "up", 1, -1),
+            ):
+                page.evaluate("""() => {
+                    const app = window.__ASE_APP__;
+                    const camera = app.renderer.camera;
+                    const target = app.renderer.controls.target;
+                    const distance = Math.max(camera.position.distanceTo(target), 4);
+                    camera.position.set(target.x, target.y, target.z + distance);
+                    camera.up.set(0, 1, 0);
+                    app.completeCameraViewChange('test-top-view');
+                }""")
                 camera_before_pair = page.evaluate("""() => {
                     const renderer = window.__ASE_APP__.renderer;
                     return {
@@ -2427,12 +2470,14 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                         up: renderer.camera.up.toArray()
                     };
                 }""")
-                page.click(
-                    f'[data-view-rotate-axis="{axis}"][data-view-rotate-sign="1"]'
-                )
-                page.click(
-                    f'[data-view-rotate-axis="{axis}"][data-view-rotate-sign="-1"]'
-                )
+                page.click(f'[data-view-rotate="{first}"]')
+                moved_direction = page.evaluate("""() => {
+                    const renderer = window.__ASE_APP__.renderer;
+                    return renderer.camera.position.clone()
+                        .sub(renderer.controls.target).normalize().toArray();
+                }""")
+                assert moved_direction[component] * expected_sign > 0.6
+                page.click(f'[data-view-rotate="{inverse}"]')
                 camera_after_pair = page.evaluate("""() => {
                     const renderer = window.__ASE_APP__.renderer;
                     return {
