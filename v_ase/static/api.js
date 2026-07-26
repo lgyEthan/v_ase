@@ -188,6 +188,28 @@ export class ASEApi {
         if (path.includes('/api/atoms/')) {
             return await this.mockResponse(this.mockState.atoms);
         }
+        if (path.includes('/api/mode/')) {
+            const payload = JSON.parse(options.body || '{}');
+            if (Array.isArray(payload.labels) && payload.labels.length === this.mockState.atoms.symbols.length) {
+                this.mockState.atoms.symbols = [...payload.labels];
+            }
+            if (
+                Array.isArray(payload.chemical_symbols)
+                && payload.chemical_symbols.length === this.mockState.atoms.symbols.length
+            ) {
+                this.mockState.atoms.chemical_symbols = [...payload.chemical_symbols];
+                this.mockState.atoms.visual = this.mockVisualForSymbols(payload.chemical_symbols);
+            }
+            if (Array.isArray(payload.positions) && payload.positions.length === this.mockState.atoms.symbols.length) {
+                this.mockState.atoms.positions = payload.positions.map(position => [...position]);
+            }
+            this.mockState.atoms.metadata.config.viz_only = Boolean(payload.viz_only);
+            if (!payload.viz_only) {
+                this.mockState.atoms.metadata.has_calculator = true;
+                this.mockState.atoms.metadata.calculator = 'Repulsion';
+            }
+            return await this.mockResponse(this.mockState.atoms);
+        }
         if (path.includes('/api/constrain/')) {
             const payload = JSON.parse(options.body || '{}');
             return { positions: payload.positions || this.mockState.atoms.positions };
@@ -384,7 +406,7 @@ export class ASEApi {
             this.mockState.atoms.metadata.natoms = this.mockState.atoms.positions.length;
             return await this.mockResponse(this.mockState.atoms);
         }
-        if (path.includes('/api/atom-types/')) {
+        if (path.includes('/api/atom-identity/') || path.includes('/api/atom-types/')) {
             const payload = JSON.parse(options.body || '{}');
             const indices = (payload.indices || []).map(Number);
             const label = String(payload.label || '').trim();
@@ -397,7 +419,9 @@ export class ASEApi {
                     if (baseSymbol) this.mockState.atoms.chemical_symbols[idx] = baseSymbol;
                 }
             });
-            this.mockState.atoms.visual = this.mockVisualForSymbols(this.mockState.atoms.symbols);
+            this.mockState.atoms.visual = this.mockVisualForSymbols(
+                this.mockState.atoms.chemical_symbols
+            );
             return await this.mockResponse(this.mockState.atoms);
         }
         if (path.includes('/api/constraints/')) {
@@ -504,6 +528,13 @@ export class ASEApi {
 
     async fetchAtoms() {
         return await this.request(`/api/atoms/{session_id}`);
+    }
+
+    async updateSessionMode(vizOnly, identities = {}) {
+        return await this.jsonPost(`/api/mode/{session_id}`, {
+            viz_only: Boolean(vizOnly),
+            ...identities
+        });
     }
 
     async fetchTrajectoryPositions() {

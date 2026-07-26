@@ -2,6 +2,12 @@
 
 The visualizer is designed to be familiar to Blender users.
 
+Use the top-bar **View / Edit** switch to change between lightweight
+visualization and ASE-backed structural editing without reopening the file.
+View applies materials by label. Edit can apply Standard, Metal, or Rubber to
+individual selected atoms and can merge them into an existing label by entering
+that exact label.
+
 ## Mouse Controls
 - **Left Click**: Select an atom or the visible Sun light object.
 - **Left Click during G/R transform**: Confirm the current transform.

@@ -2115,6 +2115,73 @@ def test_large_scene_neighbor_cache_keeps_live_bond_topology_exact():
         editor.close()
 
 
+def test_15000_atom_view_keeps_material_presets_instanced_and_renders_under_five_seconds():
+    shape = (25, 25, 24)
+    positions = np.indices(shape).reshape(3, -1).T.astype(float) * 1.8
+    atoms = Atoms(
+        numbers=np.full(len(positions), 6, dtype=int),
+        positions=positions,
+        cell=np.asarray(shape, dtype=float) * 1.8,
+        pbc=True,
+    )
+    set_atom_labels(atoms, ["C_bulk"] * len(atoms))
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            started = time.perf_counter()
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 15000",
+                timeout=15_000,
+            )
+            first_render_seconds = time.perf_counter() - started
+            print(f"V_ASE_15000_ATOM_FIRST_RENDER_SECONDS={first_render_seconds:.3f}")
+            initial = page.evaluate("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                return {
+                    groups: renderer.atomMeshes.children.length,
+                    instances: renderer.atomMeshes.children.reduce(
+                        (total, mesh) => total + (mesh.isInstancedMesh ? mesh.count : 1),
+                        0
+                    ),
+                    pixelRatio: renderer.renderer.getPixelRatio(),
+                };
+            }""")
+            assert first_render_seconds < 5.0
+            assert initial["groups"] == 1
+            assert initial["instances"] == 15_000
+            assert initial["pixelRatio"] <= 1
+
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.state.display.labelMaterials.C_bulk = 'metal';
+                app.renderer.setDisplayOptions(app.state.display);
+            }""")
+            page.wait_for_function("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                return renderer.atomMeshes.children.length === 1
+                    && renderer.atomMeshes.children[0].count === 15000
+                    && Math.abs(renderer.atomMeshes.children[0].material.metalness - 0.68) < 1e-6;
+            }""")
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_bond_style_thickness_and_color_modes_render_and_persist():
     atoms = Atoms(
         "HO",
@@ -2390,11 +2457,11 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
             label_input.press('Enter')
             page.wait_for_function("""() => {
                 const labels = window.__ASE_APP__.state.atoms.symbols;
-                return labels[0] === 'Cu' && labels[1] === 'Cu_2';
+                return labels[0] === 'Cu' && labels[1] === 'Cu';
             }""")
             toasts = page.locator('#toast-container .toast').all_inner_texts()
-            assert sum('already exists' in text for text in toasts) == 1
-            assert sum('Renamed Cu2 to Cu_2' in text for text in toasts) == 1
+            assert all('already exists' not in text for text in toasts)
+            assert sum('Merged Cu2 into label Cu' in text for text in toasts) == 1
             assert all('atoms found' not in text for text in toasts)
 
             page.click('[data-inspector-group="structure"]')
@@ -2531,6 +2598,143 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
                 );
                 return [...selected].filter(value => value?.kind === 'replica').length;
             }""") == 6
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_runtime_mode_switch_merges_labels_and_splits_only_material_variants():
+    atoms = Atoms(
+        "C3",
+        positions=[[0.0, 0.0, 0.0], [1.6, 0.0, 0.0], [3.2, 0.0, 0.0]],
+        cell=[8.0, 8.0, 8.0],
+        pbc=True,
+    )
+    set_atom_labels(atoms, ["C_a", "C_b", "C_b"])
+    original_positions = atoms.positions.tolist()
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            console_errors = []
+            page.on(
+                "console",
+                lambda message: console_errors.append(message.text)
+                if message.type == "error" else None,
+            )
+            page.on(
+                "pageerror",
+                lambda error: console_errors.append(
+                    f"pageerror: {error}\n{getattr(error, 'stack', '')}"
+                ),
+            )
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            try:
+                page.wait_for_function(
+                    "window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3",
+                    timeout=8_000,
+                )
+            except PlaywrightError as exc:
+                pytest.fail(f"v_ase did not initialize: {console_errors!r}; {exc}")
+
+            assert page.locator('[data-runtime-mode="view"]').get_attribute("aria-pressed") == "true"
+            _expand_inspector(page)
+            page.click('[data-inspector-group="display"]')
+            _open_panel(page, "appearance")
+            page.select_option(
+                '.appearance-material-select[data-atom-label="C_b"]',
+                "metal",
+            )
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.state.display.labelMaterials.C_b === 'metal'
+                    && Math.abs(app.renderer.atomMeshByIndex.get(1).material.metalness - 0.68) < 1e-6;
+            }""")
+
+            page.click('[data-runtime-mode="edit"]')
+            page.wait_for_function("""() =>
+                window.__ASE_APP__.state.vizOnly === false
+                && document.querySelector('[data-runtime-mode="edit"]').getAttribute('aria-pressed') === 'true'
+            """)
+            assert page.locator("#selected-appearance").is_visible()
+
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection();
+                app.state.selected.add(0);
+                app.updateSelectionVisuals();
+                app.updateUI();
+            }""")
+            page.fill("#selected-atom-label", "C_b")
+            page.click("#btn-apply-selected-label")
+            page.wait_for_function("""() =>
+                window.__ASE_APP__.state.atoms.symbols.every(label => label === 'C_b')
+            """)
+            assert page.locator("#toast-container").inner_text().count(
+                "Merged selected atoms into label C_b"
+            ) == 1
+
+            page.select_option("#selected-atom-material", "rubber")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                const material = app.renderer.atomMeshByIndex.get(0).material;
+                return app.state.display.atomMaterials['0'] === 'rubber'
+                    && Math.abs(material.roughness - 0.88) < 1e-6
+                    && Math.abs(material.metalness) < 1e-6;
+            }""")
+
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.state.atoms.positions[2][1] = 0.35;
+                app.renderer.updatePositions(app.state.atoms.positions);
+            }""")
+            page.click('[data-runtime-mode="view"]')
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.state.vizOnly === true
+                    && app.state.atoms.symbols.join(',') === 'C_b_2,C_b,C_b'
+                    && Object.keys(app.state.display.atomMaterials).length === 0
+                    && app.state.display.labelMaterials.C_b === 'metal'
+                    && app.state.display.labelMaterials.C_b_2 === 'rubber';
+            }""")
+            switched = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                return {
+                    positions: app.state.atoms.positions,
+                    selected: [...app.state.selected],
+                    materials: [0, 1, 2].map(index => ({
+                        roughness: app.renderer.atomMeshByIndex.get(index).material.roughness,
+                        metalness: app.renderer.atomMeshByIndex.get(index).material.metalness,
+                    })),
+                };
+            }""")
+            expected_positions = np.asarray(original_positions, dtype=float)
+            expected_positions[2, 1] = 0.35
+            assert np.allclose(switched["positions"], expected_positions)
+            assert switched["selected"] == [0]
+            assert switched["materials"][0]["roughness"] == pytest.approx(0.88)
+            assert switched["materials"][1]["metalness"] == pytest.approx(0.68)
+            assert switched["materials"][2]["metalness"] == pytest.approx(0.68)
+
+            page.click('[data-runtime-mode="edit"]')
+            page.wait_for_function("""() =>
+                window.__ASE_APP__.state.vizOnly === false
+                && window.__ASE_APP__.state.atoms.symbols.join(',') === 'C_b_2,C_b,C_b'
+            """)
+            assert not [message for message in console_errors if "favicon" not in message]
             browser.close()
     finally:
         editor.close()
@@ -2698,7 +2902,7 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                     )
                 };
             }""")
-            assert set(solid_state["atomMaterials"]) == {"MeshStandardMaterial"}
+            assert set(solid_state["atomMaterials"]) == {"MeshPhysicalMaterial"}
             assert set(solid_state["bondGeometry"]) == {"CylinderGeometry"}
 
             page.evaluate("""() => {

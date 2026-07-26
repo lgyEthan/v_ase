@@ -37,6 +37,10 @@ class EditorSession:
     websockets: List[Any] = field(default_factory=list)
     config: Dict[str, Any] = field(default_factory=dict)
     temporary_files: Set[str] = field(default_factory=set, repr=False)
+    mode_transition_lock: threading.RLock = field(
+        default_factory=threading.RLock,
+        repr=False,
+    )
     _trajectory_layout_compatible: Optional[bool] = field(
         default=None,
         repr=False,

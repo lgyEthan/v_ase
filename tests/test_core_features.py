@@ -641,6 +641,12 @@ def test_vase_project_roundtrip_restores_trajectory_edits_constraints_and_settin
             "sunPosition": [11, -7, 16],
             "sunTarget": [1, 2, 3],
             "supercell": [2, 1, 1],
+            "labelMaterials": {
+                "O_surface": "metal",
+                "H_a": "standard",
+                "H_b": "standard",
+            },
+            "atomMaterials": {"2": "rubber"},
         },
     }
 
@@ -665,6 +671,8 @@ def test_vase_project_roundtrip_restores_trajectory_edits_constraints_and_settin
     np.testing.assert_allclose(target.working_atoms.get_forces(apply_constraint=False), 0.2)
     assert loaded["project"]["settings"]["display"]["sunIntensity"] == 3.75
     assert loaded["project"]["settings"]["display"]["supercell"] == [2, 1, 1]
+    assert loaded["project"]["settings"]["display"]["labelMaterials"]["O_surface"] == "metal"
+    assert loaded["project"]["settings"]["display"]["atomMaterials"] == {"2": "rubber"}
     asyncio.run(response.background())
 
 

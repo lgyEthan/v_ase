@@ -5,6 +5,7 @@ import tomllib
 
 from ase.build import molecule
 from fastapi import HTTPException
+import numpy as np
 import pytest
 
 from v_ase.server import (
@@ -19,6 +20,7 @@ from v_ase.server import (
     update_calculator,
     update_constraints,
     update_atom_identity,
+    update_session_mode,
     value_error_handler,
 )
 import v_ase.server as server_module
@@ -72,7 +74,7 @@ def test_ui_button_api_endpoints_respond_without_network_server():
     assert numeric["symbols"][1] == "2"
     assert numeric["chemical_symbols"][1] == "Si"
     duplicate = asyncio.run(update_atom_identity(session.session_id, {"indices": [2], "label": "surface_site", "base_symbol": "H"}))
-    assert duplicate["symbols"][2] == "surface_site_2"
+    assert duplicate["symbols"][0] == duplicate["symbols"][2] == "surface_site"
     assert duplicate["chemical_symbols"][2] == "H"
     added = asyncio.run(add_atoms(session.session_id, {
         "symbol": "adsorbate_site",
@@ -119,13 +121,49 @@ def test_viz_only_session_blocks_atom_editing_api_calls():
         asyncio.run(apply_positions(session.session_id, {"positions": atoms.positions.tolist()}))
 
     assert excinfo.value.status_code == 403
-    assert "default visualization mode" in excinfo.value.detail
-    assert "--interactive" in excinfo.value.detail
+    assert "View mode" in excinfo.value.detail
+    assert "top-bar mode to Edit" in excinfo.value.detail
 
     with pytest.raises(HTTPException) as calc_excinfo:
         asyncio.run(update_calculator(session.session_id, {"device": "cpu"}))
 
     assert calc_excinfo.value.status_code == 403
+
+
+def test_runtime_mode_switch_preserves_exact_identity_positions_and_editability():
+    atoms = molecule("H2O")
+    session = EditorSession(
+        "runtime-mode-test",
+        atoms.copy(),
+        atoms.copy(),
+        config={"viz_only": True},
+    )
+    sessions[session.session_id] = session
+    positions = (atoms.positions + [0.25, -0.1, 0.2]).tolist()
+
+    edited = asyncio.run(update_session_mode(session.session_id, {
+        "viz_only": False,
+        "labels": ["O_site", "H_site", "H_site"],
+        "chemical_symbols": ["O", "H", "H"],
+        "positions": positions,
+    }))
+
+    assert session.config["viz_only"] is False
+    assert edited["symbols"] == ["O_site", "H_site", "H_site"]
+    assert np.allclose(edited["positions"], positions)
+    assert edited["metadata"]["has_calculator"] is True
+    assert asyncio.run(apply_positions(session.session_id, {"positions": positions}))["metadata"]["natoms"] == 3
+
+    viewed = asyncio.run(update_session_mode(session.session_id, {
+        "viz_only": True,
+        "labels": ["O_site", "H_site", "H_site"],
+        "chemical_symbols": ["O", "H", "H"],
+        "positions": positions,
+    }))
+    assert session.config["viz_only"] is True
+    assert viewed["symbols"] == ["O_site", "H_site", "H_site"]
+    with pytest.raises(HTTPException):
+        asyncio.run(apply_positions(session.session_id, {"positions": positions}))
 
 
 def test_missing_session_is_reported_as_404_json():
@@ -268,7 +306,10 @@ def test_viewer_uses_packaged_three_and_initial_camera_fit():
     assert "this.cameraFillLight = new THREE.PointLight" in renderer_js
     assert "this.cameraFillDirectionalLight = new THREE.DirectionalLight" in renderer_js
     assert "this.cameraFillDirectionalLight.position.copy(camera.position)" in renderer_js
-    assert "new THREE.AmbientLight(0xffffff, 0.68)" in renderer_js
+    assert "new THREE.AmbientLight(0xffffff, 0.16)" in renderer_js
+    assert "new THREE.DirectionalLight(0xffffff, 0.78)" in renderer_js
+    assert "new THREE.HemisphereLight(0xffffff, 0x5f6865, 0.24)" in renderer_js
+    assert "new THREE.MeshPhysicalMaterial" in renderer_js
     assert "updateViewLighting()" in renderer_js
 
 
@@ -473,13 +514,11 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "return this.reconcileLabelOrder(this.state.atoms?.symbols || []);" in main_js
     assert "naturalTypeCompare" in main_js
     assert ".sort((a, b) => this.naturalTypeCompare(a, b))" in main_js
-    assert "uniqueTypeLabel" in main_js
-    assert "labelForBaseTypeChange" in main_js
-    assert "labelForBaseTypeChange(currentLabel, baseSymbol) {\n        return currentLabel;" in main_js
     assert "previewDetectedBase" in main_js
     assert "typeSelect.value = inferredBase" in main_js
-    assert "nameInput.value = this.labelForBaseTypeChange(symbol, typeSelect.value)" in main_js
-    assert "Label ${desiredLabel} already exists; using ${label}" in main_js
+    assert "nameInput.value = this.labelForBaseTypeChange(symbol, typeSelect.value)" not in main_js
+    assert "uniqueTypeLabel" not in main_js
+    assert "Merged ${oldSymbol} into label ${label}" in main_js
     assert "pendingLabelRenames" in main_js
     assert "expectedIndices" in main_js
     assert "No ${oldSymbol} atoms found" not in main_js
@@ -501,8 +540,15 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "nameInput.disabled = this.state.vizOnly" not in main_js
     assert "canViewportSelectAtoms()" in main_js
     assert "this.canViewportSelectAtoms() && this.transform.mode === 'IDLE'" in main_js
-    assert "this.renderer.renameAtomLabel(oldSymbol, label, indices, this.state.display, base)" in main_js
-    assert "applySelectedTypeForVisualization" in main_js
+    assert "this.renderer.renameAtomLabel(oldSymbol, label, indices, this.state.display, baseSymbol)" in main_js
+    assert "applySelectedLabelEdit" in main_js
+    assert "setupRuntimeModeControls" in main_js
+    assert "viewModeIdentityPlan" in main_js
+    assert "labelMaterials" in main_js
+    assert "atomMaterials" in main_js
+    assert 'data-runtime-mode="view"' in index_html
+    assert 'id="selected-atom-material"' in index_html
+    assert "appearance-material-select" in main_js
     assert "selectLabel(symbol)" in main_js
     assert "toggleLabelSelection" in main_js
     assert "labelVisible" in renderer_js
@@ -523,7 +569,7 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "fixedAtomDisplayEnabled()" in renderer_js
     assert "return this.displayOptions.showOverlays !== false" in renderer_js
     assert "fixedAtomSegments(segmentCount)" in renderer_js
-    assert "flatShading: true" in renderer_js
+    assert "flatShading: isFixed" in renderer_js
     assert "v-ase-fixed-micro-etched-faceted-v3" in renderer_js
     assert "const supercellChanged" in renderer_js
     assert "if (supercellChanged) this.rebuildSupercell()" in renderer_js
@@ -796,6 +842,8 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
             "bondStyle": "flat",
             "bondThickness": 0.24,
             "bondColorMode": "split",
+            "labelMaterials": {"H": "metal"},
+            "atomMaterials": {"1": "rubber"},
         },
         "bond_pairs": [[0, 1]],
         "camera": {
@@ -846,6 +894,12 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
     assert 'mat.use_nodes = True' in script
     assert 'bsdf.inputs.get("Base Color")' in script
     assert 'base_color.default_value = rgba' in script
+    assert 'DISPLAY_LABEL_MATERIALS = DISPLAY.get("labelMaterials", {})' in script
+    assert 'DISPLAY_ATOM_MATERIALS = DISPLAY.get("atomMaterials", {})' in script
+    assert '"rubber": {"roughness": 0.88' in script
+    assert 'metallic.default_value = surface["metalness"]' in script
+    assert "'labelMaterials': {'H': 'metal'}" in script
+    assert "'atomMaterials': {'1': 'rubber'}" in script
     assert 'scene.render.engine = render_engine' in script
     assert 'INCLUDE_CELL = bool(DATA.get("include_cell", True))' in script
     assert 'if INCLUDE_CELL:\n    add_unit_cell(CELL)' in script

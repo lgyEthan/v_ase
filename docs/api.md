@@ -37,6 +37,9 @@ Important options:
   calculator.
 - `viz_only=False` enables atom editing, constraints editing, history,
   copy/paste, deletion, creation, and relaxation.
+- The browser's top-bar **View / Edit** switch can change this capability
+  during the same session. Entering Edit materializes lazy trajectory frames
+  before editing is enabled.
 - `block=True` waits until the browser document closes or the local API
   finalizes the session.
 - `block=False` returns an `ASEEditor` handle.
@@ -98,7 +101,8 @@ v_ase gui FILE --interactive
 v_ase gui AMBIGUOUS --format FORMAT
 ```
 
-The default is visualization mode. `--interactive` enables structural editing.
+The default is View mode. `--interactive` starts in Edit mode. The top-bar
+switch can change mode after startup without reopening the file.
 
 Common format aliases:
 

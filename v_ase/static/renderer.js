@@ -313,6 +313,29 @@ const FALLBACK_ATOM_COLOR = '#cccccc';
 const FALLBACK_ATOM_RADIUS = 0.7;
 const FALLBACK_COVALENT_RADIUS = 0.75;
 const COVALENT_BOND_TOLERANCE = 1.2;
+const ATOM_MATERIAL_PRESETS = Object.freeze({
+    standard: Object.freeze({
+        roughness: 0.28,
+        metalness: 0.0,
+        clearcoat: 0.04,
+        clearcoatRoughness: 0.22,
+        specularIntensity: 1.0
+    }),
+    metal: Object.freeze({
+        roughness: 0.18,
+        metalness: 0.68,
+        clearcoat: 0.16,
+        clearcoatRoughness: 0.14,
+        specularIntensity: 1.0
+    }),
+    rubber: Object.freeze({
+        roughness: 0.88,
+        metalness: 0.0,
+        clearcoat: 0.0,
+        clearcoatRoughness: 0.8,
+        specularIntensity: 0.16
+    })
+});
 
 function cssColor(property, fallback) {
     if (typeof document === 'undefined') return fallback;
@@ -378,34 +401,36 @@ export class ASERenderer {
         this.modelingLightGroup.name = 'v_ase_modeling_lights';
         this.scene.add(this.modelingLightGroup);
 
-        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x6a7078, 1.18);
+        // Keep the key light camera-facing so every crystallographic view has
+        // the same readable sphere contour. Low world-space fills retain depth
+        // without allowing one viewing direction to become dark.
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x5f6865, 0.24);
         this.modelingLightGroup.add(hemiLight);
 
-        // Lighting
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.68);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.16);
         this.modelingLightGroup.add(ambientLight);
         
-        const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.50);
+        const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.20);
         dirLight1.position.set(10, 20, 10);
         this.modelingLightGroup.add(dirLight1);
 
-        const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.50);
+        const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.12);
         dirLight2.position.set(-10, -20, 10);
         this.modelingLightGroup.add(dirLight2);
 
-        const dirLight3 = new THREE.DirectionalLight(0xffffff, 0.36);
+        const dirLight3 = new THREE.DirectionalLight(0xffffff, 0.10);
         dirLight3.position.set(12, -14, 8);
         this.modelingLightGroup.add(dirLight3);
 
-        const dirLight4 = new THREE.DirectionalLight(0xffffff, 0.34);
+        const dirLight4 = new THREE.DirectionalLight(0xffffff, 0.08);
         dirLight4.position.set(-12, 14, -8);
         this.modelingLightGroup.add(dirLight4);
 
-        this.cameraFillLight = new THREE.PointLight(0xffffff, 1.15, 0, 1.35);
+        this.cameraFillLight = new THREE.PointLight(0xffffff, 0.12, 0, 1.35);
         this.modelingLightGroup.add(this.cameraFillLight);
         this.cameraFillTarget = new THREE.Object3D();
         this.modelingLightGroup.add(this.cameraFillTarget);
-        this.cameraFillDirectionalLight = new THREE.DirectionalLight(0xffffff, 0.48);
+        this.cameraFillDirectionalLight = new THREE.DirectionalLight(0xffffff, 0.78);
         this.cameraFillDirectionalLight.target = this.cameraFillTarget;
         this.modelingLightGroup.add(this.cameraFillDirectionalLight);
 
@@ -498,6 +523,8 @@ export class ASERenderer {
             labelRadii: {},
             labelColors: {},
             labelVisible: {},
+            labelMaterials: {},
+            atomMaterials: {},
             rotatePivot: 'selection',
             commensurateGuide: false,
             commensurateSnap: true,
@@ -1145,29 +1172,37 @@ export class ASERenderer {
         return this.displayOptions.showOverlays !== false;
     }
 
-    atomMaterialSpec(color, isFixed = false) {
+    normalizedAtomMaterialPreset(value) {
+        return Object.prototype.hasOwnProperty.call(ATOM_MATERIAL_PRESETS, value)
+            ? value
+            : 'standard';
+    }
+
+    atomMaterialPreset(index) {
+        const atomOverride = this.displayOptions?.atomMaterials?.[index]
+            ?? this.displayOptions?.atomMaterials?.[String(index)];
+        if (atomOverride) return this.normalizedAtomMaterialPreset(atomOverride);
+        const label = this.atomsData?.symbols?.[index];
+        return this.normalizedAtomMaterialPreset(this.displayOptions?.labelMaterials?.[label]);
+    }
+
+    atomMaterialSpec(color, isFixed = false, presetName = 'standard') {
         const base = new THREE.Color(color);
-        if (!isFixed) {
-            return {
-                color: base,
-                roughness: 0.42,
-                metalness: 0.08,
-                emissive: base.clone().multiplyScalar(0.08),
-                emissiveIntensity: 0.28,
-                flatShading: false
-            };
-        }
+        const preset = ATOM_MATERIAL_PRESETS[this.normalizedAtomMaterialPreset(presetName)];
         return {
             color: base,
-            roughness: 0.98,
-            metalness: 0.0,
-            emissive: base.clone().multiplyScalar(0.04),
-            emissiveIntensity: 0.20,
-            flatShading: true
+            roughness: isFixed ? Math.max(0.72, preset.roughness) : preset.roughness,
+            metalness: isFixed ? preset.metalness * 0.45 : preset.metalness,
+            clearcoat: isFixed ? preset.clearcoat * 0.35 : preset.clearcoat,
+            clearcoatRoughness: isFixed ? Math.max(0.62, preset.clearcoatRoughness) : preset.clearcoatRoughness,
+            specularIntensity: isFixed ? preset.specularIntensity * 0.55 : preset.specularIntensity,
+            emissive: new THREE.Color(0x000000),
+            emissiveIntensity: 0,
+            flatShading: isFixed
         };
     }
 
-    createAtomMaterial(color, isFixed = false) {
+    createAtomMaterial(color, isFixed = false, presetName = 'standard') {
         if (this.atomDisplayMode() === '2d') {
             const material = new THREE.MeshBasicMaterial({
                 color: new THREE.Color(color),
@@ -1176,11 +1211,14 @@ export class ASERenderer {
             this.applyFlatAtomShader(material, isFixed);
             return material;
         }
-        const spec = this.atomMaterialSpec(color, isFixed);
-        const material = new THREE.MeshStandardMaterial({
+        const spec = this.atomMaterialSpec(color, isFixed, presetName);
+        const material = new THREE.MeshPhysicalMaterial({
             color: spec.color,
             roughness: spec.roughness,
             metalness: spec.metalness,
+            clearcoat: spec.clearcoat,
+            clearcoatRoughness: spec.clearcoatRoughness,
+            specularIntensity: spec.specularIntensity,
             emissive: spec.emissive,
             emissiveIntensity: spec.emissiveIntensity,
             flatShading: spec.flatShading,
@@ -1191,7 +1229,7 @@ export class ASERenderer {
         return material;
     }
 
-    createInstancedAtomMaterial(isFixed = false) {
+    createInstancedAtomMaterial(isFixed = false, presetName = 'standard') {
         if (this.atomDisplayMode() === '2d') {
             const material = new THREE.MeshBasicMaterial({
                 color: 0xffffff,
@@ -1200,11 +1238,14 @@ export class ASERenderer {
             this.applyFlatAtomShader(material, isFixed);
             return material;
         }
-        const spec = this.atomMaterialSpec('#ffffff', isFixed);
-        const material = new THREE.MeshStandardMaterial({
+        const spec = this.atomMaterialSpec('#ffffff', isFixed, presetName);
+        const material = new THREE.MeshPhysicalMaterial({
             color: 0xffffff,
             roughness: spec.roughness,
             metalness: spec.metalness,
+            clearcoat: spec.clearcoat,
+            clearcoatRoughness: spec.clearcoatRoughness,
+            specularIntensity: spec.specularIntensity,
             emissive: spec.emissive,
             emissiveIntensity: spec.emissiveIntensity,
             flatShading: spec.flatShading
@@ -1213,14 +1254,15 @@ export class ASERenderer {
         return material;
     }
 
-    atomMaterialCacheKey(color, isFixed, atomSegments, instanced = false) {
+    atomMaterialCacheKey(color, isFixed, atomSegments, instanced = false, presetName = 'standard') {
         const mode = this.atomDisplayMode();
         const outline = mode === '2d' && this.viewportBackgroundMode === 'white'
             ? 'outline'
             : 'plain';
+        const preset = this.normalizedAtomMaterialPreset(presetName);
         return instanced
-            ? `unit-sphere:${mode}:${outline}:${isFixed ? 'fixed' : 'normal'}:instanced`
-            : `${mode}:${outline}:${color}:${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
+            ? `unit-sphere:${mode}:${outline}:${isFixed ? 'fixed' : 'normal'}:${preset}:instanced`
+            : `${mode}:${outline}:${color}:${isFixed ? 'fixed' : 'normal'}:${preset}:${atomSegments}`;
     }
 
     applyFlatAtomShader(material, isFixed = false) {
@@ -1328,8 +1370,8 @@ export class ASERenderer {
         return material;
     }
 
-    fixedAdjustedColor(color, isFixed = false) {
-        return this.atomMaterialSpec(color, isFixed).color;
+    fixedAdjustedColor(color, isFixed = false, presetName = 'standard') {
+        return this.atomMaterialSpec(color, isFixed, presetName).color;
     }
 
     atomLabelVisible(index) {
@@ -1573,6 +1615,7 @@ export class ASERenderer {
             const radius = this.atomVisualRadius(i);
             const color = this.atomVisualColor(i, customColors[i]);
             const isFixed = fixed.has(i);
+            const materialPreset = this.atomMaterialPreset(i);
 
             const atomSegments = isFixed ? this.fixedAtomSegments(segmentCount) : segmentCount;
             const geometryKey = `unit-sphere:${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
@@ -1582,9 +1625,9 @@ export class ASERenderer {
                     new THREE.SphereGeometry(1, atomSegments, Math.max(8, Math.floor(atomSegments * 0.65)))
                 );
             }
-            const materialKey = this.atomMaterialCacheKey(color, isFixed, atomSegments);
+            const materialKey = this.atomMaterialCacheKey(color, isFixed, atomSegments, false, materialPreset);
             if (!this.materialCache.has(materialKey)) {
-                this.materialCache.set(materialKey, this.createAtomMaterial(color, isFixed));
+                this.materialCache.set(materialKey, this.createAtomMaterial(color, isFixed, materialPreset));
             }
             const geo = this.geometryCache.get(geometryKey);
             const mat = this.materialCache.get(materialKey);
@@ -1593,7 +1636,7 @@ export class ASERenderer {
             const pos = atoms.positions[i];
             mesh.position.set(pos[0], pos[1], pos[2]);
             mesh.scale.setScalar(radius);
-            mesh.userData = { index: i, symbol: sym, fixed: isFixed };
+            mesh.userData = { index: i, symbol: sym, fixed: isFixed, materialPreset };
             mesh.visible = this.atomLabelVisible(i);
             
             this.atomMeshes.add(mesh);
@@ -1620,11 +1663,11 @@ export class ASERenderer {
         return count >= 256 || (this.displayOptions.vizOnly && count >= 128);
     }
 
-    atomProxy(index, position, symbol, fixed = false) {
+    atomProxy(index, position, symbol, fixed = false, materialPreset = 'standard') {
         return {
             position: position.clone(),
             visible: this.atomLabelVisible(index),
-            userData: { index, symbol, fixed }
+            userData: { index, symbol, fixed, materialPreset }
         };
     }
 
@@ -1632,12 +1675,20 @@ export class ASERenderer {
         const groups = new Map();
         atoms.symbols.forEach((sym, i) => {
             const isFixed = fixed.has(i);
+            const materialPreset = this.atomMaterialPreset(i);
             const atomSegments = isFixed ? this.fixedAtomSegments(segmentCount) : segmentCount;
             const geometryKey = `unit-sphere:${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
-            const materialKey = this.atomMaterialCacheKey('#ffffff', isFixed, atomSegments, true);
-            const key = `${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
+            const materialKey = this.atomMaterialCacheKey('#ffffff', isFixed, atomSegments, true, materialPreset);
+            const key = `${isFixed ? 'fixed' : 'normal'}:${materialPreset}:${atomSegments}`;
             if (!groups.has(key)) {
-                groups.set(key, { geometryKey, materialKey, fixed: isFixed, segments: atomSegments, indices: [] });
+                groups.set(key, {
+                    geometryKey,
+                    materialKey,
+                    fixed: isFixed,
+                    materialPreset,
+                    segments: atomSegments,
+                    indices: []
+                });
             }
             groups.get(key).indices.push(i);
         });
@@ -1650,7 +1701,10 @@ export class ASERenderer {
                 );
             }
             if (!this.materialCache.has(group.materialKey)) {
-                this.materialCache.set(group.materialKey, this.createInstancedAtomMaterial(group.fixed));
+                this.materialCache.set(
+                    group.materialKey,
+                    this.createInstancedAtomMaterial(group.fixed, group.materialPreset)
+                );
             }
             const mesh = new THREE.InstancedMesh(
                 this.geometryCache.get(group.geometryKey),
@@ -1661,6 +1715,7 @@ export class ASERenderer {
                 instancedAtoms: true,
                 atomIndices: group.indices,
                 fixed: group.fixed,
+                materialPreset: group.materialPreset,
                 sharedGeometry: true,
                 sharedMaterial: true
             };
@@ -1671,10 +1726,23 @@ export class ASERenderer {
 
             group.indices.forEach((index, instanceId) => {
                 const position = new THREE.Vector3(...atoms.positions[index]);
-                const proxy = this.atomProxy(index, position, atoms.symbols[index], fixed.has(index));
+                const proxy = this.atomProxy(
+                    index,
+                    position,
+                    atoms.symbols[index],
+                    fixed.has(index),
+                    group.materialPreset
+                );
                 this.atomMeshByIndex.set(index, proxy);
                 this.atomInstanceRefs.set(index, { mesh, instanceId });
-                mesh.setColorAt(instanceId, this.fixedAdjustedColor(this.atomVisualColor(index, customColors[index]), fixed.has(index)));
+                mesh.setColorAt(
+                    instanceId,
+                    this.fixedAdjustedColor(
+                        this.atomVisualColor(index, customColors[index]),
+                        fixed.has(index),
+                        group.materialPreset
+                    )
+                );
                 this.updateAtomInstanceMatrix(index);
             });
             mesh.instanceMatrix.needsUpdate = true;
@@ -2545,6 +2613,8 @@ export class ASERenderer {
             labelRadii: { ...(options.labelRadii || this.displayOptions.labelRadii || {}) },
             labelColors: { ...(options.labelColors || this.displayOptions.labelColors || {}) },
             labelVisible: { ...(options.labelVisible || this.displayOptions.labelVisible || {}) },
+            labelMaterials: { ...(options.labelMaterials || this.displayOptions.labelMaterials || {}) },
+            atomMaterials: { ...(options.atomMaterials || this.displayOptions.atomMaterials || {}) },
             supercell: [...(options.supercell || this.displayOptions.supercell || [1, 1, 1])],
             sunPosition: [...(options.sunPosition || this.displayOptions.sunPosition || [8, -10, 14])],
             sunTarget: [...(options.sunTarget || this.displayOptions.sunTarget || [0, 0, 0])]
@@ -2559,6 +2629,8 @@ export class ASERenderer {
         const radiusChanged = previous.atomRadiusScale !== this.displayOptions.atomRadiusScale ||
             !scalarRecordEqual(previous.labelRadii, this.displayOptions.labelRadii);
         const colorChanged = !scalarRecordEqual(previous.labelColors, this.displayOptions.labelColors);
+        const materialChanged = !scalarRecordEqual(previous.labelMaterials, this.displayOptions.labelMaterials) ||
+            !scalarRecordEqual(previous.atomMaterials, this.displayOptions.atomMaterials);
         const overlayChanged = previous.showOverlays !== this.displayOptions.showOverlays;
         const visibilityChanged = !scalarRecordEqual(previous.labelVisible, this.displayOptions.labelVisible);
         const changedVisibilityLabels = visibilityChanged
@@ -2591,7 +2663,7 @@ export class ASERenderer {
             return;
         }
         if (antiAliasingChanged) this.updateRenderQuality();
-        if (sphereQualityChanged || overlayChanged || atomDisplayModeChanged || flatOutlineChanged) {
+        if (sphereQualityChanged || overlayChanged || atomDisplayModeChanged || flatOutlineChanged || materialChanged) {
             if (this.atomsData) {
                 this.rebuildAtoms(this.atomsData, this.customColors);
             }
@@ -2663,6 +2735,8 @@ export class ASERenderer {
                 labelRadii: { ...(displayOptions.labelRadii || this.displayOptions.labelRadii || {}) },
                 labelColors: { ...(displayOptions.labelColors || this.displayOptions.labelColors || {}) },
                 labelVisible: { ...(displayOptions.labelVisible || this.displayOptions.labelVisible || {}) },
+                labelMaterials: { ...(displayOptions.labelMaterials || this.displayOptions.labelMaterials || {}) },
+                atomMaterials: { ...(displayOptions.atomMaterials || this.displayOptions.atomMaterials || {}) },
                 supercell: [...(displayOptions.supercell || this.displayOptions.supercell || [1, 1, 1])]
             };
         }
@@ -2686,7 +2760,11 @@ export class ASERenderer {
                 this.updateAtomInstanceMatrix(index);
                 ref.mesh.setColorAt(
                     ref.instanceId,
-                    this.fixedAdjustedColor(this.atomVisualColor(index, this.customColors[index]), Boolean(proxy.userData.fixed))
+                    this.fixedAdjustedColor(
+                        this.atomVisualColor(index, this.customColors[index]),
+                        Boolean(proxy.userData.fixed),
+                        proxy.userData.materialPreset || this.atomMaterialPreset(index)
+                    )
                 );
                 matrices.add(ref.mesh);
                 colors.add(ref.mesh);
@@ -2703,6 +2781,7 @@ export class ASERenderer {
             const radius = this.atomVisualRadius(index);
             const color = this.atomVisualColor(index, this.customColors[index]);
             const isFixed = Boolean(mesh.userData.fixed) && this.fixedAtomDisplayEnabled();
+            const materialPreset = this.atomMaterialPreset(index);
             const atomSegments = isFixed ? this.fixedAtomSegments(segmentCount) : segmentCount;
             const geometryKey = `unit-sphere:${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
             if (!this.geometryCache.has(geometryKey)) {
@@ -2711,14 +2790,15 @@ export class ASERenderer {
                     new THREE.SphereGeometry(1, atomSegments, Math.max(8, Math.floor(atomSegments * 0.65)))
                 );
             }
-            const materialKey = this.atomMaterialCacheKey(color, isFixed, atomSegments);
+            const materialKey = this.atomMaterialCacheKey(color, isFixed, atomSegments, false, materialPreset);
             if (!this.materialCache.has(materialKey)) {
-                this.materialCache.set(materialKey, this.createAtomMaterial(color, isFixed));
+                this.materialCache.set(materialKey, this.createAtomMaterial(color, isFixed, materialPreset));
             }
             mesh.geometry = this.geometryCache.get(geometryKey);
             mesh.material = this.materialCache.get(materialKey);
             mesh.scale.setScalar(radius);
             mesh.visible = this.atomLabelVisible(index);
+            mesh.userData.materialPreset = materialPreset;
         });
         this.requestRender();
     }
@@ -3913,15 +3993,16 @@ export class ASERenderer {
         const groups = new Map();
         this.atomsData.symbols.forEach((sym, index) => {
             const isFixed = fixed.has(index);
+            const materialPreset = this.atomMaterialPreset(index);
             const atomSegments = isFixed ? this.fixedAtomSegments(segmentCount) : segmentCount;
             const geometryKey = `unit-sphere:${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
             const color = this.atomVisualColor(index, this.customColors[index]);
             const perInstanceColor = this.useInstancedAtoms;
             const materialKey = perInstanceColor
-                ? this.atomMaterialCacheKey('#ffffff', isFixed, atomSegments, true)
-                : this.atomMaterialCacheKey(color, isFixed, atomSegments);
+                ? this.atomMaterialCacheKey('#ffffff', isFixed, atomSegments, true, materialPreset)
+                : this.atomMaterialCacheKey(color, isFixed, atomSegments, false, materialPreset);
             const key = perInstanceColor
-                ? `${isFixed ? 'fixed' : 'normal'}:${atomSegments}`
+                ? `${isFixed ? 'fixed' : 'normal'}:${materialPreset}:${atomSegments}`
                 : materialKey;
             if (!groups.has(key)) {
                 groups.set(key, {
@@ -3929,6 +4010,7 @@ export class ASERenderer {
                     atomSegments,
                     geometryKey,
                     materialKey,
+                    materialPreset,
                     color,
                     perInstanceColor,
                     indices: []
@@ -3946,8 +4028,8 @@ export class ASERenderer {
             }
             if (!this.materialCache.has(group.materialKey)) {
                 const material = group.perInstanceColor
-                    ? this.createInstancedAtomMaterial(group.isFixed)
-                    : this.createAtomMaterial(group.color, group.isFixed);
+                    ? this.createInstancedAtomMaterial(group.isFixed, group.materialPreset)
+                    : this.createAtomMaterial(group.color, group.isFixed, group.materialPreset);
                 this.materialCache.set(group.materialKey, material);
             }
             const total = group.indices.length * shifts.length;
@@ -3964,6 +4046,7 @@ export class ASERenderer {
                 shifts,
                 cellOffsets,
                 fixed: group.isFixed,
+                materialPreset: group.materialPreset,
                 sharedGeometry: true,
                 sharedMaterial: true
             };
@@ -3974,7 +4057,11 @@ export class ASERenderer {
                     if (group.perInstanceColor) {
                         mesh.setColorAt(
                             instanceId,
-                            this.fixedAdjustedColor(this.atomVisualColor(index, this.customColors[index]), group.isFixed)
+                            this.fixedAdjustedColor(
+                                this.atomVisualColor(index, this.customColors[index]),
+                                group.isFixed,
+                                group.materialPreset
+                            )
                         );
                     }
                     instanceId++;

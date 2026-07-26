@@ -21,7 +21,12 @@ from .session import (
 from .serialization import atoms_to_json
 from .websocket_manager import ws_manager
 from .io import atom_labels, base_symbol_for_atom_type, normalize_atom_type_label, set_atom_labels
-from .repulsion import copy_calculator, is_vase_repulsion_calculator, repulsion_metadata
+from .repulsion import (
+    copy_calculator,
+    ensure_default_calculator,
+    is_vase_repulsion_calculator,
+    repulsion_metadata,
+)
 from .commensurate import find_commensurate_angles
 from .project import (
     PROJECT_MIME,
@@ -333,7 +338,13 @@ def schedule_workspace_autoclose(
 
 def require_editable(session: EditorSession, action: str = "This operation"):
     if is_viz_only(session):
-        raise HTTPException(status_code=403, detail=f"{action} is disabled in the default visualization mode. Start v_ase with --interactive to edit atoms.")
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"{action} is disabled in View mode. "
+                "Switch the top-bar mode to Edit before modifying atoms."
+            ),
+        )
 
 
 def validate_supercell_atoms(atoms, reps: List[int]):
@@ -694,14 +705,6 @@ def update_atom_identity_on_atoms(atoms, indices, label, base_symbol=None):
     updated = atoms.copy()
     symbols = updated.get_chemical_symbols()
     type_labels = atom_labels(updated)
-    outside_labels = {atom_type for idx, atom_type in enumerate(type_labels) if idx not in indices}
-    if normalized in outside_labels:
-        suffix = 2
-        candidate = f"{normalized}_{suffix}"
-        while candidate in outside_labels:
-            suffix += 1
-            candidate = f"{normalized}_{suffix}"
-        normalized = candidate
     base_symbol = base_symbol_for_atom_type(base_symbol) if base_symbol else inferred_base_symbol_for_label(normalized)
     for idx in indices:
         if base_symbol:
@@ -712,6 +715,122 @@ def update_atom_identity_on_atoms(atoms, indices, label, base_symbol=None):
     if atoms.calc:
         updated.calc = copy_calculator(atoms.calc)
     return updated
+
+
+def set_atom_identity_arrays_on_atoms(atoms, labels, base_symbols=None):
+    """Apply an exact client identity snapshot without changing coordinates."""
+    normalized_labels = [normalize_atom_type_label(label) for label in labels]
+    if len(normalized_labels) != len(atoms) or any(not label for label in normalized_labels):
+        raise HTTPException(
+            status_code=400,
+            detail="Atom labels must be non-empty and match the current atom count.",
+        )
+    if base_symbols is None:
+        symbols = atoms.get_chemical_symbols()
+    else:
+        if len(base_symbols) != len(atoms):
+            raise HTTPException(
+                status_code=400,
+                detail="Chemical symbols must match the current atom count.",
+            )
+        try:
+            symbols = [base_symbol_for_atom_type(symbol) for symbol in base_symbols]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid chemical symbol in mode transition: {exc}",
+            ) from exc
+
+    updated = atoms.copy()
+    updated.set_chemical_symbols(symbols)
+    set_atom_labels(updated, normalized_labels)
+    if atoms.calc:
+        updated.calc = copy_calculator(atoms.calc)
+    return updated
+
+
+def materialize_virtual_trajectory(session: EditorSession) -> None:
+    """Convert the fast read-only trajectory into editable ASE frames."""
+    source = session.trajectory_source
+    if source is None:
+        return
+    frames = [source.read_atoms(index) for index in range(session.frame_count)]
+    current_frame = session.current_frame
+    initial_design_settings = (session.config or {}).get("initial_design_settings")
+    session.config["viz_only"] = False
+    replace_session_frames(
+        session,
+        frames,
+        current_frame=current_frame,
+        initial_design_settings=initial_design_settings,
+    )
+    session.cleanup_temporary_files()
+
+
+def apply_identity_snapshot_to_session(session: EditorSession, labels, base_symbols=None) -> None:
+    """Keep labels and chemical identity aligned across every compatible frame."""
+    if len(labels) != len(session.working_atoms):
+        raise HTTPException(
+            status_code=400,
+            detail="Atom identity snapshot does not match the current structure.",
+        )
+
+    transform = lambda atoms: set_atom_identity_arrays_on_atoms(atoms, labels, base_symbols)
+    session.working_atoms = transform(session.working_atoms)
+    session.original_atoms = transform(session.original_atoms)
+    session.trajectory_frames = [
+        transform(frame) if len(frame) == len(labels) else frame
+        for frame in session.trajectory_frames
+    ]
+    session.original_frames = [
+        transform(frame) if len(frame) == len(labels) else frame
+        for frame in session.original_frames
+    ]
+    source_template = getattr(session.trajectory_source, "template_atoms", None)
+    if source_template is not None and len(source_template) == len(labels):
+        session.trajectory_source.template_atoms = transform(source_template)
+    session.invalidate_trajectory_layout()
+
+
+def switch_session_mode(
+    session: EditorSession,
+    *,
+    viz_only: bool,
+    labels=None,
+    base_symbols=None,
+    positions=None,
+) -> None:
+    """Switch runtime capability while preserving the complete working state."""
+    if session.is_relaxing:
+        raise HTTPException(
+            status_code=409,
+            detail="Stop the active relaxation before changing View/Edit mode.",
+        )
+
+    if not viz_only and session.trajectory_source is not None:
+        materialize_virtual_trajectory(session)
+
+    if labels is not None:
+        apply_identity_snapshot_to_session(session, labels, base_symbols)
+
+    if positions is not None:
+        coordinates = np.asarray(positions, dtype=float)
+        if coordinates.shape != (len(session.working_atoms), 3) or not np.all(np.isfinite(coordinates)):
+            raise HTTPException(
+                status_code=400,
+                detail="Mode transition positions must be a finite N x 3 array.",
+            )
+        session.working_atoms.set_positions(coordinates, apply_constraint=False)
+        session.sync_current_frame()
+
+    session.config["viz_only"] = bool(viz_only)
+    if not viz_only:
+        ensure_default_calculator(session.working_atoms)
+        ensure_default_calculator(session.original_atoms)
+        for frame in session.trajectory_frames:
+            ensure_default_calculator(frame)
+        for frame in session.original_frames:
+            ensure_default_calculator(frame)
 
 
 def validate_constraint_vector(values, name="Constraint vector"):
@@ -845,6 +964,42 @@ async def close_workspace_document(workspace_id: str, session_id: str):
 async def get_atoms(session_id: str):
     session = get_session(session_id)
     return session_atoms_to_json(session)
+
+
+@app.post("/api/mode/{session_id}")
+async def update_session_mode(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    requested = payload.get("viz_only")
+    if not isinstance(requested, bool):
+        raise HTTPException(status_code=400, detail="viz_only must be true or false.")
+
+    labels = payload.get("labels")
+    base_symbols = payload.get("chemical_symbols")
+    positions = payload.get("positions")
+    if labels is not None:
+        # Validate before a virtual trajectory is materialized so malformed
+        # requests cannot leave a half-transitioned session.
+        set_atom_identity_arrays_on_atoms(session.working_atoms, labels, base_symbols)
+    if positions is not None:
+        coordinates = np.asarray(positions, dtype=float)
+        if coordinates.shape != (len(session.working_atoms), 3) or not np.all(np.isfinite(coordinates)):
+            raise HTTPException(
+                status_code=400,
+                detail="Mode transition positions must be a finite N x 3 array.",
+            )
+
+    def switch():
+        with session.mode_transition_lock:
+            switch_session_mode(
+                session,
+                viz_only=requested,
+                labels=labels,
+                base_symbols=base_symbols,
+                positions=positions,
+            )
+            return session_update_to_json(session)
+
+    return await asyncio.to_thread(switch)
 
 
 @app.get("/api/trajectory/positions/{session_id}")
@@ -1282,7 +1437,10 @@ async def delete_atoms(session_id: str, payload: Dict[str, Any]):
 async def update_atom_identity(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
     require_editable(session, "Atom identity editing")
-    indices = payload.get("indices", [])
+    try:
+        indices = sorted({int(index) for index in payload.get("indices", [])})
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Atom indices must be integers.") from exc
     label = payload.get("label", "")
     if not indices:
         return session_update_to_json(session)
@@ -1299,6 +1457,19 @@ async def update_atom_identity(session_id: str, payload: Dict[str, Any]):
             base_symbol,
         ),
     )
+    session.original_frames = [
+        update_atom_identity_on_atoms(frame, indices, label, base_symbol)
+        if indices and max(indices) < len(frame)
+        else frame
+        for frame in session.original_frames
+    ]
+    if indices and max(indices) < len(session.original_atoms):
+        session.original_atoms = update_atom_identity_on_atoms(
+            session.original_atoms,
+            indices,
+            label,
+            base_symbol,
+        )
     session.invalidate_trajectory_layout()
     return session_update_to_json(session)
 

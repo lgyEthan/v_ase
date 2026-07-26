@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.78&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.78&rev=1';
-import { ASESelection } from './selection.js?v=0.0.78&rev=1';
-import { ASETransform } from './transform.js?v=0.0.78&rev=1';
+import { ASEApi } from './api.js?v=0.0.79&rev=2';
+import { ASERenderer } from './renderer.js?v=0.0.79&rev=2';
+import { ASESelection } from './selection.js?v=0.0.79&rev=2';
+import { ASETransform } from './transform.js?v=0.0.79&rev=2';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -25,6 +25,7 @@ const LEGACY_LABEL_DISPLAY_KEYS = Object.freeze({
     elementColors: 'labelColors',
     elementVisible: 'labelVisible'
 });
+const ATOM_MATERIAL_PRESETS = Object.freeze(['standard', 'metal', 'rubber']);
 
 class VAseApp {
     constructor() {
@@ -84,6 +85,8 @@ class VAseApp {
                 labelRadii: {},
                 labelColors: {},
                 labelVisible: {},
+                labelMaterials: {},
+                atomMaterials: {},
                 rotatePivot: 'selection',
                 commensurateGuide: false,
                 commensurateSnap: true,
@@ -145,6 +148,7 @@ class VAseApp {
             labelOrder: [],
             labelIndexCache: new Map(),
             pendingLabelRenames: new Set(),
+            modeSwitchInFlight: false,
             cachedFmax: null,
             displayApplyRequest: null,
             exportPreviewEnabled: false,
@@ -177,6 +181,8 @@ class VAseApp {
             this.setupInspectorResizer();
             this.setupInspectorNavigation();
             this.setupViewControls();
+            this.setupRuntimeModeControls();
+            this.setupSelectedAppearanceControls();
             this.setupLightingControls();
             this.setupCreateAtomWidget();
             this.setupEventListeners();
@@ -278,10 +284,265 @@ class VAseApp {
         if (this.state.vizOnly && this.transform.mode !== 'IDLE') {
             this.cancelTransform();
         }
+        document.querySelectorAll('[data-runtime-mode]').forEach(button => {
+            const selected = button.dataset.runtimeMode === (this.state.vizOnly ? 'view' : 'edit');
+            button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+            button.disabled = this.state.modeSwitchInFlight;
+        });
+        this.updateSelectedAppearanceControls();
+    }
+
+    setupRuntimeModeControls() {
+        document.querySelectorAll('[data-runtime-mode]').forEach(button => {
+            button.addEventListener('click', () => {
+                const vizOnly = button.dataset.runtimeMode === 'view';
+                this.switchRuntimeMode(vizOnly).catch(err => {
+                    this.toast(`Mode change failed: ${err.message}`, 'error');
+                });
+            });
+        });
+    }
+
+    setupSelectedAppearanceControls() {
+        const labelInput = document.getElementById('selected-atom-label');
+        const applyLabel = document.getElementById('btn-apply-selected-label');
+        const material = document.getElementById('selected-atom-material');
+        applyLabel?.addEventListener('click', () => {
+            this.applySelectedLabelEdit().catch(err => {
+                this.toast(`Label update failed: ${err.message}`, 'error');
+            });
+        });
+        labelInput?.addEventListener('keydown', event => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            this.applySelectedLabelEdit().catch(err => {
+                this.toast(`Label update failed: ${err.message}`, 'error');
+            });
+        });
+        material?.addEventListener('change', () => {
+            if (material.value === 'mixed') return;
+            this.applySelectedMaterial(material.value);
+        });
+    }
+
+    normalizedAtomMaterialPreset(value) {
+        return ATOM_MATERIAL_PRESETS.includes(value) ? value : 'standard';
+    }
+
+    atomMaterialPreset(index, display = this.state.display) {
+        const override = display.atomMaterials?.[index] ?? display.atomMaterials?.[String(index)];
+        if (override) return this.normalizedAtomMaterialPreset(override);
+        const label = this.state.atoms?.symbols?.[index];
+        return this.normalizedAtomMaterialPreset(display.labelMaterials?.[label]);
+    }
+
+    selectedAtomIndices() {
+        const atomCount = this.state.atoms?.positions?.length || 0;
+        return [...this.state.selected]
+            .filter(index => Number.isInteger(index) && index >= 0 && index < atomCount)
+            .sort((a, b) => a - b);
+    }
+
+    updateSelectedAppearanceControls() {
+        const labelInput = document.getElementById('selected-atom-label');
+        const applyLabel = document.getElementById('btn-apply-selected-label');
+        const material = document.getElementById('selected-atom-material');
+        const count = document.getElementById('selected-appearance-count');
+        if (!labelInput || !applyLabel || !material || !count) return;
+
+        const indices = this.selectedAtomIndices();
+        const enabled = !this.state.vizOnly && indices.length > 0 && !this.state.modeSwitchInFlight;
+        count.textContent = indices.length
+            ? `${indices.length} atom${indices.length === 1 ? '' : 's'}`
+            : 'None';
+        labelInput.disabled = !enabled;
+        applyLabel.disabled = !enabled;
+        material.disabled = !enabled;
+
+        const labels = [...new Set(indices.map(index => this.state.atoms?.symbols?.[index]).filter(Boolean))];
+        if (document.activeElement !== labelInput) {
+            labelInput.value = labels.length === 1 ? labels[0] : '';
+            labelInput.placeholder = indices.length
+                ? (labels.length > 1 ? 'Mixed labels' : 'Label')
+                : 'Select atoms';
+        }
+        const materials = [...new Set(indices.map(index => this.atomMaterialPreset(index)))];
+        material.value = materials.length === 1 ? materials[0] : 'mixed';
+    }
+
+    applySelectedMaterial(value) {
+        if (!this.canEditAtoms()) {
+            this.editOnlyToast();
+            return;
+        }
+        const preset = this.normalizedAtomMaterialPreset(value);
+        const indices = this.selectedAtomIndices();
+        if (!indices.length) {
+            this.toast('Select atoms before changing material.', 'warning');
+            return;
+        }
+        const atomMaterials = { ...(this.state.display.atomMaterials || {}) };
+        indices.forEach(index => {
+            const label = this.state.atoms?.symbols?.[index];
+            const inherited = this.normalizedAtomMaterialPreset(
+                this.state.display.labelMaterials?.[label]
+            );
+            if (preset === inherited) delete atomMaterials[index];
+            else atomMaterials[index] = preset;
+        });
+        this.state.display.atomMaterials = atomMaterials;
+        this.safeApplyDisplayOptions();
+        this.renderAppearanceRows();
+        this.updateSelectedAppearanceControls();
+    }
+
+    uniqueTransitionLabel(base, usedLabels) {
+        if (!usedLabels.has(base)) {
+            usedLabels.add(base);
+            return base;
+        }
+        let suffix = 2;
+        let candidate = `${base}_${suffix}`;
+        while (usedLabels.has(candidate)) {
+            suffix += 1;
+            candidate = `${base}_${suffix}`;
+        }
+        usedLabels.add(candidate);
+        return candidate;
+    }
+
+    viewModeIdentityPlan() {
+        const sourceLabels = [...(this.state.atoms?.symbols || [])];
+        const chemicalSymbols = [...(this.state.atoms?.chemical_symbols || [])];
+        const nextLabels = [...sourceLabels];
+        const nextDisplay = this.clonePlain(this.state.display);
+        nextDisplay.labelMaterials = { ...(nextDisplay.labelMaterials || {}) };
+        nextDisplay.atomMaterials = {};
+
+        const usedLabels = new Set(this.uniqueAtomLabels());
+        const originByLabel = new Map();
+        const nextOrder = [];
+        this.uniqueAtomLabels().forEach(sourceLabel => {
+            const indices = this.labelIndices(sourceLabel);
+            const groups = new Map();
+            indices.forEach(index => {
+                const preset = this.atomMaterialPreset(index);
+                if (!groups.has(preset)) groups.set(preset, []);
+                groups.get(preset).push(index);
+            });
+            const orderedGroups = [...groups.entries()].sort((a, b) => {
+                const inherited = this.normalizedAtomMaterialPreset(
+                    this.state.display.labelMaterials?.[sourceLabel]
+                );
+                if (a[0] === inherited && b[0] !== inherited) return -1;
+                if (b[0] === inherited && a[0] !== inherited) return 1;
+                if (a[1].length !== b[1].length) return b[1].length - a[1].length;
+                return a[1][0] - b[1][0];
+            });
+            orderedGroups.forEach(([preset, atomIndices], groupIndex) => {
+                const targetLabel = groupIndex === 0
+                    ? sourceLabel
+                    : this.uniqueTransitionLabel(sourceLabel, usedLabels);
+                atomIndices.forEach(index => { nextLabels[index] = targetLabel; });
+                nextDisplay.labelMaterials[targetLabel] = preset;
+                ['labelRadii', 'labelColors', 'labelVisible'].forEach(key => {
+                    nextDisplay[key] = { ...(nextDisplay[key] || {}) };
+                    if (
+                        targetLabel !== sourceLabel
+                        && Object.prototype.hasOwnProperty.call(nextDisplay[key], sourceLabel)
+                    ) {
+                        nextDisplay[key][targetLabel] = nextDisplay[key][sourceLabel];
+                    }
+                });
+                originByLabel.set(targetLabel, sourceLabel);
+                nextOrder.push(targetLabel);
+            });
+        });
+
+        const nextCutoffs = {};
+        for (let i = 0; i < nextOrder.length; i++) {
+            for (let j = i; j < nextOrder.length; j++) {
+                const labelA = nextOrder[i];
+                const labelB = nextOrder[j];
+                const originA = originByLabel.get(labelA) || labelA;
+                const originB = originByLabel.get(labelB) || labelB;
+                const sourceKey = this.labelPairKey(originA, originB);
+                const value = Number(this.state.display.pairwiseBondCutoffs?.[sourceKey]);
+                nextCutoffs[this.labelPairKey(labelA, labelB)] = Number.isFinite(value) && value >= 0
+                    ? value
+                    : this.defaultPairwiseCutoff(originA, originB);
+            }
+        }
+        nextDisplay.pairwiseBondCutoffs = nextCutoffs;
+        nextDisplay.vizOnly = true;
+        return {
+            labels: nextLabels,
+            chemicalSymbols,
+            display: nextDisplay,
+            labelOrder: nextOrder
+        };
+    }
+
+    async switchRuntimeMode(vizOnly) {
+        if (this.state.modeSwitchInFlight || vizOnly === this.state.vizOnly) return;
+        if (this.state.isRelaxing) {
+            this.toast('Stop the active relaxation before changing mode.', 'warning');
+            return;
+        }
+        if (this.frameLoadInFlight) {
+            this.toast('Wait for the current trajectory frame to finish loading.', 'warning');
+            return;
+        }
+        if (this.transform.mode !== 'IDLE') this.cancelTransform();
+        this.stopPlayback();
+
+        const plan = vizOnly
+            ? this.viewModeIdentityPlan()
+            : {
+                labels: [...(this.state.atoms?.symbols || [])],
+                chemicalSymbols: [...(this.state.atoms?.chemical_symbols || [])],
+                display: this.clonePlain(this.state.display),
+                labelOrder: [...this.uniqueAtomLabels()]
+            };
+        plan.display.vizOnly = vizOnly;
+        this.state.modeSwitchInFlight = true;
+        this.updateEditingAvailability();
+        try {
+            const frameCount = this.loadedFrameCount();
+            const message = vizOnly
+                ? 'Preparing optimized View mode...'
+                : `Preparing editable ASE state${frameCount > 1 ? ` for ${frameCount} frames` : ''}...`;
+            const data = await this.withBusy(
+                message,
+                () => this.api.updateSessionMode(vizOnly, {
+                    labels: plan.labels,
+                    chemical_symbols: plan.chemicalSymbols,
+                    positions: this.backendPositionsPayload()
+                })
+            );
+            this.state.vizOnly = vizOnly;
+            this.state.display = plan.display;
+            this.state.display.vizOnly = vizOnly;
+            this.state.labelOrder = [...plan.labelOrder];
+            if (!vizOnly) this.state.replicaSelected.clear();
+            this.setAtomsData(data, { preserveDisplay: false });
+            this.toast(
+                vizOnly
+                    ? 'View mode enabled. Structure editing is disabled.'
+                    : 'Edit mode enabled. ASE-backed atom editing is ready.',
+                'success'
+            );
+        } catch (err) {
+            this.toast(`Mode change failed: ${err.message}`, 'error');
+        } finally {
+            this.state.modeSwitchInFlight = false;
+            this.updateEditingAvailability();
+            this.updateUI();
+        }
     }
 
     editOnlyToast() {
-        this.toast('Visualization mode is lightweight; use --interactive to enable atom editing.', 'warning');
+        this.toast('Switch the top-bar mode to Edit to modify atoms.', 'warning');
     }
 
     setupCreateAtomWidget() {
@@ -1036,6 +1297,7 @@ class VAseApp {
         this.updateSelectionMeasureUI(selectedEntries);
         this.updateTrajectoryUI();
         this.updateLabelSelectionControls();
+        this.updateSelectedAppearanceControls();
         this.updateSelectionConstraintControls();
 
         this.updateCalculatorControls(meta);
@@ -1354,7 +1616,7 @@ class VAseApp {
             this.pruneSelection();
         }
         this.state.display.vizOnly = this.state.vizOnly;
-        this.renderPairwiseBondControls();
+        this.renderPairwiseBondControls({ capture: preserveDisplay });
         this.renderer.setDisplayOptions(this.state.display, { rebuild: false });
         this.renderer.rebuildAtoms(data, data.metadata.custom_colors || {});
         this.renderAppearanceRows();
@@ -1562,6 +1824,8 @@ class VAseApp {
         this.state.display.labelRadii = config.element_radii || {};
         this.state.display.labelColors = config.element_colors || {};
         this.state.display.labelVisible = config.element_visible || {};
+        this.state.display.labelMaterials = config.label_materials || {};
+        this.state.display.atomMaterials = config.atom_materials || {};
         this.state.display.rotatePivot = config.rotate_pivot || this.state.display.rotatePivot;
         this.state.display.commensurateGuide = Boolean(
             config.commensurate_guide ?? config.unit_cell_aware_rotate ?? this.state.display.commensurateGuide
@@ -3162,34 +3426,14 @@ class VAseApp {
         const order = [...(this.state.labelOrder || [])];
         const existing = order.indexOf(newSymbol);
         const index = order.indexOf(oldSymbol);
-        if (index >= 0) {
+        if (existing >= 0 && index >= 0 && existing !== index) {
+            order.splice(index, 1);
+        } else if (index >= 0) {
             order[index] = newSymbol;
-            if (existing >= 0 && existing !== index) order.splice(existing, 1);
         } else if (existing < 0) {
             order.push(newSymbol);
         }
         this.state.labelOrder = [...new Set(order)];
-    }
-
-    typeLabelExists(label, exceptLabel = null) {
-        return (this.state.atoms?.symbols || []).some(symbol => symbol === label && symbol !== exceptLabel);
-    }
-
-    uniqueTypeLabel(desiredLabel, exceptLabel = null) {
-        const base = this.normalizedTypeLabel(desiredLabel);
-        if (!base) return base;
-        if (!this.typeLabelExists(base, exceptLabel)) return base;
-        let suffix = 2;
-        let candidate = `${base}_${suffix}`;
-        while (this.typeLabelExists(candidate, exceptLabel)) {
-            suffix += 1;
-            candidate = `${base}_${suffix}`;
-        }
-        return candidate;
-    }
-
-    labelForBaseTypeChange(currentLabel, baseSymbol) {
-        return currentLabel;
     }
 
     labelIndices(symbol) {
@@ -3287,26 +3531,50 @@ class VAseApp {
         return this.state.atoms?.chemical_symbols?.[index] || this.baseElementForLabel(label);
     }
 
-    transferLabelDisplaySettings(oldSymbol, newSymbol, { appearance = true } = {}) {
+    chemicalSymbolsForLabel(label) {
+        const chemicalSymbols = this.state.atoms?.chemical_symbols || [];
+        return [...new Set(
+            this.labelIndices(label)
+                .map(index => chemicalSymbols[index])
+                .filter(symbol => CHEMICAL_ELEMENT_SET.has(symbol))
+        )];
+    }
+
+    transferLabelDisplaySettings(
+        oldSymbol,
+        newSymbol,
+        { appearance = true, removeSource = true, copySource = true } = {}
+    ) {
         if (!oldSymbol || !newSymbol || oldSymbol === newSymbol) return;
         const maps = [
             ...(appearance ? [this.state.display.labelRadii, this.state.display.labelColors] : []),
+            this.state.display.labelMaterials,
             this.state.display.labelVisible
         ];
         maps.forEach(map => {
             if (!map || !(oldSymbol in map)) return;
-            if (!(newSymbol in map)) map[newSymbol] = map[oldSymbol];
-            delete map[oldSymbol];
+            if (copySource && !(newSymbol in map)) map[newSymbol] = map[oldSymbol];
+            if (removeSource) delete map[oldSymbol];
         });
         const cutoffs = this.state.display.pairwiseBondCutoffs || {};
-        const partners = new Set([oldSymbol, newSymbol, ...(this.state.atoms?.symbols || [])]);
+        const partners = new Set([
+            oldSymbol,
+            newSymbol,
+            ...(this.state.labelOrder || []),
+            ...(this.state.atoms?.symbols || [])
+        ]);
         partners.forEach(partner => {
             const oldKey = this.labelPairKey(oldSymbol, partner);
             if (!(oldKey in cutoffs)) return;
             const mappedPartner = partner === oldSymbol ? newSymbol : partner;
             const newKey = this.labelPairKey(newSymbol, mappedPartner);
-            if (!(newKey in cutoffs)) cutoffs[newKey] = cutoffs[oldKey];
+            if (copySource && !(newKey in cutoffs)) cutoffs[newKey] = cutoffs[oldKey];
         });
+        if (removeSource) {
+            partners.forEach(partner => {
+                delete cutoffs[this.labelPairKey(oldSymbol, partner)];
+            });
+        }
     }
 
     uniqueLabelPairs() {
@@ -3403,8 +3671,9 @@ class VAseApp {
             }
             const row = document.createElement('div');
             row.className = 'appearance-row';
-            const currentElement = this.chemicalSymbolForLabel(symbol);
             const labelAtomIndices = [...this.labelIndices(symbol)];
+            const currentElements = this.chemicalSymbolsForLabel(symbol);
+            const currentElement = currentElements.length === 1 ? currentElements[0] : null;
             const typeSelect = document.createElement('input');
             typeSelect.type = 'text';
             typeSelect.setAttribute('list', 'element-type-options');
@@ -3413,7 +3682,8 @@ class VAseApp {
             typeSelect.dataset.atomLabel = symbol;
             typeSelect.dataset.appearanceField = 'type';
             typeSelect.title = `${labelAtomIndices.length} atom${labelAtomIndices.length === 1 ? '' : 's'} with label ${symbol}`;
-            typeSelect.value = currentElement;
+            typeSelect.value = currentElement || '';
+            typeSelect.placeholder = currentElements.length > 1 ? 'Mixed' : 'Element';
 
             const visibleBox = document.createElement('input');
             visibleBox.type = 'checkbox';
@@ -3471,25 +3741,22 @@ class VAseApp {
             let renameRequestKey = null;
             const commitRename = async (baseOverride = null) => {
                 const desired = this.normalizedTypeLabel(nameInput.value);
-                const inferredBase = this.detectedElementForLabel(desired);
-                const base = baseOverride || inferredBase;
-                const requestKey = `${desired}\u0000${base || ''}`;
+                const requestKey = `${desired}\u0000${baseOverride || ''}`;
                 if (!desired || renameRequestKey === requestKey) return;
-                if (desired === symbol && (!base || base === currentElement)) return;
+                if (desired === symbol && (!baseOverride || baseOverride === currentElement)) return;
                 renameRequestKey = requestKey;
-                const applied = await this.renameAtomLabel(symbol, desired, base, labelAtomIndices);
+                const applied = await this.renameAtomLabel(symbol, desired, baseOverride, labelAtomIndices);
                 if (!applied && nameInput.isConnected) renameRequestKey = null;
             };
             typeSelect.addEventListener('change', () => {
                 if (!this.chemicalElementOptions().includes(typeSelect.value)) {
                     const invalidType = typeSelect.value;
-                    typeSelect.value = currentElement;
+                    typeSelect.value = currentElement || '';
                     this.toast(`${invalidType || 'Unknown'} is not a valid element type.`, 'warning');
                     return;
                 }
                 const radius = this.defaultElementRadius(typeSelect.value);
                 if (Number.isFinite(radius) && radius > 0) input.value = Number(radius.toFixed(4));
-                nameInput.value = this.labelForBaseTypeChange(symbol, typeSelect.value);
                 commitRename(typeSelect.value);
             });
             nameInput.addEventListener('keydown', event => {
@@ -3515,12 +3782,12 @@ class VAseApp {
             color.addEventListener('input', () => {
                 this.state.display.labelColors[symbol] = color.value;
                 this.safeApplyDisplayOptions();
-                this.updateSelectedTypeControls();
+                this.updateSelectedAppearanceControls();
             });
             color.addEventListener('change', () => {
                 this.state.display.labelColors[symbol] = color.value;
                 this.safeApplyDisplayOptions();
-                this.updateSelectedTypeControls();
+                this.updateSelectedAppearanceControls();
             });
 
             const input = document.createElement('input');
@@ -3535,7 +3802,43 @@ class VAseApp {
             input.addEventListener('change', () => this.safeApplyDisplayOptions());
             input.addEventListener('input', () => this.safeApplyDisplayOptions());
 
-            row.append(typeSelect, visibleBox, selectBox, nameInput, color, input);
+            const material = document.createElement('select');
+            material.className = 'appearance-material-select';
+            material.dataset.atomLabel = symbol;
+            material.dataset.appearanceField = 'material';
+            const activeMaterials = [...new Set(labelAtomIndices.map(index => this.atomMaterialPreset(index)))];
+            if (activeMaterials.length > 1) {
+                const mixed = document.createElement('option');
+                mixed.value = 'mixed';
+                mixed.textContent = 'Mixed';
+                mixed.disabled = true;
+                material.appendChild(mixed);
+            }
+            ATOM_MATERIAL_PRESETS.forEach(preset => {
+                const option = document.createElement('option');
+                option.value = preset;
+                option.textContent = preset[0].toUpperCase() + preset.slice(1);
+                material.appendChild(option);
+            });
+            material.value = activeMaterials.length === 1 ? activeMaterials[0] : 'mixed';
+            material.title = this.state.vizOnly
+                ? `Material for all ${symbol} atoms`
+                : `Set material for every atom currently labelled ${symbol}`;
+            material.addEventListener('change', () => {
+                if (material.value === 'mixed') return;
+                const preset = this.normalizedAtomMaterialPreset(material.value);
+                this.state.display.labelMaterials = {
+                    ...(this.state.display.labelMaterials || {}),
+                    [symbol]: preset
+                };
+                const atomMaterials = { ...(this.state.display.atomMaterials || {}) };
+                labelAtomIndices.forEach(index => { delete atomMaterials[index]; });
+                this.state.display.atomMaterials = atomMaterials;
+                this.safeApplyDisplayOptions();
+                this.updateSelectedAppearanceControls();
+            });
+
+            row.append(typeSelect, visibleBox, selectBox, nameInput, color, input, material);
             root.appendChild(row);
         });
         const focusMatch = [...root.querySelectorAll('[data-atom-label][data-appearance-field]')]
@@ -3625,37 +3928,59 @@ class VAseApp {
         const labels = this.state.atoms?.symbols || [];
         if (!indices.length || indices.some(index => labels[index] !== oldSymbol)) return false;
 
-        const label = this.uniqueTypeLabel(desiredLabel, oldSymbol);
-        if (desiredLabel && label !== desiredLabel) {
-            this.toast(`Label ${desiredLabel} already exists; using ${label} to keep label groups separate.`, 'warning');
-        }
-        const base = baseSymbol === null || baseSymbol === undefined
-            ? this.detectedElementForLabel(label)
-            : baseSymbol;
-        const oldBase = this.chemicalSymbolForLabel(oldSymbol);
-        const effectiveBase = base || oldBase;
-        const preserveAppearance = effectiveBase === oldBase;
+        const label = desiredLabel;
+        const sourceIndexSet = new Set(indices);
+        const targetIndices = labels
+            .map((value, index) => ({ value, index }))
+            .filter(entry => entry.value === label && !sourceIndexSet.has(entry.index))
+            .map(entry => entry.index);
+        const targetBases = [...new Set(
+            targetIndices
+                .map(index => this.state.atoms?.chemical_symbols?.[index])
+                .filter(symbol => CHEMICAL_ELEMENT_SET.has(symbol))
+        )];
+        const targetExists = targetIndices.length > 0;
+        const inferredBase = this.detectedElementForLabel(label);
+        const base = baseSymbol || (targetBases.length === 1 ? targetBases[0] : inferredBase);
+        const oldBases = [...new Set(
+            indices
+                .map(index => this.state.atoms?.chemical_symbols?.[index])
+                .filter(symbol => CHEMICAL_ELEMENT_SET.has(symbol))
+        )];
+        const preserveAppearance = !base || (oldBases.length === 1 && oldBases[0] === base);
+        if (label === oldSymbol && !baseSymbol && (!base || preserveAppearance)) return true;
         this.state.pendingLabelRenames.add(oldSymbol);
         try {
             if (!this.canEditAtoms()) {
-                this.renameAtomLabelForVisualization(oldSymbol, label, indices, effectiveBase, { preserveAppearance });
+                this.renameAtomLabelForVisualization(oldSymbol, label, indices, base, {
+                    preserveAppearance,
+                    targetExists
+                });
                 return true;
             }
             const actionText = label === oldSymbol
-                ? `Updating ${oldSymbol} element type to ${effectiveBase}`
+                ? `Updating ${oldSymbol} element type to ${base}`
                 : `Renaming ${oldSymbol} to ${label}`;
             const data = await this.withBusy(
                 `${actionText} for ${indices.length} atom${indices.length === 1 ? '' : 's'}...`,
                 () => this.api.updateAtomIdentity(indices, label, this.backendPositionsPayload(), this.state.applyConstraints, base)
             );
-            this.transferLabelDisplaySettings(oldSymbol, label, { appearance: preserveAppearance });
-            if (!preserveAppearance) this.setElementBaseDefaults(label, effectiveBase);
-            this.replaceLabelOrder(oldSymbol, label);
-            this.setAtomsData(data);
+            this.transferLabelDisplaySettings(oldSymbol, label, {
+                appearance: preserveAppearance,
+                removeSource: label !== oldSymbol,
+                copySource: !targetExists
+            });
+            if (!preserveAppearance && !targetExists && base) {
+                this.setElementBaseDefaults(label, base);
+            }
+            if (label !== oldSymbol) this.replaceLabelOrder(oldSymbol, label);
+            this.setAtomsData(data, { preserveDisplay: false });
             this.toast(
                 label === oldSymbol
-                    ? `Updated ${label} element type to ${effectiveBase}.`
-                    : `Renamed ${oldSymbol} to ${label}.`,
+                    ? `Updated ${label} element type to ${base}.`
+                    : (targetExists
+                        ? `Merged ${oldSymbol} into label ${label}.`
+                        : `Renamed ${oldSymbol} to ${label}.`),
                 'success'
             );
             return true;
@@ -3667,18 +3992,23 @@ class VAseApp {
         }
     }
 
-    renameAtomLabelForVisualization(oldSymbol, label, indices = this.labelIndices(oldSymbol), baseSymbol = null, { preserveAppearance = true } = {}) {
+    renameAtomLabelForVisualization(
+        oldSymbol,
+        label,
+        indices = this.labelIndices(oldSymbol),
+        baseSymbol = null,
+        { preserveAppearance = true, targetExists = false } = {}
+    ) {
         if (!this.state.atoms || !indices.length) return;
-        const base = baseSymbol || this.chemicalSymbolForLabel(oldSymbol);
-        const radius = this.defaultElementRadius(base);
-        const color = this.defaultElementColor(base);
+        const radius = baseSymbol ? this.defaultElementRadius(baseSymbol) : null;
+        const color = baseSymbol ? this.defaultElementColor(baseSymbol) : null;
         indices.forEach(index => {
             this.state.atoms.symbols[index] = label;
             if (Array.isArray(this.state.atoms.atom_types)) {
                 this.state.atoms.atom_types[index] = label;
             }
-            if (Array.isArray(this.state.atoms.chemical_symbols)) {
-                this.state.atoms.chemical_symbols[index] = base;
+            if (baseSymbol && Array.isArray(this.state.atoms.chemical_symbols)) {
+                this.state.atoms.chemical_symbols[index] = baseSymbol;
             }
             if (!preserveAppearance && Number.isFinite(radius) && radius > 0 && Array.isArray(this.state.atoms.visual?.radii)) {
                 this.state.atoms.visual.radii[index] = radius;
@@ -3696,11 +4026,17 @@ class VAseApp {
             if (this.isLabelVisible(this.state.atoms.symbols[index])) selected.add(index);
         });
         this.state.selected = selected;
-        this.transferLabelDisplaySettings(oldSymbol, label, { appearance: preserveAppearance });
-        if (!preserveAppearance) this.setElementBaseDefaults(label, base, { color: true });
-        this.replaceLabelOrder(oldSymbol, label);
+        this.transferLabelDisplaySettings(oldSymbol, label, {
+            appearance: preserveAppearance,
+            removeSource: label !== oldSymbol,
+            copySource: !targetExists
+        });
+        if (!preserveAppearance && !targetExists && baseSymbol) {
+            this.setElementBaseDefaults(label, baseSymbol, { color: true });
+        }
+        if (label !== oldSymbol) this.replaceLabelOrder(oldSymbol, label);
         this.renderPairwiseBondControls();
-        this.renderer.renameAtomLabel(oldSymbol, label, indices, this.state.display, base);
+        this.renderer.renameAtomLabel(oldSymbol, label, indices, this.state.display, baseSymbol);
         this.renderAppearanceRows();
         this.updateLabelSelectionControls();
         this.pruneSelection();
@@ -3708,114 +4044,127 @@ class VAseApp {
         this.updateUI();
         this.toast(
             label === oldSymbol
-                ? `Updated ${label} element type to ${base} for this visualization.`
-                : `Renamed ${oldSymbol} to ${label} for this visualization.`,
+                ? `Updated ${label} element type to ${baseSymbol} for this visualization.`
+                : (targetExists
+                    ? `Merged ${oldSymbol} into label ${label} for this visualization.`
+                    : `Renamed ${oldSymbol} to ${label} for this visualization.`),
             'success'
         );
     }
 
-    selectedTypeLabel() {
-        const selected = [...this.state.selected].filter(index => this.state.atoms?.symbols?.[index]);
-        if (!selected.length) return '';
-        const labels = [...new Set(selected.map(index => this.state.atoms.symbols[index]))];
-        return labels.length === 1 ? labels[0] : '';
-    }
-
-    updateSelectedTypeControls() {
-        const name = document.getElementById('selected-type-name');
-        const color = document.getElementById('selected-type-color');
-        const apply = document.getElementById('btn-apply-selected-type');
-        if (!name || !color || !apply) return;
-        const hasSelection = this.state.selected.size > 0;
-        const label = this.selectedTypeLabel();
-        name.disabled = !hasSelection;
-        color.disabled = !hasSelection;
-        apply.disabled = !hasSelection;
-        name.placeholder = hasSelection ? 'Mixed selected types' : 'Select atoms first';
-        if (!document.activeElement || document.activeElement !== name) {
-            name.value = hasSelection ? label : '';
+    prepareLabelOrderForIdentityChange(indices, targetLabel) {
+        const selected = new Set(indices);
+        const simulated = (this.state.atoms?.symbols || []).map(
+            (label, index) => selected.has(index) ? targetLabel : label
+        );
+        const present = new Set(simulated);
+        const current = [...this.uniqueAtomLabels()];
+        const affected = [...new Set(indices.map(index => this.state.atoms?.symbols?.[index]).filter(Boolean))];
+        const targetAlreadyOrdered = current.includes(targetLabel);
+        const next = current.filter(label => present.has(label));
+        if (!targetAlreadyOrdered && present.has(targetLabel)) {
+            const affectedPositions = affected
+                .map(label => current.indexOf(label))
+                .filter(index => index >= 0);
+            const insertAt = affectedPositions.length
+                ? Math.min(...affectedPositions) + 1
+                : next.length;
+            next.splice(Math.min(insertAt, next.length), 0, targetLabel);
         }
-        const colorSymbol = label || [...this.state.selected].map(i => this.state.atoms?.symbols?.[i]).find(Boolean);
-        color.value = colorSymbol ? this.labelVisualColor(colorSymbol) : '#cccccc';
+        this.state.labelOrder = [...new Set(next)];
     }
 
-    async applySelectedTypeEdit() {
-        const indices = [...this.state.selected].sort((a, b) => a - b);
-        if (!indices.length) {
-            this.toast('Select atoms before changing atom type.', 'warning');
+    async applySelectedLabelEdit() {
+        if (!this.canEditAtoms()) {
+            this.editOnlyToast();
             return;
         }
-        const input = document.getElementById('selected-type-name');
-        const color = document.getElementById('selected-type-color');
+        const indices = this.selectedAtomIndices();
+        if (!indices.length) {
+            this.toast('Select atoms before changing their label.', 'warning');
+            return;
+        }
+        const input = document.getElementById('selected-atom-label');
         const label = this.normalizedTypeLabel(input?.value);
         if (!label) {
-            this.toast('Atom type name cannot be empty.', 'warning');
+            this.toast('Atom label cannot be empty.', 'warning');
             return;
         }
         const previousLabels = [...new Set(indices.map(index => this.state.atoms.symbols[index]))];
-        const exclusivePrevious = previousLabels.length === 1 ? previousLabels[0] : null;
-        const uniqueLabel = this.uniqueTypeLabel(label, exclusivePrevious);
-        if (uniqueLabel !== label) {
-            this.toast(`Label ${label} already exists; using ${uniqueLabel} to keep label groups separate.`, 'warning');
-        }
-        const previousBase = previousLabels.length === 1 ? this.chemicalSymbolForLabel(previousLabels[0]) : null;
-        const detectedBase = this.detectedElementForLabel(uniqueLabel);
-        const base = detectedBase || previousBase || 'H';
-        const preserveAppearance = !detectedBase || (previousLabels.length === 1 && previousBase === detectedBase);
-        if (preserveAppearance && this.validHexColor(color?.value)) {
-            this.state.display.labelColors[uniqueLabel] = color.value;
-        }
-        if (!this.canEditAtoms()) {
-            this.applySelectedTypeForVisualization(indices, uniqueLabel, base, { preserveAppearance });
-            return;
-        }
+        if (previousLabels.length === 1 && previousLabels[0] === label) return;
+
+        const selectedSet = new Set(indices);
+        const targetIndices = this.labelIndices(label);
+        const targetExists = targetIndices.length > 0;
+        const targetBases = [...new Set(
+            targetIndices
+                .map(index => this.state.atoms?.chemical_symbols?.[index])
+                .filter(symbol => CHEMICAL_ELEMENT_SET.has(symbol))
+        )];
+        const previousBases = [...new Set(
+            indices
+                .map(index => this.state.atoms?.chemical_symbols?.[index])
+                .filter(symbol => CHEMICAL_ELEMENT_SET.has(symbol))
+        )];
+        const detectedBase = this.detectedElementForLabel(label);
+        const base = targetBases.length === 1 ? targetBases[0] : detectedBase;
+        const preserveAppearance = !base || (previousBases.length === 1 && previousBases[0] === base);
+        const priorMaterials = new Map(indices.map(index => [index, this.atomMaterialPreset(index)]));
+
         try {
             const data = await this.withBusy(
-                `Changing ${indices.length} selected atom${indices.length === 1 ? '' : 's'} to ${uniqueLabel}...`,
-                () => this.api.updateAtomIdentity(indices, uniqueLabel, this.backendPositionsPayload(), this.state.applyConstraints, detectedBase)
+                `Assigning ${indices.length} selected atom${indices.length === 1 ? '' : 's'} to ${label}...`,
+                () => this.api.updateAtomIdentity(
+                    indices,
+                    label,
+                    this.backendPositionsPayload(),
+                    this.state.applyConstraints,
+                    base
+                )
             );
-            if (previousLabels.length === 1) {
-                this.transferLabelDisplaySettings(previousLabels[0], uniqueLabel, { appearance: preserveAppearance });
-                this.replaceLabelOrder(previousLabels[0], uniqueLabel);
+
+            let copiedSource = targetExists;
+            previousLabels.filter(source => source !== label).forEach(source => {
+                const sourceStillPresent = this.labelIndices(source).some(index => !selectedSet.has(index));
+                this.transferLabelDisplaySettings(source, label, {
+                    appearance: preserveAppearance,
+                    removeSource: !sourceStillPresent,
+                    copySource: !copiedSource
+                });
+                if (!copiedSource) copiedSource = true;
+            });
+            if (!preserveAppearance && !targetExists && base) {
+                this.setElementBaseDefaults(label, base);
             }
-            if (!preserveAppearance) this.setElementBaseDefaults(uniqueLabel, base);
-            this.setAtomsData(data);
+
+            const targetMaterial = this.normalizedAtomMaterialPreset(
+                this.state.display.labelMaterials?.[label]
+            );
+            const atomMaterials = { ...(this.state.display.atomMaterials || {}) };
+            indices.forEach(index => {
+                const previous = priorMaterials.get(index) || 'standard';
+                if (previous === targetMaterial) delete atomMaterials[index];
+                else atomMaterials[index] = previous;
+            });
+            this.state.display.atomMaterials = atomMaterials;
+            this.prepareLabelOrderForIdentityChange(indices, label);
+            this.setAtomsData(data, { preserveDisplay: false });
             indices.forEach(index => this.state.selected.add(index));
             this.updateSelectionVisuals();
             this.updateUI();
-            this.toast(`Updated selected atoms to ${uniqueLabel}.`, 'success');
+            this.toast(
+                targetExists
+                    ? `Merged selected atoms into label ${label}.`
+                    : `Assigned selected atoms to label ${label}.`,
+                'success'
+            );
         } catch (err) {
-            this.toast(`Selected atom type update failed: ${err.message}`, 'error');
+            this.toast(`Selected label update failed: ${err.message}`, 'error');
         }
     }
 
-    applySelectedTypeForVisualization(indices, label, baseSymbol, { preserveAppearance = true } = {}) {
-        if (!this.state.atoms || !indices.length) return;
-        const radius = this.defaultElementRadius(baseSymbol);
-        const color = this.defaultElementColor(baseSymbol);
-        indices.forEach(index => {
-            this.state.atoms.symbols[index] = label;
-            if (Array.isArray(this.state.atoms.atom_types)) this.state.atoms.atom_types[index] = label;
-            if (Array.isArray(this.state.atoms.chemical_symbols)) this.state.atoms.chemical_symbols[index] = baseSymbol;
-            if (!preserveAppearance && Number.isFinite(radius) && radius > 0 && Array.isArray(this.state.atoms.visual?.radii)) {
-                this.state.atoms.visual.radii[index] = radius;
-            }
-            if (!preserveAppearance && Number.isFinite(radius) && radius > 0 && Array.isArray(this.state.atoms.visual?.covalent_radii)) {
-                this.state.atoms.visual.covalent_radii[index] = radius;
-            }
-            if (!preserveAppearance && color && Array.isArray(this.state.atoms.visual?.colors)) {
-                this.state.atoms.visual.colors[index] = color;
-            }
-        });
-        this.rebuildLabelIndexCache(this.state.atoms.symbols || []);
-        if (!preserveAppearance) this.setElementBaseDefaults(label, baseSymbol, { color: true });
-        this.renderPairwiseBondControls();
-        this.renderer.rebuildAtoms(this.state.atoms, this.state.atoms.metadata?.custom_colors || {});
-        this.updateSelectionVisuals();
-        this.renderAppearanceRows();
-        this.updateLabelSelectionControls();
-        this.updateUI();
-        this.toast(`Updated selected atoms to ${label} for this visualization.`, 'success');
+    async applySelectedTypeEdit() {
+        return await this.applySelectedLabelEdit();
     }
 
     renderPairwiseBondControls({ capture = true } = {}) {
@@ -4036,12 +4385,14 @@ class VAseApp {
         return JSON.parse(JSON.stringify(value));
     }
 
-    designSettingsSnapshot() {
+    designSettingsSnapshot({ includeAtomOverrides = true } = {}) {
         this.readTransformSettings();
         this.syncAtomicScaleFromCamera({ forceInput: true, syncPreview: false });
+        const display = this.clonePlain(this.state.display);
+        if (!includeAtomOverrides) display.atomMaterials = {};
         return {
             schema: 'v_ase.visual_settings.v3',
-            display: this.clonePlain(this.state.display),
+            display,
             camera: this.currentCameraForExport(),
             applyConstraints: this.state.applyConstraints,
             antiAliasing: this.state.antiAliasing,
@@ -4206,6 +4557,22 @@ class VAseApp {
         labels.forEach(label => {
             labelVisible[label] = labelVisible[label] !== false;
         });
+        const labelMaterials = pickLabelMap(nextDisplay.labelMaterials);
+        labels.forEach(label => {
+            labelMaterials[label] = this.normalizedAtomMaterialPreset(labelMaterials[label]);
+        });
+        const atomMaterials = {};
+        Object.entries(nextDisplay.atomMaterials || {}).forEach(([rawIndex, preset]) => {
+            const index = Number(rawIndex);
+            if (
+                Number.isInteger(index)
+                && index >= 0
+                && index < atomCount
+                && ATOM_MATERIAL_PRESETS.includes(preset)
+            ) {
+                atomMaterials[index] = preset;
+            }
+        });
 
         const savedCutoffs = nextDisplay.pairwiseBondCutoffs || {};
         const pairwiseBondCutoffs = {};
@@ -4252,6 +4619,8 @@ class VAseApp {
             labelRadii,
             labelColors,
             labelVisible,
+            labelMaterials,
+            atomMaterials,
             imageFramingMode: nextDisplay.imageFramingMode === 'physical' ? 'physical' : 'viewport',
             atomicScalePixelsPerAngstrom: (() => {
                 const value = Number(nextDisplay.atomicScalePixelsPerAngstrom);
@@ -4333,6 +4702,8 @@ class VAseApp {
             labelRadii: this.clonePlain(nextDisplay.labelRadii),
             labelColors: this.clonePlain(nextDisplay.labelColors),
             labelVisible: this.clonePlain(nextDisplay.labelVisible),
+            labelMaterials: this.clonePlain(nextDisplay.labelMaterials),
+            atomMaterials: this.clonePlain(nextDisplay.atomMaterials),
             supercell: this.clonePlain(nextDisplay.supercell)
         };
         if ('applyConstraints' in source) this.state.applyConstraints = Boolean(source.applyConstraints);
@@ -6298,7 +6669,9 @@ class VAseApp {
             try {
                 this.applyDisplayOptions();
                 const saved = await this.saveBlobFromAction(
-                    () => this.api.saveVisualSettings(this.designSettingsSnapshot()),
+                    () => this.api.saveVisualSettings(
+                        this.designSettingsSnapshot({ includeAtomOverrides: false })
+                    ),
                     'v_ase_visual_settings.json',
                     'application/json',
                     'Saving visual settings...'

@@ -7,6 +7,8 @@ rendering costs:
 
 - visualization mode does not attach the fallback calculator or invoke
   interactive edit paths;
+- changing to Edit materializes lazy trajectory frames once, with a visible
+  busy state, before ASE-backed editing is enabled;
 - Modeling lighting creates no shadow map;
 - renderer updates are demand-driven;
 - inactive document tabs suspend rendering and playback.
@@ -63,7 +65,7 @@ dump. The benchmark starts a fresh local server and Chromium page at
 loads the binary trajectory cache, verifies idle rendering, and updates all
 frames.
 
-Reference result for the 0.0.78 working tree on the project development Mac:
+Reference result for the 0.0.79 working tree on the project development Mac:
 
 | Check | Result |
 | --- | ---: |
@@ -77,6 +79,10 @@ Reference result for the 0.0.78 working tree on the project development Mac:
 | 16-frame translation update sweep | 18.1 ms |
 | Mean position update | 1.13 ms/frame |
 | Extra render frames during 0.9 s idle | 0 |
+
+A separate single-frame 15,000-atom material regression measured 0.392 s from
+navigation to all atom instances being available. Standard-to-Metal label
+switching retained one instanced atom group for all 15,000 atoms.
 
 With automatic bonds enabled, the same synthetic scene contains 73,062 logical
 bonds. Cached topology inference measured 8.3 ms, direct geometry-buffer update

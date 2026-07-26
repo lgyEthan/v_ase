@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.78&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.79&amp;rev=2">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.78';
+            : '/static/vendor/three.module.js?v=0.0.79';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -57,7 +57,13 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.78</span>
+            <span class="version">0.0.79</span>
+        </div>
+        <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
+            <button type="button" data-runtime-mode="view" aria-pressed="true"
+                    title="View mode: optimized visualization without structural editing">View</button>
+            <button type="button" data-runtime-mode="edit" aria-pressed="false"
+                    title="Edit mode: atom transforms, creation, constraints, and relaxation">Edit</button>
         </div>
         <div class="status-group">
             <div class="status-item">
@@ -477,6 +483,26 @@
                 </div>
                 <input type="range" id="atom-radius-scale" value="1" min="0.25" max="2.5" step="0.05">
             </div>
+            <div id="selected-appearance" class="selected-appearance" data-edit-only>
+                <div class="selected-appearance-head">
+                    <strong>Selected atoms</strong>
+                    <span id="selected-appearance-count">None</span>
+                </div>
+                <div class="selected-appearance-grid">
+                    <label for="selected-atom-label">Label</label>
+                    <div class="selected-label-control">
+                        <input id="selected-atom-label" type="text" placeholder="Select atoms">
+                        <button id="btn-apply-selected-label" type="button">Apply</button>
+                    </div>
+                    <label for="selected-atom-material">Material</label>
+                    <select id="selected-atom-material">
+                        <option value="mixed" disabled>Mixed</option>
+                        <option value="standard">Standard</option>
+                        <option value="metal">Metal</option>
+                        <option value="rubber">Rubber</option>
+                    </select>
+                </div>
+            </div>
             <div id="appearance-table" class="appearance-table">
                 <div class="mini-table-head appearance-table-head">
                     <span>Type</span>
@@ -485,6 +511,7 @@
                     <span>Label</span>
                     <span>Color</span>
                     <span>Radius / A</span>
+                    <span>Material</span>
                 </div>
                 <div id="appearance-table-body"></div>
             </div>
@@ -760,8 +787,10 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.78&rev=1';
-        import(modulePath);
+            : './static/main.js?v=0.0.79&rev=2';
+        import(modulePath).catch(error => {
+            console.error('v_ase failed to initialize:', error?.stack || error);
+        });
     </script>
 </body>
 </html>

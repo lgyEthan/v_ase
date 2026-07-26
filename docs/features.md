@@ -38,9 +38,9 @@ Label identity is stored in the `v_ase_atom_type` ASE array for archive
 compatibility. New code accesses it through `atom_labels()` and
 `set_atom_labels()`.
 
-## Visualization And Interactive Modes
+## View And Edit Modes
 
-Visualization mode is the default. It supports:
+View is the default. It supports:
 
 - camera navigation and axis alignment;
 - click/box/label selection and measurements;
@@ -51,7 +51,7 @@ It does not attach the fallback calculator or invoke edit-only workflows.
 Positive supercell images are selectable and measurable using a base index and
 cell offset.
 
-Interactive mode additionally enables:
+Edit additionally enables:
 
 - modal `G` move and `R` rotate;
 - numeric input, axis locking, pivot and increment controls;
@@ -60,6 +60,12 @@ Interactive mode additionally enables:
 
 Display-only supercell images remain uneditable until **Set Supercell as Cell**
 creates a real ASE supercell.
+
+The top-bar **View / Edit** switch changes mode without reopening the document.
+Entering Edit materializes a lazy trajectory into editable ASE frames before
+the switch completes. Returning to View preserves coordinates and creates
+numbered labels only when atoms in one label have different per-atom visual
+materials. Position-only edits do not split labels.
 
 ## Constraint Contract
 
@@ -102,6 +108,15 @@ parsed element. A non-element label changes only the label.
 
 Appearance row order is established from the first loaded label order and does
 not change after edits. Labels with the same chemical TYPE remain distinct.
+Assigning an exact existing label in Edit merges the selected atoms into that
+group instead of creating a suffix. If that target group has one chemical TYPE,
+it is authoritative for the merged atoms.
+
+Standard, Metal, and Rubber material presets are supported. View stores
+materials by label. Edit can override material per selected atom. Materials are
+part of `.vase` projects and static export payloads; reusable settings omit
+per-atom overrides so they remain portable to structures with different atom
+counts.
 
 ## Bonds
 
@@ -156,6 +171,10 @@ GPU batching covers:
 Position-only updates alter translation columns in instance matrices. Cached
 geometries, materials, label indices, cell bases, and selection proxies are
 reused.
+
+Atom presets use cached `MeshPhysicalMaterial` instances. A scene with one
+label and one material remains one instanced atom group; only distinct visual
+materials add groups.
 
 Rendering modes:
 

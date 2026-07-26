@@ -13,6 +13,7 @@ cell-rotation details belong in
 - CLI entry points: `v_ase gui` and `v_ase gui FILE`
 - Default mode: visualization-only
 - Editable mode: `--interactive` or `view(..., viz_only=False)`
+- Runtime mode switch: top-bar **View / Edit**
 - Full project format: `.vase`
 - Reusable presentation preset: visual-settings JSON
 
@@ -60,9 +61,15 @@ and documentation use `view()`.
 9. Label identity and chemical TYPE are independent. Labels key appearance,
    selection, and pairwise cutoffs; ASE chemical symbols control element
    defaults and calculations.
-10. Settings survive structure refreshes and trajectory changes. Ordinary file
+10. View uses label-level visual state. Edit may add per-atom material
+    overrides. Returning to View converts only distinct material variants into
+    stable numbered labels; coordinate-only differences never split a label.
+11. Entering Edit materializes a lazy trajectory into complete ASE frames
+    before edits are enabled. The current frame, coordinates, labels,
+    constraints, and calculators remain synchronized.
+12. Settings survive structure refreshes and trajectory changes. Ordinary file
     Open reconciles the active visual state; `.vase` replaces it.
-11. Demand rendering must remain idle when camera, structure, playback, and UI
+13. Demand rendering must remain idle when camera, structure, playback, and UI
     are unchanged.
 
 ## Canonical Names And Compatibility
@@ -75,6 +82,8 @@ Canonical display keys:
 - `labelRadii`
 - `labelColors`
 - `labelVisible`
+- `labelMaterials`
+- `atomMaterials`
 - bond mode `pairwise`
 
 Loaders migrate the previous `elementBondCutoffs`, `elementRadii`,
@@ -123,6 +132,8 @@ same implementation for compatibility.
 - Supercell boundary topology is inferred once per update and reused for direct
   and replica-bridge bonds.
 - Modeling mode allocates no shadow map; rendered lighting cost is opt-in.
+- Material presets reuse cached `MeshPhysicalMaterial` and instanced groups;
+  the default one-label/one-material scene remains one atom draw group.
 - Inactive workspace tabs suspend rendering and playback.
 - Local servers use readiness polling and are stopped/joined by their owning
   editor or blocking session.

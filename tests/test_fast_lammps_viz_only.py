@@ -10,6 +10,7 @@ from v_ase.server import (
     session_atoms_to_json,
     trajectory_layout_compatible,
     trajectory_position_array,
+    update_session_mode,
 )
 from v_ase.session import EditorSession, replace_session_frames, sessions
 
@@ -105,6 +106,49 @@ def test_virtual_lammps_trajectory_exposes_background_binary_cache(tmp_path):
             [[1.5, 2.5, 3.5], [4.5, 5.5, 6.5]],
         ],
     )
+
+
+def test_virtual_lammps_trajectory_materializes_all_frames_for_edit_mode(tmp_path):
+    dump_path = tmp_path / "tiny-mode-switch.lammpstrj"
+    write_dump(dump_path)
+    result = read_fast_lammps_dump(dump_path, ":")
+    session = EditorSession(
+        session_id="fast-lammps-mode-switch",
+        original_atoms=result.atoms.copy(),
+        working_atoms=result.atoms.copy(),
+        original_frames=[result.atoms.copy()],
+        trajectory_frames=[result.atoms.copy()],
+        trajectory_source=result.trajectory,
+        config={"viz_only": True},
+    )
+    sessions[session.session_id] = session
+    try:
+        payload = asyncio.run(update_session_mode(session.session_id, {
+            "viz_only": False,
+            "labels": ["water_H", "water_O"],
+            "chemical_symbols": ["H", "O"],
+            "positions": [[1.25, 2.25, 3.25], [4.25, 5.25, 6.25]],
+        }))
+
+        assert session.trajectory_source is None
+        assert session.frame_count == 2
+        assert payload["metadata"]["frame_count"] == 2
+        assert payload["symbols"] == ["water_H", "water_O"]
+        np.testing.assert_allclose(
+            session.trajectory_frames[0].positions,
+            [[1.25, 2.25, 3.25], [4.25, 5.25, 6.25]],
+        )
+        np.testing.assert_allclose(
+            session.trajectory_frames[1].positions,
+            [[1.5, 2.5, 3.5], [4.5, 5.5, 6.5]],
+        )
+        assert all(
+            frame.arrays[ATOM_LABEL_ARRAY].tolist() == ["water_H", "water_O"]
+            for frame in session.trajectory_frames
+        )
+        assert all(frame.calc is not None for frame in session.trajectory_frames)
+    finally:
+        sessions.pop(session.session_id, None)
 
 
 def test_fast_lammps_dump_empty_file_has_clear_error(tmp_path):

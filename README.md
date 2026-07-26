@@ -54,21 +54,27 @@ Examples:
 
 The terminal is released when the v_ase browser document closes.
 
-### Viewing And Editing
+### View And Edit Modes
 
-The default mode is optimized for visualization, trajectories, measurements,
-bonds, supercells, appearance, wrapping, and export:
+**View** is the default. It is optimized for visualization, trajectories,
+measurements, bonds, supercells, appearance, wrapping, and export:
 
 ```bash
 v_ase gui trajectory.extxyz
 ```
 
-Enable coordinate editing, atom creation/deletion, constraints editing, undo,
-copy/paste, and relaxation with:
+Use the **View / Edit** switch in the top bar at any time. **Edit** enables
+coordinate transforms, atom creation/deletion, constraints, undo, copy/paste,
+and relaxation. To start directly in Edit:
 
 ```bash
 v_ase gui structure.vasp --interactive
 ```
+
+The current structure, trajectory frame, camera, labels, appearance, bonds,
+and selection remain in place during a mode change. If individual atoms have
+different visual materials, switching to View creates numbered labels only for
+those visual variants. Position-only edits stay in the same label group.
 
 ### Multiple Documents
 
@@ -182,10 +188,16 @@ The Display workspace provides:
 - 3D spheres/cylinders or 2D atoms/flat bonds;
 - live atomic scale in pixels per Angstrom;
 - atom smoothness and anti-aliasing;
-- per-label element TYPE, label, visibility, color, and radius;
+- per-label element TYPE, label, visibility, color, radius, and material;
 - Modeling, Studio Sun, and Sun + Soft Shadow rendering;
 - editable Sun intensity, source, target, and viewport handles;
 - unit cell, axes, grid, supercell, and overlay controls.
+
+Material presets are **Standard**, **Metal**, and **Rubber**. In View, a preset
+applies to a complete label group. In Edit, selected atoms can use independent
+materials and can be merged into an existing label by entering that exact
+label. Chemical TYPE remains synchronized with ASE while labels continue to
+control visual grouping.
 
 Bonds support automatic covalent-radius inference, label-pair cutoffs, and
 manual index pairs. A pairwise cutoff of `0` disables that label pair.

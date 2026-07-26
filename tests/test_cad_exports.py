@@ -39,6 +39,8 @@ def cad_payload():
             "atomRadiusScale": 1.1,
             "labelColors": {"O_surface": "#12ab34"},
             "labelRadii": {"O_surface": 0.72},
+            "labelMaterials": {"O_surface": "metal", "H_water": "standard"},
+            "atomMaterials": {"1": "rubber"},
         },
         "bond_pairs": [[0, 1], [0, 2]],
         "camera": {
@@ -68,6 +70,9 @@ def test_cad_scene_preserves_display_overrides_supercell_and_bridge_bonds():
     assert len(oxygen) == 2
     assert oxygen[0]["color"] == "#12ab34"
     assert oxygen[0]["radius"] == pytest.approx(0.792)
+    assert oxygen[0]["material"] == "metal"
+    hydrogen = [item for item in scene["atoms"] if item["index"] == 1]
+    assert {item["material"] for item in hydrogen} == {"rubber"}
     assert any("bridge" in item["name"] for item in scene["bonds"])
     assert all(item["diameter"] == pytest.approx(0.12) for item in scene["bonds"])
     assert all(item["radius"] == pytest.approx(0.06) for item in scene["bonds"])
@@ -104,14 +109,18 @@ def test_obj_export_is_dependency_free_and_bundles_materials():
         assert obj.count("o atom_") == 6
         assert obj.count("o bond_") == 8
         assert obj.count("o cell_edge_") == 20
-        assert "v_ase_12ab34" in mtl
+        assert "v_ase_metal_12ab34" in mtl
         assert "Kd 0.070588 0.670588 0.203922" in mtl
-        assert "usemtl v_ase_12ab34" in obj
-        assert "newmtl v_ase_d6bd67" in mtl
-        assert "o cell_edge_0\nusemtl v_ase_d6bd67\n" in obj
+        assert "usemtl v_ase_metal_12ab34" in obj
+        assert "newmtl v_ase_rubber_" in mtl
+        assert "newmtl v_ase_standard_d6bd67" in mtl
+        assert "o cell_edge_0\nusemtl v_ase_standard_d6bd67\n" in obj
         assert metadata["bond_thickness_semantics"] == "diameter"
         assert metadata["camera"]["position"] == [5.0, -6.0, 4.0]
         assert metadata["include_cell"] is True
+        assert {item["material"] for item in metadata["atoms"]} == {
+            "standard", "metal", "rubber"
+        }
         assert all(item["diameter"] == pytest.approx(0.12) for item in metadata["bonds"])
         assert all(item["radius"] == pytest.approx(0.06) for item in metadata["bonds"])
     finally:
@@ -174,6 +183,10 @@ def test_3dm_export_round_trips_as_editable_angstrom_scene():
         assert all(type(item.Geometry).__name__ == "InstanceReference" for item in bond_objects)
         assert atom_objects[0].Attributes.GetUserString("v_ase.units") == "angstrom"
         assert atom_objects[0].Attributes.Name.startswith("atom_")
+        assert {
+            item.Attributes.GetUserString("v_ase.material")
+            for item in atom_objects
+        } == {"standard", "metal", "rubber"}
         atom_xform = atom_objects[0].Geometry.Xform
         atom_scale = (atom_xform.M00 ** 2 + atom_xform.M10 ** 2 + atom_xform.M20 ** 2) ** 0.5
         assert atom_scale == pytest.approx(0.792)
