@@ -120,8 +120,9 @@ playback.
 | `Tab` / `Esc` | Open the collapsed control panel |
 | `Esc` | Close the open panel and return focus to the viewport |
 
-The **?** button shows the complete shortcut list. The six toolbar arrows rotate
-or roll only the camera by the selected angle; atomic coordinates do not change.
+The **?** button shows the complete shortcut list. The six toolbar arrows are
+ordered as up/down, left/right, and counterclockwise/clockwise roll. They move
+only the camera by the selected angle; atomic coordinates do not change.
 
 ## Trajectories
 
@@ -193,7 +194,8 @@ One through four ordered selections are marked `a1` through `a4`. The viewport
 shows point information, `a1-a2` distance, the `a1-a2-a3` angle centered on
 `a2`, or the signed `a1-a2-a3-a4` torsion. Direct-coordinate and
 minimum-image-convention (MIC) values are reported together. Larger selections
-show a compact count. Hovered-atom metadata is displayed separately.
+show the total followed by counts for each atom label. Hovered-atom metadata is
+displayed separately.
 
 ## Appearance, Bonds, And Rendering
 
@@ -203,7 +205,7 @@ The Display workspace provides:
 - white viewport background by default, with a dark option;
 - 3D spheres/cylinders or 2D atoms/flat bonds;
 - live atomic scale in pixels per Angstrom;
-- atom smoothness and anti-aliasing;
+- atom smoothness and anti-aliasing; new documents use a `0.60x` atom radius;
 - per-label element TYPE, label, visibility, color, radius, and material;
 - Modeling, Studio Sun, and Sun + Soft Shadow rendering;
 - editable Sun intensity, source, target, and viewport handles;
@@ -218,7 +220,8 @@ control visual grouping.
 Bonds support automatic covalent-radius inference, label-pair cutoffs, and
 manual index pairs. A pairwise cutoff of `0` disables that label pair.
 Thickness, cylinder/flat style, custom color, and midpoint-split atom colors are
-configurable. Interactive bonds form and break during atom transforms.
+configurable. New documents use a `0.25 A` bond diameter. Interactive bonds
+form and break during atom transforms.
 
 ## Export And Save
 

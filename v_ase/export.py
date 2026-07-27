@@ -465,11 +465,11 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
     label_materials = display.get("labelMaterials") or {}
     atom_materials = display.get("atomMaterials") or {}
     try:
-        radius_scale = float(display.get("atomRadiusScale", 1.0))
+        radius_scale = float(display.get("atomRadiusScale", 0.6))
     except (TypeError, ValueError):
-        radius_scale = 1.0
+        radius_scale = 0.6
     if not np.isfinite(radius_scale) or radius_scale <= 0:
-        radius_scale = 1.0
+        radius_scale = 0.6
 
     atom_specs = []
     visible_indices = set()
@@ -506,9 +506,9 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
     color_mode = display.get("bondColorMode", "split")
     custom_bond_color = _valid_hex_color(display.get("bondCustomColor"), "#c8ccd0")
     try:
-        bond_diameter = float(display.get("bondThickness", 0.11))
+        bond_diameter = float(display.get("bondThickness", 0.25))
     except (TypeError, ValueError):
-        bond_diameter = 0.11
+        bond_diameter = 0.25
     bond_diameter = max(0.02, min(0.6, bond_diameter))
     bond_radius = bond_diameter * 0.5
     bond_style = "flat" if display.get("bondStyle") == "flat" else "cylinder"
@@ -1209,9 +1209,9 @@ BOND_COLOR_MODE = DISPLAY.get("bondColorMode", "split")
 BOND_CUSTOM_COLOR = DISPLAY.get("bondCustomColor", "#c8ccd0")
 BLENDER_OBJECT_MODE = DISPLAY.get("blenderExportMode", "instanced")
 try:
-    BOND_THICKNESS = max(0.02, min(0.6, float(DISPLAY.get("bondThickness", 0.11))))
+    BOND_THICKNESS = max(0.02, min(0.6, float(DISPLAY.get("bondThickness", 0.25))))
 except (TypeError, ValueError):
-    BOND_THICKNESS = 0.11
+    BOND_THICKNESS = 0.25
 
 VISUAL = DATA.get("visual", {{}})
 ATOM_COLORS = VISUAL.get("colors", [])
@@ -1228,9 +1228,9 @@ MATERIAL_PRESETS = {{
     "rubber": {{"roughness": 0.88, "metalness": 0.0, "specular": 0.16, "clearcoat": 0.0, "clearcoat_roughness": 0.8}},
 }}
 try:
-    ATOM_RADIUS_SCALE = max(0.01, float(DISPLAY.get("atomRadiusScale", 1.0)))
+    ATOM_RADIUS_SCALE = max(0.01, float(DISPLAY.get("atomRadiusScale", 0.6)))
 except (TypeError, ValueError):
-    ATOM_RADIUS_SCALE = 1.0
+    ATOM_RADIUS_SCALE = 0.6
 FALLBACK_COLOR = (0.8, 0.8, 0.8, 1.0)
 FALLBACK_RADIUS = 0.7
 

@@ -661,6 +661,11 @@ def test_camera_view_background_and_2d_display_controls_are_wired():
     assert 'id="view-rotate-step"' in index_html
     for direction in ("left", "right", "up", "down", "roll-ccw", "roll-cw"):
         assert f'data-view-rotate="{direction}"' in index_html
+    arrow_positions = [
+        index_html.index(f'data-view-rotate="{direction}"')
+        for direction in ("up", "down", "left", "right", "roll-ccw", "roll-cw")
+    ]
+    assert arrow_positions == sorted(arrow_positions)
     assert 'data-view-rotate-axis=' not in index_html
     assert 'data-view-align-axis=' not in index_html
     assert 'id="btn-view-toggle"' not in index_html
@@ -669,7 +674,13 @@ def test_camera_view_background_and_2d_display_controls_are_wired():
     assert "setupViewControls()" in main_js
     assert "cameraViewBasis()" in main_js
     assert "rotateCameraView(direction, stepDegrees" in main_js
-    assert "'roll-ccw': { axis: basis.forward, sign: 1 }" in main_js
+    assert "'roll-ccw': { axis: basis.forward, sign: -1 }" in main_js
+    assert "'roll-cw': { axis: basis.forward, sign: 1 }" in main_js
+    assert "selectionCountText(selectedReferences" in main_js
+    assert "bondThickness: 0.25" in main_js
+    assert "atomRadiusScale: 0.6" in main_js
+    assert 'id="bond-thickness" value="0.25"' in index_html
+    assert 'id="atom-radius-scale" value="0.6"' in index_html
     assert "viewportBackground: 'white'" in main_js
     assert '<option value="white" selected>White</option>' in index_html
     assert 'data-viewport-background="white"' in index_html

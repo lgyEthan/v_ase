@@ -240,7 +240,7 @@ def test_workspace_browser_tabs_suspend_inactive_renderers_and_keep_settings_sep
                 "hostSuspended": True,
                 "childSuspended": True,
                 "importedSuspended": False,
-                "hostScale": 1,
+                "hostScale": 0.6,
                 "childScale": 1.8,
                 "hostProject": "water.vase",
                 "childProject": "Untitled.vase",

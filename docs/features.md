@@ -132,6 +132,9 @@ part of `.vase` projects and static export payloads; reusable settings omit
 per-atom overrides so they remain portable to structures with different atom
 counts.
 
+New documents start with an atom-radius scale of `0.60x`. Explicit values in
+projects and reusable settings remain authoritative.
+
 ## Bonds
 
 Bond topology modes:
@@ -153,7 +156,8 @@ outer boundary. **Periodic image bonds** separately enables bonds extending
 toward images outside the displayed cell.
 
 Bond appearance is independent of topology: cylinder or flat style, diameter,
-custom color, or midpoint-split endpoint colors.
+custom color, or midpoint-split endpoint colors. The new-document bond diameter
+is `0.25 A`; saved explicit values are preserved.
 
 ## Trajectories And Relaxation
 
@@ -216,7 +220,11 @@ Sequential one-to-four atom selections produce ordered point, distance, angle,
 and signed torsion measurements. Direct-coordinate and
 minimum-image-convention (MIC) values are shown together; displayed supercell
 replicas retain their on-screen coordinate measurement contract. Selection
-measurements and pointer hover metadata use separate persistent HUDs.
+measurements and pointer hover metadata use separate persistent HUDs. Five or
+more selected atoms show the total followed by stable first-seen label counts.
+
+The camera-step toolbar is ordered as the three view-relative pairs up/down,
+left/right, and counterclockwise/clockwise roll.
 
 Output Preview uses a cloned camera and a fixed screen-space frame with the
 requested output aspect ratio. Preview, PNG, and trajectory video share one

@@ -83,6 +83,10 @@ and documentation use `view()`.
     Ordered two-to-four atom measurements report direct-coordinate and
     minimum-image-convention values together; visualization replicas continue
     to measure their displayed positions.
+17. New documents start with `0.60x` atom radius and `0.25 A` bond diameter.
+    Explicit project and reusable-setting values override these defaults.
+18. Five-or-more selection summaries retain the total and append counts in
+    stable first-seen label order.
 
 ## Canonical Names And Compatibility
 

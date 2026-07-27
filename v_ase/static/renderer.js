@@ -517,10 +517,10 @@ export class ASERenderer {
             manualBondPairs: [],
             pairwiseBondCutoffs: {},
             bondStyle: 'cylinder',
-            bondThickness: 0.11,
+            bondThickness: 0.25,
             bondColorMode: 'split',
             bondCustomColor: '#c8ccd0',
-            atomRadiusScale: 1.0,
+            atomRadiusScale: 0.6,
             labelRadii: {},
             labelColors: {},
             labelVisible: {},
@@ -1137,9 +1137,9 @@ export class ASERenderer {
         const sourceRadius = Number.isFinite(labelRadius) && labelRadius > 0
             ? labelRadius
             : Number(this.atomsData?.visual?.radii?.[index]);
-        const scale = Number(this.displayOptions?.atomRadiusScale || 1);
+        const scale = Number(this.displayOptions?.atomRadiusScale || 0.6);
         const radius = Number.isFinite(sourceRadius) && sourceRadius > 0 ? sourceRadius : FALLBACK_ATOM_RADIUS;
-        return radius * (Number.isFinite(scale) && scale > 0 ? scale : 1);
+        return radius * (Number.isFinite(scale) && scale > 0 ? scale : 0.6);
     }
 
     atomCovalentRadius(index) {
@@ -3712,7 +3712,7 @@ export class ASERenderer {
 
     bondThickness() {
         const value = Number(this.displayOptions.bondThickness);
-        return Number.isFinite(value) ? Math.max(0.02, Math.min(0.6, value)) : 0.11;
+        return Number.isFinite(value) ? Math.max(0.02, Math.min(0.6, value)) : 0.25;
     }
 
     bondSegmentColor(segment) {

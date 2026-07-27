@@ -1679,6 +1679,7 @@ def test_grid_button_and_ordered_distance_angle_torsion_measurements():
         [4.5, 3.5, 0.0],
     ])
     atoms = Atoms("H5", positions=positions, cell=[14.0, 12.0, 10.0], pbc=False)
+    set_atom_labels(atoms, ["H", "H", "H_alt", "H_alt", "H_alt"])
     port = find_free_port()
     editor = view(
         atoms,
@@ -1878,8 +1879,8 @@ def test_grid_button_and_ordered_distance_angle_torsion_measurements():
             assert five["hidden"] is True
             assert five["labels"] == []
             assert five["connectors"] == 0
-            assert five["detail"] == "5 atoms selected"
-            assert five["summary"] == "5 atoms selected"
+            assert five["detail"] == "5 atoms selected | H: 2, H_alt: 3"
+            assert five["summary"] == "5 atoms selected | H: 2, H_alt: 3"
 
             page.locator("#app-viewport canvas").focus()
             page.keyboard.press("Alt+a")
@@ -2979,11 +2980,23 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             assert page.evaluate("""() => ({
                 state: window.__ASE_APP__.state.display.viewportBackground,
                 background: `#${window.__ASE_APP__.renderer.scene.background.getHexString()}`,
-                control: document.getElementById('viewport-background').value
+                control: document.getElementById('viewport-background').value,
+                atomRadiusScale: window.__ASE_APP__.state.display.atomRadiusScale,
+                bondThickness: window.__ASE_APP__.state.display.bondThickness,
+                radiusControl: Number(document.getElementById('atom-radius-scale').value),
+                thicknessControl: Number(document.getElementById('bond-thickness').value),
+                radiusOutput: document.getElementById('atom-radius-scale-value').innerText,
+                thicknessOutput: document.getElementById('bond-thickness-value').innerText
             })""") == {
                 "state": "white",
                 "background": "#ffffff",
                 "control": "white",
+                "atomRadiusScale": pytest.approx(0.6),
+                "bondThickness": pytest.approx(0.25),
+                "radiusControl": pytest.approx(0.6),
+                "thicknessControl": pytest.approx(0.25),
+                "radiusOutput": "0.60x",
+                "thicknessOutput": "0.25 A",
             }
 
             toolbar_geometry = page.evaluate("""() => {
@@ -2999,6 +3012,7 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                     viewportWidth: window.innerWidth,
                     arrowCount: arrows.length,
                     arrowText: arrows.map(button => button.textContent.trim()),
+                    arrowDirections: arrows.map(button => button.dataset.viewRotate),
                     popupExists: Boolean(
                         document.getElementById('btn-view-toggle')
                         || document.getElementById('view-card')
@@ -3013,6 +3027,14 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             assert toolbar_geometry["toolbarRight"] <= toolbar_geometry["viewportWidth"]
             assert toolbar_geometry["arrowCount"] == 6
             assert toolbar_geometry["arrowText"] == [""] * 6
+            assert toolbar_geometry["arrowDirections"] == [
+                "up",
+                "down",
+                "left",
+                "right",
+                "roll-ccw",
+                "roll-cw",
+            ]
             assert toolbar_geometry["popupExists"] is False
 
             _expand_inspector(page)
@@ -3172,12 +3194,12 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                 before_rotation["cameraPosition"], abs=1e-8
             )
             assert rotated["cameraUp"] == pytest.approx(
-                [math.sqrt(0.5), math.sqrt(0.5), 0], abs=1e-7
+                [-math.sqrt(0.5), math.sqrt(0.5), 0], abs=1e-7
             )
             assert math.degrees(math.atan2(
                 rotated["projected"][1],
                 rotated["projected"][0],
-            )) == pytest.approx(45, abs=1e-5)
+            )) == pytest.approx(-45, abs=1e-5)
             assert rotated["step"] == pytest.approx(45)
             assert rotated["saved"]["viewportBackground"] == "white"
             assert rotated["saved"]["atomDisplayMode"] == "3d"

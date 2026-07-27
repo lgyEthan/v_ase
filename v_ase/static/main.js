@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.81&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.81&rev=1';
-import { ASESelection } from './selection.js?v=0.0.81&rev=1';
-import { ASETransform } from './transform.js?v=0.0.81&rev=1';
+import { ASEApi } from './api.js?v=0.0.82&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.82&rev=1';
+import { ASESelection } from './selection.js?v=0.0.82&rev=1';
+import { ASETransform } from './transform.js?v=0.0.82&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -80,10 +80,10 @@ class VAseApp {
                 manualBondPairs: [],
                 pairwiseBondCutoffs: {},
                 bondStyle: 'cylinder',
-                bondThickness: 0.11,
+                bondThickness: 0.25,
                 bondColorMode: 'split',
                 bondCustomColor: '#c8ccd0',
-                atomRadiusScale: 1.0,
+                atomRadiusScale: 0.6,
                 labelRadii: {},
                 labelColors: {},
                 labelVisible: {},
@@ -1069,8 +1069,8 @@ class VAseApp {
             right: { axis: basis.up, sign: 1 },
             up: { axis: basis.right, sign: -1 },
             down: { axis: basis.right, sign: 1 },
-            'roll-ccw': { axis: basis.forward, sign: 1 },
-            'roll-cw': { axis: basis.forward, sign: -1 }
+            'roll-ccw': { axis: basis.forward, sign: -1 },
+            'roll-cw': { axis: basis.forward, sign: 1 }
         };
         const rotation = directions[direction];
         if (!rotation) return;
@@ -1832,8 +1832,12 @@ class VAseApp {
         this.state.display.bondStyle = ['cylinder', 'flat'].includes(config.bond_style)
             ? config.bond_style
             : this.state.display.bondStyle;
-        this.state.display.bondThickness = Math.max(0.02, Math.min(0.6,
-            Number(config.bond_thickness || this.state.display.bondThickness)));
+        const initialBondThickness = Number(
+            config.bond_thickness ?? this.state.display.bondThickness
+        );
+        this.state.display.bondThickness = Number.isFinite(initialBondThickness)
+            ? Math.max(0.02, Math.min(0.6, initialBondThickness))
+            : this.state.display.bondThickness;
         this.state.display.bondColorMode = ['split', 'custom'].includes(config.bond_color_mode)
             ? config.bond_color_mode
             : this.state.display.bondColorMode;
@@ -1843,7 +1847,12 @@ class VAseApp {
         this.state.applyConstraints = config.apply_constraint !== false;
         this.state.antiAliasing = config.anti_aliasing !== false;
         this.state.sphereQuality = config.sphere_quality || 'auto';
-        this.state.display.atomRadiusScale = Number(config.atom_radius_scale || 1.0);
+        const initialRadiusScale = Number(
+            config.atom_radius_scale ?? this.state.display.atomRadiusScale
+        );
+        this.state.display.atomRadiusScale = Number.isFinite(initialRadiusScale) && initialRadiusScale > 0
+            ? initialRadiusScale
+            : this.state.display.atomRadiusScale;
         this.state.display.labelRadii = config.element_radii || {};
         this.state.display.labelColors = config.element_colors || {};
         this.state.display.labelVisible = config.element_visible || {};
@@ -2474,6 +2483,18 @@ class VAseApp {
         )).join(', ');
     }
 
+    selectionCountText(selectedReferences = this.selectionEntries()) {
+        const counts = new Map();
+        selectedReferences.forEach(reference => {
+            const label = this.selectionReferenceSymbol(reference);
+            counts.set(label, (counts.get(label) || 0) + 1);
+        });
+        const breakdown = [...counts.entries()]
+            .map(([label, count]) => `${label}: ${count}`)
+            .join(', ');
+        return `${selectedReferences.length} atoms selected${breakdown ? ` | ${breakdown}` : ''}`;
+    }
+
     getSelectionMeasureText(selectedReferences = this.selectionEntries()) {
         if (!this.state.atoms || selectedReferences.length === 0) return '-';
         const referenceMap = this.selectionMeasurementMap(selectedReferences);
@@ -2518,7 +2539,7 @@ class VAseApp {
             if (![...direct, ...mic].every(Number.isFinite)) return '-';
             return `${referenceMap}\nDirect: d(a1-a2) = ${this.formatNumber(direct[0], 4)} A | d(a2-a3) = ${this.formatNumber(direct[1], 4)} A | d(a3-a4) = ${this.formatNumber(direct[2], 4)} A | torsion(a1-a2-a3-a4) = ${this.formatNumber(direct[3], 2)} deg\nMIC: d(a1-a2) = ${this.formatNumber(mic[0], 4)} A | d(a2-a3) = ${this.formatNumber(mic[1], 4)} A | d(a3-a4) = ${this.formatNumber(mic[2], 4)} A | torsion(a1-a2-a3-a4) = ${this.formatNumber(mic[3], 2)} deg`;
         }
-        return `${selectedReferences.length} atoms selected`;
+        return this.selectionCountText(selectedReferences);
     }
 
     getSelectionMeasureSummary(selectedReferences = this.selectionEntries()) {
@@ -2548,7 +2569,7 @@ class VAseApp {
                 ? `Torsion a1-a2-a3-a4 | Direct ${this.formatNumber(direct, 2)} deg | MIC ${this.formatNumber(mic, 2)} deg`
                 : 'Torsion unavailable';
         }
-        return `${selectedReferences.length} atoms selected`;
+        return this.selectionCountText(selectedReferences);
     }
 
     worldToScreen(vec) {
@@ -3771,7 +3792,11 @@ class VAseApp {
     }
 
     updateRadiusScaleLabel() {
-        const scale = Number(document.getElementById('atom-radius-scale')?.value || this.state.display.atomRadiusScale || 1);
+        const scale = Number(
+            document.getElementById('atom-radius-scale')?.value
+            || this.state.display.atomRadiusScale
+            || 0.6
+        );
         const label = document.getElementById('atom-radius-scale-value');
         if (label) label.innerText = `${(Number.isFinite(scale) ? scale : 1).toFixed(2)}x`;
     }
@@ -4393,7 +4418,7 @@ class VAseApp {
         const mode = document.getElementById('bond-color-mode')?.value || this.state.display.bondColorMode;
         document.getElementById('bond-custom-color-row')?.classList.toggle('hidden', mode !== 'custom');
         const rawThickness = Number(document.getElementById('bond-thickness')?.value || this.state.display.bondThickness);
-        const thickness = Number.isFinite(rawThickness) ? rawThickness : 0.11;
+        const thickness = Number.isFinite(rawThickness) ? rawThickness : 0.25;
         const output = document.getElementById('bond-thickness-value');
         if (output) output.innerText = `${thickness.toFixed(2)} A`;
     }
@@ -4475,8 +4500,10 @@ class VAseApp {
             ? Math.max(0, Math.min(15, snapRange))
             : 2;
         this.captureBondSettingsFromControls({ strictManual: true });
-        const radiusScale = parseFloat(document.getElementById('atom-radius-scale')?.value || '1');
-        this.state.display.atomRadiusScale = Number.isFinite(radiusScale) && radiusScale > 0 ? radiusScale : 1.0;
+        const radiusScale = parseFloat(document.getElementById('atom-radius-scale')?.value || '0.6');
+        this.state.display.atomRadiusScale = Number.isFinite(radiusScale) && radiusScale > 0
+            ? radiusScale
+            : 0.6;
         this.state.display.labelRadii = this.parseLabelRadii();
         this.state.display.labelColors = this.parseLabelColors();
         this.state.display.labelVisible = this.parseLabelVisibility();
@@ -4599,11 +4626,11 @@ class VAseApp {
         setValue('bond-mode', display.bondMode || 'auto');
         setValue('bond-cutoff', display.bondCutoffScale || 1.0);
         setValue('bond-style', display.bondStyle || 'cylinder');
-        setValue('bond-thickness', display.bondThickness || 0.11);
+        setValue('bond-thickness', display.bondThickness || 0.25);
         setValue('bond-color-mode', display.bondColorMode || 'split');
         setValue('bond-custom-color', display.bondCustomColor || '#c8ccd0');
         setValue('blender-export-mode', display.blenderExportMode || 'instanced');
-        setValue('atom-radius-scale', display.atomRadiusScale || 1);
+        setValue('atom-radius-scale', display.atomRadiusScale || 0.6);
         setValue('move-increment', this.state.moveIncrement || 0);
         setValue('rotate-increment', this.state.rotateIncrementDeg || 0);
         this.setSupercellInputs(display.supercell || [1, 1, 1]);

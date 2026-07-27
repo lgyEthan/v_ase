@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.81&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.82&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.81';
+            : '/static/vendor/three.module.js?v=0.0.82';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -57,7 +57,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.81</span>
+            <span class="version">0.0.82</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -102,41 +102,40 @@
                 <select id="calc-cpus"></select>
             </div>
             <div id="view-toolbar" class="view-toolbar" role="group" aria-label="Camera rotation controls">
-                <button class="view-arrow-btn" type="button" data-view-rotate="left" aria-label="Orbit view left" title="Orbit view left">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path class="view-orbit-track" d="M20 17.8C18.8 10.6 12.4 7.4 6.4 11.6"></path>
-                        <path class="view-orbit-head" d="M6.8 7.4 3.5 12.6l6.1.4Z"></path>
+                <button class="view-arrow-btn" type="button" data-view-rotate="up" aria-label="Tilt view upward" title="Tilt view upward">
+                    <svg viewBox="0 0 28 28" aria-hidden="true">
+                        <path class="view-orbit-track" d="M22 22C14 22 10 18 10 11V8"></path>
+                        <path class="view-orbit-head" d="M10 3 4.5 10h11Z"></path>
+                    </svg>
+                </button>
+                <button class="view-arrow-btn" type="button" data-view-rotate="down" aria-label="Tilt view downward" title="Tilt view downward">
+                    <svg viewBox="0 0 28 28" aria-hidden="true">
+                        <path class="view-orbit-track" d="M6 6c8 0 12 4 12 11v3"></path>
+                        <path class="view-orbit-head" d="m18 25-5.5-7h11Z"></path>
+                    </svg>
+                </button>
+                <button class="view-arrow-btn view-axis-pair-start" type="button" data-view-rotate="left" aria-label="Orbit view left" title="Orbit view left">
+                    <svg viewBox="0 0 28 28" aria-hidden="true">
+                        <path class="view-orbit-track" d="M22 22c0-8-4-12-11-12H8"></path>
+                        <path class="view-orbit-head" d="m3 10 7-5.5v11Z"></path>
                     </svg>
                 </button>
                 <button class="view-arrow-btn" type="button" data-view-rotate="right" aria-label="Orbit view right" title="Orbit view right">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path class="view-orbit-track" d="M4 17.8C5.2 10.6 11.6 7.4 17.6 11.6"></path>
-                        <path class="view-orbit-head" d="m17.2 7.4 3.3 5.2-6.1.4Z"></path>
+                    <svg viewBox="0 0 28 28" aria-hidden="true">
+                        <path class="view-orbit-track" d="M6 22c0-8 4-12 11-12h3"></path>
+                        <path class="view-orbit-head" d="m25 10-7-5.5v11Z"></path>
                     </svg>
                 </button>
-                <button class="view-arrow-btn" type="button" data-view-rotate="up" aria-label="Orbit view up" title="Orbit view up">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path class="view-orbit-track" d="M17.8 20C10.6 18.8 7.4 12.4 11.6 6.4"></path>
-                        <path class="view-orbit-head" d="m7.4 6.8 5.2-3.3.4 6.1Z"></path>
-                    </svg>
-                </button>
-                <button class="view-arrow-btn" type="button" data-view-rotate="down" aria-label="Orbit view down" title="Orbit view down">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path class="view-orbit-track" d="M17.8 4C10.6 5.2 7.4 11.6 11.6 17.6"></path>
-                        <path class="view-orbit-head" d="m7.4 17.2 5.2 3.3.4-6.1Z"></path>
-                    </svg>
-                </button>
-                <span class="view-toolbar-divider" aria-hidden="true"></span>
-                <button class="view-arrow-btn" type="button" data-view-rotate="roll-ccw" aria-label="Roll view counterclockwise" title="Roll view counterclockwise">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path class="view-orbit-track" d="M6.4 17.8A7.7 7.7 0 1 1 18.7 9"></path>
-                        <path class="view-orbit-head" d="M19.8 5.1 20 11l-5.4-2.5Z"></path>
+                <button class="view-arrow-btn view-axis-pair-start" type="button" data-view-rotate="roll-ccw" aria-label="Roll view counterclockwise" title="Roll view counterclockwise">
+                    <svg viewBox="0 0 28 28" aria-hidden="true">
+                        <path class="view-orbit-track" d="M22 20A9.5 9.5 0 1 0 8 6"></path>
+                        <path class="view-orbit-head" d="m3 6 7-4-.8 8Z"></path>
                     </svg>
                 </button>
                 <button class="view-arrow-btn" type="button" data-view-rotate="roll-cw" aria-label="Roll view clockwise" title="Roll view clockwise">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path class="view-orbit-track" d="M17.6 17.8A7.7 7.7 0 1 0 5.3 9"></path>
-                        <path class="view-orbit-head" d="M4.2 5.1 4 11l5.4-2.5Z"></path>
+                    <svg viewBox="0 0 28 28" aria-hidden="true">
+                        <path class="view-orbit-track" d="M6 20A9.5 9.5 0 1 1 20 6"></path>
+                        <path class="view-orbit-head" d="m25 6-7-4 .8 8Z"></path>
                     </svg>
                 </button>
                 <label class="view-step-compact" for="view-rotate-step" title="Camera rotation step">
@@ -479,9 +478,9 @@
             <div class="range-row">
                 <div class="range-head">
                     <label for="atom-radius-scale">Atom radius</label>
-                    <output id="atom-radius-scale-value">1.00x</output>
+                    <output id="atom-radius-scale-value">0.60x</output>
                 </div>
-                <input type="range" id="atom-radius-scale" value="1" min="0.25" max="2.5" step="0.05">
+                <input type="range" id="atom-radius-scale" value="0.6" min="0.25" max="2.5" step="0.05">
             </div>
             <div id="selected-appearance" class="selected-appearance" data-edit-only>
                 <div class="selected-appearance-head">
@@ -565,9 +564,9 @@
             <div class="range-row bond-thickness-control">
                 <div class="range-head">
                     <label for="bond-thickness">Thickness</label>
-                    <output id="bond-thickness-value">0.11 A</output>
+                    <output id="bond-thickness-value">0.25 A</output>
                 </div>
-                <input type="range" id="bond-thickness" value="0.11" min="0.02" max="0.60" step="0.01">
+                <input type="range" id="bond-thickness" value="0.25" min="0.02" max="0.60" step="0.01">
             </div>
             <div class="prop-row">
                 <label for="bond-color-mode">Color</label>
@@ -796,7 +795,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.81&rev=1';
+            : './static/main.js?v=0.0.82&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

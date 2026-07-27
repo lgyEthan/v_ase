@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.0.82
+
+- Added per-label atom counts after the total for selections of five or more
+  atoms.
+- Reordered and redrew the camera controls as three paired curved-arrow groups:
+  up/down, left/right, and counterclockwise/clockwise roll.
+- Corrected view-relative clockwise and counterclockwise camera roll direction.
+- Set new-document defaults to `0.60x` atom radius and `0.25 A` bond diameter
+  while preserving explicit values from saved projects and settings.
+- Added real-Chromium coverage for the new defaults, camera order and direction,
+  and multi-label selection summaries.
+
 ## 0.0.81
 
 - Made both `Tab` and `Esc` open a collapsed control panel while retaining
