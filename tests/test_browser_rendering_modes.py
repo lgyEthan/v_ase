@@ -33,6 +33,108 @@ def _open_panel(page, panel):
         details.locator('summary').click()
 
 
+def test_axis_shortcuts_restore_canonical_roll_before_opposite_view():
+    atoms = Atoms(
+        "H2",
+        positions=[[0.0, 0.0, 0.0], [0.75, 0.0, 0.0]],
+        cell=[6.0, 6.0, 6.0],
+        pbc=True,
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
+            canvas = page.locator("#app-viewport canvas")
+
+            for axis, canonical_direction, canonical_up in (
+                ("x", [1, 0, 0], [0, 0, 1]),
+                ("y", [0, 1, 0], [0, 0, 1]),
+                ("z", [0, 0, 1], [0, 1, 0]),
+            ):
+                page.evaluate("""() => {
+                    const app = window.__ASE_APP__;
+                    const camera = app.renderer.camera;
+                    const target = app.renderer.controls.target;
+                    const distance = Math.max(camera.position.distanceTo(target), 4);
+                    camera.position.copy(target).add(
+                        new camera.position.constructor(0.41, -0.63, 0.66)
+                            .normalize()
+                            .multiplyScalar(distance)
+                    );
+                    camera.up.set(0.2, 0.9, 0.35).normalize();
+                    app.completeCameraViewChange('test-noncanonical-view');
+                }""")
+                canvas.focus()
+                page.keyboard.press(axis)
+                canonical = page.evaluate("""() => {
+                    const app = window.__ASE_APP__;
+                    const basis = app.cameraViewBasis();
+                    return {
+                        direction: basis.offset.clone().normalize().toArray(),
+                        up: basis.up.toArray()
+                    };
+                }""")
+                assert canonical["direction"] == pytest.approx(canonical_direction, abs=1e-8)
+                assert canonical["up"] == pytest.approx(canonical_up, abs=1e-8)
+
+                page.evaluate("window.__ASE_APP__.rotateCameraView('roll-cw', 37)")
+                rolled = page.evaluate("""() => {
+                    const app = window.__ASE_APP__;
+                    const basis = app.cameraViewBasis();
+                    return {
+                        direction: basis.offset.clone().normalize().toArray(),
+                        up: basis.up.toArray()
+                    };
+                }""")
+                assert rolled["direction"] == pytest.approx(canonical_direction, abs=1e-8)
+                assert rolled["up"] != pytest.approx(canonical_up, abs=1e-4)
+
+                canvas.focus()
+                page.keyboard.press(axis)
+                restored = page.evaluate("""() => {
+                    const app = window.__ASE_APP__;
+                    const basis = app.cameraViewBasis();
+                    return {
+                        direction: basis.offset.clone().normalize().toArray(),
+                        up: basis.up.toArray()
+                    };
+                }""")
+                assert restored["direction"] == pytest.approx(canonical_direction, abs=1e-8)
+                assert restored["up"] == pytest.approx(canonical_up, abs=1e-8)
+
+                page.keyboard.press(axis)
+                opposite = page.evaluate("""() => {
+                    const app = window.__ASE_APP__;
+                    const basis = app.cameraViewBasis();
+                    return {
+                        direction: basis.offset.clone().normalize().toArray(),
+                        up: basis.up.toArray()
+                    };
+                }""")
+                assert opposite["direction"] == pytest.approx(
+                    [-value for value in canonical_direction],
+                    abs=1e-8,
+                )
+                assert opposite["up"] == pytest.approx(canonical_up, abs=1e-8)
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
     first = molecule("H2O")
     first.set_cell([8.0, 8.0, 8.0])

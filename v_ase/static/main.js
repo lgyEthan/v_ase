@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.86&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.86&rev=1';
-import { ASESelection } from './selection.js?v=0.0.86&rev=1';
-import { ASETransform } from './transform.js?v=0.0.86&rev=1';
+import { ASEApi } from './api.js?v=0.0.87&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.87&rev=1';
+import { ASESelection } from './selection.js?v=0.0.87&rev=1';
+import { ASETransform } from './transform.js?v=0.0.87&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -2945,14 +2945,17 @@ class VAseApp {
         const controls = this.renderer.controls;
         const target = controls.target.clone();
         const distance = Math.max(camera.position.distanceTo(target), 4.0);
-        const viewDir = new THREE.Vector3().subVectors(camera.position, target);
-        const currentSign = viewDir.lengthSq() > 1e-12
-            ? Math.sign(viewDir.normalize().dot(baseDir))
-            : 0;
-        const perfectlyAligned = Math.abs(viewDir.dot(baseDir)) > 0.99995;
-        const sign = perfectlyAligned && currentSign > 0 ? -1 : 1;
+        const canonicalUp = axis === 'Z'
+            ? new THREE.Vector3(0, 1, 0)
+            : new THREE.Vector3(0, 0, 1);
+        const basis = this.cameraViewBasis();
+        const poseTolerance = 1 - 1e-7;
+        const positiveDirectionAligned = basis.offset.lengthSq() > 1e-12
+            && basis.offset.clone().normalize().dot(baseDir) > poseTolerance;
+        const canonicalUpAligned = basis.up.dot(canonicalUp) > poseTolerance;
+        const sign = positiveDirectionAligned && canonicalUpAligned ? -1 : 1;
         const dir = baseDir.clone().multiplyScalar(sign);
-        camera.up.copy(axis === 'Z' ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1));
+        camera.up.copy(canonicalUp);
         camera.position.copy(target).add(dir.clone().multiplyScalar(distance));
         camera.lookAt(target);
         controls.target.copy(target);

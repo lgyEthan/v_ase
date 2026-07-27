@@ -27,9 +27,9 @@ Press these keys to enter transformation mode:
 |-----|--------|-------------|
 | **G** | **Grab** | Move selected atoms or the selected Sun object relative to the view plane. |
 | **R** | **Rotate** | Rotate selected atoms around their collective center, or rotate the selected Sun direction. |
-| **X** | **Align / Lock X** | In select mode, align the viewport to +X. Press X again only from exact +X alignment to flip to -X. During G/R, lock movement/rotation to X. |
-| **Y** | **Align / Lock Y** | In select mode, align the viewport to +Y. Press Y again only from exact +Y alignment to flip to -Y. During G/R, lock movement/rotation to Y. |
-| **Z** | **Align / Lock Z** | In select mode, align the viewport to +Z. Press Z again only from exact +Z alignment to flip to -Z. During G/R, lock movement/rotation to Z. |
+| **X** | **Align / Lock X** | In select mode, restore the canonical +X pose, including screen-up orientation. Press X again only from that exact pose to flip to -X. During G/R, lock movement/rotation to X. |
+| **Y** | **Align / Lock Y** | In select mode, restore the canonical +Y pose, including screen-up orientation. Press Y again only from that exact pose to flip to -Y. During G/R, lock movement/rotation to Y. |
+| **Z** | **Align / Lock Z** | In select mode, restore the canonical +Z pose, including screen-up orientation. Press Z again only from that exact pose to flip to -Z. During G/R, lock movement/rotation to Z. |
 | **Esc** | **Cancel / Inspector** | Revert an active transform or close a modal. Otherwise, open a collapsed control panel; when the panel is open, commit its active field, close it, and return keyboard focus to the viewport. |
 | **Enter / Left Click** | **Confirm** | Confirm the current atom or Sun transform. |
 | **Ctrl+C** | **Copy** | Copy selected atoms to the editor clipboard. |

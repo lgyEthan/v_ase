@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.0.87
+
+- Made X/Y/Z view toggles compare the complete canonical camera pose, including
+  screen-up orientation. Pressing an axis key after rolling that axis view now
+  restores its canonical positive view; only another press from that exact pose
+  flips to the negative view.
+- Added real-browser coverage for canonical restoration and positive/negative
+  toggling on all three axes.
+
 ## 0.0.86
 
 - Open now invokes the operating system file picker immediately instead of
