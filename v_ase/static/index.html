@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.89&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.90&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.89';
+            : '/static/vendor/three.module.js?v=0.0.90';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -57,7 +57,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.89</span>
+            <span class="version">0.0.90</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -104,104 +104,79 @@
             <div id="view-toolbar" class="view-toolbar" role="group" aria-label="Camera rotation controls">
                 <svg class="view-arrow-sprite" aria-hidden="true">
                     <defs>
-                        <linearGradient id="view-arrow-face-gradient" x1="0" y1="0" x2="0.72" y2="1">
+                        <linearGradient id="view-arrow-front-gradient" x1="0.12" y1="0" x2="0.88" y2="1">
                             <stop class="view-arrow-stop-highlight" offset="0"></stop>
-                            <stop class="view-arrow-stop-mid" offset="0.42"></stop>
+                            <stop class="view-arrow-stop-mid" offset="0.48"></stop>
                             <stop class="view-arrow-stop-shadow" offset="1"></stop>
                         </linearGradient>
-                        <linearGradient id="view-arrow-orbit-gradient" gradientUnits="userSpaceOnUse" x1="27.7" y1="28.2" x2="12.2" y2="3.4">
-                            <stop class="view-arrow-stop-rear" offset="0"></stop>
-                            <stop class="view-arrow-stop-shadow" offset="0.30"></stop>
-                            <stop class="view-arrow-stop-mid" offset="0.62"></stop>
-                            <stop class="view-arrow-stop-highlight" offset="1"></stop>
+                        <linearGradient id="view-arrow-orbit-gradient" gradientUnits="userSpaceOnUse" x1="12" y1="5" x2="34" y2="44">
+                            <stop class="view-arrow-stop-highlight" offset="0"></stop>
+                            <stop class="view-arrow-stop-mid" offset="0.46"></stop>
+                            <stop class="view-arrow-stop-shadow" offset="0.72"></stop>
+                            <stop class="view-arrow-stop-rear" offset="1"></stop>
                         </linearGradient>
-                        <linearGradient id="view-arrow-tail-gradient" gradientUnits="userSpaceOnUse" x1="27.5" y1="27.6" x2="17.2" y2="18.5">
-                            <stop class="view-arrow-stop-rear" offset="0"></stop>
-                            <stop class="view-arrow-stop-shadow" offset="0.64"></stop>
-                            <stop class="view-arrow-stop-mid" offset="1"></stop>
-                        </linearGradient>
-                        <linearGradient id="view-arrow-yaw-gradient" gradientUnits="userSpaceOnUse" x1="27.8" y1="27.7" x2="3.4" y2="12.2">
-                            <stop class="view-arrow-stop-rear" offset="0"></stop>
-                            <stop class="view-arrow-stop-shadow" offset="0.30"></stop>
-                            <stop class="view-arrow-stop-mid" offset="0.62"></stop>
-                            <stop class="view-arrow-stop-highlight" offset="1"></stop>
-                        </linearGradient>
-                        <linearGradient id="view-arrow-yaw-tail-gradient" gradientUnits="userSpaceOnUse" x1="27.6" y1="27.5" x2="18.5" y2="17.2">
-                            <stop class="view-arrow-stop-rear" offset="0"></stop>
-                            <stop class="view-arrow-stop-shadow" offset="0.64"></stop>
-                            <stop class="view-arrow-stop-mid" offset="1"></stop>
-                        </linearGradient>
-                        <path id="view-arrow-orbit-shape" d="M27.7 28.2v-7.3c-6.4 0-9.2-2.5-9.2-8.5v-1.2h5.6L16 1.8l-8.1 9.4h5.6v1.6c0 10 5.3 15.4 14.2 15.4Z"></path>
-                        <path id="view-arrow-orbit-tail" d="M27.7 27.8v-6.6c-3.7 0-6.3-.8-8.1-2.4l-3.9 4.7c2.8 2.8 6.7 4.3 12 4.3Z"></path>
-                        <path id="view-arrow-orbit-shadow-line" d="M19.1 18.4c2 1.7 4.8 2.5 8.3 2.5"></path>
-                        <path id="view-arrow-orbit-highlight-line" d="M15 12.7c0 7.2 3.1 11.7 9.5 13.1"></path>
-                        <path id="view-arrow-yaw-shape" d="M1.8 16l9.4-8.1v5.6h1.6c10 0 15.4 5.3 15.4 14.2h-7.3c0-6.4-2.5-9.2-8.5-9.2h-1.2v5.6L1.8 16Z"></path>
-                        <path id="view-arrow-yaw-tail" d="M27.8 27.7h-6.6c0-3.7-.8-6.3-2.4-8.1l4.7-3.9c2.8 2.8 4.3 6.7 4.3 12Z"></path>
-                        <path id="view-arrow-yaw-shadow-line" d="M18.4 19.1c1.7 2 2.5 4.8 2.5 8.3"></path>
-                        <path id="view-arrow-yaw-highlight-line" d="M12.7 15c7.2 0 11.7 3.1 13.1 9.5"></path>
+                        <path id="view-arrow-orbit-shape" d="M24 3 43 23.5H30.1v8.8c0 3.7.8 6.2 3.1 7.9 2.8 2.1 6.7 1.4 10.5-2.6-1.9 5.8-6.5 8.8-11.3 8.1-9.7-1.4-15.5-7.8-15.5-16.7v-5H5Z"></path>
+                        <path id="view-arrow-orbit-highlight" d="M23.5 6.8 9.2 22h9.6v7.3c0 7.7 4.6 13.1 11.7 14.7"></path>
+                        <path id="view-arrow-orbit-seam" d="M30.1 32.3c0 3.7.8 6.2 3.1 7.9 2.8 2.1 6.7 1.4 10.5-2.6"></path>
                         <path id="view-arrow-roll-ccw-shape" d="M26.4 19.7c-2.2 6.4-9.1 9.8-15.4 7.4-4-1.5-7-4.8-8-8.9l6-1.5c.5 2.2 2.1 3.9 4.2 4.7 3.4 1.3 7.1-.5 8.2-3.9 1-3.1-.5-6.5-3.4-7.9l-2 4.8L9.8 4.1 21.2 1l-1.6 3.8c5.9 2.3 9 8.8 6.8 14.9Z"></path>
                     </defs>
                 </svg>
                 <button class="view-arrow-btn" type="button" data-view-rotate="up" aria-label="Tilt view upward" title="Tilt view upward">
-                    <svg class="view-orbit-icon view-orbit-depth-icon" viewBox="0 0 32 32" aria-hidden="true">
+                    <svg class="view-orbit-icon view-orbit-depth-icon" viewBox="0 0 48 48" aria-hidden="true">
                         <g class="view-orbit-volume">
-                            <use class="view-arrow-depth" href="#view-arrow-orbit-shape" transform="translate(0 1.35)"></use>
-                            <use class="view-arrow-face view-arrow-orbit-face" href="#view-arrow-orbit-shape"></use>
-                            <use class="view-arrow-tail-surface" href="#view-arrow-orbit-tail"></use>
-                            <use class="view-arrow-seam" href="#view-arrow-orbit-shadow-line"></use>
-                            <use class="view-arrow-specular" href="#view-arrow-orbit-highlight-line"></use>
-                            <use class="view-arrow-rim" href="#view-arrow-orbit-shape"></use>
+                            <use class="view-arrow-orbit-depth" href="#view-arrow-orbit-shape" transform="translate(0 1.5)"></use>
+                            <use class="view-arrow-orbit-surface" href="#view-arrow-orbit-shape"></use>
+                            <use class="view-arrow-orbit-highlight" href="#view-arrow-orbit-highlight"></use>
+                            <use class="view-arrow-orbit-seam" href="#view-arrow-orbit-seam"></use>
+                            <use class="view-arrow-orbit-rim" href="#view-arrow-orbit-shape"></use>
                         </g>
                     </svg>
                 </button>
                 <button class="view-arrow-btn" type="button" data-view-rotate="down" aria-label="Tilt view downward" title="Tilt view downward">
-                    <svg class="view-orbit-icon view-orbit-depth-icon" viewBox="0 0 32 32" aria-hidden="true">
-                        <g class="view-orbit-volume" transform="rotate(180 16 16)">
-                            <use class="view-arrow-depth" href="#view-arrow-orbit-shape" transform="translate(0 1.35)"></use>
-                            <use class="view-arrow-face view-arrow-orbit-face" href="#view-arrow-orbit-shape"></use>
-                            <use class="view-arrow-tail-surface" href="#view-arrow-orbit-tail"></use>
-                            <use class="view-arrow-seam" href="#view-arrow-orbit-shadow-line"></use>
-                            <use class="view-arrow-specular" href="#view-arrow-orbit-highlight-line"></use>
-                            <use class="view-arrow-rim" href="#view-arrow-orbit-shape"></use>
+                    <svg class="view-orbit-icon view-orbit-depth-icon" viewBox="0 0 48 48" aria-hidden="true">
+                        <g class="view-orbit-volume" transform="translate(0 48) scale(1 -1)">
+                            <use class="view-arrow-orbit-depth" href="#view-arrow-orbit-shape" transform="translate(0 1.5)"></use>
+                            <use class="view-arrow-orbit-surface" href="#view-arrow-orbit-shape"></use>
+                            <use class="view-arrow-orbit-highlight" href="#view-arrow-orbit-highlight"></use>
+                            <use class="view-arrow-orbit-seam" href="#view-arrow-orbit-seam"></use>
+                            <use class="view-arrow-orbit-rim" href="#view-arrow-orbit-shape"></use>
                         </g>
                     </svg>
                 </button>
                 <button class="view-arrow-btn view-axis-pair-start" type="button" data-view-rotate="left" aria-label="Orbit view left" title="Orbit view left">
-                    <svg class="view-orbit-icon view-orbit-depth-icon" viewBox="0 0 32 32" aria-hidden="true">
-                        <g class="view-orbit-volume">
-                            <use class="view-arrow-depth" href="#view-arrow-yaw-shape" transform="translate(0 1.35)"></use>
-                            <use class="view-arrow-face view-arrow-yaw-face" href="#view-arrow-yaw-shape"></use>
-                            <use class="view-arrow-tail-surface view-arrow-yaw-tail-surface" href="#view-arrow-yaw-tail"></use>
-                            <use class="view-arrow-seam" href="#view-arrow-yaw-shadow-line"></use>
-                            <use class="view-arrow-specular" href="#view-arrow-yaw-highlight-line"></use>
-                            <use class="view-arrow-rim" href="#view-arrow-yaw-shape"></use>
+                    <svg class="view-orbit-icon view-orbit-depth-icon" viewBox="0 0 48 48" aria-hidden="true">
+                        <g class="view-orbit-volume" transform="matrix(0 1 1 0 0 0)">
+                            <use class="view-arrow-orbit-depth" href="#view-arrow-orbit-shape" transform="translate(0 1.5)"></use>
+                            <use class="view-arrow-orbit-surface" href="#view-arrow-orbit-shape"></use>
+                            <use class="view-arrow-orbit-highlight" href="#view-arrow-orbit-highlight"></use>
+                            <use class="view-arrow-orbit-seam" href="#view-arrow-orbit-seam"></use>
+                            <use class="view-arrow-orbit-rim" href="#view-arrow-orbit-shape"></use>
                         </g>
                     </svg>
                 </button>
                 <button class="view-arrow-btn" type="button" data-view-rotate="right" aria-label="Orbit view right" title="Orbit view right">
-                    <svg class="view-orbit-icon view-orbit-depth-icon" viewBox="0 0 32 32" aria-hidden="true">
-                        <g class="view-orbit-volume" transform="translate(32 0) scale(-1 1)">
-                            <use class="view-arrow-depth" href="#view-arrow-yaw-shape" transform="translate(0 1.35)"></use>
-                            <use class="view-arrow-face view-arrow-yaw-face" href="#view-arrow-yaw-shape"></use>
-                            <use class="view-arrow-tail-surface view-arrow-yaw-tail-surface" href="#view-arrow-yaw-tail"></use>
-                            <use class="view-arrow-seam" href="#view-arrow-yaw-shadow-line"></use>
-                            <use class="view-arrow-specular" href="#view-arrow-yaw-highlight-line"></use>
-                            <use class="view-arrow-rim" href="#view-arrow-yaw-shape"></use>
+                    <svg class="view-orbit-icon view-orbit-depth-icon" viewBox="0 0 48 48" aria-hidden="true">
+                        <g class="view-orbit-volume" transform="matrix(0 1 -1 0 48 0)">
+                            <use class="view-arrow-orbit-depth" href="#view-arrow-orbit-shape" transform="translate(0 1.5)"></use>
+                            <use class="view-arrow-orbit-surface" href="#view-arrow-orbit-shape"></use>
+                            <use class="view-arrow-orbit-highlight" href="#view-arrow-orbit-highlight"></use>
+                            <use class="view-arrow-orbit-seam" href="#view-arrow-orbit-seam"></use>
+                            <use class="view-arrow-orbit-rim" href="#view-arrow-orbit-shape"></use>
                         </g>
                     </svg>
                 </button>
                 <button class="view-arrow-btn view-axis-pair-start" type="button" data-view-rotate="roll-ccw" aria-label="Roll view counterclockwise" title="Roll view counterclockwise">
                     <svg class="view-orbit-icon" viewBox="0 0 32 32" aria-hidden="true">
-                        <use class="view-arrow-depth" href="#view-arrow-roll-ccw-shape" transform="translate(0 1.35)"></use>
-                        <use class="view-arrow-face" href="#view-arrow-roll-ccw-shape"></use>
-                        <use class="view-arrow-rim" href="#view-arrow-roll-ccw-shape"></use>
+                        <use class="view-arrow-front-depth" href="#view-arrow-roll-ccw-shape" transform="translate(0 1.15)"></use>
+                        <use class="view-arrow-front-surface" href="#view-arrow-roll-ccw-shape"></use>
+                        <use class="view-arrow-front-rim" href="#view-arrow-roll-ccw-shape"></use>
                     </svg>
                 </button>
                 <button class="view-arrow-btn" type="button" data-view-rotate="roll-cw" aria-label="Roll view clockwise" title="Roll view clockwise">
                     <svg class="view-orbit-icon" viewBox="0 0 32 32" aria-hidden="true">
-                        <use class="view-arrow-depth" href="#view-arrow-roll-ccw-shape" transform="translate(0 1.35) translate(32 0) scale(-1 1)"></use>
-                        <use class="view-arrow-face" href="#view-arrow-roll-ccw-shape" transform="translate(32 0) scale(-1 1)"></use>
-                        <use class="view-arrow-rim" href="#view-arrow-roll-ccw-shape" transform="translate(32 0) scale(-1 1)"></use>
+                        <use class="view-arrow-front-depth" href="#view-arrow-roll-ccw-shape" transform="translate(0 1.15) translate(32 0) scale(-1 1)"></use>
+                        <use class="view-arrow-front-surface" href="#view-arrow-roll-ccw-shape" transform="translate(32 0) scale(-1 1)"></use>
+                        <use class="view-arrow-front-rim" href="#view-arrow-roll-ccw-shape" transform="translate(32 0) scale(-1 1)"></use>
                     </svg>
                 </button>
                 <label class="view-step-compact" for="view-rotate-step" title="Camera rotation step">
@@ -356,11 +331,17 @@
             <button type="button" role="tab" data-inspector-group="inspect" aria-selected="true">Inspect</button>
             <button type="button" role="tab" data-inspector-group="structure" aria-selected="false">Structure</button>
             <button type="button" role="tab" data-inspector-group="view" aria-selected="false">View</button>
-            <button type="button" role="tab" data-inspector-group="appearance" aria-selected="false">Appearance</button>
-            <button type="button" role="tab" data-inspector-group="bonds" aria-selected="false">Bonds</button>
             <button type="button" role="tab" data-inspector-group="export" aria-selected="false">Export</button>
         </nav>
         <div id="inspector-content" class="inspector-content">
+        <nav class="structure-section-nav" data-panel-group="structure" aria-label="Structure sections">
+            <button type="button" data-structure-target="appearance" aria-current="true">Atoms</button>
+            <button type="button" data-structure-target="cell-replication">Cell</button>
+            <button type="button" data-structure-target="transform" data-edit-only>Transform</button>
+            <button type="button" data-structure-target="constraints" data-edit-only>Constraints</button>
+            <button type="button" data-structure-target="bonding">Bonds</button>
+            <button type="button" data-structure-target="scientific-tools" data-edit-only>Relax</button>
+        </nav>
         <details class="panel-section" open data-panel="structure-info" data-panel-group="inspect">
             <summary class="section-header">Structure Info</summary>
             <div class="prop-grid">
@@ -387,40 +368,6 @@
                 <span class="p-label">Measure</span><span id="selected-measure" class="p-val">-</span>
             </div>
             <button id="btn-delete-selection" class="btn-block danger-soft" data-edit-only>Delete Selected</button>
-        </details>
-
-        <details class="panel-section" open data-panel="constraints" data-panel-group="structure" data-edit-only>
-            <summary class="section-header">Constraints</summary>
-            <div id="constraint-selection-state" class="constraint-hint">Select atoms to edit constraints.</div>
-            <div class="prop-row">
-                <label for="chk-constraints">Apply constraints</label>
-                <input type="checkbox" id="chk-constraints" checked>
-            </div>
-            <div class="prop-row">
-                <label for="constraint-fixatoms">FixAtoms</label>
-                <input type="checkbox" id="constraint-fixatoms">
-            </div>
-            <div class="prop-row">
-                <label for="constraint-kind">Directional</label>
-                <select id="constraint-kind">
-                    <option value="none">None</option>
-                    <option value="mixed" disabled>Mixed</option>
-                    <option value="fixed_line">FixedLine</option>
-                    <option value="fixed_plane">FixedPlane</option>
-                </select>
-            </div>
-            <div class="prop-row constraint-vector-row">
-                <label>Vector</label>
-                <div class="num-group constraint-vector-inputs">
-                    <input type="number" id="constraint-x" value="1" step="0.1" aria-label="constraint vector x">
-                    <input type="number" id="constraint-y" value="0" step="0.1" aria-label="constraint vector y">
-                    <input type="number" id="constraint-z" value="0" step="0.1" aria-label="constraint vector z">
-                </div>
-            </div>
-            <div class="constraint-actions">
-                <button id="btn-apply-constraint" class="btn-block">Apply Direction</button>
-                <button id="btn-clear-directional-constraint" class="btn-block subtle">Clear Direction</button>
-            </div>
         </details>
 
         <details class="panel-section" open data-panel="view" data-panel-group="view">
@@ -472,62 +419,7 @@
             </div>
         </details>
 
-        <details class="panel-section" open data-panel="cell-replication" data-panel-group="structure">
-            <summary class="section-header">Cell &amp; Replication</summary>
-            <div class="prop-row supercell-row">
-                <label>Replicate cell</label>
-                <div class="num-group">
-                    <input type="number" id="super-x" value="1" min="1">
-                    <input type="number" id="super-y" value="1" min="1">
-                    <input type="number" id="super-z" value="1" min="1">
-                </div>
-            </div>
-            <button id="btn-set-supercell" class="btn-block" data-edit-only>Set Supercell as Cell</button>
-            <button id="btn-wrap" class="btn-block">Wrap Atoms Into Cell</button>
-        </details>
-
-        <details class="panel-section" open data-panel="transform" data-panel-group="structure" data-edit-only>
-            <summary class="section-header">Transform</summary>
-            <div class="prop-row">
-                <label for="rotate-pivot">Rotate pivot</label>
-                <select id="rotate-pivot">
-                    <option value="selection">Selection COM</option>
-                    <option value="origin">Global origin</option>
-                    <option value="cell">Unit-cell center</option>
-                </select>
-            </div>
-            <div class="prop-row">
-                <label for="move-increment">Move increment / A</label>
-                <input type="number" id="move-increment" value="0" min="0" step="0.01" placeholder="0 = continuous">
-            </div>
-            <div class="prop-row">
-                <label for="rotate-increment">Rotate increment / deg</label>
-                <input type="number" id="rotate-increment" value="0" min="0" step="1" placeholder="0 = continuous">
-            </div>
-            <div class="prop-row">
-                <label for="chk-commensurate-guide">Commensurate guide</label>
-                <input type="checkbox" id="chk-commensurate-guide">
-            </div>
-            <div class="prop-row">
-                <label for="chk-commensurate-snap">Magnetic angle snap</label>
-                <input type="checkbox" id="chk-commensurate-snap" checked>
-            </div>
-            <div class="prop-row">
-                <label for="commensurate-strain">Boundary strain / %</label>
-                <input type="number" id="commensurate-strain" value="1.0" min="0" max="25" step="0.1">
-            </div>
-            <div class="prop-row">
-                <label for="commensurate-max-index">Max lattice index</label>
-                <input type="number" id="commensurate-max-index" value="32" min="2" max="64" step="1">
-            </div>
-            <div class="prop-row">
-                <label for="commensurate-snap-range">Snap range / deg</label>
-                <input type="number" id="commensurate-snap-range" value="2" min="0" max="15" step="0.1">
-            </div>
-            <div id="commensurate-status" class="commensurate-status">Lock X, Y, or Z during R to scan periodic cell matches.</div>
-        </details>
-
-        <details class="panel-section" open data-panel="appearance" data-panel-group="appearance">
+        <details class="panel-section" open data-panel="appearance" data-panel-group="structure">
             <summary class="section-header">Appearance</summary>
             <div class="prop-row">
                 <label for="chk-antialias">Anti-aliasing</label>
@@ -584,6 +476,34 @@
             </div>
         </details>
 
+        <details class="panel-section" open data-panel="cell-replication" data-panel-group="structure">
+            <summary class="section-header">Cell &amp; Replication</summary>
+            <div class="prop-row supercell-row">
+                <label>Replicate cell</label>
+                <div class="num-group">
+                    <input type="number" id="super-x" value="1" min="1">
+                    <input type="number" id="super-y" value="1" min="1">
+                    <input type="number" id="super-z" value="1" min="1">
+                </div>
+            </div>
+            <button id="btn-set-supercell" class="btn-block" data-edit-only>Set Supercell as Cell</button>
+            <button id="btn-wrap" class="btn-block">Wrap Atoms Into Cell</button>
+            <div class="cell-translation" data-edit-only>
+                <div class="panel-subhead">Translate atoms</div>
+                <div class="translation-mode-toggle" role="group" aria-label="Translation coordinate system">
+                    <button type="button" data-translation-mode="cartesian" aria-pressed="true">Cartesian / Å</button>
+                    <button type="button" data-translation-mode="fractional" aria-pressed="false">Fractional</button>
+                </div>
+                <div class="num-group translation-vector-inputs">
+                    <input type="number" id="translate-x" value="0" step="0.1" aria-label="Translation x component">
+                    <input type="number" id="translate-y" value="0" step="0.1" aria-label="Translation y component">
+                    <input type="number" id="translate-z" value="0" step="0.1" aria-label="Translation z component">
+                </div>
+                <button id="btn-apply-translation" class="btn-block" type="button">Apply Translation</button>
+                <p class="panel-note">Moves every atom in every frame. The unit cell remains unchanged.</p>
+            </div>
+        </details>
+
         <details class="panel-section" open data-panel="cell-transform" data-panel-group="structure" data-edit-only>
             <summary class="section-header">Cell Transform</summary>
             <div class="matrix-grid" id="make-supercell-matrix">
@@ -600,7 +520,82 @@
             <button id="btn-apply-supercell-matrix" class="btn-block">Apply make_supercell Matrix</button>
         </details>
 
-        <details class="panel-section" open data-panel="bonding" data-panel-group="bonds">
+        <details class="panel-section" open data-panel="transform" data-panel-group="structure" data-edit-only>
+            <summary class="section-header">Transform</summary>
+            <div class="prop-row">
+                <label for="rotate-pivot">Rotate pivot</label>
+                <select id="rotate-pivot">
+                    <option value="selection">Selection COM</option>
+                    <option value="origin">Global origin</option>
+                    <option value="cell">Unit-cell center</option>
+                </select>
+            </div>
+            <div class="prop-row">
+                <label for="move-increment">Move increment / A</label>
+                <input type="number" id="move-increment" value="0" min="0" step="0.01" placeholder="0 = continuous">
+            </div>
+            <div class="prop-row">
+                <label for="rotate-increment">Rotate increment / deg</label>
+                <input type="number" id="rotate-increment" value="0" min="0" step="1" placeholder="0 = continuous">
+            </div>
+            <div class="prop-row">
+                <label for="chk-commensurate-guide">Commensurate guide</label>
+                <input type="checkbox" id="chk-commensurate-guide">
+            </div>
+            <div class="prop-row">
+                <label for="chk-commensurate-snap">Magnetic angle snap</label>
+                <input type="checkbox" id="chk-commensurate-snap" checked>
+            </div>
+            <div class="prop-row">
+                <label for="commensurate-strain">Boundary strain / %</label>
+                <input type="number" id="commensurate-strain" value="1.0" min="0" max="25" step="0.1">
+            </div>
+            <div class="prop-row">
+                <label for="commensurate-max-index">Max lattice index</label>
+                <input type="number" id="commensurate-max-index" value="32" min="2" max="64" step="1">
+            </div>
+            <div class="prop-row">
+                <label for="commensurate-snap-range">Snap range / deg</label>
+                <input type="number" id="commensurate-snap-range" value="2" min="0" max="15" step="0.1">
+            </div>
+            <div id="commensurate-status" class="commensurate-status">Lock X, Y, or Z during R to scan periodic cell matches.</div>
+        </details>
+
+        <details class="panel-section" open data-panel="constraints" data-panel-group="structure" data-edit-only>
+            <summary class="section-header">Constraints</summary>
+            <div id="constraint-selection-state" class="constraint-hint">Select atoms to edit constraints.</div>
+            <div class="prop-row">
+                <label for="chk-constraints">Apply constraints</label>
+                <input type="checkbox" id="chk-constraints" checked>
+            </div>
+            <div class="prop-row">
+                <label for="constraint-fixatoms">FixAtoms</label>
+                <input type="checkbox" id="constraint-fixatoms">
+            </div>
+            <div class="prop-row">
+                <label for="constraint-kind">Directional</label>
+                <select id="constraint-kind">
+                    <option value="none">None</option>
+                    <option value="mixed" disabled>Mixed</option>
+                    <option value="fixed_line">FixedLine</option>
+                    <option value="fixed_plane">FixedPlane</option>
+                </select>
+            </div>
+            <div class="prop-row constraint-vector-row">
+                <label>Vector</label>
+                <div class="num-group constraint-vector-inputs">
+                    <input type="number" id="constraint-x" value="1" step="0.1" aria-label="constraint vector x">
+                    <input type="number" id="constraint-y" value="0" step="0.1" aria-label="constraint vector y">
+                    <input type="number" id="constraint-z" value="0" step="0.1" aria-label="constraint vector z">
+                </div>
+            </div>
+            <div class="constraint-actions">
+                <button id="btn-apply-constraint" class="btn-block">Apply Direction</button>
+                <button id="btn-clear-directional-constraint" class="btn-block subtle">Clear Direction</button>
+            </div>
+        </details>
+
+        <details class="panel-section" open data-panel="bonding" data-panel-group="structure">
             <summary class="section-header">Bonding</summary>
             <div class="panel-subhead">Connectivity</div>
             <div class="prop-row">
@@ -835,7 +830,7 @@
                     <span>X / Y / Z</span><label>Lock transform axis in G/R mode</label>
                     <span>Enter</span><label>Confirm transform</label>
                     <span>Esc</span><label>Cancel a transform, close a modal, or close the open control panel and return focus to the viewport</label>
-                    <span>Ctrl+C / V / Z</span><label>Copy, paste, undo</label>
+                    <span>Ctrl+C / V / Z</span><label>Copy, paste, undo an edit or view change</label>
                     <span>Delete</span><label>Delete selected atoms</label>
                 </div>
                 <h3 class="help-section-title">Opening Files</h3>
@@ -875,7 +870,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.89&rev=1';
+            : './static/main.js?v=0.0.90&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

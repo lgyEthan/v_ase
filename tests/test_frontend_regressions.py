@@ -684,22 +684,23 @@ def test_camera_view_background_and_2d_display_controls_are_wired():
     assert "rotateCameraView(direction, stepDegrees" in main_js
     assert "'roll-ccw': { axis: basis.forward, sign: 1 }" in main_js
     assert "'roll-cw': { axis: basis.forward, sign: -1 }" in main_js
+    assert "left: { axis: basis.up, sign: 1 }" in main_js
+    assert "right: { axis: basis.up, sign: -1 }" in main_js
     assert "up: { axis: basis.right, sign: -1 }" in main_js
     assert "down: { axis: basis.right, sign: 1 }" in main_js
     assert 'id="view-arrow-orbit-shape"' in index_html
-    assert 'id="view-arrow-orbit-tail"' in index_html
-    assert 'id="view-arrow-orbit-shadow-line"' in index_html
-    assert 'id="view-arrow-orbit-highlight-line"' in index_html
-    assert 'id="view-arrow-yaw-shape"' in index_html
-    assert 'id="view-arrow-yaw-tail"' in index_html
-    assert 'id="view-arrow-yaw-shadow-line"' in index_html
-    assert 'id="view-arrow-yaw-highlight-line"' in index_html
-    assert index_html.count('class="view-arrow-tail-surface') == 4
-    assert index_html.count('class="view-arrow-seam"') == 4
-    assert index_html.count('class="view-arrow-specular"') == 4
+    assert 'id="view-arrow-orbit-highlight"' in index_html
+    assert 'id="view-arrow-orbit-seam"' in index_html
+    assert index_html.count('class="view-arrow-orbit-surface"') == 4
+    assert index_html.count('class="view-arrow-orbit-highlight"') == 4
+    assert index_html.count('class="view-arrow-orbit-seam"') == 4
+    assert index_html.count('class="view-arrow-orbit-rim"') == 4
+    assert 'transform="matrix(0 1 1 0 0 0)"' in index_html
+    assert 'transform="translate(0 48) scale(1 -1)"' in index_html
+    assert 'transform="matrix(0 1 -1 0 48 0)"' in index_html
     assert 'id="view-arrow-roll-ccw-shape"' in index_html
-    assert index_html.count('class="view-arrow-face') == 6
-    assert index_html.count('class="view-arrow-depth"') == 6
+    assert index_html.count('class="view-arrow-front-surface"') == 2
+    assert index_html.count('class="view-arrow-front-depth"') == 2
     assert "selectionCountText(selectedReferences" in main_js
     assert "bondThickness: 0.25" in main_js
     assert "atomRadiusScale: 0.6" in main_js
@@ -888,6 +889,46 @@ def test_export_downloads_use_save_picker_and_fallback_anchor():
     assert "Preparing POSCAR export" in main_js
     assert "Preparing ASE Pickle export" in main_js
     assert "Preparing Blender export" in main_js
+    blob_helper = main_js[
+        main_js.index("async saveBlobFromAction("):
+        main_js.index("\n    closeModal()", main_js.index("async saveBlobFromAction("))
+    ]
+    assert blob_helper.index("await this.chooseSaveDestination") < blob_helper.index(
+        "await this.withBusy"
+    )
+    image_handler = main_js[
+        main_js.index("document.getElementById('modal-export-image')"):
+        main_js.index("\n    showExportVideoModal()", main_js.index("document.getElementById('modal-export-image')"))
+    ]
+    assert image_handler.index("await this.chooseSaveDestination") < image_handler.index(
+        "this.renderer.exportPNG"
+    )
+    video_handler = main_js[
+        main_js.index("document.getElementById('modal-export-video')"):
+        main_js.index("\n    async exportTrajectoryVideo", main_js.index("document.getElementById('modal-export-video')"))
+    ]
+    assert video_handler.index("await this.chooseSaveDestination") < video_handler.index(
+        "await this.exportTrajectoryVideo"
+    )
+
+
+def test_structure_translation_controls_and_api_are_explicit():
+    index_html = (ROOT / "v_ase/static/index.html").read_text()
+    main_js = (ROOT / "v_ase/static/main.js").read_text()
+    api_js = (ROOT / "v_ase/static/api.js").read_text()
+
+    assert 'class="cell-translation" data-edit-only' in index_html
+    assert 'data-translation-mode="cartesian"' in index_html
+    assert 'data-translation-mode="fractional"' in index_html
+    assert 'id="translate-x"' in index_html
+    assert 'id="translate-y"' in index_html
+    assert 'id="translate-z"' in index_html
+    assert 'id="btn-apply-translation"' in index_html
+    assert "Moves every atom in every frame. The unit cell remains unchanged." in index_html
+    assert "translationVectorFromControls" in main_js
+    assert "applyAtomTranslation" in main_js
+    assert "this.api.applyTranslation" in main_js
+    assert "/api/translate/{session_id}" in api_js
 
 
 def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_projection():
@@ -1150,20 +1191,21 @@ def test_control_panel_uses_collapsible_default_hierarchy():
     assert 'data-inspector-group="inspect"' in index_html
     assert 'data-inspector-group="structure"' in index_html
     assert 'data-inspector-group="view"' in index_html
-    assert 'data-inspector-group="appearance"' in index_html
-    assert 'data-inspector-group="bonds"' in index_html
     assert 'data-inspector-group="export"' in index_html
+    assert 'data-structure-target="appearance"' in index_html
+    assert 'data-structure-target="bonding"' in index_html
     assert 'data-panel="structure-info" data-panel-group="inspect"' in index_html
     assert 'data-panel="selection" data-panel-group="inspect"' in index_html
     assert 'data-panel="view" data-panel-group="view"' in index_html
     assert 'data-panel="cell-replication" data-panel-group="structure"' in index_html
     assert 'data-panel="transform" data-panel-group="structure" data-edit-only' in index_html
-    assert 'data-panel="appearance" data-panel-group="appearance"' in index_html
-    assert 'data-panel="bonding" data-panel-group="bonds"' in index_html
+    assert 'data-panel="appearance" data-panel-group="structure"' in index_html
+    assert 'data-panel="bonding" data-panel-group="structure"' in index_html
     assert 'data-panel="export" data-panel-group="export"' in index_html
     assert 'data-panel="cell-transform" data-panel-group="structure" data-edit-only' in index_html
     assert 'data-panel="scientific-tools" data-panel-group="structure" data-edit-only' in index_html
     assert "setupInspectorNavigation" in main_js
+    assert "setupStructureSectionNavigation" in main_js
     assert "let collapsed = true" in main_js
     assert "savedCollapsed === null ? true" in main_js
     assert "button.setAttribute('aria-label'" in main_js

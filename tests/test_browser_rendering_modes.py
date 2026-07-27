@@ -1043,6 +1043,50 @@ def test_image_export_modal_is_the_authoritative_retina_preview(tmp_path):
             page = context.new_page()
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 48")
+            export_preflight = page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                const originalChoose = app.chooseSaveDestination.bind(app);
+                const originalSave = app.savePreparedBlob.bind(app);
+                const order = [];
+                let actionCount = 0;
+                app.chooseSaveDestination = async () => {
+                    order.push('choose');
+                    return null;
+                };
+                const cancelled = await app.saveBlobFromAction(async () => {
+                    actionCount += 1;
+                    order.push('generate');
+                    return new Blob(['cancelled']);
+                }, 'cancelled.txt', 'text/plain');
+
+                app.chooseSaveDestination = async () => {
+                    order.push('choose-success');
+                    return { handle: null, browserDownload: true };
+                };
+                app.savePreparedBlob = async (_blob, _name, _type, destination) => {
+                    order.push(destination?.browserDownload ? 'save-success' : 'save-missing');
+                    return true;
+                };
+                const saved = await app.saveBlobFromAction(async () => {
+                    actionCount += 1;
+                    order.push('generate-success');
+                    return new Blob(['saved']);
+                }, 'saved.txt', 'text/plain');
+                app.chooseSaveDestination = originalChoose;
+                app.savePreparedBlob = originalSave;
+                return { cancelled, saved, actionCount, order };
+            }""")
+            assert export_preflight == {
+                "cancelled": False,
+                "saved": True,
+                "actionCount": 1,
+                "order": [
+                    "choose",
+                    "choose-success",
+                    "generate-success",
+                    "save-success",
+                ],
+            }
             _expand_inspector(page)
             page.click('[data-inspector-group="export"]')
             page.fill('#image-width', '1280')
@@ -1415,9 +1459,9 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             assert not page.locator('[data-panel="structure-info"]').is_visible()
             assert not page.locator('[data-panel="appearance"]').is_visible()
             assert not page.locator('[data-panel="bonding"]').is_visible()
-            page.click('[data-inspector-group="appearance"]')
+            page.click('[data-inspector-group="structure"]')
             assert page.locator('[data-panel="appearance"]').is_visible()
-            page.click('[data-inspector-group="bonds"]')
+            page.click('[data-inspector-group="structure"]')
             assert page.locator('[data-panel="bonding"]').is_visible()
             page.click('[data-inspector-group="export"]')
             assert page.locator('[data-panel="project"]').is_visible()
@@ -1432,7 +1476,7 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             page.keyboard.press('Tab')
             page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
 
-            page.click('[data-inspector-group="bonds"]')
+            page.click('[data-inspector-group="structure"]')
             _open_panel(page, 'bonding')
             page.check('#chk-periodic-bonds')
             page.wait_for_function("window.__ASE_APP__.renderer.bondPairs.length === 1")
@@ -2398,7 +2442,7 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
             page.wait_for_function("window.__ASE_APP__.renderer.bondPairs.length === 1")
 
             _expand_inspector(page)
-            page.click('[data-inspector-group="bonds"]')
+            page.click('[data-inspector-group="structure"]')
             _open_panel(page, 'bonding')
             page.select_option('#bond-mode', 'pairwise')
             cutoff = page.locator('.pairwise-bond-max[data-pair-key="C_left-C_right"]')
@@ -2791,7 +2835,7 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
 
             _expand_inspector(page)
-            page.click('[data-inspector-group="bonds"]')
+            page.click('[data-inspector-group="structure"]')
             _open_panel(page, 'bonding')
             page.select_option('#bond-mode', 'manual')
             page.fill('#bond-pairs', '0-1')
@@ -3015,7 +3059,7 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
 
             _expand_inspector(page)
-            page.click('[data-inspector-group="appearance"]')
+            page.click('[data-inspector-group="structure"]')
             _open_panel(page, 'appearance')
             type_palette = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
@@ -3269,7 +3313,7 @@ def test_runtime_mode_switch_merges_labels_and_splits_only_material_variants():
 
             assert page.locator('[data-runtime-mode="view"]').get_attribute("aria-pressed") == "true"
             _expand_inspector(page)
-            page.click('[data-inspector-group="appearance"]')
+            page.click('[data-inspector-group="structure"]')
             _open_panel(page, "appearance")
             page.select_option(
                 '.appearance-material-select[data-atom-label="C_b"]',
@@ -3427,17 +3471,23 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                     arrowText: arrows.map(button => button.textContent.trim()),
                     arrowDirections: arrows.map(button => button.dataset.viewRotate),
                     arrowGeometry: arrows.map(button => {
-                        const face = button.querySelector('.view-arrow-face');
-                        const bounds = face.getBBox();
+                            const icon = button.querySelector('.view-orbit-icon');
+                            const bounds = icon.getBBox();
                         return {
                             width: bounds.width,
                             height: bounds.height,
-                            faceCount: button.querySelectorAll('.view-arrow-face').length,
-                            depthCount: button.querySelectorAll('.view-arrow-depth').length,
-                            rimCount: button.querySelectorAll('.view-arrow-rim').length,
-                            tailCount: button.querySelectorAll('.view-arrow-tail-surface').length,
-                            seamCount: button.querySelectorAll('.view-arrow-seam').length,
-                            specularCount: button.querySelectorAll('.view-arrow-specular').length,
+                            faceCount: button.querySelectorAll(
+                                '.view-arrow-front-surface, .view-arrow-orbit-surface'
+                            ).length,
+                            depthCount: button.querySelectorAll(
+                                '.view-arrow-front-depth, .view-arrow-orbit-depth'
+                            ).length,
+                            rimCount: button.querySelectorAll(
+                                '.view-arrow-front-rim, .view-arrow-orbit-rim'
+                            ).length,
+                            orbitCount: button.querySelectorAll('.view-arrow-orbit-surface').length,
+                            seamCount: button.querySelectorAll('.view-arrow-orbit-seam').length,
+                            specularCount: button.querySelectorAll('.view-arrow-orbit-highlight').length,
                             volumeTransform: button.querySelector('.view-orbit-volume')
                                 ?.getAttribute('transform') || '',
                             filter: getComputedStyle(button.querySelector('.view-orbit-icon')).filter
@@ -3476,7 +3526,7 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             )
             assert [
                 (
-                    arrow["tailCount"],
+                    arrow["orbitCount"],
                     arrow["seamCount"],
                     arrow["specularCount"],
                     arrow["volumeTransform"],
@@ -3484,9 +3534,9 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                 for arrow in toolbar_geometry["arrowGeometry"]
             ] == [
                 (1, 1, 1, ""),
-                (1, 1, 1, "rotate(180 16 16)"),
-                (1, 1, 1, ""),
-                (1, 1, 1, "translate(32 0) scale(-1 1)"),
+                (1, 1, 1, "translate(0 48) scale(1 -1)"),
+                (1, 1, 1, "matrix(0 1 1 0 0 0)"),
+                (1, 1, 1, "matrix(0 1 -1 0 48 0)"),
                 (0, 0, 0, ""),
                 (0, 0, 0, ""),
             ]
@@ -3673,11 +3723,11 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             )
             assert camera_after_roll_pair["up"] == pytest.approx([0, 1, 0], abs=1e-8)
 
-            for first, inverse, component, expected_sign in (
-                ("left", "right", 0, -1),
-                ("right", "left", 0, 1),
-                ("up", "down", 1, 1),
-                ("down", "up", 1, -1),
+            for first, inverse, component, expected_sign, screen_component, screen_sign in (
+                ("left", "right", 0, 1, 0, -1),
+                ("right", "left", 0, -1, 0, 1),
+                ("up", "down", 1, 1, 1, -1),
+                ("down", "up", 1, -1, 1, 1),
             ):
                 page.evaluate("""() => {
                     const app = window.__ASE_APP__;
@@ -3695,6 +3745,27 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                         up: renderer.camera.up.toArray()
                     };
                 }""")
+                probe_before = page.evaluate("""direction => {
+                    const renderer = window.__ASE_APP__.renderer;
+                    const target = renderer.controls.target.clone();
+                        const offsets = {
+                            left: [1, 0, 0],
+                            right: [-1, 0, 0],
+                            up: [0, 1, 0],
+                            down: [0, -1, 0]
+                    };
+                    const point = target.clone().add({
+                        x: offsets[direction][0],
+                        y: offsets[direction][1],
+                        z: offsets[direction][2]
+                    });
+                    renderer.camera.updateMatrixWorld(true);
+                    const projected = point.clone().project(renderer.camera);
+                    return {
+                        projected: [projected.x, projected.y],
+                        distance: point.distanceTo(renderer.camera.position)
+                    };
+                }""", first)
                 page.click(f'[data-view-rotate="{first}"]')
                 moved_direction = page.evaluate("""() => {
                     const renderer = window.__ASE_APP__.renderer;
@@ -3702,6 +3773,32 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                         .sub(renderer.controls.target).normalize().toArray();
                 }""")
                 assert moved_direction[component] * expected_sign > 0.6
+                probe_after = page.evaluate("""direction => {
+                    const renderer = window.__ASE_APP__.renderer;
+                    const target = renderer.controls.target.clone();
+                        const offsets = {
+                            left: [1, 0, 0],
+                            right: [-1, 0, 0],
+                            up: [0, 1, 0],
+                            down: [0, -1, 0]
+                    };
+                    const point = target.clone().add({
+                        x: offsets[direction][0],
+                        y: offsets[direction][1],
+                        z: offsets[direction][2]
+                    });
+                    renderer.camera.updateMatrixWorld(true);
+                    const projected = point.clone().project(renderer.camera);
+                    return {
+                        projected: [projected.x, projected.y],
+                        distance: point.distanceTo(renderer.camera.position)
+                    };
+                }""", first)
+                assert (
+                    probe_after["projected"][screen_component]
+                    - probe_before["projected"][screen_component]
+                ) * screen_sign > 1e-4
+                assert probe_after["distance"] < probe_before["distance"]
                 page.click(f'[data-view-rotate="{inverse}"]')
                 camera_after_pair = page.evaluate("""() => {
                     const renderer = window.__ASE_APP__.renderer;
@@ -3716,6 +3813,168 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                 assert camera_after_pair["up"] == pytest.approx(
                     camera_before_pair["up"], abs=1e-8
                 )
+
+            undo_baseline = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const camera = app.renderer.camera;
+                const target = app.renderer.controls.target;
+                const distance = Math.max(camera.position.distanceTo(target), 4);
+                camera.position.set(target.x, target.y, target.z + distance);
+                camera.up.set(0, 1, 0);
+                app.completeCameraViewChange('test-undo-baseline');
+                app.resetHistoryTimeline();
+                document.querySelector('#app-viewport canvas').focus();
+                return app.cameraHistorySnapshot();
+            }""")
+            page.click('[data-view-rotate="up"]')
+            undo_moved = page.evaluate("""() => ({
+                camera: window.__ASE_APP__.cameraHistorySnapshot(),
+                undoKinds: window.__ASE_APP__.undoTimeline.map(action => action.kind),
+                redoCount: window.__ASE_APP__.redoTimeline.length
+            })""")
+            assert undo_moved["undoKinds"] == ["camera"]
+            assert undo_moved["redoCount"] == 0
+            assert undo_moved["camera"]["position"] != pytest.approx(
+                undo_baseline["position"], abs=1e-8
+            )
+
+            page.evaluate("document.querySelector('#app-viewport canvas').focus()")
+            page.keyboard.press("Control+z")
+            page.wait_for_function(
+                "window.__ASE_APP__.undoTimeline.length === 0"
+                " && window.__ASE_APP__.redoTimeline.length === 1"
+            )
+            undo_restored = page.evaluate("window.__ASE_APP__.cameraHistorySnapshot()")
+            assert undo_restored["position"] == pytest.approx(
+                undo_baseline["position"], abs=1e-8
+            )
+            assert undo_restored["target"] == pytest.approx(
+                undo_baseline["target"], abs=1e-8
+            )
+            assert undo_restored["up"] == pytest.approx(
+                undo_baseline["up"], abs=1e-8
+            )
+
+            page.keyboard.press("Control+Shift+z")
+            page.wait_for_function(
+                "window.__ASE_APP__.undoTimeline.length === 1"
+                " && window.__ASE_APP__.redoTimeline.length === 0"
+            )
+            redo_restored = page.evaluate("window.__ASE_APP__.cameraHistorySnapshot()")
+            assert redo_restored["position"] == pytest.approx(
+                undo_moved["camera"]["position"], abs=1e-8
+            )
+            assert redo_restored["up"] == pytest.approx(
+                undo_moved["camera"]["up"], abs=1e-8
+            )
+
+            orbit_baseline = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const camera = app.renderer.camera;
+                const target = app.renderer.controls.target;
+                const distance = Math.max(camera.position.distanceTo(target), 4);
+                camera.position.set(target.x, target.y, target.z + distance);
+                camera.up.set(0, 1, 0);
+                app.completeCameraViewChange('test-orbit-undo-baseline');
+                app.resetHistoryTimeline();
+                return app.cameraHistorySnapshot();
+            }""")
+            canvas_box = page.locator("#app-viewport canvas").bounding_box()
+            assert canvas_box is not None
+            orbit_x = canvas_box["x"] + canvas_box["width"] * 0.35
+            orbit_y = canvas_box["y"] + canvas_box["height"] * 0.35
+            page.mouse.move(orbit_x, orbit_y)
+            page.mouse.down(button="middle")
+            page.mouse.move(orbit_x + 90, orbit_y + 55, steps=8)
+            page.mouse.up(button="middle")
+            page.wait_for_function(
+                "window.__ASE_APP__.undoTimeline.length === 1"
+                " && window.__ASE_APP__.undoTimeline[0].kind === 'camera'"
+            )
+            orbit_moved = page.evaluate("window.__ASE_APP__.cameraHistorySnapshot()")
+            assert orbit_moved["position"] != pytest.approx(
+                orbit_baseline["position"], abs=1e-8
+            )
+            page.locator("#app-viewport canvas").focus()
+            page.keyboard.press("Control+z")
+            page.wait_for_function(
+                "window.__ASE_APP__.undoTimeline.length === 0"
+                " && window.__ASE_APP__.redoTimeline.length === 1"
+            )
+            orbit_undone = page.evaluate("window.__ASE_APP__.cameraHistorySnapshot()")
+            assert orbit_undone["position"] == pytest.approx(
+                orbit_baseline["position"], abs=1e-8
+            )
+            assert orbit_undone["target"] == pytest.approx(
+                orbit_baseline["target"], abs=1e-8
+            )
+            assert orbit_undone["up"] == pytest.approx(
+                orbit_baseline["up"], abs=1e-8
+            )
+
+            translation_baseline = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.resetHistoryTimeline();
+                return {
+                    positions: app.state.atoms.positions.map(position => [...position]),
+                    cell: app.state.atoms.cell.map(vector => [...vector])
+                };
+            }""")
+            _expand_inspector(page)
+            page.click('[data-inspector-group="structure"]')
+            page.click('[data-structure-target="cell-replication"]')
+            page.wait_for_timeout(450)
+            page.fill("#translate-x", "1.25")
+            page.fill("#translate-y", "-0.5")
+            page.fill("#translate-z", "0.75")
+            page.click("#btn-apply-translation")
+            page.wait_for_function(
+                """baseline => Math.abs(
+                    window.__ASE_APP__.state.atoms.positions[0][0]
+                    - baseline.positions[0][0] - 1.25
+                ) < 1e-8""",
+                arg=translation_baseline,
+            )
+            translated_ui = page.evaluate("""() => ({
+                positions: window.__ASE_APP__.state.atoms.positions,
+                cell: window.__ASE_APP__.state.atoms.cell,
+                undoKinds: window.__ASE_APP__.undoTimeline.map(action => action.kind),
+                inputs: ['translate-x', 'translate-y', 'translate-z'].map(
+                    id => Number(document.getElementById(id).value)
+                )
+            })""")
+            assert translated_ui["undoKinds"] == ["structure"]
+            assert translated_ui["inputs"] == [0, 0, 0]
+            np.testing.assert_allclose(
+                translated_ui["cell"],
+                translation_baseline["cell"],
+            )
+            for translated_position, original_position in zip(
+                translated_ui["positions"],
+                translation_baseline["positions"],
+            ):
+                assert translated_position == pytest.approx(
+                    np.asarray(original_position) + np.asarray([1.25, -0.5, 0.75])
+                )
+
+            page.evaluate("document.querySelector('#app-viewport canvas').focus()")
+            page.keyboard.press("Control+z")
+            page.wait_for_function(
+                "window.__ASE_APP__.undoTimeline.length === 0"
+                " && window.__ASE_APP__.redoTimeline.length === 1"
+            )
+            translation_undone = page.evaluate("""() => ({
+                positions: window.__ASE_APP__.state.atoms.positions,
+                cell: window.__ASE_APP__.state.atoms.cell
+            })""")
+            np.testing.assert_allclose(
+                translation_undone["positions"],
+                translation_baseline["positions"],
+            )
+            np.testing.assert_allclose(
+                translation_undone["cell"],
+                translation_baseline["cell"],
+            )
 
             assert page.evaluate(
                 "JSON.stringify(window.__ASE_APP__.state.atoms.positions)"

@@ -93,9 +93,9 @@
     --renderer-shadow: rgba(10, 15, 16, 0.72);
     --view-arrow-highlight: #f4f7f6;
     --view-arrow-mid: #b8c1bf;
-    --view-arrow-shadow: #737d7b;
-    --view-arrow-rear: #303937;
-    --view-arrow-depth: #3f4948;
+    --view-arrow-shadow: #818b89;
+    --view-arrow-rear: #626c6a;
+    --view-arrow-depth: #4d5755;
     --view-arrow-rim: rgba(247, 252, 251, 0.56);
     --view-arrow-seam: rgba(24, 31, 30, 0.86);
     --view-arrow-specular: rgba(255, 255, 255, 0.78);
@@ -805,22 +805,23 @@ body:not(.inspector-collapsed) .inspector-edge-chevron {
 .inspector-nav {
     flex: 0 0 auto;
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 3px;
-    padding: 7px 8px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+    padding: 0 8px;
     border-bottom: 1px solid var(--line);
     background: var(--neutral-875);
 }
 
 .inspector-nav button {
     min-width: 0;
-    height: 31px;
-    padding: 0 5px;
-    border: 1px solid transparent;
-    border-radius: 5px;
+    height: 39px;
+    padding: 0 7px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
     background: transparent;
     color: var(--muted);
-    font-size: 0.66rem;
+    font-size: 0.68rem;
     font-weight: 700;
     cursor: pointer;
 }
@@ -845,9 +846,67 @@ body:not(.inspector-collapsed) .inspector-edge-chevron {
 }
 
 .inspector-nav button[aria-selected="true"] {
-    border-color: var(--teal-border-soft);
-    background: var(--teal-selected);
+    border-bottom-color: var(--teal);
+    background: linear-gradient(to top, var(--teal-selected), transparent 72%);
     color: var(--teal);
+}
+
+.structure-section-nav {
+    position: sticky;
+    top: 0;
+    z-index: 8;
+    display: flex;
+    align-items: stretch;
+    min-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 10px;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--panel) 94%, transparent);
+    box-shadow: 0 5px 12px rgb(0 0 0 / 0.12);
+    scrollbar-width: none;
+    backdrop-filter: blur(12px);
+}
+
+.structure-section-nav::-webkit-scrollbar {
+    display: none;
+}
+
+.structure-section-nav button {
+    position: relative;
+    flex: 0 0 auto;
+    height: 38px;
+    padding: 0 10px;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.65rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.structure-section-nav button::after {
+    content: "";
+    position: absolute;
+    right: 10px;
+    bottom: 0;
+    left: 10px;
+    height: 2px;
+    background: transparent;
+}
+
+.structure-section-nav button:hover,
+.structure-section-nav button:focus-visible {
+    color: var(--text);
+    outline: none;
+}
+
+.structure-section-nav button[aria-current="true"] {
+    color: var(--teal);
+}
+
+.structure-section-nav button[aria-current="true"]::after {
+    background: var(--teal);
 }
 
 #inspector .group-hidden {
@@ -1130,6 +1189,58 @@ body.dragging-inspector #inspector-resizer::before {
     gap: 12px;
     align-items: center;
     margin: 0 0 7px;
+}
+
+.cell-translation {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+}
+
+.translation-mode-toggle {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
+    margin-bottom: 9px;
+    padding: 2px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--field);
+}
+
+.translation-mode-toggle button {
+    min-width: 0;
+    height: 30px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.67rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.translation-mode-toggle button:hover,
+.translation-mode-toggle button:focus-visible {
+    color: var(--text);
+    outline: none;
+}
+
+.translation-mode-toggle button[aria-pressed="true"] {
+    background: var(--teal-selected);
+    color: var(--teal);
+    box-shadow: inset 0 0 0 1px var(--teal-border-soft);
+}
+
+#inspector .translation-vector-inputs {
+    width: 100%;
+    margin-bottom: 9px;
+}
+
+#inspector .translation-vector-inputs input {
+    min-width: 0;
+    text-align: center;
 }
 
 .atomic-scale-control {
@@ -1925,7 +2036,8 @@ body.inspector-wide #inspector #appearance-table-body {
     transform: translateY(1px);
 }
 
-.view-arrow-btn .view-arrow-depth {
+.view-arrow-btn .view-arrow-front-depth,
+.view-arrow-btn .view-arrow-orbit-depth {
     fill: var(--view-arrow-depth);
     opacity: 0.96;
 }
@@ -1946,45 +2058,37 @@ body.inspector-wide #inspector #appearance-table-body {
     stop-color: var(--view-arrow-rear);
 }
 
-.view-arrow-btn .view-arrow-face {
-    fill: url("#view-arrow-face-gradient");
+.view-arrow-btn .view-arrow-front-surface {
+    fill: url("#view-arrow-front-gradient");
 }
 
-.view-arrow-btn .view-arrow-orbit-face {
+.view-arrow-btn .view-arrow-orbit-surface {
     fill: url("#view-arrow-orbit-gradient");
 }
 
-.view-arrow-btn .view-arrow-yaw-face {
-    fill: url("#view-arrow-yaw-gradient");
-}
-
-.view-arrow-btn .view-arrow-tail-surface {
-    fill: url("#view-arrow-tail-gradient");
-}
-
-.view-arrow-btn .view-arrow-yaw-tail-surface {
-    fill: url("#view-arrow-yaw-tail-gradient");
-}
-
-.view-arrow-btn .view-arrow-seam {
-    fill: none;
-    stroke: var(--view-arrow-seam);
-    stroke-width: 1.2;
-    stroke-linecap: round;
-}
-
-.view-arrow-btn .view-arrow-specular {
+.view-arrow-btn .view-arrow-front-highlight,
+.view-arrow-btn .view-arrow-orbit-highlight {
     fill: none;
     stroke: var(--view-arrow-specular);
-    stroke-width: 0.82;
+    stroke-width: 0.72;
     stroke-linecap: round;
+    stroke-linejoin: round;
 }
 
-.view-arrow-btn .view-arrow-rim {
+.view-arrow-btn .view-arrow-front-rim,
+.view-arrow-btn .view-arrow-orbit-rim {
     fill: none;
     stroke: var(--view-arrow-rim);
     stroke-width: 0.55;
     stroke-linejoin: round;
+}
+
+.view-arrow-btn .view-arrow-orbit-seam {
+    fill: none;
+    stroke: var(--view-arrow-seam);
+    stroke-width: 0.7;
+    stroke-linecap: round;
+    opacity: 0.68;
 }
 
 .view-arrow-btn.view-axis-pair-start {

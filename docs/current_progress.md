@@ -101,6 +101,20 @@ and documentation use `view()`.
 22. Metal materials allocate one shared low-resolution PMREM reflection
     environment on first use. Standard/rubber-only scenes do not pay that
     allocation or preprocessing cost.
+23. The control panel has four semantic workspaces: Inspect, Structure, View,
+    and Export. Appearance and bonding are Structure sections because both
+    participate in atom identity and scientific structure interpretation.
+24. Cartesian or fractional whole-structure translation applies to every
+    trajectory frame and never changes the unit cell. Fractional vectors use
+    the complete, potentially non-orthogonal cell matrix.
+25. Browser history interleaves structural mutations and camera changes.
+    `Ctrl+Z` and `Ctrl+Shift+Z` restore the most recent action in chronological
+    order, including orbit, pan, zoom, projection, axis alignment, toolbar
+    rotation, and atomic-scale camera changes.
+26. Native save destinations are selected before export generation begins.
+    Canceling the picker must not call structure generation, image rendering,
+    video capture/transcoding, or CAD/Blender scene construction. Browsers
+    without the File System Access API retain the download fallback.
 
 ## Canonical Names And Compatibility
 

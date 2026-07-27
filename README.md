@@ -117,18 +117,18 @@ playback.
 | Number keys | Enter an exact distance or angle during `G`/`R` |
 | `Enter` / left click | Confirm a transform |
 | `Esc` / right click | Cancel a transform |
-| `Ctrl+C`, `Ctrl+V`, `Ctrl+Z` | Copy, paste, undo |
+| `Ctrl+C`, `Ctrl+V` | Copy and paste atoms |
+| `Ctrl+Z`, `Ctrl+Shift+Z` | Undo and redo structure or camera changes |
 | `Delete` / `Backspace` | Delete selected atoms |
 | `Space` | Play or pause the selected timeline |
 | `Left Arrow` / `Right Arrow` | Previous or next frame in the selected timeline |
 | `Tab` / `Esc` | Open the collapsed control panel |
 | `Esc` | Close the open panel and return focus to the viewport |
 
-The **?** button shows the complete shortcut list. The six toolbar arrows are
+The **?** button shows the complete shortcut list. The six camera buttons are
 ordered as up/down, left/right, and counterclockwise/clockwise roll. The first
-four use shaded, depth-coded paths to distinguish 3D orbit from the final two
-screen-plane roll actions. They move only the camera by the selected angle;
-atomic coordinates do not change.
+four are 3D orbit controls; the last two rotate in the screen plane. They change
+only the view by the selected angle, never the atomic coordinates.
 
 ## Trajectories
 
@@ -190,9 +190,11 @@ v_ase gui examples/readme_scene_assets/hookean.traj --show-bonds --interactive
 ## Editing And Measurement
 
 Move and angle increments, transform pivot, constraints, cell transforms,
-supercells, and wrapping are available from the control panel. Axis-locked
-rotation can show low-strain commensurate cell-boundary angles and optionally
-snap to them.
+supercells, and wrapping are available from **Structure**. **Translate atoms**
+moves every frame while keeping the cell fixed; enter either Cartesian values
+in Angstrom or fractional cell coordinates, then select **Apply Translation**.
+Axis-locked rotation can show low-strain commensurate cell-boundary angles and
+optionally snap to them.
 
 ![Rotate mode](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_rotate.png)
 
@@ -207,10 +209,14 @@ displayed coordinates without an additional MIC value. Larger selections show
 the total followed by counts for each atom label. Hovered-atom metadata is
 displayed separately.
 
-## View, Appearance, Bonds, And Rendering
+## Structure, View, And Rendering
 
-The control panel separates camera and scene controls from atom styling and
-bond definitions. The **View** workspace provides:
+The control panel has four workspaces: **Inspect**, **Structure**, **View**, and
+**Export**. **Structure** keeps related scientific controls together:
+**Atoms**, **Cell**, **Transform**, **Constraints**, **Bonds**, and **Relax**.
+Its section bar stays visible while scrolling.
+
+**View** provides:
 
 - orthographic or perspective projection;
 - a true-white viewport background by default, with balanced modeling light
@@ -219,25 +225,25 @@ bond definitions. The **View** workspace provides:
 - live atomic scale in pixels per Angstrom;
 - unit cell, axes, grid, and overlay controls.
 
-The **Appearance** workspace controls per-label TYPE, label, visibility, color,
-radius, material, atom smoothness, and anti-aliasing. New documents use a
-`0.60x` atom radius. Material presets are **Standard**, **Metal**, and
-**Rubber**. In View, a preset applies to a complete label group. In Edit,
-selected atoms can use independent materials and can be merged into an existing
-label by entering that exact label. Chemical TYPE remains synchronized with ASE
-while labels continue to control visual grouping.
+**Structure > Atoms** controls per-label TYPE, label, visibility, color, radius,
+material, atom smoothness, and anti-aliasing. New documents use a `0.60x` atom
+radius. Material presets are **Standard**, **Metal**, and **Rubber**. In View, a
+preset applies to a complete label group. In Edit, selected atoms can use
+independent materials and can be merged into an existing label by entering that
+exact label. Chemical TYPE remains synchronized with ASE while labels control
+visual grouping.
 
 The top-bar renderer switches among **Modeling**, **Studio Sun**, and
 **Sun + Soft Shadow**. Sun intensity, source, target, and viewport handles are
 editable.
 
-The **Bonds** workspace supports automatic element-radius inference, explicit
+**Structure > Bonds** supports automatic element-radius inference, explicit
 label-pair specifications, and manual atom-index pairs. Each pair specification
 has an enable checkbox plus minimum and maximum distances in Angstrom. Changes
-apply immediately; no separate apply step is required. Thickness,
-cylinder/flat style, custom color, and midpoint-split atom colors are
-configurable. New documents use a `0.25 A` bond diameter. Interactive bonds
-form and break during atom transforms.
+apply immediately; no separate apply step is required. Thickness, cylinder/flat
+style, custom color, and midpoint-split atom colors are configurable. New
+documents use a `0.25 A` bond diameter. Interactive bonds form and break during
+atom transforms.
 
 ![Bond pair specifications](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_bonds.png)
 
@@ -259,6 +265,11 @@ form and break during atom transforms.
 and lighting profile used for export. The frame stays fixed while orbit and zoom
 change the structure inside it. Unit cell, grid, axes, background, atom
 smoothness, and renderer are independently selectable for output.
+
+When the browser supports the system save picker, v_ase asks for the destination
+before generating a structure, image, video, Blender, Rhino, OBJ, project, or
+settings export. Canceling the picker cancels the export before rendering or
+encoding starts.
 
 `.vase` files are self-contained; reopening one does not require the original
 structure file. Opening an ordinary structure from an active workspace keeps

@@ -6,6 +6,7 @@ export class ASEApi {
             : document.baseURI;
         this.mock = Boolean(window.__V_ASE_MOCK__);
         this.mockState = this.mock ? this.createMockState() : null;
+        this.onUndoableMutation = null;
     }
 
     mockElementVisual(symbol) {
@@ -145,7 +146,9 @@ export class ASEApi {
 
     async request(path, options = {}, { expect = 'json', needsSession = true } = {}) {
         if (this.mock) {
-            return await this.handleMockRequest(path, options, { expect, needsSession });
+            const result = await this.handleMockRequest(path, options, { expect, needsSession });
+            if (this.isUndoableMutation(path, options)) this.onUndoableMutation?.({ path });
+            return result;
         }
         if (window.location.protocol === 'file:') {
             throw new Error("v_ase API is not available from a local file. Start it with v_ase.view(...).");
@@ -176,9 +179,29 @@ export class ASEApi {
             throw new Error(message || `v_ase request failed (${res.status})`);
         }
 
-        if (expect === 'blob') return await res.blob();
-        if (expect === 'text') return await res.text();
-        return await res.json();
+        let result;
+        if (expect === 'blob') result = await res.blob();
+        else if (expect === 'text') result = await res.text();
+        else result = await res.json();
+        if (this.isUndoableMutation(path, options)) this.onUndoableMutation?.({ path });
+        return result;
+    }
+
+    isUndoableMutation(path, options = {}) {
+        if (String(options.method || 'GET').toUpperCase() !== 'POST') return false;
+        return [
+            '/api/apply/',
+            '/api/reset/',
+            '/api/reset-coordinates/',
+            '/api/wrap/',
+            '/api/add/',
+            '/api/delete/',
+            '/api/atom-identity/',
+            '/api/constraints/',
+            '/api/supercell/apply/',
+            '/api/supercell/matrix/',
+            '/api/translate/'
+        ].some(prefix => path.includes(prefix));
     }
 
     async handleMockRequest(path, options = {}, { expect = 'json' } = {}) {
@@ -217,6 +240,25 @@ export class ASEApi {
         if (path.includes('/api/apply/')) {
             const payload = JSON.parse(options.body || '{}');
             return await this.mockApplyPositions(payload.positions || this.mockState.atoms.positions);
+        }
+        if (path.includes('/api/translate/')) {
+            const payload = JSON.parse(options.body || '{}');
+            const vector = Array.isArray(payload.vector) ? payload.vector.map(Number) : [0, 0, 0];
+            let shift = vector;
+            if (payload.coordinate_mode === 'fractional') {
+                const cell = this.mockState.atoms.cell || [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+                shift = [
+                    vector[0] * cell[0][0] + vector[1] * cell[1][0] + vector[2] * cell[2][0],
+                    vector[0] * cell[0][1] + vector[1] * cell[1][1] + vector[2] * cell[2][1],
+                    vector[0] * cell[0][2] + vector[1] * cell[1][2] + vector[2] * cell[2][2]
+                ];
+            }
+            const positions = (payload.positions || this.mockState.atoms.positions).map(position => [
+                position[0] + shift[0],
+                position[1] + shift[1],
+                position[2] + shift[2]
+            ]);
+            return await this.mockApplyPositions(positions);
         }
         if (path.includes('/api/supercell/apply/')) {
             const payload = JSON.parse(options.body || '{}');
@@ -679,6 +721,15 @@ export class ASEApi {
 
     async applySupercellMatrix(positions, matrix, applyConstraint = true) {
         return await this.jsonPost(`/api/supercell/matrix/{session_id}`, { positions, matrix, apply_constraint: applyConstraint });
+    }
+
+    async applyTranslation(positions, vector, coordinateMode = 'cartesian', applyConstraint = true) {
+        return await this.jsonPost(`/api/translate/{session_id}`, {
+            positions,
+            vector,
+            coordinate_mode: coordinateMode,
+            apply_constraint: applyConstraint
+        });
     }
 
     async commensurateAngles(axis, maxIndex = 32, strainTolerance = 0.01) {

@@ -36,6 +36,7 @@ from v_ase.server import (
     apply_positions,
     apply_supercell,
     apply_supercell_matrix,
+    apply_translation,
     browse_launch_directory,
     cancel_session_autoclose,
     delete_atoms,
@@ -677,6 +678,89 @@ def test_trajectory_supercell_and_wrap_apply_to_all_frames():
     assert np.allclose(reset_data["cell"][0], [2.0, 0.0, 0.0])
     assert [len(frame) for frame in session.trajectory_frames] == [2, 2]
     assert all(np.allclose(frame.cell[0], [2.0, 0.0, 0.0]) for frame in session.trajectory_frames)
+
+
+def test_cartesian_translation_moves_all_frames_without_changing_cell_and_undoes():
+    cell = np.array([[4.0, 0.0, 0.0], [0.5, 5.0, 0.0], [0.2, 0.4, 6.0]])
+    first = Atoms("NaCl", positions=[[0.2, 0.4, 0.6], [1.5, 1.7, 1.9]], cell=cell, pbc=True)
+    second = first.copy()
+    second.positions += [0.3, -0.2, 0.1]
+    originals = [first.copy(), second.copy()]
+    session = EditorSession(
+        "cartesian-translation-all-frames",
+        first.copy(),
+        first.copy(),
+        original_frames=[frame.copy() for frame in originals],
+        trajectory_frames=[frame.copy() for frame in originals],
+    )
+    sessions[session.session_id] = session
+    shift = np.array([1.25, -0.5, 0.75])
+
+    data = asyncio.run(apply_translation(session.session_id, {
+        "positions": first.positions.tolist(),
+        "vector": shift.tolist(),
+        "coordinate_mode": "cartesian",
+        "apply_constraint": True,
+    }))
+
+    np.testing.assert_allclose(data["positions"], originals[0].positions + shift)
+    np.testing.assert_allclose(data["cell"], cell)
+    for frame, original in zip(session.trajectory_frames, originals):
+        np.testing.assert_allclose(frame.positions, original.positions + shift)
+        np.testing.assert_allclose(frame.cell.array, cell)
+
+    undone = asyncio.run(undo(session.session_id))
+    np.testing.assert_allclose(undone["positions"], originals[0].positions)
+    for frame, original in zip(session.trajectory_frames, originals):
+        np.testing.assert_allclose(frame.positions, original.positions)
+        np.testing.assert_allclose(frame.cell.array, cell)
+
+
+def test_fractional_translation_uses_full_monoclinic_cell_for_all_frames():
+    cell = np.array([[3.0, 0.0, 0.0], [0.8, 4.0, 0.0], [0.4, 0.6, 5.0]])
+    first = Atoms("SiO", positions=[[0.1, 0.2, 0.3], [1.1, 1.2, 1.3]], cell=cell, pbc=True)
+    second = first.copy()
+    second.positions += [0.2, 0.1, -0.1]
+    originals = [first.copy(), second.copy()]
+    session = EditorSession(
+        "fractional-translation-all-frames",
+        first.copy(),
+        first.copy(),
+        original_frames=[frame.copy() for frame in originals],
+        trajectory_frames=[frame.copy() for frame in originals],
+    )
+    sessions[session.session_id] = session
+    fractional = np.array([0.5, -0.25, 0.125])
+    cartesian = np.dot(fractional, cell)
+
+    data = asyncio.run(apply_translation(session.session_id, {
+        "positions": first.positions.tolist(),
+        "vector": fractional.tolist(),
+        "coordinate_mode": "fractional",
+        "apply_constraint": True,
+    }))
+
+    np.testing.assert_allclose(data["positions"], originals[0].positions + cartesian)
+    np.testing.assert_allclose(data["cell"], cell)
+    for frame, original in zip(session.trajectory_frames, originals):
+        np.testing.assert_allclose(frame.positions, original.positions + cartesian)
+        np.testing.assert_allclose(frame.cell.array, cell)
+
+
+def test_fractional_translation_requires_defined_cell():
+    atoms = Atoms("H", positions=[[0.0, 0.0, 0.0]])
+    session = make_session(atoms)
+
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(apply_translation(session.session_id, {
+            "positions": atoms.positions.tolist(),
+            "vector": [0.5, 0.0, 0.0],
+            "coordinate_mode": "fractional",
+            "apply_constraint": True,
+        }))
+
+    assert excinfo.value.status_code == 400
+    assert "defined unit cell" in excinfo.value.detail
 
 
 def test_make_supercell_matrix_applies_to_all_frames_and_preserves_constraints():

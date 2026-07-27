@@ -504,6 +504,32 @@ def make_supercell_atoms(atoms, matrix):
     return transformed
 
 
+def translate_atoms(atoms, vector, coordinate_mode="cartesian"):
+    shift = np.asarray(vector, dtype=float)
+    if shift.shape != (3,) or not np.isfinite(shift).all():
+        raise HTTPException(status_code=400, detail="Translation must contain three finite numeric components.")
+    mode = str(coordinate_mode or "cartesian").strip().lower()
+    if mode == "fractional":
+        cell = np.asarray(atoms.cell.array, dtype=float)
+        if cell.shape != (3, 3) or not np.isfinite(cell).all() or np.linalg.norm(cell) < 1e-12:
+            raise HTTPException(
+                status_code=400,
+                detail="Fractional translation requires a defined unit cell.",
+            )
+        shift = np.dot(shift, cell)
+    elif mode != "cartesian":
+        raise HTTPException(
+            status_code=400,
+            detail="Translation coordinate mode must be 'cartesian' or 'fractional'.",
+        )
+
+    translated = atoms.copy()
+    translated.translate(shift)
+    if atoms.calc:
+        translated.calc = copy_calculator(atoms.calc)
+    return translated
+
+
 def set_current_payload_positions(session: EditorSession, payload: Dict[str, Any]):
     if payload and "positions" in payload:
         session.working_atoms.set_positions(
@@ -1548,7 +1574,7 @@ async def apply_positions(session_id: str, payload: Dict[str, Any]):
 async def reset(session_id: str):
     session = get_session(session_id)
     require_editable(session, "Full reset")
-    session.push_history()
+    session.push_history(include_trajectory=True)
     session.reset_all_frames()
     return session_update_to_json(session)
 
@@ -1557,7 +1583,7 @@ async def reset(session_id: str):
 async def reset_coordinates(session_id: str):
     session = get_session(session_id)
     require_editable(session, "Coordinate reset")
-    session.push_history()
+    session.push_history(include_trajectory=True)
     session.reset_all_frames()
     return session_update_to_json(session)
 
@@ -1670,7 +1696,7 @@ async def load_project(session_id: str, request: Request):
 async def wrap(session_id: str, payload: Dict[str, Any] | None = None):
     session = get_session(session_id)
     require_editable(session, "Wrap atoms")
-    session.push_history()
+    session.push_history(include_trajectory=True)
     set_current_payload_positions(session, payload or {})
 
     def wrap_frame(atoms):
@@ -1771,7 +1797,7 @@ async def update_atom_identity(session_id: str, payload: Dict[str, Any]):
     if not indices:
         return session_update_to_json(session)
 
-    session.push_history()
+    session.push_history(include_trajectory=True, include_original=True)
     set_current_payload_positions(session, payload)
     base_symbol = payload.get("base_symbol")
     apply_all_frames(
@@ -1813,7 +1839,7 @@ async def update_constraints(session_id: str, payload: Dict[str, Any]):
     if not indices:
         return session_update_to_json(session)
 
-    session.push_history()
+    session.push_history(include_trajectory=True)
     set_current_payload_positions(session, payload)
     fix_atoms = payload.get("fix_atoms", None)
     directional_kind = payload.get("directional_kind", None)
@@ -1888,7 +1914,7 @@ async def apply_supercell(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
     reps = [int(v) for v in payload.get("reps", [1, 1, 1])]
     validate_supercell_request(session, reps)
-    session.push_history()
+    session.push_history(include_trajectory=True)
     set_current_payload_positions(session, payload)
     apply_all_frames(session, lambda atoms: repeat_atoms_as_supercell(atoms, reps))
     session.invalidate_trajectory_layout()
@@ -1900,11 +1926,29 @@ async def apply_supercell_matrix(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
     matrix = payload.get("matrix")
     P = validate_supercell_matrix_request(session, matrix)
-    session.push_history()
+    session.push_history(include_trajectory=True)
     set_current_payload_positions(session, payload)
     apply_all_frames(session, lambda atoms: make_supercell_atoms(atoms, P))
     session.invalidate_trajectory_layout()
     return session_update_to_json(session)
+
+
+@app.post("/api/translate/{session_id}")
+async def apply_translation(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(session, "Atom translation")
+    vector = payload.get("vector", [0, 0, 0])
+    coordinate_mode = payload.get("coordinate_mode", "cartesian")
+    # Validate before creating a history entry.
+    translate_atoms(session.working_atoms, vector, coordinate_mode)
+    session.push_history(include_trajectory=True)
+    set_current_payload_positions(session, payload)
+    apply_all_frames(
+        session,
+        lambda atoms: translate_atoms(atoms, vector, coordinate_mode),
+    )
+    return session_update_to_json(session)
+
 
 @app.post("/api/cancel/{session_id}")
 async def cancel(session_id: str):

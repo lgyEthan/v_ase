@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.0.90
+
+- Redrew the four 3D camera-orbit controls with continuous hooked silhouettes,
+  direction-specific tails, volumetric shading, and the established VESTA
+  order; corrected the actual up/down camera directions.
+- Consolidated Appearance and Bonds into a scroll-linked Structure workspace
+  alongside Cell, Transform, Constraints, and Relaxation.
+- Added explicit Cartesian/Angstrom and fractional whole-trajectory
+  translation while keeping the unit cell unchanged.
+- Extended undo/redo to camera orbit, pan, zoom, projection, toolbar rotation,
+  axis alignment, and atomic-scale changes, interleaved with structural edits.
+- Moved native destination selection ahead of structure, image, video,
+  Blender, Rhino, OBJ, project, and settings export generation.
+
 ## 0.0.89
 
 - Redrew the first four camera controls as depth-coded orbit arrows with a

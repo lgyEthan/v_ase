@@ -97,6 +97,10 @@ class BlenderTumbleControls {
         this.smoothedWheelDelta = new THREE.Vector2();
         this.trackpadRotateScale = 0.42;
         this.onChange = null;
+        this.onGestureStart = null;
+        this.onGestureEnd = null;
+        this.wheelGestureActive = false;
+        this.wheelGestureTimer = null;
 
         this.onContextMenu = (event) => event.preventDefault();
         this.onAuxClick = (event) => {
@@ -109,7 +113,10 @@ class BlenderTumbleControls {
         this.onMouseUp = (event) => this.handleMouseUp(event);
         this.onWheel = (event) => this.handleWheel(event);
         this.onLostPointerCapture = (event) => this.handleLostPointerCapture(event);
-        this.onWindowBlur = () => this.endGesture(null, { force: true });
+        this.onWindowBlur = () => {
+            this.endGesture(null, { force: true });
+            this.finishWheelGesture();
+        };
 
         domElement.addEventListener('contextmenu', this.onContextMenu);
         domElement.addEventListener('auxclick', this.onAuxClick);
@@ -132,7 +139,9 @@ class BlenderTumbleControls {
 
     startGesture(event, state) {
         if (this.state !== 'idle') this.endGesture(null, { force: true });
+        this.finishWheelGesture();
         event.preventDefault();
+        this.onGestureStart?.({ source: state });
         this.state = state;
         this.activePointerId = event.pointerId;
         this.activeButton = event.button;
@@ -210,6 +219,8 @@ class BlenderTumbleControls {
     handleWheel(event) {
         if (!this.enabled) return;
         event.preventDefault();
+        this.beginWheelGesture();
+        this.scheduleWheelGestureEnd();
 
         // 1. Pinch Zoom (Trackpad pinch always sets ctrlKey = true in Chrome/Safari)
         if (event.ctrlKey) {
@@ -280,6 +291,27 @@ class BlenderTumbleControls {
         }
     }
 
+    beginWheelGesture() {
+        if (this.wheelGestureActive) return;
+        this.wheelGestureActive = true;
+        this.onGestureStart?.({ source: 'wheel' });
+    }
+
+    scheduleWheelGestureEnd() {
+        if (this.wheelGestureTimer !== null) clearTimeout(this.wheelGestureTimer);
+        this.wheelGestureTimer = setTimeout(() => this.finishWheelGesture(), 180);
+    }
+
+    finishWheelGesture() {
+        if (this.wheelGestureTimer !== null) {
+            clearTimeout(this.wheelGestureTimer);
+            this.wheelGestureTimer = null;
+        }
+        if (!this.wheelGestureActive) return;
+        this.wheelGestureActive = false;
+        this.onGestureEnd?.({ source: 'wheel' });
+    }
+
     doZoom(deltaY) {
         const factor = Math.exp(deltaY * this.zoomSpeed);
         if (this.camera.isOrthographicCamera) {
@@ -333,6 +365,7 @@ class BlenderTumbleControls {
         if (!force && event?.pointerId !== undefined && this.activePointerId !== null && event.pointerId !== this.activePointerId) {
             return;
         }
+        const completedState = this.state;
         if (this.activePointerId !== null && this.domElement.hasPointerCapture?.(this.activePointerId)) {
             this.domElement.releasePointerCapture(this.activePointerId);
         }
@@ -342,6 +375,7 @@ class BlenderTumbleControls {
         this.activePointerId = null;
         this.activeButton = null;
         this.activeButtonsMask = 0;
+        if (completedState !== 'idle') this.onGestureEnd?.({ source: completedState });
     }
 
     update() {

@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.89&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.89&rev=1';
-import { ASESelection } from './selection.js?v=0.0.89&rev=1';
-import { ASETransform } from './transform.js?v=0.0.89&rev=1';
+import { ASEApi } from './api.js?v=0.0.90&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.90&rev=1';
+import { ASESelection } from './selection.js?v=0.0.90&rev=1';
+import { ASETransform } from './transform.js?v=0.0.90&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -37,7 +37,12 @@ class VAseApp {
         this.workspaceNeedsRefresh = false;
         this.workspaceOpenRequests = new Map();
         this.workspaceRequestSequence = 0;
+        this.undoTimeline = [];
+        this.redoTimeline = [];
+        this.cameraGestureStart = null;
+        this.historyReplay = false;
         this.api = new ASEApi(this.sessionId);
+        this.api.onUndoableMutation = () => this.recordStructureHistoryAction();
         this.pendingApply = Promise.resolve();
         
         this.renderer = new ASERenderer(document.getElementById('app-viewport'));
@@ -56,6 +61,12 @@ class VAseApp {
         this.renderer.onCameraChange = event => this.syncAtomicScaleFromCamera({
             forceInput: event?.source !== 'scale-input'
         });
+        this.renderer.controls.onGestureStart = event => {
+            this.beginCameraHistoryGesture(event?.source || 'controls');
+        };
+        this.renderer.controls.onGestureEnd = event => {
+            this.commitCameraHistoryGesture(event?.source || 'controls');
+        };
         
         this.state = {
             atoms: null,
@@ -120,6 +131,7 @@ class VAseApp {
             sphereQuality: 'auto',
             applyConstraints: true,
             vizOnly: false,
+            translationCoordinateMode: 'cartesian',
             moveIncrement: 0,
             rotateIncrementDeg: 0,
             transformReadout: '',
@@ -942,11 +954,13 @@ class VAseApp {
     setInspectorGroup(group, persist = true) {
         const migrations = {
             edit: 'structure',
+            appearance: 'structure',
+            bonds: 'structure',
             scene: 'view',
             display: 'view',
             output: 'export'
         };
-        const available = new Set(['inspect', 'structure', 'view', 'appearance', 'bonds', 'export']);
+        const available = new Set(['inspect', 'structure', 'view', 'export']);
         const requested = migrations[group] || group;
         const next = available.has(requested) ? requested : 'inspect';
         this.inspectorGroup = next;
@@ -970,6 +984,83 @@ class VAseApp {
                 // Local storage may be unavailable in restricted browser contexts.
             }
         }
+        if (next === 'structure') {
+            requestAnimationFrame(() => this.syncStructureSectionNavigation());
+        }
+    }
+
+    structureSectionTargets() {
+        return [...document.querySelectorAll('[data-structure-target]')]
+            .map(button => ({
+                button,
+                panel: document.querySelector(
+                    `#inspector-content [data-panel="${button.dataset.structureTarget}"]`
+                )
+            }))
+            .filter(item => item.panel);
+    }
+
+    syncStructureSectionNavigation() {
+        if (this.inspectorGroup !== 'structure') return;
+        const content = document.getElementById('inspector-content');
+        const nav = content?.querySelector('.structure-section-nav');
+        const targets = this.structureSectionTargets().filter(
+            ({ button, panel }) => button.offsetParent !== null && panel.offsetParent !== null
+        );
+        if (!content || !nav || !targets.length) return;
+        const threshold = nav.getBoundingClientRect().bottom + 28;
+        let active = targets[0];
+        for (const candidate of targets) {
+            if (candidate.panel.getBoundingClientRect().top <= threshold) active = candidate;
+        }
+        if (content.scrollTop + content.clientHeight >= content.scrollHeight - 2) {
+            active = targets[targets.length - 1];
+        }
+        targets.forEach(({ button }) => {
+            button.setAttribute('aria-current', button === active.button ? 'true' : 'false');
+        });
+        const buttonLeft = active.button.offsetLeft;
+        const buttonRight = buttonLeft + active.button.offsetWidth;
+        if (buttonLeft < nav.scrollLeft) {
+            nav.scrollTo({ left: buttonLeft, behavior: 'smooth' });
+        } else if (buttonRight > nav.scrollLeft + nav.clientWidth) {
+            nav.scrollTo({
+                left: buttonRight - nav.clientWidth,
+                behavior: 'smooth'
+            });
+        }
+    }
+
+    setupStructureSectionNavigation() {
+        const content = document.getElementById('inspector-content');
+        const nav = content?.querySelector('.structure-section-nav');
+        if (!content || !nav) return;
+        nav.querySelectorAll('[data-structure-target]').forEach(button => {
+            button.addEventListener('click', () => {
+                const panel = document.querySelector(
+                    `#inspector-content [data-panel="${button.dataset.structureTarget}"]`
+                );
+                if (!panel || panel.offsetParent === null) return;
+                const contentTop = content.getBoundingClientRect().top;
+                const top = Math.max(
+                    0,
+                    content.scrollTop + panel.getBoundingClientRect().top
+                        - contentTop - nav.offsetHeight
+                );
+                content.scrollTo({ top, behavior: 'smooth' });
+                nav.querySelectorAll('[data-structure-target]').forEach(item => {
+                    item.setAttribute('aria-current', item === button ? 'true' : 'false');
+                });
+            });
+        });
+        let frame = null;
+        content.addEventListener('scroll', () => {
+            if (frame !== null) return;
+            frame = requestAnimationFrame(() => {
+                frame = null;
+                this.syncStructureSectionNavigation();
+            });
+        }, { passive: true });
     }
 
     setupInspectorNavigation() {
@@ -989,6 +1080,7 @@ class VAseApp {
         document.getElementById('btn-inspector-collapse')?.addEventListener('click', () => {
             this.setInspectorCollapsed(!document.body.classList.contains('inspector-collapsed'));
         });
+        this.setupStructureSectionNavigation();
         this.setInspectorGroup(savedGroup, false);
         this.setInspectorCollapsed(collapsed, false);
     }
@@ -1055,6 +1147,159 @@ class VAseApp {
         this.renderer.requestRender();
     }
 
+    cameraHistorySnapshot() {
+        const camera = this.currentCameraForExport();
+        return {
+            position: [...camera.position],
+            target: [...camera.target],
+            up: [...camera.up],
+            projection: camera.projection,
+            fov: camera.fov,
+            zoom: camera.zoom,
+            ortho_scale: camera.ortho_scale,
+            near: camera.near,
+            far: camera.far
+        };
+    }
+
+    cameraHistorySnapshotsEqual(first, second) {
+        if (!first || !second || first.projection !== second.projection) return false;
+        const numbers = value => [
+            ...(value.position || []),
+            ...(value.target || []),
+            ...(value.up || []),
+            value.fov,
+            value.zoom,
+            value.ortho_scale,
+            value.near,
+            value.far
+        ].map(item => item === null ? null : Number(item));
+        const a = numbers(first);
+        const b = numbers(second);
+        return a.length === b.length && a.every((value, index) => {
+            if (value === null || b[index] === null) return value === b[index];
+            return Number.isFinite(value)
+                && Number.isFinite(b[index])
+                && Math.abs(value - b[index]) <= 1e-9;
+        });
+    }
+
+    recordHistoryAction(action) {
+        if (this.historyReplay || !action) return;
+        this.undoTimeline.push(action);
+        if (this.undoTimeline.length > 100) this.undoTimeline.shift();
+        this.redoTimeline = [];
+    }
+
+    recordStructureHistoryAction() {
+        this.recordHistoryAction({ kind: 'structure' });
+    }
+
+    resetHistoryTimeline() {
+        this.undoTimeline = [];
+        this.redoTimeline = [];
+        this.cameraGestureStart = null;
+    }
+
+    beginCameraHistoryGesture(source = 'camera') {
+        if (this.historyReplay || this.cameraGestureStart) return;
+        this.cameraGestureStart = {
+            source,
+            before: this.cameraHistorySnapshot()
+        };
+    }
+
+    commitCameraHistoryGesture(source = 'camera') {
+        if (this.historyReplay || !this.cameraGestureStart) return;
+        const pending = this.cameraGestureStart;
+        this.cameraGestureStart = null;
+        const after = this.cameraHistorySnapshot();
+        if (this.cameraHistorySnapshotsEqual(pending.before, after)) return;
+        this.recordHistoryAction({
+            kind: 'camera',
+            source: pending.source || source,
+            before: pending.before,
+            after
+        });
+    }
+
+    applyCameraHistorySnapshot(snapshot) {
+        if (!snapshot) return;
+        this.historyReplay = true;
+        this.cameraGestureStart = null;
+        try {
+            this.applyCameraSettings(snapshot);
+            this.renderer.syncSelectionOutlines();
+            this.transform.updateGuides(this.renderer.camera);
+            this.updateOrientationWidget();
+            this.renderer.requestRender();
+        } finally {
+            this.historyReplay = false;
+        }
+    }
+
+    async performUndo() {
+        const action = this.undoTimeline.pop();
+        if (!action) {
+            if (!this.canEditAtoms()) {
+                this.toast('Nothing to undo.', 'warning');
+                return;
+            }
+            const data = await this.api.undo();
+            this.setAtomsData(data);
+            this.toast('Undo.', 'success');
+            return;
+        }
+        try {
+            if (action.kind === 'camera') {
+                this.applyCameraHistorySnapshot(action.before);
+                this.toast('View change undone.', 'success');
+            } else {
+                this.historyReplay = true;
+                const data = await this.api.undo();
+                this.setAtomsData(data);
+                this.toast('Undo.', 'success');
+            }
+            this.redoTimeline.push(action);
+        } catch (err) {
+            this.undoTimeline.push(action);
+            throw err;
+        } finally {
+            this.historyReplay = false;
+        }
+    }
+
+    async performRedo() {
+        const action = this.redoTimeline.pop();
+        if (!action) {
+            if (!this.canEditAtoms()) {
+                this.toast('Nothing to redo.', 'warning');
+                return;
+            }
+            const data = await this.api.redo();
+            this.setAtomsData(data);
+            this.toast('Redo.', 'success');
+            return;
+        }
+        try {
+            if (action.kind === 'camera') {
+                this.applyCameraHistorySnapshot(action.after);
+                this.toast('View change redone.', 'success');
+            } else {
+                this.historyReplay = true;
+                const data = await this.api.redo();
+                this.setAtomsData(data);
+                this.toast('Redo.', 'success');
+            }
+            this.undoTimeline.push(action);
+        } catch (err) {
+            this.redoTimeline.push(action);
+            throw err;
+        } finally {
+            this.historyReplay = false;
+        }
+    }
+
     cameraViewBasis() {
         const camera = this.renderer.camera;
         const target = this.renderer.controls.target.clone();
@@ -1076,8 +1321,8 @@ class VAseApp {
         const degrees = this.normalizedViewRotationStep(stepDegrees);
         const basis = this.cameraViewBasis();
         const directions = {
-            left: { axis: basis.up, sign: -1 },
-            right: { axis: basis.up, sign: 1 },
+            left: { axis: basis.up, sign: 1 },
+            right: { axis: basis.up, sign: -1 },
             up: { axis: basis.right, sign: -1 },
             down: { axis: basis.right, sign: 1 },
             'roll-ccw': { axis: basis.forward, sign: 1 },
@@ -1085,6 +1330,7 @@ class VAseApp {
         };
         const rotation = directions[direction];
         if (!rotation) return;
+        this.beginCameraHistoryGesture('view-toolbar');
         const viewRotation = new THREE.Quaternion().setFromAxisAngle(
             rotation.axis,
             rotation.sign * THREE.MathUtils.degToRad(degrees)
@@ -1094,6 +1340,7 @@ class VAseApp {
         camera.position.copy(basis.target).add(offset);
         camera.up.copy(basis.up).applyQuaternion(viewRotation).normalize();
         this.completeCameraViewChange('view-rotate');
+        this.commitCameraHistoryGesture('view-toolbar');
     }
 
     setupViewControls() {
@@ -2950,6 +3197,7 @@ class VAseApp {
         };
         const baseDir = axisVectors[axis];
         if (!baseDir) return 1;
+        this.beginCameraHistoryGesture('axis-align');
         const camera = this.renderer.camera;
         const controls = this.renderer.controls;
         const target = controls.target.clone();
@@ -2974,6 +3222,7 @@ class VAseApp {
         this.transform.updateGuides(camera);
         this.updateOrientationWidget();
         this.renderer.requestRender();
+        this.commitCameraHistoryGesture('axis-align');
         return sign;
     }
 
@@ -5308,6 +5557,61 @@ class VAseApp {
         }
     }
 
+    setTranslationCoordinateMode(mode) {
+        const next = mode === 'fractional' ? 'fractional' : 'cartesian';
+        this.state.translationCoordinateMode = next;
+        document.querySelectorAll('[data-translation-mode]').forEach(button => {
+            button.setAttribute(
+                'aria-pressed',
+                button.dataset.translationMode === next ? 'true' : 'false'
+            );
+        });
+        const step = next === 'fractional' ? '0.05' : '0.1';
+        ['translate-x', 'translate-y', 'translate-z'].forEach(id => {
+            document.getElementById(id)?.setAttribute('step', step);
+        });
+    }
+
+    translationVectorFromControls() {
+        const vector = ['translate-x', 'translate-y', 'translate-z'].map(id => {
+            const value = Number(document.getElementById(id)?.value);
+            if (!Number.isFinite(value)) throw new Error('Translation components must be finite numbers.');
+            return value;
+        });
+        if (vector.every(value => Math.abs(value) < 1e-12)) {
+            throw new Error('Enter a non-zero translation vector.');
+        }
+        return vector;
+    }
+
+    async applyAtomTranslation() {
+        try {
+            const vector = this.translationVectorFromControls();
+            const mode = this.state.translationCoordinateMode === 'fractional'
+                ? 'fractional'
+                : 'cartesian';
+            const frameCount = this.state.atoms?.metadata?.frame_count || 1;
+            const data = await this.withBusy(
+                `Translating atoms in ${frameCount} frame${frameCount > 1 ? 's' : ''}...`,
+                () => this.api.applyTranslation(
+                    this.backendPositionsPayload(),
+                    vector,
+                    mode,
+                    this.state.applyConstraints
+                )
+            );
+            this.setAtomsData(data);
+            ['translate-x', 'translate-y', 'translate-z'].forEach(id => {
+                const input = document.getElementById(id);
+                if (input) input.value = '0';
+            });
+            const unit = mode === 'fractional' ? 'fractional' : 'Å';
+            this.toast(`Translated all atoms by (${vector.join(', ')}) ${unit}; cell unchanged.`, 'success');
+        } catch (err) {
+            this.toast(`Translation failed: ${err.message}`, 'error');
+        }
+    }
+
     async applyMakeSupercellMatrix() {
         try {
             const matrix = this.parseSupercellMatrix();
@@ -5790,17 +6094,6 @@ class VAseApp {
         }, 1200);
     }
 
-    downloadDataUrl(dataUrl, filename) {
-        const a = document.createElement('a');
-        a.href = dataUrl;
-        a.download = filename;
-        a.rel = 'noopener';
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => a.remove(), 1200);
-    }
-
     filePickerTypes(filename, mimeType) {
         const lower = filename.toLowerCase();
         if (lower.endsWith('.vase')) {
@@ -5836,8 +6129,7 @@ class VAseApp {
         return [{ description: 'v_ase export', accept: { [mimeType]: ['.vasp', '.poscar', '.txt'] } }];
     }
 
-    async savePreparedBlob(blob, filename, mimeType = 'application/octet-stream') {
-        let writable = null;
+    async chooseSaveDestination(filename, mimeType = 'application/octet-stream') {
         const canUseSavePicker = window.showSaveFilePicker && window.isSecureContext && !navigator.webdriver;
         if (canUseSavePicker) {
             try {
@@ -5845,13 +6137,25 @@ class VAseApp {
                     suggestedName: filename,
                     types: this.filePickerTypes(filename, mimeType)
                 });
-                writable = await handle.createWritable();
+                return { handle, browserDownload: false };
             } catch (err) {
-                if (err?.name === 'AbortError') return false;
+                if (err?.name === 'AbortError') return null;
                 console.warn('showSaveFilePicker failed; falling back to browser download.', err);
             }
         }
-        if (writable) {
+        return { handle: null, browserDownload: true };
+    }
+
+    async savePreparedBlob(
+        blob,
+        filename,
+        mimeType = 'application/octet-stream',
+        destination = null
+    ) {
+        const selected = destination || await this.chooseSaveDestination(filename, mimeType);
+        if (!selected) return false;
+        if (selected.handle) {
+            const writable = await selected.handle.createWritable();
             await writable.write(blob);
             await writable.close();
             return true;
@@ -5861,8 +6165,10 @@ class VAseApp {
     }
 
     async saveBlobFromAction(action, filename, mimeType = 'application/octet-stream', busyMessage = 'Preparing export...') {
+        const destination = await this.chooseSaveDestination(filename, mimeType);
+        if (!destination) return false;
         const blob = await this.withBusy(busyMessage, action);
-        return await this.savePreparedBlob(blob, filename, mimeType);
+        return await this.savePreparedBlob(blob, filename, mimeType, destination);
     }
 
     closeModal() {
@@ -6011,6 +6317,7 @@ class VAseApp {
                 `Reading ${file.name}...`,
                 () => this.api.loadStructureFile(file, inputFormat, index)
             );
+            this.resetHistoryTimeline();
             const isProject = data.loaded_file?.kind === 'project' || Boolean(data.project);
             const projectSettings = data.project?.settings || data.metadata?.config?.initial_design_settings;
             const settings = isProject ? projectSettings : inheritedSettings;
@@ -6058,6 +6365,7 @@ class VAseApp {
                 `Adding ${file.name} to trajectory...`,
                 () => this.api.appendStructureFile(file, inputFormat, index)
             );
+            this.resetHistoryTimeline();
             this.state.trajectoryBinaryCache = null;
             this.state.trajectoryBinaryPromise = null;
             this.state.timelineSource = 'loaded';
@@ -6141,7 +6449,7 @@ class VAseApp {
                 <span>X / Y / Z</span><label>Lock transform axis in G/R mode</label>
                 <span>Enter</span><label>Confirm transform</label>
                 <span>Esc</span><label>Cancel a transform, close a modal, or close the open control panel and return focus to the viewport</label>
-                <span>Ctrl+C / V / Z</span><label>Copy, paste, undo</label>
+                <span>Ctrl+C / V / Z</span><label>Copy, paste, undo an edit or view change</label>
                 <span>Delete</span><label>Delete selected atoms</label>
             </div>
             <h3 class="help-section-title">Opening Files</h3>
@@ -6468,23 +6776,38 @@ class VAseApp {
             .forEach(id => document.getElementById(id)?.addEventListener('change', updateExportSummary));
         updateExportSummary();
 
-        document.getElementById('modal-export-image')?.addEventListener('click', () => {
+        document.getElementById('modal-export-image')?.addEventListener('click', async () => {
             try {
                 const profile = this.setImageExportProfile(readImageProfile());
                 const { width: exportWidth, height: exportHeight, options } = profile;
+                const filename = `v_ase-${exportWidth}x${exportHeight}.png`;
+                const destination = await this.chooseSaveDestination(filename, 'image/png');
+                if (!destination) return;
                 Object.assign(this.state.display, {
                     imageFramingMode: options.scaleMode,
                     atomicScalePixelsPerAngstrom: options.pixelsPerAngstrom,
                     imageSphereQuality: options.sphereQuality,
                     imageSmoothnessScale: options.sphereQualityScale
                 });
+                this.setBusy(`Rendering ${exportWidth} x ${exportHeight} image...`);
+                await new Promise(resolve => requestAnimationFrame(resolve));
                 const dataUrl = this.renderer.exportPNG(exportWidth, exportHeight, options);
+                const blob = await (await fetch(dataUrl)).blob();
+                const saved = await this.savePreparedBlob(
+                    blob,
+                    filename,
+                    'image/png',
+                    destination
+                );
                 this.syncImageExportPreview();
-                this.downloadDataUrl(dataUrl, `v_ase-${exportWidth}x${exportHeight}.png`);
-                this.closeModal();
-                this.toast('Image export started.', 'success');
+                if (saved) {
+                    this.closeModal();
+                    this.toast('Image export saved.', 'success');
+                }
             } catch (err) {
                 this.toast(`Image export failed: ${err.message}`, 'error');
+            } finally {
+                this.clearBusy();
             }
         });
     }
@@ -6689,7 +7012,13 @@ class VAseApp {
                 const imageHeightInput = document.getElementById('image-height');
                 if (imageWidthInput) imageWidthInput.value = `${options.width}`;
                 if (imageHeightInput) imageHeightInput.value = `${options.height}`;
-                await this.exportTrajectoryVideo(options);
+                const filename = `v_ase-trajectory.${options.format}`;
+                const outputMime = options.format === 'avi'
+                    ? 'video/x-msvideo'
+                    : 'video/quicktime';
+                const destination = await this.chooseSaveDestination(filename, outputMime);
+                if (!destination) return;
+                await this.exportTrajectoryVideo(options, destination);
             } catch (err) {
                 this.toast(`Video export failed: ${err.message}`, 'error');
             }
@@ -6700,7 +7029,7 @@ class VAseApp {
         }, { once: true });
     }
 
-    async exportTrajectoryVideo({ width, height, fps, format, ...renderOptions }) {
+    async exportTrajectoryVideo({ width, height, fps, format, ...renderOptions }, destination) {
         const meta = this.state.atoms?.metadata || {};
         const frameCount = meta.frame_count || 1;
         if (frameCount <= 1) throw new Error('A trajectory with at least two frames is required.');
@@ -6712,6 +7041,11 @@ class VAseApp {
         const outputHeight = Math.ceil(Math.max(256, Number(height) || 1080) / 2) * 2;
         const outputFps = Math.min(60, Math.max(1, Number(fps) || 12));
         const outputFormat = format === 'avi' ? 'avi' : 'mov';
+        const filename = `v_ase-trajectory.${outputFormat}`;
+        const outputMime = outputFormat === 'avi' ? 'video/x-msvideo' : 'video/quicktime';
+        const selectedDestination = destination
+            || await this.chooseSaveDestination(filename, outputMime);
+        if (!selectedDestination) return false;
         const originalFrame = meta.current_frame || 0;
         if (this.state.trajectoryTimer) {
             clearTimeout(this.state.trajectoryTimer);
@@ -6765,9 +7099,12 @@ class VAseApp {
             });
             this.setBusy(`Encoding ${outputFormat.toUpperCase()} video...`);
             const video = await this.api.transcodeVideo(recording, outputFormat);
-            const filename = `v_ase-trajectory.${outputFormat}`;
-            const outputMime = outputFormat === 'avi' ? 'video/x-msvideo' : 'video/quicktime';
-            const saved = await this.savePreparedBlob(video, filename, outputMime);
+            const saved = await this.savePreparedBlob(
+                video,
+                filename,
+                outputMime,
+                selectedDestination
+            );
             if (saved) this.toast(`${outputFormat.toUpperCase()} video saved.`, 'success');
         } finally {
             stream.getTracks().forEach(track => track.stop());
@@ -7126,23 +7463,11 @@ class VAseApp {
         });
         document.getElementById('btn-apply-constraint')?.addEventListener('click', () => this.applySelectedDirectionalConstraint());
         document.getElementById('btn-clear-directional-constraint')?.addEventListener('click', () => this.clearSelectedDirectionalConstraint());
-        document.getElementById('btn-undo').onclick = async () => {
-            try {
-                const data = await this.api.undo();
-                this.setAtomsData(data);
-                this.toast('Undo.', 'success');
-            } catch (err) {
-                this.toast(`Undo failed: ${err.message}`, 'error');
-            }
+        document.getElementById('btn-undo').onclick = () => {
+            this.performUndo().catch(err => this.toast(`Undo failed: ${err.message}`, 'error'));
         };
-        document.getElementById('btn-redo').onclick = async () => {
-            try {
-                const data = await this.api.redo();
-                this.setAtomsData(data);
-                this.toast('Redo.', 'success');
-            } catch (err) {
-                this.toast(`Redo failed: ${err.message}`, 'error');
-            }
+        document.getElementById('btn-redo').onclick = () => {
+            this.performRedo().catch(err => this.toast(`Redo failed: ${err.message}`, 'error'));
         };
         document.getElementById('btn-export-poscar').onclick = async () => {
             try {
@@ -7365,10 +7690,21 @@ class VAseApp {
         document.getElementById('chk-axes').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('chk-grid').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('chk-overlays').onchange = () => this.safeApplyDisplayOptions();
-        document.getElementById('projection-mode').onchange = () => this.safeApplyDisplayOptions();
+        document.getElementById('projection-mode').onchange = () => {
+            this.beginCameraHistoryGesture('projection');
+            this.safeApplyDisplayOptions();
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                this.commitCameraHistoryGesture('projection');
+            }));
+        };
         const atomicScale = document.getElementById('atomic-scale');
+        atomicScale.addEventListener('focus', () => this.beginCameraHistoryGesture('atomic-scale'));
         atomicScale.oninput = () => this.applyAtomicScaleFromControl();
-        atomicScale.onchange = () => this.applyAtomicScaleFromControl({ normalize: true });
+        atomicScale.onchange = () => {
+            this.applyAtomicScaleFromControl({ normalize: true });
+            this.commitCameraHistoryGesture('atomic-scale');
+        };
+        atomicScale.addEventListener('blur', () => this.commitCameraHistoryGesture('atomic-scale'));
         document.getElementById('chk-antialias').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('sphere-quality').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('atom-radius-scale').oninput = () => this.safeApplyDisplayOptions();
@@ -7427,6 +7763,13 @@ class VAseApp {
             document.getElementById(id).onchange = () => this.safeApplyDisplayOptions();
             document.getElementById(id).oninput = () => this.safeApplyDisplayOptions();
         });
+        document.querySelectorAll('[data-translation-mode]').forEach(button => {
+            button.addEventListener('click', () => {
+                this.setTranslationCoordinateMode(button.dataset.translationMode);
+            });
+        });
+        this.setTranslationCoordinateMode(this.state.translationCoordinateMode);
+        document.getElementById('btn-apply-translation').onclick = () => this.applyAtomTranslation();
         document.getElementById('btn-set-supercell').onclick = () => this.setSupercellAsCell();
         document.getElementById('btn-apply-supercell-matrix').onclick = () => this.applyMakeSupercellMatrix();
         document.getElementById('btn-shortcuts').onclick = () => {
@@ -7721,15 +8064,7 @@ class VAseApp {
                 }
                 if (this.isPhysicalKey(e, 'KeyZ', ['z'])) {
                     e.preventDefault();
-                    if (!this.canEditAtoms()) {
-                        this.editOnlyToast();
-                        return;
-                    }
-                    (e.shiftKey ? this.api.redo() : this.api.undo())
-                        .then(data => {
-                            this.setAtomsData(data);
-                            this.toast(e.shiftKey ? 'Redo.' : 'Undo.', 'success');
-                        })
+                    (e.shiftKey ? this.performRedo() : this.performUndo())
                         .catch(err => this.toast(`${e.shiftKey ? 'Redo' : 'Undo'} failed: ${err.message}`, 'error'));
                     return;
                 }

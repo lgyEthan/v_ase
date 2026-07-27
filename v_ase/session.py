@@ -11,6 +11,15 @@ from .repulsion import copy_calculator, ensure_default_calculator
 
 
 @dataclass
+class SessionHistoryState:
+    working_atoms: Atoms
+    current_frame: int
+    trajectory_frames: Optional[List[Atoms]] = None
+    original_atoms: Optional[Atoms] = None
+    original_frames: Optional[List[Atoms]] = None
+
+
+@dataclass
 class EditorSession:
     session_id: str
     original_atoms: Atoms
@@ -22,8 +31,8 @@ class EditorSession:
     current_frame: int = 0
     
     # History
-    history: List[Atoms] = field(default_factory=list)
-    redo_stack: List[Atoms] = field(default_factory=list)
+    history: List[SessionHistoryState] = field(default_factory=list)
+    redo_stack: List[SessionHistoryState] = field(default_factory=list)
     
     # Events & Controls
     done_event: threading.Event = field(default_factory=threading.Event)
@@ -74,9 +83,63 @@ class EditorSession:
                 self._ensure_session_calculator(frame)
         self.refresh_trajectory_identity()
 
-    def push_history(self):
-        """Save current state to history for Undo."""
-        self.history.append(self._copy_atoms(self.working_atoms))
+    def _history_state(
+        self,
+        *,
+        include_trajectory: bool = False,
+        include_original: bool = False,
+    ) -> SessionHistoryState:
+        return SessionHistoryState(
+            working_atoms=self._copy_atoms(self.working_atoms),
+            current_frame=int(self.current_frame),
+            trajectory_frames=(
+                [self._copy_atoms(frame) for frame in self.trajectory_frames]
+                if include_trajectory
+                else None
+            ),
+            original_atoms=(
+                self._copy_atoms(self.original_atoms)
+                if include_original
+                else None
+            ),
+            original_frames=(
+                [self._copy_atoms(frame) for frame in self.original_frames]
+                if include_original
+                else None
+            ),
+        )
+
+    def _restore_history_state(self, state: SessionHistoryState) -> None:
+        if state.trajectory_frames is not None:
+            self.trajectory_frames = [
+                self._copy_atoms(frame)
+                for frame in state.trajectory_frames
+            ]
+            self.trajectory_source = None
+        if state.original_atoms is not None:
+            self.original_atoms = self._copy_atoms(state.original_atoms)
+        if state.original_frames is not None:
+            self.original_frames = [
+                self._copy_atoms(frame)
+                for frame in state.original_frames
+            ]
+        frame_count = max(1, len(self.trajectory_frames))
+        self.current_frame = max(0, min(int(state.current_frame), frame_count - 1))
+        self.working_atoms = self._copy_atoms(state.working_atoms)
+        self.invalidate_trajectory_layout()
+        self.refresh_trajectory_identity()
+
+    def push_history(
+        self,
+        *,
+        include_trajectory: bool = False,
+        include_original: bool = False,
+    ):
+        """Save the mutation's complete affected scope for Undo."""
+        self.history.append(self._history_state(
+            include_trajectory=include_trajectory,
+            include_original=include_original,
+        ))
         if len(self.history) > 50:
             self.history.pop(0)
         self.redo_stack.clear()
@@ -85,18 +148,24 @@ class EditorSession:
         if not self.history:
             return None
 
-        self.redo_stack.append(self._copy_atoms(self.working_atoms))
-        self.working_atoms = self.history.pop()
-        self.invalidate_trajectory_layout()
+        state = self.history.pop()
+        self.redo_stack.append(self._history_state(
+            include_trajectory=state.trajectory_frames is not None,
+            include_original=state.original_frames is not None,
+        ))
+        self._restore_history_state(state)
         return self.working_atoms
 
     def redo(self) -> Optional[Atoms]:
         if not self.redo_stack:
             return None
 
-        self.history.append(self._copy_atoms(self.working_atoms))
-        self.working_atoms = self.redo_stack.pop()
-        self.invalidate_trajectory_layout()
+        state = self.redo_stack.pop()
+        self.history.append(self._history_state(
+            include_trajectory=state.trajectory_frames is not None,
+            include_original=state.original_frames is not None,
+        ))
+        self._restore_history_state(state)
         return self.working_atoms
 
     def preserve_calculator(self, new_atoms: Atoms):
