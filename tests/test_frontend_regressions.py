@@ -481,6 +481,9 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "measure=${measure}" not in main_js
     assert "selectionAngle" in main_js
     assert "selectionTorsion" in main_js
+    assert "selectionDelta(first, second, { mic = true } = {})" in main_js
+    assert "Direct: d(a1-a2)" in main_js
+    assert "MIC: d(a1-a2)" in main_js
     assert "selectionMeasurementMap" in main_js
     assert "updateSelectionMeasurementOverlay" in main_js
     assert 'id="measurement-overlay"' in index_html
@@ -667,7 +670,9 @@ def test_camera_view_background_and_2d_display_controls_are_wired():
     assert "cameraViewBasis()" in main_js
     assert "rotateCameraView(direction, stepDegrees" in main_js
     assert "'roll-ccw': { axis: basis.forward, sign: 1 }" in main_js
-    assert "viewportBackground: 'dark'" in main_js
+    assert "viewportBackground: 'white'" in main_js
+    assert '<option value="white" selected>White</option>' in index_html
+    assert 'data-viewport-background="white"' in index_html
     assert "atomDisplayMode: '3d'" in main_js
     assert "setViewportBackground(mode" in renderer_js
     assert "effectiveBondStyle()" in renderer_js
@@ -1008,7 +1013,7 @@ def test_control_panel_uses_collapsible_default_hierarchy():
     main_js = (ROOT / "v_ase/static/main.js").read_text()
 
     assert 'id="btn-inspector-collapse"' in index_html
-    assert '<body class="inspector-collapsed">' in index_html
+    assert '<body class="inspector-collapsed" data-viewport-background="white">' in index_html
     assert 'class="inspector-edge-chevron"' in index_html
     assert 'viewBox="0 0 14 20"' in index_html
     assert 'd="M1.6 4 12 10 1.6 16"' in index_html
@@ -1101,10 +1106,11 @@ def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
     assert "replicaSelectionOutlines" in renderer_js
     assert "supercellAtomReference" in renderer_js
     assert "selectionCount()" in main_js
-    assert '<span>Tab</span><label>Open control panel while it is collapsed</label>' in index_html
-    assert '<span>Tab</span><label>Open control panel while it is collapsed</label>' in main_js
+    assert '<span>Tab / Esc</span><label>Open the control panel while it is collapsed</label>' in index_html
+    assert '<span>Tab / Esc</span><label>Open the control panel while it is collapsed</label>' in main_js
     assert 'close the open control panel and return focus to the viewport' in index_html
     assert 'close the open control panel and return focus to the viewport' in main_js
+    assert "this.setInspectorCollapsed(false);" in main_js
     assert '<span>Sun source + G</span><label>Move source and target together</label>' in main_js
     assert "bondDelta(i, j" in renderer_js
     assert "this.displayOptions.showPeriodicBonds" in renderer_js
@@ -1139,7 +1145,8 @@ def test_application_chrome_uses_one_role_based_palette():
 
     # Canvas, transform guides, and the orientation widget share the same axis
     # and neutral properties instead of maintaining separate color constants.
-    assert "cssColor('--viewport-bg', '#2d3333')" in renderer_js
+    assert "cssColor('--viewport-dark-bg', '#2d3333')" in renderer_js
+    assert "cssColor('--viewport-light-bg', '#ffffff')" in renderer_js
     assert "cssColor('--axis-x', '#f05b55')" in renderer_js
     assert "['--axis-x', '#f05b55']" in transform_js
     assert "color: cssColor('--amber', '#f3be57')" in transform_js

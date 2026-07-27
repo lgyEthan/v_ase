@@ -357,8 +357,8 @@ export class ASERenderer {
 
     setupScene() {
         this.scene = new THREE.Scene();
-        this.viewportBackgroundMode = 'dark';
-        const viewportBackground = cssColor('--viewport-bg', '#2d3333');
+        this.viewportBackgroundMode = 'white';
+        const viewportBackground = cssColor('--viewport-light-bg', '#ffffff');
         this.scene.background = new THREE.Color(viewportBackground);
         
         const aspect = window.innerWidth / Math.max(1, window.innerHeight);
@@ -379,6 +379,7 @@ export class ASERenderer {
         this.renderer.shadowMap.enabled = false;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         this.domElement = this.renderer.domElement;
+        this.domElement.dataset.viewportBackground = this.viewportBackgroundMode;
         this.container.appendChild(this.renderer.domElement);
         this.exportPreviewFrame = document.getElementById('export-preview-frame');
         this.exportPreviewDimensions = document.getElementById('export-preview-dimensions');
@@ -532,7 +533,7 @@ export class ASERenderer {
             commensurateMaxIndex: 32,
             commensurateSnapRangeDeg: 2.0,
             projectionMode: 'orthographic',
-            viewportBackground: 'dark',
+            viewportBackground: 'white',
             atomDisplayMode: '3d',
             viewRotationStepDeg: 15,
             showOverlays: true,
@@ -1097,13 +1098,13 @@ export class ASERenderer {
     }
 
     normalizedViewportBackground(value = this.displayOptions?.viewportBackground) {
-        return value === 'white' ? 'white' : 'dark';
+        return value === 'dark' ? 'dark' : 'white';
     }
 
     viewportBackgroundColor(mode = this.viewportBackgroundMode) {
         return mode === 'white'
             ? new THREE.Color(0xffffff)
-            : new THREE.Color(cssColor('--viewport-bg', '#2d3333'));
+            : new THREE.Color(cssColor('--viewport-dark-bg', '#2d3333'));
     }
 
     setViewportBackground(mode, { rebuildGuides = true } = {}) {

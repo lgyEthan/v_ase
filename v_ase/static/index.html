@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.80&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.81&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.80';
+            : '/static/vendor/three.module.js?v=0.0.81';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -23,7 +23,7 @@
         }
     </script>
 </head>
-<body class="inspector-collapsed">
+<body class="inspector-collapsed" data-viewport-background="white">
     <div id="app-viewport">
         <div id="export-preview-frame" class="export-preview-frame hidden" aria-hidden="true">
             <div class="export-preview-caption">
@@ -57,7 +57,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.80</span>
+            <span class="version">0.0.81</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -368,8 +368,8 @@
             <div class="prop-row">
                 <label for="viewport-background">Background</label>
                 <select id="viewport-background">
-                    <option value="dark" selected>Dark</option>
-                    <option value="white">White</option>
+                    <option value="dark">Dark</option>
+                    <option value="white" selected>White</option>
                 </select>
             </div>
             <div class="prop-row">
@@ -746,7 +746,7 @@
                     <span>Middle drag</span><label>Orbit viewport</label>
                     <span>Shift + middle drag</span><label>Pan viewport</label>
                     <span>Space</span><label>Play or pause trajectory</label>
-                    <span>Tab</span><label>Open control panel while it is collapsed</label>
+                    <span>Tab / Esc</span><label>Open the control panel while it is collapsed</label>
                     <span>G</span><label>Move selected atoms or Sun handle</label>
                     <span>R</span><label>Rotate selected atoms or Sun direction</label>
                     <span>Sun source + G</span><label>Move source and target together</label>
@@ -755,7 +755,7 @@
                     <span>X / Y / Z</span><label>Align view in select mode</label>
                     <span>X / Y / Z</span><label>Lock transform axis in G/R mode</label>
                     <span>Enter</span><label>Confirm transform</label>
-                    <span>Esc</span><label>Cancel transform, or close the open control panel and return focus to the viewport</label>
+                    <span>Esc</span><label>Cancel a transform, close a modal, or close the open control panel and return focus to the viewport</label>
                     <span>Ctrl+C / V / Z</span><label>Copy, paste, undo</label>
                     <span>Delete</span><label>Delete selected atoms</label>
                 </div>
@@ -796,7 +796,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.80&rev=1';
+            : './static/main.js?v=0.0.81&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

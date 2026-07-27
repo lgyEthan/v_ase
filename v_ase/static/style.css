@@ -14,7 +14,8 @@
     --neutral-300: #c3cac6;
     --neutral-100: #f1f4ef;
 
-    --viewport-bg: var(--neutral-700);
+    --viewport-dark-bg: var(--neutral-700);
+    --viewport-bg: #ffffff;
     --viewport-light-bg: #ffffff;
     --viewport-light-border: rgba(255, 255, 255, 0.72);
     --chrome: var(--neutral-900);
@@ -127,6 +128,14 @@ body {
 
 body {
     pointer-events: none;
+}
+
+body[data-viewport-background="dark"] {
+    background: var(--viewport-dark-bg);
+}
+
+body[data-viewport-background="white"] {
+    background: var(--viewport-light-bg);
 }
 
 body.inspector-collapsed {
@@ -1000,6 +1009,10 @@ body.dragging-inspector #inspector-resizer::before {
     line-height: 1.45;
     text-align: right;
     overflow-wrap: anywhere;
+}
+
+#inspector #selected-measure {
+    white-space: pre-line;
 }
 
 #inspector .badge,

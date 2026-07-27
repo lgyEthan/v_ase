@@ -208,12 +208,15 @@ the target around the source.
 
 ## Camera, Measurement, And Output Preview
 
-Orthographic projection is default; perspective is optional. Atomic scale is a
-live pixels-per-Angstrom contract and updates with wheel zoom.
+Orthographic projection and a white viewport background are default;
+perspective and a dark background are optional. Atomic scale is a live
+pixels-per-Angstrom contract and updates with wheel zoom.
 
 Sequential one-to-four atom selections produce ordered point, distance, angle,
-and signed torsion measurements. Selection measurements and pointer hover
-metadata use separate persistent HUDs.
+and signed torsion measurements. Direct-coordinate and
+minimum-image-convention (MIC) values are shown together; displayed supercell
+replicas retain their on-screen coordinate measurement contract. Selection
+measurements and pointer hover metadata use separate persistent HUDs.
 
 Output Preview uses a cloned camera and a fixed screen-space frame with the
 requested output aspect ratio. Preview, PNG, and trajectory video share one

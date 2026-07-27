@@ -117,7 +117,7 @@ playback.
 | `Ctrl+C`, `Ctrl+V`, `Ctrl+Z` | Copy, paste, undo |
 | `Delete` / `Backspace` | Delete selected atoms |
 | `Space` | Play or pause a trajectory |
-| `Tab` | Open the collapsed control panel |
+| `Tab` / `Esc` | Open the collapsed control panel |
 | `Esc` | Close the open panel and return focus to the viewport |
 
 The **?** button shows the complete shortcut list. The six toolbar arrows rotate
@@ -191,15 +191,16 @@ snap to them.
 
 One through four ordered selections are marked `a1` through `a4`. The viewport
 shows point information, `a1-a2` distance, the `a1-a2-a3` angle centered on
-`a2`, or the signed `a1-a2-a3-a4` torsion. Larger selections show a compact
-count. Hovered-atom metadata is displayed separately.
+`a2`, or the signed `a1-a2-a3-a4` torsion. Direct-coordinate and
+minimum-image-convention (MIC) values are reported together. Larger selections
+show a compact count. Hovered-atom metadata is displayed separately.
 
 ## Appearance, Bonds, And Rendering
 
 The Display workspace provides:
 
 - orthographic or perspective projection;
-- dark or white viewport background;
+- white viewport background by default, with a dark option;
 - 3D spheres/cylinders or 2D atoms/flat bonds;
 - live atomic scale in pixels per Angstrom;
 - atom smoothness and anti-aliasing;

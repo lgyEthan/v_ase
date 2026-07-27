@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.80&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.80&rev=1';
-import { ASESelection } from './selection.js?v=0.0.80&rev=1';
-import { ASETransform } from './transform.js?v=0.0.80&rev=1';
+import { ASEApi } from './api.js?v=0.0.81&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.81&rev=1';
+import { ASESelection } from './selection.js?v=0.0.81&rev=1';
+import { ASETransform } from './transform.js?v=0.0.81&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -97,7 +97,7 @@ class VAseApp {
                 commensurateSnapRangeDeg: 2.0,
                 supercell: [1, 1, 1],
                 projectionMode: 'orthographic',
-                viewportBackground: 'dark',
+                viewportBackground: 'white',
                 atomDisplayMode: '3d',
                 viewRotationStepDeg: 15,
                 lightingMode: 'modeling',
@@ -988,7 +988,7 @@ class VAseApp {
     }
 
     syncViewControls(options = this.state.display) {
-        const background = options.viewportBackground === 'white' ? 'white' : 'dark';
+        const background = options.viewportBackground === 'dark' ? 'dark' : 'white';
         const displayMode = options.atomDisplayMode === '2d' ? '2d' : '3d';
         const showGrid = options.showGrid !== false;
         const step = this.normalizedViewRotationStep(options.viewRotationStepDeg);
@@ -1011,7 +1011,7 @@ class VAseApp {
 
     applyViewDisplayOption(key, value) {
         if (key === 'viewportBackground') {
-            this.state.display.viewportBackground = value === 'white' ? 'white' : 'dark';
+            this.state.display.viewportBackground = value === 'dark' ? 'dark' : 'white';
         } else if (key === 'atomDisplayMode') {
             this.state.display.atomDisplayMode = value === '2d' ? '2d' : '3d';
         } else {
@@ -1867,7 +1867,7 @@ class VAseApp {
             ? Math.max(0, Math.min(15, initialSnapRange))
             : this.state.display.commensurateSnapRangeDeg;
         this.state.display.projectionMode = config.projection_mode || this.state.display.projectionMode;
-        this.state.display.viewportBackground = config.viewport_background === 'white' ? 'white' : 'dark';
+        this.state.display.viewportBackground = config.viewport_background === 'dark' ? 'dark' : 'white';
         this.state.display.atomDisplayMode = config.atom_display_mode === '2d' ? '2d' : '3d';
         this.state.display.viewRotationStepDeg = this.normalizedViewRotationStep(
             config.view_rotation_step_deg ?? this.state.display.viewRotationStepDeg
@@ -2421,11 +2421,11 @@ class VAseApp {
         return `${cartText} A\n(frac ${fracText})`;
     }
 
-    selectionDelta(first, second) {
+    selectionDelta(first, second, { mic = true } = {}) {
         const a = this.normalizeSelectionReference(first);
         const b = this.normalizeSelectionReference(second);
         if (!a || !b) return null;
-        if (a.kind === 'atom' && b.kind === 'atom') {
+        if (mic && a.kind === 'atom' && b.kind === 'atom') {
             const start = this.renderer.getAtomPosition?.(a.index);
             if (start && this.renderer.minimumImageDelta) {
                 return this.renderer.minimumImageDelta(a.index, b.index, start);
@@ -2437,22 +2437,22 @@ class VAseApp {
         return pj.clone().sub(pi);
     }
 
-    selectionDistance(i, j) {
-        const delta = this.selectionDelta(i, j);
+    selectionDistance(i, j, options = {}) {
+        const delta = this.selectionDelta(i, j, options);
         return delta ? delta.length() : NaN;
     }
 
-    selectionAngle(i, j, k) {
-        const ji = this.selectionDelta(j, i);
-        const jk = this.selectionDelta(j, k);
+    selectionAngle(i, j, k, options = {}) {
+        const ji = this.selectionDelta(j, i, options);
+        const jk = this.selectionDelta(j, k, options);
         if (!ji || !jk || ji.lengthSq() < 1e-12 || jk.lengthSq() < 1e-12) return NaN;
         return THREE.MathUtils.radToDeg(ji.angleTo(jk));
     }
 
-    selectionTorsion(i, j, k, l) {
-        const ij = this.selectionDelta(i, j);
-        const jk = this.selectionDelta(j, k);
-        const kl = this.selectionDelta(k, l);
+    selectionTorsion(i, j, k, l, options = {}) {
+        const ij = this.selectionDelta(i, j, options);
+        const jk = this.selectionDelta(j, k, options);
+        const kl = this.selectionDelta(k, l, options);
         if (!ij || !jk || !kl || ij.lengthSq() < 1e-12 || jk.lengthSq() < 1e-12 || kl.lengthSq() < 1e-12) {
             return NaN;
         }
@@ -2480,29 +2480,43 @@ class VAseApp {
         if (selectedReferences.length === 1) return referenceMap;
         if (selectedReferences.length === 2) {
             const [i, j] = selectedReferences;
-            const distance = this.selectionDistance(i, j);
-            return Number.isFinite(distance)
-                ? `${referenceMap} | d(a1-a2) = ${this.formatNumber(distance, 4)} A`
+            const direct = this.selectionDistance(i, j, { mic: false });
+            const mic = this.selectionDistance(i, j, { mic: true });
+            return [direct, mic].every(Number.isFinite)
+                ? `${referenceMap}\nDirect: d(a1-a2) = ${this.formatNumber(direct, 4)} A\nMIC: d(a1-a2) = ${this.formatNumber(mic, 4)} A`
                 : '-';
         }
         if (selectedReferences.length === 3) {
             const [i, j, k] = selectedReferences;
-            const left = this.selectionDistance(i, j);
-            const right = this.selectionDistance(j, k);
-            const angle = this.selectionAngle(i, j, k);
-            if (![left, right, angle].every(Number.isFinite)) return '-';
-            return `${referenceMap} | d(a1-a2) = ${this.formatNumber(left, 4)} A | d(a2-a3) = ${this.formatNumber(right, 4)} A | angle(a1-a2-a3) = ${this.formatNumber(angle, 2)} deg`;
+            const direct = [
+                this.selectionDistance(i, j, { mic: false }),
+                this.selectionDistance(j, k, { mic: false }),
+                this.selectionAngle(i, j, k, { mic: false })
+            ];
+            const mic = [
+                this.selectionDistance(i, j, { mic: true }),
+                this.selectionDistance(j, k, { mic: true }),
+                this.selectionAngle(i, j, k, { mic: true })
+            ];
+            if (![...direct, ...mic].every(Number.isFinite)) return '-';
+            return `${referenceMap}\nDirect: d(a1-a2) = ${this.formatNumber(direct[0], 4)} A | d(a2-a3) = ${this.formatNumber(direct[1], 4)} A | angle(a1-a2-a3) = ${this.formatNumber(direct[2], 2)} deg\nMIC: d(a1-a2) = ${this.formatNumber(mic[0], 4)} A | d(a2-a3) = ${this.formatNumber(mic[1], 4)} A | angle(a1-a2-a3) = ${this.formatNumber(mic[2], 2)} deg`;
         }
         if (selectedReferences.length === 4) {
             const [i, j, k, l] = selectedReferences;
-            const distances = [
-                this.selectionDistance(i, j),
-                this.selectionDistance(j, k),
-                this.selectionDistance(k, l)
+            const direct = [
+                this.selectionDistance(i, j, { mic: false }),
+                this.selectionDistance(j, k, { mic: false }),
+                this.selectionDistance(k, l, { mic: false }),
+                this.selectionTorsion(i, j, k, l, { mic: false })
             ];
-            const torsion = this.selectionTorsion(i, j, k, l);
-            if (![...distances, torsion].every(Number.isFinite)) return '-';
-            return `${referenceMap} | d(a1-a2) = ${this.formatNumber(distances[0], 4)} A | d(a2-a3) = ${this.formatNumber(distances[1], 4)} A | d(a3-a4) = ${this.formatNumber(distances[2], 4)} A | torsion(a1-a2-a3-a4) = ${this.formatNumber(torsion, 2)} deg`;
+            const mic = [
+                this.selectionDistance(i, j, { mic: true }),
+                this.selectionDistance(j, k, { mic: true }),
+                this.selectionDistance(k, l, { mic: true }),
+                this.selectionTorsion(i, j, k, l, { mic: true })
+            ];
+            if (![...direct, ...mic].every(Number.isFinite)) return '-';
+            return `${referenceMap}\nDirect: d(a1-a2) = ${this.formatNumber(direct[0], 4)} A | d(a2-a3) = ${this.formatNumber(direct[1], 4)} A | d(a3-a4) = ${this.formatNumber(direct[2], 4)} A | torsion(a1-a2-a3-a4) = ${this.formatNumber(direct[3], 2)} deg\nMIC: d(a1-a2) = ${this.formatNumber(mic[0], 4)} A | d(a2-a3) = ${this.formatNumber(mic[1], 4)} A | d(a3-a4) = ${this.formatNumber(mic[2], 4)} A | torsion(a1-a2-a3-a4) = ${this.formatNumber(mic[3], 2)} deg`;
         }
         return `${selectedReferences.length} atoms selected`;
     }
@@ -2513,22 +2527,25 @@ class VAseApp {
             return `a1 = #${this.selectionReferenceLabel(selectedReferences[0])}`;
         }
         if (selectedReferences.length === 2) {
-            const distance = this.selectionDistance(selectedReferences[0], selectedReferences[1]);
-            return Number.isFinite(distance)
-                ? `Distance a1-a2 ${this.formatNumber(distance, 4)} A`
+            const direct = this.selectionDistance(selectedReferences[0], selectedReferences[1], { mic: false });
+            const mic = this.selectionDistance(selectedReferences[0], selectedReferences[1], { mic: true });
+            return [direct, mic].every(Number.isFinite)
+                ? `Distance a1-a2 | Direct ${this.formatNumber(direct, 4)} A | MIC ${this.formatNumber(mic, 4)} A`
                 : 'Distance unavailable';
         }
         if (selectedReferences.length === 3) {
             const [i, j, k] = selectedReferences;
-            const angle = this.selectionAngle(i, j, k);
-            return Number.isFinite(angle)
-                ? `Angle a1-a2-a3 ${this.formatNumber(angle, 2)} deg`
+            const direct = this.selectionAngle(i, j, k, { mic: false });
+            const mic = this.selectionAngle(i, j, k, { mic: true });
+            return [direct, mic].every(Number.isFinite)
+                ? `Angle a1-a2-a3 | Direct ${this.formatNumber(direct, 2)} deg | MIC ${this.formatNumber(mic, 2)} deg`
                 : 'Angle unavailable';
         }
         if (selectedReferences.length === 4) {
-            const torsion = this.selectionTorsion(...selectedReferences);
-            return Number.isFinite(torsion)
-                ? `Torsion a1-a2-a3-a4 ${this.formatNumber(torsion, 2)} deg`
+            const direct = this.selectionTorsion(...selectedReferences, { mic: false });
+            const mic = this.selectionTorsion(...selectedReferences, { mic: true });
+            return [direct, mic].every(Number.isFinite)
+                ? `Torsion a1-a2-a3-a4 | Direct ${this.formatNumber(direct, 2)} deg | MIC ${this.formatNumber(mic, 2)} deg`
                 : 'Torsion unavailable';
         }
         return `${selectedReferences.length} atoms selected`;
@@ -2620,7 +2637,7 @@ class VAseApp {
                 class: 'measure-value-badge',
                 transform: `translate(${x.toFixed(2)} ${y.toFixed(2)})`
             });
-            const badgeWidth = Math.max(62, Math.min(150, text.length * 6.3 + 16));
+            const badgeWidth = Math.max(62, Math.min(240, text.length * 6.3 + 16));
             appendSvg('rect', {
                 x: (-badgeWidth / 2).toFixed(2),
                 y: -10,
@@ -2639,7 +2656,24 @@ class VAseApp {
             appendLine(points[index], points[index + 1], className);
         }
 
-        if (count === 3) {
+        if (count === 2) {
+            const center = {
+                x: (points[0].x + points[1].x) / 2,
+                y: (points[0].y + points[1].y) / 2
+            };
+            const dx = points[1].x - points[0].x;
+            const dy = points[1].y - points[0].y;
+            const length = Math.max(1, Math.hypot(dx, dy));
+            const direct = this.selectionDistance(...selectedReferences, { mic: false });
+            const mic = this.selectionDistance(...selectedReferences, { mic: true });
+            if ([direct, mic].every(Number.isFinite)) {
+                appendValueBadge(
+                    center.x - dy / length * 22,
+                    center.y + dx / length * 22,
+                    `Direct ${this.formatNumber(direct, 3)} | MIC ${this.formatNumber(mic, 3)} A`
+                );
+            }
+        } else if (count === 3) {
             const center = points[1];
             const firstAngle = Math.atan2(points[0].y - center.y, points[0].x - center.x);
             const lastAngle = Math.atan2(points[2].y - center.y, points[2].x - center.x);
@@ -2661,13 +2695,14 @@ class VAseApp {
                 class: 'measure-angle-arc',
                 d: `M ${start.x.toFixed(2)} ${start.y.toFixed(2)} A ${radius.toFixed(2)} ${radius.toFixed(2)} 0 0 ${sweep >= 0 ? 1 : 0} ${end.x.toFixed(2)} ${end.y.toFixed(2)}`
             });
-            const angle = this.selectionAngle(...selectedReferences);
-            if (Number.isFinite(angle)) {
+            const direct = this.selectionAngle(...selectedReferences, { mic: false });
+            const mic = this.selectionAngle(...selectedReferences, { mic: true });
+            if ([direct, mic].every(Number.isFinite)) {
                 const middleAngle = firstAngle + sweep / 2;
                 appendValueBadge(
                     center.x + Math.cos(middleAngle) * (radius + 20),
                     center.y + Math.sin(middleAngle) * (radius + 20),
-                    `${this.formatNumber(angle, 1)} deg`
+                    `Direct ${this.formatNumber(direct, 1)} | MIC ${this.formatNumber(mic, 1)} deg`
                 );
             }
         } else if (count === 4) {
@@ -2678,12 +2713,13 @@ class VAseApp {
             const dx = points[2].x - points[1].x;
             const dy = points[2].y - points[1].y;
             const length = Math.max(1, Math.hypot(dx, dy));
-            const torsion = this.selectionTorsion(...selectedReferences);
-            if (Number.isFinite(torsion)) {
+            const direct = this.selectionTorsion(...selectedReferences, { mic: false });
+            const mic = this.selectionTorsion(...selectedReferences, { mic: true });
+            if ([direct, mic].every(Number.isFinite)) {
                 appendValueBadge(
                     center.x - dy / length * 24,
                     center.y + dx / length * 24,
-                    `torsion ${this.formatNumber(torsion, 1)} deg`
+                    `Direct ${this.formatNumber(direct, 1)} | MIC ${this.formatNumber(mic, 1)} deg`
                 );
             }
         }
@@ -4411,9 +4447,9 @@ class VAseApp {
         this.state.display.showPeriodicBonds = Boolean(document.getElementById('chk-periodic-bonds')?.checked);
         this.state.display.exportIncludeCell = document.getElementById('export-include-cell')?.checked !== false;
         this.state.display.projectionMode = document.getElementById('projection-mode')?.value || 'perspective';
-        this.state.display.viewportBackground = document.getElementById('viewport-background')?.value === 'white'
-            ? 'white'
-            : 'dark';
+        this.state.display.viewportBackground = document.getElementById('viewport-background')?.value === 'dark'
+            ? 'dark'
+            : 'white';
         this.state.display.atomDisplayMode = document.getElementById('atom-display-mode')?.value === '2d'
             ? '2d'
             : '3d';
@@ -4544,7 +4580,7 @@ class VAseApp {
         setChecked('chk-periodic-bonds', display.showPeriodicBonds);
         setChecked('export-include-cell', display.exportIncludeCell !== false);
         setValue('projection-mode', display.projectionMode || 'perspective');
-        setValue('viewport-background', display.viewportBackground === 'white' ? 'white' : 'dark');
+        setValue('viewport-background', display.viewportBackground === 'dark' ? 'dark' : 'white');
         setValue('atom-display-mode', display.atomDisplayMode === '2d' ? '2d' : '3d');
         setValue('view-rotate-step', this.normalizedViewRotationStep(display.viewRotationStepDeg));
         const atomicScale = Number(display.atomicScalePixelsPerAngstrom);
@@ -4725,7 +4761,7 @@ class VAseApp {
             imageSmoothnessScale: finiteClamped(
                 nextDisplay.imageSmoothnessScale, 1, 0.5, 2
             ),
-            viewportBackground: nextDisplay.viewportBackground === 'white' ? 'white' : 'dark',
+            viewportBackground: nextDisplay.viewportBackground === 'dark' ? 'dark' : 'white',
             atomDisplayMode: nextDisplay.atomDisplayMode === '2d' ? '2d' : '3d',
             viewRotationStepDeg: finiteClamped(
                 nextDisplay.viewRotationStepDeg, 15, 0.1, 360
@@ -5744,7 +5780,7 @@ class VAseApp {
                 <span>Middle drag</span><label>Orbit viewport</label>
                 <span>Shift + middle drag</span><label>Pan viewport</label>
                 <span>Space</span><label>Play or pause trajectory</label>
-                <span>Tab</span><label>Open control panel while it is collapsed</label>
+                <span>Tab / Esc</span><label>Open the control panel while it is collapsed</label>
                 <span>G</span><label>Move selected atoms or Sun handle</label>
                 <span>R</span><label>Rotate selected atoms or Sun direction</label>
                 <span>Sun source + G</span><label>Move source and target together</label>
@@ -5753,7 +5789,7 @@ class VAseApp {
                 <span>X / Y / Z</span><label>Align view in select mode</label>
                 <span>X / Y / Z</span><label>Lock transform axis in G/R mode</label>
                 <span>Enter</span><label>Confirm transform</label>
-                <span>Esc</span><label>Cancel transform, or close the open control panel and return focus to the viewport</label>
+                <span>Esc</span><label>Cancel a transform, close a modal, or close the open control panel and return focus to the viewport</label>
                 <span>Ctrl+C / V / Z</span><label>Copy, paste, undo</label>
                 <span>Delete</span><label>Delete selected atoms</label>
             </div>
@@ -7282,6 +7318,10 @@ class VAseApp {
                     canvas.focus({ preventScroll: true });
                     return;
                 }
+                e.preventDefault();
+                e.target?.blur?.();
+                this.setInspectorCollapsed(false);
+                return;
             }
             if ((e.code === 'Tab' || e.key === 'Tab') && inspectorCollapsed && !isFormControl && this.transform.mode === 'IDLE') {
                 e.preventDefault();

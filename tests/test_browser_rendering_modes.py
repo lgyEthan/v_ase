@@ -338,9 +338,9 @@ def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
             page.keyboard.press('Control+a')
             page.wait_for_function("window.__ASE_APP__.state.selected.size === 4")
 
-            # Tab opens a collapsed panel.  Once open, Tab remains available
-            # for native form navigation; Escape commits, closes, and returns
-            # keyboard focus to the viewport.
+            # Tab and Escape both open a collapsed panel. Once open, Tab
+            # remains available for native form navigation; Escape commits,
+            # closes, and returns keyboard focus to the viewport.
             page.keyboard.press('Tab')
             page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
             page.click('[data-inspector-group="structure"]')
@@ -353,6 +353,12 @@ def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
             page.wait_for_function("document.body.classList.contains('inspector-collapsed')")
             assert page.evaluate("document.activeElement?.tagName") == 'CANVAS'
             assert page.evaluate("window.__ASE_APP__.state.selected.size") == 4
+            page.keyboard.press('Escape')
+            page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
+            assert page.evaluate("window.__ASE_APP__.state.selected.size") == 4
+            page.keyboard.press('Escape')
+            page.wait_for_function("document.body.classList.contains('inspector-collapsed')")
+            assert page.evaluate("document.activeElement?.tagName") == 'CANVAS'
             page.keyboard.press('r')
             assert page.evaluate("window.__ASE_APP__.transform.mode") == 'ROTATE'
             page.keyboard.press('Escape')
@@ -1803,8 +1809,12 @@ def test_grid_button_and_ordered_distance_angle_torsion_measurements():
             assert two["kind"] == "distance"
             assert two["labels"] == ["a1", "a2"]
             assert two["connectors"] == 1
-            assert "d(a1-a2) = 2.0000 A" in two["detail"]
-            assert two["summary"] == "Distance a1-a2 2.0000 A"
+            assert "Direct: d(a1-a2) = 2.0000 A" in two["detail"]
+            assert "MIC: d(a1-a2) = 2.0000 A" in two["detail"]
+            assert two["summary"] == (
+                "Distance a1-a2 | Direct 2.0000 A | MIC 2.0000 A"
+            )
+            assert two["values"] == ["Direct 2.000 | MIC 2.000 A"]
             assert two["overlaps"] is False
 
             click_atom(2, additive=True)
@@ -1815,9 +1825,13 @@ def test_grid_button_and_ordered_distance_angle_torsion_measurements():
             assert three["connectors"] == 2
             assert three["angleArcs"] == 1
             assert three["torsionAxes"] == 0
+            assert "Direct: d(a1-a2) = 2.0000 A" in three["detail"]
+            assert "MIC: d(a1-a2) = 2.0000 A" in three["detail"]
             assert "angle(a1-a2-a3) = 135.00 deg" in three["detail"]
-            assert three["summary"] == "Angle a1-a2-a3 135.00 deg"
-            assert three["values"] == ["135.0 deg"]
+            assert three["summary"] == (
+                "Angle a1-a2-a3 | Direct 135.00 deg | MIC 135.00 deg"
+            )
+            assert three["values"] == ["Direct 135.0 | MIC 135.0 deg"]
             assert three["overlaps"] is False
 
             click_atom(3, additive=True)
@@ -1853,7 +1867,9 @@ def test_grid_button_and_ordered_distance_angle_torsion_measurements():
             assert four["angleArcs"] == 0
             assert "torsion(a1-a2-a3-a4)" in four["detail"]
             assert four["summary"].startswith("Torsion a1-a2-a3-a4")
-            assert four["values"] == [f"torsion {expected_torsion:.1f} deg"]
+            assert four["values"] == [
+                f"Direct {expected_torsion:.1f} | MIC {expected_torsion:.1f} deg"
+            ]
             assert four["overlaps"] is False
 
             click_atom(4, additive=True)
@@ -1885,8 +1901,80 @@ def test_grid_button_and_ordered_distance_angle_torsion_measurements():
             assert boxed["references"] == ["0", "1", "2"]
             assert boxed["connectors"] == 2
             assert boxed["angleArcs"] == 1
-            assert boxed["summary"] == "Angle a1-a2-a3 135.00 deg"
+            assert boxed["summary"] == (
+                "Angle a1-a2-a3 | Direct 135.00 deg | MIC 135.00 deg"
+            )
             assert boxed["overlaps"] is False
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_periodic_measurement_reports_direct_and_mic_values():
+    atoms = Atoms(
+        "HH",
+        positions=[[0.5, 0.0, 0.0], [9.5, 0.0, 0.0]],
+        cell=[10.0, 8.0, 8.0],
+        pbc=[True, False, False],
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2"
+            )
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection();
+                app.addSelectionReference(0);
+                app.addSelectionReference(1);
+                app.updateSelectionVisuals();
+                app.updateUI();
+            }""")
+            page.wait_for_function(
+                "document.getElementById('selected-measure').innerText.includes('Direct:')"
+            )
+            measured = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                return {
+                    direct: app.selectionDistance(0, 1, {mic: false}),
+                    mic: app.selectionDistance(0, 1, {mic: true}),
+                    detail: document.getElementById('selected-measure').innerText,
+                    summary: document.getElementById('selection-measure-value').innerText,
+                    overlayValues: [...document.querySelectorAll(
+                        '.measure-value-badge text'
+                    )].map(value => value.textContent),
+                    background: `#${app.renderer.scene.background.getHexString()}`,
+                    backgroundMode: app.state.display.viewportBackground,
+                };
+            }""")
+            assert measured["direct"] == pytest.approx(9.0)
+            assert measured["mic"] == pytest.approx(1.0)
+            assert "Direct: d(a1-a2) = 9.0000 A" in measured["detail"]
+            assert "MIC: d(a1-a2) = 1.0000 A" in measured["detail"]
+            assert measured["summary"] == (
+                "Distance a1-a2 | Direct 9.0000 A | MIC 1.0000 A"
+            )
+            assert measured["overlayValues"] == [
+                "Direct 9.000 | MIC 1.000 A"
+            ]
+            assert measured["background"] == "#ffffff"
+            assert measured["backgroundMode"] == "white"
             browser.close()
     finally:
         editor.close()
@@ -2675,8 +2763,12 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
             assert 'a1=#0@[1,0,0] Cu' in selected['measure']
             assert 'a2=#0 Cu' in selected['measure']
             assert 'a3=#0@[0,1,0] Cu' in selected['measure']
+            assert 'Direct: d(a1-a2) = 4.0000 A' in selected['measure']
+            assert 'MIC: d(a1-a2) = 4.0000 A' in selected['measure']
             assert 'angle(a1-a2-a3) = 90.00 deg' in selected['measure']
-            assert selected['measureSummary'] == 'Angle a1-a2-a3 90.00 deg'
+            assert selected['measureSummary'] == (
+                'Angle a1-a2-a3 | Direct 90.00 deg | MIC 90.00 deg'
+            )
             assert selected['measureVisible'] is True
             assert selected['replicaOutlines'] == 2
             assert selected['overlayKind'] == 'angle'
@@ -2884,6 +2976,15 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
             page.wait_for_function("window.__ASE_APP__?.renderer?.bondPairs?.length === 2")
+            assert page.evaluate("""() => ({
+                state: window.__ASE_APP__.state.display.viewportBackground,
+                background: `#${window.__ASE_APP__.renderer.scene.background.getHexString()}`,
+                control: document.getElementById('viewport-background').value
+            })""") == {
+                "state": "white",
+                "background": "#ffffff",
+                "control": "white",
+            }
 
             toolbar_geometry = page.evaluate("""() => {
                 const calc = document.getElementById('calc-controls').getBoundingClientRect();

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.0.81
+
+- Made both `Tab` and `Esc` open a collapsed control panel while retaining
+  modal close, transform cancel, and open-panel close priorities for `Esc`.
+- Added direct-coordinate values alongside minimum-image-convention distances,
+  angles, and torsions in the inspector, persistent Measure HUD, and viewport
+  measurement overlay.
+- Changed new documents to a white viewport background from the first rendered
+  frame while retaining the dark background option and saved project choices.
+- Added real-Chromium coverage for periodic direct/MIC measurements, the
+  two-way `Esc` panel workflow, and white-background initialization.
+
 ## 0.0.80
 
 - Added explicit Open actions for replacing the current document, appending

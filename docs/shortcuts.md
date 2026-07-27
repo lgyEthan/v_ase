@@ -30,7 +30,7 @@ Press these keys to enter transformation mode:
 | **X** | **Align / Lock X** | In select mode, align the viewport to +X. Press X again only from exact +X alignment to flip to -X. During G/R, lock movement/rotation to X. |
 | **Y** | **Align / Lock Y** | In select mode, align the viewport to +Y. Press Y again only from exact +Y alignment to flip to -Y. During G/R, lock movement/rotation to Y. |
 | **Z** | **Align / Lock Z** | In select mode, align the viewport to +Z. Press Z again only from exact +Z alignment to flip to -Z. During G/R, lock movement/rotation to Z. |
-| **Esc** | **Cancel / Return** | Revert an active transform. Otherwise, commit the active inspector field, close the open control panel, and return keyboard focus to the viewport. |
+| **Esc** | **Cancel / Inspector** | Revert an active transform or close a modal. Otherwise, open a collapsed control panel; when the panel is open, commit its active field, close it, and return keyboard focus to the viewport. |
 | **Enter / Left Click** | **Confirm** | Confirm the current atom or Sun transform. |
 | **Ctrl+C** | **Copy** | Copy selected atoms to the editor clipboard. |
 | **Ctrl+V** | **Paste** | Paste copied atoms near the selected center. |
@@ -38,7 +38,7 @@ Press these keys to enter transformation mode:
 | **Ctrl+Shift+Z** | **Redo** | Restore the next structure state after undo. |
 | **Delete / Backspace** | **Delete** | Delete selected atoms through the backend and remap supported constraints. |
 | **Space** | **Play/Pause** | Toggle trajectory playback when a multi-frame structure is loaded. |
-| **Tab** | **Inspector** | Open the control panel while it is collapsed. Once open, Tab remains normal form navigation and never closes the panel. |
+| **Tab** | **Inspector** | Open the control panel while it is collapsed. `Esc` can also open it. Once open, Tab remains normal form navigation and never closes the panel. |
 
 ## Sun Direction Controls
 
@@ -59,13 +59,16 @@ In the default visualization mode, repeated supercell atoms are selectable by
 click, Shift-click, box selection, element checkboxes, and `Ctrl+A`. Replica
 identities include their cell offset (for example `12@[1,0,0]`), so center,
 distance, and angle measurements use the positions actually shown on screen.
+For base-cell atoms, the inspector, viewport overlay, and retained Measure HUD
+show both direct-coordinate and minimum-image-convention (MIC) values.
 Interactive mode keeps replicas unselectable until `Set Supercell as Cell` is
 used, preventing a display-only image from entering an atom edit.
 
 The bottom `MEASURE` HUD is tied to the retained selection, not the mouse
 pointer. Ordered selections are labeled `a1` through `a4`: two atoms measure
 `a1-a2`, three measure the `a1-a2-a3` angle at `a2`, and four measure the
-signed `a1-a2-a3-a4` torsion. Five or more atoms show only the selected count.
+signed `a1-a2-a3-a4` torsion. Direct and MIC results are displayed together.
+Five or more atoms show only the selected count.
 Box selection uses a deterministic visible order. The separate Hover HUD
 continues to update atom metadata as the pointer moves.
 

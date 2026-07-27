@@ -79,6 +79,10 @@ and documentation use `view()`.
 15. Opening in a new workspace tab creates a separate backend session. Opening
     `.vase` this way restores the complete project; appending `.vase` imports
     only its selected structure frames.
+16. New documents start with orthographic projection and a white viewport.
+    Ordered two-to-four atom measurements report direct-coordinate and
+    minimum-image-convention values together; visualization replicas continue
+    to measure their displayed positions.
 
 ## Canonical Names And Compatibility
 
