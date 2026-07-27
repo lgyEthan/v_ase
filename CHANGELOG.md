@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.91
+
+- Added an Analysis workspace with previous/specific-frame displacement
+  vectors, optional MIC, particle-ID mapping, summary statistics, 2D/3D
+  styles, and two-batch GPU instancing.
+- Preserved valid atom selections and live measurements across trajectory
+  frames.
+- Made all browser mutations and structure/CAD exports frame-scoped, and
+  verified translation, wrapping, repetition, and matrix supercells against
+  every frame's own cell and PBC.
+- Made View-to-Edit transitions tolerate variable-topology trajectories by
+  merging valid identity records and preserving unmatched backend atoms.
+- Moved Repulsion calculator controls into Structure > Relaxation, consolidated
+  the control panel into one five-workspace tab row, and refreshed the rendered
+  V_ASE logo used by the application and package documentation.
+
 ## 0.0.90
 
 - Redrew the four 3D camera-orbit controls with continuous hooked silhouettes,

@@ -204,6 +204,11 @@ Endpoint groups:
 - visual-settings and `.vase` save/load;
 - binary current-frame and full-trajectory coordinate transfer.
 
+Mutable structure requests and structure/CAD exports carry `frame_index`. The
+server switches to that frame before applying browser coordinates or producing
+output, preventing a fast scrub from leaking the previous frame's cell,
+constraints, or coordinates into the operation.
+
 Canonical atom identity update:
 
 ```text
@@ -222,6 +227,16 @@ Large compatible trajectories expose contiguous float32 coordinates through:
 GET /api/trajectory/positions/{session_id}
 GET /api/frame/positions/{session_id}/{frame}
 ```
+
+Trajectory displacement analysis is available through:
+
+```text
+POST /api/analysis/displacement/{session_id}
+```
+
+The payload selects the current/reference frames and MIC policy. Common unique
+particle-ID arrays are preferred; equal-size frames fall back to atom index.
+Different-size frames without IDs return a physical-mapping error.
 
 WebSockets stream relaxation updates and own browser-document/workspace
 lifetime. Closing the last connected browser document finalizes blocking calls

@@ -17,6 +17,13 @@ The viewport uses GPU instancing for atoms, bonds, selections, and supercell
 replicas. Large scenes reduce device pixel ratio adaptively, reuse geometry and
 materials, and avoid one JavaScript/Three.js object per visible atom.
 
+Displacement analysis is opt-in. When hidden, it performs no request and
+allocates no geometry. When enabled, all vectors share one instanced shaft
+mesh and one instanced head mesh. Changing arrow style, scale, thickness, or
+color updates the cached GPU batches without repeating the ASE/MIC calculation.
+Backend mapping runs off the event loop and shows a delayed busy state only
+when it is not effectively instantaneous.
+
 ## Large LAMMPS Pipeline
 
 Numeric LAMMPS text dumps use:
@@ -75,21 +82,21 @@ dump. The benchmark starts a fresh local server and Chromium page at
 loads the binary trajectory cache, verifies idle rendering, and updates all
 frames.
 
-Reference result for the 0.0.88 working tree on the project development Mac:
+Reference result for the 0.0.91 working tree on the project development Mac:
 
 | Check | Result |
 | --- | ---: |
 | Input size | 8,719,654 bytes |
-| Backend input + server ready | 0.68 s |
-| Browser navigation + first render | 1.11 s |
-| Fully ready total | 1.79 s |
+| Backend input + server ready | 0.442 s |
+| Browser navigation + first render | 0.272 s |
+| Fully ready total | 0.715 s |
 | Displayed atoms | 15,000 |
 | Trajectory frames | 16 |
 | Browser trajectory cache | 2,880,000 bytes |
-| 16-frame modeling update sweep | 13.4 ms |
-| Mean modeling position update | 0.84 ms/frame |
-| Mean Studio position update | 1.29 ms/frame |
-| Mean Sun + Soft Shadow update | 1.05 ms/frame |
+| 16-frame modeling update sweep | 15.8 ms |
+| Mean modeling position update | 0.99 ms/frame |
+| Mean Studio position update | 1.43 ms/frame |
+| Mean Sun + Soft Shadow update | 0.86 ms/frame |
 | Extra render frames during 0.9 s idle | 0 |
 
 A separate single-frame 15,000-atom material regression measured 0.392 s from
@@ -137,5 +144,7 @@ Performance-sensitive static contracts are locked by
 - supercell atom and bond instancing in skewed cells;
 - label visibility and appearance updates;
 - visualization-mode replica selection;
+- frame-persistent selection and displacement-vector instancing;
+- frame-specific cell/PBC handling for wrap, translation, and supercells;
 - output preview/capture parity;
 - inactive multi-document suspension.

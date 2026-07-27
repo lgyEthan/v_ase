@@ -193,6 +193,10 @@ Playback loads the binary array once, then updates GPU instance translations
 without per-frame HTTP, JSON, geometry rebuilds, or complete matrix rewrites.
 Manual scrubbing still synchronizes the backend frame.
 
+Base-atom selections survive frame changes and are removed only when the new
+frame does not contain the selected index or its label is hidden. Measurements
+are recomputed from the newly displayed positions.
+
 Files appended from the Open dialog become frames in the active source
 trajectory. The active frame and document visual state are preserved; newly
 introduced labels and chemical types are reconciled without renaming existing
@@ -205,6 +209,25 @@ playback, and Left/Right Arrow frame stepping. The other source remains visible
 as a secondary timeline. A loaded source frame still uses its relaxed override
 when one exists.
 
+## Displacement Analysis
+
+The Analysis workspace compares the current trajectory frame with the previous
+frame or an explicitly selected reference frame. It returns one mapped vector
+per common particle and reports mean, RMS, and maximum magnitude.
+
+Mapping is physically conservative:
+
+- a shared unique `lammps_id`, `atom_id`, `particle_id`, `ids`, or `id` array
+  maps particles across reordered or unequal-size frames;
+- equal-size frames without IDs use stable atom indices;
+- unequal-size frames without a common unique ID array are rejected.
+
+Minimum-image correction is optional and uses ASE `find_mic()` with the
+current frame's own cell and PBC. The renderer draws all arrows with one
+instanced shaft batch and one instanced head batch. 3D/flat style, scale,
+thickness, and color changes restyle the cached result without recalculation.
+Hidden analysis has no calculation or render cost.
+
 ## Rendering
 
 The viewport is demand-rendered. Camera input, frame updates, transforms, and
@@ -216,6 +239,7 @@ GPU batching covers:
 - bonds grouped by style/material;
 - selection outlines;
 - visualization-mode supercell replicas.
+- displacement-vector shafts and heads.
 
 Position-only updates alter translation columns in instance matrices. Cached
 geometries, materials, label indices, cell bases, and selection proxies are
@@ -263,6 +287,10 @@ authoritative profile for:
 - background/transparency;
 - grid, axes, and unit cell;
 - renderer and Sun settings.
+
+Frame-scoped mutation and export requests include the browser's current
+`frame_index`. Trajectory-wide translation, wrapping, repetition, and matrix
+supercell operations apply independently with each frame's own cell and PBC.
 
 ## Save And Export
 

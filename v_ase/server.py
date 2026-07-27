@@ -43,6 +43,7 @@ from ase.build import make_supercell
 from ase.build.supercells import lattice_points_in_supercell
 from ase.constraints import FixAtoms, FixCartesian, FixedLine, FixedPlane, FixScaled, Hookean
 from ase.data import atomic_numbers
+from ase.geometry import find_mic
 from ase.io.formats import string2index
 
 try:
@@ -260,6 +261,27 @@ def payload_apply_constraint(payload: Dict[str, Any] | None) -> bool:
     if not payload:
         return True
     return bool(payload.get("apply_constraint", True))
+
+
+def sync_session_frame_from_payload(
+    session: EditorSession,
+    payload: Dict[str, Any] | None,
+) -> int:
+    """Synchronize backend state with the frame currently shown in the browser."""
+    if not payload or payload.get("frame_index") is None:
+        return int(session.current_frame)
+    try:
+        frame_index = int(payload["frame_index"])
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="frame_index must be an integer.") from exc
+    if frame_index < 0 or frame_index >= session.frame_count:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Frame index {frame_index} is out of range for {session.frame_count} frames.",
+        )
+    if frame_index != session.current_frame:
+        session.set_frame(frame_index)
+    return frame_index
 
 
 def is_viz_only(session: EditorSession) -> bool:
@@ -531,7 +553,8 @@ def translate_atoms(atoms, vector, coordinate_mode="cartesian"):
 
 
 def set_current_payload_positions(session: EditorSession, payload: Dict[str, Any]):
-    if payload and "positions" in payload:
+    sync_session_frame_from_payload(session, payload)
+    if payload and payload.get("positions") is not None:
         session.working_atoms.set_positions(
             np.array(payload["positions"]),
             apply_constraint=payload_apply_constraint(payload),
@@ -746,6 +769,27 @@ def update_atom_identity_on_atoms(atoms, indices, label, base_symbol=None):
     return updated
 
 
+def indices_present_in_atoms(atoms, indices):
+    """Return stable atom indices that exist in this trajectory frame."""
+    return sorted({
+        int(index)
+        for index in indices
+        if 0 <= int(index) < len(atoms)
+    })
+
+
+def update_atom_identity_where_present(atoms, indices, label, base_symbol=None):
+    valid = indices_present_in_atoms(atoms, indices)
+    if not valid:
+        return atoms.copy()
+    return update_atom_identity_on_atoms(
+        atoms,
+        valid,
+        label,
+        base_symbol,
+    )
+
+
 def set_atom_identity_arrays_on_atoms(atoms, labels, base_symbols=None):
     """Apply an exact client identity snapshot without changing coordinates."""
     normalized_labels = [normalize_atom_type_label(label) for label in labels]
@@ -778,6 +822,70 @@ def set_atom_identity_arrays_on_atoms(atoms, labels, base_symbols=None):
     return updated
 
 
+def normalized_identity_snapshot_for_atoms(atoms, labels, base_symbols=None):
+    """Return an exact identity snapshot, preserving unmatched atoms by index."""
+    existing_labels = atom_labels(atoms)
+    existing_symbols = atoms.get_chemical_symbols()
+    incoming_labels = list(labels or [])
+    incoming_symbols = list(base_symbols or [])
+    warnings = []
+
+    if len(incoming_labels) != len(atoms):
+        warnings.append(
+            f"Identity snapshot had {len(incoming_labels)} labels for {len(atoms)} atoms; "
+            "matched indices were applied and unmatched atoms were preserved."
+        )
+    if base_symbols is not None and len(incoming_symbols) != len(incoming_labels):
+        warnings.append(
+            "Chemical-symbol snapshot length did not match the label snapshot; "
+            "existing ASE element types were preserved where needed."
+        )
+
+    merged_labels = []
+    merged_symbols = []
+    for index in range(len(atoms)):
+        incoming_label = (
+            normalize_atom_type_label(incoming_labels[index])
+            if index < len(incoming_labels)
+            else ""
+        )
+        fallback_label = normalize_atom_type_label(existing_labels[index])
+        label = incoming_label or fallback_label or existing_symbols[index]
+        if not incoming_label and index < len(incoming_labels):
+            warnings.append(
+                f"Empty atom label at index {index} was replaced with the existing label."
+            )
+        merged_labels.append(label)
+
+        if base_symbols is None or index >= len(incoming_symbols):
+            merged_symbols.append(existing_symbols[index])
+            continue
+        try:
+            merged_symbols.append(base_symbol_for_atom_type(incoming_symbols[index]))
+        except (KeyError, TypeError, ValueError):
+            merged_symbols.append(existing_symbols[index])
+            warnings.append(
+                f"Invalid chemical symbol at index {index} was replaced with "
+                f"{existing_symbols[index]}."
+            )
+
+    return merged_labels, merged_symbols, warnings
+
+
+def merge_identity_snapshot_on_atoms(atoms, labels, base_symbols=None):
+    merged_labels, merged_symbols, warnings = normalized_identity_snapshot_for_atoms(
+        atoms,
+        labels,
+        base_symbols,
+    )
+    updated = atoms.copy()
+    updated.set_chemical_symbols(merged_symbols)
+    set_atom_labels(updated, merged_labels)
+    if atoms.calc:
+        updated.calc = copy_calculator(atoms.calc)
+    return updated, warnings
+
+
 def materialize_virtual_trajectory(session: EditorSession) -> None:
     """Convert the fast read-only trajectory into editable ASE frames."""
     source = session.trajectory_source
@@ -796,30 +904,29 @@ def materialize_virtual_trajectory(session: EditorSession) -> None:
     session.cleanup_temporary_files()
 
 
-def apply_identity_snapshot_to_session(session: EditorSession, labels, base_symbols=None) -> None:
-    """Keep labels and chemical identity aligned across every compatible frame."""
-    if len(labels) != len(session.working_atoms):
-        raise HTTPException(
-            status_code=400,
-            detail="Atom identity snapshot does not match the current structure.",
-        )
+def apply_identity_snapshot_to_session(session: EditorSession, labels, base_symbols=None) -> List[str]:
+    """Merge a browser identity snapshot into every frame by stable atom index."""
+    warnings = []
 
-    transform = lambda atoms: set_atom_identity_arrays_on_atoms(atoms, labels, base_symbols)
+    def transform(atoms):
+        updated, frame_warnings = merge_identity_snapshot_on_atoms(
+            atoms,
+            labels,
+            base_symbols,
+        )
+        warnings.extend(frame_warnings)
+        return updated
+
     session.working_atoms = transform(session.working_atoms)
     session.original_atoms = transform(session.original_atoms)
-    session.trajectory_frames = [
-        transform(frame) if len(frame) == len(labels) else frame
-        for frame in session.trajectory_frames
-    ]
-    session.original_frames = [
-        transform(frame) if len(frame) == len(labels) else frame
-        for frame in session.original_frames
-    ]
+    session.trajectory_frames = [transform(frame) for frame in session.trajectory_frames]
+    session.original_frames = [transform(frame) for frame in session.original_frames]
     source_template = getattr(session.trajectory_source, "template_atoms", None)
-    if source_template is not None and len(source_template) == len(labels):
+    if source_template is not None:
         session.trajectory_source.template_atoms = transform(source_template)
     session.invalidate_trajectory_layout()
     session.refresh_trajectory_identity()
+    return list(dict.fromkeys(warnings))
 
 
 def switch_session_mode(
@@ -829,7 +936,7 @@ def switch_session_mode(
     labels=None,
     base_symbols=None,
     positions=None,
-) -> None:
+) -> List[str]:
     """Switch runtime capability while preserving the complete working state."""
     if session.is_relaxing:
         raise HTTPException(
@@ -840,18 +947,22 @@ def switch_session_mode(
     if not viz_only and session.trajectory_source is not None:
         materialize_virtual_trajectory(session)
 
+    warnings = []
     if labels is not None:
-        apply_identity_snapshot_to_session(session, labels, base_symbols)
+        warnings.extend(
+            apply_identity_snapshot_to_session(session, labels, base_symbols)
+        )
 
     if positions is not None:
         coordinates = np.asarray(positions, dtype=float)
-        if coordinates.shape != (len(session.working_atoms), 3) or not np.all(np.isfinite(coordinates)):
-            raise HTTPException(
-                status_code=400,
-                detail="Mode transition positions must be a finite N x 3 array.",
+        if coordinates.shape == (len(session.working_atoms), 3) and np.all(np.isfinite(coordinates)):
+            session.working_atoms.set_positions(coordinates, apply_constraint=False)
+            session.sync_current_frame()
+        else:
+            warnings.append(
+                "Displayed coordinates did not match the active frame topology; "
+                "the backend frame coordinates were preserved."
             )
-        session.working_atoms.set_positions(coordinates, apply_constraint=False)
-        session.sync_current_frame()
 
     session.config["viz_only"] = bool(viz_only)
     if not viz_only:
@@ -861,6 +972,7 @@ def switch_session_mode(
             ensure_default_calculator(frame)
         for frame in session.original_frames:
             ensure_default_calculator(frame)
+    return list(dict.fromkeys(warnings))
 
 
 def validate_constraint_vector(values, name="Constraint vector"):
@@ -921,6 +1033,26 @@ def update_atom_constraints(atoms, indices, *, fix_atoms=None, directional_kind=
     if atoms.calc:
         updated.calc = copy_calculator(atoms.calc)
     return updated
+
+
+def update_atom_constraints_where_present(
+    atoms,
+    indices,
+    *,
+    fix_atoms=None,
+    directional_kind=None,
+    vector=None,
+):
+    valid = indices_present_in_atoms(atoms, indices)
+    if not valid:
+        return atoms.copy()
+    return update_atom_constraints(
+        atoms,
+        valid,
+        fix_atoms=fix_atoms,
+        directional_kind=directional_kind,
+        vector=vector,
+    )
 
 
 def configure_repulsion_calculators(session: EditorSession, *, device=None, cpu_threads=None):
@@ -1003,31 +1135,36 @@ async def update_session_mode(session_id: str, payload: Dict[str, Any]):
     if not isinstance(requested, bool):
         raise HTTPException(status_code=400, detail="viz_only must be true or false.")
 
+    sync_session_frame_from_payload(session, payload)
     labels = payload.get("labels")
     base_symbols = payload.get("chemical_symbols")
     positions = payload.get("positions")
     if labels is not None:
-        # Validate before a virtual trajectory is materialized so malformed
-        # requests cannot leave a half-transitioned session.
-        set_atom_identity_arrays_on_atoms(session.working_atoms, labels, base_symbols)
+        # Normalize before materialization. Different-topology trajectories are
+        # merged by stable atom index instead of rejecting the mode transition.
+        normalized_identity_snapshot_for_atoms(
+            session.working_atoms,
+            labels,
+            base_symbols,
+        )
     if positions is not None:
         coordinates = np.asarray(positions, dtype=float)
-        if coordinates.shape != (len(session.working_atoms), 3) or not np.all(np.isfinite(coordinates)):
-            raise HTTPException(
-                status_code=400,
-                detail="Mode transition positions must be a finite N x 3 array.",
-            )
+        if coordinates.ndim != 2 or coordinates.shape[1:] != (3,) or not np.all(np.isfinite(coordinates)):
+            positions = None
 
     def switch():
         with session.mode_transition_lock:
-            switch_session_mode(
+            warnings = switch_session_mode(
                 session,
                 viz_only=requested,
                 labels=labels,
                 base_symbols=base_symbols,
                 positions=positions,
             )
-            return session_update_to_json(session)
+            data = session_update_to_json(session)
+            if warnings:
+                data["mode_transition_warnings"] = warnings
+            return data
 
     return await asyncio.to_thread(switch)
 
@@ -1528,6 +1665,7 @@ async def append_structure_path(session_id: str, payload: Dict[str, Any]):
 async def constrain_positions(session_id: str, payload: Dict[str, Any]):
     """AUTHORITATIVE: Backend correction of proposed positions."""
     session = get_session(session_id)
+    sync_session_frame_from_payload(session, payload)
     positions = np.array(payload["positions"])
     
     # Validation step: Apply constraints on a copy
@@ -1541,6 +1679,7 @@ async def constrain_positions(session_id: str, payload: Dict[str, Any]):
 async def commensurate_rotation_candidates(session_id: str, payload: Dict[str, Any]):
     """Return periodic 2D cell-boundary matches for an axis-locked rotate."""
     session = get_session(session_id)
+    sync_session_frame_from_payload(session, payload)
     atoms = session.working_atoms
     return await asyncio.to_thread(
         find_commensurate_angles,
@@ -1557,6 +1696,7 @@ async def apply_positions(session_id: str, payload: Dict[str, Any]):
     """COMMIT: Backend state update with authoritative constraints."""
     session = get_session(session_id)
     require_editable(session, "Atom coordinate editing")
+    sync_session_frame_from_payload(session, payload)
     session.push_history()
     
     positions = np.array(payload["positions"])
@@ -1571,18 +1711,20 @@ async def apply_positions(session_id: str, payload: Dict[str, Any]):
 
 
 @app.post("/api/reset/{session_id}")
-async def reset(session_id: str):
+async def reset(session_id: str, payload: Dict[str, Any] | None = None):
     session = get_session(session_id)
     require_editable(session, "Full reset")
+    sync_session_frame_from_payload(session, payload)
     session.push_history(include_trajectory=True)
     session.reset_all_frames()
     return session_update_to_json(session)
 
 
 @app.post("/api/reset-coordinates/{session_id}")
-async def reset_coordinates(session_id: str):
+async def reset_coordinates(session_id: str, payload: Dict[str, Any] | None = None):
     session = get_session(session_id)
     require_editable(session, "Coordinate reset")
+    sync_session_frame_from_payload(session, payload)
     session.push_history(include_trajectory=True)
     session.reset_all_frames()
     return session_update_to_json(session)
@@ -1639,6 +1781,7 @@ async def load_visual_settings(session_id: str, request: Request):
 @app.post("/api/project/save/{session_id}")
 async def save_project(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
+    sync_session_frame_from_payload(session, payload)
     viz_only = is_viz_only(session)
     if not viz_only:
         set_current_payload_positions(session, payload)
@@ -1696,6 +1839,7 @@ async def load_project(session_id: str, request: Request):
 async def wrap(session_id: str, payload: Dict[str, Any] | None = None):
     session = get_session(session_id)
     require_editable(session, "Wrap atoms")
+    sync_session_frame_from_payload(session, payload)
     session.push_history(include_trajectory=True)
     set_current_payload_positions(session, payload or {})
 
@@ -1734,6 +1878,7 @@ async def redo(session_id: str):
 async def add_atoms(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
     require_editable(session, "Adding atoms")
+    sync_session_frame_from_payload(session, payload)
     symbols = payload.get("symbols")
     positions = payload.get("positions")
     base_symbols = payload.get("base_symbols")
@@ -1772,6 +1917,7 @@ async def add_atoms(session_id: str, payload: Dict[str, Any]):
 async def delete_atoms(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
     require_editable(session, "Deleting atoms")
+    sync_session_frame_from_payload(session, payload)
     indices = payload.get("indices", [])
     if not indices:
         return session_update_to_json(session)
@@ -1797,12 +1943,13 @@ async def update_atom_identity(session_id: str, payload: Dict[str, Any]):
     if not indices:
         return session_update_to_json(session)
 
+    sync_session_frame_from_payload(session, payload)
     session.push_history(include_trajectory=True, include_original=True)
     set_current_payload_positions(session, payload)
     base_symbol = payload.get("base_symbol")
     apply_all_frames(
         session,
-        lambda atoms: update_atom_identity_on_atoms(
+        lambda atoms: update_atom_identity_where_present(
             atoms,
             indices,
             label,
@@ -1810,18 +1957,15 @@ async def update_atom_identity(session_id: str, payload: Dict[str, Any]):
         ),
     )
     session.original_frames = [
-        update_atom_identity_on_atoms(frame, indices, label, base_symbol)
-        if indices and max(indices) < len(frame)
-        else frame
+        update_atom_identity_where_present(frame, indices, label, base_symbol)
         for frame in session.original_frames
     ]
-    if indices and max(indices) < len(session.original_atoms):
-        session.original_atoms = update_atom_identity_on_atoms(
-            session.original_atoms,
-            indices,
-            label,
-            base_symbol,
-        )
+    session.original_atoms = update_atom_identity_where_present(
+        session.original_atoms,
+        indices,
+        label,
+        base_symbol,
+    )
     session.invalidate_trajectory_layout()
     session.refresh_trajectory_identity()
     return session_update_to_json(session)
@@ -1839,6 +1983,7 @@ async def update_constraints(session_id: str, payload: Dict[str, Any]):
     if not indices:
         return session_update_to_json(session)
 
+    sync_session_frame_from_payload(session, payload)
     session.push_history(include_trajectory=True)
     set_current_payload_positions(session, payload)
     fix_atoms = payload.get("fix_atoms", None)
@@ -1846,7 +1991,7 @@ async def update_constraints(session_id: str, payload: Dict[str, Any]):
     vector = payload.get("vector", None)
     apply_all_frames(
         session,
-        lambda atoms: update_atom_constraints(
+        lambda atoms: update_atom_constraints_where_present(
             atoms,
             indices,
             fix_atoms=fix_atoms,
@@ -1861,6 +2006,7 @@ async def update_constraints(session_id: str, payload: Dict[str, Any]):
 async def update_calculator(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
     require_editable(session, "Calculator device settings")
+    sync_session_frame_from_payload(session, payload)
     if not is_vase_repulsion_calculator(session.working_atoms.calc):
         raise HTTPException(status_code=400, detail="Calculator device settings are only available for the default repulsion calculator.")
     configure_repulsion_calculators(
@@ -1894,9 +2040,187 @@ async def set_frame(session_id: str, payload: Dict[str, Any]):
         }
     return session_atoms_to_json(session, include_inline_trajectory=False)
 
+
+_PARTICLE_ID_ARRAY_NAMES = ("lammps_id", "atom_id", "particle_id", "ids", "id")
+
+
+def _analysis_frame_atoms(session: EditorSession, frame_index: int):
+    if frame_index < 0 or frame_index >= session.frame_count:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Frame index {frame_index} is out of range for {session.frame_count} frames.",
+        )
+    if session.trajectory_source is not None:
+        return session.trajectory_source.read_atoms(frame_index)
+    if session.trajectory_frames:
+        return session.trajectory_frames[frame_index].copy()
+    if frame_index == 0:
+        return session.working_atoms.copy()
+    raise HTTPException(status_code=400, detail="The requested trajectory frame is unavailable.")
+
+
+def _unique_particle_ids(atoms):
+    for name in _PARTICLE_ID_ARRAY_NAMES:
+        values = atoms.arrays.get(name)
+        if values is None or len(values) != len(atoms):
+            continue
+        normalized = []
+        for value in np.asarray(values).tolist():
+            if isinstance(value, list):
+                value = tuple(value)
+            normalized.append(value)
+        try:
+            if len(set(normalized)) == len(normalized):
+                return name, normalized
+        except TypeError:
+            continue
+    return None, None
+
+
+def calculate_displacements(session: EditorSession, payload: Dict[str, Any]):
+    frame_count = session.frame_count
+    if frame_count <= 1:
+        return {
+            "status": "unavailable",
+            "message": "Displacement analysis requires at least two trajectory frames.",
+            "frame_count": frame_count,
+        }
+
+    current_index = int(payload.get("frame_index", session.current_frame))
+    reference_mode = str(payload.get("reference_mode", "previous")).strip().lower()
+    if reference_mode == "previous":
+        if current_index <= 0:
+            return {
+                "status": "unavailable",
+                "message": "The first frame has no previous-frame displacement.",
+                "frame_count": frame_count,
+                "current_frame": current_index,
+            }
+        reference_index = current_index - 1
+    elif reference_mode == "frame":
+        reference_index = int(payload.get("reference_frame", 0))
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="reference_mode must be 'previous' or 'frame'.",
+        )
+
+    current = _analysis_frame_atoms(session, current_index)
+    reference = _analysis_frame_atoms(session, reference_index)
+    current_positions = np.asarray(current.get_positions(), dtype=float)
+    supplied_positions = payload.get("positions")
+    if supplied_positions is not None:
+        supplied = np.asarray(supplied_positions, dtype=float)
+        if supplied.shape == current_positions.shape and np.all(np.isfinite(supplied)):
+            current_positions = supplied
+
+    current_id_name, current_ids = _unique_particle_ids(current)
+    reference_id_name, reference_ids = _unique_particle_ids(reference)
+    mapping = "index"
+    warnings = []
+    if (
+        current_ids is not None
+        and reference_ids is not None
+        and current_id_name == reference_id_name
+    ):
+        mapping = f"particle-id:{current_id_name}"
+        reference_lookup = {
+            particle_id: index
+            for index, particle_id in enumerate(reference_ids)
+        }
+        current_indices = [
+            index
+            for index, particle_id in enumerate(current_ids)
+            if particle_id in reference_lookup
+        ]
+        reference_indices = [
+            reference_lookup[current_ids[index]]
+            for index in current_indices
+        ]
+        unmatched_current = len(current) - len(current_indices)
+        unmatched_reference = len(reference) - len(current_indices)
+        if unmatched_current or unmatched_reference:
+            warnings.append(
+                f"Matched {len(current_indices)} particles by {current_id_name}; "
+                f"{unmatched_current} current and {unmatched_reference} reference particles were unmatched."
+            )
+    elif len(current) == len(reference):
+        current_indices = list(range(len(current)))
+        reference_indices = list(range(len(reference)))
+        unmatched_current = 0
+        unmatched_reference = 0
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Trajectory frames have different atom counts and no common unique "
+                "particle-ID array. Displacement mapping is not physically defined."
+            ),
+        )
+
+    if not current_indices:
+        raise HTTPException(
+            status_code=400,
+            detail="No particles could be mapped between the selected frames.",
+        )
+
+    current_mapped = current_positions[np.asarray(current_indices, dtype=int)]
+    reference_mapped = np.asarray(reference.get_positions(), dtype=float)[
+        np.asarray(reference_indices, dtype=int)
+    ]
+    vectors = current_mapped - reference_mapped
+    use_mic = bool(payload.get("mic", True))
+    mic_applied = False
+    if use_mic and np.asarray(current.pbc, dtype=bool).any():
+        cell = np.asarray(current.cell.array, dtype=float)
+        if cell.shape == (3, 3) and np.isfinite(cell).all() and abs(np.linalg.det(cell)) > 1e-12:
+            vectors, _ = find_mic(vectors, current.cell, current.pbc)
+            vectors = np.asarray(vectors, dtype=float)
+            mic_applied = True
+        else:
+            warnings.append("MIC was requested but the current frame has no invertible unit cell.")
+
+    starts = current_mapped - vectors
+    magnitudes = np.linalg.norm(vectors, axis=1)
+    return {
+        "status": "ok",
+        "frame_count": frame_count,
+        "current_frame": current_index,
+        "reference_frame": reference_index,
+        "reference_mode": reference_mode,
+        "mapping": mapping,
+        "mic_requested": use_mic,
+        "mic_applied": mic_applied,
+        "indices": [int(index) for index in current_indices],
+        "reference_indices": [int(index) for index in reference_indices],
+        "starts": starts.tolist(),
+        "vectors": vectors.tolist(),
+        "magnitudes": magnitudes.tolist(),
+        "matched": len(current_indices),
+        "unmatched_current": unmatched_current,
+        "unmatched_reference": unmatched_reference,
+        "stats": {
+            "mean": float(np.mean(magnitudes)),
+            "rms": float(np.sqrt(np.mean(magnitudes ** 2))),
+            "max": float(np.max(magnitudes)),
+        },
+        "warnings": warnings,
+    }
+
+
+@app.post("/api/analysis/displacement/{session_id}")
+async def displacement_analysis(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    def calculate():
+        with session.mode_transition_lock:
+            return calculate_displacements(session, payload)
+
+    return await asyncio.to_thread(calculate)
+
 @app.post("/api/done/{session_id}")
 async def done(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
+    sync_session_frame_from_payload(session, payload)
     if not is_viz_only(session):
         positions = np.array(payload["positions"])
         session.working_atoms.set_positions(positions, apply_constraint=payload_apply_constraint(payload))
@@ -1912,6 +2236,8 @@ async def done(session_id: str, payload: Dict[str, Any]):
 @app.post("/api/supercell/apply/{session_id}")
 async def apply_supercell(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
+    require_editable(session, "Setting a supercell as the editable cell")
+    sync_session_frame_from_payload(session, payload)
     reps = [int(v) for v in payload.get("reps", [1, 1, 1])]
     validate_supercell_request(session, reps)
     session.push_history(include_trajectory=True)
@@ -1924,6 +2250,8 @@ async def apply_supercell(session_id: str, payload: Dict[str, Any]):
 @app.post("/api/supercell/matrix/{session_id}")
 async def apply_supercell_matrix(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
+    require_editable(session, "Applying a cell transformation")
+    sync_session_frame_from_payload(session, payload)
     matrix = payload.get("matrix")
     P = validate_supercell_matrix_request(session, matrix)
     session.push_history(include_trajectory=True)
@@ -1937,6 +2265,7 @@ async def apply_supercell_matrix(session_id: str, payload: Dict[str, Any]):
 async def apply_translation(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
     require_editable(session, "Atom translation")
+    sync_session_frame_from_payload(session, payload)
     vector = payload.get("vector", [0, 0, 0])
     coordinate_mode = payload.get("coordinate_mode", "cartesian")
     # Validate before creating a history entry.
@@ -2001,21 +2330,25 @@ if FASTAPI_AVAILABLE:
     @app.post("/api/export/poscar/{session_id}")
     async def api_export_poscar(session_id: str, payload: Dict[str, Any]):
         session = get_session(session_id)
+        sync_session_frame_from_payload(session, payload)
         return export_poscar_response(session, payload)
 
     @app.post("/api/export/pickle/{session_id}")
     async def api_export_pickle(session_id: str, payload: Dict[str, Any]):
         session = get_session(session_id)
+        sync_session_frame_from_payload(session, payload)
         return export_pickle_response(session, payload)
 
     @app.post("/api/export/blender/{session_id}")
     async def api_export_blender(session_id: str, payload: Dict[str, Any]):
         session = get_session(session_id)
+        sync_session_frame_from_payload(session, payload)
         return export_blender_response(session, payload)
 
     @app.post("/api/export/3dm/{session_id}")
     async def api_export_3dm(session_id: str, payload: Dict[str, Any]):
         session = get_session(session_id)
+        sync_session_frame_from_payload(session, payload)
         try:
             return export_3dm_response(session, payload)
         except OptionalExportDependencyError as exc:
@@ -2026,6 +2359,7 @@ if FASTAPI_AVAILABLE:
     @app.post("/api/export/obj/{session_id}")
     async def api_export_obj(session_id: str, payload: Dict[str, Any]):
         session = get_session(session_id)
+        sync_session_frame_from_payload(session, payload)
         try:
             return export_obj_response(session, payload)
         except ValueError as exc:
@@ -2085,6 +2419,7 @@ if FASTAPI_AVAILABLE:
     @app.post("/api/relax/start/{session_id}")
     async def api_relax_start(session_id: str, payload: Dict[str, Any], bt: BackgroundTasks):
         session = get_session(session_id)
+        sync_session_frame_from_payload(session, payload)
         return await start_relaxation(session, payload, bt)
 
     @app.post("/api/relax/stop/{session_id}")

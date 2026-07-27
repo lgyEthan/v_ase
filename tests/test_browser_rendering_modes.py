@@ -33,6 +33,24 @@ def _open_panel(page, panel):
         details.locator('summary').click()
 
 
+def _select_structure_section(page, section):
+    page.click('[data-inspector-group="structure"]')
+    page.select_option("#structure-section-select", section)
+    page.wait_for_function(
+        """section => {
+            const panel = document.querySelector(`[data-panel="${section}"]`);
+            if (!panel) return false;
+            const inspector = document.getElementById('inspector');
+            const inspectorRect = inspector.getBoundingClientRect();
+            const panelRect = panel.getBoundingClientRect();
+            return panel.open
+                && panelRect.bottom >= inspectorRect.top
+                && panelRect.top <= inspectorRect.bottom;
+        }""",
+        arg=section,
+    )
+
+
 def test_axis_shortcuts_restore_canonical_roll_before_opposite_view():
     atoms = Atoms(
         "H2",
@@ -480,6 +498,111 @@ def test_arrow_keys_step_only_the_selected_loaded_or_relaxation_timeline():
             page.wait_for_timeout(100)
             assert page.evaluate("window.__ASE_APP__.state.relaxTrajectory.frame") == 1
             assert page.locator("#frame-label").inner_text() == "2 / 3"
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_trajectory_selection_persists_and_displacement_vectors_render():
+    first = Atoms(
+        "H3",
+        positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]],
+        cell=[10.0, 10.0, 10.0],
+        pbc=True,
+    )
+    second = Atoms(
+        "H3",
+        positions=[[0.2, 0.0, 0.0], [1.4, 0.0, 0.0], [2.8, 0.0, 0.0]],
+        cell=[10.0, 10.0, 10.0],
+        pbc=True,
+    )
+    port = find_free_port()
+    editor = view(
+        [first, second],
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1360, "height": 820})
+            console_errors = []
+            page.on(
+                "console",
+                lambda message: console_errors.append(message.text)
+                if message.type == "error"
+                else None,
+            )
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.state?.atoms?.metadata?.frame_count === 2"
+            )
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.addSelectionReference(0);
+                app.addSelectionReference(1);
+                app.updateSelectionVisuals();
+                app.updateUI();
+            }""")
+            page.wait_for_function("window.__ASE_APP__.selectionCount() === 2")
+            assert "1.0000 A" in page.locator("#selected-measure").inner_text()
+
+            page.locator("#app-viewport canvas").focus()
+            page.keyboard.press("ArrowRight")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.state.atoms.metadata.current_frame === 1
+                    && app.selectionCount() === 2
+                    && app.state.selected.has(0)
+                    && app.state.selected.has(1);
+            }""")
+            assert "1.2000 A" in page.locator("#selected-measure").inner_text()
+
+            _expand_inspector(page)
+            page.click('[data-inspector-group="analysis"]')
+            page.check("#chk-displacement")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.renderer.domElement.dataset.displacementCount === '3'
+                    && document.getElementById('displacement-status').dataset.state === 'ready';
+            }""")
+            displacement = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const group = app.renderer.displacementGroup;
+                return {
+                    childCount: group.children.length,
+                    vectorCount: group.userData.entries.length,
+                    shaftCount: group.userData.shaft.count,
+                    headCount: group.userData.head.count,
+                    flat: group.userData.flat,
+                    stats: document.getElementById('displacement-mapped').innerText,
+                    selected: [...app.state.selected],
+                    selectionOrder: [...app.state.selectionOrder]
+                };
+            }""")
+            assert displacement == {
+                "childCount": 2,
+                "vectorCount": 3,
+                "shaftCount": 3,
+                "headCount": 3,
+                "flat": False,
+                "stats": "3 atoms (index)",
+                "selected": [0, 1],
+                "selectionOrder": ["atom:0", "atom:1"],
+            }
+
+            page.select_option("#displacement-style", "2d")
+            page.wait_for_function(
+                "window.__ASE_APP__.renderer.displacementGroup.userData.flat === true"
+            )
+            assert not console_errors
             browser.close()
     finally:
         editor.close()
@@ -1461,8 +1584,10 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             assert not page.locator('[data-panel="bonding"]').is_visible()
             page.click('[data-inspector-group="structure"]')
             assert page.locator('[data-panel="appearance"]').is_visible()
-            page.click('[data-inspector-group="structure"]')
+            page.select_option('#structure-section-select', 'bonding')
             assert page.locator('[data-panel="bonding"]').is_visible()
+            page.click('[data-inspector-group="analysis"]')
+            assert page.locator('[data-panel="displacement"]').is_visible()
             page.click('[data-inspector-group="export"]')
             assert page.locator('[data-panel="project"]').is_visible()
             assert page.locator('[data-panel="settings"]').is_visible()
@@ -1490,21 +1615,30 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             assert icon_box['height'] == pytest.approx(29, abs=1)
             viewport_tools = page.evaluate("""() => {
                 const trigger = document.getElementById('btn-lighting-toggle').getBoundingClientRect();
-                const calculator = document.getElementById('calc-controls').getBoundingClientRect();
                 const actionGroup = document.querySelector('.action-group').getBoundingClientRect();
+                const calculator = document.getElementById('calc-controls').getBoundingClientRect();
+                const scientificPanel = document.querySelector(
+                    '[data-panel="scientific-tools"]'
+                ).getBoundingClientRect();
                 return {
                     triggerLeft: trigger.left,
-                    calculatorRight: calculator.right,
                     contained: trigger.left >= actionGroup.left && trigger.right <= actionGroup.right,
                     headerCenterDelta: Math.abs(
                         (trigger.top + trigger.height / 2) -
                         (actionGroup.top + actionGroup.height / 2)
-                    )
+                    ),
+                    calculatorInTopBar: calculator.top < document.getElementById(
+                        'top-bar'
+                    ).getBoundingClientRect().bottom,
+                    calculatorInsideRelaxation:
+                        calculator.top >= scientificPanel.top
+                        && calculator.bottom <= scientificPanel.bottom
                 };
             }""")
-            assert viewport_tools['triggerLeft'] >= viewport_tools['calculatorRight'] + 5
             assert viewport_tools['contained'] is True
             assert viewport_tools['headerCenterDelta'] <= 2
+            assert viewport_tools['calculatorInTopBar'] is False
+            assert viewport_tools['calculatorInsideRelaxation'] is True
             page.click('#btn-lighting-toggle')
             lighting_panel_geometry = page.evaluate("""() => {
                 const trigger = document.getElementById('btn-lighting-toggle').getBoundingClientRect();
@@ -3457,11 +3591,11 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             }
 
             toolbar_geometry = page.evaluate("""() => {
-                const calc = document.getElementById('calc-controls').getBoundingClientRect();
+                const header = document.getElementById('top-bar').getBoundingClientRect();
                 const toolbar = document.getElementById('view-toolbar').getBoundingClientRect();
                 const arrows = [...document.querySelectorAll('[data-view-rotate]')];
                 return {
-                    calcCenterY: calc.top + calc.height / 2,
+                    headerCenterY: header.top + header.height / 2,
                     toolbarCenterY: toolbar.top + toolbar.height / 2,
                     toolbarVisible: toolbar.width > 0 && toolbar.height > 0,
                     toolbarLeft: toolbar.left,
@@ -3501,7 +3635,7 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             }""")
             assert toolbar_geometry["toolbarVisible"] is True
             assert toolbar_geometry["toolbarCenterY"] == pytest.approx(
-                toolbar_geometry["calcCenterY"], abs=1
+                toolbar_geometry["headerCenterY"], abs=1
             )
             assert toolbar_geometry["toolbarLeft"] >= 0
             assert toolbar_geometry["toolbarRight"] <= toolbar_geometry["viewportWidth"]
@@ -3921,8 +4055,7 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                 };
             }""")
             _expand_inspector(page)
-            page.click('[data-inspector-group="structure"]')
-            page.click('[data-structure-target="cell-replication"]')
+            _select_structure_section(page, "cell-replication")
             page.wait_for_timeout(450)
             page.fill("#translate-x", "1.25")
             page.fill("#translate-y", "-0.5")

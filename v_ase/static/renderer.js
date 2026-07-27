@@ -576,6 +576,9 @@ export class ASERenderer {
         this.scene.add(this.cellGroup);
         this.bondGroup = new THREE.Group();
         this.scene.add(this.bondGroup);
+        this.displacementGroup = new THREE.Group();
+        this.displacementGroup.name = 'v_ase_displacement_vectors';
+        this.scene.add(this.displacementGroup);
         this.commensurateGuideGroup = new THREE.Group();
         this.scene.add(this.commensurateGuideGroup);
         this.commensurateGuideSignature = null;
@@ -647,7 +650,15 @@ export class ASERenderer {
             sunIntensity: 2.2,
             sunPosition: [8, -10, 14],
             sunTarget: [0, 0, 0],
-            sunGizmo: false
+            sunGizmo: false,
+            showDisplacements: false,
+            displacementReferenceMode: 'previous',
+            displacementReferenceFrame: 0,
+            displacementMic: true,
+            displacementStyle: '3d',
+            displacementScale: 1,
+            displacementThickness: 0.08,
+            displacementColor: '#e58b2a'
         };
         this.lightingOptions = {
             lightingMode: 'modeling',
@@ -661,6 +672,23 @@ export class ASERenderer {
         this.supercellBridgeBondRecords = [];
         this.bondCylinderGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 16);
         this.bondFlatGeometry = new THREE.PlaneGeometry(1, 1);
+        this.displacementConeGeometry = new THREE.ConeGeometry(0.5, 1, 12);
+        this.displacementFlatHeadGeometry = new THREE.BufferGeometry();
+        this.displacementFlatHeadGeometry.setAttribute(
+            'position',
+            new THREE.Float32BufferAttribute([
+                -0.5, -0.5, 0,
+                0.5, -0.5, 0,
+                0, 0.5, 0
+            ], 3)
+        );
+        this.displacementFlatHeadGeometry.computeVertexNormals();
+        this.displacementData = null;
+        this.displacementCameraSignature = '';
+        this.displacementDummy = new THREE.Object3D();
+        this.displacementDirection = new THREE.Vector3();
+        this.displacementStart = new THREE.Vector3();
+        this.displacementEnd = new THREE.Vector3();
         this.bondFlatBasis = new THREE.Matrix4();
         this.bondFlatX = new THREE.Vector3();
         this.bondFlatY = new THREE.Vector3();
@@ -1728,6 +1756,7 @@ export class ASERenderer {
             if(child.material) child.material.dispose();
         }
         this.clearGroup(this.bondGroup);
+        this.clearDisplacementVectors();
         this.clearCommensurateGuides();
         this.clearGroup(this.supercellGroup);
         this.clearGroup(this.constraintMarkGroup);
@@ -2805,6 +2834,11 @@ export class ASERenderer {
             previous.sunGizmo !== this.displayOptions.sunGizmo ||
             !numberArrayEqual(previous.sunPosition, this.displayOptions.sunPosition) ||
             !numberArrayEqual(previous.sunTarget, this.displayOptions.sunTarget);
+        const displacementChanged = previous.showDisplacements !== this.displayOptions.showDisplacements ||
+            previous.displacementStyle !== this.displayOptions.displacementStyle ||
+            previous.displacementScale !== this.displayOptions.displacementScale ||
+            previous.displacementThickness !== this.displayOptions.displacementThickness ||
+            previous.displacementColor !== this.displayOptions.displacementColor;
         if (previous.projectionMode !== this.displayOptions.projectionMode) {
             this.setProjectionMode(this.displayOptions.projectionMode);
         }
@@ -2859,6 +2893,9 @@ export class ASERenderer {
         if (visibilityChanged) this.applyAtomVisibility(changedVisibilityLabels);
         else if (bondsChanged) this.rebuildBonds();
         if (supercellChanged) this.rebuildSupercell();
+        if ((displacementChanged || visibilityChanged) && this.displacementData) {
+            this.setDisplacementVectors(this.displacementData, this.displayOptions);
+        }
         if ((radiusChanged || supercellChanged) && !visibilityChanged) {
             this.refreshStudioSunForStructure();
         }
@@ -2872,6 +2909,9 @@ export class ASERenderer {
         if (this.constraintGuideGroup) this.constraintGuideGroup.visible = visible;
         if (this.constraintMarkGroup) this.constraintMarkGroup.visible = visible;
         if (this.hookeanGroup) this.hookeanGroup.visible = visible;
+        if (this.displacementGroup) {
+            this.displacementGroup.visible = visible && this.displayOptions.showDisplacements === true;
+        }
     }
 
     renameAtomLabel(oldSymbol, label, indices = [], displayOptions = null, baseSymbol = null) {
@@ -3607,6 +3647,184 @@ export class ASERenderer {
         } else {
             this.rebuildBonds(nextPairs, nextBridgeRecords);
         }
+    }
+
+    clearDisplacementVectors({ keepData = false } = {}) {
+        this.clearGroup(this.displacementGroup);
+        if (!keepData) this.displacementData = null;
+        this.displacementCameraSignature = '';
+        this.domElement.dataset.displacementCount = '0';
+        this.requestRender();
+    }
+
+    displacementStyle(options = this.displayOptions) {
+        return options?.displacementStyle === '2d' ? '2d' : '3d';
+    }
+
+    displacementCameraKey() {
+        const quaternion = this.camera.quaternion;
+        return [
+            quaternion.x.toFixed(5),
+            quaternion.y.toFixed(5),
+            quaternion.z.toFixed(5),
+            quaternion.w.toFixed(5)
+        ].join(':');
+    }
+
+    setDisplacementVectors(data, options = this.displayOptions) {
+        this.clearGroup(this.displacementGroup);
+        this.displacementCameraSignature = '';
+        this.displacementData = data?.status === 'ok' ? data : null;
+        const enabled = options?.showDisplacements === true;
+        if (!enabled || !this.displacementData) {
+            this.domElement.dataset.displacementCount = '0';
+            this.applyOverlayVisibility();
+            this.requestRender();
+            return;
+        }
+
+        const starts = this.displacementData.starts || [];
+        const vectors = this.displacementData.vectors || [];
+        const indices = this.displacementData.indices || [];
+        const entries = [];
+        const count = Math.min(starts.length, vectors.length, indices.length);
+        for (let item = 0; item < count; item++) {
+            const index = Number(indices[item]);
+            const start = starts[item];
+            const vector = vectors[item];
+            if (
+                !Number.isInteger(index)
+                || !this.atomLabelVisible(index)
+                || !Array.isArray(start)
+                || !Array.isArray(vector)
+                || start.length < 3
+                || vector.length < 3
+            ) {
+                continue;
+            }
+            const magnitudeSquared = Number(vector[0]) ** 2 + Number(vector[1]) ** 2 + Number(vector[2]) ** 2;
+            if (!Number.isFinite(magnitudeSquared) || magnitudeSquared < 1e-14) continue;
+            entries.push({
+                index,
+                start: start.map(Number),
+                vector: vector.map(Number)
+            });
+        }
+
+        if (!entries.length) {
+            this.domElement.dataset.displacementCount = '0';
+            this.applyOverlayVisibility();
+            this.requestRender();
+            return;
+        }
+
+        const flat = this.displacementStyle(options) === '2d';
+        const color = this.validHexColor(options?.displacementColor)
+            ? options.displacementColor
+            : '#e58b2a';
+        const material = flat
+            ? new THREE.MeshBasicMaterial({
+                color,
+                side: THREE.DoubleSide,
+                toneMapped: false,
+                depthTest: true,
+                depthWrite: false
+            })
+            : new THREE.MeshStandardMaterial({
+                color,
+                roughness: 0.42,
+                metalness: 0.04
+            });
+        const headMaterial = material.clone();
+        const shaft = new THREE.InstancedMesh(
+            flat ? this.bondFlatGeometry : this.bondCylinderGeometry,
+            material,
+            entries.length
+        );
+        const head = new THREE.InstancedMesh(
+            flat ? this.displacementFlatHeadGeometry : this.displacementConeGeometry,
+            headMaterial,
+            entries.length
+        );
+        [shaft, head].forEach(mesh => {
+            mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+            mesh.frustumCulled = false;
+            mesh.renderOrder = 5;
+            mesh.castShadow = false;
+            mesh.receiveShadow = false;
+            mesh.userData.sharedGeometry = true;
+        });
+        shaft.userData.displacementRole = 'shaft';
+        head.userData.displacementRole = 'head';
+        this.displacementGroup.userData.entries = entries;
+        this.displacementGroup.userData.shaft = shaft;
+        this.displacementGroup.userData.head = head;
+        this.displacementGroup.userData.flat = flat;
+        this.displacementGroup.add(shaft, head);
+        this.updateDisplacementVectorMatrices(true);
+        this.domElement.dataset.displacementCount = String(entries.length);
+        this.applyOverlayVisibility();
+        this.requestRender();
+    }
+
+    updateDisplacementVectorMatrices(force = false) {
+        const entries = this.displacementGroup?.userData?.entries;
+        const shaft = this.displacementGroup?.userData?.shaft;
+        const head = this.displacementGroup?.userData?.head;
+        if (!entries?.length || !shaft || !head) return;
+        const flat = this.displacementGroup.userData.flat === true;
+        const cameraSignature = flat ? this.displacementCameraKey() : '3d';
+        if (!force && cameraSignature === this.displacementCameraSignature) return;
+        this.displacementCameraSignature = cameraSignature;
+        const scale = Math.max(0.05, Math.min(10, Number(this.displayOptions.displacementScale) || 1));
+        const thickness = Math.max(
+            0.01,
+            Math.min(0.5, Number(this.displayOptions.displacementThickness) || 0.08)
+        );
+        const dummy = this.displacementDummy;
+
+        entries.forEach((entry, instanceId) => {
+            this.displacementStart.fromArray(entry.start);
+            this.displacementDirection.fromArray(entry.vector).multiplyScalar(scale);
+            const length = this.displacementDirection.length();
+            if (length < 1e-7) {
+                dummy.position.set(0, 0, 0);
+                dummy.scale.setScalar(0);
+                dummy.updateMatrix();
+                shaft.setMatrixAt(instanceId, dummy.matrix);
+                head.setMatrixAt(instanceId, dummy.matrix);
+                return;
+            }
+            const direction = this.displacementDirection.normalize();
+            this.displacementEnd.copy(this.displacementStart).addScaledVector(direction, length);
+            const headLength = Math.min(length * 0.45, Math.max(thickness * 4.2, 0.08));
+            const headWidth = Math.max(thickness * 2.7, headLength * 0.48);
+            const bodyLength = Math.max(1e-7, length - headLength * 0.72);
+
+            dummy.position.copy(this.displacementStart).addScaledVector(direction, bodyLength * 0.5);
+            if (flat) {
+                dummy.scale.set(thickness, bodyLength, 1);
+                this.orientFlatBond(dummy, direction);
+            } else {
+                dummy.scale.set(thickness, bodyLength, thickness);
+                dummy.quaternion.setFromUnitVectors(this.yAxis, direction);
+            }
+            dummy.updateMatrix();
+            shaft.setMatrixAt(instanceId, dummy.matrix);
+
+            dummy.position.copy(this.displacementEnd).addScaledVector(direction, -headLength * 0.5);
+            if (flat) {
+                dummy.scale.set(headWidth, headLength, 1);
+                this.orientFlatBond(dummy, direction);
+            } else {
+                dummy.scale.set(headWidth, headLength, headWidth);
+                dummy.quaternion.setFromUnitVectors(this.yAxis, direction);
+            }
+            dummy.updateMatrix();
+            head.setMatrixAt(instanceId, dummy.matrix);
+        });
+        shaft.instanceMatrix.needsUpdate = true;
+        head.instanceMatrix.needsUpdate = true;
     }
 
     rebuildBonds(precomputedPairs = null, precomputedBridgeRecords = null) {
@@ -5571,6 +5789,7 @@ export class ASERenderer {
         if (this.suspended) return;
         this.controls.update();
         if (this.effectiveBondStyle() === 'flat') this.updateBondPositions();
+        if (this.displacementStyle() === '2d') this.updateDisplacementVectorMatrices();
         this.syncSelectionOutlines();
         this.onFrame?.();
         this.updateViewLighting();

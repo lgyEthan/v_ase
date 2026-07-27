@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.90&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.91&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.90';
+            : '/static/vendor/three.module.js?v=0.0.91';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -57,7 +57,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.90</span>
+            <span class="version">0.0.91</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -91,16 +91,6 @@
                 </svg>
                 <span>Open</span>
             </button>
-            <div id="calc-controls" class="calc-control-group" title="Repulsion calculator settings only" data-edit-only>
-                <span class="calc-control-title">Repulsion Calc</span>
-                <label for="calc-device">Device</label>
-                <select id="calc-device">
-                    <option value="cpu">CPU</option>
-                    <option value="cuda">CUDA</option>
-                </select>
-                <label for="calc-cpus">CPU threads</label>
-                <select id="calc-cpus"></select>
-            </div>
             <div id="view-toolbar" class="view-toolbar" role="group" aria-label="Camera rotation controls">
                 <svg class="view-arrow-sprite" aria-hidden="true">
                     <defs>
@@ -326,22 +316,27 @@
             <div class="inspector-title">
                 <span id="inspector-context">Inspect</span>
             </div>
+            <label id="structure-section-picker" class="structure-section-picker hidden" for="structure-section-select">
+                <span>Section</span>
+                <select id="structure-section-select" aria-label="Jump to structure section">
+                    <option value="appearance">Atoms &amp; Appearance</option>
+                    <option value="cell-replication">Cell &amp; Replication</option>
+                    <option value="cell-transform" data-edit-only>Cell Transform</option>
+                    <option value="transform" data-edit-only>Atom Transform</option>
+                    <option value="constraints" data-edit-only>Constraints</option>
+                    <option value="bonding">Bonding</option>
+                    <option value="scientific-tools" data-edit-only>Relaxation</option>
+                </select>
+            </label>
         </header>
         <nav class="inspector-nav" role="tablist" aria-label="Control panel workspace">
             <button type="button" role="tab" data-inspector-group="inspect" aria-selected="true">Inspect</button>
             <button type="button" role="tab" data-inspector-group="structure" aria-selected="false">Structure</button>
+            <button type="button" role="tab" data-inspector-group="analysis" aria-selected="false">Analysis</button>
             <button type="button" role="tab" data-inspector-group="view" aria-selected="false">View</button>
             <button type="button" role="tab" data-inspector-group="export" aria-selected="false">Export</button>
         </nav>
         <div id="inspector-content" class="inspector-content">
-        <nav class="structure-section-nav" data-panel-group="structure" aria-label="Structure sections">
-            <button type="button" data-structure-target="appearance" aria-current="true">Atoms</button>
-            <button type="button" data-structure-target="cell-replication">Cell</button>
-            <button type="button" data-structure-target="transform" data-edit-only>Transform</button>
-            <button type="button" data-structure-target="constraints" data-edit-only>Constraints</button>
-            <button type="button" data-structure-target="bonding">Bonds</button>
-            <button type="button" data-structure-target="scientific-tools" data-edit-only>Relax</button>
-        </nav>
         <details class="panel-section" open data-panel="structure-info" data-panel-group="inspect">
             <summary class="section-header">Structure Info</summary>
             <div class="prop-grid">
@@ -368,6 +363,64 @@
                 <span class="p-label">Measure</span><span id="selected-measure" class="p-val">-</span>
             </div>
             <button id="btn-delete-selection" class="btn-block danger-soft" data-edit-only>Delete Selected</button>
+        </details>
+
+        <details class="panel-section" open data-panel="displacement" data-panel-group="analysis">
+            <summary class="section-header">Displacement</summary>
+            <div class="prop-row">
+                <label for="chk-displacement">Show vectors</label>
+                <input type="checkbox" id="chk-displacement">
+            </div>
+            <div class="prop-row">
+                <label for="displacement-reference-mode">Reference</label>
+                <select id="displacement-reference-mode">
+                    <option value="previous">Previous frame</option>
+                    <option value="frame">Specific frame</option>
+                </select>
+            </div>
+            <div id="displacement-reference-frame-row" class="prop-row hidden">
+                <label for="displacement-reference-frame">Frame</label>
+                <input id="displacement-reference-frame" type="number" value="1" min="1" step="1">
+            </div>
+            <div class="prop-row">
+                <label for="chk-displacement-mic">Minimum image</label>
+                <input type="checkbox" id="chk-displacement-mic" checked>
+            </div>
+            <div class="prop-row">
+                <label for="displacement-style">Vector style</label>
+                <select id="displacement-style">
+                    <option value="3d">3D arrow</option>
+                    <option value="2d">2D flat arrow</option>
+                </select>
+            </div>
+            <div class="range-row">
+                <div class="range-head">
+                    <label for="displacement-scale">Vector scale</label>
+                    <output id="displacement-scale-value">1.00x</output>
+                </div>
+                <input id="displacement-scale" type="range" min="0.05" max="10" step="0.05" value="1">
+            </div>
+            <div class="range-row">
+                <div class="range-head">
+                    <label for="displacement-thickness">Thickness</label>
+                    <output id="displacement-thickness-value">0.08 A</output>
+                </div>
+                <input id="displacement-thickness" type="range" min="0.01" max="0.5" step="0.01" value="0.08">
+            </div>
+            <div class="prop-row">
+                <label for="displacement-color">Color</label>
+                <input id="displacement-color" type="color" value="#e58b2a">
+            </div>
+            <div id="displacement-status" class="analysis-status" data-state="idle">
+                <span class="analysis-status-title">No displacement data</span>
+                <span class="analysis-status-detail">Load a trajectory with at least two frames.</span>
+            </div>
+            <div id="displacement-stats" class="prop-grid analysis-stats hidden">
+                <span class="p-label">Frames</span><span id="displacement-frame-summary" class="p-val">-</span>
+                <span class="p-label">Mapped</span><span id="displacement-mapped" class="p-val">-</span>
+                <span class="p-label">Mean / RMS</span><span id="displacement-mean-rms" class="p-val">-</span>
+                <span class="p-label">Maximum</span><span id="displacement-max" class="p-val">-</span>
+            </div>
         </details>
 
         <details class="panel-section" open data-panel="view" data-panel-group="view">
@@ -664,6 +717,21 @@
 
         <details class="panel-section" open data-panel="scientific-tools" data-panel-group="structure" data-edit-only>
             <summary class="section-header">Relaxation</summary>
+            <div id="calc-controls" class="repulsion-settings" title="These resources apply only to the built-in Repulsion calculator">
+                <div class="panel-subhead">Repulsion calculator</div>
+                <div class="prop-row">
+                    <label for="calc-device">Device</label>
+                    <select id="calc-device">
+                        <option value="cpu">CPU</option>
+                        <option value="cuda">CUDA</option>
+                    </select>
+                </div>
+                <div class="prop-row">
+                    <label for="calc-cpus">CPU threads</label>
+                    <select id="calc-cpus"></select>
+                </div>
+                <p class="panel-note">Device and thread settings affect only the built-in Repulsion calculator.</p>
+            </div>
             <div class="relax-grid">
                 <label>fmax</label>
                 <input type="number" id="relax-fmax" value="0.05" step="0.01" min="0">
@@ -870,7 +938,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.90&rev=1';
+            : './static/main.js?v=0.0.91&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

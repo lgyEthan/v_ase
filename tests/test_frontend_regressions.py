@@ -437,7 +437,8 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "planeTrail" not in renderer_js
     assert "lockMarker" not in renderer_js
     assert "lockMarker" not in selection_js
-    assert "ConeGeometry" not in renderer_js
+    assert "constraintConeGeometry" not in renderer_js
+    assert "displacementConeGeometry" in renderer_js
     assert "constraintMarkGroup" in renderer_js
     assert "addFixedLineGuide" in renderer_js
     assert "addFixedPlaneGuide" in renderer_js
@@ -604,9 +605,9 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "async addAtom(symbol, position, baseSymbol = null)" in (ROOT / "v_ase/static/api.js").read_text()
     assert ".create-atom-widget" in style_css
     assert "body.dragging-create-atom" in style_css
-    assert "Repulsion Calc" in index_html
-    assert "Repulsion calculator settings only" in index_html
-    assert 'id="calc-controls" class="calc-control-group" title="Repulsion calculator settings only" data-edit-only' in index_html
+    assert "Repulsion calculator" in index_html
+    assert "These resources apply only to the built-in Repulsion calculator" in index_html
+    assert 'id="calc-controls" class="repulsion-settings"' in index_html
     assert "updateAtomIdentity" in (ROOT / "v_ase/static/api.js").read_text()
     assert 'id="projection-mode"' in index_html
     assert '<option value="orthographic" selected>Orthographic</option>' in index_html
@@ -1190,10 +1191,13 @@ def test_control_panel_uses_collapsible_default_hierarchy():
     assert '<strong>Workspace</strong>' not in index_html
     assert 'data-inspector-group="inspect"' in index_html
     assert 'data-inspector-group="structure"' in index_html
+    assert 'data-inspector-group="analysis"' in index_html
     assert 'data-inspector-group="view"' in index_html
     assert 'data-inspector-group="export"' in index_html
-    assert 'data-structure-target="appearance"' in index_html
-    assert 'data-structure-target="bonding"' in index_html
+    assert 'id="structure-section-select"' in index_html
+    assert '<option value="appearance">Atoms &amp; Appearance</option>' in index_html
+    assert '<option value="bonding">Bonding</option>' in index_html
+    assert 'class="structure-section-nav"' not in index_html
     assert 'data-panel="structure-info" data-panel-group="inspect"' in index_html
     assert 'data-panel="selection" data-panel-group="inspect"' in index_html
     assert 'data-panel="view" data-panel-group="view"' in index_html
@@ -1238,7 +1242,8 @@ def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
     assert 'render-light-cone' not in index_html
     assert 'render-light-beam' not in index_html
     assert 'class="sun-icon"' not in index_html
-    assert index_html.index('id="calc-controls"') < index_html.index('id="lighting-widget"')
+    assert index_html.index('id="calc-controls"') > index_html.index('data-panel="scientific-tools"')
+    assert index_html.index('id="calc-controls"') > index_html.index('id="lighting-widget"')
     assert index_html.index('id="lighting-widget"') < index_html.index('id="btn-reset"')
     assert '<option value="modeling">Modeling</option>' in index_html
     assert '<option value="studio">Studio Sun</option>' in index_html
@@ -1314,7 +1319,7 @@ def test_application_chrome_uses_one_role_based_palette():
     component_css = style_css.split("\n}\n", 1)[1]
     assert re.search(r"#[0-9A-Fa-f]{3,8}(?![0-9A-Za-z_-])", component_css) is None
     assert "rgba(" not in component_css
-    assert ".calc-control-group select" in style_css
+    assert ".repulsion-settings" in style_css
     assert "background: var(--field);" in style_css
 
     # Canvas, transform guides, and the orientation widget share the same axis
@@ -1377,3 +1382,25 @@ def test_rotate_pivot_and_commensurate_cell_matching_are_wired():
     assert "10.1016/j.cpc.2015.08.038" in docs
     assert "10.1021/acs.jpcc.6b01496" in docs
     assert "10.1073/pnas.1108174108" in docs
+
+
+def test_displacement_analysis_uses_instancing_and_frame_scoped_requests():
+    index_html = (ROOT / "v_ase/static/index.html").read_text()
+    main_js = (ROOT / "v_ase/static/main.js").read_text()
+    renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
+    api_js = (ROOT / "v_ase/static/api.js").read_text()
+
+    assert 'data-inspector-group="analysis"' in index_html
+    assert 'data-panel="displacement" data-panel-group="analysis"' in index_html
+    assert 'id="chk-displacement-mic"' in index_html
+    assert 'id="displacement-reference-mode"' in index_html
+    assert '<option value="previous">Previous frame</option>' in index_html
+    assert '<option value="frame">Specific frame</option>' in index_html
+    assert '<option value="2d">2D flat arrow</option>' in index_html
+    assert "scheduleDisplacementAnalysisRefresh" in main_js
+    assert "fetchDisplacements" in api_js
+    assert "frame_index: this.currentFrameIndex()" in api_js
+    assert "new THREE.InstancedMesh(" in renderer_js
+    assert "displacementGroup" in renderer_js
+    assert "updateDisplacementVectorMatrices" in renderer_js
+    assert "displacementCameraSignature" in renderer_js

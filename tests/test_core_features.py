@@ -39,6 +39,7 @@ from v_ase.server import (
     apply_translation,
     browse_launch_directory,
     cancel_session_autoclose,
+    calculate_displacements,
     delete_atoms,
     get_atoms,
     load_structure_path,
@@ -52,7 +53,10 @@ from v_ase.server import (
     schedule_session_autoclose,
     set_frame,
     undo,
+    update_atom_identity,
     update_calculator,
+    update_constraints,
+    update_session_mode,
     wrap,
 )
 from v_ase.session import EditorSession, sessions
@@ -745,6 +749,301 @@ def test_fractional_translation_uses_full_monoclinic_cell_for_all_frames():
     for frame, original in zip(session.trajectory_frames, originals):
         np.testing.assert_allclose(frame.positions, original.positions + cartesian)
         np.testing.assert_allclose(frame.cell.array, cell)
+
+
+def test_frame_index_prevents_cross_frame_coordinate_and_cell_leakage_in_supercell():
+    first_cell = np.array([
+        [3.0, 0.0, 0.0],
+        [0.4, 4.0, 0.0],
+        [0.2, 0.3, 5.0],
+    ])
+    second_cell = np.array([
+        [5.0, 0.0, 0.0],
+        [1.1, 3.5, 0.0],
+        [0.6, 0.2, 6.0],
+    ])
+    first = Atoms("NaCl", positions=[[0.2, 0.3, 0.4], [1.0, 1.1, 1.2]], cell=first_cell, pbc=True)
+    second = Atoms("NaCl", positions=[[0.7, 0.8, 0.9], [2.0, 2.1, 2.2]], cell=second_cell, pbc=True)
+    session = EditorSession(
+        "frame-specific-supercell",
+        first.copy(),
+        first.copy(),
+        original_frames=[first.copy(), second.copy()],
+        trajectory_frames=[first.copy(), second.copy()],
+        current_frame=0,
+    )
+    sessions[session.session_id] = session
+    displayed_second_positions = second.positions + np.array([0.25, -0.15, 0.35])
+
+    data = asyncio.run(apply_supercell(session.session_id, {
+        "frame_index": 1,
+        "positions": displayed_second_positions.tolist(),
+        "reps": [2, 1, 1],
+        "apply_constraint": True,
+    }))
+
+    assert data["metadata"]["current_frame"] == 1
+    np.testing.assert_allclose(session.trajectory_frames[0].cell.array, np.diag([2, 1, 1]) @ first_cell)
+    np.testing.assert_allclose(session.trajectory_frames[1].cell.array, np.diag([2, 1, 1]) @ second_cell)
+    np.testing.assert_allclose(session.trajectory_frames[0].positions[:2], first.positions)
+    np.testing.assert_allclose(session.trajectory_frames[1].positions[:2], displayed_second_positions)
+    np.testing.assert_allclose(data["positions"][:2], displayed_second_positions)
+
+
+def test_fractional_translation_uses_each_frame_cell_after_frontend_frame_sync():
+    first_cell = np.array([
+        [3.0, 0.0, 0.0],
+        [0.3, 4.0, 0.0],
+        [0.1, 0.4, 5.0],
+    ])
+    second_cell = np.array([
+        [4.5, 0.0, 0.0],
+        [1.2, 3.2, 0.0],
+        [0.7, 0.2, 6.5],
+    ])
+    first = Atoms("SiO", positions=[[0.1, 0.2, 0.3], [1.1, 1.2, 1.3]], cell=first_cell, pbc=True)
+    second = Atoms("SiO", positions=[[0.4, 0.5, 0.6], [1.6, 1.7, 1.8]], cell=second_cell, pbc=True)
+    session = EditorSession(
+        "frame-specific-fractional-translation",
+        first.copy(),
+        first.copy(),
+        original_frames=[first.copy(), second.copy()],
+        trajectory_frames=[first.copy(), second.copy()],
+        current_frame=0,
+    )
+    sessions[session.session_id] = session
+    fractional = np.array([0.25, -0.5, 0.125])
+    displayed_second_positions = second.positions + [0.05, 0.1, -0.2]
+
+    data = asyncio.run(apply_translation(session.session_id, {
+        "frame_index": 1,
+        "positions": displayed_second_positions.tolist(),
+        "vector": fractional.tolist(),
+        "coordinate_mode": "fractional",
+        "apply_constraint": True,
+    }))
+
+    np.testing.assert_allclose(
+        session.trajectory_frames[0].positions,
+        first.positions + fractional @ first_cell,
+    )
+    np.testing.assert_allclose(
+        session.trajectory_frames[1].positions,
+        displayed_second_positions + fractional @ second_cell,
+    )
+    np.testing.assert_allclose(data["cell"], second_cell)
+    assert data["metadata"]["current_frame"] == 1
+
+
+def test_wrap_uses_each_trajectory_frame_cell_after_frontend_frame_sync():
+    first_cell = np.array([
+        [3.0, 0.0, 0.0],
+        [0.5, 4.0, 0.0],
+        [0.1, 0.3, 5.0],
+    ])
+    second_cell = np.array([
+        [5.0, 0.0, 0.0],
+        [1.0, 3.0, 0.0],
+        [0.7, 0.2, 6.0],
+    ])
+    first = Atoms(
+        "HH",
+        scaled_positions=[[1.2, -0.1, 0.5], [0.4, 1.3, -0.25]],
+        cell=first_cell,
+        pbc=True,
+    )
+    second = Atoms(
+        "HH",
+        scaled_positions=[[-0.4, 0.25, 1.2], [1.5, -0.2, 0.3]],
+        cell=second_cell,
+        pbc=True,
+    )
+    session = EditorSession(
+        "frame-specific-wrap",
+        first.copy(),
+        first.copy(),
+        original_frames=[first.copy(), second.copy()],
+        trajectory_frames=[first.copy(), second.copy()],
+        current_frame=0,
+    )
+    sessions[session.session_id] = session
+    displayed_second = second.copy()
+    displayed_second.positions += np.array([0.1, -0.2, 0.3])
+
+    data = asyncio.run(wrap(session.session_id, {
+        "frame_index": 1,
+        "positions": displayed_second.positions.tolist(),
+    }))
+
+    assert data["metadata"]["current_frame"] == 1
+    for frame, expected_cell in zip(
+        session.trajectory_frames,
+        (first_cell, second_cell),
+    ):
+        np.testing.assert_allclose(frame.cell.array, expected_cell)
+        scaled = frame.get_scaled_positions(wrap=False)
+        assert np.all(scaled >= -1e-12)
+        assert np.all(scaled < 1.0 + 1e-12)
+
+
+def test_cell_matrix_transform_uses_each_trajectory_frame_cell():
+    first_cell = np.array([
+        [2.5, 0.0, 0.0],
+        [0.4, 3.0, 0.0],
+        [0.2, 0.1, 4.0],
+    ])
+    second_cell = np.array([
+        [4.0, 0.0, 0.0],
+        [1.2, 2.5, 0.0],
+        [0.6, 0.4, 5.5],
+    ])
+    first = Atoms("Li", positions=[[0.2, 0.3, 0.4]], cell=first_cell, pbc=True)
+    second = Atoms("Li", positions=[[0.8, 0.7, 0.6]], cell=second_cell, pbc=True)
+    session = EditorSession(
+        "frame-specific-cell-matrix",
+        first.copy(),
+        first.copy(),
+        original_frames=[first.copy(), second.copy()],
+        trajectory_frames=[first.copy(), second.copy()],
+        current_frame=0,
+    )
+    sessions[session.session_id] = session
+    matrix = np.array([[2, 1, 0], [0, 1, 0], [0, 0, 1]], dtype=int)
+
+    data = asyncio.run(apply_supercell_matrix(session.session_id, {
+        "frame_index": 1,
+        "positions": second.positions.tolist(),
+        "matrix": matrix.tolist(),
+        "apply_constraint": True,
+    }))
+
+    assert data["metadata"]["current_frame"] == 1
+    assert [len(frame) for frame in session.trajectory_frames] == [2, 2]
+    np.testing.assert_allclose(
+        session.trajectory_frames[0].cell.array,
+        matrix @ first_cell,
+    )
+    np.testing.assert_allclose(
+        session.trajectory_frames[1].cell.array,
+        matrix @ second_cell,
+    )
+    np.testing.assert_allclose(data["cell"], matrix @ second_cell)
+
+
+def test_displacement_analysis_supports_mic_and_stable_particle_id_mapping():
+    reference = Atoms(
+        "HH",
+        positions=[[9.8, 0.0, 0.0], [2.0, 0.0, 0.0]],
+        cell=[10.0, 10.0, 10.0],
+        pbc=True,
+    )
+    current = Atoms(
+        "HHH",
+        positions=[[2.4, 0.0, 0.0], [0.2, 0.0, 0.0], [5.0, 0.0, 0.0]],
+        cell=[10.0, 10.0, 10.0],
+        pbc=True,
+    )
+    reference.set_array("particle_id", np.array([11, 22], dtype=int))
+    current.set_array("particle_id", np.array([22, 11, 33], dtype=int))
+    session = EditorSession(
+        "displacement-particle-id",
+        reference.copy(),
+        current.copy(),
+        original_frames=[reference.copy(), current.copy()],
+        trajectory_frames=[reference.copy(), current.copy()],
+        current_frame=1,
+    )
+    sessions[session.session_id] = session
+
+    direct = calculate_displacements(session, {
+        "frame_index": 1,
+        "reference_mode": "frame",
+        "reference_frame": 0,
+        "mic": False,
+    })
+    mic = calculate_displacements(session, {
+        "frame_index": 1,
+        "reference_mode": "frame",
+        "reference_frame": 0,
+        "mic": True,
+    })
+
+    assert direct["mapping"] == "particle-id:particle_id"
+    assert direct["indices"] == [0, 1]
+    np.testing.assert_allclose(direct["vectors"], [[0.4, 0.0, 0.0], [-9.6, 0.0, 0.0]])
+    np.testing.assert_allclose(mic["vectors"], [[0.4, 0.0, 0.0], [0.4, 0.0, 0.0]])
+    assert mic["matched"] == 2
+    assert mic["unmatched_current"] == 1
+
+
+def test_view_to_edit_mode_merges_identity_for_variable_topology_frames():
+    first = Atoms("HO", positions=[[0, 0, 0], [1, 0, 0]])
+    second = Atoms("HHO", positions=[[0, 0, 0], [0.8, 0, 0], [1.6, 0, 0]])
+    set_atom_labels(first, ["H_water", "O_water"])
+    set_atom_labels(second, ["H_water", "H_extra", "O_water"])
+    session = EditorSession(
+        "mode-variable-topology",
+        first.copy(),
+        second.copy(),
+        original_frames=[first.copy(), second.copy()],
+        trajectory_frames=[first.copy(), second.copy()],
+        current_frame=1,
+        config={"viz_only": True},
+    )
+    sessions[session.session_id] = session
+
+    data = asyncio.run(update_session_mode(session.session_id, {
+        "frame_index": 0,
+        "viz_only": False,
+        "labels": ["H_selected", "O_selected"],
+        "chemical_symbols": ["H", "O"],
+        "positions": first.positions.tolist(),
+    }))
+
+    assert data["metadata"]["current_frame"] == 0
+    assert atom_labels(session.trajectory_frames[0]) == ["H_selected", "O_selected"]
+    assert atom_labels(session.trajectory_frames[1]) == ["H_selected", "O_selected", "O_water"]
+    assert data.get("mode_transition_warnings")
+
+
+def test_variable_topology_identity_and_constraints_skip_absent_indices():
+    from ase.constraints import FixAtoms
+
+    first = Atoms("H", positions=[[0, 0, 0]])
+    second = Atoms("HH", positions=[[0, 0, 0], [1, 0, 0]])
+    set_atom_labels(first, ["H_base"])
+    set_atom_labels(second, ["H_base", "H_extra"])
+    session = EditorSession(
+        "edit-variable-topology",
+        first.copy(),
+        second.copy(),
+        original_frames=[first.copy(), second.copy()],
+        trajectory_frames=[first.copy(), second.copy()],
+        current_frame=1,
+        config={"viz_only": False},
+    )
+    sessions[session.session_id] = session
+
+    asyncio.run(update_atom_identity(session.session_id, {
+        "frame_index": 1,
+        "indices": [1],
+        "label": "O_added",
+        "base_symbol": "O",
+        "positions": second.positions.tolist(),
+    }))
+    assert atom_labels(session.trajectory_frames[0]) == ["H_base"]
+    assert atom_labels(session.trajectory_frames[1]) == ["H_base", "O_added"]
+    assert session.trajectory_frames[1].symbols[1] == "O"
+
+    asyncio.run(update_constraints(session.session_id, {
+        "frame_index": 1,
+        "indices": [1],
+        "fix_atoms": True,
+        "positions": session.trajectory_frames[1].positions.tolist(),
+    }))
+    assert not session.trajectory_frames[0].constraints
+    assert isinstance(session.trajectory_frames[1].constraints[0], FixAtoms)
+    assert session.trajectory_frames[1].constraints[0].index.tolist() == [1]
 
 
 def test_fractional_translation_requires_defined_cell():

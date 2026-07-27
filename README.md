@@ -135,7 +135,9 @@ only the view by the selected angle, never the atomic coordinates.
 Multi-frame inputs add a timeline below the viewport. Frame scrubbing updates
 immediately, FPS changes apply during playback, and **Skip** advances by
 `skip + 1` frames per tick. Bond settings, appearance, and supercell display
-remain active across all frames.
+remain active across all frames. Valid selected atom indices remain selected
+when the frame changes, so measurements update without rebuilding the
+selection.
 
 In interactive mode, relaxation creates a separate optimization timeline.
 When source and relaxation trajectories both exist, choose **Source frames** or
@@ -209,12 +211,21 @@ displayed coordinates without an additional MIC value. Larger selections show
 the total followed by counts for each atom label. Hovered-atom metadata is
 displayed separately.
 
+### Displacement Analysis
+
+The **Analysis** workspace displays per-atom displacement vectors for a
+trajectory. Compare the current frame with the previous frame or a specific
+frame, enable or disable minimum-image correction, and choose 3D or flat 2D
+arrows. Vector scale, thickness, and color are display-only controls. Particle
+IDs are used when present; otherwise equal-size frames use stable atom indices.
+
 ## Structure, View, And Rendering
 
-The control panel has four workspaces: **Inspect**, **Structure**, **View**, and
-**Export**. **Structure** keeps related scientific controls together:
-**Atoms**, **Cell**, **Transform**, **Constraints**, **Bonds**, and **Relax**.
-Its section bar stays visible while scrolling.
+The control panel has five workspaces: **Inspect**, **Structure**,
+**Analysis**, **View**, and **Export**. **Structure** keeps related scientific
+controls together: **Atoms & Appearance**, **Cell & Replication**,
+**Cell Transform**, **Atom Transform**, **Constraints**, **Bonding**, and
+**Relaxation**. Use the section selector to jump directly to a group.
 
 **View** provides:
 
@@ -225,19 +236,19 @@ Its section bar stays visible while scrolling.
 - live atomic scale in pixels per Angstrom;
 - unit cell, axes, grid, and overlay controls.
 
-**Structure > Atoms** controls per-label TYPE, label, visibility, color, radius,
-material, atom smoothness, and anti-aliasing. New documents use a `0.60x` atom
-radius. Material presets are **Standard**, **Metal**, and **Rubber**. In View, a
-preset applies to a complete label group. In Edit, selected atoms can use
-independent materials and can be merged into an existing label by entering that
-exact label. Chemical TYPE remains synchronized with ASE while labels control
-visual grouping.
+**Structure > Atoms & Appearance** controls per-label TYPE, label, visibility,
+color, radius, material, atom smoothness, and anti-aliasing. New documents use
+a `0.60x` atom radius. Material presets are **Standard**, **Metal**, and
+**Rubber**. In View, a preset applies to a complete label group. In Edit,
+selected atoms can use independent materials and can be merged into an existing
+label by entering that exact label. Chemical TYPE remains synchronized with ASE
+while labels control visual grouping.
 
 The top-bar renderer switches among **Modeling**, **Studio Sun**, and
 **Sun + Soft Shadow**. Sun intensity, source, target, and viewport handles are
 editable.
 
-**Structure > Bonds** supports automatic element-radius inference, explicit
+**Structure > Bonding** supports automatic element-radius inference, explicit
 label-pair specifications, and manual atom-index pairs. Each pair specification
 has an enable checkbox plus minimum and maximum distances in Angstrom. Changes
 apply immediately; no separate apply step is required. Thickness, cylinder/flat

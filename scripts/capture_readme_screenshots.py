@@ -139,6 +139,7 @@ def open_panels(page, panels):
 
 
 def configure_inspector(page, group: str, panels, width=416):
+    selected_section = None
     page.evaluate(
         """({ group, width }) => {
             const app = window.__V_ASE_APP__;
@@ -149,6 +150,19 @@ def configure_inspector(page, group: str, panels, width=416):
         {"group": group, "width": width},
     )
     open_panels(page, panels)
+    if group == "structure" and panels:
+        section = panels[0]
+        if section in {
+            "appearance",
+            "cell-replication",
+            "cell-transform",
+            "transform",
+            "constraints",
+            "bonding",
+            "scientific-tools",
+        }:
+            page.select_option("#structure-section-select", section)
+            selected_section = section
     page.wait_for_function(
         """(minimumWidth) => {
             const inspector = document.getElementById('inspector');
@@ -159,6 +173,14 @@ def configure_inspector(page, group: str, panels, width=416):
         arg=max(336, width - 2),
     )
     page.wait_for_timeout(100)
+    if selected_section:
+        page.evaluate(
+            """(section) => {
+                const selector = document.getElementById('structure-section-select');
+                if (selector) selector.value = section;
+            }""",
+            selected_section,
+        )
 
 
 def set_display(page, options):
@@ -634,7 +656,7 @@ def main() -> int:
                     "Cl-Cl": {"enabled": False, "min": 0.0, "max": 3.55},
                 },
             })
-            configure_inspector(page, "bonds", ["bonding"], width=520)
+            configure_inspector(page, "structure", ["bonding"], width=520)
             page.screenshot(path=ASSET_DIR / "readme_bonds.png")
             page.close()
             editor.close()

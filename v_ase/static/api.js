@@ -7,6 +7,7 @@ export class ASEApi {
         this.mock = Boolean(window.__V_ASE_MOCK__);
         this.mockState = this.mock ? this.createMockState() : null;
         this.onUndoableMutation = null;
+        this.currentFrameProvider = null;
     }
 
     mockElementVisual(symbol) {
@@ -538,6 +539,13 @@ export class ASEApi {
         if (path.includes('/api/frame/')) {
             return await this.mockResponse(this.mockState.atoms);
         }
+        if (path.includes('/api/analysis/displacement/')) {
+            return {
+                status: 'unavailable',
+                message: 'Displacement analysis requires at least two trajectory frames.',
+                frame_count: 1
+            };
+        }
         if (path.includes('/api/relax/start/')) {
             return { status: 'started' };
         }
@@ -568,15 +576,27 @@ export class ASEApi {
         return this.request(path, { method: 'POST' });
     }
 
+    currentFrameIndex() {
+        const value = Number(this.currentFrameProvider?.());
+        return Number.isInteger(value) && value >= 0 ? value : 0;
+    }
+
+    framePayload(payload = {}) {
+        return {
+            ...payload,
+            frame_index: this.currentFrameIndex()
+        };
+    }
+
     async fetchAtoms() {
         return await this.request(`/api/atoms/{session_id}`);
     }
 
     async updateSessionMode(vizOnly, identities = {}) {
-        return await this.jsonPost(`/api/mode/{session_id}`, {
+        return await this.jsonPost(`/api/mode/{session_id}`, this.framePayload({
             viz_only: Boolean(vizOnly),
             ...identities
-        });
+        }));
     }
 
     async fetchTrajectoryPositions() {
@@ -639,34 +659,40 @@ export class ASEApi {
     }
 
     async applyPositions(positions, applyConstraint = true) {
-        return await this.jsonPost(`/api/apply/{session_id}`, { positions, apply_constraint: applyConstraint });
+        return await this.jsonPost(
+            `/api/apply/{session_id}`,
+            this.framePayload({ positions, apply_constraint: applyConstraint })
+        );
     }
 
     async getConstrainedPositions(positions, applyConstraint = true) {
-        return await this.jsonPost(`/api/constrain/{session_id}`, { positions, apply_constraint: applyConstraint });
+        return await this.jsonPost(
+            `/api/constrain/{session_id}`,
+            this.framePayload({ positions, apply_constraint: applyConstraint })
+        );
     }
 
     async addAtom(symbol, position, baseSymbol = null) {
         const payload = { symbol, position };
         if (baseSymbol) payload.base_symbol = baseSymbol;
-        return await this.jsonPost(`/api/add/{session_id}`, payload);
+        return await this.jsonPost(`/api/add/{session_id}`, this.framePayload(payload));
     }
 
     async addAtoms(symbols, positions, baseSymbols = null) {
         const payload = { symbols, positions };
         if (baseSymbols) payload.base_symbols = baseSymbols;
-        return await this.jsonPost(`/api/add/{session_id}`, payload);
+        return await this.jsonPost(`/api/add/{session_id}`, this.framePayload(payload));
     }
 
     async deleteAtoms(indices) {
-        return await this.jsonPost(`/api/delete/{session_id}`, { indices });
+        return await this.jsonPost(`/api/delete/{session_id}`, this.framePayload({ indices }));
     }
 
     async updateAtomIdentity(indices, label, positions = null, applyConstraint = true, baseSymbol = null) {
         const payload = { indices, label, apply_constraint: applyConstraint };
         if (baseSymbol) payload.base_symbol = baseSymbol;
         if (positions) payload.positions = positions;
-        return await this.jsonPost(`/api/atom-identity/{session_id}`, payload);
+        return await this.jsonPost(`/api/atom-identity/{session_id}`, this.framePayload(payload));
     }
 
     async updateAtomTypes(...args) {
@@ -676,11 +702,11 @@ export class ASEApi {
     async updateConstraints(indices, options = {}, positions = null, applyConstraint = true) {
         const payload = { indices, apply_constraint: applyConstraint, ...options };
         if (positions) payload.positions = positions;
-        return await this.jsonPost(`/api/constraints/{session_id}`, payload);
+        return await this.jsonPost(`/api/constraints/{session_id}`, this.framePayload(payload));
     }
 
     async updateCalculatorConfig(config = {}) {
-        return await this.jsonPost(`/api/calculator/{session_id}`, config);
+        return await this.jsonPost(`/api/calculator/{session_id}`, this.framePayload(config));
     }
 
     async undo() {
@@ -692,7 +718,10 @@ export class ASEApi {
     }
 
     async done(positions, applyConstraint = true) {
-        const data = await this.jsonPost(`/api/done/{session_id}`, { positions, apply_constraint: applyConstraint });
+        const data = await this.jsonPost(
+            `/api/done/{session_id}`,
+            this.framePayload({ positions, apply_constraint: applyConstraint })
+        );
         window.close();
         return data;
     }
@@ -704,40 +733,49 @@ export class ASEApi {
     }
 
     async reset() {
-        return await this.post(`/api/reset/{session_id}`);
+        return await this.jsonPost(`/api/reset/{session_id}`, this.framePayload());
     }
 
     async resetCoordinates() {
-        return await this.post(`/api/reset-coordinates/{session_id}`);
+        return await this.jsonPost(`/api/reset-coordinates/{session_id}`, this.framePayload());
     }
 
     async wrap(positions, applyConstraint = true) {
-        return await this.jsonPost(`/api/wrap/{session_id}`, { positions, apply_constraint: applyConstraint });
+        return await this.jsonPost(
+            `/api/wrap/{session_id}`,
+            this.framePayload({ positions, apply_constraint: applyConstraint })
+        );
     }
 
     async applySupercell(positions, reps, applyConstraint = true) {
-        return await this.jsonPost(`/api/supercell/apply/{session_id}`, { positions, reps, apply_constraint: applyConstraint });
+        return await this.jsonPost(
+            `/api/supercell/apply/{session_id}`,
+            this.framePayload({ positions, reps, apply_constraint: applyConstraint })
+        );
     }
 
     async applySupercellMatrix(positions, matrix, applyConstraint = true) {
-        return await this.jsonPost(`/api/supercell/matrix/{session_id}`, { positions, matrix, apply_constraint: applyConstraint });
+        return await this.jsonPost(
+            `/api/supercell/matrix/{session_id}`,
+            this.framePayload({ positions, matrix, apply_constraint: applyConstraint })
+        );
     }
 
     async applyTranslation(positions, vector, coordinateMode = 'cartesian', applyConstraint = true) {
-        return await this.jsonPost(`/api/translate/{session_id}`, {
+        return await this.jsonPost(`/api/translate/{session_id}`, this.framePayload({
             positions,
             vector,
             coordinate_mode: coordinateMode,
             apply_constraint: applyConstraint
-        });
+        }));
     }
 
     async commensurateAngles(axis, maxIndex = 32, strainTolerance = 0.01) {
-        return await this.jsonPost(`/api/commensurate/{session_id}`, {
+        return await this.jsonPost(`/api/commensurate/{session_id}`, this.framePayload({
             axis,
             max_index: maxIndex,
             strain_tolerance: strainTolerance
-        });
+        }));
     }
 
     async setFrame(index) {
@@ -745,7 +783,7 @@ export class ASEApi {
     }
 
     async relaxStart(positions, fmax, steps, applyConstraint = true, calculator = null) {
-        const body = { positions, fmax, steps, apply_constraint: applyConstraint };
+        const body = this.framePayload({ positions, fmax, steps, apply_constraint: applyConstraint });
         if (calculator) body.calculator = calculator;
         return await this.request(`/api/relax/start/{session_id}`, {
             method: 'POST',
@@ -759,23 +797,25 @@ export class ASEApi {
     }
 
     async exportPoscar(positions, applyConstraint = true) {
+        const payload = this.framePayload({ positions, apply_constraint: applyConstraint });
         return await this.request(`/api/export/poscar/{session_id}`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ positions, apply_constraint: applyConstraint })
+            body: JSON.stringify(payload)
         }, { expect: 'blob' });
     }
 
     async exportPickle(positions, applyConstraint = true) {
+        const payload = this.framePayload({ positions, apply_constraint: applyConstraint });
         return await this.request(`/api/export/pickle/{session_id}`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ positions, apply_constraint: applyConstraint })
+            body: JSON.stringify(payload)
         }, { expect: 'blob' });
     }
 
     async exportBlender(positions, applyConstraint = true, camera = null, display = null, bondPairs = null, lighting = null, includeCell = true) {
-        const body = { positions, apply_constraint: applyConstraint };
+        const body = this.framePayload({ positions, apply_constraint: applyConstraint });
         if (camera) body.camera = camera;
         if (display) body.display = display;
         if (bondPairs) body.bond_pairs = bondPairs;
@@ -789,7 +829,7 @@ export class ASEApi {
     }
 
     async exportCad(format, positions, applyConstraint = true, display = null, bondPairs = null, bondBridges = null, camera = null, includeCell = true) {
-        const body = { positions, apply_constraint: applyConstraint };
+        const body = this.framePayload({ positions, apply_constraint: applyConstraint });
         if (display) body.display = display;
         if (bondPairs) body.bond_pairs = bondPairs;
         if (bondBridges) body.bond_bridges = bondBridges;
@@ -843,11 +883,19 @@ export class ASEApi {
     }
 
     async saveProject(positions, settings, applyConstraint = true) {
+        const payload = this.framePayload({ positions, settings, apply_constraint: applyConstraint });
         return await this.request(`/api/project/save/{session_id}`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ positions, settings, apply_constraint: applyConstraint })
+            body: JSON.stringify(payload)
         }, { expect: 'blob' });
+    }
+
+    async fetchDisplacements(options = {}) {
+        return await this.jsonPost(
+            `/api/analysis/displacement/{session_id}`,
+            this.framePayload(options)
+        );
     }
 
     async loadProject(file) {

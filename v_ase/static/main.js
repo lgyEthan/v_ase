@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.90&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.90&rev=1';
-import { ASESelection } from './selection.js?v=0.0.90&rev=1';
-import { ASETransform } from './transform.js?v=0.0.90&rev=1';
+import { ASEApi } from './api.js?v=0.0.91&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.91&rev=1';
+import { ASESelection } from './selection.js?v=0.0.91&rev=1';
+import { ASETransform } from './transform.js?v=0.0.91&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -125,7 +125,15 @@ class VAseApp {
                 imageSphereQuality: 'viewport',
                 imageSmoothnessScale: 1,
                 videoFormat: 'mov',
-                videoFps: 12
+                videoFps: 12,
+                showDisplacements: false,
+                displacementReferenceMode: 'previous',
+                displacementReferenceFrame: 0,
+                displacementMic: true,
+                displacementStyle: '3d',
+                displacementScale: 1,
+                displacementThickness: 0.08,
+                displacementColor: '#e58b2a'
             },
             antiAliasing: true,
             sphereQuality: 'auto',
@@ -177,8 +185,14 @@ class VAseApp {
             hoverPickTimer: null,
             hoverPointer: null,
             orientationSignature: null,
-            isRelaxing: false
+            isRelaxing: false,
+            displacementRequestToken: 0,
+            displacementRefreshTimer: null,
+            displacementStats: null
         };
+        this.api.currentFrameProvider = () => Number(
+            this.state.atoms?.metadata?.current_frame ?? 0
+        );
 
         this.inspectorGroup = 'inspect';
         this.handleWorkspaceMessage = this.handleWorkspaceMessage.bind(this);
@@ -200,6 +214,7 @@ class VAseApp {
             this.setupWebSocket();
             this.setupInspectorResizer();
             this.setupInspectorNavigation();
+            this.setupDisplacementAnalysis();
             this.setupViewControls();
             this.setupRuntimeModeControls();
             this.setupSelectedAppearanceControls();
@@ -557,6 +572,9 @@ class VAseApp {
             this.state.labelOrder = [...plan.labelOrder];
             if (!vizOnly) this.state.replicaSelected.clear();
             this.setAtomsData(data, { preserveDisplay: false });
+            (data.mode_transition_warnings || []).forEach(message => {
+                this.toast(message, 'warning');
+            });
             this.toast(
                 vizOnly
                     ? 'View mode enabled. Structure editing is disabled.'
@@ -960,7 +978,7 @@ class VAseApp {
             display: 'view',
             output: 'export'
         };
-        const available = new Set(['inspect', 'structure', 'view', 'export']);
+        const available = new Set(['inspect', 'structure', 'analysis', 'view', 'export']);
         const requested = migrations[group] || group;
         const next = available.has(requested) ? requested : 'inspect';
         this.inspectorGroup = next;
@@ -977,6 +995,10 @@ class VAseApp {
             const labels = { export: 'Export' };
             label.textContent = labels[next] || (next.charAt(0).toUpperCase() + next.slice(1));
         }
+        document.getElementById('structure-section-picker')?.classList.toggle(
+            'hidden',
+            next !== 'structure'
+        );
         if (persist) {
             try {
                 window.localStorage?.setItem('v_ase.inspectorGroup', next);
@@ -990,11 +1012,12 @@ class VAseApp {
     }
 
     structureSectionTargets() {
-        return [...document.querySelectorAll('[data-structure-target]')]
-            .map(button => ({
-                button,
+        const select = document.getElementById('structure-section-select');
+        return [...(select?.options || [])]
+            .map(option => ({
+                option,
                 panel: document.querySelector(
-                    `#inspector-content [data-panel="${button.dataset.structureTarget}"]`
+                    `#inspector-content [data-panel="${option.value}"]`
                 )
             }))
             .filter(item => item.panel);
@@ -1003,12 +1026,12 @@ class VAseApp {
     syncStructureSectionNavigation() {
         if (this.inspectorGroup !== 'structure') return;
         const content = document.getElementById('inspector-content');
-        const nav = content?.querySelector('.structure-section-nav');
+        const select = document.getElementById('structure-section-select');
         const targets = this.structureSectionTargets().filter(
-            ({ button, panel }) => button.offsetParent !== null && panel.offsetParent !== null
+            ({ option, panel }) => !option.disabled && panel.offsetParent !== null
         );
-        if (!content || !nav || !targets.length) return;
-        const threshold = nav.getBoundingClientRect().bottom + 28;
+        if (!content || !select || !targets.length) return;
+        const threshold = content.getBoundingClientRect().top + 28;
         let active = targets[0];
         for (const candidate of targets) {
             if (candidate.panel.getBoundingClientRect().top <= threshold) active = candidate;
@@ -1016,42 +1039,25 @@ class VAseApp {
         if (content.scrollTop + content.clientHeight >= content.scrollHeight - 2) {
             active = targets[targets.length - 1];
         }
-        targets.forEach(({ button }) => {
-            button.setAttribute('aria-current', button === active.button ? 'true' : 'false');
-        });
-        const buttonLeft = active.button.offsetLeft;
-        const buttonRight = buttonLeft + active.button.offsetWidth;
-        if (buttonLeft < nav.scrollLeft) {
-            nav.scrollTo({ left: buttonLeft, behavior: 'smooth' });
-        } else if (buttonRight > nav.scrollLeft + nav.clientWidth) {
-            nav.scrollTo({
-                left: buttonRight - nav.clientWidth,
-                behavior: 'smooth'
-            });
-        }
+        select.value = active.option.value;
     }
 
     setupStructureSectionNavigation() {
         const content = document.getElementById('inspector-content');
-        const nav = content?.querySelector('.structure-section-nav');
-        if (!content || !nav) return;
-        nav.querySelectorAll('[data-structure-target]').forEach(button => {
-            button.addEventListener('click', () => {
-                const panel = document.querySelector(
-                    `#inspector-content [data-panel="${button.dataset.structureTarget}"]`
-                );
-                if (!panel || panel.offsetParent === null) return;
-                const contentTop = content.getBoundingClientRect().top;
-                const top = Math.max(
-                    0,
-                    content.scrollTop + panel.getBoundingClientRect().top
-                        - contentTop - nav.offsetHeight
-                );
-                content.scrollTo({ top, behavior: 'smooth' });
-                nav.querySelectorAll('[data-structure-target]').forEach(item => {
-                    item.setAttribute('aria-current', item === button ? 'true' : 'false');
-                });
-            });
+        const select = document.getElementById('structure-section-select');
+        if (!content || !select) return;
+        select.addEventListener('change', () => {
+            const panel = document.querySelector(
+                `#inspector-content [data-panel="${select.value}"]`
+            );
+            if (!panel || panel.offsetParent === null) return;
+            panel.open = true;
+            const contentTop = content.getBoundingClientRect().top;
+            const top = Math.max(
+                0,
+                content.scrollTop + panel.getBoundingClientRect().top - contentTop
+            );
+            content.scrollTo({ top, behavior: 'smooth' });
         });
         let frame = null;
         content.addEventListener('scroll', () => {
@@ -1083,6 +1089,216 @@ class VAseApp {
         this.setupStructureSectionNavigation();
         this.setInspectorGroup(savedGroup, false);
         this.setInspectorCollapsed(collapsed, false);
+    }
+
+    setupDisplacementAnalysis() {
+        const recompute = () => {
+            this.readDisplacementControls();
+            this.scheduleDisplacementAnalysisRefresh();
+        };
+        const restyle = () => this.readDisplacementControls();
+        document.getElementById('chk-displacement')?.addEventListener('change', recompute);
+        document.getElementById('displacement-reference-mode')?.addEventListener('change', recompute);
+        document.getElementById('displacement-reference-frame')?.addEventListener('change', recompute);
+        document.getElementById('chk-displacement-mic')?.addEventListener('change', recompute);
+        document.getElementById('displacement-style')?.addEventListener('change', restyle);
+        document.getElementById('displacement-scale')?.addEventListener('input', restyle);
+        document.getElementById('displacement-thickness')?.addEventListener('input', restyle);
+        document.getElementById('displacement-color')?.addEventListener('input', restyle);
+        this.syncDisplacementControls();
+    }
+
+    readDisplacementControls({ applyRenderer = true } = {}) {
+        const frameCount = Math.max(1, Number(this.state.atoms?.metadata?.frame_count) || 1);
+        const mode = document.getElementById('displacement-reference-mode')?.value === 'frame'
+            ? 'frame'
+            : 'previous';
+        const referenceInput = document.getElementById('displacement-reference-frame');
+        const referenceFrame = Math.max(
+            0,
+            Math.min(frameCount - 1, (parseInt(referenceInput?.value || '1', 10) || 1) - 1)
+        );
+        const scale = Math.max(
+            0.05,
+            Math.min(10, Number(document.getElementById('displacement-scale')?.value) || 1)
+        );
+        const thickness = Math.max(
+            0.01,
+            Math.min(0.5, Number(document.getElementById('displacement-thickness')?.value) || 0.08)
+        );
+        const color = document.getElementById('displacement-color')?.value;
+        Object.assign(this.state.display, {
+            showDisplacements: Boolean(document.getElementById('chk-displacement')?.checked),
+            displacementReferenceMode: mode,
+            displacementReferenceFrame: referenceFrame,
+            displacementMic: document.getElementById('chk-displacement-mic')?.checked !== false,
+            displacementStyle: document.getElementById('displacement-style')?.value === '2d' ? '2d' : '3d',
+            displacementScale: scale,
+            displacementThickness: thickness,
+            displacementColor: /^#[0-9a-f]{6}$/i.test(color || '') ? color : '#e58b2a'
+        });
+        if (referenceInput) {
+            referenceInput.min = '1';
+            referenceInput.max = `${frameCount}`;
+            referenceInput.value = `${referenceFrame + 1}`;
+        }
+        this.syncDisplacementControls();
+        if (applyRenderer) this.renderer.setDisplayOptions(this.state.display);
+    }
+
+    syncDisplacementControls(display = this.state.display) {
+        const setChecked = (id, value) => {
+            const element = document.getElementById(id);
+            if (element) element.checked = Boolean(value);
+        };
+        const setValue = (id, value) => {
+            const element = document.getElementById(id);
+            if (element && document.activeElement !== element) element.value = `${value}`;
+        };
+        setChecked('chk-displacement', display.showDisplacements);
+        setChecked('chk-displacement-mic', display.displacementMic !== false);
+        setValue('displacement-reference-mode', display.displacementReferenceMode === 'frame' ? 'frame' : 'previous');
+        setValue('displacement-reference-frame', (Number(display.displacementReferenceFrame) || 0) + 1);
+        setValue('displacement-style', display.displacementStyle === '2d' ? '2d' : '3d');
+        setValue('displacement-scale', Number(display.displacementScale) || 1);
+        setValue('displacement-thickness', Number(display.displacementThickness) || 0.08);
+        setValue('displacement-color', display.displacementColor || '#e58b2a');
+        document.getElementById('displacement-reference-frame-row')?.classList.toggle(
+            'hidden',
+            display.displacementReferenceMode !== 'frame'
+        );
+        const scaleOutput = document.getElementById('displacement-scale-value');
+        if (scaleOutput) scaleOutput.textContent = `${(Number(display.displacementScale) || 1).toFixed(2)}x`;
+        const thicknessOutput = document.getElementById('displacement-thickness-value');
+        if (thicknessOutput) {
+            thicknessOutput.textContent = `${(Number(display.displacementThickness) || 0.08).toFixed(2)} A`;
+        }
+    }
+
+    setDisplacementStatus(state, title, detail = '') {
+        const status = document.getElementById('displacement-status');
+        if (!status) return;
+        status.dataset.state = state;
+        const titleElement = status.querySelector('.analysis-status-title');
+        const detailElement = status.querySelector('.analysis-status-detail');
+        if (titleElement) titleElement.textContent = title;
+        if (detailElement) detailElement.textContent = detail;
+    }
+
+    clearDisplacementStats() {
+        this.state.displacementStats = null;
+        document.getElementById('displacement-stats')?.classList.add('hidden');
+        this.renderer.clearDisplacementVectors();
+    }
+
+    updateDisplacementStats(data) {
+        this.state.displacementStats = data;
+        document.getElementById('displacement-stats')?.classList.remove('hidden');
+        const setText = (id, text) => {
+            const element = document.getElementById(id);
+            if (element) element.textContent = text;
+        };
+        setText(
+            'displacement-frame-summary',
+            `${Number(data.reference_frame) + 1} -> ${Number(data.current_frame) + 1}`
+        );
+        setText(
+            'displacement-mapped',
+            `${data.matched} atoms (${data.mapping === 'index' ? 'index' : 'particle ID'})`
+        );
+        setText(
+            'displacement-mean-rms',
+            `${Number(data.stats?.mean || 0).toFixed(4)} / ${Number(data.stats?.rms || 0).toFixed(4)} A`
+        );
+        setText('displacement-max', `${Number(data.stats?.max || 0).toFixed(4)} A`);
+    }
+
+    scheduleDisplacementAnalysisRefresh(delay = 70) {
+        if (this.state.displacementRefreshTimer !== null) {
+            clearTimeout(this.state.displacementRefreshTimer);
+        }
+        this.state.displacementRefreshTimer = setTimeout(() => {
+            this.state.displacementRefreshTimer = null;
+            this.refreshDisplacementAnalysis().catch(error => {
+                this.setDisplacementStatus('warning', 'Displacement unavailable', error.message);
+                this.clearDisplacementStats();
+            });
+        }, Math.max(0, delay));
+    }
+
+    async refreshDisplacementAnalysis() {
+        const token = ++this.state.displacementRequestToken;
+        const frameCount = Number(this.state.atoms?.metadata?.frame_count) || 1;
+        if (!this.state.display.showDisplacements) {
+            this.setDisplacementStatus(
+                'idle',
+                'Displacement vectors hidden',
+                frameCount > 1 ? 'Enable Show vectors to calculate them.' : 'Load a trajectory with at least two frames.'
+            );
+            this.clearDisplacementStats();
+            return;
+        }
+        if (frameCount <= 1) {
+            this.setDisplacementStatus(
+                'warning',
+                'Displacement unavailable',
+                'At least two trajectory frames are required.'
+            );
+            this.clearDisplacementStats();
+            return;
+        }
+
+        const currentFrame = Number(this.state.atoms?.metadata?.current_frame) || 0;
+        if (this.state.display.displacementReferenceMode === 'previous' && currentFrame === 0) {
+            this.setDisplacementStatus(
+                'warning',
+                'No previous frame',
+                'Move to frame 2 or choose a specific reference frame.'
+            );
+            this.clearDisplacementStats();
+            return;
+        }
+        this.setDisplacementStatus(
+            'loading',
+            'Calculating displacement',
+            `Frame ${currentFrame + 1} of ${frameCount}`
+        );
+        const busyTimer = setTimeout(() => {
+            if (token === this.state.displacementRequestToken && !document.body.dataset.busy) {
+                this.setBusy('Calculating displacement vectors...');
+                document.body.dataset.displacementBusy = `${token}`;
+            }
+        }, 450);
+        try {
+            const payload = {
+                reference_mode: this.state.display.displacementReferenceMode,
+                reference_frame: this.state.display.displacementReferenceFrame,
+                mic: this.state.display.displacementMic
+            };
+            if (!this.state.vizOnly) payload.positions = this.backendPositionsPayload();
+            const data = await this.api.fetchDisplacements(payload);
+            if (token !== this.state.displacementRequestToken) return;
+            if (data.status !== 'ok') {
+                this.setDisplacementStatus('warning', 'Displacement unavailable', data.message || 'No data.');
+                this.clearDisplacementStats();
+                return;
+            }
+            this.renderer.setDisplacementVectors(data, this.state.display);
+            this.updateDisplacementStats(data);
+            const mic = data.mic_applied ? 'MIC' : 'direct';
+            const warning = (data.warnings || []).join(' ');
+            this.setDisplacementStatus(
+                warning ? 'warning' : 'ready',
+                `${data.matched} displacement vectors`,
+                warning || `${mic} mapping from frame ${data.reference_frame + 1} to ${data.current_frame + 1}.`
+            );
+        } finally {
+            clearTimeout(busyTimer);
+            if (document.body.dataset.displacementBusy === `${token}`) {
+                delete document.body.dataset.displacementBusy;
+                this.clearBusy();
+            }
+        }
     }
 
     normalizedViewRotationStep(value = this.state.display.viewRotationStepDeg) {
@@ -1531,6 +1747,7 @@ class VAseApp {
             this.updateDocumentAvailability();
             if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
             this.notifyWorkspaceDocument();
+            this.scheduleDisplacementAnalysisRefresh();
         } catch (err) {
             console.error("DEBUG: Refresh Failed:", err);
         }
@@ -1906,6 +2123,7 @@ class VAseApp {
         this.updateSelectionVisuals();
         this.updateUI();
         this.updateDocumentAvailability();
+        this.scheduleDisplacementAnalysisRefresh();
     }
 
     hasLoadedAtoms() {
@@ -5019,6 +5237,7 @@ class VAseApp {
         this.state.display.sphereQuality = this.state.sphereQuality;
         this.state.display.vizOnly = this.state.vizOnly;
         this.state.display.blenderExportMode = document.getElementById('blender-export-mode')?.value || 'instanced';
+        this.readDisplacementControls({ applyRenderer: false });
         this.updateRadiusScaleLabel();
         this.syncViewControls();
         this.pruneSelection();
@@ -5179,6 +5398,7 @@ class VAseApp {
         setValue('atom-radius-scale', display.atomRadiusScale || 0.6);
         setValue('move-increment', this.state.moveIncrement || 0);
         setValue('rotate-increment', this.state.rotateIncrementDeg || 0);
+        this.syncDisplacementControls(display);
         this.setSupercellInputs(display.supercell || [1, 1, 1]);
         this.writeBondPairs(display.manualBondPairs || []);
         this.syncViewControls(display);
@@ -5360,6 +5580,20 @@ class VAseApp {
                 ? nextDisplay.videoFormat
                 : 'mov',
             videoFps: finiteClamped(nextDisplay.videoFps, 12, 1, 60),
+            showDisplacements: Boolean(nextDisplay.showDisplacements),
+            displacementReferenceMode: nextDisplay.displacementReferenceMode === 'frame'
+                ? 'frame'
+                : 'previous',
+            displacementReferenceFrame: integerClamped(
+                nextDisplay.displacementReferenceFrame, 0, 0, Math.max(0, this.loadedFrameCount() - 1)
+            ),
+            displacementMic: nextDisplay.displacementMic !== false,
+            displacementStyle: nextDisplay.displacementStyle === '2d' ? '2d' : '3d',
+            displacementScale: finiteClamped(nextDisplay.displacementScale, 1, 0.05, 10),
+            displacementThickness: finiteClamped(nextDisplay.displacementThickness, 0.08, 0.01, 0.5),
+            displacementColor: this.validHexColor(nextDisplay.displacementColor)
+                ? nextDisplay.displacementColor
+                : '#e58b2a',
             supercell
         };
     }
@@ -5450,6 +5684,7 @@ class VAseApp {
             this.updateSelectionVisuals();
             this.updateBondModeUI();
             this.updateUI();
+            this.scheduleDisplacementAnalysisRefresh();
         }
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
     }
@@ -7136,6 +7371,15 @@ class VAseApp {
         }
     }
 
+    completeTrajectoryFrameUpdate() {
+        this.pruneSelection();
+        this.updateSelectionVisuals();
+        if (this.state.display.showDisplacements) {
+            this.renderer.clearDisplacementVectors();
+        }
+        this.scheduleDisplacementAnalysisRefresh();
+    }
+
     async loadFrame(index) {
         if (this.transform.mode !== 'IDLE') this.cancelTransform();
         const meta = this.state.atoms?.metadata || {};
@@ -7159,6 +7403,7 @@ class VAseApp {
                     this.renderer.updatePositionsFlat(binaryCache.values, offset, binaryCache.atoms);
                 }
                 this.updateTrajectoryUI();
+                this.completeTrajectoryFrameUpdate();
                 return;
             }
             const frame = await this.api.fetchFramePositions(normalized);
@@ -7174,6 +7419,7 @@ class VAseApp {
                 this.state.originalPositions = this.state.vizOnly ? override : override.map(p => [...p]);
                 this.renderer.updatePositions(override);
                 this.updateUI();
+                this.completeTrajectoryFrameUpdate();
                 return;
             }
             this.renderer.updatePositionsFlat(frame.values, 0, frame.atoms);
@@ -7185,6 +7431,7 @@ class VAseApp {
                 this.state.originalPositions = this.state.vizOnly ? positions : positions.map(p => [...p]);
                 this.updateUI();
             }
+            this.completeTrajectoryFrameUpdate();
             return;
         }
 
@@ -7203,6 +7450,7 @@ class VAseApp {
             } else {
                 this.updateUI();
             }
+            this.completeTrajectoryFrameUpdate();
             return;
         }
 
@@ -7226,6 +7474,7 @@ class VAseApp {
                 this.state.originalPositions = this.state.vizOnly ? framePositions : framePositions.map(p => [...p]);
                 this.updateUI();
             }
+            this.completeTrajectoryFrameUpdate();
             return;
         }
 
@@ -7247,9 +7496,10 @@ class VAseApp {
             } else {
                 this.updateUI();
             }
+            this.completeTrajectoryFrameUpdate();
             return;
         }
-        this.setAtomsData(data, { clearSelection: true });
+        this.setAtomsData(data, { clearSelection: false });
     }
 
     queueFrameLoad(index, source = this.primaryTimelineSource()) {

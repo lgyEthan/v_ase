@@ -101,9 +101,10 @@ and documentation use `view()`.
 22. Metal materials allocate one shared low-resolution PMREM reflection
     environment on first use. Standard/rubber-only scenes do not pay that
     allocation or preprocessing cost.
-23. The control panel has four semantic workspaces: Inspect, Structure, View,
-    and Export. Appearance and bonding are Structure sections because both
-    participate in atom identity and scientific structure interpretation.
+23. The control panel has five semantic workspaces: Inspect, Structure,
+    Analysis, View, and Export. Appearance and bonding are Structure sections
+    because both participate in atom identity and scientific structure
+    interpretation.
 24. Cartesian or fractional whole-structure translation applies to every
     trajectory frame and never changes the unit cell. Fractional vectors use
     the complete, potentially non-orthogonal cell matrix.
@@ -115,6 +116,20 @@ and documentation use `view()`.
     Canceling the picker must not call structure generation, image rendering,
     video capture/transcoding, or CAD/Blender scene construction. Browsers
     without the File System Access API retain the download fallback.
+27. Every browser mutation and structure/CAD export carries the displayed
+    `frame_index`. The backend synchronizes that frame before consuming
+    coordinates, constraints, labels, calculator state, or export payloads.
+28. Trajectory-wide physical operations validate and transform every frame
+    using that frame's own cell and PBC. Fractional translation, wrapping,
+    diagonal repetition, and matrix supercells never copy the active frame's
+    lattice onto another frame.
+29. Base-atom selection survives trajectory frame changes and is pruned only
+    when an index is absent or hidden. Measurements update against the newly
+    displayed coordinates without requiring reselection.
+30. Displacement analysis maps common unique particle IDs when available and
+    otherwise uses stable indices only for equal-size frames. Unequal
+    topologies without IDs are rejected instead of fabricating a mapping.
+    MIC uses the current frame's cell/PBC and is explicit in the result.
 
 ## Canonical Names And Compatibility
 
@@ -177,6 +192,8 @@ same implementation for compatibility.
 ## Performance Contract
 
 - Atoms, bonds, selections, and supercell replicas use GPU instancing.
+- Displacement arrows use two instanced batches: one shaft and one head batch,
+  independent of atom count.
 - The renderer is request-driven and has no permanent animation loop.
 - Large numeric LAMMPS dumps are memory-mapped and byte-offset indexed.
 - Compatible trajectories are transferred once as contiguous float32
@@ -192,6 +209,9 @@ same implementation for compatibility.
 - Modeling mode allocates no shadow map; rendered lighting cost is opt-in.
 - Material presets reuse cached `MeshPhysicalMaterial` and instanced groups;
   the default one-label/one-material scene remains one atom draw group.
+- Hidden displacement analysis performs no backend calculation and allocates
+  no arrow meshes. Color, thickness, scale, and 2D/3D restyling reuse the
+  latest vectors without repeating the backend calculation.
 - Inactive workspace tabs suspend rendering and playback.
 - Local servers use readiness polling and are stopped/joined by their owning
   editor or blocking session. Release is lease-bound so a delayed prior session
