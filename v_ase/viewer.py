@@ -53,14 +53,14 @@ def wait_for_local_server(port: int, timeout: float = 5.0) -> None:
     ) from last_error
 
 
-def acquire_local_server(app, port: int) -> None:
+def acquire_local_server(app, port: int) -> _LocalServer:
     """Start or retain one managed Uvicorn server for a local port."""
     with _local_servers_lock:
         existing = _local_servers.get(port)
         if existing and existing.thread.is_alive():
             existing.owners += 1
             wait_for_local_server(port)
-            return
+            return existing
 
         import uvicorn
 
@@ -77,21 +77,30 @@ def acquire_local_server(app, port: int) -> None:
             name=f"v_ase-server-{port}",
             daemon=True,
         )
-        _local_servers[port] = _LocalServer(server=server, thread=thread)
+        handle = _LocalServer(server=server, thread=thread)
+        _local_servers[port] = handle
         thread.start()
 
     try:
         wait_for_local_server(port)
     except Exception:
-        release_local_server(port, force=True)
+        release_local_server(port, expected_handle=handle, force=True)
         raise
+    return handle
 
 
-def release_local_server(port: int, *, force: bool = False) -> None:
+def release_local_server(
+    port: int,
+    *,
+    expected_handle: _LocalServer | None = None,
+    force: bool = False,
+) -> None:
     """Release an owner and stop the server after its final session closes."""
     with _local_servers_lock:
         handle = _local_servers.get(port)
         if handle is None:
+            return
+        if expected_handle is not None and handle is not expected_handle:
             return
         if not force:
             handle.owners -= 1
@@ -126,10 +135,17 @@ def normalize_atoms_input(atoms_or_frames, *, attach_default: bool = True) -> li
 
 class ASEEditor:
     """Handle for non-blocking viewer sessions."""
-    def __init__(self, session_id: str, port: int, workspace_id: str | None = None):
+    def __init__(
+        self,
+        session_id: str,
+        port: int,
+        workspace_id: str | None = None,
+        server_handle: _LocalServer | None = None,
+    ):
         self.session_id = session_id
         self.port = port
         self.workspace_id = workspace_id
+        self._server_handle = server_handle
         self._closed = False
         self._close_lock = threading.Lock()
         if workspace_id and session_id in sessions:
@@ -187,7 +203,7 @@ class ASEEditor:
         if self.session_id in sessions:
             session = sessions.pop(self.session_id)
             session.cleanup_temporary_files()
-        release_local_server(self.port)
+        release_local_server(self.port, expected_handle=self._server_handle)
 
     def export_poscar(self, filename="POSCAR"):
         from ase.io import write
@@ -320,6 +336,7 @@ def view(
             server_enabled = False
             port = 0
 
+    server_handle = None
     if server_enabled:
         try:
             import webbrowser
@@ -330,7 +347,7 @@ def view(
                 "Install them with: pip install fastapi uvicorn"
             ) from exc
 
-        acquire_local_server(app, port)
+        server_handle = acquire_local_server(app, port)
     
     if server_enabled and not notebook:
         workspace = create_workspace(session)
@@ -347,7 +364,7 @@ def view(
             display(IFrame(src=url, width="100%", height="700px"))
         except ModuleNotFoundError:
             pass
-        return ASEEditor(session_id, port)
+        return ASEEditor(session_id, port, server_handle=server_handle)
     else:
         if server_enabled:
             webbrowser.open(url)
@@ -384,12 +401,13 @@ def view(
                 closed_session = sessions.pop(session_id, None)
                 if closed_session is not None:
                     closed_session.cleanup_temporary_files()
-                release_local_server(port)
+                release_local_server(port, expected_handle=server_handle)
         else:
             return ASEEditor(
                 session_id,
                 port,
                 workspace_id=workspace.workspace_id if workspace else None,
+                server_handle=server_handle,
             )
 
 

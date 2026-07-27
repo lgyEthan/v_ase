@@ -31,7 +31,13 @@ def test_milestone_2_proof():
     def run_viewer():
         # block=True returns when the session is finalized through the API.
         # We run it in a thread so Playwright can interact with it
-        result["edited"] = view(atoms, block=True, port=port, viz_only=False)
+        result["edited"] = view(
+            atoms,
+            block=True,
+            port=port,
+            viz_only=False,
+            close_on_disconnect=False,
+        )
     
     viewer_thread = threading.Thread(target=run_viewer, daemon=True)
     viewer_thread.start()

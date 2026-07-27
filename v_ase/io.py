@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import mmap
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
@@ -269,6 +270,87 @@ def set_atom_labels(atoms: Atoms, labels: Iterable[object]) -> None:
     """Store user-facing labels without changing ASE chemical symbols."""
     normalized = [normalize_atom_type_label(label) for label in labels]
     atoms.set_array(ATOM_LABEL_ARRAY, np.asarray(normalized, dtype="U64"))
+
+
+def _vasp_species_block_labels(path: Path, atoms: Atoms) -> list[str] | None:
+    """Preserve repeated POSCAR species blocks as distinct display labels."""
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            header = [handle.readline() for _ in range(7)]
+    except OSError:
+        return None
+    if len(header) < 7 or any(line == "" for line in header):
+        return None
+
+    try:
+        scale_values = [float(value) for value in header[1].split()]
+        lattice_rows = [
+            [float(value) for value in header[row].split()[:3]]
+            for row in range(2, 5)
+        ]
+    except (TypeError, ValueError):
+        return None
+    if len(scale_values) not in {1, 3} or any(len(row) != 3 for row in lattice_rows):
+        return None
+
+    species = header[5].split()
+    count_tokens = header[6].split()
+    if not species or len(species) != len(count_tokens):
+        return None
+    if any(symbol not in atomic_numbers for symbol in species):
+        return None
+    try:
+        counts = [int(value) for value in count_tokens]
+    except ValueError:
+        return None
+    if any(count < 0 for count in counts) or sum(counts) != len(atoms):
+        return None
+
+    expanded_symbols = [
+        symbol
+        for symbol, count in zip(species, counts)
+        for _ in range(count)
+    ]
+    if expanded_symbols != atoms.get_chemical_symbols():
+        return None
+
+    block_totals = Counter(species)
+    if all(total == 1 for total in block_totals.values()):
+        return None
+    block_occurrences: Counter[str] = Counter()
+    labels: list[str] = []
+    for symbol, count in zip(species, counts):
+        block_occurrences[symbol] += 1
+        label = (
+            f"{symbol}{block_occurrences[symbol]}"
+            if block_totals[symbol] > 1
+            else symbol
+        )
+        labels.extend([label] * count)
+    return labels
+
+
+def _apply_vasp_species_block_labels(
+    path: Path,
+    frames: list[Atoms],
+    resolved_format: str | None,
+    requested_format: str | None,
+) -> None:
+    name = path.name.upper()
+    is_vasp_structure = resolved_format == "vasp" or (
+        requested_format is None
+        and (
+            path.suffix.lower() == ".vasp"
+            or name.startswith("POSCAR")
+            or name.startswith("CONTCAR")
+        )
+    )
+    if not is_vasp_structure:
+        return
+    for atoms in frames:
+        labels = _vasp_species_block_labels(path, atoms)
+        if labels is not None:
+            set_atom_labels(atoms, labels)
 
 
 # Compatibility aliases for code written against v_ase <= 0.0.77.
@@ -873,4 +955,7 @@ def read_structure_frames(
         return read_custom_extxyz(source, index)
 
     frames = loaded if isinstance(loaded, list) else [loaded]
-    return read_custom_extxyz(source, index) if needs_custom_extxyz(frames) else frames
+    if needs_custom_extxyz(frames):
+        return read_custom_extxyz(source, index)
+    _apply_vasp_species_block_labels(source, frames, resolved_format, fmt)
+    return frames

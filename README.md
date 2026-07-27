@@ -285,6 +285,11 @@ File type is normally detected automatically. Common inputs include POSCAR,
 CONTCAR, VASP files, XDATCAR, `vasprun.xml`, XYZ/extxyz, ASE `.traj`, LAMMPS
 dump/data files, and `.vase`.
 
+Repeated POSCAR/CONTCAR species blocks remain separate visual groups. For
+example, `O Cu O` with counts `1 14 5` appears as `O1`, `Cu`, and `O2`.
+The ASE chemical symbols remain unchanged, so calculations and exports continue
+to use the correct elements.
+
 For an ambiguous filename, select the reader explicitly:
 
 ```bash

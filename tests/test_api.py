@@ -1,6 +1,7 @@
 import threading
 import time
 from inspect import signature
+from types import SimpleNamespace
 
 import numpy as np
 from ase.build import molecule
@@ -13,7 +14,13 @@ from v_ase.session import (
     finalize_workspace,
     sessions,
 )
-from v_ase.viewer import ASEEditor
+from v_ase.viewer import (
+    ASEEditor,
+    _LocalServer,
+    _local_servers,
+    _local_servers_lock,
+    release_local_server,
+)
 
 
 def test_view_defaults_to_lightweight_visualization_mode():
@@ -33,7 +40,7 @@ def test_nonblocking_editor_releases_server_when_workspace_finishes(monkeypatch)
     released = threading.Event()
     monkeypatch.setattr(
         "v_ase.viewer.release_local_server",
-        lambda port: released.set(),
+        lambda port, **kwargs: released.set(),
     )
     editor = ASEEditor(
         session.session_id,
@@ -46,6 +53,37 @@ def test_nonblocking_editor_releases_server_when_workspace_finishes(monkeypatch)
     assert released.wait(timeout=2)
     assert session.session_id not in sessions
     editor.close()
+
+
+def test_stale_server_lease_cannot_stop_a_reused_port():
+    class StoppedThread:
+        def is_alive(self):
+            return False
+
+        def join(self, timeout=None):
+            return None
+
+    port = -1
+    stale = _LocalServer(
+        server=SimpleNamespace(should_exit=False, force_exit=False),
+        thread=StoppedThread(),
+    )
+    current = _LocalServer(
+        server=SimpleNamespace(should_exit=False, force_exit=False),
+        thread=StoppedThread(),
+    )
+    with _local_servers_lock:
+        _local_servers[port] = current
+    try:
+        release_local_server(port, expected_handle=stale)
+
+        assert _local_servers[port] is current
+        assert current.owners == 1
+        assert current.server.should_exit is False
+    finally:
+        release_local_server(port, expected_handle=current, force=True)
+
+    assert port not in _local_servers
 
 
 def test_view_returns_committed_structure_without_mutating_input():

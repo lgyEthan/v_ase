@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.0.84
+
+- Preserved repeated POSCAR/CONTCAR species blocks as distinct visual labels.
+  For example, `O Cu O` with counts `1 14 5` is exposed as `O1`, `Cu`, and
+  `O2` while ASE chemical symbols remain `O`, `Cu`, and `O`.
+- Numbered every occurrence when a species appears in three or more blocks,
+  and handled multiple independently repeated species in their original file
+  order.
+- Added reader and browser-payload regression coverage for repeated VASP
+  species groups.
+- Bound local-server release to the acquired server instance so a delayed old
+  session cannot stop a newer session when the operating system reuses a port.
+
 ## 0.0.83
 
 - Made the default viewport an exact white field with lower-contrast grid

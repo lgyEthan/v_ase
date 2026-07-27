@@ -123,6 +123,62 @@ def test_read_structure_frames_uses_format_alias_for_extensionless_poscar(tmp_pa
     assert frames[0].get_chemical_formula() == "H2O"
 
 
+def test_repeated_poscar_species_blocks_become_distinct_labels(tmp_path):
+    path = tmp_path / "POSCAR"
+    path.write_text(
+        """Repeated oxygen blocks
+1.0
+8.0 0.0 0.0
+0.0 8.0 0.0
+0.0 0.0 8.0
+O Cu O
+1 2 3
+Direct
+0.00 0.00 0.00
+0.15 0.00 0.00
+0.30 0.00 0.00
+0.45 0.00 0.00
+0.60 0.00 0.00
+0.75 0.00 0.00
+"""
+    )
+
+    frames = read_structure_frames(path, "-1", None)
+
+    assert frames[0].get_chemical_symbols() == ["O", "Cu", "Cu", "O", "O", "O"]
+    assert atom_labels(frames[0]) == ["O1", "Cu", "Cu", "O2", "O2", "O2"]
+    payload = atoms_to_json(frames[0])
+    assert payload["labels"] == ["O1", "Cu", "Cu", "O2", "O2", "O2"]
+    assert payload["chemical_symbols"] == ["O", "Cu", "Cu", "O", "O", "O"]
+
+
+def test_repeated_vasp_species_labels_follow_every_original_block(tmp_path):
+    path = tmp_path / "material.input"
+    path.write_text(
+        """Multiple repeated species
+1.0
+9.0 0.0 0.0
+0.0 9.0 0.0
+0.0 0.0 9.0
+O Cu O Cu O
+1 1 2 1 1
+Selective dynamics
+Direct
+0.00 0.00 0.00 T T T
+0.15 0.00 0.00 T T T
+0.30 0.00 0.00 T T T
+0.45 0.00 0.00 T T T
+0.60 0.00 0.00 T T T
+0.75 0.00 0.00 T T T
+"""
+    )
+
+    frames = read_structure_frames(path, "-1", "CONTCAR")
+
+    assert frames[0].get_chemical_symbols() == ["O", "Cu", "O", "O", "Cu", "O"]
+    assert atom_labels(frames[0]) == ["O1", "Cu1", "O2", "O2", "Cu2", "O3"]
+
+
 def test_read_structure_frames_supports_multi_frame_files(tmp_path):
     path = tmp_path / "movie.extxyz"
     first = molecule("H2O")

@@ -116,6 +116,11 @@ Canonical Python label helpers are `atom_labels()` and `set_atom_labels()`.
 `atom_type_labels()`, `set_atom_type_labels()`, and `ATOM_TYPE_ARRAY` remain
 compatibility aliases for code written against v_ase 0.0.77 or earlier.
 
+POSCAR/CONTCAR species headers are also part of label identity. If one element
+appears in multiple species blocks, each occurrence receives an ordered visual
+label (`O1`, `O2`, ...), while the ASE atomic numbers and symbols remain
+unchanged.
+
 Canonical atom-identity route:
 
 ```text
@@ -165,7 +170,8 @@ same implementation for compatibility.
   the default one-label/one-material scene remains one atom draw group.
 - Inactive workspace tabs suspend rendering and playback.
 - Local servers use readiness polling and are stopped/joined by their owning
-  editor or blocking session.
+  editor or blocking session. Release is lease-bound so a delayed prior session
+  cannot stop a newer server that reused the same port number.
 
 Current benchmark method and results are in [performance.md](performance.md).
 
@@ -183,3 +189,8 @@ Current benchmark method and results are in [performance.md](performance.md).
 8. Wheel and sdist build, metadata check, clean-environment installation,
    `v_ase --version`, and console entry-point execution.
 9. Documentation and displayed/static version synchronization.
+
+Run installed-wheel verification from outside the repository checkout. The
+checkout contains build metadata, so invoking pip from its root can make pip
+mistake that metadata for an installed distribution during repeated local
+release checks.

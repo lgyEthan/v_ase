@@ -48,6 +48,8 @@ present in the active frame.
 
 Specialized readers preserve data ASE cannot represent directly:
 
+- repeated POSCAR/CONTCAR species blocks become ordered labels such as `O1`,
+  `O2`, and `O3` while retaining the original ASE chemical symbol;
 - custom extxyz labels map to ASE-valid chemical symbols and remain separate
   labels;
 - LAMMPS dump/data integer types remain raw labels;

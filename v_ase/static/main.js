@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.83&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.83&rev=1';
-import { ASESelection } from './selection.js?v=0.0.83&rev=1';
-import { ASETransform } from './transform.js?v=0.0.83&rev=1';
+import { ASEApi } from './api.js?v=0.0.84&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.84&rev=1';
+import { ASESelection } from './selection.js?v=0.0.84&rev=1';
+import { ASETransform } from './transform.js?v=0.0.84&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
