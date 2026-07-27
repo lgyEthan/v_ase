@@ -2753,9 +2753,16 @@ export class ASERenderer {
 
     updatePositionsFlat(values, offset = 0, count = this.atomsData?.positions?.length || 0) {
         if (!values || !count) return;
+        const atomPositions = this.atomsData?.positions;
         if (this.useInstancedAtoms) {
             for (let index = 0; index < count; index++) {
                 const base = offset + index * 3;
+                const position = atomPositions?.[index];
+                if (position) {
+                    position[0] = values[base];
+                    position[1] = values[base + 1];
+                    position[2] = values[base + 2];
+                }
                 this.updateAtomInstanceTranslation(
                     index, values[base], values[base + 1], values[base + 2]
                 );
@@ -2773,6 +2780,16 @@ export class ASERenderer {
             this.refreshStudioSunForStructure();
             this.requestRender();
             return;
+        }
+        if (atomPositions) {
+            for (let index = 0; index < count; index++) {
+                const base = offset + index * 3;
+                const position = atomPositions[index];
+                if (!position) continue;
+                position[0] = values[base];
+                position[1] = values[base + 1];
+                position[2] = values[base + 2];
+            }
         }
         this.atomMeshes.children.forEach(mesh => {
             const idx = mesh.userData.index;

@@ -58,6 +58,11 @@ def build_parser() -> argparse.ArgumentParser:
     gui.add_argument("--output-format", help="ASE output format override")
     gui.add_argument("--port", type=int, help="local browser server port")
     gui.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="do not launch a browser automatically; print the URL for SSH tunnels or headless servers",
+    )
+    gui.add_argument(
         "--no-block",
         action="store_true",
         help="open without waiting for session finalization; keep the local server alive until Ctrl+C",
@@ -140,6 +145,7 @@ def run_gui(args: argparse.Namespace) -> int:
         initial_frame=initial_frame,
         initial_design_settings=initial_design_settings,
         document_name=path.name if path is not None else "Untitled",
+        open_browser=not args.no_browser,
     )
 
     if args.no_block:

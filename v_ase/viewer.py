@@ -1,8 +1,13 @@
 import os
+import platform
+import shutil
 import socket
+import subprocess
+import sys
 import threading
 import time
 import uuid
+import webbrowser
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence, Union
 
@@ -28,6 +33,65 @@ class _LocalServer:
 
 _local_servers: dict[int, _LocalServer] = {}
 _local_servers_lock = threading.RLock()
+
+
+def _running_under_wsl() -> bool:
+    return bool(
+        os.environ.get("WSL_INTEROP")
+        or os.environ.get("WSL_DISTRO_NAME")
+        or "microsoft" in platform.release().lower()
+    )
+
+
+def _spawn_browser_command(command: list[str]) -> bool:
+    try:
+        subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError:
+        return False
+    return True
+
+
+def open_browser_url(url: str) -> bool:
+    """Open a local viewer URL without routing WSL through Linux gio."""
+    if _running_under_wsl():
+        candidates: list[list[str]] = []
+        wslview = shutil.which("wslview")
+        if wslview:
+            candidates.append([wslview, url])
+        powershell = shutil.which("powershell.exe")
+        if powershell:
+            candidates.append([
+                powershell,
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Start-Process -FilePath $args[0]",
+                url,
+            ])
+        explorer = shutil.which("explorer.exe")
+        if explorer:
+            candidates.append([explorer, url])
+        command_prompt = shutil.which("cmd.exe")
+        if command_prompt:
+            candidates.append([command_prompt, "/C", "start", "", f'"{url}"'])
+        return any(_spawn_browser_command(command) for command in candidates)
+
+    if (
+        sys.platform.startswith("linux")
+        and not os.environ.get("DISPLAY")
+        and not os.environ.get("WAYLAND_DISPLAY")
+    ):
+        return False
+    try:
+        return bool(webbrowser.open(url, new=2))
+    except webbrowser.Error:
+        return False
 
 
 def find_free_port() -> int:
@@ -250,6 +314,7 @@ def view(
     initial_design_settings: Optional[dict[str, Any]] = None,
     document_name: str | None = None,
     close_on_disconnect: bool = True,
+    open_browser: bool = True,
 ) -> Union[Atoms, ASEEditor, None]:
     """
     Open the v_ase structure viewer/editor.
@@ -339,7 +404,6 @@ def view(
     server_handle = None
     if server_enabled:
         try:
-            import webbrowser
             from .server import app
         except ModuleNotFoundError as exc:
             raise RuntimeError(
@@ -367,7 +431,20 @@ def view(
         return ASEEditor(session_id, port, server_handle=server_handle)
     else:
         if server_enabled:
-            webbrowser.open(url)
+            if open_browser:
+                if not open_browser_url(url):
+                    print(
+                        "v_ase could not open a browser automatically.\n"
+                        f"Open this URL in your browser:\n{url}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+            elif block:
+                print(
+                    f"Open this URL in your browser:\n{url}",
+                    file=sys.stderr,
+                    flush=True,
+                )
         elif not block:
             raise RuntimeError("Cannot open v_ase because this environment does not allow local sockets.")
         
@@ -425,6 +502,7 @@ def view_edit(
     export: bool = True,
     return_mode: str = "atoms",
     close_on_disconnect: bool = True,
+    open_browser: bool = True,
 ):
     """Compatibility alias for opening v_ase in interactive mode."""
     return view(
@@ -440,6 +518,7 @@ def view_edit(
         viz_only=False,
         return_mode=return_mode,
         close_on_disconnect=close_on_disconnect,
+        open_browser=open_browser,
     )
 
 

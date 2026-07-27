@@ -850,12 +850,23 @@ export class ASEApi {
         return await this.exportCad('obj', positions, applyConstraint, display, bondPairs, bondBridges, camera, includeCell);
     }
 
-    async transcodeVideo(recording, format = 'mov') {
+    async transcodeVideo(recording, format = 'mov', fps = 12, frameCount = null) {
         const normalized = ['mov', 'avi'].includes(String(format).toLowerCase())
             ? String(format).toLowerCase()
             : 'mov';
+        const normalizedFps = Math.min(60, Math.max(1, Math.round(Number(fps) || 12)));
+        const normalizedFrameCount = Number.isFinite(Number(frameCount))
+            ? Math.max(1, Math.round(Number(frameCount)))
+            : null;
+        const query = new URLSearchParams({
+            format: normalized,
+            fps: String(normalizedFps)
+        });
+        if (normalizedFrameCount !== null) {
+            query.set('frames', String(normalizedFrameCount));
+        }
         return await this.request(
-            `/api/export/video/{session_id}?format=${encodeURIComponent(normalized)}`,
+            `/api/export/video/{session_id}?${query.toString()}`,
             {
                 method: 'POST',
                 headers: {'Content-Type': recording?.type || 'video/webm'},

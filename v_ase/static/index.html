@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.91&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.92&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.91';
+            : '/static/vendor/three.module.js?v=0.0.92';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -38,9 +38,15 @@
     </div>
     <section id="empty-workspace" class="empty-workspace hidden" aria-label="Empty workspace">
         <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-        <h1>Open a structure or project</h1>
-        <button id="btn-empty-open" class="btn primary" type="button">Open File</button>
-        <span>ASE structures, trajectories, and .vase projects</span>
+        <h1>Open a structure</h1>
+        <span>Structures, trajectories, and .vase projects</span>
+        <button id="btn-empty-open" class="btn primary" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 7.5h6l2-2h4.5A2.5 2.5 0 0 1 18 8v1.5"></path>
+                <path d="M4.2 9.5h15.6a1.5 1.5 0 0 1 1.4 2l-2.5 6.4a2 2 0 0 1-1.9 1.3H5.4a2 2 0 0 1-2-1.8L2.7 12a2.3 2.3 0 0 1 1.5-2.5Z"></path>
+            </svg>
+            <span>Open File</span>
+        </button>
     </section>
     <div id="busy-overlay" aria-live="polite">
         <div class="busy-card">
@@ -57,7 +63,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.91</span>
+            <span class="version">0.0.92</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -938,7 +944,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.91&rev=1';
+            : './static/main.js?v=0.0.92&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

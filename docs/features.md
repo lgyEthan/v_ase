@@ -197,6 +197,17 @@ Base-atom selections survive frame changes and are removed only when the new
 frame does not contain the selected index or its label is hidden. Measurements
 are recomputed from the newly displayed positions.
 
+Video export uses source frames directly at `1x`. An optional integer
+interpolation multiplier inserts linear subframes between adjacent snapshots;
+the output count is `(Nsource - 1) * multiplier + 1`. MIC mode converts each
+endpoint through its own cell, follows the shortest displacement along axes
+that are periodic in both frames, interpolates a changing cell, and wraps the
+temporary fractional position for rendering. Atom count, order, labels, and
+chemical types must remain stable when interpolation is enabled.
+Canvas samples are requested explicitly and MOV/AVI transcoding receives both
+the selected FPS and expected frame count, preventing browser refresh-rate
+duplicates from changing playback duration.
+
 Files appended from the Open dialog become frames in the active source
 trajectory. The active frame and document visual state are preserved; newly
 introduced labels and chemical types are reconciled without renaming existing

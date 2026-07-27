@@ -41,6 +41,7 @@ and documentation use `view()`.
   supercells, lighting, measurements, and capture.
 - `static/selection.js`: click and box-selection hit testing.
 - `static/transform.js`: modal move/rotate state.
+- `static/trajectory.js`: video-frame count and Cartesian/MIC interpolation.
 - `static/api.js`: typed local HTTP payload handling and download helpers.
 - `static/workspace.js`: independent multi-document shell.
 
@@ -130,6 +131,15 @@ and documentation use `view()`.
     otherwise uses stable indices only for equal-size frames. Unequal
     topologies without IDs are rejected instead of fabricating a mapping.
     MIC uses the current frame's cell/PBC and is explicit in the result.
+31. Video interpolation is export-only and never mutates the source trajectory.
+    `1x` preserves one output frame per source frame; `Nx` emits
+    `(source_frames - 1) * N + 1` frames. MIC interpolation uses both adjacent
+    cells, their shared periodic axes, and wrapped fractional coordinates.
+    Manual canvas capture plus explicit transcoder FPS/frame-count settings
+    prevent refresh-rate-dependent duplicates.
+32. WSL browser launch bypasses Linux `gio` and prefers `wslview` or Windows
+    executables. Headless operation can suppress automatic launch while keeping
+    the HTTP server loopback-only.
 
 ## Canonical Names And Compatibility
 
@@ -188,6 +198,9 @@ same implementation for compatibility.
   intentionally ignores `.vase` visual settings.
 - Browser **Open in new tab** uploads into a newly created, independent session
   before making that tab active.
+- Video interpolation settings are reusable visual state. Interpolated
+  coordinates are temporary render samples and are excluded from `.vase`, ASE
+  Pickle, and the source trajectory.
 
 ## Performance Contract
 

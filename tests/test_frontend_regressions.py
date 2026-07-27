@@ -782,6 +782,11 @@ def test_frontend_reset_video_and_visual_settings_controls_are_wired():
     assert "AVI (MPEG-4)" in main_js
     assert "video/mp4;codecs=avc1.42E01E" in main_js
     assert "backgroundColor: '#ffffff'" in main_js
+    assert 'id="video-interpolation-multiplier"' in main_js
+    assert 'id="video-interpolation-mic"' in main_js
+    assert "interpolateTrajectoryFrames" in main_js
+    assert "interpolatedFrameCount" in main_js
+    assert "Higher values take longer to render." in main_js
     assert "beginExportCapture" in renderer_js
     assert "renderExportCaptureFrame" in renderer_js
     assert "transcodeVideo" in api_js
@@ -812,6 +817,8 @@ def test_frontend_reset_video_and_visual_settings_controls_are_wired():
     assert "save-format-guide" in index_html
     assert ".confirm-list" in style_css
     assert "#inspector .btn-block:disabled" in style_css
+    assert "--viewport-light-ink: #14211e" in style_css
+    assert "--viewport-light-action: #147a69" in style_css
 
 
 def test_trajectory_controls_update_live_and_space_toggles_playback():

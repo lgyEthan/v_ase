@@ -2366,8 +2366,18 @@ if FASTAPI_AVAILABLE:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/export/video/{session_id}")
-    async def api_export_video(session_id: str, request: Request, format: str = "mov"):
+    async def api_export_video(
+        session_id: str,
+        request: Request,
+        format: str = "mov",
+        fps: int = 12,
+        frames: int | None = None,
+    ):
         get_session(session_id)
+        if fps < 1 or fps > 60:
+            raise HTTPException(status_code=400, detail="Video FPS must be between 1 and 60.")
+        if frames is not None and (frames < 1 or frames > 10_000_000):
+            raise HTTPException(status_code=400, detail="Invalid expected video frame count.")
         declared_size = request.headers.get("content-length")
         if declared_size:
             try:
@@ -2392,6 +2402,8 @@ if FASTAPI_AVAILABLE:
                 transcode_video_file,
                 source_path,
                 format,
+                fps,
+                frames,
             )
         except HTTPException:
             source.close()

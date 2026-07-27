@@ -192,6 +192,30 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
             assert page.locator('#empty-workspace').is_visible()
             assert page.locator('#btn-empty-open').is_visible()
             assert page.locator('#btn-export-pickle').is_disabled()
+            empty_workspace_styles = page.locator('#empty-workspace').evaluate(
+                """element => {
+                    const heading = element.querySelector('h1');
+                    const supporting = element.querySelector(':scope > span');
+                    const button = element.querySelector('#btn-empty-open');
+                    const rect = button.getBoundingClientRect();
+                    return {
+                        heading: getComputedStyle(heading).color,
+                        supporting: getComputedStyle(supporting).color,
+                        buttonBackground: getComputedStyle(button).backgroundColor,
+                        buttonColor: getComputedStyle(button).color,
+                        buttonWidth: rect.width,
+                        buttonHeight: rect.height,
+                    };
+                }"""
+            )
+            assert empty_workspace_styles == {
+                "heading": "rgb(20, 33, 30)",
+                "supporting": "rgb(75, 92, 86)",
+                "buttonBackground": "rgb(20, 122, 105)",
+                "buttonColor": "rgb(255, 255, 255)",
+                "buttonWidth": 154,
+                "buttonHeight": 42,
+            }
 
             with page.expect_file_chooser() as chooser_info:
                 page.click('#btn-empty-open')
@@ -1437,6 +1461,8 @@ def test_trajectory_video_export_downloads_preview_matched_mov(tmp_path):
                 "height": 256,
                 "fps": 6,
                 "format": "mov",
+                "interpolationMultiplier": 2,
+                "interpolationMic": True,
                 "transparentBackground": False,
                 "backgroundColor": "#ffffff",
                 "includeGrid": False,
@@ -1485,8 +1511,8 @@ def test_trajectory_video_export_downloads_preview_matched_mov(tmp_path):
             metadata = next(decoded)
             decoded_frames = list(decoded)
             assert metadata["size"] == (320, 256)
-            assert len(decoded_frames) == 3
-            assert len({hashlib.sha1(frame).hexdigest() for frame in decoded_frames}) == 3
+            assert len(decoded_frames) == 5
+            assert len({hashlib.sha1(frame).hexdigest() for frame in decoded_frames}) == 5
 
             first_frame = tmp_path / "video-first-frame.png"
             subprocess.run(

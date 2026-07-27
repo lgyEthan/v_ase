@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.0.92
+
+- Added optional `1x`-`64x` linear video-frame interpolation with
+  frame-specific cell interpolation and a minimum-image-convention toggle.
+- Made browser video capture deterministic by requesting canvas frames
+  explicitly and transcoding to the selected FPS and exact output frame count.
+- Added WSL-aware Windows browser launch, a headless `--no-browser` workflow,
+  and documented secure SSH port forwarding for remote servers.
+- Rebuilt the empty white workspace around explicit high-contrast text,
+  controls, focus states, and a larger rendered V_ASE mark.
+- Added a consolidated user troubleshooting guide for installation, WSL,
+  remote servers, file readers, browser sessions, save behavior, and optional
+  exports.
+
 ## 0.0.91
 
 - Added an Analysis workspace with previous/specific-frame displacement

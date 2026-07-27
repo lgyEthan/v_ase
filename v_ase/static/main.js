@@ -1,8 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.91&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.91&rev=1';
-import { ASESelection } from './selection.js?v=0.0.91&rev=1';
-import { ASETransform } from './transform.js?v=0.0.91&rev=1';
+import { ASEApi } from './api.js?v=0.0.92&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.92&rev=1';
+import { ASESelection } from './selection.js?v=0.0.92&rev=1';
+import { ASETransform } from './transform.js?v=0.0.92&rev=1';
+import {
+    interpolateTrajectoryFrames,
+    interpolatedFrameCount,
+    normalizeInterpolationMultiplier
+} from './trajectory.js?v=0.0.92&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -126,6 +131,8 @@ class VAseApp {
                 imageSmoothnessScale: 1,
                 videoFormat: 'mov',
                 videoFps: 12,
+                videoInterpolationMultiplier: 1,
+                videoInterpolationMic: true,
                 showDisplacements: false,
                 displacementReferenceMode: 'previous',
                 displacementReferenceFrame: 0,
@@ -5580,6 +5587,10 @@ class VAseApp {
                 ? nextDisplay.videoFormat
                 : 'mov',
             videoFps: finiteClamped(nextDisplay.videoFps, 12, 1, 60),
+            videoInterpolationMultiplier: integerClamped(
+                nextDisplay.videoInterpolationMultiplier, 1, 1, 64
+            ),
+            videoInterpolationMic: nextDisplay.videoInterpolationMic !== false,
             showDisplacements: Boolean(nextDisplay.showDisplacements),
             displacementReferenceMode: nextDisplay.displacementReferenceMode === 'frame'
                 ? 'frame'
@@ -7060,6 +7071,10 @@ class VAseApp {
         const format = ['mov', 'avi'].includes(this.state.display.videoFormat)
             ? this.state.display.videoFormat
             : 'mov';
+        const interpolationMultiplier = normalizeInterpolationMultiplier(
+            this.state.display.videoInterpolationMultiplier
+        );
+        const interpolationMic = this.state.display.videoInterpolationMic !== false;
         const lighting = this.state.display;
         const position = lighting.sunPosition || [8, -10, 14];
         const target = lighting.sunTarget || [0, 0, 0];
@@ -7089,7 +7104,16 @@ class VAseApp {
                         <input type="number" id="video-height" value="${height}" min="256" step="128">
                         <label for="video-fps">FPS</label>
                         <input type="number" id="video-fps" value="${fps}" min="1" max="60" step="1">
+                        <label for="video-interpolation-multiplier">Interpolation</label>
+                        <input type="number" id="video-interpolation-multiplier"
+                               value="${interpolationMultiplier}" min="1" max="64" step="1"
+                               aria-describedby="video-interpolation-note">
                     </div>
+                    <label class="check-row" for="video-interpolation-mic">
+                        <span>Minimum image convention</span>
+                        <input type="checkbox" id="video-interpolation-mic" ${interpolationMic ? 'checked' : ''}>
+                    </label>
+                    <p id="video-interpolation-note" class="export-note"></p>
                     <label class="check-row" for="video-grid">
                         <span>Include grid</span>
                         <input type="checkbox" id="video-grid" ${this.state.display.showGrid ? 'checked' : ''}>
@@ -7180,6 +7204,13 @@ class VAseApp {
                 height: outputHeight,
                 fps: Math.min(60, Math.max(1,
                     Number(document.getElementById('video-fps')?.value) || fps)),
+                interpolationMultiplier: normalizeInterpolationMultiplier(
+                    document.getElementById('video-interpolation-multiplier')?.value
+                        || interpolationMultiplier
+                ),
+                interpolationMic: Boolean(
+                    document.getElementById('video-interpolation-mic')?.checked
+                ),
                 format: document.getElementById('video-format')?.value === 'avi' ? 'avi' : 'mov',
                 transparentBackground: false,
                 backgroundColor: '#ffffff',
@@ -7212,7 +7243,24 @@ class VAseApp {
                     ? `${options.pixelsPerAngstrom.toFixed(2)} px/Å; frame span ${(options.width / options.pixelsPerAngstrom).toFixed(2)} Å × ${(options.height / options.pixelsPerAngstrom).toFixed(2)} Å.`
                     : 'Uses the current camera direction and magnification with the requested output aspect ratio.';
             }
-            const { width: previewWidth, height: previewHeight, fps: _fps, format: _format, ...renderOptions } = options;
+            const interpolationNote = document.getElementById('video-interpolation-note');
+            const interpolationToggle = document.getElementById('video-interpolation-mic');
+            const outputFrames = interpolatedFrameCount(count, options.interpolationMultiplier);
+            if (interpolationToggle) interpolationToggle.disabled = options.interpolationMultiplier <= 1;
+            if (interpolationNote) {
+                interpolationNote.textContent = options.interpolationMultiplier <= 1
+                    ? `${count} source frames; interpolation is off.`
+                    : `${options.interpolationMultiplier}× creates ${outputFrames} frames (${(outputFrames / options.fps).toFixed(2)} s). Higher values take longer to render.`;
+            }
+            const {
+                width: previewWidth,
+                height: previewHeight,
+                fps: _fps,
+                format: _format,
+                interpolationMultiplier: _interpolationMultiplier,
+                interpolationMic: _interpolationMic,
+                ...renderOptions
+            } = options;
             this.state.exportPreviewProfile = {
                 width: previewWidth,
                 height: previewHeight,
@@ -7221,13 +7269,15 @@ class VAseApp {
             if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
         };
         [
-            'video-width', 'video-height', 'video-fps', 'video-smoothness-scale',
+            'video-width', 'video-height', 'video-fps', 'video-interpolation-multiplier',
+            'video-smoothness-scale',
             'video-sun-intensity', 'video-sun-position-0', 'video-sun-position-1',
             'video-sun-position-2', 'video-sun-target-0', 'video-sun-target-1',
             'video-sun-target-2'
         ].forEach(id => document.getElementById(id)?.addEventListener('input', updateVideoPreview));
         [
-            'video-format', 'video-grid', 'video-axes', 'video-cell', 'video-framing-mode',
+            'video-format', 'video-interpolation-mic', 'video-grid', 'video-axes',
+            'video-cell', 'video-framing-mode',
             'video-sphere-quality', 'video-render-mode'
         ].forEach(id => document.getElementById(id)?.addEventListener('change', updateVideoPreview));
         updateVideoPreview();
@@ -7241,7 +7291,9 @@ class VAseApp {
                     imageSphereQuality: options.sphereQuality,
                     imageSmoothnessScale: options.sphereQualityScale,
                     videoFormat: options.format,
-                    videoFps: options.fps
+                    videoFps: options.fps,
+                    videoInterpolationMultiplier: options.interpolationMultiplier,
+                    videoInterpolationMic: options.interpolationMic
                 });
                 const imageWidthInput = document.getElementById('image-width');
                 const imageHeightInput = document.getElementById('image-height');
@@ -7264,7 +7316,79 @@ class VAseApp {
         }, { once: true });
     }
 
-    async exportTrajectoryVideo({ width, height, fps, format, ...renderOptions }, destination) {
+    videoFrameSnapshot() {
+        const positions = this.renderer?.atomsData?.positions || this.state.atoms?.positions || [];
+        const flattened = new Float64Array(positions.length * 3);
+        positions.forEach((position, index) => {
+            const offset = index * 3;
+            flattened[offset] = Number(position?.[0]) || 0;
+            flattened[offset + 1] = Number(position?.[1]) || 0;
+            flattened[offset + 2] = Number(position?.[2]) || 0;
+        });
+        return {
+            positions: flattened,
+            count: positions.length,
+            cell: Array.isArray(this.state.atoms?.cell)
+                ? this.state.atoms.cell.map(row => [...row])
+                : null,
+            pbc: Array.isArray(this.state.atoms?.pbc) ? [...this.state.atoms.pbc] : [false, false, false],
+            chemicalSymbols: [...(this.state.atoms?.chemical_symbols || [])],
+            labels: [...(this.state.atoms?.symbols || [])]
+        };
+    }
+
+    videoFramesAreInterpolable(first, second) {
+        if (first.count !== second.count) {
+            throw new Error('Interpolation requires the same atom count in every trajectory frame.');
+        }
+        const sameValues = (a, b) => (
+            a.length === b.length && a.every((value, index) => value === b[index])
+        );
+        if (
+            !sameValues(first.chemicalSymbols, second.chemicalSymbols)
+            || !sameValues(first.labels, second.labels)
+        ) {
+            throw new Error('Interpolation requires stable atom ordering, chemical types, and labels.');
+        }
+    }
+
+    async captureCurrentVideoFrame(
+        capture,
+        videoTrack,
+        outputIndex,
+        outputCount,
+        outputFps
+    ) {
+        this.renderer.renderExportCaptureFrame(capture);
+        videoTrack?.requestFrame?.();
+        this.setBusy(`Rendering video frame ${outputIndex} / ${outputCount}...`);
+        await new Promise(resolve => setTimeout(resolve, 1000 / outputFps));
+    }
+
+    async renderVideoCaptureSample(
+        capture,
+        videoTrack,
+        sample,
+        outputIndex,
+        outputCount,
+        outputFps
+    ) {
+        this.applyFrameLattice(sample.cell, sample.pbc);
+        this.renderer.updatePositionsFlat(sample.positions, 0, sample.count);
+        await this.captureCurrentVideoFrame(
+            capture, videoTrack, outputIndex, outputCount, outputFps
+        );
+    }
+
+    async exportTrajectoryVideo({
+        width,
+        height,
+        fps,
+        format,
+        interpolationMultiplier = 1,
+        interpolationMic = true,
+        ...renderOptions
+    }, destination) {
         const meta = this.state.atoms?.metadata || {};
         const frameCount = meta.frame_count || 1;
         if (frameCount <= 1) throw new Error('A trajectory with at least two frames is required.');
@@ -7275,6 +7399,8 @@ class VAseApp {
         const outputWidth = Math.ceil(Math.max(256, Number(width) || 1920) / 2) * 2;
         const outputHeight = Math.ceil(Math.max(256, Number(height) || 1080) / 2) * 2;
         const outputFps = Math.min(60, Math.max(1, Number(fps) || 12));
+        const interpolationFactor = normalizeInterpolationMultiplier(interpolationMultiplier);
+        const outputFrameCount = interpolatedFrameCount(frameCount, interpolationFactor);
         const outputFormat = format === 'avi' ? 'avi' : 'mov';
         const filename = `v_ase-trajectory.${outputFormat}`;
         const outputMime = outputFormat === 'avi' ? 'video/x-msvideo' : 'video/quicktime';
@@ -7290,8 +7416,13 @@ class VAseApp {
         }
         const chunks = [];
         let capture = this.renderer.beginExportCapture(outputWidth, outputHeight, renderOptions);
-        const stream = canvas.captureStream(outputFps);
-        const videoTrack = stream.getVideoTracks()[0];
+        let stream = canvas.captureStream(0);
+        let videoTrack = stream.getVideoTracks()[0];
+        if (typeof videoTrack?.requestFrame !== 'function') {
+            stream.getTracks().forEach(track => track.stop());
+            stream = canvas.captureStream(outputFps);
+            videoTrack = stream.getVideoTracks()[0];
+        }
         const mimeType = [
             'video/webm;codecs=vp9',
             'video/webm;codecs=vp8',
@@ -7313,16 +7444,50 @@ class VAseApp {
         });
 
         this.closeModal();
-        this.setBusy(`Rendering ${frameCount} trajectory frames...`);
+        this.setBusy(`Rendering ${outputFrameCount} video frames...`);
         recorder.start(100);
         try {
             await new Promise(resolve => setTimeout(resolve, 80));
-            for (let frame = 0; frame < frameCount; frame++) {
-                await this.loadFrame(frame);
-                this.renderer.renderExportCaptureFrame(capture);
-                videoTrack?.requestFrame?.();
-                this.setBusy(`Rendering trajectory frame ${frame + 1} / ${frameCount}...`);
-                await new Promise(resolve => setTimeout(resolve, 1000 / outputFps));
+            let outputIndex = 0;
+            let micFallback = false;
+            if (interpolationFactor <= 1) {
+                for (let frame = 0; frame < frameCount; frame++) {
+                    await this.loadFrame(frame);
+                    outputIndex += 1;
+                    await this.captureCurrentVideoFrame(
+                        capture, videoTrack, outputIndex, outputFrameCount, outputFps
+                    );
+                }
+            } else {
+                await this.loadFrame(0);
+                let first = this.videoFrameSnapshot();
+                outputIndex += 1;
+                await this.captureCurrentVideoFrame(
+                    capture, videoTrack, outputIndex, outputFrameCount, outputFps
+                );
+                for (let frame = 1; frame < frameCount; frame++) {
+                    await this.loadFrame(frame);
+                    const second = this.videoFrameSnapshot();
+                    this.videoFramesAreInterpolable(first, second);
+                    for (let subframe = 1; subframe < interpolationFactor; subframe++) {
+                        const sample = interpolateTrajectoryFrames(
+                            first,
+                            second,
+                            subframe / interpolationFactor,
+                            { useMic: interpolationMic }
+                        );
+                        if (interpolationMic && !sample.micApplied) micFallback = true;
+                        outputIndex += 1;
+                        await this.renderVideoCaptureSample(
+                            capture, videoTrack, sample, outputIndex, outputFrameCount, outputFps
+                        );
+                    }
+                    outputIndex += 1;
+                    await this.renderVideoCaptureSample(
+                        capture, videoTrack, second, outputIndex, outputFrameCount, outputFps
+                    );
+                    first = second;
+                }
             }
             recorder.stop();
             await finished;
@@ -7333,7 +7498,12 @@ class VAseApp {
                 type: recorder.mimeType || mimeType || 'application/octet-stream'
             });
             this.setBusy(`Encoding ${outputFormat.toUpperCase()} video...`);
-            const video = await this.api.transcodeVideo(recording, outputFormat);
+            const video = await this.api.transcodeVideo(
+                recording,
+                outputFormat,
+                outputFps,
+                outputFrameCount
+            );
             const saved = await this.savePreparedBlob(
                 video,
                 filename,
@@ -7341,6 +7511,12 @@ class VAseApp {
                 selectedDestination
             );
             if (saved) this.toast(`${outputFormat.toUpperCase()} video saved.`, 'success');
+            if (micFallback) {
+                this.toast(
+                    'MIC was unavailable for one or more transitions; direct interpolation was used there.',
+                    'warning'
+                );
+            }
         } finally {
             stream.getTracks().forEach(track => track.stop());
             if (recorder.state !== 'inactive') recorder.stop();

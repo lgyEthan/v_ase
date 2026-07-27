@@ -97,9 +97,18 @@ def video_export_format(output_format: str) -> Dict[str, Any]:
     return VIDEO_EXPORT_FORMATS[normalized]
 
 
-def transcode_video_file(source_path: str, output_format: str) -> tuple[str, str, str]:
+def transcode_video_file(
+    source_path: str,
+    output_format: str,
+    fps: int | None = None,
+    frame_count: int | None = None,
+) -> tuple[str, str, str]:
     """Convert a browser-recorded WebM into a portable MOV or AVI file."""
     config = video_export_format(output_format)
+    normalized_fps = None if fps is None else max(1, min(60, int(fps)))
+    normalized_frame_count = (
+        None if frame_count is None else max(1, int(frame_count))
+    )
     try:
         import imageio_ffmpeg
     except ModuleNotFoundError as exc:
@@ -118,6 +127,16 @@ def transcode_video_file(source_path: str, output_format: str) -> tuple[str, str
         "-y",
         "-i", source_path,
         "-an",
+        *(
+            ["-vf", f"fps={normalized_fps}:round=near"]
+            if normalized_fps is not None
+            else []
+        ),
+        *(
+            ["-frames:v", str(normalized_frame_count)]
+            if normalized_frame_count is not None
+            else []
+        ),
         *config["codec_args"],
         target_path,
     ]

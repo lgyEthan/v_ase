@@ -92,6 +92,11 @@ editor.close()
 temporary files, workspace documents, and the managed local server when it is
 the final owner.
 
+`view(..., open_browser=False)` suppresses automatic browser launch. With
+`block=False`, inspect `ASEEditor.url`; with blocking CLI use, v_ase prints the
+URL before waiting for the browser document to close. The server remains bound
+to `127.0.0.1`, so remote access should use an SSH local port forward.
+
 ## CLI
 
 ```bash
@@ -99,10 +104,13 @@ v_ase gui
 v_ase gui FILE
 v_ase gui FILE --interactive
 v_ase gui AMBIGUOUS --format FORMAT
+v_ase gui FILE --port 58039 --no-browser
 ```
 
 The default is View mode. `--interactive` starts in Edit mode. The top-bar
 switch can change mode after startup without reopening the file.
+`--no-browser` is intended for SSH tunnels and other headless hosts; it leaves
+the server on `127.0.0.1` and prints the URL instead of launching a browser.
 
 The browser **Open** dialog can replace the active document, append selected
 frames to its trajectory, or open an independent workspace tab. `.vase`

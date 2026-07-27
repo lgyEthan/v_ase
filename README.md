@@ -139,6 +139,13 @@ remain active across all frames. Valid selected atom indices remain selected
 when the frame changes, so measurements update without rebuilding the
 selection.
 
+Video export keeps FPS as the playback-speed control. Optional linear
+interpolation can create `N×` as many intervals between source frames; `1×`
+keeps the original trajectory unchanged. **Minimum image convention** follows
+the shortest periodic displacement using each adjacent frame's cell and PBC.
+Interpolation increases the number of rendered frames and therefore takes
+longer.
+
 In interactive mode, relaxation creates a separate optimization timeline.
 When source and relaxation trajectories both exist, choose **Source frames** or
 **Relaxation · calculator** from the timeline selector. Playback, `Space`, and
@@ -265,7 +272,7 @@ atom transforms.
 | Export POSCAR | Current atomic structure in VASP format |
 | Export ASE Pickle | Current ASE `Atoms`, labels, constraints, arrays, and valid `SinglePointCalculator` results |
 | Export Image | PNG using the Preview Area camera and crop |
-| Export Video | Complete trajectory as MOV or AVI |
+| Export Video | Complete trajectory as MOV or AVI, with optional N× interpolation and MIC |
 | Export Blender | Optimized Python scene with atoms, bonds, camera, Sun, optional cell, and trajectory animation |
 | Export 3DM | Instanced Rhino geometry, metadata, and saved views |
 | Export OBJ | OBJ/MTL plus camera and metadata JSON in a ZIP |
@@ -345,6 +352,166 @@ for one frame.
 v_ase --help
 v_ase gui --help
 ```
+
+## Troubleshooting
+
+Open the item that matches the visible symptom.
+
+<details>
+<summary><code>v_ase</code> command is not found</summary>
+
+Use the same Python environment for installation and execution:
+
+```bash
+python -m pip install --upgrade v_ase-gui
+python -m v_ase.cli --version
+```
+
+If `python -m v_ase.cli` works but `v_ase` does not, reopen the terminal after
+activating the environment and check that its Python scripts directory is on
+`PATH`. A clean virtual environment is the fastest way to isolate broken
+metadata from manually installed development packages.
+
+</details>
+
+<details>
+<summary>The browser does not open automatically</summary>
+
+The terminal prints a complete local URL when automatic launch is unavailable.
+Ctrl+click the URL, or copy the text beginning with `http://` into a browser.
+Keep the terminal process running while using the application.
+
+</details>
+
+<details>
+<summary>WSL reports <code>gio: ... Operation not supported</code></summary>
+
+Current v_ase releases detect WSL and try the Windows default browser through
+`wslview`, PowerShell, or Explorer instead of Linux `gio`. The message can
+still appear with an older v_ase release or when Windows interoperability is
+disabled. In that case, use the printed URL:
+
+```text
+(base) giyeok@DESKTOP-XXXX:~$ v_ase gui
+gio: http://127.0.0.1:58039/workspace?workspace_id=xxxx&session_id=xxxx: Operation not supported
+```
+
+Ctrl+click the URL or paste it into Chrome, Edge, Firefox, or another Windows
+browser. The identifiers above are intentionally masked; use the complete URL
+printed by your own session.
+
+For better large-file performance in WSL, keep trajectories in the Linux
+filesystem (for example under `~/data`) instead of `/mnt/c/...`.
+
+</details>
+
+<details>
+<summary>Run v_ase on a remote server</summary>
+
+Keep the v_ase HTTP server bound to the remote loopback interface and use SSH
+local port forwarding. From the local computer:
+
+```bash
+ssh -L 58039:127.0.0.1:58039 USER@SERVER
+```
+
+Then, in that SSH session:
+
+```bash
+v_ase gui FILE --port 58039 --no-browser
+```
+
+Open the printed `http://127.0.0.1:58039/...` URL in the local browser. Closing
+the v_ase browser tab releases the blocking command. Do not expose the port
+directly to the public network; the SSH tunnel carries it securely.
+
+</details>
+
+<details>
+<summary>A file is not detected correctly</summary>
+
+Specify the reader explicitly:
+
+```bash
+v_ase gui FILE --format POSCAR
+v_ase gui FILE --format vasprun.xml
+v_ase gui FILE --format lammpstrj
+v_ase gui FILE --format data
+```
+
+Use `--index :` for the complete trajectory or `--index -1` for its final
+frame.
+
+</details>
+
+<details>
+<summary>The page is blank or says the session is unavailable</summary>
+
+- Confirm that the original `v_ase gui` process is still running.
+- Open the exact URL printed by that process; old session URLs cannot be reused.
+- Reload once after the terminal reports that the local server is ready.
+- If the selected port is occupied, choose another one with `--port`.
+
+</details>
+
+<details>
+<summary>Export does not show a save picker, or video export fails</summary>
+
+Chrome and Edge can show the native save picker on a local secure context.
+Other browsers may save directly to their configured Downloads directory.
+Canceling a supported picker stops export before rendering or encoding.
+
+Video export requires a trajectory with at least two frames and browser support
+for `MediaRecorder`. MOV/AVI conversion uses the bundled
+`imageio-ffmpeg` dependency. Interpolation requires stable atom ordering,
+chemical types, labels, and atom count between adjacent frames. With `N` source
+frames and an interpolation multiplier `m`, output contains
+`(N - 1) × m + 1` frames.
+
+</details>
+
+<details>
+<summary>A large trajectory opens or plays slowly</summary>
+
+- Use the default **View** mode unless atom editing is required.
+- In WSL, keep the file in the Linux filesystem rather than `/mnt/c/...`.
+- Keep browser hardware acceleration enabled.
+- Close unused v_ase tabs; inactive tabs pause rendering, but their structures
+  remain in memory.
+- LAMMPS dump files use the optimized numeric loader automatically in View.
+
+</details>
+
+<details>
+<summary>Optional export tools are unavailable</summary>
+
+Rhino 3DM export requires:
+
+```bash
+python -m pip install "v_ase-gui[rhino]"
+```
+
+OBJ export has no optional dependency. Blender export generates a Python scene
+script; run it with a supported Blender installation if Blender is not found
+automatically.
+
+</details>
+
+<details>
+<summary>Installation reports an unrelated package metadata error</summary>
+
+An error mentioning a package version of `None` generally comes from another
+manually installed or incomplete package in that Python environment. Verify the
+environment with `python -m pip check`, repair or uninstall the named package,
+or install v_ase in a clean environment:
+
+```bash
+python -m venv .venv
+python -m pip install --upgrade pip
+python -m pip install v_ase-gui
+```
+
+</details>
 
 Report reproducible problems at
 [GitHub Issues](https://github.com/lgyEthan/v_ase/issues).

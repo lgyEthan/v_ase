@@ -18,6 +18,13 @@
     --viewport-bg: #ffffff;
     --viewport-light-bg: #ffffff;
     --viewport-light-border: rgba(255, 255, 255, 0.72);
+    --viewport-light-ink: #14211e;
+    --viewport-light-muted: #4b5c56;
+    --viewport-light-action: #147a69;
+    --viewport-light-action-hover: #0f6659;
+    --viewport-light-on-action: #ffffff;
+    --empty-workspace-logo-shadow: rgba(28, 43, 38, 0.13);
+    --empty-workspace-action-shadow: rgba(20, 122, 105, 0.22);
     --chrome: var(--neutral-900);
     --chrome-raised: var(--neutral-800);
     --panel: var(--neutral-850);
@@ -396,34 +403,65 @@ body.dragging-create-atom {
     width: min(390px, calc(100vw - 48px));
     display: grid;
     justify-items: center;
-    gap: 14px;
+    gap: 12px;
     transform: translate(-50%, -46%);
     text-align: center;
     pointer-events: none;
 }
 
 .empty-workspace img {
-    width: min(230px, 62vw);
-    max-height: 80px;
+    width: min(310px, 70vw);
+    max-height: 112px;
     object-fit: contain;
-    opacity: 0.92;
+    opacity: 1;
+    filter: drop-shadow(0 10px 18px var(--empty-workspace-logo-shadow));
 }
 
 .empty-workspace h1 {
-    margin: 5px 0 0;
-    color: var(--text);
-    font-size: 1.08rem;
-    font-weight: 720;
+    margin: 12px 0 0;
+    color: var(--viewport-light-ink);
+    font-size: 1.42rem;
+    font-weight: 760;
+    line-height: 1.15;
 }
 
-.empty-workspace .btn {
-    min-width: 132px;
+.empty-workspace .btn.primary {
+    min-width: 154px;
+    min-height: 42px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 10px;
+    border-color: var(--viewport-light-action);
+    background: var(--viewport-light-action);
+    box-shadow: 0 8px 20px var(--empty-workspace-action-shadow);
+    color: var(--viewport-light-on-action);
+    font-size: 0.78rem;
     pointer-events: auto;
 }
 
+.empty-workspace .btn.primary:hover,
+.empty-workspace .btn.primary:focus-visible {
+    border-color: var(--viewport-light-action-hover);
+    background: var(--viewport-light-action-hover);
+}
+
+.empty-workspace .btn svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
 .empty-workspace > span {
-    color: var(--muted);
-    font-size: 0.7rem;
+    color: var(--viewport-light-muted);
+    font-size: 0.79rem;
+    font-weight: 560;
+    line-height: 1.4;
 }
 
 /* Header */

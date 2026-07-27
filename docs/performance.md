@@ -24,6 +24,15 @@ color updates the cached GPU batches without repeating the ASE/MIC calculation.
 Backend mapping runs off the event loop and shows a delayed busy state only
 when it is not effectively instantaneous.
 
+Video interpolation is also opt-in. `1x` follows the existing one-render-per-
+source-frame path. Higher multipliers retain only two flattened endpoint frames
+at a time, generate one temporary subframe buffer, and reuse the existing atom,
+bond, selection, constraint, and supercell batches. No interpolated frame is
+stored in the backend trajectory.
+Canvas capture uses manual frame requests when the browser supports them.
+Transcoding enforces the selected FPS and expected output count, so a 60 Hz
+display cannot silently multiply identical video frames.
+
 ## Large LAMMPS Pipeline
 
 Numeric LAMMPS text dumps use:
@@ -82,21 +91,21 @@ dump. The benchmark starts a fresh local server and Chromium page at
 loads the binary trajectory cache, verifies idle rendering, and updates all
 frames.
 
-Reference result for the 0.0.91 working tree on the project development Mac:
+Reference result for the 0.0.92 working tree on the project development Mac:
 
 | Check | Result |
 | --- | ---: |
 | Input size | 8,719,654 bytes |
-| Backend input + server ready | 0.442 s |
-| Browser navigation + first render | 0.272 s |
-| Fully ready total | 0.715 s |
+| Backend input + server ready | 0.340 s |
+| Browser navigation + first render | 0.264 s |
+| Fully ready total | 0.604 s |
 | Displayed atoms | 15,000 |
 | Trajectory frames | 16 |
 | Browser trajectory cache | 2,880,000 bytes |
-| 16-frame modeling update sweep | 15.8 ms |
-| Mean modeling position update | 0.99 ms/frame |
-| Mean Studio position update | 1.43 ms/frame |
-| Mean Sun + Soft Shadow update | 0.86 ms/frame |
+| 16-frame modeling update sweep | 19.8 ms |
+| Mean modeling position update | 1.24 ms/frame |
+| Mean Studio position update | 0.98 ms/frame |
+| Mean Sun + Soft Shadow update | 0.77 ms/frame |
 | Extra render frames during 0.9 s idle | 0 |
 
 A separate single-frame 15,000-atom material regression measured 0.392 s from

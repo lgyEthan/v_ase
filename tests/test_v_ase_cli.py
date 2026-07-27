@@ -28,6 +28,15 @@ def test_v_ase_gui_parser_accepts_an_empty_workspace():
     assert args.command == "gui"
     assert args.file is None
     assert args.interactive is False
+    assert args.no_browser is False
+
+
+def test_v_ase_gui_parser_accepts_headless_server_mode():
+    parser = build_parser()
+    args = parser.parse_args(["gui", "movie.extxyz", "--no-browser", "--port", "58039"])
+
+    assert args.no_browser is True
+    assert args.port == 58039
 
 
 def test_v_ase_gui_without_file_launches_an_empty_visualization_session(monkeypatch):
@@ -46,6 +55,7 @@ def test_v_ase_gui_without_file_launches_an_empty_visualization_session(monkeypa
     assert len(captured["frames"]) == 1
     assert len(captured["frames"][0]) == 0
     assert captured["kwargs"]["viz_only"] is True
+    assert captured["kwargs"]["open_browser"] is True
 
 
 def test_v_ase_accepts_direct_file_argument_as_gui_alias():

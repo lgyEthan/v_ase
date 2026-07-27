@@ -19,6 +19,7 @@ from v_ase.viewer import (
     _LocalServer,
     _local_servers,
     _local_servers_lock,
+    open_browser_url,
     release_local_server,
 )
 
@@ -84,6 +85,27 @@ def test_stale_server_lease_cannot_stop_a_reused_port():
         release_local_server(port, expected_handle=current, force=True)
 
     assert port not in _local_servers
+
+
+def test_wsl_browser_launch_uses_windows_interop_without_linux_webbrowser(monkeypatch):
+    launched = []
+    monkeypatch.setattr("v_ase.viewer._running_under_wsl", lambda: True)
+    monkeypatch.setattr(
+        "v_ase.viewer.shutil.which",
+        lambda command: "/mnt/c/Windows/explorer.exe" if command == "explorer.exe" else None,
+    )
+    monkeypatch.setattr(
+        "v_ase.viewer._spawn_browser_command",
+        lambda command: launched.append(command) or True,
+    )
+    monkeypatch.setattr(
+        "v_ase.viewer.webbrowser.open",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("gio path used")),
+    )
+
+    url = "http://127.0.0.1:58039/workspace?workspace_id=xxxx&session_id=xxxx"
+    assert open_browser_url(url) is True
+    assert launched == [["/mnt/c/Windows/explorer.exe", url]]
 
 
 def test_view_returns_committed_structure_without_mutating_input():

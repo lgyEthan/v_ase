@@ -61,3 +61,27 @@ def test_browser_webm_transcodes_to_selected_video_container(
     finally:
         if os.path.exists(target):
             os.unlink(target)
+
+
+def test_video_transcode_applies_requested_fps_and_exact_frame_count(tmp_path):
+    source = tmp_path / "browser-recording.webm"
+    make_test_webm(source)
+
+    target, _, _ = transcode_video_file(
+        str(source),
+        "mov",
+        fps=6,
+        frame_count=3,
+    )
+    try:
+        import imageio_ffmpeg
+
+        decoded = imageio_ffmpeg.read_frames(target, pix_fmt="rgb24")
+        metadata = next(decoded)
+        frames = list(decoded)
+
+        assert metadata["fps"] == pytest.approx(6)
+        assert len(frames) == 3
+    finally:
+        if os.path.exists(target):
+            os.unlink(target)
