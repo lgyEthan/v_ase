@@ -94,8 +94,11 @@
     --view-arrow-highlight: #f4f7f6;
     --view-arrow-mid: #b8c1bf;
     --view-arrow-shadow: #737d7b;
+    --view-arrow-rear: #303937;
     --view-arrow-depth: #3f4948;
     --view-arrow-rim: rgba(247, 252, 251, 0.56);
+    --view-arrow-seam: rgba(24, 31, 30, 0.86);
+    --view-arrow-specular: rgba(255, 255, 255, 0.78);
     --view-arrow-drop-shadow: rgb(0 0 0 / 0.48);
     --view-arrow-drop-shadow-strong: rgb(0 0 0 / 0.54);
     --export-preview-mask: rgba(10, 15, 16, 0.58);
@@ -1939,8 +1942,42 @@ body.inspector-wide #inspector #appearance-table-body {
     stop-color: var(--view-arrow-shadow);
 }
 
+.view-arrow-stop-rear {
+    stop-color: var(--view-arrow-rear);
+}
+
 .view-arrow-btn .view-arrow-face {
     fill: url("#view-arrow-face-gradient");
+}
+
+.view-arrow-btn .view-arrow-orbit-face {
+    fill: url("#view-arrow-orbit-gradient");
+}
+
+.view-arrow-btn .view-arrow-yaw-face {
+    fill: url("#view-arrow-yaw-gradient");
+}
+
+.view-arrow-btn .view-arrow-tail-surface {
+    fill: url("#view-arrow-tail-gradient");
+}
+
+.view-arrow-btn .view-arrow-yaw-tail-surface {
+    fill: url("#view-arrow-yaw-tail-gradient");
+}
+
+.view-arrow-btn .view-arrow-seam {
+    fill: none;
+    stroke: var(--view-arrow-seam);
+    stroke-width: 1.2;
+    stroke-linecap: round;
+}
+
+.view-arrow-btn .view-arrow-specular {
+    fill: none;
+    stroke: var(--view-arrow-specular);
+    stroke-width: 0.82;
+    stroke-linecap: round;
 }
 
 .view-arrow-btn .view-arrow-rim {

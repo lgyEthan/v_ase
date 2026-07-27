@@ -125,9 +125,10 @@ playback.
 | `Esc` | Close the open panel and return focus to the viewport |
 
 The **?** button shows the complete shortcut list. The six toolbar arrows are
-ordered as up/down, left/right, and counterclockwise/clockwise roll. They move
-only the camera by the selected angle; roll direction follows the current
-screen view and atomic coordinates do not change.
+ordered as up/down, left/right, and counterclockwise/clockwise roll. The first
+four use shaded, depth-coded paths to distinguish 3D orbit from the final two
+screen-plane roll actions. They move only the camera by the selected angle;
+atomic coordinates do not change.
 
 ## Trajectories
 

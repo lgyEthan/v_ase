@@ -684,13 +684,21 @@ def test_camera_view_background_and_2d_display_controls_are_wired():
     assert "rotateCameraView(direction, stepDegrees" in main_js
     assert "'roll-ccw': { axis: basis.forward, sign: 1 }" in main_js
     assert "'roll-cw': { axis: basis.forward, sign: -1 }" in main_js
-    assert "up: { axis: basis.right, sign: 1 }" in main_js
-    assert "down: { axis: basis.right, sign: -1 }" in main_js
-    assert 'id="view-arrow-up-shape"' in index_html
-    assert 'd="M27.5 28v-7.1c-6.4 0-9.1-2.5-9.1-8.5' in index_html
-    assert 'id="view-arrow-left-shape"' in index_html
+    assert "up: { axis: basis.right, sign: -1 }" in main_js
+    assert "down: { axis: basis.right, sign: 1 }" in main_js
+    assert 'id="view-arrow-orbit-shape"' in index_html
+    assert 'id="view-arrow-orbit-tail"' in index_html
+    assert 'id="view-arrow-orbit-shadow-line"' in index_html
+    assert 'id="view-arrow-orbit-highlight-line"' in index_html
+    assert 'id="view-arrow-yaw-shape"' in index_html
+    assert 'id="view-arrow-yaw-tail"' in index_html
+    assert 'id="view-arrow-yaw-shadow-line"' in index_html
+    assert 'id="view-arrow-yaw-highlight-line"' in index_html
+    assert index_html.count('class="view-arrow-tail-surface') == 4
+    assert index_html.count('class="view-arrow-seam"') == 4
+    assert index_html.count('class="view-arrow-specular"') == 4
     assert 'id="view-arrow-roll-ccw-shape"' in index_html
-    assert index_html.count('class="view-arrow-face"') == 6
+    assert index_html.count('class="view-arrow-face') == 6
     assert index_html.count('class="view-arrow-depth"') == 6
     assert "selectionCountText(selectedReferences" in main_js
     assert "bondThickness: 0.25" in main_js

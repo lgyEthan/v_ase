@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.88&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.88&rev=1';
-import { ASESelection } from './selection.js?v=0.0.88&rev=1';
-import { ASETransform } from './transform.js?v=0.0.88&rev=1';
+import { ASEApi } from './api.js?v=0.0.89&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.89&rev=1';
+import { ASESelection } from './selection.js?v=0.0.89&rev=1';
+import { ASETransform } from './transform.js?v=0.0.89&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -1078,8 +1078,8 @@ class VAseApp {
         const directions = {
             left: { axis: basis.up, sign: -1 },
             right: { axis: basis.up, sign: 1 },
-            up: { axis: basis.right, sign: 1 },
-            down: { axis: basis.right, sign: -1 },
+            up: { axis: basis.right, sign: -1 },
+            down: { axis: basis.right, sign: 1 },
             'roll-ccw': { axis: basis.forward, sign: 1 },
             'roll-cw': { axis: basis.forward, sign: -1 }
         };

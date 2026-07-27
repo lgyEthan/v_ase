@@ -250,7 +250,9 @@ measurements and pointer hover metadata use separate persistent HUDs. Five or
 more selected atoms show the total followed by stable first-seen label counts.
 
 The camera-step toolbar is ordered as the three view-relative pairs up/down,
-left/right, and counterclockwise/clockwise roll.
+left/right, and counterclockwise/clockwise roll. Up/down and left/right use
+separate depth-coded paths with shaded rear tails and front faces; roll remains
+a screen-plane operation. Opposite buttons are exact camera-pose inverses.
 
 Output Preview uses a cloned camera and a fixed screen-space frame with the
 requested output aspect ratio. Preview, PNG, and trajectory video share one

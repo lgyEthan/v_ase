@@ -3435,6 +3435,11 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                             faceCount: button.querySelectorAll('.view-arrow-face').length,
                             depthCount: button.querySelectorAll('.view-arrow-depth').length,
                             rimCount: button.querySelectorAll('.view-arrow-rim').length,
+                            tailCount: button.querySelectorAll('.view-arrow-tail-surface').length,
+                            seamCount: button.querySelectorAll('.view-arrow-seam').length,
+                            specularCount: button.querySelectorAll('.view-arrow-specular').length,
+                            volumeTransform: button.querySelector('.view-orbit-volume')
+                                ?.getAttribute('transform') || '',
                             filter: getComputedStyle(button.querySelector('.view-orbit-icon')).filter
                         };
                     }),
@@ -3469,6 +3474,22 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                 and arrow["filter"] != "none"
                 for arrow in toolbar_geometry["arrowGeometry"]
             )
+            assert [
+                (
+                    arrow["tailCount"],
+                    arrow["seamCount"],
+                    arrow["specularCount"],
+                    arrow["volumeTransform"],
+                )
+                for arrow in toolbar_geometry["arrowGeometry"]
+            ] == [
+                (1, 1, 1, ""),
+                (1, 1, 1, "rotate(180 16 16)"),
+                (1, 1, 1, ""),
+                (1, 1, 1, "translate(32 0) scale(-1 1)"),
+                (0, 0, 0, ""),
+                (0, 0, 0, ""),
+            ]
             assert toolbar_geometry["popupExists"] is False
 
             _expand_inspector(page)
@@ -3655,8 +3676,8 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             for first, inverse, component, expected_sign in (
                 ("left", "right", 0, -1),
                 ("right", "left", 0, 1),
-                ("up", "down", 1, -1),
-                ("down", "up", 1, 1),
+                ("up", "down", 1, 1),
+                ("down", "up", 1, -1),
             ):
                 page.evaluate("""() => {
                     const app = window.__ASE_APP__;

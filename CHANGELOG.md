@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.0.89
+
+- Redrew the first four camera controls as depth-coded orbit arrows with a
+  shaded rear tail, front face, overlap seam, and highlight. Their start and
+  end geometry now follows the vertical and horizontal VESTA-style paths
+  instead of rotating one flat glyph for every direction.
+- Corrected the upward and downward view actions to follow the visible arrow
+  direction and retained exact inverse-operation camera recovery.
+- Added Chromium coverage for every volumetric icon layer, the distinct
+  vertical/horizontal paths, and all six camera operations.
+
 ## 0.0.88
 
 - Rebuilt the camera toolbar arrows to match their screen-relative motion,
