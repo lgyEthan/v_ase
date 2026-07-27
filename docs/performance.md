@@ -38,22 +38,27 @@ threads.
 
 ## Bond Pipeline
 
-Automatic and pairwise bonds use a spatial cell list above the small-scene
-threshold. For repeated cells, one periodic candidate search supplies both
-base-cell topology and internal supercell bridge records. Manual pairs bypass
-neighbor inference.
+Automatic and pair-specification bonds use a spatial cell list above the
+small-scene threshold. For repeated cells, one periodic candidate search
+supplies both base-cell topology and internal supercell bridge records. Manual
+pairs bypass neighbor inference.
 
 Large scenes cache a `maximum cutoff + skin` neighbor candidate list. Actual
-distances and pair cutoffs are still evaluated every frame, so bonds form and
-break live. The candidate list is rebuilt when an atom moves more than half the
-skin or when labels, visibility, cutoffs, cell, PBC, periodic policy, or
-constraints change. Cylinder instance matrices are written directly to the GPU
-buffer; unchanged topology reuses the existing instanced bond batches.
+distances and pair minimum/maximum ranges are still evaluated every frame, so
+bonds form and break live. The candidate list is rebuilt when an atom moves
+more than half the skin or when labels, visibility, cutoffs, cell, PBC,
+periodic policy, or constraints change. Cylinder instance matrices are written
+directly to the GPU buffer; unchanged topology reuses the existing instanced
+bond batches.
 
 The Metal preset creates one shared 192 x 96 studio environment and converts it
 to a PMREM texture on first use. It is reused by all metal atom groups.
 Standard/rubber-only scenes skip this work, and metal atoms remain instanced by
 material group.
+
+Bond controls use a dedicated animation-frame-coalesced update path. Editing a
+pair range or bond material does not reparse the Appearance table, supercell
+inputs, transform controls, or export settings.
 
 ## Browser Benchmark
 
@@ -70,29 +75,31 @@ dump. The benchmark starts a fresh local server and Chromium page at
 loads the binary trajectory cache, verifies idle rendering, and updates all
 frames.
 
-Reference result for the 0.0.79 working tree on the project development Mac:
+Reference result for the 0.0.88 working tree on the project development Mac:
 
 | Check | Result |
 | --- | ---: |
 | Input size | 8,719,654 bytes |
-| Backend input + server ready | 0.46 s |
-| Browser navigation + first render | 0.38 s |
-| Fully ready total | 0.84 s |
+| Backend input + server ready | 0.68 s |
+| Browser navigation + first render | 1.11 s |
+| Fully ready total | 1.79 s |
 | Displayed atoms | 15,000 |
 | Trajectory frames | 16 |
 | Browser trajectory cache | 2,880,000 bytes |
-| 16-frame translation update sweep | 18.1 ms |
-| Mean position update | 1.13 ms/frame |
+| 16-frame modeling update sweep | 13.4 ms |
+| Mean modeling position update | 0.84 ms/frame |
+| Mean Studio position update | 1.29 ms/frame |
+| Mean Sun + Soft Shadow update | 1.05 ms/frame |
 | Extra render frames during 0.9 s idle | 0 |
 
 A separate single-frame 15,000-atom material regression measured 0.392 s from
 navigation to all atom instances being available. Standard-to-Metal label
 switching retained one instanced atom group for all 15,000 atoms.
 
-With automatic bonds enabled, the same synthetic scene contains 73,062 logical
-bonds. Cached topology inference measured 8.3 ms, direct geometry-buffer update
-12.5 ms, and a four-frame sweep that includes candidate-list rebuilds averaged
-26.35 ms/frame.
+With automatic bonds enabled, the same synthetic scene contains 73,952 logical
+bonds. Cached topology inference measured 10.5 ms, direct geometry-buffer
+update 13.8 ms, and a four-frame sweep that includes candidate-list rebuilds
+averaged 30.53 ms/frame.
 
 Browser, GPU, storage, trajectory columns, bond density, and machine load
 affect absolute timing; these values are regression references, not universal

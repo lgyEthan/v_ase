@@ -59,7 +59,7 @@ and documentation use `view()`.
 8. Interactive supercell replicas are display-only until committed as the
    current cell; visualization-mode replicas remain selectable and measurable.
 9. Label identity and chemical TYPE are independent. Labels key appearance,
-   selection, and pairwise cutoffs; ASE chemical symbols control element
+   selection, and pair specifications; ASE chemical symbols control element
    defaults and calculations.
 10. View uses label-level visual state. Edit may add per-atom material
     overrides. Returning to View converts only distinct material variants into
@@ -74,7 +74,7 @@ and documentation use `view()`.
     are unchanged.
 14. Appending files extends the current trajectory without changing its active
     visual state. The trajectory-wide label/type catalog is authoritative for
-    Appearance and pairwise-bond controls, including labels absent from the
+    Appearance and pair-specification controls, including labels absent from the
     current frame.
 15. Opening in a new workspace tab creates a separate backend session. Opening
     `.vase` this way restores the complete project; appending `.vase` imports
@@ -95,9 +95,9 @@ and documentation use `view()`.
 20. The default viewport clear color is exact white. Modeling lights lift atom
     midtones consistently without allocating rendered-mode shadows, and the
     white-background grid remains low contrast.
-21. Automatic bonds use ASE's Cordero covalent radii with pair-class additive
-    slack. H-H and metal-metal contacts are not inferred automatically;
-    explicit pairwise cutoffs remain authoritative when those bonds are wanted.
+21. Pair-specification mode uses explicit label-pair enabled/min/max records.
+    These visible records are the sole topology rule in that mode and update
+    live without an apply button.
 22. Metal materials allocate one shared low-resolution PMREM reflection
     environment on first use. Standard/rubber-only scenes do not pay that
     allocation or preprocessing cost.
@@ -109,6 +109,7 @@ Visual settings use schema `v_ase.visual_settings.v3`.
 Canonical display keys:
 
 - `pairwiseBondCutoffs`
+- `pairwiseBondRanges`
 - `labelRadii`
 - `labelColors`
 - `labelVisible`
@@ -116,7 +117,9 @@ Canonical display keys:
 - `atomMaterials`
 - bond mode `pairwise`
 
-Loaders migrate the previous `elementBondCutoffs`, `elementRadii`,
+`pairwiseBondCutoffs` remains a maximum-distance compatibility mirror for
+projects made before enabled/min/max specifications. Loaders migrate it to
+`pairwiseBondRanges`, as well as the previous `elementBondCutoffs`, `elementRadii`,
 `elementColors`, `elementVisible`, and bond mode `element` names. Saved output
 contains only canonical v3 keys.
 

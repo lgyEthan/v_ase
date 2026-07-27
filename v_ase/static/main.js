@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.87&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.87&rev=1';
-import { ASESelection } from './selection.js?v=0.0.87&rev=1';
-import { ASETransform } from './transform.js?v=0.0.87&rev=1';
+import { ASEApi } from './api.js?v=0.0.88&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.88&rev=1';
+import { ASESelection } from './selection.js?v=0.0.88&rev=1';
+import { ASETransform } from './transform.js?v=0.0.88&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -80,6 +80,7 @@ class VAseApp {
                 bondCutoffScale: 1.0,
                 manualBondPairs: [],
                 pairwiseBondCutoffs: {},
+                pairwiseBondRanges: {},
                 bondStyle: 'cylinder',
                 bondThickness: 0.25,
                 bondColorMode: 'split',
@@ -157,6 +158,7 @@ class VAseApp {
             modeSwitchInFlight: false,
             cachedFmax: null,
             displayApplyRequest: null,
+            bondApplyRequest: null,
             exportPreviewEnabled: false,
             imageExportProfile: null,
             exportPreviewProfile: null,
@@ -476,20 +478,21 @@ class VAseApp {
         });
 
         const nextCutoffs = {};
+        const nextRanges = {};
         for (let i = 0; i < nextOrder.length; i++) {
             for (let j = i; j < nextOrder.length; j++) {
                 const labelA = nextOrder[i];
                 const labelB = nextOrder[j];
                 const originA = originByLabel.get(labelA) || labelA;
                 const originB = originByLabel.get(labelB) || labelB;
-                const sourceKey = this.labelPairKey(originA, originB);
-                const value = Number(this.state.display.pairwiseBondCutoffs?.[sourceKey]);
-                nextCutoffs[this.labelPairKey(labelA, labelB)] = Number.isFinite(value) && value >= 0
-                    ? value
-                    : this.defaultPairwiseCutoff(originA, originB);
+                const key = this.labelPairKey(labelA, labelB);
+                const range = this.pairwiseBondRange(originA, originB);
+                nextRanges[key] = { ...range };
+                nextCutoffs[key] = range.enabled ? range.max : 0;
             }
         }
         nextDisplay.pairwiseBondCutoffs = nextCutoffs;
+        nextDisplay.pairwiseBondRanges = nextRanges;
         nextDisplay.vizOnly = true;
         return {
             labels: nextLabels,
@@ -807,7 +810,8 @@ class VAseApp {
             '#commensurate-strain',
             '#commensurate-max-index',
             '#commensurate-snap-range',
-            '.pairwise-bond-cutoff',
+            '.pairwise-bond-min',
+            '.pairwise-bond-max',
             '.label-radius-input',
             '.label-color-input'
         ].join(','));
@@ -936,8 +940,13 @@ class VAseApp {
     }
 
     setInspectorGroup(group, persist = true) {
-        const migrations = { edit: 'structure', scene: 'display' };
-        const available = new Set(['inspect', 'structure', 'display', 'output']);
+        const migrations = {
+            edit: 'structure',
+            scene: 'view',
+            display: 'view',
+            output: 'export'
+        };
+        const available = new Set(['inspect', 'structure', 'view', 'appearance', 'bonds', 'export']);
         const requested = migrations[group] || group;
         const next = available.has(requested) ? requested : 'inspect';
         this.inspectorGroup = next;
@@ -951,7 +960,7 @@ class VAseApp {
         });
         const label = document.getElementById('inspector-context');
         if (label) {
-            const labels = { output: 'Export & Save' };
+            const labels = { export: 'Export' };
             label.textContent = labels[next] || (next.charAt(0).toUpperCase() + next.slice(1));
         }
         if (persist) {
@@ -1069,8 +1078,8 @@ class VAseApp {
         const directions = {
             left: { axis: basis.up, sign: -1 },
             right: { axis: basis.up, sign: 1 },
-            up: { axis: basis.right, sign: -1 },
-            down: { axis: basis.right, sign: 1 },
+            up: { axis: basis.right, sign: 1 },
+            down: { axis: basis.right, sign: -1 },
             'roll-ccw': { axis: basis.forward, sign: 1 },
             'roll-cw': { axis: basis.forward, sign: -1 }
         };
@@ -3836,6 +3845,7 @@ class VAseApp {
             if (removeSource) delete map[oldSymbol];
         });
         const cutoffs = this.state.display.pairwiseBondCutoffs || {};
+        const ranges = this.state.display.pairwiseBondRanges || {};
         const partners = new Set([
             oldSymbol,
             newSymbol,
@@ -3844,14 +3854,19 @@ class VAseApp {
         ]);
         partners.forEach(partner => {
             const oldKey = this.labelPairKey(oldSymbol, partner);
-            if (!(oldKey in cutoffs)) return;
             const mappedPartner = partner === oldSymbol ? newSymbol : partner;
             const newKey = this.labelPairKey(newSymbol, mappedPartner);
-            if (copySource && !(newKey in cutoffs)) cutoffs[newKey] = cutoffs[oldKey];
+            if (copySource && oldKey in cutoffs && !(newKey in cutoffs)) {
+                cutoffs[newKey] = cutoffs[oldKey];
+            }
+            if (copySource && oldKey in ranges && !(newKey in ranges)) {
+                ranges[newKey] = { ...ranges[oldKey] };
+            }
         });
         if (removeSource) {
             partners.forEach(partner => {
                 delete cutoffs[this.labelPairKey(oldSymbol, partner)];
+                delete ranges[this.labelPairKey(oldSymbol, partner)];
             });
         }
     }
@@ -3870,7 +3885,74 @@ class VAseApp {
     defaultPairwiseCutoff(a, b) {
         const elementA = this.chemicalSymbolForLabel(a);
         const elementB = this.chemicalSymbolForLabel(b);
-        return Number((1.2 * (this.elementCovalentRadius(elementA) + this.elementCovalentRadius(elementB))).toFixed(3));
+        return Number(this.renderer.autoBondBaseCutoffFromValues(
+            this.elementCovalentRadius(elementA),
+            this.elementCovalentRadius(elementB),
+            this.renderer.autoBondElementClass(elementA),
+            this.renderer.autoBondElementClass(elementB)
+        ).toFixed(3));
+    }
+
+    defaultPairwiseBondRange(a, b) {
+        const maximum = this.defaultPairwiseCutoff(a, b);
+        return {
+            enabled: maximum > 0,
+            min: 0,
+            max: maximum
+        };
+    }
+
+    pairwiseBondRange(a, b, display = this.state.display) {
+        const key = this.labelPairKey(a, b);
+        const fallback = this.defaultPairwiseBondRange(a, b);
+        const source = display?.pairwiseBondRanges?.[key];
+        const legacyCutoffs = display?.pairwiseBondCutoffs || {};
+        const hasLegacyMaximum = Object.prototype.hasOwnProperty.call(
+            legacyCutoffs,
+            key
+        );
+        const hasAnyLegacyCutoff = Object.keys(legacyCutoffs).length > 0;
+        const parsedLegacyMaximum = Number(legacyCutoffs[key]);
+        const legacyMaximum = Number.isFinite(parsedLegacyMaximum)
+            ? Math.max(0, parsedLegacyMaximum)
+            : null;
+        if (source && typeof source === 'object') {
+            if (hasAnyLegacyCutoff && !hasLegacyMaximum) {
+                return { enabled: false, min: 0, max: 0 };
+            }
+            const maximum = Number(source.max);
+            const minimum = Number(source.min);
+            const max = Number.isFinite(maximum) && maximum >= 0 ? maximum : fallback.max;
+            const sourceEnabled = source.enabled !== false && max > 0;
+            if (hasLegacyMaximum && legacyMaximum !== null) {
+                const legacyEnabled = legacyMaximum > 0;
+                const recordsAgree = sourceEnabled === legacyEnabled && (
+                    !sourceEnabled || Math.abs(max - legacyMaximum) <= 1e-12
+                );
+                if (!recordsAgree) {
+                    return {
+                        enabled: legacyEnabled,
+                        min: legacyEnabled && Number.isFinite(minimum)
+                            ? Math.max(0, Math.min(minimum, legacyMaximum))
+                            : 0,
+                        max: legacyMaximum
+                    };
+                }
+            }
+            return {
+                enabled: sourceEnabled,
+                min: Number.isFinite(minimum) ? Math.max(0, Math.min(minimum, max)) : 0,
+                max
+            };
+        }
+        if (hasLegacyMaximum && legacyMaximum !== null) {
+            return {
+                enabled: legacyMaximum > 0,
+                min: 0,
+                max: legacyMaximum
+            };
+        }
+        return fallback;
     }
 
     elementVdwRadius(element) {
@@ -4457,48 +4539,89 @@ class VAseApp {
         const root = document.getElementById('pairwise-bond-list');
         if (!root || !this.state.atoms?.symbols) return;
         if (capture) this.captureBondSettingsFromControls();
-        const existingFocus = document.activeElement?.dataset?.pairKey;
+        const existingFocus = document.activeElement?.dataset?.pairKey
+            ? {
+                key: document.activeElement.dataset.pairKey,
+                field: document.activeElement.dataset.pairField
+            }
+            : null;
         root.innerHTML = '';
         this.uniqueLabelPairs().forEach(([a, b]) => {
             const key = this.labelPairKey(a, b);
-            if (!(key in this.state.display.pairwiseBondCutoffs)) {
-                this.state.display.pairwiseBondCutoffs[key] = Number(this.defaultPairwiseCutoff(a, b).toFixed(3));
-            }
+            const range = this.pairwiseBondRange(a, b);
+            this.state.display.pairwiseBondRanges[key] = { ...range };
+            this.state.display.pairwiseBondCutoffs[key] = range.enabled ? range.max : 0;
             const row = document.createElement('div');
             row.className = 'pairwise-bond-row';
-            const label = document.createElement('label');
-            label.htmlFor = `bond-cutoff-${key}`;
+            row.dataset.pairKey = key;
+
+            const enabled = document.createElement('input');
+            enabled.type = 'checkbox';
+            enabled.className = 'pairwise-bond-enabled';
+            enabled.dataset.pairKey = key;
+            enabled.dataset.pairField = 'enabled';
+            enabled.checked = range.enabled;
+            enabled.setAttribute('aria-label', `Enable ${key} bonds`);
+
+            const label = document.createElement('span');
+            label.className = 'pairwise-bond-pair-label';
             label.innerText = key;
-            const input = document.createElement('input');
-            input.type = 'number';
-            input.id = `bond-cutoff-${key}`;
-            input.className = 'pairwise-bond-cutoff';
-            input.dataset.pairKey = key;
-            input.min = '0';
-            input.step = '0.05';
-            input.value = this.state.display.pairwiseBondCutoffs[key];
-            input.addEventListener('change', () => this.safeApplyDisplayOptions());
-            input.addEventListener('input', () => {
-                if (document.getElementById('bond-mode').value === 'pairwise') this.safeApplyDisplayOptions();
-            });
-            row.append(label, input);
+            label.title = key;
+
+            const makeDistanceInput = (field, value) => {
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.className = `pairwise-bond-${field}`;
+                input.dataset.pairKey = key;
+                input.dataset.pairField = field;
+                input.min = '0';
+                input.step = '0.05';
+                input.value = Number(value).toFixed(3);
+                input.setAttribute('aria-label', `${key} ${field}imum distance in Angstrom`);
+                input.addEventListener('input', () => this.safeApplyBondOptions());
+                input.addEventListener('change', () => this.safeApplyBondOptions());
+                return input;
+            };
+            const minimum = makeDistanceInput('min', range.min);
+            const maximum = makeDistanceInput('max', range.max);
+            enabled.addEventListener('change', () => this.safeApplyBondOptions());
+            row.append(enabled, label, minimum, maximum);
             root.appendChild(row);
         });
         if (existingFocus) {
-            root.querySelector(`[data-pair-key="${existingFocus}"]`)?.focus();
+            const target = [...root.querySelectorAll('[data-pair-key]')].find(element => (
+                element.dataset.pairKey === existingFocus.key
+                && element.dataset.pairField === existingFocus.field
+            ));
+            target?.focus();
         }
         this.updateBondModeUI();
     }
 
-    parsePairwiseBondCutoffs() {
+    parsePairwiseBondRanges() {
+        const ranges = {};
         const cutoffs = {};
-        document.querySelectorAll('.pairwise-bond-cutoff').forEach(input => {
-            const value = parseFloat(input.value);
-            if (Number.isFinite(value) && value >= 0) {
-                cutoffs[input.dataset.pairKey] = value;
-            }
+        document.querySelectorAll('.pairwise-bond-row').forEach(row => {
+            const key = row.dataset.pairKey;
+            if (!key) return;
+            const current = this.state.display.pairwiseBondRanges?.[key] || {
+                enabled: true,
+                min: 0,
+                max: 0
+            };
+            const enabled = row.querySelector('.pairwise-bond-enabled')?.checked !== false;
+            const rawMinimum = Number(row.querySelector('.pairwise-bond-min')?.value);
+            const rawMaximum = Number(row.querySelector('.pairwise-bond-max')?.value);
+            const maximum = Number.isFinite(rawMaximum)
+                ? Math.max(0, rawMaximum)
+                : Math.max(0, Number(current.max) || 0);
+            const minimum = Number.isFinite(rawMinimum)
+                ? Math.max(0, Math.min(rawMinimum, maximum))
+                : Math.max(0, Math.min(Number(current.min) || 0, maximum));
+            ranges[key] = { enabled, min: minimum, max: maximum };
+            cutoffs[key] = enabled ? maximum : 0;
         });
-        return cutoffs;
+        return { ranges, cutoffs };
     }
 
     captureBondSettingsFromControls({ strictManual = false } = {}) {
@@ -4523,9 +4646,14 @@ class VAseApp {
         if (/^#[0-9A-Fa-f]{6}$/.test(customColor || '')) {
             this.state.display.bondCustomColor = customColor;
         }
+        const parsedSpecifications = this.parsePairwiseBondRanges();
+        this.state.display.pairwiseBondRanges = {
+            ...(this.state.display.pairwiseBondRanges || {}),
+            ...parsedSpecifications.ranges
+        };
         this.state.display.pairwiseBondCutoffs = {
             ...(this.state.display.pairwiseBondCutoffs || {}),
-            ...this.parsePairwiseBondCutoffs()
+            ...parsedSpecifications.cutoffs
         };
         if (this.state.display.bondMode !== 'manual') return;
         try {
@@ -4541,10 +4669,12 @@ class VAseApp {
         const mode = document.getElementById('bond-mode')?.value || this.state.display.bondMode;
         const pairwisePanel = document.getElementById('pairwise-bond-panel');
         const pairText = document.getElementById('bond-pairs');
+        const manualHint = document.getElementById('bond-manual-hint');
         const cutoffRow = document.getElementById('bond-cutoff')?.closest('.prop-row');
         if (pairwisePanel) pairwisePanel.classList.toggle('hidden', mode !== 'pairwise');
         if (pairText) pairText.classList.toggle('hidden', mode !== 'manual');
-        if (cutoffRow) cutoffRow.classList.toggle('hidden', mode === 'manual');
+        if (manualHint) manualHint.classList.toggle('hidden', mode !== 'manual');
+        if (cutoffRow) cutoffRow.classList.toggle('hidden', mode !== 'auto');
         this.updateBondAppearanceUI();
     }
 
@@ -4565,12 +4695,6 @@ class VAseApp {
         const seen = new Set();
         const tokens = text.split(/[\n,;]+/).map(v => v.trim()).filter(Boolean);
         tokens.forEach(token => {
-            const labelPairMatch = token.match(/^([A-Za-z][A-Za-z0-9_+]*)\s*[-:]\s*([A-Za-z][A-Za-z0-9_+]*)\s*(?:[:=]\s*)?([0-9]*\.?[0-9]+)$/);
-            if (labelPairMatch) {
-                const key = this.labelPairKey(labelPairMatch[1], labelPairMatch[2]);
-                this.state.display.pairwiseBondCutoffs[key] = parseFloat(labelPairMatch[3]);
-                return;
-            }
             const match = token.match(/^(\d+)\s*(?:-|\s)\s*(\d+)$/);
             if (!match) throw new Error(`Invalid bond pair: ${token}`);
             const i = parseInt(match[1], 10);
@@ -4662,6 +4786,45 @@ class VAseApp {
             this.state.displayApplyRequest = null;
             try {
                 this.applyDisplayOptions();
+            } catch (err) {
+                this.toast(err.message, 'error');
+            }
+        });
+    }
+
+    applyBondOptions() {
+        if (this.state.bondApplyRequest !== null) {
+            cancelAnimationFrame(this.state.bondApplyRequest);
+            this.state.bondApplyRequest = null;
+        }
+        this.state.display.showBonds = Boolean(document.getElementById('chk-bonds')?.checked);
+        this.state.display.showPeriodicBonds = Boolean(
+            document.getElementById('chk-periodic-bonds')?.checked
+        );
+        this.captureBondSettingsFromControls();
+        this.updateBondModeUI();
+        this.renderer.setDisplayOptions({
+            showBonds: this.state.display.showBonds,
+            showPeriodicBonds: this.state.display.showPeriodicBonds,
+            bondMode: this.state.display.bondMode,
+            bondCutoffScale: this.state.display.bondCutoffScale,
+            manualBondPairs: this.state.display.manualBondPairs,
+            pairwiseBondCutoffs: this.state.display.pairwiseBondCutoffs,
+            pairwiseBondRanges: this.state.display.pairwiseBondRanges,
+            bondStyle: this.state.display.bondStyle,
+            bondThickness: this.state.display.bondThickness,
+            bondColorMode: this.state.display.bondColorMode,
+            bondCustomColor: this.state.display.bondCustomColor
+        });
+        if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+    }
+
+    safeApplyBondOptions() {
+        if (this.state.bondApplyRequest !== null) return;
+        this.state.bondApplyRequest = requestAnimationFrame(() => {
+            this.state.bondApplyRequest = null;
+            try {
+                this.applyBondOptions();
             } catch (err) {
                 this.toast(err.message, 'error');
             }
@@ -4783,6 +4946,18 @@ class VAseApp {
         ) {
             migratedDisplay.pairwiseBondCutoffs = migratedDisplay[LEGACY_PAIRWISE_CUTOFF_KEY];
         }
+        if (
+            !Object.prototype.hasOwnProperty.call(migratedDisplay, 'pairwiseBondRanges')
+            && migratedDisplay.pairwiseBondCutoffs
+        ) {
+            migratedDisplay.pairwiseBondRanges = Object.fromEntries(
+                Object.entries(migratedDisplay.pairwiseBondCutoffs).map(([key, rawMaximum]) => {
+                    const maximum = Number(rawMaximum);
+                    const max = Number.isFinite(maximum) ? Math.max(0, maximum) : 0;
+                    return [key, { enabled: max > 0, min: 0, max }];
+                })
+            );
+        }
         delete migratedDisplay[LEGACY_PAIRWISE_CUTOFF_KEY];
         Object.entries(LEGACY_LABEL_DISPLAY_KEYS).forEach(([legacyKey, currentKey]) => {
             if (
@@ -4863,14 +5038,18 @@ class VAseApp {
         });
 
         const savedCutoffs = nextDisplay.pairwiseBondCutoffs || {};
+        const savedRanges = nextDisplay.pairwiseBondRanges || {};
         const pairwiseBondCutoffs = {};
+        const pairwiseBondRanges = {};
         for (let i = 0; i < labels.length; i++) {
             for (let j = i; j < labels.length; j++) {
                 const key = this.labelPairKey(labels[i], labels[j]);
-                const saved = Number(savedCutoffs[key]);
-                pairwiseBondCutoffs[key] = Number.isFinite(saved) && saved >= 0
-                    ? saved
-                    : this.defaultPairwiseCutoff(labels[i], labels[j]);
+                const range = this.pairwiseBondRange(labels[i], labels[j], {
+                    pairwiseBondRanges: savedRanges,
+                    pairwiseBondCutoffs: savedCutoffs
+                });
+                pairwiseBondRanges[key] = range;
+                pairwiseBondCutoffs[key] = range.enabled ? range.max : 0;
             }
         }
 
@@ -4904,6 +5083,7 @@ class VAseApp {
             ),
             manualBondPairs,
             pairwiseBondCutoffs,
+            pairwiseBondRanges,
             labelRadii,
             labelColors,
             labelVisible,
@@ -4987,6 +5167,7 @@ class VAseApp {
             ...this.clonePlain(nextDisplay),
             manualBondPairs: this.clonePlain(nextDisplay.manualBondPairs),
             pairwiseBondCutoffs: this.clonePlain(nextDisplay.pairwiseBondCutoffs),
+            pairwiseBondRanges: this.clonePlain(nextDisplay.pairwiseBondRanges),
             labelRadii: this.clonePlain(nextDisplay.labelRadii),
             labelColors: this.clonePlain(nextDisplay.labelColors),
             labelVisible: this.clonePlain(nextDisplay.labelVisible),
@@ -7178,8 +7359,8 @@ class VAseApp {
             this.applyCalculatorControls();
         });
         document.getElementById('calc-cpus')?.addEventListener('change', () => this.applyCalculatorControls());
-        document.getElementById('chk-bonds').onchange = () => this.safeApplyDisplayOptions();
-        document.getElementById('chk-periodic-bonds').onchange = () => this.safeApplyDisplayOptions();
+        document.getElementById('chk-bonds').onchange = () => this.safeApplyBondOptions();
+        document.getElementById('chk-periodic-bonds').onchange = () => this.safeApplyBondOptions();
         document.getElementById('chk-cell').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('chk-axes').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('chk-grid').onchange = () => this.safeApplyDisplayOptions();
@@ -7199,14 +7380,11 @@ class VAseApp {
         };
         document.getElementById('bond-mode').onchange = () => {
             this.updateBondModeUI();
-            this.safeApplyDisplayOptions();
+            this.safeApplyBondOptions();
         };
-        document.getElementById('bond-cutoff').onchange = () => {
-            this.renderPairwiseBondControls();
-            this.safeApplyDisplayOptions();
-        };
-        document.getElementById('bond-cutoff').oninput = () => this.safeApplyDisplayOptions();
-        document.getElementById('bond-style').onchange = () => this.safeApplyDisplayOptions();
+        document.getElementById('bond-cutoff').onchange = () => this.safeApplyBondOptions();
+        document.getElementById('bond-cutoff').oninput = () => this.safeApplyBondOptions();
+        document.getElementById('bond-style').onchange = () => this.safeApplyBondOptions();
         document.getElementById('blender-export-mode').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('export-include-cell').onchange = event => {
             const includeCell = event.target.checked;
@@ -7218,36 +7396,32 @@ class VAseApp {
         };
         document.getElementById('bond-thickness').oninput = () => {
             this.updateBondAppearanceUI();
-            this.safeApplyDisplayOptions();
+            this.safeApplyBondOptions();
         };
-        document.getElementById('bond-thickness').onchange = () => this.safeApplyDisplayOptions();
+        document.getElementById('bond-thickness').onchange = () => this.safeApplyBondOptions();
         document.getElementById('bond-color-mode').onchange = () => {
             this.updateBondAppearanceUI();
-            this.safeApplyDisplayOptions();
+            this.safeApplyBondOptions();
         };
-        document.getElementById('bond-custom-color').oninput = () => this.safeApplyDisplayOptions();
-        document.getElementById('bond-custom-color').onchange = () => this.safeApplyDisplayOptions();
-        document.getElementById('btn-bond-apply').onclick = () => {
-            const mode = document.getElementById('bond-mode').value;
-            if (mode === 'manual') {
-                const beforeKeys = Object.keys(this.state.display.pairwiseBondCutoffs).length;
-                const hasPairwiseCutoff = /[A-Z][a-z]?\s*[-:]\s*[A-Z][a-z]?\s*(?:[:=]\s*)?[0-9]/.test(
-                    document.getElementById('bond-pairs').value || ''
-                );
-                this.parseBondPairs();
-                if (hasPairwiseCutoff || Object.keys(this.state.display.pairwiseBondCutoffs).length > beforeKeys) {
-                    document.getElementById('bond-mode').value = 'pairwise';
-                    this.renderPairwiseBondControls();
-                }
-            }
-            this.safeApplyDisplayOptions();
-            this.toast('Bond settings applied.', 'success');
-        };
-        document.getElementById('btn-bond-infer').onclick = () => {
-            document.getElementById('bond-mode').value = 'auto';
-            this.safeApplyDisplayOptions();
-            this.writeBondPairs(this.renderer.bondPairs || []);
-            this.toast('Bond pairs inferred from current geometry.', 'success');
+        document.getElementById('bond-custom-color').oninput = () => this.safeApplyBondOptions();
+        document.getElementById('bond-custom-color').onchange = () => this.safeApplyBondOptions();
+        document.getElementById('bond-pairs').oninput = () => this.safeApplyBondOptions();
+        document.getElementById('bond-pairs').onchange = () => this.safeApplyBondOptions();
+        document.getElementById('btn-bond-reset-specifications').onclick = () => {
+            const ranges = {};
+            const cutoffs = {};
+            this.uniqueLabelPairs().forEach(([a, b]) => {
+                const key = this.labelPairKey(a, b);
+                const range = this.defaultPairwiseBondRange(a, b);
+                ranges[key] = range;
+                cutoffs[key] = range.max;
+            });
+            this.state.display.pairwiseBondRanges = ranges;
+            this.state.display.pairwiseBondCutoffs = cutoffs;
+            document.getElementById('bond-mode').value = 'pairwise';
+            this.renderPairwiseBondControls({ capture: false });
+            this.applyBondOptions();
+            this.toast('Pair specifications reset to element-radius suggestions.', 'success');
         };
         ['super-x', 'super-y', 'super-z'].forEach(id => {
             document.getElementById(id).onchange = () => this.safeApplyDisplayOptions();

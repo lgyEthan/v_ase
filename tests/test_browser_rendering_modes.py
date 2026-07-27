@@ -355,7 +355,7 @@ def test_open_file_can_append_frames_with_new_labels_to_the_current_movie(tmp_pa
                 const app = window.__ASE_APP__;
                 return {
                     labels: app.uniqueAtomLabels(),
-                    pairs: [...document.querySelectorAll('.pairwise-bond-cutoff')]
+                    pairs: [...document.querySelectorAll('.pairwise-bond-max')]
                         .map(input => input.dataset.pairKey),
                     frame: app.state.atoms.metadata.current_frame,
                     position: app.state.atoms.positions[0],
@@ -694,7 +694,7 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
             _expand_inspector(page)
-            page.click('[data-inspector-group="output"]')
+            page.click('[data-inspector-group="export"]')
             page.fill('#image-width', '1600')
             page.fill('#image-height', '800')
             page.click('#btn-preview-image')
@@ -811,7 +811,7 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
             assert zoomed["projection"] != pytest.approx(initial["previewProjection"])
             assert zoomed["previewCount"] > initial["previewCount"]
 
-            page.click('[data-inspector-group="display"]')
+            page.click('[data-inspector-group="view"]')
             page.fill('#atomic-scale', '40')
             page.wait_for_function("Math.abs(window.__ASE_APP__.renderer.currentPixelsPerAngstrom() - 40) < 0.02")
             scale_40 = page.evaluate("""() => ({
@@ -880,7 +880,7 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
             page.wait_for_function("window.__ASE_APP__.renderer.camera.isOrthographicCamera")
             page.fill('#atomic-scale', '80')
             page.wait_for_function("Math.abs(window.__ASE_APP__.renderer.currentPixelsPerAngstrom() - 80) < 0.02")
-            page.click('[data-inspector-group="output"]')
+            page.click('[data-inspector-group="export"]')
 
             physical = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
@@ -1044,7 +1044,7 @@ def test_image_export_modal_is_the_authoritative_retina_preview(tmp_path):
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 48")
             _expand_inspector(page)
-            page.click('[data-inspector-group="output"]')
+            page.click('[data-inspector-group="export"]')
             page.fill('#image-width', '1280')
             page.fill('#image-height', '720')
             page.uncheck('#export-include-cell')
@@ -1410,17 +1410,21 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             assert edge_geometry['buttonRight'] == pytest.approx(edge_geometry['panelLeft'], abs=1.5)
             assert edge_geometry['verticalCenterDelta'] <= 1.5
 
-            page.click('[data-inspector-group="display"]')
+            page.click('[data-inspector-group="view"]')
             assert page.locator('[data-panel="view"]').is_visible()
             assert not page.locator('[data-panel="structure-info"]').is_visible()
-            for panel in ('view', 'appearance', 'bonding'):
-                assert page.locator(f'[data-panel="{panel}"]').evaluate("element => element.open")
-            page.click('[data-inspector-group="output"]')
+            assert not page.locator('[data-panel="appearance"]').is_visible()
+            assert not page.locator('[data-panel="bonding"]').is_visible()
+            page.click('[data-inspector-group="appearance"]')
+            assert page.locator('[data-panel="appearance"]').is_visible()
+            page.click('[data-inspector-group="bonds"]')
+            assert page.locator('[data-panel="bonding"]').is_visible()
+            page.click('[data-inspector-group="export"]')
             assert page.locator('[data-panel="project"]').is_visible()
             assert page.locator('[data-panel="settings"]').is_visible()
             assert 'complete working structure' in page.locator('[data-panel="project"] .panel-note').inner_text()
             assert 'coordinates' in page.locator('[data-panel="settings"] .panel-note').inner_text()
-            page.click('[data-inspector-group="display"]')
+            page.click('[data-inspector-group="view"]')
             page.locator('#app-viewport canvas').focus()
             page.keyboard.press('Escape')
             page.wait_for_function("document.body.classList.contains('inspector-collapsed')")
@@ -1428,6 +1432,7 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             page.keyboard.press('Tab')
             page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
 
+            page.click('[data-inspector-group="bonds"]')
             _open_panel(page, 'bonding')
             page.check('#chk-periodic-bonds')
             page.wait_for_function("window.__ASE_APP__.renderer.bondPairs.length === 1")
@@ -1769,10 +1774,10 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             }""", export_contract["dataUrl"])
             assert exported_size == [640, 360]
 
-            page.click('[data-inspector-group="display"]')
+            page.click('[data-inspector-group="view"]')
             page.fill('#atomic-scale', '80')
             page.wait_for_function("Math.abs(window.__ASE_APP__.renderer.currentPixelsPerAngstrom() - 80) < 0.02")
-            page.click('[data-inspector-group="output"]')
+            page.click('[data-inspector-group="export"]')
             page.click('#btn-export-image')
             assert page.locator('#export-framing-mode').is_visible()
             assert page.locator('#export-pixels-per-angstrom').count() == 0
@@ -2393,10 +2398,10 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
             page.wait_for_function("window.__ASE_APP__.renderer.bondPairs.length === 1")
 
             _expand_inspector(page)
-            page.click('[data-inspector-group="display"]')
+            page.click('[data-inspector-group="bonds"]')
             _open_panel(page, 'bonding')
             page.select_option('#bond-mode', 'pairwise')
-            cutoff = page.locator('.pairwise-bond-cutoff[data-pair-key="C_left-C_right"]')
+            cutoff = page.locator('.pairwise-bond-max[data-pair-key="C_left-C_right"]')
             assert cutoff.count() == 1
             cutoff.fill('0.90')
             page.wait_for_function(
@@ -2408,6 +2413,14 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
                 "window.__ASE_APP__.renderer.bondPairs.length === 0"
             )
             cutoff.fill('0.90')
+            page.wait_for_function("window.__ASE_APP__.renderer.bondPairs.length === 1")
+            minimum = page.locator('.pairwise-bond-min[data-pair-key="C_left-C_right"]')
+            minimum.fill('0.75')
+            page.wait_for_function(
+                "window.__ASE_APP__.state.display.pairwiseBondRanges['C_left-C_right'].min === 0.75 && "
+                "window.__ASE_APP__.renderer.bondPairs.length === 0"
+            )
+            minimum.fill('0.50')
             page.wait_for_function("window.__ASE_APP__.renderer.bondPairs.length === 1")
 
             page.evaluate("""() => {
@@ -2433,7 +2446,7 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
             persisted = page.evaluate("""() => ({
                 mode: window.__ASE_APP__.state.display.bondMode,
                 cutoff: window.__ASE_APP__.state.display.pairwiseBondCutoffs['C_left-C_right'],
-                input: Number(document.querySelector('[data-pair-key="C_left-C_right"]').value),
+                input: Number(document.querySelector('.pairwise-bond-max[data-pair-key="C_left-C_right"]').value),
                 bonds: window.__ASE_APP__.renderer.bondPairs.length
             })""")
             assert persisted == {
@@ -2459,13 +2472,18 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
             relabeled = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
                 app.state.display.pairwiseBondCutoffs['C_left-C_right'] = 1.23;
+                app.state.display.pairwiseBondRanges['C_left-C_right'] = {
+                    enabled: true,
+                    min: 0,
+                    max: 1.23
+                };
                 app.renameAtomLabelForVisualization('C_left', 'C_custom', [0], 'C', {preserveAppearance: true});
                 return {
                     labels: [...app.state.atoms.symbols],
                     order: [...app.state.labelOrder],
                     cutoff: app.state.display.pairwiseBondCutoffs['C_custom-C_right'],
                     rendererCutoff: app.renderer.bondCutoffForPair(0, 1),
-                    input: Number(document.querySelector('[data-pair-key="C_custom-C_right"]')?.value),
+                    input: Number(document.querySelector('.pairwise-bond-max[data-pair-key="C_custom-C_right"]')?.value),
                 };
             }""")
             assert relabeled == {
@@ -2773,11 +2791,10 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
 
             _expand_inspector(page)
-            page.click('[data-inspector-group="display"]')
+            page.click('[data-inspector-group="bonds"]')
             _open_panel(page, 'bonding')
             page.select_option('#bond-mode', 'manual')
             page.fill('#bond-pairs', '0-1')
-            page.click('#btn-bond-apply')
             page.wait_for_function("window.__ASE_APP__.renderer.bondPairs.length === 1")
 
             default_bond = page.evaluate("""() => {
@@ -2998,7 +3015,7 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
 
             _expand_inspector(page)
-            page.click('[data-inspector-group="display"]')
+            page.click('[data-inspector-group="appearance"]')
             _open_panel(page, 'appearance')
             type_palette = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
@@ -3252,7 +3269,7 @@ def test_runtime_mode_switch_merges_labels_and_splits_only_material_variants():
 
             assert page.locator('[data-runtime-mode="view"]').get_attribute("aria-pressed") == "true"
             _expand_inspector(page)
-            page.click('[data-inspector-group="display"]')
+            page.click('[data-inspector-group="appearance"]')
             _open_panel(page, "appearance")
             page.select_option(
                 '.appearance-material-select[data-atom-label="C_b"]',
@@ -3455,7 +3472,7 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             assert toolbar_geometry["popupExists"] is False
 
             _expand_inspector(page)
-            page.click('[data-inspector-group="display"]')
+            page.click('[data-inspector-group="view"]')
             page.select_option("#viewport-background", "white")
             page.wait_for_function(
                 "window.__ASE_APP__.state.display.viewportBackground === 'white'"
@@ -3638,8 +3655,8 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             for first, inverse, component, expected_sign in (
                 ("left", "right", 0, -1),
                 ("right", "left", 0, 1),
-                ("up", "down", 1, 1),
-                ("down", "up", 1, -1),
+                ("up", "down", 1, -1),
+                ("down", "up", 1, 1),
             ):
                 page.evaluate("""() => {
                     const app = window.__ASE_APP__;

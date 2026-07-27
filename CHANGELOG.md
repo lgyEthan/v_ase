@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.0.88
+
+- Rebuilt the camera toolbar arrows to match their screen-relative motion,
+  including corrected up/down tilt direction and inverse-operation browser
+  coverage.
+- Split View, Appearance, Bonds, and Export into independent control-panel
+  workspaces.
+- Replaced single pair cutoffs with live label-pair specifications containing
+  enabled, minimum-distance, and maximum-distance fields; removed the separate
+  bond apply action.
+- Unified viewport, Blender, Rhino, and OBJ automatic bond rules and preserved
+  legacy cutoff-only settings alongside the new range format.
+- Refreshed the README UI, constraint media, and bond-configuration example.
+
 ## 0.0.87
 
 - Made X/Y/Z view toggles compare the complete canonical camera pose, including

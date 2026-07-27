@@ -197,7 +197,7 @@ def test_complete_user_requested_workflow_showcase():
     assert "deleteSelection" in main_js
     assert "e.code === 'Delete'" in main_js
     assert "renderPairwiseBondControls" in main_js
-    assert "parsePairwiseBondCutoffs" in main_js
+    assert "parsePairwiseBondRanges" in main_js
     assert "state.applyConstraints" in main_js
     assert "apply_constraint" in api_js
     assert "applySupercell" in api_js

@@ -40,11 +40,12 @@ Manual checks:
      - The spring must not visually break when atom 2 is far from atom 1.
 
   5. PBC bond
-     - Ensure Show Bonds is checked and Mode is Auto cutoff.
+     - Open Bonds and ensure Show Bonds is checked with Automatic radii selected.
      - Atoms 3 and 4 sit on opposite sides of the periodic X boundary.
      - They should still be bonded through the periodic boundary.
-     - Switch Mode to Pairwise cutoff.
-     - Confirm Na-Na, Na-Cl, and Cl-Cl rcut rows appear and changing Na-Cl updates bonds.
+     - Switch Definition to Pair specifications.
+     - Confirm Na-Na, Cl-Na, and Cl-Cl rows expose On, Min, and Max.
+     - Changing Cl-Na Min/Max or On must update bonds immediately.
 
   6. Supercell
      - Set Supercell to 2 x 1 x 1.

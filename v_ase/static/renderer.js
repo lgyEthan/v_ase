@@ -33,6 +33,46 @@ function scalarRecordEqual(first = {}, second = {}) {
     return true;
 }
 
+function recordHasEntries(record = {}) {
+    for (const key in record) {
+        if (Object.prototype.hasOwnProperty.call(record, key)) return true;
+    }
+    return false;
+}
+
+function cloneBondRangeRecord(source = {}) {
+    return Object.fromEntries(Object.entries(source).map(([key, range]) => [
+        key,
+        range && typeof range === 'object'
+            ? {
+                enabled: range.enabled !== false,
+                min: Number(range.min) || 0,
+                max: Number(range.max) || 0
+            }
+            : range
+    ]));
+}
+
+function bondRangeRecordEqual(first = {}, second = {}) {
+    if (first === second) return true;
+    const firstKeys = Object.keys(first);
+    const secondKeys = Object.keys(second);
+    if (firstKeys.length !== secondKeys.length) return false;
+    for (const key of firstKeys) {
+        const a = first[key];
+        const b = second[key];
+        if (
+            !b
+            || Boolean(a?.enabled !== false) !== Boolean(b?.enabled !== false)
+            || Number(a?.min || 0) !== Number(b?.min || 0)
+            || Number(a?.max || 0) !== Number(b?.max || 0)
+        ) {
+            return false;
+        }
+    }
+    return true;
+}
+
 class BlenderTumbleControls {
     constructor(camera, domElement) {
         this.camera = camera;
@@ -539,6 +579,7 @@ export class ASERenderer {
             bondCutoffScale: 1.0,
             manualBondPairs: [],
             pairwiseBondCutoffs: {},
+            pairwiseBondRanges: {},
             bondStyle: 'cylinder',
             bondThickness: 0.25,
             bondColorMode: 'split',
@@ -2692,6 +2733,9 @@ export class ASERenderer {
             ...options,
             manualBondPairs: [...(options.manualBondPairs || this.displayOptions.manualBondPairs || [])],
             pairwiseBondCutoffs: { ...(options.pairwiseBondCutoffs || this.displayOptions.pairwiseBondCutoffs || {}) },
+            pairwiseBondRanges: cloneBondRangeRecord(
+                options.pairwiseBondRanges || this.displayOptions.pairwiseBondRanges || {}
+            ),
             labelRadii: { ...(options.labelRadii || this.displayOptions.labelRadii || {}) },
             labelColors: { ...(options.labelColors || this.displayOptions.labelColors || {}) },
             labelVisible: { ...(options.labelVisible || this.displayOptions.labelVisible || {}) },
@@ -2775,6 +2819,7 @@ export class ASERenderer {
             (colorChanged && this.displayOptions.bondColorMode === 'split') ||
             !flatPairArrayEqual(previous.manualBondPairs, this.displayOptions.manualBondPairs) ||
             !scalarRecordEqual(previous.pairwiseBondCutoffs, this.displayOptions.pairwiseBondCutoffs) ||
+            !bondRangeRecordEqual(previous.pairwiseBondRanges, this.displayOptions.pairwiseBondRanges) ||
             visibilityChanged;
         if (bondsChanged) this.invalidateBondNeighborCache();
         if (visibilityChanged) this.applyAtomVisibility(changedVisibilityLabels);
@@ -2814,6 +2859,9 @@ export class ASERenderer {
                 ...displayOptions,
                 manualBondPairs: [...(displayOptions.manualBondPairs || this.displayOptions.manualBondPairs || [])],
                 pairwiseBondCutoffs: { ...(displayOptions.pairwiseBondCutoffs || this.displayOptions.pairwiseBondCutoffs || {}) },
+                pairwiseBondRanges: cloneBondRangeRecord(
+                    displayOptions.pairwiseBondRanges || this.displayOptions.pairwiseBondRanges || {}
+                ),
                 labelRadii: { ...(displayOptions.labelRadii || this.displayOptions.labelRadii || {}) },
                 labelColors: { ...(displayOptions.labelColors || this.displayOptions.labelColors || {}) },
                 labelVisible: { ...(displayOptions.labelVisible || this.displayOptions.labelVisible || {}) },
@@ -2899,12 +2947,16 @@ export class ASERenderer {
             for (let j = i + 1; j < count; j++) {
                 if (!this.atomLabelVisible(j)) continue;
                 if (hookeanExcluded.has(this.hookeanPairKey(i, j))) continue;
-                const cutoff = this.bondCutoffForPair(i, j);
-                if (!Number.isFinite(cutoff) || cutoff <= 0) continue;
+                const range = this.bondRangeForPair(i, j);
+                if (!range) continue;
                 const distanceSquared = this.bondDistanceSquared(
                     i, j, null, usePeriodicImages, cellCache
                 );
-                if (distanceSquared > 0.0225 && distanceSquared <= cutoff * cutoff) {
+                if (
+                    distanceSquared > 0.0225
+                    && distanceSquared >= range.min * range.min
+                    && distanceSquared <= range.max * range.max
+                ) {
                     pairs.push([i, j]);
                 }
             }
@@ -2913,10 +2965,20 @@ export class ASERenderer {
     }
 
     bondCutoffForPair(i, j) {
+        return this.bondRangeForPair(i, j)?.max ?? 0;
+    }
+
+    bondRangeForPair(i, j) {
         if (this.displayOptions.bondMode === 'pairwise') {
-            return this.pairwiseBondCutoff(this.atomsData.symbols[i], this.atomsData.symbols[j]);
+            return this.pairwiseBondRange(
+                this.atomsData.symbols[i],
+                this.atomsData.symbols[j]
+            );
         }
-        return this.autoBondCutoff(i, j);
+        const maximum = this.autoBondCutoff(i, j);
+        return Number.isFinite(maximum) && maximum > 0
+            ? { min: 0, max: maximum }
+            : null;
     }
 
     labelPairKey(a, b) {
@@ -2924,9 +2986,51 @@ export class ASERenderer {
     }
 
     pairwiseBondCutoff(a, b) {
+        return this.pairwiseBondRange(a, b)?.max ?? 0;
+    }
+
+    pairwiseBondRange(a, b) {
+        const key = this.labelPairKey(a, b);
+        const ranges = this.displayOptions.pairwiseBondRanges || {};
         const cutoffs = this.displayOptions.pairwiseBondCutoffs || {};
-        const value = Number(cutoffs[this.labelPairKey(a, b)]);
-        return Number.isFinite(value) ? value : null;
+        const hasLegacyMaximum = Object.prototype.hasOwnProperty.call(cutoffs, key);
+        const hasAnyLegacyCutoff = recordHasEntries(cutoffs);
+        const parsedLegacyMaximum = Number(cutoffs[key]);
+        const legacyMaximum = Number.isFinite(parsedLegacyMaximum)
+            ? Math.max(0, parsedLegacyMaximum)
+            : null;
+        const source = ranges[key];
+        if (source && typeof source === 'object') {
+            if (hasAnyLegacyCutoff && !hasLegacyMaximum) return null;
+            const maximum = Number(source.max);
+            const minimum = Number(source.min);
+            const sourceEnabled = source.enabled !== false
+                && Number.isFinite(maximum)
+                && maximum > 0;
+            if (hasLegacyMaximum && legacyMaximum !== null) {
+                const legacyEnabled = legacyMaximum > 0;
+                const recordsAgree = sourceEnabled === legacyEnabled && (
+                    !sourceEnabled || Math.abs(maximum - legacyMaximum) <= 1e-12
+                );
+                if (!recordsAgree) {
+                    if (!legacyEnabled) return null;
+                    return {
+                        min: Number.isFinite(minimum)
+                            ? Math.max(0, Math.min(minimum, legacyMaximum))
+                            : 0,
+                        max: legacyMaximum
+                    };
+                }
+            }
+            if (!sourceEnabled) return null;
+            return {
+                min: Number.isFinite(minimum) ? Math.max(0, Math.min(minimum, maximum)) : 0,
+                max: maximum
+            };
+        }
+        return legacyMaximum !== null && legacyMaximum > 0
+            ? { min: 0, max: legacyMaximum }
+            : null;
     }
 
     autoBondElementClass(symbol) {
@@ -2988,19 +3092,21 @@ export class ASERenderer {
                 labelIds[index] = labelIndex.get(labels[index]) ?? -1;
             }
             const matrixSize = uniqueLabels.length;
+            const minimumSquared = new Float64Array(matrixSize * matrixSize);
             const cutoffSquared = new Float64Array(matrixSize * matrixSize);
-            const requested = this.displayOptions.pairwiseBondCutoffs || {};
             let maxCutoff = 0;
             for (let first = 0; first < matrixSize; first++) {
                 for (let second = first; second < matrixSize; second++) {
-                    const value = Number(
-                        requested[this.labelPairKey(
-                            uniqueLabels[first],
-                            uniqueLabels[second]
-                        )]
+                    const range = this.pairwiseBondRange(
+                        uniqueLabels[first],
+                        uniqueLabels[second]
                     );
-                    const cutoff = Number.isFinite(value) && value > 0 ? value : 0;
+                    const cutoff = range?.max || 0;
+                    const minimum = range?.min || 0;
+                    const minimumValueSquared = minimum * minimum;
                     const squared = cutoff * cutoff;
+                    minimumSquared[first * matrixSize + second] = minimumValueSquared;
+                    minimumSquared[second * matrixSize + first] = minimumValueSquared;
                     cutoffSquared[first * matrixSize + second] = squared;
                     cutoffSquared[second * matrixSize + first] = squared;
                     maxCutoff = Math.max(maxCutoff, cutoff);
@@ -3012,6 +3118,7 @@ export class ASERenderer {
                 pairwise: true,
                 labelIds,
                 matrixSize,
+                minimumSquared,
                 cutoffSquared,
                 maxCutoff
             };
@@ -3088,6 +3195,17 @@ export class ASERenderer {
         return cutoff * cutoff;
     }
 
+    bondMinimumSquaredFromSearch(search, i, j) {
+        if (!search.pairwise) return 0;
+        const firstLabel = search.labelIds[i];
+        const secondLabel = search.labelIds[j];
+        return firstLabel < 0 || secondLabel < 0
+            ? 0
+            : search.minimumSquared[
+                firstLabel * search.matrixSize + secondLabel
+            ];
+    }
+
     reusableBondNeighborCandidates(search, usePeriodicImages) {
         const cache = this.bondNeighborCache;
         const pbc = this.atomsData?.pbc || [false, false, false];
@@ -3152,6 +3270,7 @@ export class ASERenderer {
         for (let offset = 0; offset < candidatePairs.length; offset += 2) {
             const i = candidatePairs[offset];
             const j = candidatePairs[offset + 1];
+            const minimumSquared = this.bondMinimumSquaredFromSearch(search, i, j);
             const cutoffSquared = this.bondCutoffSquaredFromSearch(search, i, j);
             if (!Number.isFinite(cutoffSquared) || cutoffSquared <= 0) continue;
             const distanceSquared = this.bondDistanceSquared(
@@ -3161,7 +3280,11 @@ export class ASERenderer {
                 usePeriodicImages,
                 cellCache
             );
-            if (distanceSquared > 0.0225 && distanceSquared <= cutoffSquared) {
+            if (
+                distanceSquared > 0.0225
+                && distanceSquared >= minimumSquared
+                && distanceSquared <= cutoffSquared
+            ) {
                 pairs.push([i, j]);
             }
         }
@@ -3363,6 +3486,9 @@ export class ASERenderer {
                     if (j <= i || hookeanExcluded.has(i * search.count + j)) continue;
                     const cutoffSquared = candidateRadiusSquared
                         ?? this.bondCutoffSquaredFromSearch(search, i, j);
+                    const minimumSquared = candidateRadiusSquared === null
+                        ? this.bondMinimumSquaredFromSearch(search, i, j)
+                        : 0;
                     if (!Number.isFinite(cutoffSquared) || cutoffSquared <= 0) continue;
                     const distanceSquared = this.bondDistanceSquared(
                         i,
@@ -3373,6 +3499,7 @@ export class ASERenderer {
                     );
                     if (
                         distanceSquared > 0.0225
+                        && distanceSquared >= minimumSquared
                         && distanceSquared <= cutoffSquared
                     ) {
                         if (candidateRadiusSquared === null) pairs.push([i, j]);
@@ -3408,10 +3535,14 @@ export class ASERenderer {
 
         const periodicPairs = this.inferBondPairs(true);
         const directPairs = periodicPairs.filter(([i, j]) => {
-            const cutoff = this.bondCutoffForPair(i, j);
-            if (!Number.isFinite(cutoff) || cutoff <= 0) return false;
+            const range = this.bondRangeForPair(i, j);
+            if (!range) return false;
             const distanceSquared = this.bondDistanceSquared(i, j);
-            return distanceSquared > 0.0225 && distanceSquared <= cutoff * cutoff;
+            return (
+                distanceSquared > 0.0225
+                && distanceSquared >= range.min * range.min
+                && distanceSquared <= range.max * range.max
+            );
         });
         return {
             pairs: directPairs,

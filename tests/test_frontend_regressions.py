@@ -3,6 +3,7 @@ import asyncio
 import re
 import tomllib
 
+from ase import Atoms
 from ase.build import molecule
 from fastapi import HTTPException
 import numpy as np
@@ -408,15 +409,15 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "sphere-quality" in index_html
     assert "chk-antialias" in index_html
     assert "pairwise-bond-list" in index_html
-    assert "Pairwise cutoff" in index_html
-    assert "Manual pair" in index_html
+    assert "Pair specifications" in index_html
+    assert "Manual index pairs" in index_html
     assert "deleteSelection" in main_js
     assert "api.deleteAtoms" in main_js
     assert "updateCalculatorConfig" in api_js
     assert "currentCalculatorPayload" in main_js
     assert "e.code === 'Delete'" in main_js
     assert "renderPairwiseBondControls" in main_js
-    assert "parsePairwiseBondCutoffs" in main_js
+    assert "parsePairwiseBondRanges" in main_js
     assert "this.setInspectorCollapsed(!document.body.classList.contains('inspector-collapsed'))" in main_js
     assert "atomHoverText" in main_js
     assert "setHoveredAtom" in main_js
@@ -474,7 +475,7 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "exportObj" in api_js
     assert "btn-export-3dm" in index_html
     assert "btn-export-obj" in index_html
-    assert "Export &amp; Save" in index_html
+    assert 'data-inspector-group="export"' in index_html
     assert "renderer.supercellBridgeBondRecords" in main_js
     assert "selected-measure" in index_html
     assert "getSelectionMeasureText" in main_js
@@ -683,7 +684,10 @@ def test_camera_view_background_and_2d_display_controls_are_wired():
     assert "rotateCameraView(direction, stepDegrees" in main_js
     assert "'roll-ccw': { axis: basis.forward, sign: 1 }" in main_js
     assert "'roll-cw': { axis: basis.forward, sign: -1 }" in main_js
+    assert "up: { axis: basis.right, sign: 1 }" in main_js
+    assert "down: { axis: basis.right, sign: -1 }" in main_js
     assert 'id="view-arrow-up-shape"' in index_html
+    assert 'd="M27.5 28v-7.1c-6.4 0-9.1-2.5-9.1-8.5' in index_html
     assert 'id="view-arrow-left-shape"' in index_html
     assert 'id="view-arrow-roll-ccw-shape"' in index_html
     assert index_html.count('class="view-arrow-face"') == 6
@@ -986,6 +990,11 @@ def test_bond_appearance_controls_and_instanced_renderer_contract():
     assert '<option value="split">Split atom colors</option>' in index_html
     assert '<option value="custom">Custom color</option>' in index_html
     assert 'id="bond-custom-color"' in index_html
+    assert 'id="btn-bond-apply"' not in index_html
+    assert "enabled.className = 'pairwise-bond-enabled'" in main_js
+    assert 'className = `pairwise-bond-${field}`' in main_js
+    assert "pairwiseBondRanges" in main_js
+    assert "pairwiseBondRanges" in renderer_js
     assert "bondStyle: 'cylinder'" in main_js
     assert "bondColorMode: 'split'" in main_js
     assert "captureBondSettingsFromControls" in main_js
@@ -1022,10 +1031,74 @@ def test_pairwise_cutoff_export_is_label_keyed_and_zero_disables_the_pair():
         "bondMode": "pairwise",
         "pairwiseBondCutoffs": {"H-H": 1.0},
     })
+    below_minimum = _display_bonds(data, {
+        "showBonds": True,
+        "bondMode": "pairwise",
+        "pairwiseBondRanges": {
+            "H_left-H_right": {"enabled": True, "min": 0.8, "max": 1.0}
+        },
+    })
+    explicit_range = _display_bonds(data, {
+        "showBonds": True,
+        "bondMode": "pairwise",
+        "pairwiseBondRanges": {
+            "H_left-H_right": {"enabled": True, "min": 0.6, "max": 1.0}
+        },
+    })
 
     assert len(enabled) == 1
     assert disabled == []
     assert chemical_key_is_not_used == []
+    assert below_minimum == []
+    assert len(explicit_range) == 1
+
+
+def test_automatic_bond_export_matches_viewport_pair_class_rules():
+    def exported_bonds(symbols, distance):
+        atoms = Atoms(
+            symbols=symbols,
+            positions=[[0.0, 0.0, 0.0], [distance, 0.0, 0.0]],
+            cell=[12.0, 12.0, 12.0],
+            pbc=False,
+        )
+        session = EditorSession("automatic-bond-export", atoms.copy(), atoms.copy())
+        return _display_bonds(
+            session_atoms_to_json(session),
+            {"showBonds": True, "bondMode": "auto"},
+        )
+
+    assert exported_bonds("H2", 0.74) == []
+    assert exported_bonds("Cu2", 2.35) == []
+    assert len(exported_bonds(["Cu", "O"], 2.20)) == 1
+
+
+def test_legacy_pairwise_cutoff_map_replaces_stale_range_keys_during_export():
+    atoms = Atoms(
+        "H3",
+        positions=[
+            [0.0, 0.0, 0.0],
+            [0.7, 0.0, 0.0],
+            [0.0, 0.7, 0.0],
+        ],
+        cell=[8.0, 8.0, 8.0],
+        pbc=False,
+    )
+    set_atom_labels(atoms, ["H_a", "H_b", "H_c"])
+    session = EditorSession("legacy-pair-map-export", atoms.copy(), atoms.copy())
+    bonds = _display_bonds(
+        session_atoms_to_json(session),
+        {
+            "showBonds": True,
+            "bondMode": "pairwise",
+            "pairwiseBondCutoffs": {"H_a-H_b": 0.8},
+            "pairwiseBondRanges": {
+                "H_a-H_b": {"enabled": False, "min": 0.0, "max": 0.0},
+                "H_a-H_c": {"enabled": True, "min": 0.0, "max": 0.8},
+            },
+        },
+    )
+
+    assert [(bond["i"], bond["j"]) for bond in bonds] == [(0, 1)]
 
 
 def test_bond_export_defaults_to_visible_cell_and_periodic_images_are_opt_in():
@@ -1068,14 +1141,18 @@ def test_control_panel_uses_collapsible_default_hierarchy():
     assert '<strong>Workspace</strong>' not in index_html
     assert 'data-inspector-group="inspect"' in index_html
     assert 'data-inspector-group="structure"' in index_html
-    assert 'data-inspector-group="display"' in index_html
-    assert 'data-inspector-group="output"' in index_html
+    assert 'data-inspector-group="view"' in index_html
+    assert 'data-inspector-group="appearance"' in index_html
+    assert 'data-inspector-group="bonds"' in index_html
+    assert 'data-inspector-group="export"' in index_html
     assert 'data-panel="structure-info" data-panel-group="inspect"' in index_html
     assert 'data-panel="selection" data-panel-group="inspect"' in index_html
-    assert 'data-panel="view" data-panel-group="display"' in index_html
+    assert 'data-panel="view" data-panel-group="view"' in index_html
     assert 'data-panel="cell-replication" data-panel-group="structure"' in index_html
     assert 'data-panel="transform" data-panel-group="structure" data-edit-only' in index_html
-    assert 'data-panel="appearance" data-panel-group="display"' in index_html
+    assert 'data-panel="appearance" data-panel-group="appearance"' in index_html
+    assert 'data-panel="bonding" data-panel-group="bonds"' in index_html
+    assert 'data-panel="export" data-panel-group="export"' in index_html
     assert 'data-panel="cell-transform" data-panel-group="structure" data-edit-only' in index_html
     assert 'data-panel="scientific-tools" data-panel-group="structure" data-edit-only' in index_html
     assert "setupInspectorNavigation" in main_js

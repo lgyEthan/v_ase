@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import math
 import os
+import sys
 from io import BytesIO
 from pathlib import Path
 
@@ -15,11 +16,12 @@ from ase.constraints import FixAtoms, FixedLine, FixedPlane, Hookean
 from PIL import Image
 from playwright.sync_api import sync_playwright
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from tests.manual_showcase import make_frames
 from v_ase import view
-
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def parse_media_size(value: str | None, default: tuple[int, int]) -> tuple[int, int]:
@@ -171,6 +173,7 @@ def set_display(page, options):
                 labelColors: options.labelColors || current.labelColors || {},
                 labelVisible: options.labelVisible || current.labelVisible || {},
                 pairwiseBondCutoffs: options.pairwiseBondCutoffs || current.pairwiseBondCutoffs || {},
+                pairwiseBondRanges: options.pairwiseBondRanges || current.pairwiseBondRanges || {},
                 manualBondPairs: options.manualBondPairs || current.manualBondPairs || [],
                 supercell: options.supercell || current.supercell || [1, 1, 1]
             };
@@ -621,6 +624,18 @@ def main() -> int:
             set_readme_lighting(page, [5.6, 5.0, 2.2], intensity=2.85)
             configure_inspector(page, "inspect", ["structure-info", "selection"])
             page.screenshot(path=ASSET_DIR / "readme_overview.png")
+
+            set_display(page, {
+                "bondMode": "pairwise",
+                "showBonds": True,
+                "pairwiseBondRanges": {
+                    "Na-Na": {"enabled": False, "min": 0.0, "max": 3.15},
+                    "Cl-Na": {"enabled": True, "min": 1.8, "max": 3.10},
+                    "Cl-Cl": {"enabled": False, "min": 0.0, "max": 3.55},
+                },
+            })
+            configure_inspector(page, "bonds", ["bonding"], width=520)
+            page.screenshot(path=ASSET_DIR / "readme_bonds.png")
             page.close()
             editor.close()
 

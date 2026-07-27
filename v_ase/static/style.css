@@ -802,7 +802,7 @@ body:not(.inspector-collapsed) .inspector-edge-chevron {
 .inspector-nav {
     flex: 0 0 auto;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 3px;
     padding: 7px 8px;
     border-bottom: 1px solid var(--line);
@@ -820,6 +820,20 @@ body:not(.inspector-collapsed) .inspector-edge-chevron {
     font-size: 0.66rem;
     font-weight: 700;
     cursor: pointer;
+}
+
+.panel-subhead {
+    margin: 3px 0 10px;
+    color: var(--muted);
+    font-size: 0.65rem;
+    font-weight: 760;
+    text-transform: uppercase;
+}
+
+.bond-style-subhead {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
 }
 
 .inspector-nav button:hover {
@@ -1463,6 +1477,12 @@ body.inspector-wide #inspector .supercell-row {
     background: var(--neutral-875);
 }
 
+.pairwise-bond-panel {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+}
+
 #inspector #appearance-table {
     overflow-x: auto;
     overflow-y: hidden;
@@ -1650,11 +1670,12 @@ body.inspector-wide #inspector #appearance-table-body {
     background: var(--amber);
 }
 
-.mini-table-head,
+.pairwise-bond-panel .mini-table-head,
 .pairwise-bond-row {
+    min-width: 500px;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 112px;
-    gap: 12px;
+    grid-template-columns: 34px minmax(170px, 1fr) 92px 92px;
+    gap: 10px;
     align-items: center;
 }
 
@@ -1674,9 +1695,46 @@ body.inspector-wide #inspector #appearance-table-body {
     border-bottom: 0;
 }
 
-.pairwise-bond-row input {
-    width: 112px;
+.pairwise-bond-row input[type="number"] {
+    width: 92px;
     text-align: right;
+}
+
+.pairwise-bond-row .pairwise-bond-enabled {
+    justify-self: center;
+}
+
+.pairwise-bond-row .pairwise-bond-pair-label {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-soft);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#inspector .pairwise-reset {
+    width: calc(100% - 20px);
+    min-width: 480px;
+    margin: 8px 10px 10px;
+    padding: 9px 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: 4px;
+    background: var(--panel-raised);
+    color: var(--text-soft);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+#inspector .pairwise-reset:hover {
+    border-color: var(--teal-border);
+    background: var(--teal-soft);
+    color: var(--teal-contrast);
+}
+
+#inspector .pairwise-reset:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 1px;
 }
 
 .bond-thickness-control {

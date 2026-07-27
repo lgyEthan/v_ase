@@ -72,6 +72,17 @@ ATOM_MATERIAL_PRESETS = {
     },
 }
 
+_AUTO_BOND_METALLIC_ELEMENTS = frozenset({
+    "Li", "Be", "Na", "Mg", "Al", "K", "Ca", "Sc", "Ti", "V", "Cr", "Mn",
+    "Fe", "Co", "Ni", "Cu", "Zn", "Ga", "Rb", "Sr", "Y", "Zr", "Nb", "Mo",
+    "Tc", "Ru", "Rh", "Pd", "Ag", "Cd", "In", "Sn", "Cs", "Ba", "La", "Ce",
+    "Pr", "Nd", "Pm", "Sm", "Eu", "Gd", "Tb", "Dy", "Ho", "Er", "Tm", "Yb",
+    "Lu", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg", "Tl", "Pb",
+    "Bi", "Po", "Fr", "Ra", "Ac", "Th", "Pa", "U", "Np", "Pu", "Am", "Cm",
+    "Bk", "Cf", "Es", "Fm", "Md", "No", "Lr", "Rf", "Db", "Sg", "Bh", "Hs",
+    "Mt", "Ds", "Rg", "Cn", "Nh", "Fl", "Mc", "Lv",
+})
+
 
 def _atom_material_preset(value) -> str:
     normalized = str(value or "").strip().lower()
@@ -233,6 +244,69 @@ def _pairwise_bond_cutoffs(display: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
+def _pairwise_bond_ranges(display: Dict[str, Any]) -> Dict[str, Any]:
+    ranges = display.get("pairwiseBondRanges")
+    legacy_cutoffs = _pairwise_bond_cutoffs(display)
+    if isinstance(ranges, dict) and not legacy_cutoffs:
+        return ranges
+    result = {}
+    for key, value in legacy_cutoffs.items():
+        try:
+            maximum = max(0.0, float(value))
+        except (TypeError, ValueError):
+            continue
+        source = ranges.get(key) if isinstance(ranges, dict) else None
+        if isinstance(source, dict):
+            try:
+                source_maximum = max(0.0, float(source.get("max", 0.0)))
+                source_minimum = max(
+                    0.0,
+                    min(float(source.get("min", 0.0)), source_maximum),
+                )
+            except (TypeError, ValueError):
+                source_maximum = 0.0
+                source_minimum = 0.0
+            source_enabled = source.get("enabled") is not False and source_maximum > 0
+            legacy_enabled = maximum > 0
+            if (
+                source_enabled == legacy_enabled
+                and (not source_enabled or math.isclose(source_maximum, maximum))
+            ):
+                result[key] = {
+                    "enabled": source_enabled,
+                    "min": source_minimum,
+                    "max": source_maximum,
+                }
+                continue
+        result[key] = {
+            "enabled": maximum > 0,
+            "min": 0.0,
+            "max": maximum,
+        }
+    return result
+
+
+def _automatic_bond_cutoff(symbol_a, symbol_b, radius_a, radius_b) -> float:
+    first = str(symbol_a)
+    second = str(symbol_b)
+    first_is_hydrogen = first == "H"
+    second_is_hydrogen = second == "H"
+    first_is_metal = first in _AUTO_BOND_METALLIC_ELEMENTS
+    second_is_metal = second in _AUTO_BOND_METALLIC_ELEMENTS
+    if (
+        (first_is_hydrogen and second_is_hydrogen)
+        or (first_is_metal and second_is_metal)
+    ):
+        return 0.0
+    if first_is_hydrogen or second_is_hydrogen:
+        slack = 0.22
+    elif first_is_metal or second_is_metal:
+        slack = 0.50
+    else:
+        slack = 0.35
+    return max(0.0, float(radius_a) + float(radius_b) + slack)
+
+
 def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs=None):
     display = display or {}
     if display.get("showBonds") is False:
@@ -253,36 +327,34 @@ def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs
     covalent = [float(value) if value is not None else 0.75 for value in covalent_source]
     if len(covalent) < len(symbols):
         covalent.extend([0.75] * (len(symbols) - len(covalent)))
-    vdw = []
-    for value in visual.get("vdw_radii", []):
-        try:
-            parsed = float(value)
-        except (TypeError, ValueError):
-            parsed = 0.0
-        vdw.append(parsed if np.isfinite(parsed) and parsed > 0 else 0.0)
-    if len(vdw) < len(symbols):
-        vdw.extend([0.0] * (len(symbols) - len(vdw)))
+    bond_mode = _normalized_bond_mode(display)
+    pairwise_ranges = _pairwise_bond_ranges(display) if bond_mode == "pairwise" else {}
 
     def pair_key(i, j):
         return "-".join(sorted((str(labels[i]), str(labels[j]))))
 
-    def cutoff(i, j):
-        if _normalized_bond_mode(display) == "pairwise":
-            pairwise_cutoffs = _pairwise_bond_cutoffs(display)
+    def bond_range(i, j):
+        if bond_mode == "pairwise":
             key = pair_key(i, j)
-            if key not in pairwise_cutoffs:
-                return 0.0
+            source = pairwise_ranges.get(key)
+            if not isinstance(source, dict) or source.get("enabled") is False:
+                return 0.0, 0.0
             try:
-                return max(0.0, float(pairwise_cutoffs[key]))
+                maximum = max(0.0, float(source.get("max", 0.0)))
+                minimum = max(0.0, min(float(source.get("min", 0.0)), maximum))
+                return minimum, maximum
             except (TypeError, ValueError):
-                return 0.0
+                return 0.0, 0.0
         scale = float(display.get("bondCutoffScale") or 1.0)
-        if vdw[i] > 0 and vdw[j] > 0:
-            return 0.6 * (vdw[i] + vdw[j]) * scale
-        return (covalent[i] + covalent[j] + 0.4) * scale
+        return 0.0, _automatic_bond_cutoff(
+            symbols[i],
+            symbols[j],
+            covalent[i],
+            covalent[j],
+        ) * scale
 
     raw_pairs = explicit_pairs
-    if not raw_pairs and _normalized_bond_mode(display) == "manual":
+    if not raw_pairs and bond_mode == "manual":
         raw_pairs = display.get("manualBondPairs") or []
 
     pairs = []
@@ -302,11 +374,13 @@ def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs
             if 0 <= i < len(symbols) and 0 <= j < len(symbols) and i != j:
                 pairs.append((min(i, j), max(i, j)))
     else:
-        if _normalized_bond_mode(display) == "pairwise":
+        if bond_mode == "pairwise":
             candidates = []
-            for value in _pairwise_bond_cutoffs(display).values():
+            for value in pairwise_ranges.values():
+                if not isinstance(value, dict) or value.get("enabled") is False:
+                    continue
                 try:
-                    parsed = float(value)
+                    parsed = float(value.get("max", 0.0))
                 except (TypeError, ValueError):
                     continue
                 if np.isfinite(parsed) and parsed > 0:
@@ -314,10 +388,7 @@ def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs
             search_radius = max(candidates, default=0.0)
         else:
             scale = float(display.get("bondCutoffScale") or 1.0)
-            search_radius = max(
-                1.2 * max(vdw, default=0.0) * scale,
-                (2.0 * max(covalent, default=0.75) + 0.4) * scale,
-            )
+            search_radius = (2.0 * max(covalent, default=0.75) + 0.50) * scale
 
         candidate_pairs = []
         if search_radius > 0 and len(symbols) > 1:
@@ -347,7 +418,9 @@ def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs
         for i, j in candidate_pairs:
             i, j = int(i), int(j)
             delta = bond_delta(i, j)
-            if float(np.linalg.norm(delta)) <= cutoff(i, j):
+            distance = float(np.linalg.norm(delta))
+            minimum, maximum = bond_range(i, j)
+            if maximum > 0 and minimum <= distance <= maximum:
                 pairs.append((i, j))
 
     seen = set()

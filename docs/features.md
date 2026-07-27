@@ -159,12 +159,17 @@ Bond topology modes:
   tolerance by pair class. H-H and metal-metal contacts are excluded by
   default; metal-ligand, H-containing, and other covalent pairs use separate
   tolerances.
-- **Pairwise cutoff**: explicit label-pair distance; `0` disables the pair.
-- **Manual pair**: explicit atom-index topology.
+- **Pair specifications**: each label pair has an enabled state and explicit
+  minimum/maximum distances. The range is the complete topology rule for that
+  mode; a disabled row or zero maximum produces no bond. Initial specifications
+  are deterministic element-radius suggestions, not values learned from a
+  previous structure or user setting.
+- **Manual index pairs**: explicit atom-index topology.
 
-Automatic and pairwise topology is inferred for each trajectory frame and every
-interactive transform preview. Manual topology remains fixed while geometry
-stretches.
+Automatic and pair-specification topology is inferred for each trajectory frame
+and every interactive transform preview. Manual topology remains fixed while
+geometry stretches. All bond controls are live; there is no separate apply
+operation.
 
 For large structures, a cell-list search and displacement-validated neighbor
 candidate cache replace the quadratic pair loop. Actual distances and cutoffs

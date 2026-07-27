@@ -206,33 +206,39 @@ displayed coordinates without an additional MIC value. Larger selections show
 the total followed by counts for each atom label. Hovered-atom metadata is
 displayed separately.
 
-## Appearance, Bonds, And Rendering
+## View, Appearance, Bonds, And Rendering
 
-The Display workspace provides:
+The control panel separates camera and scene controls from atom styling and
+bond definitions. The **View** workspace provides:
 
 - orthographic or perspective projection;
 - a true-white viewport background by default, with balanced modeling light
   for clear element colors and a dark background option;
 - 3D spheres/cylinders or 2D atoms/flat bonds;
 - live atomic scale in pixels per Angstrom;
-- atom smoothness and anti-aliasing; new documents use a `0.60x` atom radius;
-- per-label element TYPE, label, visibility, color, radius, and material;
-- Modeling, Studio Sun, and Sun + Soft Shadow rendering;
-- editable Sun intensity, source, target, and viewport handles;
-- unit cell, axes, grid, supercell, and overlay controls.
+- unit cell, axes, grid, and overlay controls.
 
-Material presets are **Standard**, **Metal**, and **Rubber**. In View, a preset
-applies to a complete label group. In Edit, selected atoms can use independent
-materials and can be merged into an existing label by entering that exact
-label. Chemical TYPE remains synchronized with ASE while labels continue to
-control visual grouping. Metal uses a high-contrast studio reflection so it
-remains visually distinct from the glossy Standard preset.
+The **Appearance** workspace controls per-label TYPE, label, visibility, color,
+radius, material, atom smoothness, and anti-aliasing. New documents use a
+`0.60x` atom radius. Material presets are **Standard**, **Metal**, and
+**Rubber**. In View, a preset applies to a complete label group. In Edit,
+selected atoms can use independent materials and can be merged into an existing
+label by entering that exact label. Chemical TYPE remains synchronized with ASE
+while labels continue to control visual grouping.
 
-Bonds support automatic covalent-radius inference, label-pair cutoffs, and
-manual index pairs. A pairwise cutoff of `0` disables that label pair.
-Thickness, cylinder/flat style, custom color, and midpoint-split atom colors are
+The top-bar renderer switches among **Modeling**, **Studio Sun**, and
+**Sun + Soft Shadow**. Sun intensity, source, target, and viewport handles are
+editable.
+
+The **Bonds** workspace supports automatic element-radius inference, explicit
+label-pair specifications, and manual atom-index pairs. Each pair specification
+has an enable checkbox plus minimum and maximum distances in Angstrom. Changes
+apply immediately; no separate apply step is required. Thickness,
+cylinder/flat style, custom color, and midpoint-split atom colors are
 configurable. New documents use a `0.25 A` bond diameter. Interactive bonds
 form and break during atom transforms.
+
+![Bond pair specifications](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_bonds.png)
 
 ## Export And Save
 
