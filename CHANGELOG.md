@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.0.86
+
+- Open now invokes the operating system file picker immediately instead of
+  showing an intermediate launch-directory file list.
+- Added an explicit source/relaxation timeline selector. Playback, Space, and
+  Left/Right Arrow stepping target only the selected timeline while the other
+  timeline remains visible as a secondary row.
+- Added serialized frame stepping so repeated keyboard input cannot race
+  asynchronous trajectory loads.
+
 ## 0.0.85
 
 - Replaced the camera toolbar glyphs with shaded, volumetric curved arrows in

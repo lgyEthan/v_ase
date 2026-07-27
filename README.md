@@ -54,9 +54,8 @@ Examples:
 
 The terminal is released when the v_ase browser document closes.
 
-When v_ase starts without a file, **Open** begins in the terminal directory
-where `v_ase gui` was run. Navigate its subfolders directly, or choose
-**System Picker** to open a file elsewhere on the computer.
+**Open** immediately displays the operating system file picker. After choosing
+a file, select its reader, frame range, and how it should be opened.
 
 The top-bar **Open** command offers three actions:
 
@@ -120,7 +119,8 @@ playback.
 | `Esc` / right click | Cancel a transform |
 | `Ctrl+C`, `Ctrl+V`, `Ctrl+Z` | Copy, paste, undo |
 | `Delete` / `Backspace` | Delete selected atoms |
-| `Space` | Play or pause a trajectory |
+| `Space` | Play or pause the selected timeline |
+| `Left Arrow` / `Right Arrow` | Previous or next frame in the selected timeline |
 | `Tab` / `Esc` | Open the collapsed control panel |
 | `Esc` | Close the open panel and return focus to the viewport |
 
@@ -137,8 +137,10 @@ immediately, FPS changes apply during playback, and **Skip** advances by
 remain active across all frames.
 
 In interactive mode, relaxation creates a separate optimization timeline.
-Loaded trajectory frames and their corresponding relaxation paths remain
-visually distinct.
+When source and relaxation trajectories both exist, choose **Source frames** or
+**Relaxation · calculator** from the timeline selector. Playback, `Space`, and
+the Left/Right Arrow keys control only the selected timeline; the other
+timeline remains visible in a separate row.
 
 ## Constraints
 

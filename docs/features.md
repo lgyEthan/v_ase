@@ -34,11 +34,8 @@ Browser Open has three explicit destinations:
   frame, camera, and visual settings;
 - upload into a new independent workspace document.
 
-Open first lists the directory from which `v_ase gui` was launched. That local
-browser is restricted to the launch-directory tree, resolves symlinks before
-access, and reads selected files directly instead of copying them through an
-HTTP upload. The browser-owned system file picker remains available for files
-outside that tree.
+Open invokes the operating system file picker immediately. Reader, frame range,
+and destination are selected after the file is chosen.
 
 A `.vase` project restores all saved state when replacing a document or opening
 in a new tab. When appended, only its selected structure frames are used. The
@@ -197,9 +194,11 @@ introduced labels and chemical types are reconciled without renaming existing
 groups.
 
 Relaxation has its own timeline. For a loaded trajectory, each source frame can
-own a relaxation path. Space-bar playback follows the loaded trajectory and
-uses a relaxed override when one exists. A single loaded structure with a
-relaxation path plays the optimization timeline.
+own a relaxation path. When both source and relaxation trajectories exist, a
+timeline selector chooses which one receives transport controls, Space-bar
+playback, and Left/Right Arrow frame stepping. The other source remains visible
+as a secondary timeline. A loaded source frame still uses its relaxed override
+when one exists.
 
 ## Rendering
 

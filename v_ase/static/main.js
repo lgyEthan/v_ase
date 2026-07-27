@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.85&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.85&rev=1';
-import { ASESelection } from './selection.js?v=0.0.85&rev=1';
-import { ASETransform } from './transform.js?v=0.0.85&rev=1';
+import { ASEApi } from './api.js?v=0.0.86&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.86&rev=1';
+import { ASESelection } from './selection.js?v=0.0.86&rev=1';
+import { ASETransform } from './transform.js?v=0.0.86&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -47,6 +47,7 @@ class VAseApp {
         this.initialDesignSettings = null;
         this.frameLoadInFlight = false;
         this.pendingFrameIndex = null;
+        this.timelineStepQueue = Promise.resolve();
         this.controlCommitState = new WeakMap();
         this.renderer.onFrame = () => {
             this.updateOrientationWidget();
@@ -138,6 +139,7 @@ class VAseApp {
             sunTransformOriginal: null,
             trajectoryTimer: null,
             trajectoryPlaybackSource: null,
+            timelineSource: 'loaded',
             trajectoryBinaryCache: null,
             trajectoryBinaryPromise: null,
             relaxTrajectory: {
@@ -1717,10 +1719,35 @@ class VAseApp {
         return this.state.relaxTrajectory?.frames?.length || 0;
     }
 
+    timelineSourceAvailable(source) {
+        return source === 'relax'
+            ? this.relaxFrameCount() > 1
+            : this.loadedFrameCount() > 1;
+    }
+
     primaryTimelineSource() {
+        const requested = this.state.timelineSource;
+        if (this.timelineSourceAvailable(requested)) return requested;
         if (this.loadedFrameCount() > 1) return 'loaded';
         if (this.relaxFrameCount() > 1) return 'relax';
         return 'loaded';
+    }
+
+    secondaryTimelineSource() {
+        if (this.loadedFrameCount() <= 1 || this.relaxFrameCount() <= 1) return null;
+        return this.primaryTimelineSource() === 'loaded' ? 'relax' : 'loaded';
+    }
+
+    timelineSourceName(source, { compact = false } = {}) {
+        if (source === 'loaded') return compact ? 'SOURCE' : 'Source frames';
+        const calculator = String(this.state.atoms?.metadata?.calculator || '').trim();
+        const calculatorName = calculator && calculator.toLowerCase() !== 'none'
+            ? calculator
+            : '';
+        if (compact) {
+            return /repulsion/i.test(calculatorName) ? 'RELAX · REPULSION' : 'RELAXATION';
+        }
+        return calculatorName ? `Relaxation · ${calculatorName}` : 'Relaxation';
     }
 
     timelineFrameCount(source = this.primaryTimelineSource()) {
@@ -1742,6 +1769,7 @@ class VAseApp {
             active: true,
             finished: false
         };
+        this.state.timelineSource = 'relax';
         const positions = this.currentPositionsFromScene?.() || this.state.atoms?.positions || [];
         if (positions.length) this.appendRelaxFrame(positions, { force: true });
         this.updateTrajectoryUI();
@@ -1807,6 +1835,7 @@ class VAseApp {
             active: false,
             finished: false
         };
+        if (this.state.timelineSource === 'relax') this.state.timelineSource = 'loaded';
     }
 
     pruneSelection() {
@@ -1917,6 +1946,44 @@ class VAseApp {
         }
     }
 
+    async setTimelineSource(source) {
+        if (!this.timelineSourceAvailable(source)) return;
+        this.stopPlayback();
+        this.state.timelineSource = source;
+        this.updateTrajectoryUI();
+        if (source === 'relax') {
+            await this.loadRelaxFrame(this.timelineFrameIndex('relax'));
+        } else {
+            await this.loadFrame(this.timelineFrameIndex('loaded'));
+        }
+        this.updateTrajectoryUI();
+    }
+
+    syncTimelineSourceSelect(source, loadedCount, relaxCount) {
+        const select = document.getElementById('timeline-source-select');
+        if (!select) return;
+        const available = [];
+        if (loadedCount > 1) available.push('loaded');
+        if (relaxCount > 1) available.push('relax');
+        if (!available.length) available.push('loaded');
+        const signature = available
+            .map(item => `${item}:${this.timelineSourceName(item)}`)
+            .join('|');
+        if (select.dataset.signature !== signature) {
+            select.replaceChildren(...available.map(item => {
+                const option = document.createElement('option');
+                option.value = item;
+                option.textContent = this.timelineSourceName(item);
+                return option;
+            }));
+            select.dataset.signature = signature;
+        }
+        select.value = source;
+        select.disabled = available.length <= 1;
+        select.classList.toggle('relax', source === 'relax');
+        select.title = `${this.timelineSourceName(source)} controls playback, Space, and Left/Right arrow keys.`;
+    }
+
     updateTrajectoryUI() {
         const meta = this.state.atoms?.metadata || {};
         const loadedCount = meta.frame_count || 1;
@@ -1929,16 +1996,13 @@ class VAseApp {
             panel.classList.toggle('hidden', loadedCount <= 1 && relaxCount <= 1);
             panel.dataset.primarySource = source;
         }
-        const sourceLabel = document.getElementById('timeline-source-label');
-        if (sourceLabel) {
-            sourceLabel.innerText = source === 'relax' ? 'RELAX' : 'LOADED';
-            sourceLabel.classList.toggle('relax', source === 'relax');
-        }
+        this.syncTimelineSourceSelect(source, loadedCount, relaxCount);
         const slider = document.getElementById('frame-slider');
         if (slider) {
             slider.max = Math.max(0, count - 1);
             slider.value = index;
             slider.disabled = count <= 1;
+            slider.setAttribute('aria-label', `${this.timelineSourceName(source)} frame`);
         }
         const label = document.getElementById('frame-label');
         if (label) label.innerText = `${Math.min(index + 1, count)} / ${count}`;
@@ -1946,28 +2010,49 @@ class VAseApp {
         if (play) {
             play.innerText = this.state.trajectoryTimer ? '⏸' : '▶';
             play.disabled = count <= 1;
+            play.title = `Play/Pause ${this.timelineSourceName(source)}`;
         }
         const prev = document.getElementById('btn-frame-prev');
         const next = document.getElementById('btn-frame-next');
-        if (prev) prev.disabled = count <= 1;
-        if (next) next.disabled = count <= 1;
+        if (prev) {
+            prev.disabled = count <= 1;
+            prev.title = `Previous ${this.timelineSourceName(source)} frame (Left Arrow)`;
+        }
+        if (next) {
+            next.disabled = count <= 1;
+            next.title = `Next ${this.timelineSourceName(source)} frame (Right Arrow)`;
+        }
         const fps = document.getElementById('movie-fps');
         if (fps) fps.disabled = count <= 1;
         const skip = document.getElementById('movie-skip');
         if (skip) skip.disabled = count <= 1;
-        const relaxRow = document.getElementById('relax-trajectory-row');
-        const showRelaxRow = loadedCount > 1 && relaxCount > 1;
-        if (relaxRow) relaxRow.classList.toggle('hidden', !showRelaxRow);
-        const relaxSlider = document.getElementById('relax-frame-slider');
-        if (relaxSlider) {
-            relaxSlider.max = Math.max(0, relaxCount - 1);
-            relaxSlider.value = Math.min(this.state.relaxTrajectory.frame || 0, Math.max(0, relaxCount - 1));
-            relaxSlider.disabled = relaxCount <= 1;
+
+        const secondary = this.secondaryTimelineSource();
+        const secondaryRow = document.getElementById('secondary-trajectory-row');
+        if (secondaryRow) {
+            secondaryRow.classList.toggle('hidden', !secondary);
+            secondaryRow.dataset.source = secondary || '';
         }
-        const relaxLabel = document.getElementById('relax-frame-label');
-        if (relaxLabel) {
-            const relaxIndex = Math.min((this.state.relaxTrajectory.frame || 0) + 1, Math.max(1, relaxCount));
-            relaxLabel.innerText = `${relaxIndex} / ${Math.max(1, relaxCount)}`;
+        const secondarySourceLabel = document.getElementById('secondary-timeline-source-label');
+        if (secondarySourceLabel && secondary) {
+            secondarySourceLabel.innerText = this.timelineSourceName(secondary, { compact: true });
+            secondarySourceLabel.classList.toggle('relax', secondary === 'relax');
+            secondarySourceLabel.title = `${this.timelineSourceName(secondary)}. Select it above to use playback and arrow-key controls.`;
+        }
+        const secondarySlider = document.getElementById('secondary-frame-slider');
+        if (secondarySlider && secondary) {
+            const secondaryCount = this.timelineFrameCount(secondary);
+            const secondaryIndex = this.timelineFrameIndex(secondary);
+            secondarySlider.max = Math.max(0, secondaryCount - 1);
+            secondarySlider.value = Math.min(secondaryIndex, Math.max(0, secondaryCount - 1));
+            secondarySlider.disabled = secondaryCount <= 1;
+            secondarySlider.setAttribute('aria-label', `${this.timelineSourceName(secondary)} frame`);
+        }
+        const secondaryLabel = document.getElementById('secondary-frame-label');
+        if (secondaryLabel && secondary) {
+            const secondaryCount = this.timelineFrameCount(secondary);
+            const secondaryIndex = this.timelineFrameIndex(secondary);
+            secondaryLabel.innerText = `${Math.min(secondaryIndex + 1, secondaryCount)} / ${secondaryCount}`;
         }
         const exportVideo = document.getElementById('btn-export-video');
         if (exportVideo) {
@@ -5626,141 +5711,8 @@ class VAseApp {
         input.click();
     }
 
-    isLaunchDirectorySource(source) {
-        return source?.sourceKind === 'launch-directory'
-            && typeof source.path === 'string'
-            && typeof source.name === 'string';
-    }
-
-    async chooseStructureFile() {
-        try {
-            await this.showLaunchDirectoryBrowser('');
-        } catch (err) {
-            this.toast(
-                `Could not browse the terminal folder: ${err.message}. Opening the system picker instead.`,
-                'warning'
-            );
-            this.chooseSystemStructureFile();
-        }
-    }
-
-    async showLaunchDirectoryBrowser(directory = '') {
-        const listing = await this.withBusy(
-            'Reading the terminal launch directory...',
-            () => this.api.browseStructureFiles(directory)
-        );
-        this.showModal(`
-            <h2>Open File</h2>
-            <div class="launch-browser-location">
-                <span>Terminal folder</span>
-                <code id="launch-browser-root"></code>
-            </div>
-            <div class="launch-browser-toolbar">
-                <button id="launch-browser-up" class="btn compact" type="button">Up</button>
-                <span id="launch-browser-directory"></span>
-            </div>
-            <div id="launch-file-list" class="launch-file-list" role="listbox" aria-label="Files in terminal launch directory"></div>
-            <p id="launch-browser-empty" class="launch-browser-empty hidden">This folder contains no visible files.</p>
-            <p id="launch-browser-limit" class="modal-intro hidden">Only the first entries are shown. Narrow the folder or use the system picker.</p>
-        `, `
-            <button id="launch-browser-cancel" class="btn">Cancel</button>
-            <button id="launch-browser-system" class="btn">System Picker</button>
-            <button id="launch-browser-open" class="btn primary" disabled>Continue</button>
-        `);
-
-        const root = document.getElementById('launch-browser-root');
-        const current = document.getElementById('launch-browser-directory');
-        const list = document.getElementById('launch-file-list');
-        const empty = document.getElementById('launch-browser-empty');
-        const limit = document.getElementById('launch-browser-limit');
-        const up = document.getElementById('launch-browser-up');
-        const open = document.getElementById('launch-browser-open');
-        if (!list || !open) return;
-        if (root) {
-            root.textContent = listing.root || '';
-            root.title = listing.root || '';
-        }
-        if (current) {
-            current.textContent = listing.directory || '.';
-            current.title = listing.directory || '.';
-        }
-        if (up) up.disabled = listing.parent === null;
-        if (empty) empty.classList.toggle('hidden', Boolean(listing.entries?.length));
-        if (limit) limit.classList.toggle('hidden', !listing.truncated);
-
-        let selectedSource = null;
-        const selectFile = (row, entry) => {
-            list.querySelectorAll('.launch-file-row.selected').forEach(item => {
-                item.classList.remove('selected');
-                item.setAttribute('aria-selected', 'false');
-            });
-            row.classList.add('selected');
-            row.setAttribute('aria-selected', 'true');
-            selectedSource = {
-                sourceKind: 'launch-directory',
-                path: entry.path,
-                name: entry.name,
-                size: Number(entry.size) || 0,
-                type: ''
-            };
-            open.disabled = false;
-        };
-        const continueWithSelection = () => {
-            if (selectedSource) this.showOpenFileModal(selectedSource);
-        };
-
-        (listing.entries || []).forEach(entry => {
-            const row = document.createElement('button');
-            row.type = 'button';
-            row.className = 'launch-file-row';
-            row.setAttribute('role', 'option');
-            row.setAttribute('aria-selected', 'false');
-
-            const kind = document.createElement('span');
-            kind.className = `launch-file-kind ${entry.kind}`;
-            kind.textContent = entry.kind === 'directory' ? 'Folder' : 'File';
-            const name = document.createElement('span');
-            name.className = 'launch-file-name';
-            name.textContent = entry.name;
-            name.title = entry.name;
-            const size = document.createElement('span');
-            size.className = 'launch-file-size';
-            size.textContent = entry.kind === 'file' ? this.formatFileSize(entry.size) : '';
-            row.append(kind, name, size);
-
-            if (entry.kind === 'directory') {
-                row.addEventListener('click', () => {
-                    this.showLaunchDirectoryBrowser(entry.path).catch(err => {
-                        this.toast(`Could not open folder: ${err.message}`, 'error');
-                    });
-                });
-            } else {
-                row.addEventListener('click', () => selectFile(row, entry));
-                row.addEventListener('dblclick', () => {
-                    selectFile(row, entry);
-                    continueWithSelection();
-                });
-            }
-            list.appendChild(row);
-        });
-
-        up?.addEventListener('click', () => {
-            if (listing.parent !== null) {
-                this.showLaunchDirectoryBrowser(listing.parent).catch(err => {
-                    this.toast(`Could not open folder: ${err.message}`, 'error');
-                });
-            }
-        });
-        document.getElementById('launch-browser-cancel')?.addEventListener(
-            'click',
-            () => this.closeModal(),
-            { once: true }
-        );
-        document.getElementById('launch-browser-system')?.addEventListener('click', () => {
-            this.closeModal();
-            this.chooseSystemStructureFile();
-        }, { once: true });
-        open.addEventListener('click', continueWithSelection);
+    chooseStructureFile() {
+        this.chooseSystemStructureFile();
     }
 
     showOpenFileModal(file) {
@@ -5873,9 +5825,7 @@ class VAseApp {
             }
             const data = await this.withBusy(
                 `Reading ${file.name}...`,
-                () => this.isLaunchDirectorySource(file)
-                    ? this.api.loadStructurePath(file.path, inputFormat, index)
-                    : this.api.loadStructureFile(file, inputFormat, index)
+                () => this.api.loadStructureFile(file, inputFormat, index)
             );
             const isProject = data.loaded_file?.kind === 'project' || Boolean(data.project);
             const projectSettings = data.project?.settings || data.metadata?.config?.initial_design_settings;
@@ -5883,6 +5833,7 @@ class VAseApp {
             this.state.labelOrder = [];
             this.state.trajectoryBinaryCache = null;
             this.state.trajectoryBinaryPromise = null;
+            this.state.timelineSource = 'loaded';
             this.state.relaxTrajectory = { frames: [], frame: 0, sourceFrame: 0, active: false, finished: false };
             this.renderer.needsInitialCameraFit = !settings?.camera;
             this.setAtomsData(data, {
@@ -5921,12 +5872,11 @@ class VAseApp {
             }
             const data = await this.withBusy(
                 `Adding ${file.name} to trajectory...`,
-                () => this.isLaunchDirectorySource(file)
-                    ? this.api.appendStructurePath(file.path, inputFormat, index)
-                    : this.api.appendStructureFile(file, inputFormat, index)
+                () => this.api.appendStructureFile(file, inputFormat, index)
             );
             this.state.trajectoryBinaryCache = null;
             this.state.trajectoryBinaryPromise = null;
+            this.state.timelineSource = 'loaded';
             this.state.relaxTrajectory = {
                 frames: [],
                 frame: 0,
@@ -5971,8 +5921,8 @@ class VAseApp {
                         type: 'v_ase:document-open-new',
                         sessionId: this.sessionId,
                         requestId,
-                        file: this.isLaunchDirectorySource(file) ? null : file,
-                        serverPath: this.isLaunchDirectorySource(file) ? file.path : null,
+                        file,
+                        serverPath: null,
                         fileName: file.name,
                         inputFormat,
                         index
@@ -5995,7 +5945,8 @@ class VAseApp {
                 <span>Left drag</span><label>Box select</label>
                 <span>Middle drag</span><label>Orbit viewport</label>
                 <span>Shift + middle drag</span><label>Pan viewport</label>
-                <span>Space</span><label>Play or pause trajectory</label>
+                <span>Space</span><label>Play or pause the selected timeline</label>
+                <span>&larr; / &rarr;</span><label>Previous or next frame in the selected timeline</label>
                 <span>Tab / Esc</span><label>Open the control panel while it is collapsed</label>
                 <span>G</span><label>Move selected atoms or Sun handle</label>
                 <span>R</span><label>Rotate selected atoms or Sun direction</label>
@@ -6780,8 +6731,7 @@ class VAseApp {
         this.setAtomsData(data, { clearSelection: true });
     }
 
-    queueFrameLoad(index) {
-        const source = this.primaryTimelineSource();
+    queueFrameLoad(index, source = this.primaryTimelineSource()) {
         if (source === 'relax') {
             this.loadRelaxFrame(index).catch(err => this.toast(`Relax frame load failed: ${err.message}`, 'error'));
             return;
@@ -6820,6 +6770,16 @@ class VAseApp {
         } else {
             await this.loadFrame(next);
         }
+    }
+
+    requestFrameStep(delta) {
+        const source = this.primaryTimelineSource();
+        if (this.timelineFrameCount(source) <= 1) return Promise.resolve();
+        this.stopPlayback();
+        this.timelineStepQueue = this.timelineStepQueue
+            .catch(() => {})
+            .then(() => this.stepFrame(delta, source));
+        return this.timelineStepQueue;
     }
 
     currentPlaybackFps() {
@@ -7311,20 +7271,26 @@ class VAseApp {
                 }
             }, { passive: false });
         });
-        document.getElementById('btn-frame-prev').onclick = () => this.stepFrame(-1).catch(err => this.toast(err.message, 'error'));
-        document.getElementById('btn-frame-next').onclick = () => this.stepFrame(1).catch(err => this.toast(err.message, 'error'));
+        document.getElementById('timeline-source-select')?.addEventListener('change', event => {
+            this.setTimelineSource(event.target.value)
+                .catch(err => this.toast(`Timeline switch failed: ${err.message}`, 'error'));
+        });
+        document.getElementById('btn-frame-prev').onclick = () => this.requestFrameStep(-1).catch(err => this.toast(err.message, 'error'));
+        document.getElementById('btn-frame-next').onclick = () => this.requestFrameStep(1).catch(err => this.toast(err.message, 'error'));
         document.getElementById('btn-play').onclick = () => this.togglePlayback().catch(err => this.toast(`Movie playback failed: ${err.message}`, 'error'));
         document.getElementById('frame-slider').oninput = (e) => {
-            this.queueFrameLoad(e.target.value);
+            this.queueFrameLoad(e.target.value, this.primaryTimelineSource());
         };
         document.getElementById('frame-slider').onchange = (e) => {
-            this.queueFrameLoad(e.target.value);
+            this.queueFrameLoad(e.target.value, this.primaryTimelineSource());
         };
-        document.getElementById('relax-frame-slider')?.addEventListener('input', e => {
-            this.loadRelaxFrame(e.target.value).catch(err => this.toast(`Relax frame load failed: ${err.message}`, 'error'));
+        document.getElementById('secondary-frame-slider')?.addEventListener('input', e => {
+            const source = document.getElementById('secondary-trajectory-row')?.dataset.source;
+            if (source) this.queueFrameLoad(e.target.value, source);
         });
-        document.getElementById('relax-frame-slider')?.addEventListener('change', e => {
-            this.loadRelaxFrame(e.target.value).catch(err => this.toast(`Relax frame load failed: ${err.message}`, 'error'));
+        document.getElementById('secondary-frame-slider')?.addEventListener('change', e => {
+            const source = document.getElementById('secondary-trajectory-row')?.dataset.source;
+            if (source) this.queueFrameLoad(e.target.value, source);
         });
         document.getElementById('movie-fps').oninput = () => {
             this.restartPlayback().catch(err => this.toast(`Movie playback failed: ${err.message}`, 'error'));
@@ -7545,6 +7511,24 @@ class VAseApp {
                 return;
             }
             if (['input', 'textarea', 'select'].includes(tag)) return;
+            const modalOpen = !document.getElementById('modal-container')?.classList.contains('hidden');
+            if (
+                !modalOpen
+                && !isFormControl
+                && this.transform.mode === 'IDLE'
+                && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')
+                && !e.ctrlKey
+                && !e.metaKey
+                && !e.altKey
+            ) {
+                if (this.timelineFrameCount(this.primaryTimelineSource()) > 1) {
+                    e.preventDefault();
+                    const delta = e.key === 'ArrowLeft' ? -1 : 1;
+                    this.requestFrameStep(delta)
+                        .catch(err => this.toast(`Frame change failed: ${err.message}`, 'error'));
+                }
+                return;
+            }
             if ((e.ctrlKey || e.metaKey) && this.transform.mode === 'IDLE') {
                 if (this.isPhysicalKey(e, 'KeyC', ['c'])) {
                     e.preventDefault();

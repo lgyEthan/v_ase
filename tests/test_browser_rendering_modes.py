@@ -59,8 +59,6 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
         viz_only=True,
         close_on_disconnect=False,
     )
-    sessions[editor.session_id].config["launch_directory"] = str(tmp_path)
-
     try:
         with sync_playwright() as playwright:
             try:
@@ -75,14 +73,9 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
             assert page.locator('#btn-empty-open').is_visible()
             assert page.locator('#btn-export-pickle').is_disabled()
 
-            page.click('#btn-empty-open')
-            page.wait_for_selector('#launch-file-list')
-            assert page.locator('#launch-browser-root').inner_text() == str(tmp_path.resolve())
-            assert page.locator('#launch-browser-system').is_visible()
-            source_row = page.locator('.launch-file-row').filter(has_text=source.name)
-            source_row.click()
-            assert page.locator('#launch-browser-open').is_enabled()
-            page.click('#launch-browser-open')
+            with page.expect_file_chooser() as chooser_info:
+                page.click('#btn-empty-open')
+            chooser_info.value.set_files(str(source))
             assert page.locator('#open-file-name').inner_text() == source.name
             assert page.locator('#open-file-format').input_value() == ''
             assert page.locator('#open-file-index').input_value() == ':'
@@ -300,6 +293,91 @@ def test_open_file_can_append_frames_with_new_labels_to_the_current_movie(tmp_pa
             )
             assert page.evaluate("window.__ASE_APP__.state.display.atomRadiusScale") == pytest.approx(1.25)
             assert not console_errors
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_arrow_keys_step_only_the_selected_loaded_or_relaxation_timeline():
+    frames = []
+    for x in (0.0, 1.0, 2.0):
+        frames.append(
+            Atoms("H", positions=[[x, 0.0, 0.0]], cell=[8, 8, 8], pbc=True)
+        )
+    port = find_free_port()
+    editor = view(
+        frames,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.state?.atoms?.metadata?.frame_count === 3")
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.state.atoms.metadata.calculator = 'Repulsion';
+                app.state.relaxTrajectory = {
+                    frames: [
+                        [[10, 0, 0]],
+                        [[11, 0, 0]],
+                        [[12, 0, 0]]
+                    ],
+                    frame: 0,
+                    sourceFrame: 0,
+                    active: false,
+                    finished: true
+                };
+                app.state.timelineSource = 'loaded';
+                app.updateTrajectoryUI();
+            }""")
+
+            assert page.locator("#timeline-source-select option").all_text_contents() == [
+                "Source frames",
+                "Relaxation · Repulsion",
+            ]
+            assert page.locator("#timeline-source-select").input_value() == "loaded"
+            assert page.locator("#secondary-trajectory-row").get_attribute("data-source") == "relax"
+            assert "RELAX" in page.locator("#secondary-timeline-source-label").inner_text()
+
+            page.evaluate("document.activeElement?.blur()")
+            page.keyboard.press("ArrowRight")
+            page.wait_for_function("window.__ASE_APP__.state.atoms.metadata.current_frame === 1")
+            assert page.locator("#frame-label").inner_text() == "2 / 3"
+            assert page.evaluate("window.__ASE_APP__.state.relaxTrajectory.frame") == 0
+
+            page.select_option("#timeline-source-select", "relax")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.state.timelineSource === 'relax'
+                    && app.state.atoms.positions[0][0] === 10;
+            }""")
+            assert page.locator("#secondary-trajectory-row").get_attribute("data-source") == "loaded"
+            assert page.locator("#secondary-timeline-source-label").inner_text() == "SOURCE"
+
+            page.evaluate("document.activeElement?.blur()")
+            page.keyboard.press("ArrowRight")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.state.relaxTrajectory.frame === 1
+                    && app.state.atoms.positions[0][0] === 11;
+            }""")
+            assert page.evaluate("window.__ASE_APP__.state.atoms.metadata.current_frame") == 1
+
+            page.locator("#movie-fps").focus()
+            page.keyboard.press("ArrowRight")
+            page.wait_for_timeout(100)
+            assert page.evaluate("window.__ASE_APP__.state.relaxTrajectory.frame") == 1
+            assert page.locator("#frame-label").inner_text() == "2 / 3"
             browser.close()
     finally:
         editor.close()

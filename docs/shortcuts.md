@@ -37,7 +37,8 @@ Press these keys to enter transformation mode:
 | **Ctrl+Z** | **Undo** | Restore the previous structure state. |
 | **Ctrl+Shift+Z** | **Redo** | Restore the next structure state after undo. |
 | **Delete / Backspace** | **Delete** | Delete selected atoms through the backend and remap supported constraints. |
-| **Space** | **Play/Pause** | Toggle trajectory playback when a multi-frame structure is loaded. |
+| **Space** | **Play/Pause** | Toggle playback for the timeline selected below the viewport. |
+| **Left / Right Arrow** | **Previous / Next Frame** | Move one frame in the selected source or relaxation timeline. |
 | **Tab** | **Inspector** | Open the control panel while it is collapsed. `Esc` can also open it. Once open, Tab remains normal form navigation and never closes the panel. |
 
 ## Sun Direction Controls
@@ -91,10 +92,11 @@ state:
   results, and visual setup. Reopen it with `v_ase gui FILE.vase`.
 
 Start with `v_ase gui` to open an empty workspace, then use the top-bar **Open**
-command to load a structure, trajectory, or `.vase` project. Choose **Replace
-this tab**, **Add to trajectory**, or **Open in new tab**. Appending `.vase`
-imports structures only; replacing or opening it in a new tab restores the
-complete saved project.
+command to launch the operating system file picker and load a structure,
+trajectory, or `.vase` project. Choose **Replace this tab**, **Add to
+trajectory**, or **Open in new tab** after selecting the file. Appending
+`.vase` imports structures only; replacing or opening it in a new tab restores
+the complete saved project.
 
 ## Constraint Behavior
 

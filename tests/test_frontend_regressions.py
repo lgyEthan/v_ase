@@ -710,31 +710,18 @@ def test_camera_view_background_and_2d_display_controls_are_wired():
     assert ".view-arrow-btn" in style_css
 
 
-def test_open_file_defaults_to_the_terminal_launch_directory():
+def test_open_file_uses_the_native_system_picker_immediately():
     main_js = (ROOT / "v_ase/static/main.js").read_text()
     api_js = (ROOT / "v_ase/static/api.js").read_text()
-    workspace_js = (ROOT / "v_ase/static/workspace.js").read_text()
-    server_py = (ROOT / "v_ase/server.py").read_text()
-    viewer_py = (ROOT / "v_ase/viewer.py").read_text()
-    session_py = (ROOT / "v_ase/session.py").read_text()
     style_css = (ROOT / "v_ase/static/style.css").read_text()
 
-    assert "launch_directory = os.path.abspath(os.getcwd())" in viewer_py
-    assert '"launch_directory": launch_directory' in viewer_py
-    assert '"launch_directory",' in session_py
-    assert '@app.get("/api/files/{session_id}")' in server_py
-    assert '@app.post("/api/file/load-path/{session_id}")' in server_py
-    assert '@app.post("/api/file/append-path/{session_id}")' in server_py
-    assert "candidate.relative_to(root)" in server_py
-    assert "browseStructureFiles(directory" in api_js
-    assert "loadStructurePath(path" in api_js
-    assert "appendStructurePath(path" in api_js
-    assert "showLaunchDirectoryBrowser" in main_js
+    assert "chooseStructureFile() {\n        this.chooseSystemStructureFile();\n    }" in main_js
     assert "chooseSystemStructureFile" in main_js
-    assert "sourceKind: 'launch-directory'" in main_js
-    assert "serverPath:" in main_js
-    assert "loadPathToSession" in workspace_js
-    assert ".launch-file-list" in style_css
+    assert "showLaunchDirectoryBrowser" not in main_js
+    assert "browseStructureFiles(directory" not in api_js
+    assert "loadStructurePath(path" not in api_js
+    assert "appendStructurePath(path" not in api_js
+    assert ".launch-file-list" not in style_css
 
 
 def test_api_browser_close_and_python_view_autoclose_contract_are_wired():
@@ -819,10 +806,13 @@ def test_trajectory_controls_update_live_and_space_toggles_playback():
     assert "flushFrameLoadQueue" in main_js
     assert '<div id="trajectory-panel" class="trajectory-strip"' in index_html
     assert 'frame-label">1 / 1' in index_html
-    assert "timeline-source-label" in index_html
-    assert "relax-trajectory-row" in index_html
-    assert "relax-frame-slider" in index_html
+    assert "timeline-source-select" in index_html
+    assert "secondary-trajectory-row" in index_html
+    assert "secondary-frame-slider" in index_html
     assert "primaryTimelineSource" in main_js
+    assert "secondaryTimelineSource" in main_js
+    assert "setTimelineSource" in main_js
+    assert "timelineSourceName" in main_js
     assert "timelineFrameCount(source)" in main_js
     assert "startRelaxTrajectory" in main_js
     assert "appendRelaxFrame" in main_js
@@ -831,7 +821,7 @@ def test_trajectory_controls_update_live_and_space_toggles_playback():
     assert "panel.classList.toggle('hidden', loadedCount <= 1 && relaxCount <= 1)" in main_js
     assert "slider.disabled = count <= 1" in main_js
     assert "frame-slider').oninput" in main_js
-    assert "relax-frame-slider')?.addEventListener('input'" in main_js
+    assert "secondary-frame-slider')?.addEventListener('input'" in main_js
     assert "movie-fps').oninput" in main_js
     assert 'label for="movie-skip">Skip' in index_html
     assert "movie-skip" in main_js
@@ -842,7 +832,9 @@ def test_trajectory_controls_update_live_and_space_toggles_playback():
     assert "this.stepFrame(this.currentPlaybackStep(), this.state.trajectoryPlaybackSource || source)" in main_js
     assert "setTimeout(tick, 1000 / this.currentPlaybackFps())" in main_js
     assert "e.code === 'Space'" in main_js
-    assert "Play or pause trajectory" in main_js
+    assert "e.key === 'ArrowLeft' || e.key === 'ArrowRight'" in main_js
+    assert "this.requestFrameStep(delta)" in main_js
+    assert "Play or pause the selected timeline" in main_js
     assert "setupNumberInputHoldGuards" in main_js
     assert "bindNumberInputHoldGuard" in main_js
     assert "data-hold-guarded" in main_js
@@ -856,7 +848,7 @@ def test_trajectory_controls_update_live_and_space_toggles_playback():
     assert "number-stepper" not in style_css
     assert "input[type=\"number\"]::-webkit-inner-spin-button" not in style_css
     assert ".trajectory-strip" in style_css
-    assert ".relax-trajectory-row" in style_css
+    assert ".secondary-trajectory-row" in style_css
     renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
     assert "canonicalVectorKey" in renderer_js
     assert "const compactPlane = selectedIndices.size > 1" in renderer_js
