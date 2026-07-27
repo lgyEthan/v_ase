@@ -140,6 +140,12 @@ and documentation use `view()`.
 32. WSL browser launch bypasses Linux `gio` and prefers `wslview` or Windows
     executables. Headless operation can suppress automatic launch while keeping
     the HTTP server loopback-only.
+33. Each top-level workspace page owns a unique browser-client identifier.
+    Page teardown sends a keepalive close signal in addition to closing its
+    WebSocket. The backend ignores stale sockets belonging to closing pages,
+    preserves a workspace while any other browser client remains active, and
+    releases blocking CLI/Python calls after the final page closes. This
+    contract applies through SSH local port forwarding as well as localhost.
 
 ## Canonical Names And Compatibility
 
@@ -246,6 +252,8 @@ Current benchmark method and results are in [performance.md](performance.md).
 8. Wheel and sdist build, metadata check, clean-environment installation,
    `v_ase --version`, and console entry-point execution.
 9. Documentation and displayed/static version synchronization.
+10. Headless Linux installation and real browser rendering through an SSH
+    local port forward, including CLI release after the browser tab closes.
 
 Run installed-wheel verification from outside the repository checkout. The
 checkout contains build metadata, so invoking pip from its root can make pip

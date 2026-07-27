@@ -745,6 +745,7 @@ def test_api_browser_close_and_python_view_autoclose_contract_are_wired():
     main_js = (ROOT / "v_ase/static/main.js").read_text()
     viewer_py = (ROOT / "v_ase/viewer.py").read_text()
     server_py = (ROOT / "v_ase/server.py").read_text()
+    workspace_js = (ROOT / "v_ase/static/workspace.js").read_text()
 
     assert "close_on_disconnect: bool = True" in viewer_py
     assert '"auto_close_on_disconnect": bool(close_on_disconnect and not notebook)' in viewer_py
@@ -754,6 +755,11 @@ def test_api_browser_close_and_python_view_autoclose_contract_are_wired():
     assert "this.ws.close(1000, 'page closing')" in main_js
     assert "schedule_session_autoclose(session_id)" in server_py
     assert "finalize_session_from_browser_close(session_id)" in server_py
+    assert "this.browserClientId" in workspace_js
+    assert "navigator.sendBeacon(closeUrl" in workspace_js
+    assert "/browser-close/" in workspace_js
+    assert "client_id: this.browserClientId" in workspace_js
+    assert "closing_client_id=normalized" in server_py
 
 
 def test_frontend_reset_video_and_visual_settings_controls_are_wired():

@@ -18,6 +18,7 @@ from .session import (
     remove_workspace_session,
     replace_session_frames,
     sessions,
+    workspaces,
 )
 from .serialization import atoms_to_json
 from .websocket_manager import ws_manager
@@ -110,6 +111,7 @@ _session_autoclose_timers: Dict[str, threading.Timer] = {}
 _session_autoclose_lock = threading.Lock()
 _workspace_autoclose_timers: Dict[str, threading.Timer] = {}
 _workspace_autoclose_lock = threading.Lock()
+_workspace_closing_clients: Dict[str, set[str]] = {}
 
 
 def _remove_temporary_file(path: str) -> None:
@@ -333,9 +335,31 @@ def schedule_session_autoclose(session_id: str, delay: float = _SESSION_AUTOCLOS
     timer.start()
 
 
-def cancel_workspace_autoclose(workspace_id: str) -> None:
+def _workspace_connection_client_ids(workspace_id: str) -> set[str]:
+    prefix = f"workspace:{workspace_id}:"
+    legacy = f"workspace:{workspace_id}"
+    client_ids: set[str] = set()
+    for connection_id in list(ws_manager.active_connections.values()):
+        if connection_id == legacy:
+            client_ids.add("__legacy__")
+        elif isinstance(connection_id, str) and connection_id.startswith(prefix):
+            client_ids.add(connection_id[len(prefix):])
+    return client_ids
+
+
+def cancel_workspace_autoclose(
+    workspace_id: str,
+    *,
+    connected_client_id: str | None = None,
+) -> None:
     with _workspace_autoclose_lock:
         timer = _workspace_autoclose_timers.pop(workspace_id, None)
+        if connected_client_id:
+            closing = _workspace_closing_clients.get(workspace_id)
+            if closing is not None:
+                closing.discard(connected_client_id)
+                if not closing:
+                    _workspace_closing_clients.pop(workspace_id, None)
     if timer is not None:
         timer.cancel()
 
@@ -343,21 +367,44 @@ def cancel_workspace_autoclose(workspace_id: str) -> None:
 def schedule_workspace_autoclose(
     workspace_id: str,
     delay: float = _SESSION_AUTOCLOSE_GRACE_SECONDS,
+    *,
+    closing_client_id: str | None = None,
 ) -> None:
-    cancel_workspace_autoclose(workspace_id)
-
     def close_if_still_disconnected() -> None:
+        should_finalize = False
         try:
-            if not ws_manager.has_session_connection(f"workspace:{workspace_id}"):
+            with _workspace_autoclose_lock:
+                if _workspace_autoclose_timers.get(workspace_id) is not timer:
+                    return
+                closing_clients = set(
+                    _workspace_closing_clients.get(workspace_id, set())
+                )
+            active_clients = _workspace_connection_client_ids(workspace_id)
+            with _workspace_autoclose_lock:
+                if _workspace_autoclose_timers.get(workspace_id) is not timer:
+                    return
+                _workspace_autoclose_timers.pop(workspace_id, None)
+                should_finalize = not (active_clients - closing_clients)
+            if should_finalize:
                 finalize_workspace(workspace_id)
         finally:
             with _workspace_autoclose_lock:
-                _workspace_autoclose_timers.pop(workspace_id, None)
+                if _workspace_autoclose_timers.get(workspace_id) is timer:
+                    _workspace_autoclose_timers.pop(workspace_id, None)
+                if workspace_id not in workspaces:
+                    _workspace_closing_clients.pop(workspace_id, None)
 
     timer = threading.Timer(delay, close_if_still_disconnected)
     timer.daemon = True
     with _workspace_autoclose_lock:
+        previous_timer = _workspace_autoclose_timers.pop(workspace_id, None)
+        if closing_client_id:
+            _workspace_closing_clients.setdefault(workspace_id, set()).add(
+                closing_client_id
+            )
         _workspace_autoclose_timers[workspace_id] = timer
+    if previous_timer is not None:
+        previous_timer.cancel()
     timer.start()
 
 
@@ -1120,6 +1167,19 @@ async def close_workspace_document(workspace_id: str, session_id: str):
             raise HTTPException(status_code=409, detail="A workspace must keep at least one document tab.")
         remove_workspace_session(workspace, session_id)
     return {"status": "closed", "session_id": session_id}
+
+
+@app.post("/api/workspace/{workspace_id}/browser-close/{client_id}")
+async def close_workspace_browser(workspace_id: str, client_id: str):
+    get_workspace(workspace_id)
+    normalized = str(client_id or "").strip()
+    if not normalized or len(normalized) > 128:
+        raise HTTPException(status_code=400, detail="Invalid workspace browser client identifier.")
+    schedule_workspace_autoclose(
+        workspace_id,
+        closing_client_id=normalized,
+    )
+    return {"status": "scheduled"}
 
 
 @app.get("/api/atoms/{session_id}")
@@ -2301,9 +2361,21 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 @app.websocket("/ws/workspace/{workspace_id}")
 async def workspace_websocket_endpoint(websocket: WebSocket, workspace_id: str):
     get_workspace(workspace_id)
-    connection_id = f"workspace:{workspace_id}"
-    await ws_manager.connect(websocket, connection_id)
-    cancel_workspace_autoclose(workspace_id)
+    client_id = str(websocket.query_params.get("client_id") or "").strip()
+    connection_id = (
+        f"workspace:{workspace_id}:{client_id}"
+        if client_id
+        else f"workspace:{workspace_id}"
+    )
+    cancel_workspace_autoclose(
+        workspace_id,
+        connected_client_id=client_id or None,
+    )
+    try:
+        await ws_manager.connect(websocket, connection_id)
+    except Exception:
+        schedule_workspace_autoclose(workspace_id)
+        raise
     try:
         while True:
             await websocket.receive_text()

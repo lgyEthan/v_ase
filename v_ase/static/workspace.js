@@ -7,7 +7,10 @@ class VAseWorkspace {
         this.activeSessionId = null;
         this.socket = null;
         this.closing = false;
+        this.closeSignalSent = false;
         this.reconnectTimer = null;
+        this.browserClientId = globalThis.crypto?.randomUUID?.()
+            || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
         this.tabRoot = document.getElementById('document-tabs');
         this.paneRoot = document.getElementById('document-panes');
@@ -23,9 +26,22 @@ class VAseWorkspace {
         }
         this.newButton.addEventListener('click', () => this.createDocument());
         window.addEventListener('message', event => this.handleDocumentMessage(event));
-        window.addEventListener('pagehide', () => {
+        const closeWorkspace = () => {
+            if (this.closeSignalSent) return;
+            this.closeSignalSent = true;
             this.closing = true;
             if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
+            const closeUrl = `/api/workspace/${encodeURIComponent(this.workspaceId)}`
+                + `/browser-close/${encodeURIComponent(this.browserClientId)}`;
+            let queued = false;
+            try {
+                queued = navigator.sendBeacon(closeUrl, '');
+            } catch {
+                // Fall through to a keepalive request.
+            }
+            if (!queued) {
+                fetch(closeUrl, { method: 'POST', keepalive: true }).catch(() => {});
+            }
             try {
                 if (this.socket?.readyState <= WebSocket.OPEN) {
                     this.socket.close(1000, 'workspace closing');
@@ -33,7 +49,9 @@ class VAseWorkspace {
             } catch {
                 // Browser teardown can race WebSocket state changes.
             }
-        }, { once: true });
+        };
+        window.addEventListener('pagehide', closeWorkspace, { once: true });
+        window.addEventListener('beforeunload', closeWorkspace, { once: true });
         this.connectWorkspaceSocket();
         const state = await this.request(`/api/workspace/${encodeURIComponent(this.workspaceId)}`);
         state.documents.forEach(documentState => this.addDocument(documentState));
@@ -65,7 +83,9 @@ class VAseWorkspace {
     connectWorkspaceSocket() {
         if (this.closing) return;
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const url = `${protocol}//${window.location.host}/ws/workspace/${encodeURIComponent(this.workspaceId)}`;
+        const query = new URLSearchParams({ client_id: this.browserClientId });
+        const url = `${protocol}//${window.location.host}/ws/workspace/`
+            + `${encodeURIComponent(this.workspaceId)}?${query.toString()}`;
         this.socket = new WebSocket(url);
         this.socket.onclose = () => {
             if (this.closing || this.reconnectTimer !== null) return;

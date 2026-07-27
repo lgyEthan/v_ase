@@ -111,6 +111,18 @@ The default is View mode. `--interactive` starts in Edit mode. The top-bar
 switch can change mode after startup without reopening the file.
 `--no-browser` is intended for SSH tunnels and other headless hosts; it leaves
 the server on `127.0.0.1` and prints the URL instead of launching a browser.
+Forward the selected port from the local computer and open the printed URL
+locally:
+
+```bash
+ssh -L 58039:127.0.0.1:58039 USER@SERVER
+v_ase gui FILE --port 58039 --no-browser
+```
+
+The second command runs inside the SSH session. Closing the top-level browser
+tab releases the blocking remote command. A workspace-client close signal
+supplements WebSocket disconnect detection so this also works through tunnels
+that retain a stale socket briefly.
 
 The browser **Open** dialog can replace the active document, append selected
 frames to its trajectory, or open an independent workspace tab. `.vase`

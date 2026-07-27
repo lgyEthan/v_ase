@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.0.93
+
+- Added a first-class remote-server and cluster workflow with loopback-only
+  SSH forwarding and direct login-to-compute-node examples.
+- Made top-level workspace closure reliable through SSH tunnels by combining a
+  per-browser keepalive close signal with WebSocket disconnect detection.
+- Preserved multi-browser workspaces when one page closes and added unit,
+  Chromium, and live cluster coverage for terminal release after the final tab
+  closes.
+
 ## 0.0.92
 
 - Added optional `1x`-`64x` linear video-frame interpolation with

@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 import numpy as np
 import pytest
@@ -8,8 +9,10 @@ from ase.io import write
 
 from v_ase.io import set_atom_labels
 from v_ase.server import (
+    cancel_workspace_autoclose,
     close_workspace_document,
     create_workspace_document,
+    schedule_workspace_autoclose,
     workspace_state,
 )
 from v_ase.session import (
@@ -20,6 +23,7 @@ from v_ase.session import (
     workspaces,
 )
 from v_ase.viewer import find_free_port, view
+from v_ase.websocket_manager import ws_manager
 
 
 def _workspace_host(name: str = "water.xyz"):
@@ -105,6 +109,55 @@ def test_workspace_finalize_releases_children_and_unblocks_host():
     assert host.done_event.is_set()
     assert host.session_id in sessions
     sessions.pop(host.session_id, None)
+
+
+def test_workspace_browser_close_ignores_its_stale_socket():
+    host, workspace = _workspace_host()
+    stale_socket = object()
+    ws_manager.active_connections[stale_socket] = (
+        f"workspace:{workspace.workspace_id}:closing-client"
+    )
+    try:
+        schedule_workspace_autoclose(
+            workspace.workspace_id,
+            delay=0.01,
+            closing_client_id="closing-client",
+        )
+
+        assert host.done_event.wait(timeout=1.0)
+        assert workspace.workspace_id not in workspaces
+    finally:
+        ws_manager.active_connections.pop(stale_socket, None)
+        finalize_workspace(workspace.workspace_id)
+        sessions.pop(host.session_id, None)
+
+
+def test_workspace_browser_close_keeps_another_browser_connected():
+    host, workspace = _workspace_host()
+    closing_socket = object()
+    active_socket = object()
+    ws_manager.active_connections[closing_socket] = (
+        f"workspace:{workspace.workspace_id}:closing-client"
+    )
+    ws_manager.active_connections[active_socket] = (
+        f"workspace:{workspace.workspace_id}:active-client"
+    )
+    try:
+        schedule_workspace_autoclose(
+            workspace.workspace_id,
+            delay=0.01,
+            closing_client_id="closing-client",
+        )
+        time.sleep(0.08)
+
+        assert not host.done_event.is_set()
+        assert workspace.workspace_id in workspaces
+    finally:
+        cancel_workspace_autoclose(workspace.workspace_id)
+        ws_manager.active_connections.pop(closing_socket, None)
+        ws_manager.active_connections.pop(active_socket, None)
+        finalize_workspace(workspace.workspace_id)
+        sessions.pop(host.session_id, None)
 
 
 def test_workspace_browser_tabs_suspend_inactive_renderers_and_keep_settings_separate(tmp_path):
@@ -260,9 +313,10 @@ def test_workspace_browser_tabs_suspend_inactive_renderers_and_keep_settings_sep
                 }""",
                 arg=[host.session_id, child_id, imported_id],
             )
-            browser.close()
+            page.close()
             assert host.done_event.wait(timeout=4.0)
             assert workspace.workspace_id not in workspaces
+            browser.close()
     finally:
         finalize_workspace(workspace.workspace_id)
         editor.close()

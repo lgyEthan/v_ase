@@ -101,6 +101,41 @@ trajectory, camera, selection, calculator, history, display settings,
 relaxation state, and `.vase` project. Inactive tabs pause rendering and movie
 playback.
 
+## Remote Servers And Clusters
+
+Install v_ase in the Python environment that can read the remote structure:
+
+```bash
+python -m pip install v_ase-gui
+```
+
+From the local computer, open an SSH tunnel:
+
+```bash
+ssh -L 58039:127.0.0.1:58039 USER@SERVER
+```
+
+In that SSH session, start v_ase without trying to launch a remote browser:
+
+```bash
+v_ase gui /path/to/STRUCTURE --port 58039 --no-browser
+```
+
+Open the complete `http://127.0.0.1:58039/...` URL printed in the terminal in
+the local browser. Keep the SSH connection open while using v_ase. Closing the
+v_ase browser tab stops the remote viewer and releases the terminal command.
+
+To connect directly to a compute node through a login node:
+
+```bash
+ssh -J USER@LOGIN -L 58039:127.0.0.1:58039 USER@COMPUTE
+```
+
+Then run the same `v_ase gui ... --port 58039 --no-browser` command on the
+compute node. Use another matching port in both commands if `58039` is already
+occupied. v_ase stays bound to remote `127.0.0.1`; do not expose the viewer
+port directly to a public network.
+
 ## Controls
 
 | Input | Action |
@@ -408,22 +443,9 @@ filesystem (for example under `~/data`) instead of `/mnt/c/...`.
 <details>
 <summary>Run v_ase on a remote server</summary>
 
-Keep the v_ase HTTP server bound to the remote loopback interface and use SSH
-local port forwarding. From the local computer:
-
-```bash
-ssh -L 58039:127.0.0.1:58039 USER@SERVER
-```
-
-Then, in that SSH session:
-
-```bash
-v_ase gui FILE --port 58039 --no-browser
-```
-
-Open the printed `http://127.0.0.1:58039/...` URL in the local browser. Closing
-the v_ase browser tab releases the blocking command. Do not expose the port
-directly to the public network; the SSH tunnel carries it securely.
+Follow [Remote Servers And Clusters](#remote-servers-and-clusters). If the
+printed URL does not open, confirm that the port after `ssh -L` exactly matches
+the value passed to `v_ase --port`, and that the SSH connection is still open.
 
 </details>
 

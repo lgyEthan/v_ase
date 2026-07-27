@@ -142,6 +142,23 @@ The regression verifies:
 checks smooth atoms, split bond materials, camera, cell, trajectory animation,
 and exact directional Sun source/target/intensity.
 
+## Remote Cluster Validation
+
+The 0.0.93 candidate wheel was installed into an isolated environment on an
+x86_64 Linux physics cluster with Python 3.13.9 and ASE 3.27.0. An existing
+18-atom periodic CIF on that host was opened with:
+
+```bash
+v_ase gui STRUCTURE.cif --port 58493 --no-browser
+```
+
+Chromium connected from the development Mac through SSH local forwarding. The
+test verified package version `0.0.93`, all 18 atoms, `TTT` PBC, the unit cell,
+camera interaction, a changed rendered frame after orbit, and no browser
+warnings or errors. Closing the Chromium page released the remote blocking
+command and SSH session within the 10-second test window. No cluster input was
+copied to the local machine.
+
 ## Regression Coverage
 
 Performance-sensitive static contracts are locked by
