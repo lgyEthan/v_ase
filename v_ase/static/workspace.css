@@ -78,6 +78,7 @@ button:focus-visible {
     border-left: 1px solid transparent;
     border-right: 1px solid transparent;
     color: var(--muted);
+    transition: flex-basis 140ms ease, background-color 100ms ease, color 100ms ease;
 }
 
 .document-tab::after {
@@ -184,8 +185,13 @@ button:focus-visible {
     height: 30px;
     align-self: center;
     flex: none;
+    position: sticky;
+    right: 0;
+    z-index: 2;
+    margin: 0 4px;
     border: 1px solid transparent;
     border-radius: 5px;
+    background: var(--chrome);
     color: var(--muted);
 }
 

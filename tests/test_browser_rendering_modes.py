@@ -185,6 +185,117 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
         editor.close()
 
 
+def test_open_file_can_append_frames_with_new_labels_to_the_current_movie(tmp_path):
+    initial = Atoms("H", positions=[[0.25, 0.0, 0.0]], cell=[8, 8, 8], pbc=True)
+    set_atom_labels(initial, ["H_host"])
+    carbon = Atoms("C", positions=[[1.0, 0.0, 0.0]], cell=[9, 9, 9], pbc=True)
+    oxygen = Atoms("OO", positions=[[0, 0, 0], [1.2, 0, 0]], cell=[9, 9, 9], pbc=True)
+    set_atom_labels(carbon, ["C_bulk"])
+    set_atom_labels(oxygen, ["O_ads", "O_bridge"])
+    source = tmp_path / "append_movie.extxyz"
+    write(source, [carbon, oxygen], format="extxyz")
+
+    port = find_free_port()
+    editor = view(
+        initial,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+        document_name="host.xyz",
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            console_errors = []
+            page.on(
+                "console",
+                lambda message: console_errors.append(message.text)
+                if message.type == "error" else None,
+            )
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.state?.atoms?.symbols?.[0] === 'H_host'")
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const settings = app.designSettingsSnapshot();
+                app.applyDesignSettings({
+                    ...settings,
+                    display: {
+                        ...settings.display,
+                        showBonds: true,
+                        bondMode: 'pairwise',
+                        atomRadiusScale: 1.25,
+                        labelColors: {H_host: '#88aaff'},
+                        pairwiseBondCutoffs: {'H_host-H_host': 0.7}
+                    }
+                });
+            }""")
+
+            page.set_input_files("#structure-file", str(source))
+            page.check('input[name="open-file-mode"][value="append"]')
+            assert page.locator("#open-file-confirm").inner_text() == "Add Frames"
+            page.click("#open-file-confirm")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app?.state?.atoms?.metadata?.frame_count === 3
+                    && document.getElementById('busy-overlay').classList.contains('hidden');
+            }""")
+
+            state = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                return {
+                    labels: app.uniqueAtomLabels(),
+                    pairs: [...document.querySelectorAll('.pairwise-bond-cutoff')]
+                        .map(input => input.dataset.pairKey),
+                    frame: app.state.atoms.metadata.current_frame,
+                    position: app.state.atoms.positions[0],
+                    scale: app.state.display.atomRadiusScale,
+                    title: app.workspaceDocumentTitle()
+                };
+            }""")
+            assert state["labels"] == ["H_host", "C_bulk", "O_ads", "O_bridge"]
+            assert set(state["pairs"]) == {
+                "H_host-H_host",
+                "C_bulk-H_host",
+                "H_host-O_ads",
+                "H_host-O_bridge",
+                "C_bulk-C_bulk",
+                "C_bulk-O_ads",
+                "C_bulk-O_bridge",
+                "O_ads-O_ads",
+                "O_ads-O_bridge",
+                "O_bridge-O_bridge",
+            }
+            assert state["frame"] == 0
+            assert state["position"] == pytest.approx([0.25, 0.0, 0.0])
+            assert state["scale"] == pytest.approx(1.25)
+            assert state["title"] == "host.xyz"
+
+            page.locator("#frame-slider").evaluate("""slider => {
+                slider.value = '1';
+                slider.dispatchEvent(new Event('input', {bubbles: true}));
+            }""")
+            page.wait_for_function("window.__ASE_APP__?.state?.atoms?.symbols?.join(',') === 'C_bulk'")
+            page.locator("#frame-slider").evaluate("""slider => {
+                slider.value = '2';
+                slider.dispatchEvent(new Event('input', {bubbles: true}));
+            }""")
+            page.wait_for_function(
+                "window.__ASE_APP__?.state?.atoms?.symbols?.join(',') === 'O_ads,O_bridge'"
+            )
+            assert page.evaluate("window.__ASE_APP__.state.display.atomRadiusScale") == pytest.approx(1.25)
+            assert not console_errors
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
     lattice = 2.46
     atoms = Atoms(

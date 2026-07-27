@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 from typing import Dict, Any, List
 from .session import (
+    append_session_frames,
     EditorSession,
     create_workspace_session,
     finalize_workspace,
@@ -42,6 +43,7 @@ from ase.build import make_supercell
 from ase.build.supercells import lattice_points_in_supercell
 from ase.constraints import FixAtoms, FixCartesian, FixedLine, FixedPlane, FixScaled, Hookean
 from ase.data import atomic_numbers
+from ase.io.formats import string2index
 
 try:
     from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks, HTTPException, Request
@@ -790,6 +792,7 @@ def apply_identity_snapshot_to_session(session: EditorSession, labels, base_symb
     if source_template is not None and len(source_template) == len(labels):
         session.trajectory_source.template_atoms = transform(source_template)
     session.invalidate_trajectory_layout()
+    session.refresh_trajectory_identity()
 
 
 def switch_session_mode(
@@ -1071,19 +1074,27 @@ def _uploaded_format_hint(filename: str, explicit_format: str | None) -> str | N
     return None
 
 
-@app.post("/api/file/load/{session_id}")
-async def load_structure_file(
-    session_id: str,
-    request: Request,
-    filename: str,
-    input_format: str | None = None,
-    index: str = ":",
-):
-    """Stream a browser-selected structure, trajectory, or project into a session."""
-    session = get_session(session_id)
+def _selected_frame_indices(index: str | int | slice | None, frame_count: int) -> list[int]:
+    parsed = string2index(":") if index is None else string2index(index) if isinstance(index, str) else index
+    available = range(frame_count)
+    if isinstance(parsed, slice):
+        return list(available[parsed])
+    if isinstance(parsed, int):
+        try:
+            return [available[parsed]]
+        except IndexError as exc:
+            raise ValueError(f"Frame index {parsed} is out of range") from exc
+    return list(available)
+
+
+def _validated_uploaded_filename(filename: str) -> str:
     display_name = Path(filename).name.strip()
     if not display_name or display_name in {".", ".."}:
         raise HTTPException(status_code=400, detail="The selected file has no valid filename.")
+    return display_name
+
+
+async def _stream_uploaded_file(request: Request, display_name: str) -> str:
     try:
         content_length = int(request.headers.get("content-length", "0") or 0)
     except ValueError:
@@ -1091,11 +1102,9 @@ async def load_structure_file(
     if content_length > MAX_UPLOADED_STRUCTURE_BYTES:
         raise HTTPException(status_code=413, detail="The selected structure file is too large.")
 
-    suffix = Path(display_name).suffix
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=Path(display_name).suffix)
     tmp_path = tmp.name
     total = 0
-    keep_temporary_file = False
     try:
         async for chunk in request.stream():
             if not chunk:
@@ -1107,7 +1116,29 @@ async def load_structure_file(
         tmp.close()
         if total == 0:
             raise HTTPException(status_code=400, detail="The selected structure file is empty.")
+        return tmp_path
+    except Exception:
+        if not tmp.closed:
+            tmp.close()
+        _remove_temporary_file(tmp_path)
+        raise
 
+
+@app.post("/api/file/load/{session_id}")
+async def load_structure_file(
+    session_id: str,
+    request: Request,
+    filename: str,
+    input_format: str | None = None,
+    index: str = ":",
+):
+    """Stream a browser-selected structure, trajectory, or project into a session."""
+    session = get_session(session_id)
+    display_name = _validated_uploaded_filename(filename)
+    suffix = Path(display_name).suffix
+    tmp_path = await _stream_uploaded_file(request, display_name)
+    keep_temporary_file = False
+    try:
         from .io import read_fast_lammps_dump, read_structure_frames, resolve_input_format
 
         format_hint = _uploaded_format_hint(display_name, input_format)
@@ -1169,10 +1200,84 @@ async def load_structure_file(
     except (TypeError, ValueError, KeyError, OSError) as exc:
         raise HTTPException(status_code=400, detail=f"Could not load {display_name}: {exc}") from exc
     finally:
-        if not tmp.closed:
-            tmp.close()
         if not keep_temporary_file:
             _remove_temporary_file(tmp_path)
+
+
+@app.post("/api/file/append/{session_id}")
+async def append_structure_file(
+    session_id: str,
+    request: Request,
+    filename: str,
+    input_format: str | None = None,
+    index: str = ":",
+):
+    """Append uploaded structures as movie frames without replacing visual settings."""
+    session = get_session(session_id)
+    display_name = _validated_uploaded_filename(filename)
+    suffix = Path(display_name).suffix
+    tmp_path = await _stream_uploaded_file(request, display_name)
+    was_empty = bool((session.config or {}).get("empty_workspace", False)) and len(session.working_atoms) == 0
+    project = None
+    try:
+        from .io import read_fast_lammps_dump, read_structure_frames, resolve_input_format
+
+        format_hint = _uploaded_format_hint(display_name, input_format)
+        resolved_format = resolve_input_format(format_hint)
+        is_project = suffix.lower() == ".vase" or resolved_format == "vase-project"
+        is_lammps_dump = (
+            resolved_format == "lammps-dump-text"
+            or (format_hint is None and suffix.lower() in {".lammpstrj", ".dump"})
+        )
+
+        if is_project:
+            project = await asyncio.to_thread(read_project_archive, tmp_path)
+            selected_indices = _selected_frame_indices(index, len(project.frames))
+            frames = [project.frames[frame_index] for frame_index in selected_indices]
+            source_kind = "project"
+        elif is_lammps_dump:
+            try:
+                fast = await asyncio.to_thread(read_fast_lammps_dump, Path(tmp_path), index)
+                selected_indices = _selected_frame_indices(index, fast.trajectory.frame_count)
+                frames = await asyncio.to_thread(
+                    lambda: [
+                        fast.trajectory.read_atoms(frame_index)
+                        for frame_index in selected_indices
+                    ]
+                )
+            except ValueError:
+                frames = await asyncio.to_thread(
+                    read_structure_frames, Path(tmp_path), index, format_hint
+                )
+            source_kind = "trajectory" if len(frames) > 1 else "structure"
+        else:
+            frames = await asyncio.to_thread(
+                read_structure_frames, Path(tmp_path), index, format_hint
+            )
+            source_kind = "trajectory" if len(frames) > 1 else "structure"
+
+        with session.mode_transition_lock:
+            appended_count = append_session_frames(session, frames)
+            if was_empty:
+                session.config["document_name"] = display_name
+            session.config["empty_workspace"] = False
+
+        data = session_atoms_to_json(session)
+        data["loaded_file"] = {
+            "filename": display_name,
+            "kind": "append",
+            "source_kind": source_kind,
+            "format": resolved_format or "auto",
+            "appended_frames": appended_count,
+            "project_settings_ignored": bool(is_project),
+        }
+        return data
+    except HTTPException:
+        raise
+    except (TypeError, ValueError, KeyError, OSError) as exc:
+        raise HTTPException(status_code=400, detail=f"Could not append {display_name}: {exc}") from exc
+    finally:
+        _remove_temporary_file(tmp_path)
 
 @app.post("/api/constrain/{session_id}")
 async def constrain_positions(session_id: str, payload: Dict[str, Any]):
@@ -1414,6 +1519,7 @@ async def add_atoms(session_id: str, payload: Dict[str, Any]):
     set_atom_labels(session.working_atoms, labels)
     session.invalidate_trajectory_layout()
     session.sync_current_frame()
+    session.refresh_trajectory_identity()
     return session_update_to_json(session)
 
 
@@ -1429,6 +1535,7 @@ async def delete_atoms(session_id: str, payload: Dict[str, Any]):
     session.working_atoms = delete_indices_from_atoms(session.working_atoms, indices)
     session.invalidate_trajectory_layout()
     session.sync_current_frame()
+    session.refresh_trajectory_identity()
     return session_update_to_json(session)
 
 
@@ -1471,6 +1578,7 @@ async def update_atom_identity(session_id: str, payload: Dict[str, Any]):
             base_symbol,
         )
     session.invalidate_trajectory_layout()
+    session.refresh_trajectory_identity()
     return session_update_to_json(session)
 
 

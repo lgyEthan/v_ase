@@ -104,6 +104,11 @@ v_ase gui AMBIGUOUS --format FORMAT
 The default is View mode. `--interactive` starts in Edit mode. The top-bar
 switch can change mode after startup without reopening the file.
 
+The browser **Open** dialog can replace the active document, append selected
+frames to its trajectory, or open an independent workspace tab. `.vase`
+settings are restored for replace/new-tab operations and intentionally ignored
+for trajectory append.
+
 Common format aliases:
 
 | Alias | Reader |
@@ -191,7 +196,8 @@ The browser communicates only with a FastAPI server bound to `127.0.0.1`.
 Endpoint groups:
 
 - session and workspace lifecycle;
-- structure load, frame switching, wrap, reset, history, copy/paste, add/delete;
+- structure load/append, frame switching, wrap, reset, history, copy/paste,
+  add/delete;
 - coordinate commit and constraint editing;
 - calculator and relaxation control;
 - POSCAR, ASE Pickle, image/video support, Blender, 3DM, and OBJ export;
@@ -202,6 +208,12 @@ Canonical atom identity update:
 
 ```text
 POST /api/atom-identity/{session_id}
+```
+
+Uploaded structures are appended without replacing visual state through:
+
+```text
+POST /api/file/append/{session_id}
 ```
 
 Large compatible trajectories expose contiguous float32 coordinates through:

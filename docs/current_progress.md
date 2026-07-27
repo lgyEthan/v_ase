@@ -68,9 +68,17 @@ and documentation use `view()`.
     before edits are enabled. The current frame, coordinates, labels,
     constraints, and calculators remain synchronized.
 12. Settings survive structure refreshes and trajectory changes. Ordinary file
-    Open reconciles the active visual state; `.vase` replaces it.
+    replacement reconciles the active visual state; `.vase` replacement
+    restores it.
 13. Demand rendering must remain idle when camera, structure, playback, and UI
     are unchanged.
+14. Appending files extends the current trajectory without changing its active
+    visual state. The trajectory-wide label/type catalog is authoritative for
+    Appearance and pairwise-bond controls, including labels absent from the
+    current frame.
+15. Opening in a new workspace tab creates a separate backend session. Opening
+    `.vase` this way restores the complete project; appending `.vase` imports
+    only its selected structure frames.
 
 ## Canonical Names And Compatibility
 
@@ -115,6 +123,10 @@ same implementation for compatibility.
   visual settings. It does not reference the source file.
 - Browser Open keeps visual state for ordinary structures and trajectories.
   Opening `.vase` restores the project state instead.
+- Browser **Add to trajectory** appends the selected structure frames and
+  intentionally ignores `.vase` visual settings.
+- Browser **Open in new tab** uploads into a newly created, independent session
+  before making that tab active.
 
 ## Performance Contract
 

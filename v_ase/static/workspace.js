@@ -132,7 +132,7 @@ class VAseWorkspace {
         pane.hidden = true;
         pane.setAttribute('allow', 'clipboard-read; clipboard-write');
 
-        this.tabRoot.appendChild(tab);
+        this.tabRoot.insertBefore(tab, this.newButton);
         this.paneRoot.appendChild(pane);
         this.tabs.set(sessionId, {
             sessionId,
@@ -198,6 +198,74 @@ class VAseWorkspace {
         }
     }
 
+    async uploadFileToSession(sessionId, file, inputFormat = '', index = ':') {
+        const params = new URLSearchParams({
+            filename: file?.name || 'structure',
+            index: index || ':',
+        });
+        if (inputFormat) params.set('input_format', inputFormat);
+        return await this.request(
+            `/api/file/load/${encodeURIComponent(sessionId)}?${params.toString()}`,
+            {
+                method: 'POST',
+                headers: {'Content-Type': file?.type || 'application/octet-stream'},
+                body: file,
+            }
+        );
+    }
+
+    async openDocumentFromFile(sourceEntry, message) {
+        let documentState = null;
+        const respond = payload => {
+            sourceEntry.pane.contentWindow?.postMessage({
+                type: 'v_ase:workspace-open-result',
+                requestId: message.requestId,
+                ...payload,
+            }, window.location.origin);
+        };
+        try {
+            if (!(message.file instanceof Blob) || !message.file.size) {
+                throw new Error('The selected file is empty or unavailable.');
+            }
+            documentState = await this.request(
+                `/api/workspace/${encodeURIComponent(this.workspaceId)}/sessions`,
+                {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({source_session_id: sourceEntry.sessionId}),
+                }
+            );
+            const data = await this.uploadFileToSession(
+                documentState.session_id,
+                message.file,
+                message.inputFormat || '',
+                message.index || ':'
+            );
+            documentState.title = data.loaded_file?.filename || message.file.name || 'Untitled';
+            documentState.empty = false;
+            this.addDocument(documentState);
+            this.activateDocument(documentState.session_id);
+            respond({
+                ok: true,
+                sessionId: documentState.session_id,
+                title: documentState.title,
+            });
+        } catch (error) {
+            if (documentState?.session_id) {
+                try {
+                    await this.request(
+                        `/api/workspace/${encodeURIComponent(this.workspaceId)}/sessions/`
+                        + `${encodeURIComponent(documentState.session_id)}/close`,
+                        {method: 'POST'}
+                    );
+                } catch {
+                    // Preserve the original upload error for the requesting document.
+                }
+            }
+            respond({ok: false, error: error.message});
+        }
+    }
+
     async closeDocument(sessionId) {
         if (!this.tabs.has(sessionId) || this.tabs.size <= 1) return;
         const ordered = [...this.tabs.keys()];
@@ -243,6 +311,10 @@ class VAseWorkspace {
         if (!message.type?.startsWith('v_ase:document-')) return;
         const entry = this.tabs.get(message.sessionId);
         if (!entry || entry.pane.contentWindow !== event.source) return;
+        if (message.type === 'v_ase:document-open-new') {
+            this.openDocumentFromFile(entry, message);
+            return;
+        }
         if (message.type === 'v_ase:document-title' || message.type === 'v_ase:document-ready') {
             this.updateDocumentTitle(message.sessionId, message.title);
         }

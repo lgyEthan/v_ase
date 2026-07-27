@@ -54,6 +54,20 @@ Examples:
 
 The terminal is released when the v_ase browser document closes.
 
+The top-bar **Open** command offers three actions:
+
+| Action | Result |
+| --- | --- |
+| Replace this tab | Replace the current structure or trajectory |
+| Add to trajectory | Append the selected frames to the current movie |
+| Open in new tab | Open an independent document beside the current tab |
+
+Replacing a tab or opening a new tab with `.vase` restores the complete saved
+project. Adding `.vase` to a trajectory imports its structures only and keeps
+the active tab's camera, appearance, bonds, lighting, and other visual settings.
+New labels and chemical types are added to the existing Appearance and
+pairwise-bond controls automatically.
+
 ### View And Edit Modes
 
 **View** is the default. It is optimized for visualization, trajectories,
@@ -78,10 +92,11 @@ those visual variants. Position-only edits stay in the same label group.
 
 ### Multiple Documents
 
-Use **+** in the document bar to create independent tabs in one window. Each
-tab owns its structure or trajectory, camera, selection, calculator, history,
-display settings, relaxation state, and `.vase` project. Inactive tabs pause
-rendering and movie playback.
+Use **+** immediately after the document tabs to create an empty independent
+tab. Tabs resize as documents are added. Each tab owns its structure or
+trajectory, camera, selection, calculator, history, display settings,
+relaxation state, and `.vase` project. Inactive tabs pause rendering and movie
+playback.
 
 ## Controls
 

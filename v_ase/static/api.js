@@ -820,4 +820,17 @@ export class ASEApi {
             body: file
         });
     }
+
+    async appendStructureFile(file, inputFormat = '', index = ':') {
+        const params = new URLSearchParams({
+            filename: file?.name || 'structure',
+            index: index || ':'
+        });
+        if (inputFormat) params.set('input_format', inputFormat);
+        return await this.request(`/api/file/append/{session_id}?${params.toString()}`, {
+            method: 'POST',
+            headers: {'Content-Type': file?.type || 'application/octet-stream'},
+            body: file
+        });
+    }
 }

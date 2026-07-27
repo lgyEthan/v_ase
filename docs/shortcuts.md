@@ -88,7 +88,10 @@ state:
   results, and visual setup. Reopen it with `v_ase gui FILE.vase`.
 
 Start with `v_ase gui` to open an empty workspace, then use the top-bar **Open**
-command to load a structure, trajectory, or `.vase` project.
+command to load a structure, trajectory, or `.vase` project. Choose **Replace
+this tab**, **Add to trajectory**, or **Open in new tab**. Appending `.vase`
+imports structures only; replacing or opening it in a new tab restores the
+complete saved project.
 
 ## Constraint Behavior
 

@@ -26,6 +26,20 @@ through the process and operating system.
 the CLI, browser file Open, and Python file API. Format aliases are resolved by
 `resolve_input_format()`.
 
+Browser Open has three explicit destinations:
+
+- replace the current document while retaining its visual settings for
+  ordinary structures;
+- append selected frames to the current trajectory while retaining its current
+  frame, camera, and visual settings;
+- upload into a new independent workspace document.
+
+A `.vase` project restores all saved state when replacing a document or opening
+in a new tab. When appended, only its selected structure frames are used. The
+backend maintains a trajectory-wide ordered label/type catalog so Appearance
+rows and pairwise bond controls remain valid when frames introduce labels not
+present in the active frame.
+
 Specialized readers preserve data ASE cannot represent directly:
 
 - custom extxyz labels map to ASE-valid chemical symbols and remain separate
@@ -150,6 +164,11 @@ file offsets and expose the same binary coordinate contract.
 Playback loads the binary array once, then updates GPU instance translations
 without per-frame HTTP, JSON, geometry rebuilds, or complete matrix rewrites.
 Manual scrubbing still synchronizes the backend frame.
+
+Files appended from the Open dialog become frames in the active source
+trajectory. The active frame and document visual state are preserved; newly
+introduced labels and chemical types are reconciled without renaming existing
+groups.
 
 Relaxation has its own timeline. For a loaded trajectory, each source frame can
 own a relaxation path. Space-bar playback follows the loaded trajectory and

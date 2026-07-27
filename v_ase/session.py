@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from ase import Atoms
 
+from .io import atom_labels
 from .repulsion import copy_calculator, ensure_default_calculator
 
 
@@ -71,6 +72,7 @@ class EditorSession:
         if self.trajectory_source is None:
             for frame in self.trajectory_frames:
                 self._ensure_session_calculator(frame)
+        self.refresh_trajectory_identity()
 
     def push_history(self):
         """Save current state to history for Undo."""
@@ -114,6 +116,32 @@ class EditorSession:
 
     def invalidate_trajectory_layout(self) -> None:
         self._trajectory_layout_compatible = None
+
+    def refresh_trajectory_identity(self) -> Dict[str, Any]:
+        """Cache ordered labels and their ASE elements for the whole trajectory."""
+        if self.trajectory_source is not None:
+            template = getattr(self.trajectory_source, "template_atoms", None)
+            frames = [template] if isinstance(template, Atoms) else [self.working_atoms]
+        else:
+            frames = self.trajectory_frames or [self.working_atoms]
+
+        labels: List[str] = []
+        elements: Dict[str, List[str]] = {}
+        for frame in frames:
+            if not isinstance(frame, Atoms):
+                continue
+            frame_labels = atom_labels(frame)
+            frame_elements = frame.get_chemical_symbols()
+            for label, element in zip(frame_labels, frame_elements):
+                if label not in elements:
+                    labels.append(label)
+                    elements[label] = []
+                if element not in elements[label]:
+                    elements[label].append(element)
+
+        payload = {"labels": labels, "elements": elements}
+        self.config["trajectory_identity"] = payload
+        return payload
 
     def sync_current_frame(self):
         if self.trajectory_source is not None:
@@ -358,3 +386,85 @@ def replace_session_frames(
     session.relax_params.clear()
     session.invalidate_trajectory_layout()
     session.config["initial_design_settings"] = initial_design_settings
+    session.refresh_trajectory_identity()
+
+
+def append_session_frames(session: EditorSession, frames: List[Atoms]) -> int:
+    """Append frames while preserving the active frame and its working edits."""
+    if not frames or not all(isinstance(frame, Atoms) for frame in frames):
+        raise ValueError("At least one ASE Atoms frame is required for trajectory append.")
+
+    attach_default = not bool((session.config or {}).get("viz_only", False))
+    is_empty = bool((session.config or {}).get("empty_workspace", False)) and len(session.working_atoms) == 0
+
+    if is_empty:
+        existing_original: List[Atoms] = []
+        existing_working: List[Atoms] = []
+        current_frame = 0
+    elif session.trajectory_source is not None:
+        existing_original = [
+            copy_atoms_with_calc(
+                session.trajectory_source.read_atoms(index),
+                attach_default=attach_default,
+            )
+            for index in range(session.frame_count)
+        ]
+        existing_working = [
+            copy_atoms_with_calc(frame, attach_default=attach_default)
+            for frame in existing_original
+        ]
+        current_frame = max(0, min(session.current_frame, len(existing_working) - 1))
+        existing_working[current_frame] = copy_atoms_with_calc(
+            session.working_atoms,
+            attach_default=attach_default,
+        )
+    else:
+        session.sync_current_frame()
+        existing_working = [
+            copy_atoms_with_calc(frame, attach_default=attach_default)
+            for frame in (session.trajectory_frames or [session.working_atoms])
+        ]
+        existing_original = [
+            copy_atoms_with_calc(frame, attach_default=attach_default)
+            for frame in (session.original_frames or [session.original_atoms])
+        ]
+        if len(existing_original) < len(existing_working):
+            existing_original.extend(
+                copy_atoms_with_calc(frame, attach_default=attach_default)
+                for frame in existing_working[len(existing_original):]
+            )
+        current_frame = max(0, min(session.current_frame, len(existing_working) - 1))
+
+    appended_original = [
+        copy_atoms_with_calc(frame, attach_default=attach_default)
+        for frame in frames
+    ]
+    appended_working = [
+        copy_atoms_with_calc(frame, attach_default=attach_default)
+        for frame in frames
+    ]
+    session.original_frames = existing_original + appended_original
+    session.trajectory_frames = existing_working + appended_working
+    session.trajectory_source = None
+    session.current_frame = current_frame
+    session.original_atoms = copy_atoms_with_calc(
+        session.original_frames[0],
+        attach_default=attach_default,
+    )
+    session.working_atoms = copy_atoms_with_calc(
+        session.trajectory_frames[current_frame],
+        attach_default=attach_default,
+    )
+    session.result_atoms = None
+    session.history.clear()
+    session.redo_stack.clear()
+    session.stop_relax = False
+    session.is_relaxing = False
+    session.relax_restart_requested = False
+    session.relax_run_id += 1
+    session.relax_params.clear()
+    session.invalidate_trajectory_layout()
+    session.config["empty_workspace"] = False
+    session.refresh_trajectory_identity()
+    session.cleanup_temporary_files()
+    return len(appended_working)

@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.79&rev=2';
-import { ASERenderer } from './renderer.js?v=0.0.79&rev=2';
-import { ASESelection } from './selection.js?v=0.0.79&rev=2';
-import { ASETransform } from './transform.js?v=0.0.79&rev=2';
+import { ASEApi } from './api.js?v=0.0.80&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.80&rev=1';
+import { ASESelection } from './selection.js?v=0.0.80&rev=1';
+import { ASETransform } from './transform.js?v=0.0.80&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -35,6 +35,8 @@ class VAseApp {
         this.workspaceChild = urlParams.get('workspace_child') === '1';
         this.workspaceActive = !this.workspaceChild;
         this.workspaceNeedsRefresh = false;
+        this.workspaceOpenRequests = new Map();
+        this.workspaceRequestSequence = 0;
         this.api = new ASEApi(this.sessionId);
         this.pendingApply = Promise.resolve();
         
@@ -146,6 +148,8 @@ class VAseApp {
                 finished: false
             },
             labelOrder: [],
+            trajectoryLabels: [],
+            trajectoryLabelElements: {},
             labelIndexCache: new Map(),
             pendingLabelRenames: new Set(),
             modeSwitchInFlight: false,
@@ -258,6 +262,10 @@ class VAseApp {
         } else if (message.type === 'v_ase:workspace-dispose') {
             this.stopPlayback();
             this.renderer.setSuspended(true);
+            this.workspaceOpenRequests.forEach(({ reject }) => {
+                reject(new Error('The source structure tab was closed.'));
+            });
+            this.workspaceOpenRequests.clear();
             try {
                 if (this.ws && this.ws.readyState <= WebSocket.OPEN) {
                     this.ws.close(1000, 'document tab closed');
@@ -265,6 +273,12 @@ class VAseApp {
             } catch {
                 // The parent removes this frame immediately after disposal.
             }
+        } else if (message.type === 'v_ase:workspace-open-result') {
+            const pending = this.workspaceOpenRequests.get(message.requestId);
+            if (!pending) return;
+            this.workspaceOpenRequests.delete(message.requestId);
+            if (message.ok) pending.resolve(message);
+            else pending.reject(new Error(message.error || 'Could not open a new structure tab.'));
         }
     }
 
@@ -1225,6 +1239,7 @@ class VAseApp {
             if (!data || !data.positions) return;
 
             this.state.atoms = data;
+            this.syncTrajectoryIdentity(data);
             this.rebuildLabelIndexCache(data.symbols || []);
             this.state.cachedFmax = this.computeFmax(data.forces || []);
             this.clearRelaxTrajectoryIfTopologyChanged(data);
@@ -1591,9 +1606,17 @@ class VAseApp {
         }
     }
 
-    setAtomsData(data, { clearSelection = false, preserveDisplay = true } = {}) {
+    setAtomsData(
+        data,
+        {
+            clearSelection = false,
+            preserveDisplay = true,
+            resetTrajectoryIdentity = false
+        } = {}
+    ) {
         if (preserveDisplay) this.captureBondSettingsFromControls();
         this.state.atoms = data;
+        this.syncTrajectoryIdentity(data, { reset: resetTrajectoryIdentity });
         this.rebuildLabelIndexCache(data.symbols || []);
         this.state.cachedFmax = this.computeFmax(data.forces || []);
         this.clearRelaxTrajectoryIfTopologyChanged(data);
@@ -3402,8 +3425,43 @@ class VAseApp {
         });
     }
 
+    syncTrajectoryIdentity(data = this.state.atoms, { reset = false } = {}) {
+        const payload = data?.metadata?.config?.trajectory_identity;
+        const labels = reset || payload
+            ? []
+            : [...(this.state.trajectoryLabels || [])];
+        const elements = reset || payload
+            ? {}
+            : this.clonePlain(this.state.trajectoryLabelElements || {});
+        const add = (label, element = null) => {
+            if (!label) return;
+            if (!labels.includes(label)) labels.push(label);
+            if (!elements[label]) elements[label] = [];
+            if (CHEMICAL_ELEMENT_SET.has(element) && !elements[label].includes(element)) {
+                elements[label].push(element);
+            }
+        };
+        (payload?.labels || []).forEach(label => {
+            const knownElements = payload?.elements?.[label] || [];
+            if (knownElements.length) knownElements.forEach(element => add(label, element));
+            else add(label);
+        });
+        const currentLabels = data?.symbols || [];
+        const currentElements = data?.chemical_symbols || [];
+        currentLabels.forEach((label, index) => add(label, currentElements[index]));
+        this.state.trajectoryLabels = labels;
+        this.state.trajectoryLabelElements = elements;
+    }
+
+    availableAtomLabels(symbols = this.state.atoms?.symbols || []) {
+        return [...new Set([
+            ...(this.state.trajectoryLabels || []),
+            ...symbols.filter(Boolean)
+        ])];
+    }
+
     reconcileLabelOrder(symbols = []) {
-        const presentList = [...new Set(symbols.filter(Boolean))];
+        const presentList = this.availableAtomLabels(symbols);
         const present = new Set(presentList);
         const existingOrder = this.state.labelOrder || [];
         const ordered = [];
@@ -3434,6 +3492,33 @@ class VAseApp {
             order.push(newSymbol);
         }
         this.state.labelOrder = [...new Set(order)];
+    }
+
+    updateLocalTrajectoryIdentity(oldSymbol, label, baseSymbol = null) {
+        const frameCount = Number(this.state.atoms?.metadata?.frame_count) || 1;
+        const labels = [...(this.state.trajectoryLabels || [])];
+        const elements = this.clonePlain(this.state.trajectoryLabelElements || {});
+        const sourceElements = elements[oldSymbol] || [];
+        const oldIndex = labels.indexOf(oldSymbol);
+        const targetIndex = labels.indexOf(label);
+        const removeOld = frameCount === 1 && oldSymbol !== label;
+
+        if (removeOld && oldIndex >= 0) {
+            if (targetIndex >= 0) labels.splice(oldIndex, 1);
+            else labels[oldIndex] = label;
+            delete elements[oldSymbol];
+        } else if (targetIndex < 0) {
+            labels.push(label);
+        }
+
+        const knownElements = elements[label] || [];
+        elements[label] = [...new Set([
+            ...knownElements,
+            ...sourceElements,
+            ...(CHEMICAL_ELEMENT_SET.has(baseSymbol) ? [baseSymbol] : [])
+        ])];
+        this.state.trajectoryLabels = [...new Set(labels)];
+        this.state.trajectoryLabelElements = elements;
     }
 
     labelIndices(symbol) {
@@ -3528,16 +3613,19 @@ class VAseApp {
 
     chemicalSymbolForLabel(label) {
         const index = (this.state.atoms?.symbols || []).findIndex(symbol => symbol === label);
-        return this.state.atoms?.chemical_symbols?.[index] || this.baseElementForLabel(label);
+        if (index >= 0) return this.state.atoms?.chemical_symbols?.[index] || this.baseElementForLabel(label);
+        const known = this.state.trajectoryLabelElements?.[label] || [];
+        return known.length === 1 ? known[0] : this.baseElementForLabel(label);
     }
 
     chemicalSymbolsForLabel(label) {
         const chemicalSymbols = this.state.atoms?.chemical_symbols || [];
-        return [...new Set(
+        return [...new Set([
+            ...(this.state.trajectoryLabelElements?.[label] || []),
             this.labelIndices(label)
                 .map(index => chemicalSymbols[index])
                 .filter(symbol => CHEMICAL_ELEMENT_SET.has(symbol))
-        )];
+        ].flat())];
     }
 
     transferLabelDisplaySettings(
@@ -3684,6 +3772,7 @@ class VAseApp {
             typeSelect.title = `${labelAtomIndices.length} atom${labelAtomIndices.length === 1 ? '' : 's'} with label ${symbol}`;
             typeSelect.value = currentElement || '';
             typeSelect.placeholder = currentElements.length > 1 ? 'Mixed' : 'Element';
+            typeSelect.disabled = labelAtomIndices.length === 0;
 
             const visibleBox = document.createElement('input');
             visibleBox.type = 'checkbox';
@@ -3715,7 +3804,7 @@ class VAseApp {
             selectBox.className = 'label-check label-select-checkbox';
             selectBox.dataset.atomLabel = symbol;
             selectBox.dataset.appearanceField = 'select';
-            selectBox.disabled = !this.isLabelVisible(symbol);
+            selectBox.disabled = !this.isLabelVisible(symbol) || labelAtomIndices.length === 0;
             selectBox.title = `Select all visible ${symbol} atoms`;
             const selectionState = this.labelSelectionState(symbol);
             selectBox.checked = selectionState === 'all';
@@ -3729,6 +3818,7 @@ class VAseApp {
             nameInput.dataset.atomLabel = symbol;
             nameInput.dataset.appearanceField = 'label';
             nameInput.value = symbol;
+            nameInput.disabled = labelAtomIndices.length === 0;
             const previewDetectedBase = () => {
                 const next = this.normalizedTypeLabel(nameInput.value);
                 const inferredBase = this.detectedElementForLabel(next);
@@ -3884,7 +3974,7 @@ class VAseApp {
     updateLabelSelectionControls() {
         document.querySelectorAll('.label-select-checkbox').forEach(input => {
             const symbol = input.dataset.atomLabel;
-            input.disabled = !this.isLabelVisible(symbol);
+            input.disabled = !this.isLabelVisible(symbol) || this.labelIndices(symbol).length === 0;
             const state = this.labelSelectionState(symbol);
             input.checked = state === 'all';
             input.indeterminate = state === 'partial';
@@ -4034,6 +4124,7 @@ class VAseApp {
         if (!preserveAppearance && !targetExists && baseSymbol) {
             this.setElementBaseDefaults(label, baseSymbol, { color: true });
         }
+        this.updateLocalTrajectoryIdentity(oldSymbol, label, baseSymbol);
         if (label !== oldSymbol) this.replaceLabelOrder(oldSymbol, label);
         this.renderPairwiseBondControls();
         this.renderer.renameAtomLabel(oldSymbol, label, indices, this.state.display, baseSymbol);
@@ -4531,7 +4622,7 @@ class VAseApp {
             const parsed = parseInt(value, 10);
             return Math.max(minimum, Math.min(maximum, Number.isFinite(parsed) ? parsed : fallback));
         };
-        const labels = [...new Set(this.state.atoms?.symbols || [])];
+        const labels = this.availableAtomLabels();
         const atomCount = this.state.atoms?.positions?.length || 0;
         const pickLabelMap = (source, fallback = {}) => {
             const result = {};
@@ -5427,6 +5518,7 @@ class VAseApp {
     }
 
     showOpenFileModal(file) {
+        const newTabAvailable = this.workspaceChild && window.parent !== window;
         this.showModal(`
             <h2>Open File</h2>
             <div class="open-file-summary">
@@ -5451,9 +5543,35 @@ class VAseApp {
                 <input id="open-file-index" type="text" value=":" autocomplete="off" spellcheck="false">
             </div>
             <p class="modal-intro">Use <strong>:</strong> for all frames, <strong>-1</strong> for the last frame, or an integer frame index.</p>
+            <fieldset class="open-file-modes">
+                <legend>Open as</legend>
+                <label class="open-file-mode">
+                    <input type="radio" name="open-file-mode" value="replace" checked>
+                    <span>
+                        <strong>Replace this tab</strong>
+                        <small>Open the selected document in the current tab. A .vase project restores its complete visual setup.</small>
+                    </span>
+                </label>
+                <label class="open-file-mode">
+                    <input type="radio" name="open-file-mode" value="append">
+                    <span>
+                        <strong>Add to trajectory</strong>
+                        <small>Append every selected frame to this tab for movie playback. A .vase file contributes structures only.</small>
+                    </span>
+                </label>
+                <label class="open-file-mode${newTabAvailable ? '' : ' disabled'}">
+                    <input type="radio" name="open-file-mode" value="new-tab"${newTabAvailable ? '' : ' disabled'}>
+                    <span>
+                        <strong>Open in new tab</strong>
+                        <small>${newTabAvailable
+                            ? 'Create an independent structure tab with its own state and .vase project.'
+                            : 'Available when v_ase is running in its multi-tab workspace.'}</small>
+                    </span>
+                </label>
+            </fieldset>
         `, `
             <button id="open-file-cancel" class="btn">Cancel</button>
-            <button id="open-file-confirm" class="btn primary">Open</button>
+            <button id="open-file-confirm" class="btn primary">Replace</button>
         `);
         const name = document.getElementById('open-file-name');
         const size = document.getElementById('open-file-size');
@@ -5462,12 +5580,32 @@ class VAseApp {
             name.title = file.name;
         }
         if (size) size.textContent = this.formatFileSize(file.size);
+        const confirm = document.getElementById('open-file-confirm');
+        const syncConfirmLabel = () => {
+            const mode = document.querySelector('input[name="open-file-mode"]:checked')?.value || 'replace';
+            const labels = {
+                replace: 'Replace',
+                append: 'Add Frames',
+                'new-tab': 'Open New Tab'
+            };
+            if (confirm) confirm.textContent = labels[mode];
+        };
+        document.querySelectorAll('input[name="open-file-mode"]').forEach(input => {
+            input.addEventListener('change', syncConfirmLabel);
+        });
         document.getElementById('open-file-cancel')?.addEventListener('click', () => this.closeModal(), { once: true });
-        document.getElementById('open-file-confirm')?.addEventListener('click', async () => {
+        confirm?.addEventListener('click', async () => {
             const inputFormat = document.getElementById('open-file-format')?.value || '';
             const index = document.getElementById('open-file-index')?.value.trim() || ':';
+            const mode = document.querySelector('input[name="open-file-mode"]:checked')?.value || 'replace';
             this.closeModal();
-            await this.loadStructureFile(file, inputFormat, index);
+            if (mode === 'append') {
+                await this.appendStructureFile(file, inputFormat, index);
+            } else if (mode === 'new-tab') {
+                await this.openStructureFileInNewTab(file, inputFormat, index);
+            } else {
+                await this.loadStructureFile(file, inputFormat, index);
+            }
         }, { once: true });
     }
 
@@ -5499,7 +5637,11 @@ class VAseApp {
             this.state.trajectoryBinaryPromise = null;
             this.state.relaxTrajectory = { frames: [], frame: 0, sourceFrame: 0, active: false, finished: false };
             this.renderer.needsInitialCameraFit = !settings?.camera;
-            this.setAtomsData(data, { clearSelection: true, preserveDisplay: !isProject });
+            this.setAtomsData(data, {
+                clearSelection: true,
+                preserveDisplay: !isProject,
+                resetTrajectoryIdentity: true
+            });
             if (settings) {
                 this.applyDesignSettings(settings);
                 this.initialDesignSettings = isProject
@@ -5516,6 +5658,79 @@ class VAseApp {
             this.notifyWorkspaceDocument();
         } catch (err) {
             this.toast(`Open file failed: ${err.message}`, 'error');
+        }
+    }
+
+    async appendStructureFile(file, inputFormat = '', index = ':') {
+        try {
+            this.stopPlayback();
+            if (this.transform.mode !== 'IDLE') this.cancelTransform();
+            const wasEmpty = !this.hasLoadedAtoms();
+            try {
+                this.applyDisplayOptions();
+            } catch {
+                this.captureBondSettingsFromControls();
+            }
+            const data = await this.withBusy(
+                `Adding ${file.name} to trajectory...`,
+                () => this.api.appendStructureFile(file, inputFormat, index)
+            );
+            this.state.trajectoryBinaryCache = null;
+            this.state.trajectoryBinaryPromise = null;
+            this.state.relaxTrajectory = {
+                frames: [],
+                frame: 0,
+                sourceFrame: 0,
+                active: false,
+                finished: false
+            };
+            this.renderer.needsInitialCameraFit = wasEmpty;
+            this.setAtomsData(data, {
+                clearSelection: wasEmpty,
+                preserveDisplay: true
+            });
+            if (wasEmpty) this.initialDesignSettings = this.designSettingsSnapshot();
+            const added = Number(data.loaded_file?.appended_frames) || 0;
+            const total = Number(data.metadata?.frame_count) || 1;
+            const projectNote = data.loaded_file?.project_settings_ignored
+                ? ' Structures were imported; .vase visual settings were intentionally ignored.'
+                : '';
+            this.toast(
+                `Added ${added} frame${added === 1 ? '' : 's'} from ${data.loaded_file?.filename || file.name}. `
+                + `Trajectory now has ${total} frame${total === 1 ? '' : 's'}.${projectNote}`,
+                'success'
+            );
+            this.notifyWorkspaceDocument();
+        } catch (err) {
+            this.toast(`Add to trajectory failed: ${err.message}`, 'error');
+        }
+    }
+
+    async openStructureFileInNewTab(file, inputFormat = '', index = ':') {
+        if (!this.workspaceChild || window.parent === window) {
+            this.toast('New structure tabs are available in the v_ase workspace.', 'warning');
+            return;
+        }
+        const requestId = `${this.sessionId}:${Date.now()}:${++this.workspaceRequestSequence}`;
+        try {
+            const result = await this.withBusy(
+                `Opening ${file.name} in a new tab...`,
+                () => new Promise((resolve, reject) => {
+                    this.workspaceOpenRequests.set(requestId, { resolve, reject });
+                    window.parent.postMessage({
+                        type: 'v_ase:document-open-new',
+                        sessionId: this.sessionId,
+                        requestId,
+                        file,
+                        inputFormat,
+                        index
+                    }, window.location.origin);
+                })
+            );
+            this.toast(`Opened ${result.title || file.name} in a new tab.`, 'success');
+        } catch (err) {
+            this.workspaceOpenRequests.delete(requestId);
+            this.toast(`Open new tab failed: ${err.message}`, 'error');
         }
     }
 
@@ -5541,6 +5756,15 @@ class VAseApp {
                 <span>Esc</span><label>Cancel transform, or close the open control panel and return focus to the viewport</label>
                 <span>Ctrl+C / V / Z</span><label>Copy, paste, undo</label>
                 <span>Delete</span><label>Delete selected atoms</label>
+            </div>
+            <h3 class="help-section-title">Opening Files</h3>
+            <div class="help-save-grid">
+                <strong>Replace this tab</strong>
+                <span>Replace the current structure or trajectory. A .vase project also restores its saved visual setup.</span>
+                <strong>Add to trajectory</strong>
+                <span>Append every selected frame to the current movie while keeping this tab's visual setup. A .vase file contributes structures only.</span>
+                <strong>Open in new tab</strong>
+                <span>Create an independent structure tab. A .vase project restores its complete state in that new tab.</span>
             </div>
             <h3 class="help-section-title">Geometry Export</h3>
             <div class="help-save-grid">

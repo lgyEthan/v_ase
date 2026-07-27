@@ -31,6 +31,7 @@ from v_ase.project import read_project_archive
 from v_ase.serialization import atoms_to_json
 from v_ase.server import (
     add_atoms,
+    append_structure_file,
     apply_positions,
     apply_supercell,
     apply_supercell_matrix,
@@ -79,6 +80,128 @@ class StreamRequest:
         midpoint = max(1, len(self.data) // 2)
         yield self.data[:midpoint]
         yield self.data[midpoint:]
+
+
+def test_append_file_preserves_working_frame_and_registers_new_trajectory_labels(tmp_path):
+    first = Atoms("H", positions=[[0.0, 0.0, 0.0]], cell=[8, 8, 8], pbc=True)
+    second = first.copy()
+    second.positions[0, 0] = 0.5
+    session = EditorSession(
+        "append-trajectory",
+        first.copy(),
+        second.copy(),
+        original_frames=[first.copy(), first.copy()],
+        trajectory_frames=[first.copy(), second.copy()],
+        current_frame=1,
+        config={
+            "viz_only": True,
+            "empty_workspace": False,
+            "document_name": "existing.extxyz",
+            "initial_design_settings": {"display": {"atomRadiusScale": 1.4}},
+        },
+    )
+    sessions[session.session_id] = session
+
+    carbon = Atoms("C", positions=[[1.0, 0.0, 0.0]], cell=[9, 9, 9], pbc=True)
+    oxygen = Atoms("OO", positions=[[0, 0, 0], [1.2, 0, 0]], cell=[9, 9, 9], pbc=True)
+    set_atom_labels(carbon, ["C_bulk"])
+    set_atom_labels(oxygen, ["O_ads", "O_bridge"])
+    source = tmp_path / "added.extxyz"
+    write(source, [carbon, oxygen], format="extxyz")
+
+    try:
+        data = asyncio.run(
+            append_structure_file(
+                session.session_id,
+                StreamRequest(source.read_bytes()),
+                filename=source.name,
+                input_format="extxyz",
+                index=":",
+            )
+        )
+        assert data["loaded_file"]["kind"] == "append"
+        assert data["loaded_file"]["appended_frames"] == 2
+        assert data["metadata"]["frame_count"] == 4
+        assert data["metadata"]["current_frame"] == 1
+        assert session.working_atoms.positions[0, 0] == pytest.approx(0.5)
+        assert session.config["document_name"] == "existing.extxyz"
+        assert session.config["initial_design_settings"]["display"]["atomRadiusScale"] == pytest.approx(1.4)
+        identity = session.config["trajectory_identity"]
+        assert identity["labels"] == ["H", "C_bulk", "O_ads", "O_bridge"]
+        assert identity["elements"] == {
+            "H": ["H"],
+            "C_bulk": ["C"],
+            "O_ads": ["O"],
+            "O_bridge": ["O"],
+        }
+
+        asyncio.run(set_frame(session.session_id, {"index": 3}))
+        assert atom_labels(session.working_atoms) == ["O_ads", "O_bridge"]
+    finally:
+        sessions.pop(session.session_id, None)
+
+
+def test_append_vase_imports_frames_without_replacing_current_visual_settings(tmp_path):
+    project_atoms = Atoms("He", positions=[[2.0, 0.0, 0.0]])
+    project_last = project_atoms.copy()
+    project_last.positions[0, 0] = 3.0
+    project_session = EditorSession(
+        "append-project-source",
+        project_atoms.copy(),
+        project_last.copy(),
+        original_frames=[project_atoms.copy(), project_atoms.copy()],
+        trajectory_frames=[project_atoms.copy(), project_last.copy()],
+        current_frame=1,
+        config={"viz_only": True},
+    )
+    target_atoms = Atoms("H", positions=[[0.0, 0.0, 0.0]])
+    target_settings = {"display": {"atomRadiusScale": 1.75, "showBonds": True}}
+    target = EditorSession(
+        "append-project-target",
+        target_atoms.copy(),
+        target_atoms.copy(),
+        config={
+            "viz_only": True,
+            "empty_workspace": False,
+            "initial_design_settings": target_settings,
+            "document_name": "target.xyz",
+        },
+    )
+    sessions[project_session.session_id] = project_session
+    sessions[target.session_id] = target
+    response = asyncio.run(
+        save_project(
+            project_session.session_id,
+            {
+                "positions": project_last.positions.tolist(),
+                "settings": {"display": {"atomRadiusScale": 3.0}},
+            },
+        )
+    )
+    archive = Path(response.path)
+
+    try:
+        data = asyncio.run(
+            append_structure_file(
+                target.session_id,
+                StreamRequest(archive.read_bytes()),
+                filename="source.vase",
+                input_format="vase",
+                index="-1",
+            )
+        )
+        assert data["loaded_file"]["project_settings_ignored"] is True
+        assert data["loaded_file"]["appended_frames"] == 1
+        assert target.frame_count == 2
+        assert target.config["initial_design_settings"] == target_settings
+        assert target.config["document_name"] == "target.xyz"
+        assert target.config["trajectory_identity"]["labels"] == ["H", "He"]
+        asyncio.run(set_frame(target.session_id, {"index": 1}))
+        assert target.working_atoms.positions[0, 0] == pytest.approx(3.0)
+    finally:
+        sessions.pop(project_session.session_id, None)
+        sessions.pop(target.session_id, None)
+        archive.unlink(missing_ok=True)
 
 
 def ase_gui_jmol_hex(symbol):

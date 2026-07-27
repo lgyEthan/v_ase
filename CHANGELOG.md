@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.0.80
+
+- Added explicit Open actions for replacing the current document, appending
+  structures to its trajectory, or opening an independent workspace tab.
+- Preserved the active camera, appearance, bonds, lighting, and current frame
+  when appending files; `.vase` append imports structures only.
+- Added a trajectory-wide label/type catalog so new frame labels immediately
+  appear in Appearance and pairwise-bond controls.
+- Moved the new-tab button directly after the resizable document tabs.
+- Replaced the six camera-step icons with compact curved rotation arrows.
+- Added backend, real-Chromium, and multi-document regression coverage for all
+  three Open paths.
+
 ## 0.0.79
 
 - Added a top-bar View/Edit switch that preserves the active structure,

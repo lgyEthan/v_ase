@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.79&amp;rev=2">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.80&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.79';
+            : '/static/vendor/three.module.js?v=0.0.80';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -57,7 +57,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.79</span>
+            <span class="version">0.0.80</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -104,39 +104,39 @@
             <div id="view-toolbar" class="view-toolbar" role="group" aria-label="Camera rotation controls">
                 <button class="view-arrow-btn" type="button" data-view-rotate="left" aria-label="Orbit view left" title="Orbit view left">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M20 12H5"></path>
-                        <path d="m10 7-5 5 5 5"></path>
+                        <path class="view-orbit-track" d="M20 17.8C18.8 10.6 12.4 7.4 6.4 11.6"></path>
+                        <path class="view-orbit-head" d="M6.8 7.4 3.5 12.6l6.1.4Z"></path>
                     </svg>
                 </button>
                 <button class="view-arrow-btn" type="button" data-view-rotate="right" aria-label="Orbit view right" title="Orbit view right">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M4 12h15"></path>
-                        <path d="m14 7 5 5-5 5"></path>
+                        <path class="view-orbit-track" d="M4 17.8C5.2 10.6 11.6 7.4 17.6 11.6"></path>
+                        <path class="view-orbit-head" d="m17.2 7.4 3.3 5.2-6.1.4Z"></path>
                     </svg>
                 </button>
                 <button class="view-arrow-btn" type="button" data-view-rotate="up" aria-label="Orbit view up" title="Orbit view up">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M12 20V5"></path>
-                        <path d="m7 10 5-5 5 5"></path>
+                        <path class="view-orbit-track" d="M17.8 20C10.6 18.8 7.4 12.4 11.6 6.4"></path>
+                        <path class="view-orbit-head" d="m7.4 6.8 5.2-3.3.4 6.1Z"></path>
                     </svg>
                 </button>
                 <button class="view-arrow-btn" type="button" data-view-rotate="down" aria-label="Orbit view down" title="Orbit view down">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M12 4v15"></path>
-                        <path d="m7 14 5 5 5-5"></path>
+                        <path class="view-orbit-track" d="M17.8 4C10.6 5.2 7.4 11.6 11.6 17.6"></path>
+                        <path class="view-orbit-head" d="m7.4 17.2 5.2 3.3.4-6.1Z"></path>
                     </svg>
                 </button>
                 <span class="view-toolbar-divider" aria-hidden="true"></span>
                 <button class="view-arrow-btn" type="button" data-view-rotate="roll-ccw" aria-label="Roll view counterclockwise" title="Roll view counterclockwise">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M6.2 8.1A7.5 7.5 0 1 1 4.7 14"></path>
-                        <path d="M5 4.8v5h5"></path>
+                        <path class="view-orbit-track" d="M6.4 17.8A7.7 7.7 0 1 1 18.7 9"></path>
+                        <path class="view-orbit-head" d="M19.8 5.1 20 11l-5.4-2.5Z"></path>
                     </svg>
                 </button>
                 <button class="view-arrow-btn" type="button" data-view-rotate="roll-cw" aria-label="Roll view clockwise" title="Roll view clockwise">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M17.8 8.1A7.5 7.5 0 1 0 19.3 14"></path>
-                        <path d="M19 4.8v5h-5"></path>
+                        <path class="view-orbit-track" d="M17.6 17.8A7.7 7.7 0 1 0 5.3 9"></path>
+                        <path class="view-orbit-head" d="M4.2 5.1 4 11l5.4-2.5Z"></path>
                     </svg>
                 </button>
                 <label class="view-step-compact" for="view-rotate-step" title="Camera rotation step">
@@ -759,6 +759,15 @@
                     <span>Ctrl+C / V / Z</span><label>Copy, paste, undo</label>
                     <span>Delete</span><label>Delete selected atoms</label>
                 </div>
+                <h3 class="help-section-title">Opening Files</h3>
+                <div class="help-save-grid">
+                    <strong>Replace this tab</strong>
+                    <span>Replace the current structure or trajectory. A .vase project also restores its saved visual setup.</span>
+                    <strong>Add to trajectory</strong>
+                    <span>Append every selected frame to the current movie while keeping this tab's visual setup. A .vase file contributes structures only.</span>
+                    <strong>Open in new tab</strong>
+                    <span>Create an independent structure tab. A .vase project restores its complete state in that new tab.</span>
+                </div>
                 <h3 class="help-section-title">Saving</h3>
                 <div class="help-save-grid">
                     <strong>ASE Pickle (.pkl)</strong>
@@ -787,7 +796,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.79&rev=2';
+            : './static/main.js?v=0.0.80&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });
