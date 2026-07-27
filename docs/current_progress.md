@@ -80,9 +80,10 @@ and documentation use `view()`.
     `.vase` this way restores the complete project; appending `.vase` imports
     only its selected structure frames.
 16. New documents start with orthographic projection and a white viewport.
-    Ordered two-to-four atom measurements report direct-coordinate and
-    minimum-image-convention values together; visualization replicas continue
-    to measure their displayed positions.
+    Ordered two-atom measurements report direct and minimum-image distances.
+    If a visualization replica is selected, a third unit-cell-mapped distance
+    is shown. Three- and four-atom angles/torsions use displayed coordinates
+    without a second MIC result.
 17. New documents start with `0.60x` atom radius and `0.25 A` bond diameter.
     Explicit project and reusable-setting values override these defaults.
 18. Five-or-more selection summaries retain the total and append counts in
@@ -93,6 +94,12 @@ and documentation use `view()`.
 20. The default viewport clear color is exact white. Modeling lights lift atom
     midtones consistently without allocating rendered-mode shadows, and the
     white-background grid remains low contrast.
+21. Automatic bonds use ASE's Cordero covalent radii with pair-class additive
+    slack. H-H and metal-metal contacts are not inferred automatically;
+    explicit pairwise cutoffs remain authoritative when those bonds are wanted.
+22. Metal materials allocate one shared low-resolution PMREM reflection
+    environment on first use. Standard/rubber-only scenes do not pay that
+    allocation or preprocessing cost.
 
 ## Canonical Names And Compatibility
 

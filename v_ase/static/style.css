@@ -91,6 +91,13 @@
     --renderer-rim-active: rgba(138, 229, 211, 0.98);
     --renderer-specular: rgba(255, 240, 196, 0.96);
     --renderer-shadow: rgba(10, 15, 16, 0.72);
+    --view-arrow-highlight: #f4f7f6;
+    --view-arrow-mid: #b8c1bf;
+    --view-arrow-shadow: #737d7b;
+    --view-arrow-depth: #3f4948;
+    --view-arrow-rim: rgba(247, 252, 251, 0.56);
+    --view-arrow-drop-shadow: rgb(0 0 0 / 0.48);
+    --view-arrow-drop-shadow-strong: rgb(0 0 0 / 0.54);
     --export-preview-mask: rgba(10, 15, 16, 0.58);
     --export-preview-inner: rgba(216, 255, 247, 0.13);
     --export-preview-shadow: rgba(0, 0, 0, 0.22);
@@ -1792,7 +1799,7 @@ body.inspector-wide #inspector #appearance-table-body {
 .view-toolbar {
     position: relative;
     z-index: 313;
-    height: 38px;
+    height: 40px;
     flex: none;
     display: inline-flex;
     align-items: center;
@@ -1805,9 +1812,17 @@ body.inspector-wide #inspector #appearance-table-body {
     pointer-events: auto;
 }
 
+.view-arrow-sprite {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
 .view-arrow-btn {
-    width: 29px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
     flex: none;
     display: grid;
     place-items: center;
@@ -1832,23 +1847,49 @@ body.inspector-wide #inspector #appearance-table-body {
     background: var(--teal-medium);
 }
 
-.view-arrow-btn svg {
-    width: 22px;
-    height: 22px;
+.view-arrow-btn .view-orbit-icon {
+    width: 27px;
+    height: 27px;
     overflow: visible;
+    filter: drop-shadow(0 1px 1px var(--view-arrow-drop-shadow));
+    transition: filter 90ms ease, transform 90ms ease;
 }
 
-.view-arrow-btn .view-orbit-track {
+.view-arrow-btn:hover .view-orbit-icon,
+.view-arrow-btn:focus-visible .view-orbit-icon {
+    filter: brightness(1.12) drop-shadow(0 1px 1px var(--view-arrow-drop-shadow-strong));
+}
+
+.view-arrow-btn:active .view-orbit-icon {
+    transform: translateY(1px);
+}
+
+.view-arrow-btn .view-arrow-depth {
+    fill: var(--view-arrow-depth);
+    opacity: 0.96;
+}
+
+.view-arrow-stop-highlight {
+    stop-color: var(--view-arrow-highlight);
+}
+
+.view-arrow-stop-mid {
+    stop-color: var(--view-arrow-mid);
+}
+
+.view-arrow-stop-shadow {
+    stop-color: var(--view-arrow-shadow);
+}
+
+.view-arrow-btn .view-arrow-face {
+    fill: url("#view-arrow-face-gradient");
+}
+
+.view-arrow-btn .view-arrow-rim {
     fill: none;
-    stroke: currentColor;
-    stroke-width: 3;
-    stroke-linecap: round;
+    stroke: var(--view-arrow-rim);
+    stroke-width: 0.55;
     stroke-linejoin: round;
-}
-
-.view-arrow-btn .view-orbit-head {
-    fill: currentColor;
-    stroke: none;
 }
 
 .view-arrow-btn.view-axis-pair-start {

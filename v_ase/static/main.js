@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.84&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.84&rev=1';
-import { ASESelection } from './selection.js?v=0.0.84&rev=1';
-import { ASETransform } from './transform.js?v=0.0.84&rev=1';
+import { ASEApi } from './api.js?v=0.0.85&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.85&rev=1';
+import { ASESelection } from './selection.js?v=0.0.85&rev=1';
+import { ASETransform } from './transform.js?v=0.0.85&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -1069,8 +1069,8 @@ class VAseApp {
             right: { axis: basis.up, sign: 1 },
             up: { axis: basis.right, sign: -1 },
             down: { axis: basis.right, sign: 1 },
-            'roll-ccw': { axis: basis.forward, sign: -1 },
-            'roll-cw': { axis: basis.forward, sign: 1 }
+            'roll-ccw': { axis: basis.forward, sign: 1 },
+            'roll-cw': { axis: basis.forward, sign: -1 }
         };
         const rotation = directions[direction];
         if (!rotation) return;
@@ -2397,6 +2397,29 @@ class VAseApp {
         return position ? new THREE.Vector3(...position) : null;
     }
 
+    selectionReferenceUnitCellPosition(reference) {
+        const normalized = this.normalizeSelectionReference(reference);
+        if (!normalized) return null;
+        const position = this.currentAtomPosition(normalized.index);
+        if (!position) return null;
+        const cart = new THREE.Vector3(...position);
+        if (!this.renderer?.hasValidCell?.()) return cart;
+        const frac = this.renderer.cartToFrac(cart);
+        const pbc = this.state.atoms?.pbc || [false, false, false];
+        for (let axis = 0; axis < 3; axis++) {
+            if (!pbc[axis]) continue;
+            const value = frac.getComponent(axis);
+            frac.setComponent(axis, value - Math.floor(value));
+        }
+        return this.renderer.fracToCart(frac);
+    }
+
+    selectionIncludesReplica(selectedReferences = this.selectionEntries()) {
+        return selectedReferences.some(reference => (
+            this.normalizeSelectionReference(reference)?.kind === 'replica'
+        ));
+    }
+
     selectionReferenceLabel(reference) {
         const normalized = this.normalizeSelectionReference(reference);
         if (!normalized) return '-';
@@ -2434,21 +2457,30 @@ class VAseApp {
         const a = this.normalizeSelectionReference(first);
         const b = this.normalizeSelectionReference(second);
         if (!a || !b) return null;
-        if (mic && a.kind === 'atom' && b.kind === 'atom') {
-            const start = this.renderer.getAtomPosition?.(a.index);
-            if (start && this.renderer.minimumImageDelta) {
-                return this.renderer.minimumImageDelta(a.index, b.index, start);
-            }
-        }
         const pi = this.selectionReferencePosition(a);
         const pj = this.selectionReferencePosition(b);
         if (!pi || !pj) return null;
-        return pj.clone().sub(pi);
+        const delta = pj.clone().sub(pi);
+        if (!mic || !this.renderer?.hasValidCell?.()) return delta;
+        const pbc = this.state.atoms?.pbc || [false, false, false];
+        if (!pbc.some(Boolean)) return delta;
+        const frac = this.renderer.cartToFrac(delta);
+        for (let axis = 0; axis < 3; axis++) {
+            if (!pbc[axis]) continue;
+            frac.setComponent(axis, frac.getComponent(axis) - Math.round(frac.getComponent(axis)));
+        }
+        return this.renderer.fracToCart(frac);
     }
 
     selectionDistance(i, j, options = {}) {
         const delta = this.selectionDelta(i, j, options);
         return delta ? delta.length() : NaN;
+    }
+
+    selectionUnitCellDistance(i, j) {
+        const first = this.selectionReferenceUnitCellPosition(i);
+        const second = this.selectionReferenceUnitCellPosition(j);
+        return first && second ? second.sub(first).length() : NaN;
     }
 
     selectionAngle(i, j, k, options = {}) {
@@ -2503,9 +2535,19 @@ class VAseApp {
             const [i, j] = selectedReferences;
             const direct = this.selectionDistance(i, j, { mic: false });
             const mic = this.selectionDistance(i, j, { mic: true });
-            return [direct, mic].every(Number.isFinite)
-                ? `${referenceMap}\nDirect: d(a1-a2) = ${this.formatNumber(direct, 4)} A\nMIC: d(a1-a2) = ${this.formatNumber(mic, 4)} A`
-                : '-';
+            if (![direct, mic].every(Number.isFinite)) return '-';
+            const lines = [
+                referenceMap,
+                `Direct: d(a1-a2) = ${this.formatNumber(direct, 4)} A`,
+                `MIC: d(a1-a2) = ${this.formatNumber(mic, 4)} A`
+            ];
+            if (this.selectionIncludesReplica(selectedReferences)) {
+                const unitCell = this.selectionUnitCellDistance(i, j);
+                if (Number.isFinite(unitCell)) {
+                    lines.push(`Unit cell: d(a1-a2) = ${this.formatNumber(unitCell, 4)} A`);
+                }
+            }
+            return lines.join('\n');
         }
         if (selectedReferences.length === 3) {
             const [i, j, k] = selectedReferences;
@@ -2514,13 +2556,8 @@ class VAseApp {
                 this.selectionDistance(j, k, { mic: false }),
                 this.selectionAngle(i, j, k, { mic: false })
             ];
-            const mic = [
-                this.selectionDistance(i, j, { mic: true }),
-                this.selectionDistance(j, k, { mic: true }),
-                this.selectionAngle(i, j, k, { mic: true })
-            ];
-            if (![...direct, ...mic].every(Number.isFinite)) return '-';
-            return `${referenceMap}\nDirect: d(a1-a2) = ${this.formatNumber(direct[0], 4)} A | d(a2-a3) = ${this.formatNumber(direct[1], 4)} A | angle(a1-a2-a3) = ${this.formatNumber(direct[2], 2)} deg\nMIC: d(a1-a2) = ${this.formatNumber(mic[0], 4)} A | d(a2-a3) = ${this.formatNumber(mic[1], 4)} A | angle(a1-a2-a3) = ${this.formatNumber(mic[2], 2)} deg`;
+            if (!direct.every(Number.isFinite)) return '-';
+            return `${referenceMap}\nDirect: d(a1-a2) = ${this.formatNumber(direct[0], 4)} A | d(a2-a3) = ${this.formatNumber(direct[1], 4)} A | angle(a1-a2-a3) = ${this.formatNumber(direct[2], 2)} deg`;
         }
         if (selectedReferences.length === 4) {
             const [i, j, k, l] = selectedReferences;
@@ -2530,14 +2567,8 @@ class VAseApp {
                 this.selectionDistance(k, l, { mic: false }),
                 this.selectionTorsion(i, j, k, l, { mic: false })
             ];
-            const mic = [
-                this.selectionDistance(i, j, { mic: true }),
-                this.selectionDistance(j, k, { mic: true }),
-                this.selectionDistance(k, l, { mic: true }),
-                this.selectionTorsion(i, j, k, l, { mic: true })
-            ];
-            if (![...direct, ...mic].every(Number.isFinite)) return '-';
-            return `${referenceMap}\nDirect: d(a1-a2) = ${this.formatNumber(direct[0], 4)} A | d(a2-a3) = ${this.formatNumber(direct[1], 4)} A | d(a3-a4) = ${this.formatNumber(direct[2], 4)} A | torsion(a1-a2-a3-a4) = ${this.formatNumber(direct[3], 2)} deg\nMIC: d(a1-a2) = ${this.formatNumber(mic[0], 4)} A | d(a2-a3) = ${this.formatNumber(mic[1], 4)} A | d(a3-a4) = ${this.formatNumber(mic[2], 4)} A | torsion(a1-a2-a3-a4) = ${this.formatNumber(mic[3], 2)} deg`;
+            if (!direct.every(Number.isFinite)) return '-';
+            return `${referenceMap}\nDirect: d(a1-a2) = ${this.formatNumber(direct[0], 4)} A | d(a2-a3) = ${this.formatNumber(direct[1], 4)} A | d(a3-a4) = ${this.formatNumber(direct[2], 4)} A | torsion(a1-a2-a3-a4) = ${this.formatNumber(direct[3], 2)} deg`;
         }
         return this.selectionCountText(selectedReferences);
     }
@@ -2550,23 +2581,30 @@ class VAseApp {
         if (selectedReferences.length === 2) {
             const direct = this.selectionDistance(selectedReferences[0], selectedReferences[1], { mic: false });
             const mic = this.selectionDistance(selectedReferences[0], selectedReferences[1], { mic: true });
-            return [direct, mic].every(Number.isFinite)
-                ? `Distance a1-a2 | Direct ${this.formatNumber(direct, 4)} A | MIC ${this.formatNumber(mic, 4)} A`
-                : 'Distance unavailable';
+            if (![direct, mic].every(Number.isFinite)) return 'Distance unavailable';
+            let summary = `Distance a1-a2 | Direct ${this.formatNumber(direct, 4)} A | MIC ${this.formatNumber(mic, 4)} A`;
+            if (this.selectionIncludesReplica(selectedReferences)) {
+                const unitCell = this.selectionUnitCellDistance(
+                    selectedReferences[0],
+                    selectedReferences[1]
+                );
+                if (Number.isFinite(unitCell)) {
+                    summary += ` | Unit cell ${this.formatNumber(unitCell, 4)} A`;
+                }
+            }
+            return summary;
         }
         if (selectedReferences.length === 3) {
             const [i, j, k] = selectedReferences;
             const direct = this.selectionAngle(i, j, k, { mic: false });
-            const mic = this.selectionAngle(i, j, k, { mic: true });
-            return [direct, mic].every(Number.isFinite)
-                ? `Angle a1-a2-a3 | Direct ${this.formatNumber(direct, 2)} deg | MIC ${this.formatNumber(mic, 2)} deg`
+            return Number.isFinite(direct)
+                ? `Angle a1-a2-a3 | Direct ${this.formatNumber(direct, 2)} deg`
                 : 'Angle unavailable';
         }
         if (selectedReferences.length === 4) {
             const direct = this.selectionTorsion(...selectedReferences, { mic: false });
-            const mic = this.selectionTorsion(...selectedReferences, { mic: true });
-            return [direct, mic].every(Number.isFinite)
-                ? `Torsion a1-a2-a3-a4 | Direct ${this.formatNumber(direct, 2)} deg | MIC ${this.formatNumber(mic, 2)} deg`
+            return Number.isFinite(direct)
+                ? `Torsion a1-a2-a3-a4 | Direct ${this.formatNumber(direct, 2)} deg`
                 : 'Torsion unavailable';
         }
         return this.selectionCountText(selectedReferences);
@@ -2658,7 +2696,7 @@ class VAseApp {
                 class: 'measure-value-badge',
                 transform: `translate(${x.toFixed(2)} ${y.toFixed(2)})`
             });
-            const badgeWidth = Math.max(62, Math.min(240, text.length * 6.3 + 16));
+            const badgeWidth = Math.max(62, Math.min(300, text.length * 6.3 + 16));
             appendSvg('rect', {
                 x: (-badgeWidth / 2).toFixed(2),
                 y: -10,
@@ -2688,10 +2726,20 @@ class VAseApp {
             const direct = this.selectionDistance(...selectedReferences, { mic: false });
             const mic = this.selectionDistance(...selectedReferences, { mic: true });
             if ([direct, mic].every(Number.isFinite)) {
+                const values = [
+                    `Direct ${this.formatNumber(direct, 3)}`,
+                    `MIC ${this.formatNumber(mic, 3)}`
+                ];
+                if (this.selectionIncludesReplica(selectedReferences)) {
+                    const unitCell = this.selectionUnitCellDistance(...selectedReferences);
+                    if (Number.isFinite(unitCell)) {
+                        values.push(`Cell ${this.formatNumber(unitCell, 3)}`);
+                    }
+                }
                 appendValueBadge(
                     center.x - dy / length * 22,
                     center.y + dx / length * 22,
-                    `Direct ${this.formatNumber(direct, 3)} | MIC ${this.formatNumber(mic, 3)} A`
+                    `${values.join(' | ')} A`
                 );
             }
         } else if (count === 3) {
@@ -2717,13 +2765,12 @@ class VAseApp {
                 d: `M ${start.x.toFixed(2)} ${start.y.toFixed(2)} A ${radius.toFixed(2)} ${radius.toFixed(2)} 0 0 ${sweep >= 0 ? 1 : 0} ${end.x.toFixed(2)} ${end.y.toFixed(2)}`
             });
             const direct = this.selectionAngle(...selectedReferences, { mic: false });
-            const mic = this.selectionAngle(...selectedReferences, { mic: true });
-            if ([direct, mic].every(Number.isFinite)) {
+            if (Number.isFinite(direct)) {
                 const middleAngle = firstAngle + sweep / 2;
                 appendValueBadge(
                     center.x + Math.cos(middleAngle) * (radius + 20),
                     center.y + Math.sin(middleAngle) * (radius + 20),
-                    `Direct ${this.formatNumber(direct, 1)} | MIC ${this.formatNumber(mic, 1)} deg`
+                    `Direct ${this.formatNumber(direct, 1)} deg`
                 );
             }
         } else if (count === 4) {
@@ -2735,12 +2782,11 @@ class VAseApp {
             const dy = points[2].y - points[1].y;
             const length = Math.max(1, Math.hypot(dx, dy));
             const direct = this.selectionTorsion(...selectedReferences, { mic: false });
-            const mic = this.selectionTorsion(...selectedReferences, { mic: true });
-            if ([direct, mic].every(Number.isFinite)) {
+            if (Number.isFinite(direct)) {
                 appendValueBadge(
                     center.x - dy / length * 24,
                     center.y + dx / length * 24,
-                    `Direct ${this.formatNumber(direct, 1)} | MIC ${this.formatNumber(mic, 1)} deg`
+                    `Direct ${this.formatNumber(direct, 1)} deg`
                 );
             }
         }

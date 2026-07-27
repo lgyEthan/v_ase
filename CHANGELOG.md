@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.85
+
+- Replaced the camera toolbar glyphs with shaded, volumetric curved arrows in
+  the established up/down, left/right, counterclockwise/clockwise order.
+- Corrected screen-relative clockwise and counterclockwise camera roll.
+- Refined automatic bonds using ASE's literature covalent radii with
+  chemistry-aware pair classes: metal-metal and H-H contacts stay off by
+  default while metal-ligand distances receive a practical coordination range.
+- Added a unit-cell-mapped distance for selected supercell replicas and removed
+  ambiguous MIC variants from angle and torsion measurements.
+- Upgraded Metal to a high-metalness, low-roughness material with one shared,
+  on-demand studio reflection environment; Blender, 3DM, and OBJ material
+  exports use matching stronger metallic parameters.
+- Added Chromium projection, Cu-Cu/Cu-O cutoff, replica-measurement, 15,000-atom
+  instancing, and rendered-pixel contrast coverage.
+
 ## 0.0.84
 
 - Preserved repeated POSCAR/CONTCAR species blocks as distinct visual labels.

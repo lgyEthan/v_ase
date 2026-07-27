@@ -312,28 +312,49 @@ class BlenderTumbleControls {
 const FALLBACK_ATOM_COLOR = '#cccccc';
 const FALLBACK_ATOM_RADIUS = 0.7;
 const FALLBACK_COVALENT_RADIUS = 0.75;
-const COVALENT_BOND_TOLERANCE = 1.2;
+// ASE supplies Cordero et al. covalent radii. Pair-class slack keeps the
+// automatic view conservative for H and metal-metal contacts while retaining
+// practical coordination distances for metal-ligand bonds.
+const AUTO_BOND_HYDROGEN_SLACK = 0.22;
+const AUTO_BOND_COVALENT_SLACK = 0.35;
+const AUTO_BOND_METAL_LIGAND_SLACK = 0.50;
+const AUTO_BOND_CLASS_COVALENT = 0;
+const AUTO_BOND_CLASS_HYDROGEN = 1;
+const AUTO_BOND_CLASS_METAL = 2;
+const METALLIC_ELEMENT_SYMBOLS = new Set([
+    'Li', 'Be', 'Na', 'Mg', 'Al', 'K', 'Ca', 'Sc', 'Ti', 'V', 'Cr', 'Mn',
+    'Fe', 'Co', 'Ni', 'Cu', 'Zn', 'Ga', 'Rb', 'Sr', 'Y', 'Zr', 'Nb', 'Mo',
+    'Tc', 'Ru', 'Rh', 'Pd', 'Ag', 'Cd', 'In', 'Sn', 'Cs', 'Ba', 'La', 'Ce',
+    'Pr', 'Nd', 'Pm', 'Sm', 'Eu', 'Gd', 'Tb', 'Dy', 'Ho', 'Er', 'Tm', 'Yb',
+    'Lu', 'Hf', 'Ta', 'W', 'Re', 'Os', 'Ir', 'Pt', 'Au', 'Hg', 'Tl', 'Pb',
+    'Bi', 'Po', 'Fr', 'Ra', 'Ac', 'Th', 'Pa', 'U', 'Np', 'Pu', 'Am', 'Cm',
+    'Bk', 'Cf', 'Es', 'Fm', 'Md', 'No', 'Lr', 'Rf', 'Db', 'Sg', 'Bh', 'Hs',
+    'Mt', 'Ds', 'Rg', 'Cn', 'Nh', 'Fl', 'Mc', 'Lv'
+]);
 const ATOM_MATERIAL_PRESETS = Object.freeze({
     standard: Object.freeze({
         roughness: 0.24,
         metalness: 0.0,
         clearcoat: 0.08,
         clearcoatRoughness: 0.18,
-        specularIntensity: 1.0
+        specularIntensity: 1.0,
+        envMapIntensity: 0.0
     }),
     metal: Object.freeze({
-        roughness: 0.18,
-        metalness: 0.68,
-        clearcoat: 0.16,
-        clearcoatRoughness: 0.14,
-        specularIntensity: 1.0
+        roughness: 0.11,
+        metalness: 0.96,
+        clearcoat: 0.03,
+        clearcoatRoughness: 0.08,
+        specularIntensity: 1.0,
+        envMapIntensity: 1.55
     }),
     rubber: Object.freeze({
         roughness: 0.88,
         metalness: 0.0,
         clearcoat: 0.0,
         clearcoatRoughness: 0.8,
-        specularIntensity: 0.16
+        specularIntensity: 0.16,
+        envMapIntensity: 0.0
     })
 });
 
@@ -378,6 +399,8 @@ export class ASERenderer {
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
         this.renderer.shadowMap.enabled = false;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        this.metalEnvironmentMap = null;
+        this.metalEnvironmentRenderTarget = null;
         this.domElement = this.renderer.domElement;
         this.domElement.dataset.viewportBackground = this.viewportBackgroundMode;
         this.container.appendChild(this.renderer.domElement);
@@ -1197,10 +1220,62 @@ export class ASERenderer {
             clearcoat: isFixed ? preset.clearcoat * 0.35 : preset.clearcoat,
             clearcoatRoughness: isFixed ? Math.max(0.62, preset.clearcoatRoughness) : preset.clearcoatRoughness,
             specularIntensity: isFixed ? preset.specularIntensity * 0.55 : preset.specularIntensity,
+            envMapIntensity: isFixed ? preset.envMapIntensity * 0.72 : preset.envMapIntensity,
             emissive: new THREE.Color(0x000000),
             emissiveIntensity: 0,
             flatShading: isFixed
         };
+    }
+
+    ensureMetalEnvironmentMap() {
+        if (this.metalEnvironmentMap) return this.metalEnvironmentMap;
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = 192;
+            canvas.height = 96;
+            const context = canvas.getContext('2d');
+            if (!context) return null;
+
+            const background = context.createLinearGradient(0, 0, 0, canvas.height);
+            background.addColorStop(0, '#edf3f2');
+            background.addColorStop(0.38, '#8e9a98');
+            background.addColorStop(0.60, '#303839');
+            background.addColorStop(1, '#111718');
+            context.fillStyle = background;
+            context.fillRect(0, 0, canvas.width, canvas.height);
+
+            const addPanel = (x, width, strength = 1) => {
+                const panel = context.createLinearGradient(x, 0, x + width, 0);
+                panel.addColorStop(0, 'rgba(255,255,255,0)');
+                panel.addColorStop(0.18, `rgba(255,255,255,${0.62 * strength})`);
+                panel.addColorStop(0.5, `rgba(255,255,255,${0.96 * strength})`);
+                panel.addColorStop(0.82, `rgba(255,255,255,${0.62 * strength})`);
+                panel.addColorStop(1, 'rgba(255,255,255,0)');
+                context.fillStyle = panel;
+                context.fillRect(x, 5, width, 75);
+            };
+            addPanel(9, 42, 0.92);
+            addPanel(112, 60, 1.0);
+            context.fillStyle = 'rgba(4,8,9,0.72)';
+            context.fillRect(73, 0, 18, canvas.height);
+            context.fillStyle = 'rgba(255,255,255,0.42)';
+            context.fillRect(0, 7, canvas.width, 5);
+
+            const source = new THREE.CanvasTexture(canvas);
+            source.colorSpace = THREE.SRGBColorSpace;
+            source.mapping = THREE.EquirectangularReflectionMapping;
+            const generator = new THREE.PMREMGenerator(this.renderer);
+            generator.compileEquirectangularShader();
+            this.metalEnvironmentRenderTarget = generator.fromEquirectangular(source);
+            this.metalEnvironmentMap = this.metalEnvironmentRenderTarget.texture;
+            this.metalEnvironmentMap.name = 'v_ase_metal_studio_environment';
+            source.dispose();
+            generator.dispose();
+        } catch (error) {
+            console.warn('Metal reflection environment unavailable; using direct lighting only.', error);
+            this.metalEnvironmentMap = null;
+        }
+        return this.metalEnvironmentMap;
     }
 
     createAtomMaterial(color, isFixed = false, presetName = 'standard') {
@@ -1212,6 +1287,7 @@ export class ASERenderer {
             this.applyFlatAtomShader(material, isFixed);
             return material;
         }
+        const normalizedPreset = this.normalizedAtomMaterialPreset(presetName);
         const spec = this.atomMaterialSpec(color, isFixed, presetName);
         const material = new THREE.MeshPhysicalMaterial({
             color: spec.color,
@@ -1224,7 +1300,9 @@ export class ASERenderer {
             emissiveIntensity: spec.emissiveIntensity,
             flatShading: spec.flatShading,
             transparent: false,
-            opacity: 1.0
+            opacity: 1.0,
+            envMap: normalizedPreset === 'metal' ? this.ensureMetalEnvironmentMap() : null,
+            envMapIntensity: spec.envMapIntensity
         });
         if (isFixed) this.applyFixedAtomEtchedShader(material);
         return material;
@@ -1239,6 +1317,7 @@ export class ASERenderer {
             this.applyFlatAtomShader(material, isFixed);
             return material;
         }
+        const normalizedPreset = this.normalizedAtomMaterialPreset(presetName);
         const spec = this.atomMaterialSpec('#ffffff', isFixed, presetName);
         const material = new THREE.MeshPhysicalMaterial({
             color: 0xffffff,
@@ -1249,7 +1328,9 @@ export class ASERenderer {
             specularIntensity: spec.specularIntensity,
             emissive: spec.emissive,
             emissiveIntensity: spec.emissiveIntensity,
-            flatShading: spec.flatShading
+            flatShading: spec.flatShading,
+            envMap: normalizedPreset === 'metal' ? this.ensureMetalEnvironmentMap() : null,
+            envMapIntensity: spec.envMapIntensity
         });
         if (isFixed) this.applyFixedAtomEtchedShader(material);
         return material;
@@ -2848,9 +2929,45 @@ export class ASERenderer {
         return Number.isFinite(value) ? value : null;
     }
 
+    autoBondElementClass(symbol) {
+        if (symbol === 'H') return AUTO_BOND_CLASS_HYDROGEN;
+        if (METALLIC_ELEMENT_SYMBOLS.has(symbol)) return AUTO_BOND_CLASS_METAL;
+        return AUTO_BOND_CLASS_COVALENT;
+    }
+
+    autoBondBaseCutoffFromValues(firstRadius, secondRadius, firstClass, secondClass) {
+        if (
+            (firstClass === AUTO_BOND_CLASS_HYDROGEN && secondClass === AUTO_BOND_CLASS_HYDROGEN)
+            || (firstClass === AUTO_BOND_CLASS_METAL && secondClass === AUTO_BOND_CLASS_METAL)
+        ) {
+            return 0;
+        }
+        const radiusSum = firstRadius + secondRadius;
+        if (
+            firstClass === AUTO_BOND_CLASS_HYDROGEN
+            || secondClass === AUTO_BOND_CLASS_HYDROGEN
+        ) {
+            return radiusSum + AUTO_BOND_HYDROGEN_SLACK;
+        }
+        if (
+            firstClass === AUTO_BOND_CLASS_METAL
+            || secondClass === AUTO_BOND_CLASS_METAL
+        ) {
+            return radiusSum + AUTO_BOND_METAL_LIGAND_SLACK;
+        }
+        return radiusSum + AUTO_BOND_COVALENT_SLACK;
+    }
+
     autoBondCutoff(i, j) {
         const scale = Math.max(0.1, Number(this.displayOptions.bondCutoffScale || 1));
-        return COVALENT_BOND_TOLERANCE * (this.atomCovalentRadius(i) + this.atomCovalentRadius(j)) * scale;
+        const firstClass = this.autoBondElementClass(this.atomChemicalSymbol(i));
+        const secondClass = this.autoBondElementClass(this.atomChemicalSymbol(j));
+        return this.autoBondBaseCutoffFromValues(
+            this.atomCovalentRadius(i),
+            this.atomCovalentRadius(j),
+            firstClass,
+            secondClass
+        ) * scale;
     }
 
     buildBondSearchContext() {
@@ -2901,29 +3018,54 @@ export class ASERenderer {
         }
 
         const scale = Math.max(0.1, Number(this.displayOptions.bondCutoffScale || 1));
-        const factor = COVALENT_BOND_TOLERANCE * scale;
         const sourceRadii = (
             this.atomsData?.visual?.bond_radii
             || this.atomsData?.visual?.covalent_radii
             || []
         );
+        const chemicalSymbols = this.atomsData?.chemical_symbols || this.atomsData?.symbols || [];
         const radii = new Float64Array(count);
-        let maxCovalent = 0;
+        const elementClasses = new Uint8Array(count);
+        const maxRadiusByClass = new Float64Array(3);
         for (let index = 0; index < count; index++) {
             const value = Number(sourceRadii[index]);
             const radius = Number.isFinite(value) && value > 0
                 ? value
                 : FALLBACK_COVALENT_RADIUS;
             radii[index] = radius;
-            if (visible[index]) maxCovalent = Math.max(maxCovalent, radius);
+            const elementClass = this.autoBondElementClass(chemicalSymbols[index]);
+            elementClasses[index] = elementClass;
+            if (visible[index]) {
+                maxRadiusByClass[elementClass] = Math.max(
+                    maxRadiusByClass[elementClass],
+                    radius
+                );
+            }
+        }
+        let maxCutoff = 0;
+        for (let firstClass = 0; firstClass < maxRadiusByClass.length; firstClass++) {
+            if (maxRadiusByClass[firstClass] <= 0) continue;
+            for (let secondClass = firstClass; secondClass < maxRadiusByClass.length; secondClass++) {
+                if (maxRadiusByClass[secondClass] <= 0) continue;
+                maxCutoff = Math.max(
+                    maxCutoff,
+                    this.autoBondBaseCutoffFromValues(
+                        maxRadiusByClass[firstClass],
+                        maxRadiusByClass[secondClass],
+                        firstClass,
+                        secondClass
+                    ) * scale
+                );
+            }
         }
         return {
             count,
             visible,
             pairwise: false,
             radii,
-            factor,
-            maxCutoff: factor * 2 * maxCovalent
+            elementClasses,
+            scale,
+            maxCutoff
         };
     }
 
@@ -2937,7 +3079,12 @@ export class ASERenderer {
                     firstLabel * search.matrixSize + secondLabel
                 ];
         }
-        const cutoff = search.factor * (search.radii[i] + search.radii[j]);
+        const cutoff = this.autoBondBaseCutoffFromValues(
+            search.radii[i],
+            search.radii[j],
+            search.elementClasses[i],
+            search.elementClasses[j]
+        ) * search.scale;
         return cutoff * cutoff;
     }
 

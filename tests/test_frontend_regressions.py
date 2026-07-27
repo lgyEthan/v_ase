@@ -567,8 +567,12 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "refreshAtomAppearance(indices)" in renderer_js
     assert "rebuildInstancedAtoms" in renderer_js
     assert "inferBondPairsCellList" in renderer_js
-    assert "COVALENT_BOND_TOLERANCE" in renderer_js
-    assert "this.atomCovalentRadius(i) + this.atomCovalentRadius(j)" in renderer_js
+    assert "AUTO_BOND_HYDROGEN_SLACK" in renderer_js
+    assert "AUTO_BOND_COVALENT_SLACK" in renderer_js
+    assert "AUTO_BOND_METAL_LIGAND_SLACK" in renderer_js
+    assert "METALLIC_ELEMENT_SYMBOLS" in renderer_js
+    assert "autoBondBaseCutoffFromValues" in renderer_js
+    assert "firstClass === AUTO_BOND_CLASS_METAL && secondClass === AUTO_BOND_CLASS_METAL" in renderer_js
     assert "fixedAtomDisplayEnabled()" in renderer_js
     assert "return this.displayOptions.showOverlays !== false" in renderer_js
     assert "fixedAtomSegments(segmentCount)" in renderer_js
@@ -674,8 +678,13 @@ def test_camera_view_background_and_2d_display_controls_are_wired():
     assert "setupViewControls()" in main_js
     assert "cameraViewBasis()" in main_js
     assert "rotateCameraView(direction, stepDegrees" in main_js
-    assert "'roll-ccw': { axis: basis.forward, sign: -1 }" in main_js
-    assert "'roll-cw': { axis: basis.forward, sign: 1 }" in main_js
+    assert "'roll-ccw': { axis: basis.forward, sign: 1 }" in main_js
+    assert "'roll-cw': { axis: basis.forward, sign: -1 }" in main_js
+    assert 'id="view-arrow-up-shape"' in index_html
+    assert 'id="view-arrow-left-shape"' in index_html
+    assert 'id="view-arrow-roll-ccw-shape"' in index_html
+    assert index_html.count('class="view-arrow-face"') == 6
+    assert index_html.count('class="view-arrow-depth"') == 6
     assert "selectionCountText(selectedReferences" in main_js
     assert "bondThickness: 0.25" in main_js
     assert "atomRadiusScale: 0.6" in main_js

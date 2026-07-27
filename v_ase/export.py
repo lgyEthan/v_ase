@@ -57,11 +57,11 @@ ATOM_MATERIAL_PRESETS = {
         "clearcoat_roughness": 0.22,
     },
     "metal": {
-        "roughness": 0.18,
-        "metalness": 0.68,
+        "roughness": 0.11,
+        "metalness": 0.96,
         "specular": 1.0,
-        "clearcoat": 0.16,
-        "clearcoat_roughness": 0.14,
+        "clearcoat": 0.03,
+        "clearcoat_roughness": 0.08,
     },
     "rubber": {
         "roughness": 0.88,
@@ -769,9 +769,9 @@ def export_3dm_response(session, payload: Dict[str, Any]):
         material.Name = f"v_ase_{preset}_{color[1:]}"
         material.DiffuseColor = (*_hex_rgb(color), 255)
         if preset == "metal":
-            material.Shine = 230.0
-            material.Reflectivity = 0.68
-            material.ReflectionGlossiness = 0.9
+            material.Shine = 246.0
+            material.Reflectivity = 0.92
+            material.ReflectionGlossiness = 0.96
             material.FresnelReflections = True
         elif preset == "rubber":
             material.Shine = 18.0
@@ -1105,7 +1105,7 @@ def export_obj_response(session, payload: Dict[str, Any]):
         for color, preset in material_specs:
             red, green, blue = (channel / 255.0 for channel in _hex_rgb(color))
             if preset == "metal":
-                specular, shine, illumination = 0.92, 230.0, 3
+                specular, shine, illumination = 0.98, 246.0, 3
             elif preset == "rubber":
                 specular, shine, illumination = 0.06, 12.0, 2
             else:
@@ -1224,7 +1224,7 @@ DISPLAY_LABEL_MATERIALS = DISPLAY.get("labelMaterials", {{}})
 DISPLAY_ATOM_MATERIALS = DISPLAY.get("atomMaterials", {{}})
 MATERIAL_PRESETS = {{
     "standard": {{"roughness": 0.28, "metalness": 0.0, "specular": 1.0, "clearcoat": 0.04, "clearcoat_roughness": 0.22}},
-    "metal": {{"roughness": 0.18, "metalness": 0.68, "specular": 1.0, "clearcoat": 0.16, "clearcoat_roughness": 0.14}},
+    "metal": {{"roughness": 0.11, "metalness": 0.96, "specular": 1.0, "clearcoat": 0.03, "clearcoat_roughness": 0.08}},
     "rubber": {{"roughness": 0.88, "metalness": 0.0, "specular": 0.16, "clearcoat": 0.0, "clearcoat_roughness": 0.8}},
 }}
 try:

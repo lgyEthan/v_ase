@@ -71,7 +71,10 @@ View is the default. It supports:
 
 It does not attach the fallback calculator or invoke edit-only workflows.
 Positive supercell images are selectable and measurable using a base index and
-cell offset.
+cell offset. Two-point measurements report the displayed direct distance, the
+periodic MIC distance, and, when a replica is involved, the distance after both
+atoms are mapped into the original unit cell. Angles and torsions use displayed
+coordinates only.
 
 Edit additionally enables:
 
@@ -138,7 +141,9 @@ Standard, Metal, and Rubber material presets are supported. View stores
 materials by label. Edit can override material per selected atom. Materials are
 part of `.vase` projects and static export payloads; reusable settings omit
 per-atom overrides so they remain portable to structures with different atom
-counts.
+counts. Metal uses a shared on-demand PMREM studio environment with high
+metalness and low roughness; no reflection environment is allocated until a
+metal preset is present.
 
 New documents start with an atom-radius scale of `0.60x`. Explicit values in
 projects and reusable settings remain authoritative.
@@ -152,7 +157,11 @@ lines use reduced contrast so the background remains visually white.
 
 Bond topology modes:
 
-- **Automatic**: covalent radii with a global scale and conservative tolerance.
+- **Automatic**: ASE covalent radii from Cordero et al.
+  ([DOI 10.1039/B801115J](https://doi.org/10.1039/B801115J)) with additive
+  tolerance by pair class. H-H and metal-metal contacts are excluded by
+  default; metal-ligand, H-containing, and other covalent pairs use separate
+  tolerances.
 - **Pairwise cutoff**: explicit label-pair distance; `0` disables the pair.
 - **Manual pair**: explicit atom-index topology.
 

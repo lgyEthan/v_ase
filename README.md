@@ -126,7 +126,8 @@ playback.
 
 The **?** button shows the complete shortcut list. The six toolbar arrows are
 ordered as up/down, left/right, and counterclockwise/clockwise roll. They move
-only the camera by the selected angle; atomic coordinates do not change.
+only the camera by the selected angle; roll direction follows the current
+screen view and atomic coordinates do not change.
 
 ## Trajectories
 
@@ -196,9 +197,11 @@ snap to them.
 
 One through four ordered selections are marked `a1` through `a4`. The viewport
 shows point information, `a1-a2` distance, the `a1-a2-a3` angle centered on
-`a2`, or the signed `a1-a2-a3-a4` torsion. Direct-coordinate and
-minimum-image-convention (MIC) values are reported together. Larger selections
-show the total followed by counts for each atom label. Hovered-atom metadata is
+`a2`, or the signed `a1-a2-a3-a4` torsion. Distances report direct and
+minimum-image-convention (MIC) values; selecting a displayed supercell image
+also reports its unit-cell-mapped distance. Angles and torsions use the
+displayed coordinates without an additional MIC value. Larger selections show
+the total followed by counts for each atom label. Hovered-atom metadata is
 displayed separately.
 
 ## Appearance, Bonds, And Rendering
@@ -220,7 +223,8 @@ Material presets are **Standard**, **Metal**, and **Rubber**. In View, a preset
 applies to a complete label group. In Edit, selected atoms can use independent
 materials and can be merged into an existing label by entering that exact
 label. Chemical TYPE remains synchronized with ASE while labels continue to
-control visual grouping.
+control visual grouping. Metal uses a high-contrast studio reflection so it
+remains visually distinct from the glossy Standard preset.
 
 Bonds support automatic covalent-radius inference, label-pair cutoffs, and
 manual index pairs. A pairwise cutoff of `0` disables that label pair.

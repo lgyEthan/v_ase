@@ -1163,7 +1163,7 @@ def test_trajectory_video_export_downloads_preview_matched_mov(tmp_path):
 
 def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
     atoms = Atoms(
-        "HH",
+        "OO",
         positions=[[0.35, 0.0, 0.0], [9.65, 0.0, 0.0]],
         cell=[10.0, 10.0, 10.0],
         pbc=True,
@@ -1836,12 +1836,12 @@ def test_grid_button_and_ordered_distance_angle_torsion_measurements():
             assert three["angleArcs"] == 1
             assert three["torsionAxes"] == 0
             assert "Direct: d(a1-a2) = 2.0000 A" in three["detail"]
-            assert "MIC: d(a1-a2) = 2.0000 A" in three["detail"]
+            assert "MIC:" not in three["detail"]
             assert "angle(a1-a2-a3) = 135.00 deg" in three["detail"]
             assert three["summary"] == (
-                "Angle a1-a2-a3 | Direct 135.00 deg | MIC 135.00 deg"
+                "Angle a1-a2-a3 | Direct 135.00 deg"
             )
-            assert three["values"] == ["Direct 135.0 | MIC 135.0 deg"]
+            assert three["values"] == ["Direct 135.0 deg"]
             assert three["overlaps"] is False
 
             click_atom(3, additive=True)
@@ -1876,10 +1876,12 @@ def test_grid_button_and_ordered_distance_angle_torsion_measurements():
             assert four["torsionAxes"] == 1
             assert four["angleArcs"] == 0
             assert "torsion(a1-a2-a3-a4)" in four["detail"]
+            assert "MIC:" not in four["detail"]
             assert four["summary"].startswith("Torsion a1-a2-a3-a4")
-            assert four["values"] == [
-                f"Direct {expected_torsion:.1f} | MIC {expected_torsion:.1f} deg"
-            ]
+            assert four["summary"] == (
+                f"Torsion a1-a2-a3-a4 | Direct {expected_torsion:.2f} deg"
+            )
+            assert four["values"] == [f"Direct {expected_torsion:.1f} deg"]
             assert four["overlaps"] is False
 
             click_atom(4, additive=True)
@@ -1912,7 +1914,7 @@ def test_grid_button_and_ordered_distance_angle_torsion_measurements():
             assert boxed["connectors"] == 2
             assert boxed["angleArcs"] == 1
             assert boxed["summary"] == (
-                "Angle a1-a2-a3 | Direct 135.00 deg | MIC 135.00 deg"
+                "Angle a1-a2-a3 | Direct 135.00 deg"
             )
             assert boxed["overlaps"] is False
             browser.close()
@@ -1990,9 +1992,71 @@ def test_periodic_measurement_reports_direct_and_mic_values():
         editor.close()
 
 
+def test_auto_bond_defaults_keep_metal_pairs_clean_and_metal_ligands_visible():
+    atoms = Atoms(
+        "Cu2O",
+        positions=[
+            [0.0, 0.0, 0.0],
+            [2.8, 0.0, 0.0],
+            [0.0, 2.47, 0.0],
+        ],
+        cell=[12.0, 12.0, 12.0],
+        pbc=False,
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        show_bonds=True,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3"
+            )
+            page.wait_for_function(
+                "JSON.stringify(window.__ASE_APP__.renderer.bondPairs) === '[[0,2]]'"
+            )
+            defaults = page.evaluate("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                return {
+                    cuCu: renderer.bondCutoffForPair(0, 1),
+                    cuO: renderer.bondCutoffForPair(0, 2),
+                    pairs: renderer.bondPairs
+                };
+            }""")
+            assert defaults["cuCu"] == pytest.approx(0.0)
+            assert defaults["cuO"] == pytest.approx(2.48)
+            assert defaults["pairs"] == [[0, 2]]
+
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.state.display.bondMode = 'pairwise';
+                app.state.display.pairwiseBondCutoffs = {'Cu-Cu': 3.0};
+                app.renderer.setDisplayOptions(app.state.display);
+            }""")
+            page.wait_for_function(
+                "JSON.stringify(window.__ASE_APP__.renderer.bondPairs) === '[[0,1]]'"
+            )
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_cell_local_bonds_clip_at_the_displayed_supercell_boundary():
     atoms = Atoms(
-        "HHHH",
+        "CCCC",
         scaled_positions=[
             [0.95, 0.20, 0.25],
             [0.05, 0.20, 0.25],
@@ -2023,7 +2087,7 @@ def test_cell_local_bonds_clip_at_the_displayed_supercell_boundary():
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 4")
 
-            # The two nearest H-H images lie across +a and +b. A single
+            # The two nearest C-C images lie across +a and +b. A single
             # displayed cell correctly clips both at its outer boundary.
             page.wait_for_function("window.__ASE_APP__.renderer.bondPairs.length === 0")
             assert page.locator('#app-viewport canvas').get_attribute(
@@ -2120,12 +2184,12 @@ def test_cell_local_bonds_clip_at_the_displayed_supercell_boundary():
 
 def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
     atoms = Atoms(
-        "HH",
+        "CC",
         positions=[[0.0, 0.0, 0.0], [0.7, 0.0, 0.0]],
         cell=[8.0, 8.0, 8.0],
         pbc=False,
     )
-    set_atom_labels(atoms, ["H_left", "H_right"])
+    set_atom_labels(atoms, ["C_left", "C_right"])
     port = find_free_port()
     editor = view(
         atoms,
@@ -2152,15 +2216,15 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
             page.click('[data-inspector-group="display"]')
             _open_panel(page, 'bonding')
             page.select_option('#bond-mode', 'pairwise')
-            cutoff = page.locator('.pairwise-bond-cutoff[data-pair-key="H_left-H_right"]')
+            cutoff = page.locator('.pairwise-bond-cutoff[data-pair-key="C_left-C_right"]')
             assert cutoff.count() == 1
             cutoff.fill('0.90')
             page.wait_for_function(
-                "Math.abs(window.__ASE_APP__.state.display.pairwiseBondCutoffs['H_left-H_right'] - 0.9) < 1e-9"
+                "Math.abs(window.__ASE_APP__.state.display.pairwiseBondCutoffs['C_left-C_right'] - 0.9) < 1e-9"
             )
             cutoff.fill('0')
             page.wait_for_function(
-                "window.__ASE_APP__.state.display.pairwiseBondCutoffs['H_left-H_right'] === 0 && "
+                "window.__ASE_APP__.state.display.pairwiseBondCutoffs['C_left-C_right'] === 0 && "
                 "window.__ASE_APP__.renderer.bondPairs.length === 0"
             )
             cutoff.fill('0.90')
@@ -2188,8 +2252,8 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
             page.evaluate("async () => { await window.__ASE_APP__.pendingApply; }")
             persisted = page.evaluate("""() => ({
                 mode: window.__ASE_APP__.state.display.bondMode,
-                cutoff: window.__ASE_APP__.state.display.pairwiseBondCutoffs['H_left-H_right'],
-                input: Number(document.querySelector('[data-pair-key="H_left-H_right"]').value),
+                cutoff: window.__ASE_APP__.state.display.pairwiseBondCutoffs['C_left-C_right'],
+                input: Number(document.querySelector('[data-pair-key="C_left-C_right"]').value),
                 bonds: window.__ASE_APP__.renderer.bondPairs.length
             })""")
             assert persisted == {
@@ -2214,19 +2278,19 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
 
             relabeled = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
-                app.state.display.pairwiseBondCutoffs['H_left-H_right'] = 1.23;
-                app.renameAtomLabelForVisualization('H_left', 'H_custom', [0], 'H', {preserveAppearance: true});
+                app.state.display.pairwiseBondCutoffs['C_left-C_right'] = 1.23;
+                app.renameAtomLabelForVisualization('C_left', 'C_custom', [0], 'C', {preserveAppearance: true});
                 return {
                     labels: [...app.state.atoms.symbols],
                     order: [...app.state.labelOrder],
-                    cutoff: app.state.display.pairwiseBondCutoffs['H_custom-H_right'],
+                    cutoff: app.state.display.pairwiseBondCutoffs['C_custom-C_right'],
                     rendererCutoff: app.renderer.bondCutoffForPair(0, 1),
-                    input: Number(document.querySelector('[data-pair-key="H_custom-H_right"]')?.value),
+                    input: Number(document.querySelector('[data-pair-key="C_custom-C_right"]')?.value),
                 };
             }""")
             assert relabeled == {
-                "labels": ["H_custom", "H_right"],
-                "order": ["H_custom", "H_right"],
+                "labels": ["C_custom", "C_right"],
+                "order": ["C_custom", "C_right"],
                 "cutoff": 1.23,
                 "rendererCutoff": 1.23,
                 "input": 1.23,
@@ -2384,8 +2448,117 @@ def test_15000_atom_view_keeps_material_presets_instanced_and_renders_under_five
                 const renderer = window.__ASE_APP__.renderer;
                 return renderer.atomMeshes.children.length === 1
                     && renderer.atomMeshes.children[0].count === 15000
-                    && Math.abs(renderer.atomMeshes.children[0].material.metalness - 0.68) < 1e-6;
+                    && Math.abs(renderer.atomMeshes.children[0].material.metalness - 0.96) < 1e-6;
             }""")
+            metal_state = page.evaluate("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                const material = renderer.atomMeshes.children[0].material;
+                return {
+                    groups: renderer.atomMeshes.children.length,
+                    metalness: material.metalness,
+                    roughness: material.roughness,
+                    envMapIntensity: material.envMapIntensity,
+                    environmentName: material.envMap?.name || '',
+                    environmentShared: material.envMap === renderer.metalEnvironmentMap
+                };
+            }""")
+            assert metal_state == {
+                "groups": 1,
+                "metalness": pytest.approx(0.96),
+                "roughness": pytest.approx(0.11),
+                "envMapIntensity": pytest.approx(1.55),
+                "environmentName": "v_ase_metal_studio_environment",
+                "environmentShared": True,
+            }
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_metal_material_has_visible_studio_reflections(tmp_path):
+    atoms = Atoms("Cu", positions=[[0.0, 0.0, 0.0]])
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 960, "height": 720})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 1"
+            )
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                Object.assign(app.state.display, {
+                    showGrid: false,
+                    showAxes: false,
+                    showCell: false,
+                    atomRadiusScale: 1.4,
+                    labelMaterials: {Cu: 'standard'}
+                });
+                app.renderer.setDisplayOptions(app.state.display);
+                app.renderer.fitCameraToStructure();
+            }""")
+            page.wait_for_timeout(150)
+            standard_path = tmp_path / "standard-cu.png"
+            page.locator("#app-viewport canvas").screenshot(path=str(standard_path))
+
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.state.display.labelMaterials.Cu = 'metal';
+                app.renderer.setDisplayOptions(app.state.display);
+            }""")
+            page.wait_for_function("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                const material = renderer.atomMeshByIndex.get(0)?.material;
+                return material?.metalness > 0.95
+                    && material?.envMap?.name === 'v_ase_metal_studio_environment';
+            }""")
+            page.wait_for_timeout(150)
+            metal_path = tmp_path / "metal-cu.png"
+            page.locator("#app-viewport canvas").screenshot(path=str(metal_path))
+
+            def surface_luminance(path):
+                pixels = np.asarray(Image.open(path).convert("RGB"), dtype=float)
+                height, width, _ = pixels.shape
+                pixels = pixels[
+                    int(height * 0.24):int(height * 0.72),
+                    int(width * 0.28):int(width * 0.72),
+                ]
+                mask = np.min(pixels, axis=2) < 220
+                values = (
+                    0.2126 * pixels[:, :, 0]
+                    + 0.7152 * pixels[:, :, 1]
+                    + 0.0722 * pixels[:, :, 2]
+                )[mask]
+                assert values.size > 3_000
+                return {
+                    "p05": float(np.percentile(values, 5)),
+                    "p50": float(np.percentile(values, 50)),
+                    "p95": float(np.percentile(values, 95)),
+                    "spread": float(np.percentile(values, 95) - np.percentile(values, 5)),
+                }
+
+            standard = surface_luminance(standard_path)
+            metal = surface_luminance(metal_path)
+            print(
+                "V_ASE_METAL_VISUAL_QA "
+                f"standard={standard} metal={metal} "
+                f"standard_path={standard_path} metal_path={metal_path}"
+            )
+            assert metal["spread"] > standard["spread"] * 1.10
+            assert metal["p05"] < standard["p05"] - 20
             browser.close()
     finally:
         editor.close()
@@ -2733,6 +2906,40 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
             page.mouse.click(points['xReplica']['x'], points['xReplica']['y'])
             page.keyboard.down('Shift')
             page.mouse.click(points['base']['x'], points['base']['y'])
+            page.keyboard.up('Shift')
+            page.wait_for_function("window.__ASE_APP__.selectionCount() === 2")
+            replica_distance = page.evaluate("""() => ({
+                detail: document.getElementById('selected-measure').innerText,
+                summary: document.getElementById('selection-measure-value').innerText,
+                overlay: [...document.querySelectorAll('.measure-value-badge text')]
+                    .map(label => label.textContent),
+                direct: window.__ASE_APP__.selectionDistance(
+                    ...window.__ASE_APP__.selectionEntries(),
+                    {mic: false}
+                ),
+                mic: window.__ASE_APP__.selectionDistance(
+                    ...window.__ASE_APP__.selectionEntries(),
+                    {mic: true}
+                ),
+                unitCell: window.__ASE_APP__.selectionUnitCellDistance(
+                    ...window.__ASE_APP__.selectionEntries()
+                )
+            })""")
+            assert replica_distance["direct"] == pytest.approx(4.0)
+            assert replica_distance["mic"] == pytest.approx(0.0)
+            assert replica_distance["unitCell"] == pytest.approx(0.0)
+            assert "Direct: d(a1-a2) = 4.0000 A" in replica_distance["detail"]
+            assert "MIC: d(a1-a2) = 0.0000 A" in replica_distance["detail"]
+            assert "Unit cell: d(a1-a2) = 0.0000 A" in replica_distance["detail"]
+            assert replica_distance["summary"] == (
+                "Distance a1-a2 | Direct 4.0000 A | MIC 0.0000 A | "
+                "Unit cell 0.0000 A"
+            )
+            assert replica_distance["overlay"] == [
+                "Direct 4.000 | MIC 0.000 | Cell 0.000 A"
+            ]
+
+            page.keyboard.down('Shift')
             page.mouse.click(points['yReplica']['x'], points['yReplica']['y'])
             page.keyboard.up('Shift')
             page.wait_for_function("window.__ASE_APP__.selectionCount() === 3")
@@ -2774,10 +2981,10 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
             assert 'a2=#0 Cu' in selected['measure']
             assert 'a3=#0@[0,1,0] Cu' in selected['measure']
             assert 'Direct: d(a1-a2) = 4.0000 A' in selected['measure']
-            assert 'MIC: d(a1-a2) = 4.0000 A' in selected['measure']
+            assert 'MIC:' not in selected['measure']
             assert 'angle(a1-a2-a3) = 90.00 deg' in selected['measure']
             assert selected['measureSummary'] == (
-                'Angle a1-a2-a3 | Direct 90.00 deg | MIC 90.00 deg'
+                'Angle a1-a2-a3 | Direct 90.00 deg'
             )
             assert selected['measureVisible'] is True
             assert selected['replicaOutlines'] == 2
@@ -2874,7 +3081,7 @@ def test_runtime_mode_switch_merges_labels_and_splits_only_material_variants():
             page.wait_for_function("""() => {
                 const app = window.__ASE_APP__;
                 return app.state.display.labelMaterials.C_b === 'metal'
-                    && Math.abs(app.renderer.atomMeshByIndex.get(1).material.metalness - 0.68) < 1e-6;
+                    && Math.abs(app.renderer.atomMeshByIndex.get(1).material.metalness - 0.96) < 1e-6;
             }""")
 
             page.click('[data-runtime-mode="edit"]')
@@ -2939,8 +3146,8 @@ def test_runtime_mode_switch_merges_labels_and_splits_only_material_variants():
             assert np.allclose(switched["positions"], expected_positions)
             assert switched["selected"] == [0]
             assert switched["materials"][0]["roughness"] == pytest.approx(0.88)
-            assert switched["materials"][1]["metalness"] == pytest.approx(0.68)
-            assert switched["materials"][2]["metalness"] == pytest.approx(0.68)
+            assert switched["materials"][1]["metalness"] == pytest.approx(0.96)
+            assert switched["materials"][2]["metalness"] == pytest.approx(0.96)
 
             page.click('[data-runtime-mode="edit"]')
             page.wait_for_function("""() =>
@@ -3022,6 +3229,18 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                     arrowCount: arrows.length,
                     arrowText: arrows.map(button => button.textContent.trim()),
                     arrowDirections: arrows.map(button => button.dataset.viewRotate),
+                    arrowGeometry: arrows.map(button => {
+                        const face = button.querySelector('.view-arrow-face');
+                        const bounds = face.getBBox();
+                        return {
+                            width: bounds.width,
+                            height: bounds.height,
+                            faceCount: button.querySelectorAll('.view-arrow-face').length,
+                            depthCount: button.querySelectorAll('.view-arrow-depth').length,
+                            rimCount: button.querySelectorAll('.view-arrow-rim').length,
+                            filter: getComputedStyle(button.querySelector('.view-orbit-icon')).filter
+                        };
+                    }),
                     popupExists: Boolean(
                         document.getElementById('btn-view-toggle')
                         || document.getElementById('view-card')
@@ -3044,6 +3263,15 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                 "roll-ccw",
                 "roll-cw",
             ]
+            assert all(
+                min(arrow["width"], arrow["height"]) >= 18
+                and max(arrow["width"], arrow["height"]) >= 22
+                and arrow["faceCount"] == 1
+                and arrow["depthCount"] == 1
+                and arrow["rimCount"] == 1
+                and arrow["filter"] != "none"
+                for arrow in toolbar_geometry["arrowGeometry"]
+            )
             assert toolbar_geometry["popupExists"] is False
 
             _expand_inspector(page)
@@ -3203,12 +3431,12 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                 before_rotation["cameraPosition"], abs=1e-8
             )
             assert rotated["cameraUp"] == pytest.approx(
-                [-math.sqrt(0.5), math.sqrt(0.5), 0], abs=1e-7
+                [math.sqrt(0.5), math.sqrt(0.5), 0], abs=1e-7
             )
             assert math.degrees(math.atan2(
                 rotated["projected"][1],
                 rotated["projected"][0],
-            )) == pytest.approx(-45, abs=1e-5)
+            )) == pytest.approx(45, abs=1e-5)
             assert rotated["step"] == pytest.approx(45)
             assert rotated["saved"]["viewportBackground"] == "white"
             assert rotated["saved"]["atomDisplayMode"] == "3d"

@@ -50,6 +50,11 @@ skin or when labels, visibility, cutoffs, cell, PBC, periodic policy, or
 constraints change. Cylinder instance matrices are written directly to the GPU
 buffer; unchanged topology reuses the existing instanced bond batches.
 
+The Metal preset creates one shared 192 x 96 studio environment and converts it
+to a PMREM texture on first use. It is reused by all metal atom groups.
+Standard/rubber-only scenes skip this work, and metal atoms remain instanced by
+material group.
+
 ## Browser Benchmark
 
 Run:
