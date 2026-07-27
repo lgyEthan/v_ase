@@ -87,6 +87,12 @@ and documentation use `view()`.
     Explicit project and reusable-setting values override these defaults.
 18. Five-or-more selection summaries retain the total and append counts in
     stable first-seen label order.
+19. Browser Open begins at the terminal launch directory. Backend path
+    resolution is confined to that directory tree, including resolved symlink
+    targets; the system picker handles files elsewhere.
+20. The default viewport clear color is exact white. Modeling lights lift atom
+    midtones consistently without allocating rendered-mode shadows, and the
+    white-background grid remains low contrast.
 
 ## Canonical Names And Compatibility
 
@@ -131,6 +137,9 @@ same implementation for compatibility.
   visual settings. It does not reference the source file.
 - Browser Open keeps visual state for ordinary structures and trajectories.
   Opening `.vase` restores the project state instead.
+- The in-app launch-directory browser reads a selected local path directly.
+  Native browser uploads remain the fallback for files outside the launch
+  directory.
 - Browser **Add to trajectory** appends the selected structure frames and
   intentionally ignores `.vase` visual settings.
 - Browser **Open in new tab** uploads into a newly created, independent session

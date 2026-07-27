@@ -315,10 +315,10 @@ const FALLBACK_COVALENT_RADIUS = 0.75;
 const COVALENT_BOND_TOLERANCE = 1.2;
 const ATOM_MATERIAL_PRESETS = Object.freeze({
     standard: Object.freeze({
-        roughness: 0.28,
+        roughness: 0.24,
         metalness: 0.0,
-        clearcoat: 0.04,
-        clearcoatRoughness: 0.22,
+        clearcoat: 0.08,
+        clearcoatRoughness: 0.18,
         specularIntensity: 1.0
     }),
     metal: Object.freeze({
@@ -405,33 +405,33 @@ export class ASERenderer {
         // Keep the key light camera-facing so every crystallographic view has
         // the same readable sphere contour. Low world-space fills retain depth
         // without allowing one viewing direction to become dark.
-        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x5f6865, 0.24);
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0xd6dcda, 0.38);
         this.modelingLightGroup.add(hemiLight);
 
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.16);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.30);
         this.modelingLightGroup.add(ambientLight);
         
-        const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.20);
+        const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.22);
         dirLight1.position.set(10, 20, 10);
         this.modelingLightGroup.add(dirLight1);
 
-        const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.12);
+        const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.14);
         dirLight2.position.set(-10, -20, 10);
         this.modelingLightGroup.add(dirLight2);
 
-        const dirLight3 = new THREE.DirectionalLight(0xffffff, 0.10);
+        const dirLight3 = new THREE.DirectionalLight(0xffffff, 0.12);
         dirLight3.position.set(12, -14, 8);
         this.modelingLightGroup.add(dirLight3);
 
-        const dirLight4 = new THREE.DirectionalLight(0xffffff, 0.08);
+        const dirLight4 = new THREE.DirectionalLight(0xffffff, 0.10);
         dirLight4.position.set(-12, 14, -8);
         this.modelingLightGroup.add(dirLight4);
 
-        this.cameraFillLight = new THREE.PointLight(0xffffff, 0.12, 0, 1.35);
+        this.cameraFillLight = new THREE.PointLight(0xffffff, 0.16, 0, 1.35);
         this.modelingLightGroup.add(this.cameraFillLight);
         this.cameraFillTarget = new THREE.Object3D();
         this.modelingLightGroup.add(this.cameraFillTarget);
-        this.cameraFillDirectionalLight = new THREE.DirectionalLight(0xffffff, 0.78);
+        this.cameraFillDirectionalLight = new THREE.DirectionalLight(0xffffff, 0.88);
         this.cameraFillDirectionalLight.target = this.cameraFillTarget;
         this.modelingLightGroup.add(this.cameraFillDirectionalLight);
 
@@ -1505,11 +1505,11 @@ export class ASERenderer {
         const gridGroup = new THREE.Group();
         const lightViewport = this.viewportBackgroundMode === 'white';
         const grid = new THREE.GridHelper(guideSize, divisions,
-            lightViewport ? '#7d8985' : cssColor('--neutral-600', '#56625e'),
-            lightViewport ? '#c8cecb' : cssColor('--neutral-650', '#35403d'));
+            lightViewport ? '#aeb7b3' : cssColor('--neutral-600', '#56625e'),
+            lightViewport ? '#e3e8e5' : cssColor('--neutral-650', '#35403d'));
         grid.rotation.x = Math.PI / 2;
         grid.material.transparent = true;
-        grid.material.opacity = lightViewport ? 0.72 : 0.58;
+        grid.material.opacity = lightViewport ? 0.48 : 0.58;
         grid.userData = { guide: true, guideSize, divisions };
         gridGroup.add(grid);
 

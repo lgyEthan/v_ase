@@ -37,6 +37,7 @@ def _workspace_host(name: str = "water.xyz"):
             "show_cell": True,
             "show_axes": True,
             "document_name": name,
+            "launch_directory": "/tmp/v_ase-workspace-launch",
         },
     )
     sessions[session.session_id] = session
@@ -63,6 +64,7 @@ def test_workspace_documents_have_independent_structure_and_configuration():
         assert len(child_b.working_atoms) == 0
         assert child_b.config["document_name"] == "Untitled"
         assert child_b.config["initial_design_settings"] is None
+        assert child_b.config["launch_directory"] == "/tmp/v_ase-workspace-launch"
         assert child_a.working_atoms is not host.working_atoms
         assert child_a.config is not host.config
         assert not np.shares_memory(

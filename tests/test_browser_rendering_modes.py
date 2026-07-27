@@ -16,6 +16,7 @@ from playwright._impl._errors import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
 from v_ase.io import set_atom_labels
+from v_ase.session import sessions
 from v_ase.viewer import find_free_port, view
 
 
@@ -58,6 +59,7 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
         viz_only=True,
         close_on_disconnect=False,
     )
+    sessions[editor.session_id].config["launch_directory"] = str(tmp_path)
 
     try:
         with sync_playwright() as playwright:
@@ -73,7 +75,14 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
             assert page.locator('#btn-empty-open').is_visible()
             assert page.locator('#btn-export-pickle').is_disabled()
 
-            page.set_input_files('#structure-file', str(source))
+            page.click('#btn-empty-open')
+            page.wait_for_selector('#launch-file-list')
+            assert page.locator('#launch-browser-root').inner_text() == str(tmp_path.resolve())
+            assert page.locator('#launch-browser-system').is_visible()
+            source_row = page.locator('.launch-file-row').filter(has_text=source.name)
+            source_row.click()
+            assert page.locator('#launch-browser-open').is_enabled()
+            page.click('#launch-browser-open')
             assert page.locator('#open-file-name').inner_text() == source.name
             assert page.locator('#open-file-format').input_value() == ''
             assert page.locator('#open-file-index').input_value() == ':'
@@ -3061,7 +3070,7 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                 "clear": "#ffffff",
                 "dataset": "white",
                 "sidebar": "white",
-                "gridOpacity": pytest.approx(0.72),
+                "gridOpacity": pytest.approx(0.48),
             }
 
             page.select_option("#atom-display-mode", "2d")

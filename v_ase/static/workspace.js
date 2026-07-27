@@ -214,6 +214,21 @@ class VAseWorkspace {
         );
     }
 
+    async loadPathToSession(sessionId, path, inputFormat = '', index = ':') {
+        return await this.request(
+            `/api/file/load-path/${encodeURIComponent(sessionId)}`,
+            {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    path,
+                    input_format: inputFormat || '',
+                    index: index || ':',
+                }),
+            }
+        );
+    }
+
     async openDocumentFromFile(sourceEntry, message) {
         let documentState = null;
         const respond = payload => {
@@ -224,7 +239,9 @@ class VAseWorkspace {
             }, window.location.origin);
         };
         try {
-            if (!(message.file instanceof Blob) || !message.file.size) {
+            const hasServerPath = typeof message.serverPath === 'string' && message.serverPath.length > 0;
+            const hasUpload = message.file instanceof Blob && message.file.size > 0;
+            if (!hasServerPath && !hasUpload) {
                 throw new Error('The selected file is empty or unavailable.');
             }
             documentState = await this.request(
@@ -235,13 +252,20 @@ class VAseWorkspace {
                     body: JSON.stringify({source_session_id: sourceEntry.sessionId}),
                 }
             );
-            const data = await this.uploadFileToSession(
-                documentState.session_id,
-                message.file,
-                message.inputFormat || '',
-                message.index || ':'
-            );
-            documentState.title = data.loaded_file?.filename || message.file.name || 'Untitled';
+            const data = hasServerPath
+                ? await this.loadPathToSession(
+                    documentState.session_id,
+                    message.serverPath,
+                    message.inputFormat || '',
+                    message.index || ':'
+                )
+                : await this.uploadFileToSession(
+                    documentState.session_id,
+                    message.file,
+                    message.inputFormat || '',
+                    message.index || ':'
+                );
+            documentState.title = data.loaded_file?.filename || message.fileName || message.file?.name || 'Untitled';
             documentState.empty = false;
             this.addDocument(documentState);
             this.activateDocument(documentState.session_id);

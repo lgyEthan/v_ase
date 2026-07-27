@@ -263,6 +263,7 @@ def create_workspace_session(
                 "allow_relax",
                 "viz_only",
                 "theme",
+                "launch_directory",
             )
             if key in source_config
         }

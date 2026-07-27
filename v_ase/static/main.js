@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.82&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.82&rev=1';
-import { ASESelection } from './selection.js?v=0.0.82&rev=1';
-import { ASETransform } from './transform.js?v=0.0.82&rev=1';
+import { ASEApi } from './api.js?v=0.0.83&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.83&rev=1';
+import { ASESelection } from './selection.js?v=0.0.83&rev=1';
+import { ASETransform } from './transform.js?v=0.0.83&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -5573,11 +5573,148 @@ class VAseApp {
         return `${(value / 1024 ** 3).toFixed(2)} GB`;
     }
 
-    chooseStructureFile() {
+    chooseSystemStructureFile() {
         const input = document.getElementById('structure-file');
         if (!input) return;
         input.value = '';
         input.click();
+    }
+
+    isLaunchDirectorySource(source) {
+        return source?.sourceKind === 'launch-directory'
+            && typeof source.path === 'string'
+            && typeof source.name === 'string';
+    }
+
+    async chooseStructureFile() {
+        try {
+            await this.showLaunchDirectoryBrowser('');
+        } catch (err) {
+            this.toast(
+                `Could not browse the terminal folder: ${err.message}. Opening the system picker instead.`,
+                'warning'
+            );
+            this.chooseSystemStructureFile();
+        }
+    }
+
+    async showLaunchDirectoryBrowser(directory = '') {
+        const listing = await this.withBusy(
+            'Reading the terminal launch directory...',
+            () => this.api.browseStructureFiles(directory)
+        );
+        this.showModal(`
+            <h2>Open File</h2>
+            <div class="launch-browser-location">
+                <span>Terminal folder</span>
+                <code id="launch-browser-root"></code>
+            </div>
+            <div class="launch-browser-toolbar">
+                <button id="launch-browser-up" class="btn compact" type="button">Up</button>
+                <span id="launch-browser-directory"></span>
+            </div>
+            <div id="launch-file-list" class="launch-file-list" role="listbox" aria-label="Files in terminal launch directory"></div>
+            <p id="launch-browser-empty" class="launch-browser-empty hidden">This folder contains no visible files.</p>
+            <p id="launch-browser-limit" class="modal-intro hidden">Only the first entries are shown. Narrow the folder or use the system picker.</p>
+        `, `
+            <button id="launch-browser-cancel" class="btn">Cancel</button>
+            <button id="launch-browser-system" class="btn">System Picker</button>
+            <button id="launch-browser-open" class="btn primary" disabled>Continue</button>
+        `);
+
+        const root = document.getElementById('launch-browser-root');
+        const current = document.getElementById('launch-browser-directory');
+        const list = document.getElementById('launch-file-list');
+        const empty = document.getElementById('launch-browser-empty');
+        const limit = document.getElementById('launch-browser-limit');
+        const up = document.getElementById('launch-browser-up');
+        const open = document.getElementById('launch-browser-open');
+        if (!list || !open) return;
+        if (root) {
+            root.textContent = listing.root || '';
+            root.title = listing.root || '';
+        }
+        if (current) {
+            current.textContent = listing.directory || '.';
+            current.title = listing.directory || '.';
+        }
+        if (up) up.disabled = listing.parent === null;
+        if (empty) empty.classList.toggle('hidden', Boolean(listing.entries?.length));
+        if (limit) limit.classList.toggle('hidden', !listing.truncated);
+
+        let selectedSource = null;
+        const selectFile = (row, entry) => {
+            list.querySelectorAll('.launch-file-row.selected').forEach(item => {
+                item.classList.remove('selected');
+                item.setAttribute('aria-selected', 'false');
+            });
+            row.classList.add('selected');
+            row.setAttribute('aria-selected', 'true');
+            selectedSource = {
+                sourceKind: 'launch-directory',
+                path: entry.path,
+                name: entry.name,
+                size: Number(entry.size) || 0,
+                type: ''
+            };
+            open.disabled = false;
+        };
+        const continueWithSelection = () => {
+            if (selectedSource) this.showOpenFileModal(selectedSource);
+        };
+
+        (listing.entries || []).forEach(entry => {
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'launch-file-row';
+            row.setAttribute('role', 'option');
+            row.setAttribute('aria-selected', 'false');
+
+            const kind = document.createElement('span');
+            kind.className = `launch-file-kind ${entry.kind}`;
+            kind.textContent = entry.kind === 'directory' ? 'Folder' : 'File';
+            const name = document.createElement('span');
+            name.className = 'launch-file-name';
+            name.textContent = entry.name;
+            name.title = entry.name;
+            const size = document.createElement('span');
+            size.className = 'launch-file-size';
+            size.textContent = entry.kind === 'file' ? this.formatFileSize(entry.size) : '';
+            row.append(kind, name, size);
+
+            if (entry.kind === 'directory') {
+                row.addEventListener('click', () => {
+                    this.showLaunchDirectoryBrowser(entry.path).catch(err => {
+                        this.toast(`Could not open folder: ${err.message}`, 'error');
+                    });
+                });
+            } else {
+                row.addEventListener('click', () => selectFile(row, entry));
+                row.addEventListener('dblclick', () => {
+                    selectFile(row, entry);
+                    continueWithSelection();
+                });
+            }
+            list.appendChild(row);
+        });
+
+        up?.addEventListener('click', () => {
+            if (listing.parent !== null) {
+                this.showLaunchDirectoryBrowser(listing.parent).catch(err => {
+                    this.toast(`Could not open folder: ${err.message}`, 'error');
+                });
+            }
+        });
+        document.getElementById('launch-browser-cancel')?.addEventListener(
+            'click',
+            () => this.closeModal(),
+            { once: true }
+        );
+        document.getElementById('launch-browser-system')?.addEventListener('click', () => {
+            this.closeModal();
+            this.chooseSystemStructureFile();
+        }, { once: true });
+        open.addEventListener('click', continueWithSelection);
     }
 
     showOpenFileModal(file) {
@@ -5690,7 +5827,9 @@ class VAseApp {
             }
             const data = await this.withBusy(
                 `Reading ${file.name}...`,
-                () => this.api.loadStructureFile(file, inputFormat, index)
+                () => this.isLaunchDirectorySource(file)
+                    ? this.api.loadStructurePath(file.path, inputFormat, index)
+                    : this.api.loadStructureFile(file, inputFormat, index)
             );
             const isProject = data.loaded_file?.kind === 'project' || Boolean(data.project);
             const projectSettings = data.project?.settings || data.metadata?.config?.initial_design_settings;
@@ -5736,7 +5875,9 @@ class VAseApp {
             }
             const data = await this.withBusy(
                 `Adding ${file.name} to trajectory...`,
-                () => this.api.appendStructureFile(file, inputFormat, index)
+                () => this.isLaunchDirectorySource(file)
+                    ? this.api.appendStructurePath(file.path, inputFormat, index)
+                    : this.api.appendStructureFile(file, inputFormat, index)
             );
             this.state.trajectoryBinaryCache = null;
             this.state.trajectoryBinaryPromise = null;
@@ -5784,7 +5925,9 @@ class VAseApp {
                         type: 'v_ase:document-open-new',
                         sessionId: this.sessionId,
                         requestId,
-                        file,
+                        file: this.isLaunchDirectorySource(file) ? null : file,
+                        serverPath: this.isLaunchDirectorySource(file) ? file.path : null,
+                        fileName: file.name,
                         inputFormat,
                         index
                     }, window.location.origin);

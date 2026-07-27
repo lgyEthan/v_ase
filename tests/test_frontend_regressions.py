@@ -306,9 +306,9 @@ def test_viewer_uses_packaged_three_and_initial_camera_fit():
     assert "this.cameraFillLight = new THREE.PointLight" in renderer_js
     assert "this.cameraFillDirectionalLight = new THREE.DirectionalLight" in renderer_js
     assert "this.cameraFillDirectionalLight.position.copy(camera.position)" in renderer_js
-    assert "new THREE.AmbientLight(0xffffff, 0.16)" in renderer_js
-    assert "new THREE.DirectionalLight(0xffffff, 0.78)" in renderer_js
-    assert "new THREE.HemisphereLight(0xffffff, 0x5f6865, 0.24)" in renderer_js
+    assert "new THREE.AmbientLight(0xffffff, 0.30)" in renderer_js
+    assert "new THREE.DirectionalLight(0xffffff, 0.88)" in renderer_js
+    assert "new THREE.HemisphereLight(0xffffff, 0xd6dcda, 0.38)" in renderer_js
     assert "new THREE.MeshPhysicalMaterial" in renderer_js
     assert "updateViewLighting()" in renderer_js
 
@@ -686,6 +686,11 @@ def test_camera_view_background_and_2d_display_controls_are_wired():
     assert 'data-viewport-background="white"' in index_html
     assert "atomDisplayMode: '3d'" in main_js
     assert "setViewportBackground(mode" in renderer_js
+    assert "new THREE.HemisphereLight(0xffffff, 0xd6dcda, 0.38)" in renderer_js
+    assert "new THREE.AmbientLight(0xffffff, 0.30)" in renderer_js
+    assert "new THREE.DirectionalLight(0xffffff, 0.88)" in renderer_js
+    assert "lightViewport ? '#e3e8e5'" in renderer_js
+    assert "lightViewport ? 0.48 : 0.58" in renderer_js
     assert "effectiveBondStyle()" in renderer_js
     assert "this.atomDisplayMode() === '2d'" in renderer_js
     assert "new THREE.MeshBasicMaterial" in renderer_js
@@ -694,6 +699,33 @@ def test_camera_view_background_and_2d_display_controls_are_wired():
     assert "vec3(0.012)" in renderer_js
     assert ".view-toolbar" in style_css
     assert ".view-arrow-btn" in style_css
+
+
+def test_open_file_defaults_to_the_terminal_launch_directory():
+    main_js = (ROOT / "v_ase/static/main.js").read_text()
+    api_js = (ROOT / "v_ase/static/api.js").read_text()
+    workspace_js = (ROOT / "v_ase/static/workspace.js").read_text()
+    server_py = (ROOT / "v_ase/server.py").read_text()
+    viewer_py = (ROOT / "v_ase/viewer.py").read_text()
+    session_py = (ROOT / "v_ase/session.py").read_text()
+    style_css = (ROOT / "v_ase/static/style.css").read_text()
+
+    assert "launch_directory = os.path.abspath(os.getcwd())" in viewer_py
+    assert '"launch_directory": launch_directory' in viewer_py
+    assert '"launch_directory",' in session_py
+    assert '@app.get("/api/files/{session_id}")' in server_py
+    assert '@app.post("/api/file/load-path/{session_id}")' in server_py
+    assert '@app.post("/api/file/append-path/{session_id}")' in server_py
+    assert "candidate.relative_to(root)" in server_py
+    assert "browseStructureFiles(directory" in api_js
+    assert "loadStructurePath(path" in api_js
+    assert "appendStructurePath(path" in api_js
+    assert "showLaunchDirectoryBrowser" in main_js
+    assert "chooseSystemStructureFile" in main_js
+    assert "sourceKind: 'launch-directory'" in main_js
+    assert "serverPath:" in main_js
+    assert "loadPathToSession" in workspace_js
+    assert ".launch-file-list" in style_css
 
 
 def test_api_browser_close_and_python_view_autoclose_contract_are_wired():

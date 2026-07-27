@@ -34,6 +34,12 @@ Browser Open has three explicit destinations:
   frame, camera, and visual settings;
 - upload into a new independent workspace document.
 
+Open first lists the directory from which `v_ase gui` was launched. That local
+browser is restricted to the launch-directory tree, resolves symlinks before
+access, and reads selected files directly instead of copying them through an
+HTTP upload. The browser-owned system file picker remains available for files
+outside that tree.
+
 A `.vase` project restores all saved state when replacing a document or opening
 in a new tab. When appended, only its selected structure frames are used. The
 backend maintains a trajectory-wide ordered label/type catalog so Appearance
@@ -134,6 +140,11 @@ counts.
 
 New documents start with an atom-radius scale of `0.60x`. Explicit values in
 projects and reusable settings remain authoritative.
+
+New documents also use an exact `#ffffff` viewport clear color. Modeling-mode
+hemisphere, ambient, and camera-facing fills keep element colors readable from
+opposite crystallographic views without enabling shadow maps. White-mode grid
+lines use reduced contrast so the background remains visually white.
 
 ## Bonds
 

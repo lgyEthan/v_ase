@@ -134,6 +134,7 @@ MAX_INLINE_TRAJECTORY_CACHE_VALUES = 750_000
 MAX_BINARY_TRAJECTORY_CACHE_VALUES = 30_000_000
 MAX_UPLOADED_STRUCTURE_BYTES = 64 * 1024 * 1024 * 1024
 MAX_UPLOADED_VIDEO_BYTES = 2 * 1024 * 1024 * 1024
+MAX_LAUNCH_DIRECTORY_ENTRIES = 5000
 
 
 def trajectory_layout_compatible(session: EditorSession) -> bool:
@@ -1094,6 +1095,128 @@ def _validated_uploaded_filename(filename: str) -> str:
     return display_name
 
 
+def _session_launch_directory(session: EditorSession) -> Path:
+    configured = (session.config or {}).get("launch_directory") or os.getcwd()
+    try:
+        root = Path(configured).expanduser().resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="The terminal launch directory is no longer available.",
+        ) from exc
+    if not root.is_dir():
+        raise HTTPException(
+            status_code=400,
+            detail="The terminal launch location is not a directory.",
+        )
+    return root
+
+
+def _resolve_launch_path(
+    session: EditorSession,
+    relative_path: str,
+    *,
+    require_file: bool = False,
+    require_directory: bool = False,
+) -> Path:
+    root = _session_launch_directory(session)
+    raw_path = str(relative_path or "")
+    candidate_path = Path(raw_path)
+    if candidate_path.is_absolute() or "\x00" in raw_path:
+        raise HTTPException(
+            status_code=403,
+            detail="Only paths inside the terminal launch directory are allowed.",
+        )
+    try:
+        candidate = (root / candidate_path).resolve(strict=True)
+        candidate.relative_to(root)
+    except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=403,
+            detail="The requested path is unavailable or outside the terminal launch directory.",
+        ) from exc
+    if require_file and not candidate.is_file():
+        raise HTTPException(status_code=400, detail="The selected path is not a file.")
+    if require_directory and not candidate.is_dir():
+        raise HTTPException(status_code=400, detail="The selected path is not a directory.")
+    return candidate
+
+
+def _validate_launch_file_size(source_path: Path) -> None:
+    try:
+        size = source_path.stat().st_size
+    except OSError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="The selected file is no longer available.",
+        ) from exc
+    if size > MAX_UPLOADED_STRUCTURE_BYTES:
+        raise HTTPException(status_code=413, detail="The selected structure file is too large.")
+    if size == 0:
+        raise HTTPException(status_code=400, detail="The selected structure file is empty.")
+
+
+@app.get("/api/files/{session_id}")
+async def browse_launch_directory(session_id: str, directory: str = ""):
+    """List files below the directory where v_ase was launched."""
+    session = get_session(session_id)
+    root = _session_launch_directory(session)
+    current = _resolve_launch_path(session, directory, require_directory=True)
+    relative_current = current.relative_to(root)
+    entries = []
+    truncated = False
+    try:
+        children = sorted(
+            current.iterdir(),
+            key=lambda path: (not path.is_dir(), path.name.casefold()),
+        )
+    except OSError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Could not read {current.name or current}: {exc}",
+        ) from exc
+
+    for child in children:
+        if child.name.startswith("."):
+            continue
+        try:
+            resolved = child.resolve(strict=True)
+            resolved.relative_to(root)
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if not (resolved.is_dir() or resolved.is_file()):
+            continue
+        if len(entries) >= MAX_LAUNCH_DIRECTORY_ENTRIES:
+            truncated = True
+            break
+        relative = child.relative_to(root).as_posix()
+        item = {
+            "name": child.name,
+            "path": relative,
+            "kind": "directory" if resolved.is_dir() else "file",
+        }
+        if resolved.is_file():
+            try:
+                item["size"] = resolved.stat().st_size
+            except OSError:
+                item["size"] = 0
+        entries.append(item)
+
+    relative_text = "" if relative_current == Path(".") else relative_current.as_posix()
+    if not relative_text:
+        parent = None
+    else:
+        parent_path = relative_current.parent
+        parent = "" if parent_path == Path(".") else parent_path.as_posix()
+    return {
+        "root": str(root),
+        "directory": relative_text,
+        "parent": parent,
+        "entries": entries,
+        "truncated": truncated,
+    }
+
+
 async def _stream_uploaded_file(request: Request, display_name: str) -> str:
     try:
         content_length = int(request.headers.get("content-length", "0") or 0)
@@ -1124,6 +1247,141 @@ async def _stream_uploaded_file(request: Request, display_name: str) -> str:
         raise
 
 
+async def _replace_session_from_file(
+    session: EditorSession,
+    source_path: Path,
+    display_name: str,
+    input_format: str | None,
+    index: str,
+    *,
+    source_is_temporary: bool,
+) -> tuple[Dict[str, Any], bool]:
+    from .io import read_fast_lammps_dump, read_structure_frames, resolve_input_format
+
+    suffix = Path(display_name).suffix
+    format_hint = _uploaded_format_hint(display_name, input_format)
+    resolved_format = resolve_input_format(format_hint)
+    is_project = suffix.lower() == ".vase" or resolved_format == "vase-project"
+    is_lammps_dump = (
+        resolved_format == "lammps-dump-text"
+        or (format_hint is None and suffix.lower() in {".lammpstrj", ".dump"})
+    )
+    project = None
+    keep_source = False
+
+    if is_project:
+        project = await asyncio.to_thread(read_project_archive, source_path)
+        session.cleanup_temporary_files()
+        replace_session_from_project(session, project)
+        loaded_kind = "project"
+    elif is_viz_only(session) and is_lammps_dump:
+        try:
+            fast = await asyncio.to_thread(read_fast_lammps_dump, source_path, index)
+            session.cleanup_temporary_files()
+            replace_session_frames(
+                session,
+                [fast.atoms],
+                trajectory_source=fast.trajectory,
+                current_frame=fast.initial_frame,
+            )
+            if source_is_temporary:
+                source_text = str(source_path)
+                session.temporary_files.add(source_text)
+                keep_source = True
+        except ValueError:
+            frames = await asyncio.to_thread(
+                read_structure_frames, source_path, index, format_hint
+            )
+            session.cleanup_temporary_files()
+            replace_session_frames(session, frames)
+        loaded_kind = "trajectory" if session.frame_count > 1 else "structure"
+    else:
+        frames = await asyncio.to_thread(
+            read_structure_frames, source_path, index, format_hint
+        )
+        session.cleanup_temporary_files()
+        replace_session_frames(session, frames)
+        loaded_kind = "trajectory" if session.frame_count > 1 else "structure"
+
+    session.config["empty_workspace"] = False
+    session.config["document_name"] = display_name
+    data = session_atoms_to_json(session)
+    data["loaded_file"] = {
+        "filename": display_name,
+        "kind": loaded_kind,
+        "format": resolved_format or "auto",
+    }
+    if project is not None:
+        data["project"] = {
+            "schema": project.manifest.get("schema"),
+            "settings": project.settings,
+        }
+    return data, keep_source
+
+
+async def _append_session_from_file(
+    session: EditorSession,
+    source_path: Path,
+    display_name: str,
+    input_format: str | None,
+    index: str,
+) -> Dict[str, Any]:
+    from .io import read_fast_lammps_dump, read_structure_frames, resolve_input_format
+
+    suffix = Path(display_name).suffix
+    was_empty = bool((session.config or {}).get("empty_workspace", False)) and len(session.working_atoms) == 0
+    format_hint = _uploaded_format_hint(display_name, input_format)
+    resolved_format = resolve_input_format(format_hint)
+    is_project = suffix.lower() == ".vase" or resolved_format == "vase-project"
+    is_lammps_dump = (
+        resolved_format == "lammps-dump-text"
+        or (format_hint is None and suffix.lower() in {".lammpstrj", ".dump"})
+    )
+
+    if is_project:
+        project = await asyncio.to_thread(read_project_archive, source_path)
+        selected_indices = _selected_frame_indices(index, len(project.frames))
+        frames = [project.frames[frame_index] for frame_index in selected_indices]
+        source_kind = "project"
+    elif is_lammps_dump:
+        try:
+            fast = await asyncio.to_thread(read_fast_lammps_dump, source_path, index)
+            selected_indices = _selected_frame_indices(index, fast.trajectory.frame_count)
+            frames = await asyncio.to_thread(
+                lambda: [
+                    fast.trajectory.read_atoms(frame_index)
+                    for frame_index in selected_indices
+                ]
+            )
+        except ValueError:
+            frames = await asyncio.to_thread(
+                read_structure_frames, source_path, index, format_hint
+            )
+        source_kind = "trajectory" if len(frames) > 1 else "structure"
+    else:
+        frames = await asyncio.to_thread(
+            read_structure_frames, source_path, index, format_hint
+        )
+        source_kind = "trajectory" if len(frames) > 1 else "structure"
+
+    with session.mode_transition_lock:
+        appended_count = append_session_frames(session, frames)
+        if was_empty:
+            session.config["document_name"] = display_name
+        session.config["empty_workspace"] = False
+
+    data = session_atoms_to_json(session)
+    data["loaded_file"] = {
+        "filename": display_name,
+        "kind": "append",
+        "source_kind": source_kind,
+        "format": resolved_format or "auto",
+        "appended_frames": appended_count,
+        "project_settings_ignored": bool(is_project),
+    }
+    return data
+
+
 @app.post("/api/file/load/{session_id}")
 async def load_structure_file(
     session_id: str,
@@ -1135,65 +1393,17 @@ async def load_structure_file(
     """Stream a browser-selected structure, trajectory, or project into a session."""
     session = get_session(session_id)
     display_name = _validated_uploaded_filename(filename)
-    suffix = Path(display_name).suffix
     tmp_path = await _stream_uploaded_file(request, display_name)
     keep_temporary_file = False
     try:
-        from .io import read_fast_lammps_dump, read_structure_frames, resolve_input_format
-
-        format_hint = _uploaded_format_hint(display_name, input_format)
-        resolved_format = resolve_input_format(format_hint)
-        is_project = suffix.lower() == ".vase" or resolved_format == "vase-project"
-        is_lammps_dump = (
-            resolved_format == "lammps-dump-text"
-            or (format_hint is None and suffix.lower() in {".lammpstrj", ".dump"})
+        data, keep_temporary_file = await _replace_session_from_file(
+            session,
+            Path(tmp_path),
+            display_name,
+            input_format,
+            index,
+            source_is_temporary=True,
         )
-
-        if is_project:
-            project = await asyncio.to_thread(read_project_archive, tmp_path)
-            session.cleanup_temporary_files()
-            replace_session_from_project(session, project)
-            loaded_kind = "project"
-        elif is_viz_only(session) and is_lammps_dump:
-            try:
-                fast = await asyncio.to_thread(read_fast_lammps_dump, Path(tmp_path), index)
-                session.cleanup_temporary_files()
-                replace_session_frames(
-                    session,
-                    [fast.atoms],
-                    trajectory_source=fast.trajectory,
-                    current_frame=fast.initial_frame,
-                )
-                session.temporary_files.add(tmp_path)
-                keep_temporary_file = True
-            except ValueError:
-                frames = await asyncio.to_thread(
-                    read_structure_frames, Path(tmp_path), index, format_hint
-                )
-                session.cleanup_temporary_files()
-                replace_session_frames(session, frames)
-            loaded_kind = "trajectory" if session.frame_count > 1 else "structure"
-        else:
-            frames = await asyncio.to_thread(
-                read_structure_frames, Path(tmp_path), index, format_hint
-            )
-            session.cleanup_temporary_files()
-            replace_session_frames(session, frames)
-            loaded_kind = "trajectory" if session.frame_count > 1 else "structure"
-
-        session.config["empty_workspace"] = False
-        session.config["document_name"] = display_name
-        data = session_atoms_to_json(session)
-        data["loaded_file"] = {
-            "filename": display_name,
-            "kind": loaded_kind,
-            "format": resolved_format or "auto",
-        }
-        if is_project:
-            data["project"] = {
-                "schema": project.manifest.get("schema"),
-                "settings": project.settings,
-            }
         return data
     except HTTPException:
         raise
@@ -1202,6 +1412,35 @@ async def load_structure_file(
     finally:
         if not keep_temporary_file:
             _remove_temporary_file(tmp_path)
+
+
+@app.post("/api/file/load-path/{session_id}")
+async def load_structure_path(session_id: str, payload: Dict[str, Any]):
+    """Load a file selected from the terminal launch directory."""
+    session = get_session(session_id)
+    source_path = _resolve_launch_path(
+        session,
+        str(payload.get("path") or ""),
+        require_file=True,
+    )
+    _validate_launch_file_size(source_path)
+    display_name = _validated_uploaded_filename(source_path.name)
+    input_format = payload.get("input_format") or None
+    index = str(payload.get("index") or ":")
+    try:
+        data, _ = await _replace_session_from_file(
+            session,
+            source_path,
+            display_name,
+            str(input_format) if input_format else None,
+            index,
+            source_is_temporary=False,
+        )
+        return data
+    except HTTPException:
+        raise
+    except (TypeError, ValueError, KeyError, OSError) as exc:
+        raise HTTPException(status_code=400, detail=f"Could not load {display_name}: {exc}") from exc
 
 
 @app.post("/api/file/append/{session_id}")
@@ -1215,69 +1454,49 @@ async def append_structure_file(
     """Append uploaded structures as movie frames without replacing visual settings."""
     session = get_session(session_id)
     display_name = _validated_uploaded_filename(filename)
-    suffix = Path(display_name).suffix
     tmp_path = await _stream_uploaded_file(request, display_name)
-    was_empty = bool((session.config or {}).get("empty_workspace", False)) and len(session.working_atoms) == 0
-    project = None
     try:
-        from .io import read_fast_lammps_dump, read_structure_frames, resolve_input_format
-
-        format_hint = _uploaded_format_hint(display_name, input_format)
-        resolved_format = resolve_input_format(format_hint)
-        is_project = suffix.lower() == ".vase" or resolved_format == "vase-project"
-        is_lammps_dump = (
-            resolved_format == "lammps-dump-text"
-            or (format_hint is None and suffix.lower() in {".lammpstrj", ".dump"})
+        return await _append_session_from_file(
+            session,
+            Path(tmp_path),
+            display_name,
+            input_format,
+            index,
         )
-
-        if is_project:
-            project = await asyncio.to_thread(read_project_archive, tmp_path)
-            selected_indices = _selected_frame_indices(index, len(project.frames))
-            frames = [project.frames[frame_index] for frame_index in selected_indices]
-            source_kind = "project"
-        elif is_lammps_dump:
-            try:
-                fast = await asyncio.to_thread(read_fast_lammps_dump, Path(tmp_path), index)
-                selected_indices = _selected_frame_indices(index, fast.trajectory.frame_count)
-                frames = await asyncio.to_thread(
-                    lambda: [
-                        fast.trajectory.read_atoms(frame_index)
-                        for frame_index in selected_indices
-                    ]
-                )
-            except ValueError:
-                frames = await asyncio.to_thread(
-                    read_structure_frames, Path(tmp_path), index, format_hint
-                )
-            source_kind = "trajectory" if len(frames) > 1 else "structure"
-        else:
-            frames = await asyncio.to_thread(
-                read_structure_frames, Path(tmp_path), index, format_hint
-            )
-            source_kind = "trajectory" if len(frames) > 1 else "structure"
-
-        with session.mode_transition_lock:
-            appended_count = append_session_frames(session, frames)
-            if was_empty:
-                session.config["document_name"] = display_name
-            session.config["empty_workspace"] = False
-
-        data = session_atoms_to_json(session)
-        data["loaded_file"] = {
-            "filename": display_name,
-            "kind": "append",
-            "source_kind": source_kind,
-            "format": resolved_format or "auto",
-            "appended_frames": appended_count,
-            "project_settings_ignored": bool(is_project),
-        }
-        return data
     except HTTPException:
         raise
     except (TypeError, ValueError, KeyError, OSError) as exc:
         raise HTTPException(status_code=400, detail=f"Could not append {display_name}: {exc}") from exc
     finally:
         _remove_temporary_file(tmp_path)
+
+
+@app.post("/api/file/append-path/{session_id}")
+async def append_structure_path(session_id: str, payload: Dict[str, Any]):
+    """Append a file selected from the terminal launch directory."""
+    session = get_session(session_id)
+    source_path = _resolve_launch_path(
+        session,
+        str(payload.get("path") or ""),
+        require_file=True,
+    )
+    _validate_launch_file_size(source_path)
+    display_name = _validated_uploaded_filename(source_path.name)
+    input_format = payload.get("input_format") or None
+    index = str(payload.get("index") or ":")
+    try:
+        return await _append_session_from_file(
+            session,
+            source_path,
+            display_name,
+            str(input_format) if input_format else None,
+            index,
+        )
+    except HTTPException:
+        raise
+    except (TypeError, ValueError, KeyError, OSError) as exc:
+        raise HTTPException(status_code=400, detail=f"Could not append {display_name}: {exc}") from exc
+
 
 @app.post("/api/constrain/{session_id}")
 async def constrain_positions(session_id: str, payload: Dict[str, Any]):

@@ -185,6 +185,15 @@ export class ASEApi {
         if (path.includes('/api/session/active')) {
             return { session_id: 'mock-session', count: 1 };
         }
+        if (path.includes('/api/files/')) {
+            return {
+                root: 'Local files',
+                directory: '',
+                parent: null,
+                entries: [],
+                truncated: false
+            };
+        }
         if (path.includes('/api/atoms/')) {
             return await this.mockResponse(this.mockState.atoms);
         }
@@ -821,6 +830,23 @@ export class ASEApi {
         });
     }
 
+    async browseStructureFiles(directory = '') {
+        const params = new URLSearchParams({directory: directory || ''});
+        return await this.request(`/api/files/{session_id}?${params.toString()}`);
+    }
+
+    async loadStructurePath(path, inputFormat = '', index = ':') {
+        return await this.request('/api/file/load-path/{session_id}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                path,
+                input_format: inputFormat || '',
+                index: index || ':'
+            })
+        });
+    }
+
     async appendStructureFile(file, inputFormat = '', index = ':') {
         const params = new URLSearchParams({
             filename: file?.name || 'structure',
@@ -831,6 +857,18 @@ export class ASEApi {
             method: 'POST',
             headers: {'Content-Type': file?.type || 'application/octet-stream'},
             body: file
+        });
+    }
+
+    async appendStructurePath(path, inputFormat = '', index = ':') {
+        return await this.request('/api/file/append-path/{session_id}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                path,
+                input_format: inputFormat || '',
+                index: index || ':'
+            })
         });
     }
 }

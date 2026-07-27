@@ -249,6 +249,7 @@ def view(
         session is finalized through the local API.
     ...
     """
+    launch_directory = os.path.abspath(os.getcwd())
     source_path = os.fspath(atoms) if isinstance(atoms, (str, os.PathLike)) else None
     if document_name is None:
         document_name = os.path.basename(source_path) if source_path else "Untitled"
@@ -305,6 +306,7 @@ def view(
             "empty_workspace": len(frames) == 1 and len(frames[0]) == 0,
             "auto_close_on_disconnect": bool(close_on_disconnect and not notebook),
             "document_name": document_name or "Untitled",
+            "launch_directory": launch_directory,
         }
     )
     sessions[session_id] = session

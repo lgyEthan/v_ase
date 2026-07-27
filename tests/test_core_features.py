@@ -31,13 +31,16 @@ from v_ase.project import read_project_archive
 from v_ase.serialization import atoms_to_json
 from v_ase.server import (
     add_atoms,
+    append_structure_path,
     append_structure_file,
     apply_positions,
     apply_supercell,
     apply_supercell_matrix,
+    browse_launch_directory,
     cancel_session_autoclose,
     delete_atoms,
     get_atoms,
+    load_structure_path,
     load_structure_file,
     load_visual_settings,
     load_project,
@@ -426,6 +429,96 @@ def test_browser_file_load_accepts_explicit_format_for_extensionless_input(tmp_p
 
     assert data["loaded_file"]["format"] == "vasp"
     assert session.working_atoms.get_chemical_formula() == "H3N"
+
+
+def test_launch_directory_browser_loads_and_appends_without_path_escape(tmp_path):
+    launch_root = tmp_path / "launch"
+    launch_root.mkdir()
+    nested = launch_root / "structures"
+    nested.mkdir()
+    source = nested / "water.extxyz"
+    write(source, molecule("H2O"), format="extxyz")
+    second = nested / "water_2.extxyz"
+    moved = molecule("H2O")
+    moved.positions += [0.4, 0.0, 0.0]
+    write(second, moved, format="extxyz")
+    (nested / "empty.xyz").touch()
+    (launch_root / ".hidden.xyz").write_text("0\nhidden\n")
+    outside = tmp_path / "outside.extxyz"
+    write(outside, molecule("NH3"), format="extxyz")
+
+    empty = Atoms()
+    session = EditorSession(
+        "launch-directory-load",
+        empty.copy(),
+        empty.copy(),
+        config={
+            "viz_only": True,
+            "empty_workspace": True,
+            "launch_directory": str(launch_root),
+        },
+    )
+    sessions[session.session_id] = session
+    try:
+        root_listing = asyncio.run(browse_launch_directory(session.session_id))
+        assert root_listing["root"] == str(launch_root.resolve())
+        assert root_listing["directory"] == ""
+        assert root_listing["parent"] is None
+        assert [entry["name"] for entry in root_listing["entries"]] == ["structures"]
+
+        nested_listing = asyncio.run(
+            browse_launch_directory(session.session_id, "structures")
+        )
+        assert nested_listing["parent"] == ""
+        assert [entry["name"] for entry in nested_listing["entries"]] == [
+            "empty.xyz",
+            "water.extxyz",
+            "water_2.extxyz",
+        ]
+
+        loaded = asyncio.run(load_structure_path(
+            session.session_id,
+            {"path": "structures/water.extxyz", "input_format": "extxyz", "index": ":"},
+        ))
+        assert loaded["metadata"]["natoms"] == 3
+        assert loaded["loaded_file"]["filename"] == "water.extxyz"
+
+        appended = asyncio.run(append_structure_path(
+            session.session_id,
+            {"path": "structures/water_2.extxyz", "input_format": "extxyz", "index": ":"},
+        ))
+        assert appended["loaded_file"]["appended_frames"] == 1
+        assert appended["metadata"]["frame_count"] == 2
+
+        with pytest.raises(HTTPException) as empty_file:
+            asyncio.run(load_structure_path(
+                session.session_id,
+                {"path": "structures/empty.xyz", "index": ":"},
+            ))
+        assert empty_file.value.status_code == 400
+        assert "empty" in empty_file.value.detail.lower()
+
+        with pytest.raises(HTTPException) as traversal:
+            asyncio.run(load_structure_path(
+                session.session_id,
+                {"path": "../outside.extxyz", "index": ":"},
+            ))
+        assert traversal.value.status_code == 403
+
+        outside_link = launch_root / "outside-link.extxyz"
+        try:
+            outside_link.symlink_to(outside)
+        except OSError:
+            pass
+        else:
+            with pytest.raises(HTTPException) as symlink_escape:
+                asyncio.run(load_structure_path(
+                    session.session_id,
+                    {"path": outside_link.name, "index": ":"},
+                ))
+            assert symlink_escape.value.status_code == 403
+    finally:
+        sessions.pop(session.session_id, None)
 
 
 def test_default_repulsion_calculator_is_attached_when_missing():

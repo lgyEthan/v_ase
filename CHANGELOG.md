@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.0.83
+
+- Made the default viewport an exact white field with lower-contrast grid
+  guides and brighter, view-consistent modeling light for clearer atoms.
+- Changed **Open** to begin in the directory where `v_ase gui` was launched,
+  with direct local loading and a system-picker fallback for other locations.
+- Restricted local browsing and loading to the launch-directory tree, including
+  resolved symlink targets, and preserved that root across workspace tabs.
+- Added backend path-security, browser Open, visual-state, and regression
+  coverage for the new behavior.
+
 ## 0.0.82
 
 - Added per-label atom counts after the total for selections of five or more

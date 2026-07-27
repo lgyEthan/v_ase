@@ -54,6 +54,10 @@ Examples:
 
 The terminal is released when the v_ase browser document closes.
 
+When v_ase starts without a file, **Open** begins in the terminal directory
+where `v_ase gui` was run. Navigate its subfolders directly, or choose
+**System Picker** to open a file elsewhere on the computer.
+
 The top-bar **Open** command offers three actions:
 
 | Action | Result |
@@ -202,7 +206,8 @@ displayed separately.
 The Display workspace provides:
 
 - orthographic or perspective projection;
-- white viewport background by default, with a dark option;
+- a true-white viewport background by default, with balanced modeling light
+  for clear element colors and a dark background option;
 - 3D spheres/cylinders or 2D atoms/flat bonds;
 - live atomic scale in pixels per Angstrom;
 - atom smoothness and anti-aliasing; new documents use a `0.60x` atom radius;
