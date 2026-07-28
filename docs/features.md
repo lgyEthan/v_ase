@@ -105,13 +105,19 @@ other supported position constraints.
 Constraint rendering:
 
 - `FixAtoms`: element color is retained with a distinct fixed material surface.
-- `FixedLine`: each constrained atom receives its own directional guide.
-- `FixedPlane`: each atom receives its own bounded plane guide; multiple
-  constraints are never collapsed to a selection center.
+- `FixedLine`: each constrained atom receives a short, radius-scaled axis and
+  compact perpendicular collar that remain visible without selection.
+- `FixedPlane`: each atom receives its own radius-scaled ring, crosshair, and
+  normal marker that remain visible without selection; multiple constraints
+  are never collapsed to a selection center.
 - `FixScaled`: allowed fractional directions are converted through the current
   cell and displayed as line/plane/fixed behavior.
 - Hookean: threshold, inactive gap, and active spring state update from the
   current distance.
+
+Directional guides use shared materials, remain local to their owning atom,
+and are depth-tested so they do not read as selection outlines through unrelated
+geometry.
 
 Turning **Apply constraints** off permits unrestricted coordinate editing
 without deleting the ASE constraints.
@@ -149,6 +155,10 @@ New documents also use an exact `#ffffff` viewport clear color. Modeling-mode
 hemisphere, ambient, and camera-facing fills keep element colors readable from
 opposite crystallographic views without enabling shadow maps. White-mode grid
 lines use reduced contrast so the background remains visually white.
+
+Unit-cell edges use shared instanced cylinder geometry. Their color, diameter in
+Angstrom, and Unlit/Standard/Metal material are visual settings. Repeated cells
+reuse the same style and shared boundaries are deduplicated.
 
 ## Bonds
 

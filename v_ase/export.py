@@ -672,11 +672,20 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
     include_cell = payload.get("include_cell")
     if include_cell is None:
         include_cell = display.get("showCell", True)
+    try:
+        cell_thickness = max(0.01, min(0.30, float(display.get("cellThickness", 0.04))))
+    except (TypeError, ValueError):
+        cell_thickness = 0.04
+    cell_material = str(display.get("cellMaterial", "unlit"))
+    if cell_material not in {"unlit", "standard", "metal"}:
+        cell_material = "unlit"
     return {
         "atoms": atom_specs,
         "bonds": bond_specs,
         "cell_edges": _scene_cell_edges(cell, repetitions) if include_cell else [],
-        "cell_color": "#d6bd67",
+        "cell_color": _valid_hex_color(display.get("cellColor"), "#d6bd67"),
+        "cell_thickness": cell_thickness,
+        "cell_material": cell_material,
         "camera": copy.deepcopy(payload.get("camera") or {}),
         "include_cell": bool(include_cell),
         "repetitions": repetitions,
@@ -843,7 +852,11 @@ def export_3dm_response(session, payload: Dict[str, Any]):
     model.ApplicationDetails = "Editable atomistic scene exported by v_ase"
 
     layer_indices = {}
-    for name, color in (("Atoms", "#d7dce1"), ("Bonds", "#aeb6bf"), ("Unit Cell", "#d6bd67")):
+    for name, color in (
+        ("Atoms", "#d7dce1"),
+        ("Bonds", "#aeb6bf"),
+        ("Unit Cell", scene["cell_color"]),
+    ):
         layer = rhino3dm.Layer()
         layer.Name = name
         layer.Color = (*_hex_rgb(color), 255)
@@ -1006,19 +1019,65 @@ def export_3dm_response(session, payload: Dict[str, Any]):
         model.Objects.AddInstanceObject(reference, attributes)
 
     cell_color = scene["cell_color"]
-    cell_material = material_index(cell_color)
+    cell_preset = "metal" if scene["cell_material"] == "metal" else "standard"
+    cell_material = material_index(cell_color, cell_preset)
+    cell_definition_id = None
+    if scene["cell_edges"]:
+        plane = rhino3dm.Plane(
+            rhino3dm.Point3d(0.0, 0.0, 0.0),
+            rhino3dm.Vector3d(0.0, 0.0, 1.0),
+        )
+        circle = rhino3dm.Circle(0.5)
+        circle.Plane = plane
+        primitive = rhino3dm.Cylinder(circle, 1.0).ToBrep(True, True)
+        cell_definition_index = model.InstanceDefinitions.Add(
+            "v_ase_unit_cell_edge",
+            "Reusable v_ase unit-cell edge; parent scale stores diameter and length",
+            "",
+            "",
+            rhino3dm.Point3d(0.0, 0.0, 0.0),
+            (primitive,),
+            (_cad_object_attributes(
+                rhino3dm,
+                "cell_edge_primitive",
+                layer_indices["Unit Cell"],
+                cell_material,
+                cell_color,
+            ),),
+        )
+        if cell_definition_index < 0:
+            raise RuntimeError("rhino3dm could not create a unit-cell edge definition.")
+        cell_definition_id = model.InstanceDefinitions.FindIndex(cell_definition_index).Id
     for index, edge in enumerate(scene["cell_edges"]):
+        start = np.asarray(edge["start"], dtype=float)
+        end = np.asarray(edge["end"], dtype=float)
+        basis = _perpendicular_basis(end - start)
+        if basis is None:
+            continue
+        axis, side, normal, length = basis
         attributes = _cad_object_attributes(
             rhino3dm,
             f"cell_edge_{index}",
             layer_indices["Unit Cell"],
             cell_material,
             cell_color,
-            {"v_ase.kind": "unit_cell", "v_ase.units": "angstrom"},
+            {
+                "v_ase.kind": "unit_cell",
+                "v_ase.units": "angstrom",
+                "v_ase.thickness": scene["cell_thickness"],
+                "v_ase.material": scene["cell_material"],
+            },
         )
-        model.Objects.AddLine(
-            rhino3dm.Point3d(*edge["start"]),
-            rhino3dm.Point3d(*edge["end"]),
+        diameter = float(scene["cell_thickness"])
+        transform = _rhino_instance_transform(
+            rhino3dm,
+            side * diameter,
+            normal * diameter,
+            axis * length,
+            start,
+        )
+        model.Objects.AddInstanceObject(
+            rhino3dm.InstanceReference(cell_definition_id, transform),
             attributes,
         )
 
@@ -1180,7 +1239,8 @@ def export_obj_response(session, payload: Dict[str, Any]):
     }
     material_specs.update((bond["color"], "standard") for bond in scene["bonds"])
     if scene["cell_edges"]:
-        material_specs.add((scene["cell_color"], "standard"))
+        cell_preset = "metal" if scene["cell_material"] == "metal" else "standard"
+        material_specs.add((scene["cell_color"], cell_preset))
     material_specs = sorted(material_specs)
     materials = {
         spec: f"v_ase_{spec[1]}_{spec[0][1:]}"
@@ -1241,11 +1301,13 @@ def export_obj_response(session, payload: Dict[str, Any]):
                     materials[(bond["color"], "standard")]
                 )
         for index, edge in enumerate(scene["cell_edges"]):
-            writer.line(
+            cell_preset = "metal" if scene["cell_material"] == "metal" else "standard"
+            writer.cylinder(
                 f"cell_edge_{index}",
                 edge["start"],
                 edge["end"],
-                materials[(scene["cell_color"], "standard")],
+                float(scene["cell_thickness"]) * 0.5,
+                materials[(scene["cell_color"], cell_preset)],
             )
 
     with open(metadata_path, "w", encoding="utf-8", newline="\n") as handle:
@@ -1259,6 +1321,9 @@ def export_obj_response(session, payload: Dict[str, Any]):
                 "atoms": scene["atoms"],
                 "bonds": scene["bonds"],
                 "cell_edges": scene["cell_edges"],
+                "cell_color": scene["cell_color"],
+                "cell_thickness": scene["cell_thickness"],
+                "cell_material": scene["cell_material"],
                 "bond_thickness_semantics": "diameter",
             },
             handle,
@@ -1300,10 +1365,16 @@ BOND_STYLE = DISPLAY.get("bondStyle", "cylinder")
 BOND_COLOR_MODE = DISPLAY.get("bondColorMode", "split")
 BOND_CUSTOM_COLOR = DISPLAY.get("bondCustomColor", "#c8ccd0")
 BLENDER_OBJECT_MODE = DISPLAY.get("blenderExportMode", "instanced")
+CELL_COLOR = DISPLAY.get("cellColor", "#d6bd67")
+CELL_MATERIAL = DISPLAY.get("cellMaterial", "unlit")
 try:
     BOND_THICKNESS = max(0.02, min(0.6, float(DISPLAY.get("bondThickness", 0.25))))
 except (TypeError, ValueError):
     BOND_THICKNESS = 0.25
+try:
+    CELL_THICKNESS = max(0.01, min(0.30, float(DISPLAY.get("cellThickness", 0.04))))
+except (TypeError, ValueError):
+    CELL_THICKNESS = 0.04
 
 VISUAL = DATA.get("visual", {{}})
 ATOM_COLORS = VISUAL.get("colors", [])
@@ -1437,7 +1508,12 @@ MAT_HOOKEAN_ACTIVE_MARKER = material("v_ase Hookean active marker", (0.22, 0.85,
 MAT_HOOKEAN_INACTIVE_MARKER = material("v_ase Hookean inactive marker", (0.46, 0.66, 1.0, 0.78), 0.78)
 MAT_HOOKEAN_THRESHOLD_MARKER = material("v_ase Hookean threshold marker", (1.0, 0.82, 0.35, 0.9), 0.9)
 MAT_BOND = material("v_ase custom bond", hex_to_rgba(BOND_CUSTOM_COLOR), 1.0)
-MAT_CELL = material("v_ase unit cell", (0.92, 0.78, 0.34, 0.72), 0.72)
+MAT_CELL = material(
+    "v_ase unit cell",
+    hex_to_rgba(CELL_COLOR),
+    0.88,
+    "metal" if CELL_MATERIAL == "metal" else "standard",
+)
 
 def get_bond_mat(index):
     color = get_atom_color(index)
@@ -1848,7 +1924,12 @@ def add_unit_cell(cell):
         (3, 5), (3, 6),
         (4, 7), (5, 7), (6, 7),
     ]
-    add_curve_segments("unit_cell_edges", [(corners[i], corners[j]) for i, j in edges], 0.026, MAT_CELL)
+    add_curve_segments(
+        "unit_cell_edges",
+        [(corners[i], corners[j]) for i, j in edges],
+        CELL_THICKNESS * 0.5,
+        MAT_CELL,
+    )
 
 def add_plane_disc(name, center, normal, radius, mat):
     bpy.ops.mesh.primitive_circle_add(vertices=96, radius=radius, fill_type="TRIFAN", location=center)

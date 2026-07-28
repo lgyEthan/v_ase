@@ -70,6 +70,7 @@
     --surface-subtle: rgba(241, 244, 239, 0.025);
     --surface-hover: rgba(241, 244, 239, 0.055);
     --surface-active: rgba(241, 244, 239, 0.08);
+    --control-highlight: rgba(255, 255, 255, 0.025);
     --overlay: rgba(10, 15, 16, 0.62);
     --overlay-strong: rgba(10, 15, 16, 0.72);
     --panel-glass: rgba(25, 31, 32, 0.97);
@@ -668,10 +669,12 @@ body.dragging-create-atom {
 .create-atom-head button {
     border: 1px solid var(--line-strong);
     border-radius: var(--radius);
-    background: var(--surface-hover);
+    background: linear-gradient(180deg, var(--surface-hover), var(--surface-subtle));
     color: var(--text);
     cursor: pointer;
-    transition: border-color 100ms ease, background 100ms ease, color 100ms ease;
+    box-shadow: inset 0 1px 0 var(--control-highlight);
+    transition: border-color 100ms ease, background 100ms ease, color 100ms ease,
+        transform 80ms ease;
 }
 
 .btn {
@@ -695,6 +698,7 @@ body.dragging-create-atom {
 .btn-stack-row button:active,
 .trajectory-strip button:active {
     background: var(--teal-active);
+    transform: translateY(1px);
 }
 
 .btn.primary {
@@ -974,7 +978,7 @@ body.dragging-inspector #inspector-resizer::before {
 #inspector details.panel-section {
     display: block;
     margin: 0;
-    padding: 15px 18px 17px;
+    padding: 16px 18px 19px;
     border: 0;
     border-bottom: 1px solid var(--line);
     border-radius: 0;
@@ -1039,7 +1043,7 @@ body.dragging-inspector #inspector-resizer::before {
 }
 
 #inspector .panel-note {
-    margin: -3px 0 12px;
+    margin: 8px 0 12px;
     color: var(--muted);
     font-size: 0.68rem;
     line-height: 1.48;
@@ -1208,9 +1212,58 @@ body.dragging-inspector #inspector-resizer::before {
 }
 
 .cell-translation {
-    margin-top: 16px;
-    padding-top: 14px;
+    margin-top: 18px;
+    padding-top: 16px;
     border-top: 1px solid var(--line);
+}
+
+.cell-translation .panel-note {
+    margin: 9px 2px 0;
+    padding-left: 9px;
+    border-left: 2px solid var(--teal-border-soft);
+    line-height: 1.55;
+}
+
+.cell-style-card {
+    display: grid;
+    grid-template-columns: 72px minmax(104px, 1fr);
+    gap: 8px 10px;
+    margin: -1px 0 12px;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface-subtle);
+}
+
+.cell-style-field {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    color: var(--muted);
+    font-size: 0.65rem;
+    font-weight: 650;
+}
+
+.cell-style-field:first-child {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 30px;
+}
+
+.cell-style-field:first-child input[type="color"] {
+    justify-self: start;
+}
+
+.cell-material-field {
+    grid-column: 1 / -1;
+    grid-template-columns: 64px minmax(0, 1fr);
+}
+
+.cell-style-field input,
+.cell-style-field select {
+    width: 100%;
+    min-width: 0;
 }
 
 .translation-mode-toggle {
@@ -1689,17 +1742,17 @@ body.inspector-wide #inspector .supercell-row {
 
 #inspector #appearance-table .mini-table-head,
 #inspector .appearance-row {
-    min-width: 990px;
+    min-width: 690px;
     display: grid;
-    grid-template-columns: 118px 68px 68px minmax(210px, 1fr) 58px 116px 122px;
-    gap: 12px;
+    grid-template-columns: 44px 58px 58px minmax(118px, 1fr) 52px 96px 108px;
+    gap: 10px;
     align-items: center;
 }
 
 body.inspector-wide #inspector .appearance-row,
 body.inspector-wide #inspector #appearance-table .mini-table-head {
-    min-width: 1080px;
-    grid-template-columns: 132px 72px 72px minmax(250px, 1fr) 64px 136px 136px;
+    min-width: 760px;
+    grid-template-columns: 48px 62px 62px minmax(132px, 1fr) 56px 108px 118px;
 }
 
 #inspector #appearance-table .mini-table-head {
@@ -1716,11 +1769,11 @@ body.inspector-wide #inspector #appearance-table .mini-table-head {
 }
 
 #inspector #appearance-table-body {
-    min-width: 990px;
+    min-width: 690px;
 }
 
 body.inspector-wide #inspector #appearance-table-body {
-    min-width: 1080px;
+    min-width: 760px;
 }
 
 #inspector .appearance-row {
@@ -1742,6 +1795,13 @@ body.inspector-wide #inspector #appearance-table-body {
 #inspector .atom-label-input,
 #inspector .label-radius-input {
     width: 100%;
+}
+
+#inspector .chemical-type-select {
+    padding-left: 5px;
+    padding-right: 15px;
+    font-size: 0.67rem;
+    text-align: center;
 }
 
 #inspector .atom-label-input {

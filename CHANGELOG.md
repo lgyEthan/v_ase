@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.96
+
+- Rebuilt the transparent rendered V_ASE logo with a dark-teal atom substrate,
+  metallic gold lettering, and stronger studio-light definition.
+- Made per-atom `FixedLine` and `FixedPlane` guides visible without selection,
+  local to each constrained atom, radius-scaled, and consistent in stroke
+  weight; FixedLine adds a compact axis collar for visibility at difficult
+  camera angles.
+- Added unit-cell color, Angstrom thickness, and material controls, using
+  deduplicated instanced edges for both the base and repeated supercell cells.
+- Tightened the Appearance table proportions, corrected responsive overflow,
+  separated translation guidance from its action button, and refreshed common
+  control surfaces.
+- Reorganized the README around installation and practical workflows, with an
+  explicit viewport-focus tip for atom transforms.
+
 ## 0.0.95
 
 - Added one-command remote viewing with `v_ase gui HOST:/path`, including

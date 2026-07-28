@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.95&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.96&amp;rev=3">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.95';
+            : '/static/vendor/three.module.js?v=0.0.96';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -63,7 +63,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.95</span>
+            <span class="version">0.0.96</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -463,6 +463,24 @@
             <div class="prop-row">
                 <label for="chk-cell">Unit Cell</label>
                 <input type="checkbox" id="chk-cell" checked>
+            </div>
+            <div class="cell-style-card" aria-label="Unit cell appearance">
+                <label class="cell-style-field" for="cell-color">
+                    <span>Color</span>
+                    <input type="color" id="cell-color" value="#d6bd67">
+                </label>
+                <label class="cell-style-field" for="cell-thickness">
+                    <span>Thickness / Å</span>
+                    <input type="number" id="cell-thickness" value="0.04" min="0.01" max="0.30" step="0.01">
+                </label>
+                <label class="cell-style-field cell-material-field" for="cell-material">
+                    <span>Material</span>
+                    <select id="cell-material">
+                        <option value="unlit" selected>Unlit</option>
+                        <option value="standard">Standard</option>
+                        <option value="metal">Metal</option>
+                    </select>
+                </label>
             </div>
             <div class="prop-row">
                 <label for="chk-axes">Axes</label>
@@ -944,7 +962,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.95&rev=1';
+            : './static/main.js?v=0.0.96&rev=3';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

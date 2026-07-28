@@ -15,15 +15,15 @@ and enables direct atom editing when requested.
 
 ![v_ase overview](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_overview.png)
 
-## Install
+## Quick Start
 
-From PyPI:
+Install from PyPI:
 
 ```bash
 python -m pip install v_ase-gui
 ```
 
-From GitHub:
+Or install the current GitHub source:
 
 ```bash
 git clone https://github.com/lgyEthan/v_ase.git
@@ -31,20 +31,14 @@ cd v_ase
 python -m pip install -e .
 ```
 
-No Node.js installation is required.
-
-## Open
-
-Start an empty workspace or open a file directly:
+Open an empty workspace or a structure directly:
 
 ```bash
 v_ase gui
 v_ase gui FILE
 ```
 
-Examples:
-
-| Input | Command |
+| File | Example |
 | --- | --- |
 | POSCAR | `v_ase gui POSCAR` |
 | VASP structure | `v_ase gui structure.vasp` |
@@ -52,12 +46,47 @@ Examples:
 | ASE trajectory | `v_ase gui relaxation.traj` |
 | Saved v_ase project | `v_ase gui project.vase` |
 
-The terminal is released when the v_ase browser document closes.
+No Node.js installation is required. The terminal is released when the v_ase
+browser document closes.
 
-**Open** immediately displays the operating system file picker. After choosing
-a file, select its reader, frame range, and how it should be opened.
+**View** is the lightweight default for inspection, movies, measurement,
+appearance, bonds, supercells, and export. Switch to **Edit** in the top bar,
+or start there directly:
 
-The top-bar **Open** command offers three actions:
+```bash
+v_ase gui structure.vasp --interactive
+```
+
+## Practical Guide
+
+| Goal | Action |
+| --- | --- |
+| Inspect a structure | Open it, then orbit with middle drag and select with left click |
+| Edit coordinates | Enter **Edit**, select atoms, close the panel with `Esc`, then use `G` or `R` |
+| Measure geometry | Select 2, 3, or 4 atoms in order for distance, angle, or torsion |
+| Play a trajectory | Use the bottom timeline or press `Space`; adjust FPS and Skip live |
+| Style a figure | Use **Structure > Appearance**, **Bonding**, and **View** |
+| Repeat or wrap a cell | Use **Structure > Cell & Replication** |
+| Save the complete session | Use **Export > Save Project** to create a self-contained `.vase` |
+| Work with a remote file | Run `v_ase gui HOST:/path/to/STRUCTURE` locally |
+
+> **Tip:** After selecting atoms, press `Esc` to close the control panel before
+> starting `G`/`R` transforms. This returns keyboard focus to the viewport
+> without clearing the selection.
+
+The **?** button shows all shortcuts. The top-bar renderer button switches
+between fast modeling light and publication-oriented Sun lighting. Unit-cell
+color, thickness, and material are available under **View > Viewport**.
+
+The current structure, trajectory frame, camera, labels, appearance, bonds,
+and selection remain in place during a mode change. If individual atoms have
+different visual materials, switching to View creates numbered labels only for
+those visual variants. Position-only edits stay in the same label group.
+
+## Opening And Documents
+
+The top-bar **Open** command starts with the operating system file picker. After
+choosing a file, select its reader, frame range, and one of these actions:
 
 | Action | Result |
 | --- | --- |
@@ -71,37 +100,13 @@ the active tab's camera, appearance, bonds, lighting, and other visual settings.
 New labels and chemical types are added to the existing Appearance and
 pairwise-bond controls automatically.
 
-### View And Edit Modes
-
-**View** is the default. It is optimized for visualization, trajectories,
-measurements, bonds, supercells, appearance, wrapping, and export:
-
-```bash
-v_ase gui trajectory.extxyz
-```
-
-Use the **View / Edit** switch in the top bar at any time. **Edit** enables
-coordinate transforms, atom creation/deletion, constraints, undo, copy/paste,
-and relaxation. To start directly in Edit:
-
-```bash
-v_ase gui structure.vasp --interactive
-```
-
-The current structure, trajectory frame, camera, labels, appearance, bonds,
-and selection remain in place during a mode change. If individual atoms have
-different visual materials, switching to View creates numbered labels only for
-those visual variants. Position-only edits stay in the same label group.
-
-### Multiple Documents
-
 Use **+** immediately after the document tabs to create an empty independent
 tab. Tabs resize as documents are added. Each tab owns its structure or
 trajectory, camera, selection, calculator, history, display settings,
 relaxation state, and `.vase` project. Inactive tabs pause rendering and movie
 playback.
 
-## Remote Servers And Clusters
+### Remote Servers And Clusters
 
 Install v_ase on both the local computer and remote server. Then run one command
 from the **local computer**:
@@ -187,7 +192,9 @@ ASE constraints remain authoritative during interactive transforms while
 
 ### FixedLine
 
-The atom moves only along its permitted line.
+The atom moves only along its permitted line. A short cyan axis and compact
+collar remain visible around every constrained atom even when it is not
+selected.
 
 ![FixedLine movement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedline.gif)
 
@@ -199,6 +206,8 @@ v_ase gui examples/readme_scene_assets/fixedline.traj --show-bonds --interactive
 
 `FixedPlane` atoms move within their displayed plane. VASP selective dynamics
 read as `FixScaled` are displayed from their allowed fractional directions.
+Each constrained atom keeps its own local plane ring, crosshair, and normal
+marker visible without selection.
 
 ![FixedPlane movement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedplane.gif)
 
@@ -269,7 +278,9 @@ controls together: **Atoms & Appearance**, **Cell & Replication**,
   for clear element colors and a dark background option;
 - 3D spheres/cylinders or 2D atoms/flat bonds;
 - live atomic scale in pixels per Angstrom;
-- unit cell, axes, grid, and overlay controls.
+- unit cell, axes, grid, and overlay controls;
+- unit-cell color, thickness in Angstrom, and Unlit, Standard, or Metal
+  material.
 
 **Structure > Atoms & Appearance** controls per-label TYPE, label, visibility,
 color, radius, material, atom smoothness, and anti-aliasing. New documents use

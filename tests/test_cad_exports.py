@@ -92,6 +92,20 @@ def test_cad_scene_respects_hidden_atom_types():
     assert scene["bonds"] == []
 
 
+def test_cad_scene_preserves_unit_cell_style():
+    payload = cad_payload()
+    payload["display"].update({
+        "cellColor": "#38bda8",
+        "cellThickness": 0.18,
+        "cellMaterial": "metal",
+    })
+    scene = _cad_scene_data(cad_session(), payload)
+
+    assert scene["cell_color"] == "#38bda8"
+    assert scene["cell_thickness"] == pytest.approx(0.18)
+    assert scene["cell_material"] == "metal"
+
+
 def test_obj_export_is_dependency_free_and_bundles_materials():
     response = export_obj_response(cad_session(), cad_payload())
     archive_path = Path(response.path)
@@ -154,7 +168,7 @@ def test_3dm_export_round_trips_as_editable_angstrom_scene():
         assert response.filename == "v_ase_scene.3dm"
         assert model.Settings.ModelUnitSystem == rhino3dm.UnitSystem.Angstroms
         assert [layer.Name for layer in model.Layers] == ["Atoms", "Bonds", "Unit Cell"]
-        assert len(model.InstanceDefinitions) == 2
+        assert len(model.InstanceDefinitions) == 3
         assert len(model.Views) == 1
         assert len(model.NamedViews) == 1
         assert model.Views[0].Name == "v_ase View"
@@ -177,10 +191,16 @@ def test_3dm_export_round_trips_as_editable_angstrom_scene():
             item for item in model.Objects
             if item.Attributes.GetUserString("v_ase.kind") == "bond"
         ]
+        cell_objects = [
+            item for item in model.Objects
+            if item.Attributes.GetUserString("v_ase.kind") == "unit_cell"
+        ]
         assert len(atom_objects) == 6
         assert len(bond_objects) == 4
+        assert len(cell_objects) == 20
         assert all(type(item.Geometry).__name__ == "InstanceReference" for item in atom_objects)
         assert all(type(item.Geometry).__name__ == "InstanceReference" for item in bond_objects)
+        assert all(type(item.Geometry).__name__ == "InstanceReference" for item in cell_objects)
         assert atom_objects[0].Attributes.GetUserString("v_ase.units") == "angstrom"
         assert atom_objects[0].Attributes.Name.startswith("atom_")
         assert {
@@ -195,6 +215,8 @@ def test_3dm_export_round_trips_as_editable_angstrom_scene():
         bond_length = (bond_xform.M02 ** 2 + bond_xform.M12 ** 2 + bond_xform.M22 ** 2) ** 0.5
         assert bond_diameter == pytest.approx(0.12)
         assert bond_length == pytest.approx(0.96)
+        assert cell_objects[0].Attributes.GetUserString("v_ase.thickness") == "0.04"
+        assert cell_objects[0].Attributes.GetUserString("v_ase.material") == "unlit"
     finally:
         model_path.unlink(missing_ok=True)
 

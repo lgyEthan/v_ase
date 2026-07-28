@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import base64
 import math
 import os
@@ -241,6 +242,7 @@ def save_logo_render(page, path: Path):
             transparentBackground: true,
             includeGrid: false,
             includeAxes: false,
+            includeCell: false,
             renderMode: 'studio-shadow',
             sunIntensity: 3.1,
             sunPosition: [-22, -26, 42],
@@ -274,9 +276,10 @@ def capture_logo(browser):
             "showGrid": False,
             "showBonds": False,
             "showOverlays": False,
-            "atomRadiusScale": 1.0,
-            "labelRadii": {"Cu": 1.278, "O": 0.80},
-            "labelColors": {"Cu": "#71493f", "O": "#d7f26f"},
+            "atomRadiusScale": 0.96,
+            "labelRadii": {"Cu": 1.278, "O": 0.82},
+            "labelColors": {"Cu": "#24534c", "O": "#f4c55d"},
+            "labelMaterials": {"Cu": "rubber", "O": "metal"},
             "projectionMode": "orthographic",
         })
         page.evaluate(
@@ -286,14 +289,14 @@ def capture_logo(browser):
                 renderer.setProjectionMode('orthographic');
                 renderer.controls.target.set(0, 0, 0);
                 renderer.camera.up.set(0, 1, 0);
-                renderer.camera.position.set(0, -12, 70);
+                renderer.camera.position.set(5.5, -10.5, 70);
                 renderer.camera.lookAt(renderer.controls.target);
                 renderer.fitCameraToStructure();
-                renderer.camera.zoom *= 1.04;
+                renderer.camera.zoom *= 1.02;
                 renderer.camera.updateProjectionMatrix();
             }"""
         )
-        set_readme_lighting(page, [0, 0, 0], intensity=3.1, position_offset=(-22, -26, 42))
+        set_readme_lighting(page, [0, 0, 0], intensity=3.4, position_offset=(-26, -30, 46))
         docs_logo = ROOT / "docs" / "assets" / "v_ase-logo.png"
         static_logo = ROOT / "v_ase" / "static" / "v_ase-logo.png"
         save_logo_render(page, docs_logo)
@@ -629,6 +632,13 @@ def ferrocene_rotate_frames(base: np.ndarray, indices: list[int], count=46) -> l
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--logo-only",
+        action="store_true",
+        help="Regenerate only the shared transparent v_ase logo asset.",
+    )
+    args = parser.parse_args()
     ASSET_DIR.mkdir(parents=True, exist_ok=True)
     import webbrowser
 
@@ -638,6 +648,9 @@ def main() -> int:
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         try:
+            if args.logo_only:
+                capture_logo(browser)
+                return 0
             if ASSET_DIR.resolve() == (ROOT / "docs" / "assets").resolve():
                 capture_logo(browser)
 

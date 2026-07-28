@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.95&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.95&rev=1';
-import { ASESelection } from './selection.js?v=0.0.95&rev=1';
-import { ASETransform } from './transform.js?v=0.0.95&rev=1';
+import { ASEApi } from './api.js?v=0.0.96&rev=3';
+import { ASERenderer } from './renderer.js?v=0.0.96&rev=3';
+import { ASESelection } from './selection.js?v=0.0.96&rev=3';
+import { ASETransform } from './transform.js?v=0.0.96&rev=3';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.95&rev=1';
+} from './trajectory.js?v=0.0.96&rev=3';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -92,6 +92,9 @@ class VAseApp {
                 showGrid: true,
                 showOverlays: true,
                 showPeriodicBonds: false,
+                cellThickness: 0.04,
+                cellColor: '#d6bd67',
+                cellMaterial: 'unlit',
                 bondMode: 'auto',
                 bondCutoffScale: 1.0,
                 manualBondPairs: [],
@@ -2339,6 +2342,18 @@ class VAseApp {
         this.state.display.showGrid = config.show_grid !== false;
         this.state.display.showOverlays = config.show_overlays !== false;
         this.state.display.showPeriodicBonds = Boolean(config.show_periodic_bonds);
+        const initialCellThickness = Number(
+            config.cell_thickness ?? this.state.display.cellThickness
+        );
+        this.state.display.cellThickness = Number.isFinite(initialCellThickness)
+            ? Math.max(0.01, Math.min(0.30, initialCellThickness))
+            : this.state.display.cellThickness;
+        if (/^#[0-9A-Fa-f]{6}$/.test(config.cell_color || '')) {
+            this.state.display.cellColor = config.cell_color;
+        }
+        this.state.display.cellMaterial = ['unlit', 'standard', 'metal'].includes(config.cell_material)
+            ? config.cell_material
+            : this.state.display.cellMaterial;
         this.state.display.bondStyle = ['cylinder', 'flat'].includes(config.bond_style)
             ? config.bond_style
             : this.state.display.bondStyle;
@@ -2400,6 +2415,9 @@ class VAseApp {
         document.getElementById('bond-color-mode').value = this.state.display.bondColorMode;
         document.getElementById('bond-custom-color').value = this.state.display.bondCustomColor;
         document.getElementById('chk-cell').checked = this.state.display.showCell;
+        document.getElementById('cell-thickness').value = this.state.display.cellThickness;
+        document.getElementById('cell-color').value = this.state.display.cellColor;
+        document.getElementById('cell-material').value = this.state.display.cellMaterial;
         document.getElementById('chk-axes').checked = this.state.display.showAxes;
         document.getElementById('chk-grid').checked = this.state.display.showGrid;
         document.getElementById('chk-overlays').checked = this.state.display.showOverlays;
@@ -5198,6 +5216,16 @@ class VAseApp {
         }
         this.state.display.showBonds = document.getElementById('chk-bonds').checked;
         this.state.display.showCell = document.getElementById('chk-cell').checked;
+        const cellThickness = Number(document.getElementById('cell-thickness')?.value);
+        this.state.display.cellThickness = Number.isFinite(cellThickness)
+            ? Math.max(0.01, Math.min(0.30, cellThickness))
+            : 0.04;
+        const cellColor = document.getElementById('cell-color')?.value;
+        this.state.display.cellColor = this.validHexColor(cellColor) ? cellColor : '#d6bd67';
+        const cellMaterial = document.getElementById('cell-material')?.value;
+        this.state.display.cellMaterial = ['unlit', 'standard', 'metal'].includes(cellMaterial)
+            ? cellMaterial
+            : 'unlit';
         this.state.display.showAxes = document.getElementById('chk-axes').checked;
         this.state.display.showGrid = document.getElementById('chk-grid').checked;
         this.state.display.showOverlays = document.getElementById('chk-overlays')?.checked !== false;
@@ -5373,6 +5401,11 @@ class VAseApp {
         };
         setChecked('chk-bonds', display.showBonds);
         setChecked('chk-cell', display.showCell);
+        setValue('cell-thickness', display.cellThickness ?? 0.04);
+        setValue('cell-color', this.validHexColor(display.cellColor) ? display.cellColor : '#d6bd67');
+        setValue('cell-material', ['unlit', 'standard', 'metal'].includes(display.cellMaterial)
+            ? display.cellMaterial
+            : 'unlit');
         setChecked('chk-axes', display.showAxes);
         setChecked('chk-grid', display.showGrid);
         setChecked('chk-overlays', display.showOverlays !== false);
@@ -5546,6 +5579,13 @@ class VAseApp {
 
         return {
             ...this.clonePlain(nextDisplay),
+            cellThickness: finiteClamped(nextDisplay.cellThickness, 0.04, 0.01, 0.30),
+            cellColor: this.validHexColor(nextDisplay.cellColor)
+                ? nextDisplay.cellColor
+                : '#d6bd67',
+            cellMaterial: ['unlit', 'standard', 'metal'].includes(nextDisplay.cellMaterial)
+                ? nextDisplay.cellMaterial
+                : 'unlit',
             commensurateGuide: Boolean(nextDisplay.commensurateGuide),
             commensurateSnap: nextDisplay.commensurateSnap !== false,
             commensurateStrainTolerance: finiteClamped(
@@ -8113,6 +8153,11 @@ class VAseApp {
         document.getElementById('chk-bonds').onchange = () => this.safeApplyBondOptions();
         document.getElementById('chk-periodic-bonds').onchange = () => this.safeApplyBondOptions();
         document.getElementById('chk-cell').onchange = () => this.safeApplyDisplayOptions();
+        document.getElementById('cell-thickness').oninput = () => this.safeApplyDisplayOptions();
+        document.getElementById('cell-thickness').onchange = () => this.safeApplyDisplayOptions();
+        document.getElementById('cell-color').oninput = () => this.safeApplyDisplayOptions();
+        document.getElementById('cell-color').onchange = () => this.safeApplyDisplayOptions();
+        document.getElementById('cell-material').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('chk-axes').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('chk-grid').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('chk-overlays').onchange = () => this.safeApplyDisplayOptions();

@@ -69,7 +69,8 @@ The bottom `MEASURE` HUD is tied to the retained selection, not the mouse
 pointer. Ordered selections are labeled `a1` through `a4`: two atoms measure
 `a1-a2`, three measure the `a1-a2-a3` angle at `a2`, and four measure the
 signed `a1-a2-a3-a4` torsion. Direct and MIC results are displayed together.
-Five or more atoms show only the selected count.
+Five or more atoms show the selected total followed by stable per-label
+counts.
 Box selection uses a deterministic visible order. The separate Hover HUD
 continues to update atom metadata as the pointer moves.
 
@@ -107,6 +108,9 @@ the complete saved project.
 - `FixScaled` follows its allowed fractional cell directions.
 - Disable **Apply constraints** for unrestricted editing without removing the
   saved constraints.
+
+`FixedLine` and `FixedPlane` guides remain visible without selecting the atom.
+They stay local to each constrained atom and scale with its displayed radius.
 
 ## Calculator Controls
 - The top-right `DEVICE` and `CPU` controls are active only for the default

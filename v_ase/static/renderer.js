@@ -612,6 +612,9 @@ export class ASERenderer {
             showGrid: true,
             showBonds: false,
             showPeriodicBonds: false,
+            cellThickness: 0.04,
+            cellColor: '#d6bd67',
+            cellMaterial: 'unlit',
             bondMode: 'auto',
             bondCutoffScale: 1.0,
             manualBondPairs: [],
@@ -670,6 +673,8 @@ export class ASERenderer {
         this.shadowModeActive = false;
         this.bondPairs = [];
         this.supercellBridgeBondRecords = [];
+        this.cellEdgeGeometry = new THREE.CylinderGeometry(1, 1, 1, 10, 1, false);
+        this.cellEdgeDummy = new THREE.Object3D();
         this.bondCylinderGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 16);
         this.bondFlatGeometry = new THREE.PlaneGeometry(1, 1);
         this.displacementConeGeometry = new THREE.ConeGeometry(0.5, 1, 12);
@@ -703,14 +708,15 @@ export class ASERenderer {
         });
         this.constraintMaterials = {
             line: new THREE.MeshBasicMaterial({
-                color: 0x76d7f2,
+                color: 0x239fb8,
+                side: THREE.DoubleSide,
                 transparent: true,
-                opacity: 0.46,
+                opacity: 0.86,
                 depthTest: true,
                 depthWrite: false
             }),
             lineFade: new THREE.MeshBasicMaterial({
-                color: 0x76d7f2,
+                color: 0x239fb8,
                 transparent: true,
                 opacity: 0.16,
                 depthTest: true,
@@ -1021,7 +1027,7 @@ export class ASERenderer {
 
     applyShadowFlags() {
         const enabled = Boolean(this.shadowModeActive);
-        [this.atomMeshes, this.bondGroup, this.supercellGroup].forEach(group => {
+        [this.atomMeshes, this.cellGroup, this.bondGroup, this.supercellGroup].forEach(group => {
             group?.traverse?.(object => {
                 if (!object.isMesh) return;
                 object.castShadow = enabled;
@@ -1749,12 +1755,7 @@ export class ASERenderer {
             const child = this.atomMeshes.children[0];
             this.atomMeshes.remove(child); 
         }
-        while(this.cellGroup.children.length > 0){
-            const child = this.cellGroup.children[0];
-            this.cellGroup.remove(child);
-            if(child.geometry) child.geometry.dispose();
-            if(child.material) child.material.dispose();
-        }
+        this.clearGroup(this.cellGroup);
         this.clearGroup(this.bondGroup);
         this.clearDisplacementVectors();
         this.clearCommensurateGuides();
@@ -1785,6 +1786,7 @@ export class ASERenderer {
             this.rebuildInstancedAtoms(atoms, this.customColors, fixed, segmentCount);
             this.rebuildCell(atoms.cell);
             this.rebuildBonds();
+            this.rebuildConstraintGuides();
             this.rebuildHookeanConstraints();
             this.rebuildSupercell();
             this.applyOverlayVisibility();
@@ -1832,6 +1834,7 @@ export class ASERenderer {
 
         this.rebuildCell(atoms.cell);
         this.rebuildBonds();
+        this.rebuildConstraintGuides();
         this.rebuildHookeanConstraints();
         this.rebuildSupercell();
         this.applyOverlayVisibility();
@@ -2695,15 +2698,97 @@ export class ASERenderer {
             new THREE.Vector3().addVectors(a, b).add(c)
         ];
         const edgePairs = [[0,1],[0,2],[0,3],[1,4],[1,5],[2,4],[2,6],[3,5],[3,6],[4,7],[5,7],[6,7]];
-        const points = [];
-        edgePairs.forEach(([i, j]) => {
-            points.push(corners[i], corners[j]);
-        });
-        const geo = new THREE.BufferGeometry().setFromPoints(points);
-        const mat = new THREE.LineBasicMaterial({ color: 0x8b7f6a, transparent: true, opacity: 0.65 });
-        this.cellGroup.add(new THREE.LineSegments(geo, mat));
-        this.cellGroup.visible = this.displayOptions.showCell;
+        const segments = edgePairs.map(([i, j]) => [corners[i], corners[j]]);
+        this.addCellEdgeInstances(this.cellGroup, segments, { unitCell: true });
+        this.updateCellVisibility();
         this.requestRender();
+    }
+
+    normalizedCellColor() {
+        const value = String(this.displayOptions.cellColor || '');
+        return /^#[0-9a-f]{6}$/i.test(value) ? value : '#d6bd67';
+    }
+
+    normalizedCellThickness() {
+        const value = Number(this.displayOptions.cellThickness);
+        return THREE.MathUtils.clamp(Number.isFinite(value) ? value : 0.04, 0.01, 0.30);
+    }
+
+    normalizedCellMaterial() {
+        const value = String(this.displayOptions.cellMaterial || 'unlit');
+        return ['unlit', 'standard', 'metal'].includes(value) ? value : 'unlit';
+    }
+
+    createCellMaterial() {
+        const common = {
+            color: new THREE.Color(this.normalizedCellColor()),
+            transparent: true,
+            opacity: 0.88,
+            depthTest: true,
+            depthWrite: false
+        };
+        const preset = this.normalizedCellMaterial();
+        if (preset === 'metal') {
+            return new THREE.MeshStandardMaterial({
+                ...common,
+                metalness: 0.82,
+                roughness: 0.22
+            });
+        }
+        if (preset === 'standard') {
+            return new THREE.MeshStandardMaterial({
+                ...common,
+                metalness: 0.06,
+                roughness: 0.52
+            });
+        }
+        return new THREE.MeshBasicMaterial(common);
+    }
+
+    addCellEdgeInstances(group, segments, userData = {}) {
+        const valid = (segments || []).filter(([start, end]) => (
+            start instanceof THREE.Vector3
+            && end instanceof THREE.Vector3
+            && start.distanceToSquared(end) > 1e-12
+        ));
+        if (!valid.length) return null;
+
+        const mesh = new THREE.InstancedMesh(
+            this.cellEdgeGeometry,
+            this.createCellMaterial(),
+            valid.length
+        );
+        const radius = this.normalizedCellThickness() * 0.5;
+        valid.forEach(([start, end], index) => {
+            const delta = end.clone().sub(start);
+            const length = delta.length();
+            this.cellEdgeDummy.position.copy(start).add(end).multiplyScalar(0.5);
+            this.cellEdgeDummy.quaternion.setFromUnitVectors(
+                this.yAxis,
+                delta.multiplyScalar(1 / length)
+            );
+            this.cellEdgeDummy.scale.set(radius, length, radius);
+            this.cellEdgeDummy.updateMatrix();
+            mesh.setMatrixAt(index, this.cellEdgeDummy.matrix);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.frustumCulled = false;
+        mesh.renderOrder = 3;
+        mesh.userData = {
+            ...userData,
+            sharedGeometry: true,
+            cellEdgeInstances: true
+        };
+        group.add(mesh);
+        return mesh;
+    }
+
+    updateCellVisibility() {
+        const visible = this.displayOptions.showCell !== false;
+        this.cellGroup.visible = visible;
+        this.supercellGroup?.children?.forEach(child => {
+            if (child.userData?.supercellCellPreview) child.visible = visible;
+        });
     }
 
     updatePositions(positions) {
@@ -2846,6 +2931,9 @@ export class ASERenderer {
             ])].filter(label => previous.labelVisible?.[label] !== this.displayOptions.labelVisible?.[label])
             : [];
         const supercellChanged = !numberArrayEqual(previous.supercell, this.displayOptions.supercell);
+        const cellStyleChanged = previous.cellThickness !== this.displayOptions.cellThickness ||
+            previous.cellColor !== this.displayOptions.cellColor ||
+            previous.cellMaterial !== this.displayOptions.cellMaterial;
         const lightingChanged = previous.lightingMode !== this.displayOptions.lightingMode ||
             previous.sunIntensity !== this.displayOptions.sunIntensity ||
             previous.sunGizmo !== this.displayOptions.sunGizmo ||
@@ -2866,7 +2954,7 @@ export class ASERenderer {
         if (lightingChanged) this.setLightingOptions(this.displayOptions);
         if (!rebuild) {
             if (antiAliasingChanged) this.updateRenderQuality();
-            this.cellGroup.visible = this.displayOptions.showCell;
+            this.updateCellVisibility();
             if (this.axesHelper) this.axesHelper.visible = this.displayOptions.showAxes;
             if (this.gridGroup) this.gridGroup.visible = this.displayOptions.showGrid;
             this.applyOverlayVisibility();
@@ -2888,7 +2976,13 @@ export class ASERenderer {
                 this.rebuildSupercell();
             }
         }
-        this.cellGroup.visible = this.displayOptions.showCell;
+        if (cellStyleChanged && this.atomsData) {
+            this.rebuildCell(this.atomsData.cell);
+            if ((this.displayOptions.supercell || [1, 1, 1]).some(value => value > 1)) {
+                this.rebuildSupercell();
+            }
+        }
+        this.updateCellVisibility();
         if (this.axesHelper) this.axesHelper.visible = this.displayOptions.showAxes;
         if (this.gridGroup) this.gridGroup.visible = this.displayOptions.showGrid;
         this.applyOverlayVisibility();
@@ -4910,7 +5004,18 @@ export class ASERenderer {
 
     addSupercellCellPreview(cell, reps) {
         const edgePairs = [[0,1],[0,2],[0,3],[1,4],[1,5],[2,4],[2,6],[3,5],[3,6],[4,7],[5,7],[6,7]];
-        const points = [];
+        const segments = [];
+        const edgeKeys = new Set();
+        const vectorKey = (point) => [point.x, point.y, point.z]
+            .map(value => value.toFixed(8))
+            .join(',');
+        const addUniqueSegment = (start, end) => {
+            const endpoints = [vectorKey(start), vectorKey(end)].sort();
+            const key = endpoints.join('|');
+            if (edgeKeys.has(key)) return;
+            edgeKeys.add(key);
+            segments.push([start, end]);
+        };
         const baseCorners = (shift) => {
             const o = shift.clone();
             return [
@@ -4932,20 +5037,24 @@ export class ASERenderer {
                         .addScaledVector(cell[1], iy)
                         .addScaledVector(cell[2], iz);
                     const corners = baseCorners(shift);
-                    edgePairs.forEach(([i, j]) => points.push(corners[i], corners[j]));
+                    edgePairs.forEach(([i, j]) => addUniqueSegment(corners[i], corners[j]));
                 }
             }
         }
-        const geo = new THREE.BufferGeometry().setFromPoints(points);
-        const mat = new THREE.LineBasicMaterial({
-            color: 0xffc65a,
-            transparent: true,
-            opacity: 0.54,
-            depthWrite: false
-        });
-        const lines = new THREE.LineSegments(geo, mat);
-        lines.userData = { supercellCellPreview: true };
-        this.supercellGroup.add(lines);
+        const originCorners = baseCorners(new THREE.Vector3());
+        const originKeys = new Set(edgePairs.map(([i, j]) => {
+            const endpoints = [vectorKey(originCorners[i]), vectorKey(originCorners[j])].sort();
+            return endpoints.join('|');
+        }));
+        const mesh = this.addCellEdgeInstances(
+            this.supercellGroup,
+            segments.filter(([start, end]) => {
+                const endpoints = [vectorKey(start), vectorKey(end)].sort();
+                return !originKeys.has(endpoints.join('|'));
+            }),
+            { supercellCellPreview: true }
+        );
+        if (mesh) mesh.visible = this.displayOptions.showCell !== false;
     }
 
     updateSupercellPositions({ translationsOnly = false } = {}) {
@@ -5017,49 +5126,106 @@ export class ASERenderer {
     }
 
     rebuildConstraintGuides(selectedIndices = new Set()) {
-        this.clearGroup(this.constraintGuideGroup);
-        if (!this.atomsData?.constraints || !selectedIndices.size || this.displayOptions.showOverlays === false) return;
+        if (!this.atomsData?.constraints || this.displayOptions.showOverlays === false) {
+            this.clearGroup(this.constraintGuideGroup);
+            this.constraintGuideSignature = '';
+            return;
+        }
         const fixedLine = this.atomsData.constraints.fixed_line || {};
         const fixedPlane = this.atomsData.constraints.fixed_plane || {};
-        const compactPlane = selectedIndices.size > 1;
-        selectedIndices.forEach(idx => {
+        const constrained = new Set([
+            ...Object.keys(fixedLine).map(Number),
+            ...Object.keys(fixedPlane).map(Number)
+        ]);
+        const constrainedIndices = [...constrained].filter(Number.isInteger).sort((a, b) => a - b);
+        const signature = JSON.stringify(constrainedIndices.map(idx => ({
+            index: idx,
+            line: fixedLine[idx] || fixedLine[String(idx)] || null,
+            plane: fixedPlane[idx] || fixedPlane[String(idx)] || null,
+            radius: Number(this.atomVisualRadius?.(idx) || 0).toFixed(5)
+        })));
+        const expectedGuideCount = constrainedIndices.reduce((count, idx) => (
+            count
+            + ((fixedLine[idx] || fixedLine[String(idx)]) ? 1 : 0)
+            + ((fixedPlane[idx] || fixedPlane[String(idx)]) ? 1 : 0)
+        ), 0);
+        if (
+            signature === this.constraintGuideSignature
+            && this.constraintGuideGroup.children.length === expectedGuideCount
+        ) {
+            this.constraintGuideGroup.children.forEach(group => {
+                group.userData.selected = selectedIndices.has(group.userData.constraintGuideFor);
+            });
+            return;
+        }
+
+        this.clearGroup(this.constraintGuideGroup);
+        this.constraintGuideSignature = signature;
+        constrainedIndices.forEach(idx => {
             const atom = this.atomMeshByIndex.get(idx);
             if (!atom) return;
             if (fixedLine[idx] || fixedLine[String(idx)]) {
-                this.addFixedLineGuide(idx, fixedLine[idx] || fixedLine[String(idx)]);
+                this.addFixedLineGuide(
+                    idx,
+                    fixedLine[idx] || fixedLine[String(idx)],
+                    { selected: selectedIndices.has(idx) }
+                );
             }
             const planeNormal = fixedPlane[idx] || fixedPlane[String(idx)];
             if (planeNormal) {
-                this.addFixedPlaneGuide(idx, planeNormal, { compact: compactPlane });
+                this.addFixedPlaneGuide(idx, planeNormal, { selected: selectedIndices.has(idx) });
             }
         });
     }
 
-    addFixedLineGuide(index, directionValues) {
+    constraintGuideMetrics(index) {
+        const atomRadius = Math.max(0.12, Number(this.atomVisualRadius?.(index) || 0.55));
+        const outerRadius = THREE.MathUtils.clamp(atomRadius * 1.46, 0.34, 2.6);
+        const strokeWidth = THREE.MathUtils.clamp(atomRadius * 0.09, 0.022, 0.075);
+        return {
+            atomRadius,
+            outerRadius,
+            strokeWidth,
+            tubeRadius: strokeWidth * 0.5,
+            lineHalfLength: THREE.MathUtils.clamp(atomRadius * 1.90, 0.46, 3.2)
+        };
+    }
+
+    addFixedLineGuide(index, directionValues, options = {}) {
         const atom = this.atomMeshByIndex.get(index);
         if (!atom) return;
         const direction = this.normalizedVector(directionValues);
+        const metrics = this.constraintGuideMetrics(index);
         const group = new THREE.Group();
-        group.userData = { constraintGuideFor: index, kind: 'fixed_line', direction: direction.toArray() };
+        group.userData = {
+            constraintGuideFor: index,
+            kind: 'fixed_line',
+            direction: direction.toArray(),
+            selected: Boolean(options.selected)
+        };
 
-        const length = Math.max(6.0, Math.min(18.0, (this.desiredGuideSize?.() || 12) * 0.22));
         const center = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.line);
         center.userData = { sharedMaterial: true, lineGuideSegment: true };
         this.setLinePoints(center, [
-            new THREE.Vector3(0, -length * 0.32, 0),
-            new THREE.Vector3(0, length * 0.32, 0)
-        ], 'lineGuideCenter', 0.014);
+            new THREE.Vector3(0, -metrics.lineHalfLength, 0),
+            new THREE.Vector3(0, metrics.lineHalfLength, 0)
+        ], 'lineGuideCenter', metrics.tubeRadius);
         group.add(center);
 
-        [-1, 1].forEach(sign => {
-            const fade = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.lineFade);
-            fade.userData = { sharedMaterial: true, lineGuideFade: true };
-            this.setLinePoints(fade, [
-                new THREE.Vector3(0, sign * length * 0.32, 0),
-                new THREE.Vector3(0, sign * length * 0.50, 0)
-            ], `lineGuideFade${sign}`, 0.010);
-            group.add(fade);
-        });
+        const collarOuter = metrics.atomRadius * 1.16;
+        const collar = new THREE.Mesh(
+            new THREE.RingGeometry(
+                Math.max(metrics.atomRadius * 1.04, collarOuter - metrics.strokeWidth),
+                collarOuter,
+                48
+            ),
+            this.constraintMaterials.line
+        );
+        collar.rotation.x = Math.PI * 0.5;
+        collar.userData = { sharedMaterial: true, fixedLineCollar: true };
+        collar.renderOrder = 20;
+        group.add(collar);
+
         group.position.copy(atom.position);
         this.orientYAxis(group, direction);
         group.renderOrder = 20;
@@ -5071,56 +5237,38 @@ export class ASERenderer {
         if (!atom) return;
         const normal = this.normalizedVector(normalValues);
         const planeOffset = 0.04;
-        const compact = Boolean(options.compact);
+        const metrics = this.constraintGuideMetrics(index);
         const group = new THREE.Group();
         group.userData = {
             constraintGuideFor: index,
             kind: 'fixed_plane',
             normal: normal.toArray(),
             anchor: atom.position.toArray(),
-            planeOffset
+            planeOffset,
+            selected: Boolean(options.selected)
         };
 
-        const atomRadius = this.atomVisualRadius?.(index) || 0.55;
-        const guideSize = compact
-            ? Math.max(1.15, Math.min(2.8, atomRadius * 2.8))
-            : Math.max(8, Math.min(80, (this.desiredGuideSize?.() || 24) * 0.52));
-        const planeGeometry = compact
-            ? new THREE.CircleGeometry(guideSize * 0.5, 48)
-            : new THREE.PlaneGeometry(guideSize, guideSize);
-        const plane = new THREE.Mesh(planeGeometry, compact ? this.constraintMaterials.planeAggregate : this.constraintMaterials.planeSoft);
+        const planeGeometry = new THREE.CircleGeometry(metrics.outerRadius, 48);
+        const plane = new THREE.Mesh(planeGeometry, this.constraintMaterials.planeAggregate);
         plane.userData.sharedMaterial = true;
         plane.renderOrder = 16;
         group.add(plane);
 
-        const half = guideSize * 0.5;
-        const cross = guideSize * (compact ? 0.26 : 0.34);
-        const edgeRadius = Math.max(0.008, guideSize * 0.0016);
-        const crossRadius = Math.max(0.010, guideSize * 0.0018);
-        const normalRadius = Math.max(0.012, guideSize * 0.0021);
-        if (compact) {
-            const ring = new THREE.Mesh(
-                new THREE.RingGeometry(half * 0.94, half, 64),
-                this.constraintMaterials.planePerimeter
-            );
-            ring.userData = { sharedMaterial: true, fixedPlanePerimeter: true };
-            ring.renderOrder = 18;
-            group.add(ring);
-        } else {
-            const edges = [
-                [[-half, -half, 0.002], [half, -half, 0.002]],
-                [[half, -half, 0.002], [half, half, 0.002]],
-                [[half, half, 0.002], [-half, half, 0.002]],
-                [[-half, half, 0.002], [-half, -half, 0.002]]
-            ];
-            edges.forEach((edge, edgeIndex) => {
-                const line = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.planePerimeter);
-                line.userData = { sharedMaterial: true, fixedPlanePerimeter: true };
-                this.setLinePoints(line, edge.map(p => new THREE.Vector3(...p)), `fixedPlaneEdge${edgeIndex}`, edgeRadius);
-                line.renderOrder = 18;
-                group.add(line);
-            });
-        }
+        const half = metrics.outerRadius;
+        const cross = metrics.outerRadius * 0.52;
+        const crossRadius = metrics.tubeRadius * 0.72;
+        const normalRadius = metrics.tubeRadius * 0.82;
+        const ring = new THREE.Mesh(
+            new THREE.RingGeometry(
+                Math.max(0.01, half - metrics.strokeWidth),
+                half,
+                64
+            ),
+            this.constraintMaterials.planePerimeter
+        );
+        ring.userData = { sharedMaterial: true, fixedPlanePerimeter: true };
+        ring.renderOrder = 18;
+        group.add(ring);
 
         [
             [[-cross, 0, 0.006], [cross, 0, 0.006]],
@@ -5133,9 +5281,7 @@ export class ASERenderer {
             group.add(line);
         });
 
-        const tickLength = compact
-            ? Math.max(0.32, Math.min(0.72, guideSize * 0.24))
-            : Math.max(0.9, Math.min(2.4, guideSize * 0.085));
+        const tickLength = THREE.MathUtils.clamp(metrics.atomRadius * 0.72, 0.20, 1.0);
         const normalTick = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.planeNormal);
         normalTick.userData = { sharedMaterial: true, fixedPlaneNormalTick: true };
         this.setLinePoints(normalTick, [

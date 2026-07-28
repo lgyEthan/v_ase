@@ -155,6 +155,14 @@ and documentation use `view()`.
 36. Remote sessions force frame streaming for every trajectory size. Source
     files, ASE objects, and full trajectory caches stay on the server; the
     browser receives the current frame only.
+37. `FixedLine` and `FixedPlane` guides are persistent per-atom overlays. They
+    remain visible without selection, stay local to each constrained atom, are
+    depth-tested against the structure, and scale from the displayed atom
+    radius instead of viewport size.
+38. Unit-cell edges use one instanced cylinder primitive in the viewport and
+    expose color, Angstrom thickness, and material controls. Supercell previews
+    reuse the same style and deduplicate shared edges so repeated cells do not
+    become darker at overlaps.
 
 ## Canonical Names And Compatibility
 

@@ -903,10 +903,12 @@ def test_trajectory_controls_update_live_and_space_toggles_playback():
     assert ".secondary-trajectory-row" in style_css
     renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
     assert "canonicalVectorKey" in renderer_js
-    assert "const compactPlane = selectedIndices.size > 1" in renderer_js
-    assert "this.addFixedPlaneGuide(idx, planeNormal, { compact: compactPlane })" in renderer_js
-    assert "new THREE.CircleGeometry(guideSize * 0.5, 48)" in renderer_js
-    assert "new THREE.RingGeometry(half * 0.94, half, 64)" in renderer_js
+    assert "...Object.keys(fixedLine).map(Number)" in renderer_js
+    assert "...Object.keys(fixedPlane).map(Number)" in renderer_js
+    assert "!selectedIndices.size" not in renderer_js
+    assert "constraintGuideMetrics(index)" in renderer_js
+    assert "new THREE.CircleGeometry(metrics.outerRadius, 48)" in renderer_js
+    assert "Math.max(0.01, half - metrics.strokeWidth)" in renderer_js
     assert "constraintGuideIndices" in renderer_js
     assert "planeAggregate" in renderer_js
     assert "refreshBondsForCurrentPositions" in renderer_js
@@ -914,6 +916,30 @@ def test_trajectory_controls_update_live_and_space_toggles_playback():
     assert "const periodicPairs = this.inferBondPairs(true)" in renderer_js
     assert "bridgeRecords: this.inferSupercellBridgeBondRecords(repeats, periodicPairs)" in renderer_js
     assert "this.refreshBondsForCurrentPositions()" in renderer_js
+
+
+def test_persistent_constraint_guides_and_cell_style_controls_are_wired():
+    index_html = (ROOT / "v_ase/static/index.html").read_text()
+    main_js = (ROOT / "v_ase/static/main.js").read_text()
+    renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
+    style_css = (ROOT / "v_ase/static/style.css").read_text()
+
+    assert 'id="cell-color"' in index_html
+    assert 'id="cell-thickness"' in index_html
+    assert 'id="cell-material"' in index_html
+    assert "cellThickness: 0.04" in main_js
+    assert "cellColor: '#d6bd67'" in main_js
+    assert "cellMaterial: 'unlit'" in main_js
+    assert "normalizedCellThickness()" in renderer_js
+    assert "createCellMaterial()" in renderer_js
+    assert "new THREE.InstancedMesh(" in renderer_js
+    assert "addUniqueSegment" in renderer_js
+    assert "originKeys" in renderer_js
+    assert "signature === this.constraintGuideSignature" in renderer_js
+    assert "lineHalfLength" in renderer_js
+    assert "fixedLineCollar" in renderer_js
+    assert ".chemical-type-select" in style_css
+    assert ".cell-translation .panel-note" in style_css
 
 
 def test_export_downloads_use_save_picker_and_fallback_anchor():
