@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import numpy as np
 from ase.constraints import FixedLine, FixedPlane, Hookean
 from ase.io import read
 from PIL import Image
@@ -39,6 +40,10 @@ def test_brand_logo_is_native_high_resolution_transparent_png():
 
     assert docs_logo.read_bytes() == static_logo.read_bytes()
     with Image.open(docs_logo) as image:
-        assert image.size == (4800, 1476)
+        assert image.size == (6144, 1890)
         assert image.mode == "RGBA"
         assert image.getchannel("A").getextrema() == (0, 255)
+        alpha = np.asarray(image.getchannel("A"))
+        partial_alpha = np.count_nonzero((alpha > 8) & (alpha < 247))
+        opaque_alpha = np.count_nonzero(alpha >= 247)
+        assert partial_alpha / opaque_alpha < 0.05

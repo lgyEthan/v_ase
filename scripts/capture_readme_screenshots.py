@@ -45,7 +45,11 @@ def configured_asset_dir() -> Path:
 
 ASSET_DIR = configured_asset_dir()
 MEDIA_SIZE = parse_media_size(os.environ.get("V_ASE_README_MEDIA_SIZE"), (1920, 1080))
-LOGO_SIZE = parse_media_size(os.environ.get("V_ASE_LOGO_SIZE"), (4800, 1476))
+LOGO_SIZE = parse_media_size(os.environ.get("V_ASE_LOGO_SIZE"), (6144, 1890))
+LOGO_RENDER_SIZE = parse_media_size(os.environ.get("V_ASE_LOGO_RENDER_SIZE"), (7680, 2362))
+LOGO_SUBSTRATE_COLOR = os.environ.get("V_ASE_LOGO_SUBSTRATE_COLOR", "#3d474d")
+LOGO_LETTER_COLOR = os.environ.get("V_ASE_LOGO_LETTER_COLOR", "#71d6c3")
+LOGO_PIXELS_PER_ANGSTROM = float(os.environ.get("V_ASE_LOGO_PIXELS_PER_ANGSTROM", "92"))
 
 LOGO_GLYPHS = {
     "V": {"width": 6.0, "paths": (((0.0, 8.0), (3.0, 0.0), (6.0, 8.0)),)},
@@ -239,30 +243,50 @@ def set_readme_lighting(page, target, *, intensity=2.9, position_offset=(-12.0, 
 
 def save_logo_render(page, path: Path):
     width, height = LOGO_SIZE
+    render_width, render_height = LOGO_RENDER_SIZE
     data_url = page.evaluate(
-        """({ width, height }) => window.__V_ASE_APP__.renderer.exportPNG(width, height, {
+        """({ width, height, pixelsPerAngstrom }) => window.__V_ASE_APP__.renderer.exportPNG(width, height, {
             transparentBackground: true,
             includeGrid: false,
             includeAxes: false,
             includeCell: false,
             renderMode: 'studio-shadow',
-            sunIntensity: 3.1,
+            sunIntensity: 2.45,
             sunPosition: [-22, -26, 42],
-            sunTarget: [0, 0, 0]
+            sunTarget: [0, 0, 0],
+            sphereQuality: 'ultra',
+            sphereQualityScale: 2,
+            scaleMode: 'physical',
+            pixelsPerAngstrom
         })""",
-        {"width": width, "height": height},
+        {
+            "width": render_width,
+            "height": render_height,
+            "pixelsPerAngstrom": LOGO_PIXELS_PER_ANGSTROM,
+        },
     )
     payload = base64.b64decode(data_url.split(",", 1)[1])
     image = Image.open(BytesIO(payload)).convert("RGBA")
+    raw_output = os.environ.get("V_ASE_LOGO_RAW_OUTPUT")
+    if raw_output:
+        raw_path = Path(raw_output).expanduser()
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        image.save(raw_path, optimize=True, compress_level=9)
     bounds = image.getbbox()
     if bounds:
         image = image.crop(bounds)
     padding = max(32, round(min(width, height) * 0.035))
     scale = min((width - padding * 2) / image.width, (height - padding * 2) / image.height)
-    image = image.resize(
-        (max(1, round(image.width * scale)), max(1, round(image.height * scale))),
-        Image.Resampling.LANCZOS,
+    target_size = (
+        max(1, round(image.width * scale)),
+        max(1, round(image.height * scale)),
     )
+    # Resize premultiplied RGBA so transparent black pixels cannot bleed into
+    # the atom silhouettes during high-quality downsampling.
+    image = image.convert("RGBa").resize(
+        target_size,
+        Image.Resampling.LANCZOS,
+    ).convert("RGBA")
     canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     canvas.alpha_composite(image, ((width - image.width) // 2, (height - image.height) // 2))
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -281,8 +305,8 @@ def capture_logo(browser):
             "showOverlays": False,
             "atomRadiusScale": 0.96,
             "labelRadii": {"Cu": 1.278, "O": 0.82},
-            "labelColors": {"Cu": "#24534c", "O": "#f4c55d"},
-            "labelMaterials": {"Cu": "rubber", "O": "metal"},
+            "labelColors": {"Cu": LOGO_SUBSTRATE_COLOR, "O": LOGO_LETTER_COLOR},
+            "labelMaterials": {"Cu": "rubber", "O": "standard"},
             "projectionMode": "orthographic",
         })
         page.evaluate(
@@ -295,15 +319,23 @@ def capture_logo(browser):
                 renderer.camera.position.set(5.5, -10.5, 70);
                 renderer.camera.lookAt(renderer.controls.target);
                 renderer.fitCameraToStructure();
+                const centeredOffset = renderer.camera.position.clone().sub(renderer.controls.target);
+                renderer.controls.target.set(0, 0, 0);
+                renderer.camera.position.copy(centeredOffset);
+                renderer.camera.lookAt(renderer.controls.target);
                 renderer.camera.zoom *= 1.02;
                 renderer.camera.updateProjectionMatrix();
             }"""
         )
-        set_readme_lighting(page, [0, 0, 0], intensity=3.4, position_offset=(-26, -30, 46))
-        docs_logo = ROOT / "docs" / "assets" / "v_ase-logo.png"
-        static_logo = ROOT / "v_ase" / "static" / "v_ase-logo.png"
-        save_logo_render(page, docs_logo)
-        static_logo.write_bytes(docs_logo.read_bytes())
+        set_readme_lighting(page, [0, 0, 0], intensity=2.65, position_offset=(-26, -30, 46))
+        output_override = os.environ.get("V_ASE_LOGO_OUTPUT")
+        logo_output = Path(output_override).expanduser() if output_override else (
+            ROOT / "docs" / "assets" / "v_ase-logo.png"
+        )
+        save_logo_render(page, logo_output)
+        if not output_override:
+            static_logo = ROOT / "v_ase" / "static" / "v_ase-logo.png"
+            static_logo.write_bytes(logo_output.read_bytes())
     finally:
         page.close()
         editor.close()

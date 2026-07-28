@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.0.99
+
+- Rebuilt the transparent V_ASE logo with a true native-resolution render:
+  `128`-segment spheres fill a `7680 x 2362` WebGL capture before a
+  premultiplied-alpha supersample down to `6144 x 1890`.
+- Replaced the dark-teal and gold palette with neutral graphite and restrained
+  mint, and fixed the physical export scale that previously upscaled a small
+  viewport render into a large PNG.
+
 ## 0.0.98
 
 - Re-rendered the shared transparent V_ASE logo at `4800 x 1476` with Ultra
