@@ -56,7 +56,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     gui.add_argument("--output-format", help="ASE output format override")
-    gui.add_argument("--port", type=int, help="local browser server port")
+    gui.add_argument(
+        "--port",
+        type=int,
+        help="local browser server port; a free loopback port is selected automatically when omitted",
+    )
     gui.add_argument(
         "--no-browser",
         action="store_true",

@@ -104,25 +104,31 @@ v_ase gui
 v_ase gui FILE
 v_ase gui FILE --interactive
 v_ase gui AMBIGUOUS --format FORMAT
-v_ase gui FILE --port 58039 --no-browser
+v_ase gui FILE --no-browser
 ```
 
 The default is View mode. `--interactive` starts in Edit mode. The top-bar
 switch can change mode after startup without reopening the file.
 `--no-browser` is intended for SSH tunnels and other headless hosts; it leaves
 the server on `127.0.0.1` and prints the URL instead of launching a browser.
-Forward the selected port from the local computer and open the printed URL
-locally:
+When `--port` is omitted, v_ase selects an unused loopback port automatically.
+Start v_ase remotely, note the port in the printed URL, then forward it from a
+second local terminal:
 
 ```bash
-ssh -L 58039:127.0.0.1:58039 USER@SERVER
-v_ase gui FILE --port 58039 --no-browser
+# Remote shell
+v_ase gui FILE --no-browser
+
+# Local shell, using the port printed above
+ssh -N -L 55363:127.0.0.1:55363 USER@SERVER
 ```
 
-The second command runs inside the SSH session. Closing the top-level browser
-tab releases the blocking remote command. A workspace-client close signal
-supplements WebSocket disconnect detection so this also works through tunnels
-that retain a stale socket briefly.
+No administrator allocation is needed because the server remains private to
+remote `127.0.0.1`. `--port PORT` remains available for predetermined
+scheduler or automation mappings. Closing the top-level browser tab releases
+the blocking remote command. A workspace-client close signal supplements
+WebSocket disconnect detection so this also works through tunnels that retain
+a stale socket briefly.
 
 The browser **Open** dialog can replace the active document, append selected
 frames to its trajectory, or open an independent workspace tab. `.vase`

@@ -146,6 +146,9 @@ and documentation use `view()`.
     preserves a workspace while any other browser client remains active, and
     releases blocking CLI/Python calls after the final page closes. This
     contract applies through SSH local port forwarding as well as localhost.
+34. CLI sessions select an unused loopback port automatically when `--port` is
+    omitted. Remote users forward the printed ephemeral port through SSH; no
+    public listener or administrator-assigned cluster port is required.
 
 ## Canonical Names And Compatibility
 

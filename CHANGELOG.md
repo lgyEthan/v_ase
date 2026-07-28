@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.0.94
+
+- Made automatic loopback-port selection the documented default for remote
+  servers and clusters, with fixed ports retained only for scripted mappings.
+- Added same-port and alternate-local-port SSH forwarding examples and
+  clarified that no administrator port allocation or public listener is
+  required.
+- Revalidated an automatically selected port with an 18-atom periodic
+  structure through a live physics-cluster SSH tunnel and local browser.
+
 ## 0.0.93
 
 - Added a first-class remote-server and cluster workflow with loopback-only

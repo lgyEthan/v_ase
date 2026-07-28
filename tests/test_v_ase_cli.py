@@ -29,6 +29,7 @@ def test_v_ase_gui_parser_accepts_an_empty_workspace():
     assert args.file is None
     assert args.interactive is False
     assert args.no_browser is False
+    assert args.port is None
 
 
 def test_v_ase_gui_parser_accepts_headless_server_mode():

@@ -144,20 +144,20 @@ and exact directional Sun source/target/intensity.
 
 ## Remote Cluster Validation
 
-The 0.0.93 candidate wheel was installed into an isolated environment on an
-x86_64 Linux physics cluster with Python 3.13.9 and ASE 3.27.0. An existing
-18-atom periodic CIF on that host was opened with:
+The packaged wheel was installed into an isolated environment on an x86_64
+Linux physics cluster with Python 3.13.9 and ASE 3.27.0. An existing 18-atom
+periodic CIF on that host was opened without a requested port:
 
 ```bash
-v_ase gui STRUCTURE.cif --port 58493 --no-browser
+v_ase gui STRUCTURE.cif --no-browser
 ```
 
-Chromium connected from the development Mac through SSH local forwarding. The
-test verified package version `0.0.93`, all 18 atoms, `TTT` PBC, the unit cell,
-camera interaction, a changed rendered frame after orbit, and no browser
-warnings or errors. Closing the Chromium page released the remote blocking
-command and SSH session within the 10-second test window. No cluster input was
-copied to the local machine.
+The remote OS automatically selected port `55363`; an independent browser
+connected from the development Mac through an SSH local forward to that port.
+The test verified all 18 atoms, `TTT` PBC, the unit cell, and a nonblank
+rendered scene. Closing the browser page released the remote blocking command
+and SSH session. No cluster input was copied to the local machine and no
+cluster port was reserved by an administrator.
 
 ## Regression Coverage
 

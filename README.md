@@ -109,32 +109,50 @@ Install v_ase in the Python environment that can read the remote structure:
 python -m pip install v_ase-gui
 ```
 
-From the local computer, open an SSH tunnel:
+On the remote server, start v_ase without specifying a port:
 
 ```bash
-ssh -L 58039:127.0.0.1:58039 USER@SERVER
+v_ase gui /path/to/STRUCTURE --no-browser
 ```
 
-In that SSH session, start v_ase without trying to launch a remote browser:
+v_ase automatically selects an unused remote loopback port and prints the
+complete URL. For example, if that URL uses port `55363`, keep the remote
+command running and open a second terminal on the local computer:
 
 ```bash
-v_ase gui /path/to/STRUCTURE --port 58039 --no-browser
+ssh -N -L 55363:127.0.0.1:55363 USER@SERVER
 ```
 
-Open the complete `http://127.0.0.1:58039/...` URL printed in the terminal in
-the local browser. Keep the SSH connection open while using v_ase. Closing the
-v_ase browser tab stops the remote viewer and releases the terminal command.
+Open the complete URL printed by v_ase in the local browser. No administrator
+port allocation is required: the port is temporary, automatically selected,
+and bound only to remote `127.0.0.1`. Closing the v_ase browser tab stops the
+remote viewer and releases the terminal command.
+
+If that same port is already occupied on the local computer, forward another
+local port to the printed remote port:
+
+```bash
+ssh -N -L 59000:127.0.0.1:55363 USER@SERVER
+```
+
+Then open the printed URL after changing only its port from `55363` to `59000`.
 
 To connect directly to a compute node through a login node:
 
 ```bash
-ssh -J USER@LOGIN -L 58039:127.0.0.1:58039 USER@COMPUTE
+ssh -J USER@LOGIN USER@COMPUTE
+v_ase gui /path/to/STRUCTURE --no-browser
 ```
 
-Then run the same `v_ase gui ... --port 58039 --no-browser` command on the
-compute node. Use another matching port in both commands if `58039` is already
-occupied. v_ase stays bound to remote `127.0.0.1`; do not expose the viewer
-port directly to a public network.
+After noting the automatically selected port, open a second local terminal:
+
+```bash
+ssh -N -J USER@LOGIN -L 55363:127.0.0.1:55363 USER@COMPUTE
+```
+
+Replace `55363` with the port printed on the compute node. Use `--port PORT`
+only when a scheduler or script requires a predetermined port. Do not expose
+the viewer port directly to a public network.
 
 ## Controls
 
@@ -445,7 +463,9 @@ filesystem (for example under `~/data`) instead of `/mnt/c/...`.
 
 Follow [Remote Servers And Clusters](#remote-servers-and-clusters). If the
 printed URL does not open, confirm that the port after `ssh -L` exactly matches
-the value passed to `v_ase --port`, and that the SSH connection is still open.
+the automatically selected remote port printed by v_ase, and that the SSH
+connection is still open. If the local port differs, replace only the port in
+the browser URL with the local forwarding port.
 
 </details>
 
@@ -472,7 +492,8 @@ frame.
 - Confirm that the original `v_ase gui` process is still running.
 - Open the exact URL printed by that process; old session URLs cannot be reused.
 - Reload once after the terminal reports that the local server is ready.
-- If the selected port is occupied, choose another one with `--port`.
+- v_ase chooses an unused port automatically. When using SSH, verify that the
+  forwarded remote port matches the one printed by v_ase.
 
 </details>
 
