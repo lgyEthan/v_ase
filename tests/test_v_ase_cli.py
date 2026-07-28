@@ -1,13 +1,21 @@
+import shlex
 import tomllib
 from pathlib import Path
 
 from ase.build import molecule
 from ase.io import write
 
+import v_ase.remote as remote
 from v_ase.cli import build_parser, normalize_argv, run_gui
 from v_ase.io import read_structure_frames, resolve_input_format
 from v_ase.io import atom_labels
 from v_ase.serialization import atoms_to_json
+from v_ase.remote import (
+    RemoteTarget,
+    build_remote_gui_command,
+    localize_remote_url,
+    parse_remote_target,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -38,6 +46,159 @@ def test_v_ase_gui_parser_accepts_headless_server_mode():
 
     assert args.no_browser is True
     assert args.port == 58039
+
+
+def test_scp_style_remote_target_is_detected_without_a_port_argument():
+    target = parse_remote_target("physics:/data/trajectory.extxyz")
+
+    assert target == RemoteTarget(
+        host="physics",
+        path="/data/trajectory.extxyz",
+    )
+
+
+def test_remote_target_supports_user_host_and_spaces():
+    target = parse_remote_target("researcher@cluster:~/runs/final structure.vase")
+
+    assert target == RemoteTarget(
+        host="researcher@cluster",
+        path="~/runs/final structure.vase",
+    )
+
+
+def test_windows_drive_and_existing_colon_paths_remain_local(tmp_path, monkeypatch):
+    assert parse_remote_target(r"C:\data\POSCAR") is None
+
+    local_file = tmp_path / "sample:frame.xyz"
+    local_file.write_text("0\n\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    assert parse_remote_target(local_file.name) is None
+
+
+def test_remote_gui_command_preserves_user_options_and_quotes_the_path():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "gui",
+            "physics:/data/final structure.extxyz",
+            "--index",
+            "-1",
+            "--format",
+            "extxyz",
+            "--show-bonds",
+            "--interactive",
+            "--port",
+            "49152",
+        ]
+    )
+    target = parse_remote_target(args.file)
+
+    assert target is not None
+    command = shlex.split(build_remote_gui_command(args, target))
+    assert command == [
+        "v_ase",
+        "gui",
+        "--index",
+        "-1",
+        "--no-browser",
+        "--stream-frames",
+        "--format",
+        "extxyz",
+        "--show-bonds",
+        "--interactive",
+        "--",
+        "/data/final structure.extxyz",
+    ]
+
+
+def test_remote_url_is_rewritten_to_the_automatically_selected_local_endpoint():
+    remote_url = (
+        "http://127.0.0.1:55363/workspace"
+        "?workspace_id=workspace&session_id=session"
+    )
+
+    assert localize_remote_url(remote_url, 49152) == (
+        "http://127.0.0.1:49152/workspace"
+        "?workspace_id=workspace&session_id=session"
+    )
+
+
+def test_run_gui_delegates_remote_targets_before_local_file_validation(monkeypatch):
+    parser = build_parser()
+    args = parser.parse_args(["gui", "physics:/data/POSCAR"])
+    captured = {}
+
+    def fake_launch_remote_gui(received_args, target):
+        captured["args"] = received_args
+        captured["target"] = target
+        return 0
+
+    monkeypatch.setattr("v_ase.remote.launch_remote_gui", fake_launch_remote_gui)
+
+    assert run_gui(args) == 0
+    assert captured["target"] == RemoteTarget("physics", "/data/POSCAR")
+
+
+def test_remote_launch_uses_explicit_port_only_for_the_local_endpoint(monkeypatch):
+    parser = build_parser()
+    args = parser.parse_args(
+        ["gui", "physics:/data/POSCAR", "--port", "49152", "--no-browser"]
+    )
+    target = RemoteTarget("physics", "/data/POSCAR")
+    captured = {}
+
+    class FakeProcess:
+        def __init__(self, return_code):
+            self.return_code = return_code
+            self.stdout = None
+            self.stderr = None
+            self.terminated = False
+
+        def poll(self):
+            return self.return_code
+
+        def terminate(self):
+            self.terminated = True
+            self.return_code = 0
+
+        def wait(self, timeout=None):
+            return self.return_code
+
+    remote_process = FakeProcess(0)
+    tunnel_process = FakeProcess(None)
+
+    monkeypatch.setattr(remote.shutil, "which", lambda name: "/usr/bin/ssh")
+    monkeypatch.setattr(
+        remote.subprocess,
+        "Popen",
+        lambda *popen_args, **popen_kwargs: remote_process,
+    )
+    monkeypatch.setattr(
+        remote,
+        "_read_remote_url",
+        lambda process, remote_target: (
+            "http://127.0.0.1:55363/workspace?session_id=remote"
+        ),
+    )
+
+    def fake_start_tunnel(
+        ssh_executable,
+        remote_target,
+        remote_port,
+        requested_local_port=None,
+    ):
+        captured["remote_port"] = remote_port
+        captured["requested_local_port"] = requested_local_port
+        return tunnel_process, requested_local_port
+
+    monkeypatch.setattr(remote, "_start_tunnel", fake_start_tunnel)
+
+    assert remote.launch_remote_gui(args, target) == 0
+    assert captured == {
+        "remote_port": 55363,
+        "requested_local_port": 49152,
+    }
+    assert tunnel_process.terminated is True
 
 
 def test_v_ase_gui_without_file_launches_an_empty_visualization_session(monkeypatch):

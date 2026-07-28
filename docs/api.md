@@ -95,13 +95,16 @@ the final owner.
 `view(..., open_browser=False)` suppresses automatic browser launch. With
 `block=False`, inspect `ASEEditor.url`; with blocking CLI use, v_ase prints the
 URL before waiting for the browser document to close. The server remains bound
-to `127.0.0.1`, so remote access should use an SSH local port forward.
+to `127.0.0.1`. The CLI's `HOST:/path` form creates and manages the SSH
+forwarding connection automatically; custom Python deployments remain
+responsible for their own transport.
 
 ## CLI
 
 ```bash
 v_ase gui
 v_ase gui FILE
+v_ase gui HOST:/REMOTE/FILE
 v_ase gui FILE --interactive
 v_ase gui AMBIGUOUS --format FORMAT
 v_ase gui FILE --no-browser
@@ -109,26 +112,24 @@ v_ase gui FILE --no-browser
 
 The default is View mode. `--interactive` starts in Edit mode. The top-bar
 switch can change mode after startup without reopening the file.
-`--no-browser` is intended for SSH tunnels and other headless hosts; it leaves
-the server on `127.0.0.1` and prints the URL instead of launching a browser.
-When `--port` is omitted, v_ase selects an unused loopback port automatically.
-Start v_ase remotely, note the port in the printed URL, then forward it from a
-second local terminal:
+`HOST:/REMOTE/FILE` is an scp-style remote target. The local v_ase process
+starts the remote backend over SSH, selects both loopback endpoints, creates
+the forwarding connection, opens the browser, and tears everything down after
+the browser closes:
 
 ```bash
-# Remote shell
-v_ase gui FILE --no-browser
-
-# Local shell, using the port printed above
-ssh -N -L 55363:127.0.0.1:55363 USER@SERVER
+v_ase gui physics:/data/trajectory.lammpstrj
 ```
 
-No administrator allocation is needed because the server remains private to
-remote `127.0.0.1`. `--port PORT` remains available for predetermined
-scheduler or automation mappings. Closing the top-level browser tab releases
-the blocking remote command. A workspace-client close signal supplements
-WebSocket disconnect detection so this also works through tunnels that retain
-a stale socket briefly.
+The file reader, ASE objects, session state, and scientific operations remain
+on the remote host. The original file is never copied to the local computer.
+Remote trajectories disable inline and whole-trajectory browser caches; frame
+changes request only the needed frame through the encrypted tunnel.
+
+`--no-browser` is still available for headless local sessions. `--stream-frames`
+applies the same per-frame transfer policy to a local trajectory. `--port`
+remains an advanced override for a predetermined local integration endpoint;
+neither option is required for `HOST:/REMOTE/FILE`.
 
 The browser **Open** dialog can replace the active document, append selected
 frames to its trajectory, or open an independent workspace tab. `.vase`

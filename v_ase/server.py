@@ -188,6 +188,8 @@ def trajectory_position_cache(
     *,
     layout_compatible: bool | None = None,
 ):
+    if bool((session.config or {}).get("stream_trajectory", False)):
+        return None
     natoms = len(session.working_atoms)
     if session.frame_count * natoms * 3 > MAX_INLINE_TRAJECTORY_CACHE_VALUES:
         return None
@@ -207,6 +209,8 @@ def trajectory_position_array(
     *,
     layout_compatible: bool | None = None,
 ):
+    if bool((session.config or {}).get("stream_trajectory", False)):
+        return None
     natoms = len(session.working_atoms)
     value_count = session.frame_count * natoms * 3
     if value_count > MAX_BINARY_TRAJECTORY_CACHE_VALUES:
@@ -232,6 +236,9 @@ def session_atoms_to_json(session: EditorSession, include_inline_trajectory: boo
     data["metadata"]["frame_count"] = session.frame_count
     data["metadata"]["current_frame"] = session.current_frame
     data["metadata"]["virtual_trajectory"] = session.trajectory_source is not None
+    data["metadata"]["trajectory_streaming"] = bool(
+        (session.config or {}).get("stream_trajectory", False)
+    )
     data["metadata"]["calculator_details"] = repulsion_metadata(session.working_atoms.calc)
     if is_vase_repulsion_calculator(session.working_atoms.calc):
         data["metadata"]["calculator"] = "Repulsion"
@@ -246,7 +253,8 @@ def session_atoms_to_json(session: EditorSession, include_inline_trajectory: boo
     if trajectory_positions is not None:
         data["trajectory_positions"] = trajectory_positions
     data["metadata"]["trajectory_positions_binary"] = (
-        trajectory_positions is None
+        not data["metadata"]["trajectory_streaming"]
+        and trajectory_positions is None
         and session.frame_count > 1
         and session.frame_count * len(session.working_atoms) * 3 <= MAX_BINARY_TRAJECTORY_CACHE_VALUES
         and layout_compatible

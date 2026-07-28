@@ -231,6 +231,28 @@ def test_large_trajectory_uses_binary_position_cache_metadata(monkeypatch):
     assert "trajectory_positions" not in data
 
 
+def test_streamed_trajectory_never_builds_inline_or_binary_browser_cache():
+    first = molecule("H2O")
+    second = molecule("H2O")
+    second.positions += [0.25, 0.0, 0.0]
+    session = EditorSession(
+        "trajectory-frame-stream",
+        first.copy(),
+        first.copy(),
+        original_frames=[first.copy(), second.copy()],
+        trajectory_frames=[first.copy(), second.copy()],
+        config={"stream_trajectory": True},
+    )
+
+    data = session_atoms_to_json(session)
+
+    assert data["metadata"]["trajectory_streaming"] is True
+    assert data["metadata"]["trajectory_positions_cached"] is False
+    assert data["metadata"]["trajectory_positions_binary"] is False
+    assert "trajectory_positions" not in data
+    assert trajectory_position_array(session) is None
+
+
 def test_frontend_uses_physical_keys_for_layout_independent_shortcuts():
     main_js = (ROOT / "v_ase/static/main.js").read_text()
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.0.95
+
+- Added one-command remote viewing with `v_ase gui HOST:/path`, including
+  automatic remote/local endpoint allocation, SSH forwarding, browser launch,
+  and cleanup after the browser closes.
+- Kept remote source files and backend processing on the server and forced
+  trajectory frame streaming so complete trajectory coordinate caches are
+  never downloaded to the browser.
+- Replaced manual port-forward instructions with the single remote-file command
+  and added SSH alias and ProxyJump guidance.
+
 ## 0.0.94
 
 - Made automatic loopback-port selection the documented default for remote

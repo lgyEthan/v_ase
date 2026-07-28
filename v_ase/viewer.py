@@ -315,6 +315,7 @@ def view(
     document_name: str | None = None,
     close_on_disconnect: bool = True,
     open_browser: bool = True,
+    stream_trajectory: bool = False,
 ) -> Union[Atoms, ASEEditor, None]:
     """
     Open the v_ase structure viewer/editor.
@@ -388,6 +389,7 @@ def view(
             "auto_close_on_disconnect": bool(close_on_disconnect and not notebook),
             "document_name": document_name or "Untitled",
             "launch_directory": launch_directory,
+            "stream_trajectory": bool(stream_trajectory),
         }
     )
     sessions[session_id] = session

@@ -147,8 +147,14 @@ and documentation use `view()`.
     releases blocking CLI/Python calls after the final page closes. This
     contract applies through SSH local port forwarding as well as localhost.
 34. CLI sessions select an unused loopback port automatically when `--port` is
-    omitted. Remote users forward the printed ephemeral port through SSH; no
-    public listener or administrator-assigned cluster port is required.
+    omitted. No public listener or administrator-assigned port is required.
+35. An scp-style `HOST:/path` input makes remote use a one-command workflow.
+    The local launcher starts remote v_ase, allocates both private endpoints,
+    creates and monitors the SSH tunnel, opens the local browser, and cleans up
+    both SSH processes when the browser closes.
+36. Remote sessions force frame streaming for every trajectory size. Source
+    files, ASE objects, and full trajectory caches stay on the server; the
+    browser receives the current frame only.
 
 ## Canonical Names And Compatibility
 
@@ -255,8 +261,9 @@ Current benchmark method and results are in [performance.md](performance.md).
 8. Wheel and sdist build, metadata check, clean-environment installation,
    `v_ase --version`, and console entry-point execution.
 9. Documentation and displayed/static version synchronization.
-10. Headless Linux installation and real browser rendering through an SSH
-    local port forward, including CLI release after the browser tab closes.
+10. Headless Linux installation and real browser rendering through the managed
+    one-command SSH workflow, including per-frame trajectory transfer and CLI
+    release after the browser tab closes.
 
 Run installed-wheel verification from outside the repository checkout. The
 checkout contains build metadata, so invoking pip from its root can make pip

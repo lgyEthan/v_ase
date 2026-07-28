@@ -35,7 +35,10 @@ def build_parser() -> argparse.ArgumentParser:
     gui.add_argument(
         "file",
         nargs="?",
-        help="optional structure, trajectory, or .vase project, e.g. POSCAR, .vasp, .traj, .extxyz, .vase",
+        help=(
+            "optional local structure, trajectory, or .vase project; "
+            "use HOST:/path for a file that must remain on a remote server"
+        ),
     )
     gui.add_argument(
         "-i",
@@ -71,6 +74,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="open without waiting for session finalization; keep the local server alive until Ctrl+C",
     )
+    gui.add_argument(
+        "--stream-frames",
+        action="store_true",
+        help="transfer trajectory coordinates one frame at a time instead of preloading a browser cache",
+    )
     gui.add_argument("--show-bonds", action="store_true", help="show inferred bonds on startup")
     gui.add_argument("--hide-cell", action="store_true", help="hide the unit cell on startup")
     gui.add_argument("--hide-axes", action="store_true", help="hide axes on startup")
@@ -96,6 +104,20 @@ def normalize_argv(argv: list[str] | None) -> list[str]:
 
 
 def run_gui(args: argparse.Namespace) -> int:
+    if args.file:
+        from v_ase.remote import (
+            RemoteLaunchError,
+            launch_remote_gui,
+            parse_remote_target,
+        )
+
+        remote_target = parse_remote_target(args.file)
+        if remote_target is not None:
+            try:
+                return launch_remote_gui(args, remote_target)
+            except RemoteLaunchError as exc:
+                raise SystemExit(f"v_ase: {exc}") from exc
+
     path = Path(args.file).expanduser() if args.file else None
     if path is not None and not path.exists():
         raise SystemExit(f"v_ase: file not found: {path}")
@@ -150,6 +172,7 @@ def run_gui(args: argparse.Namespace) -> int:
         initial_design_settings=initial_design_settings,
         document_name=path.name if path is not None else "Untitled",
         open_browser=not args.no_browser,
+        stream_trajectory=args.stream_frames,
     )
 
     if args.no_block:

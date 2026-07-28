@@ -144,20 +144,28 @@ and exact directional Sun source/target/intensity.
 
 ## Remote Cluster Validation
 
-The packaged wheel was installed into an isolated environment on an x86_64
-Linux physics cluster with Python 3.13.9 and ASE 3.27.0. An existing 18-atom
-periodic CIF on that host was opened without a requested port:
+The 0.0.95 candidate wheel was installed into an isolated environment on an
+x86_64 Linux physics cluster with Python 3.13.9 and ASE 3.27.0. From the
+development Mac, an existing 18-atom periodic CIF on that host was opened with
+the public one-command workflow:
 
 ```bash
-v_ase gui STRUCTURE.cif --no-browser
+v_ase gui physics:/remote/path/cod_9001665.cif
 ```
 
-The remote OS automatically selected port `55363`; an independent browser
-connected from the development Mac through an SSH local forward to that port.
-The test verified all 18 atoms, `TTT` PBC, the unit cell, and a nonblank
-rendered scene. Closing the browser page released the remote blocking command
-and SSH session. No cluster input was copied to the local machine and no
-cluster port was reserved by an administrator.
+No port was supplied or reserved. v_ase selected both loopback endpoints,
+started the remote backend, established the SSH forwarding connection, and
+opened the local browser. The test verified version 0.0.95, all 18 atoms,
+`TTT` PBC, the unit cell, and a nonblank rendered scene. Closing the browser
+page released the local launcher, tunnel, and remote process.
+
+A separate two-frame LAMMPS dump validated the remote trajectory contract. The
+initial response reported `trajectory_streaming=true`, contained no inline
+trajectory coordinates, and advertised no whole-trajectory binary cache.
+Requesting frame 2 returned only its six float32 coordinates. This policy is
+enabled for every remote trajectory regardless of source-file size: the source
+file, reader, ASE state, and scientific operations remain on the server while
+the browser receives only the data needed for the displayed frame.
 
 ## Regression Coverage
 

@@ -103,56 +103,31 @@ playback.
 
 ## Remote Servers And Clusters
 
-Install v_ase in the Python environment that can read the remote structure:
+Install v_ase on both the local computer and remote server. Then run one command
+from the **local computer**:
 
 ```bash
-python -m pip install v_ase-gui
+v_ase gui USER@SERVER:/path/to/STRUCTURE
 ```
 
-On the remote server, start v_ase without specifying a port:
+An SSH config alias works as well:
 
 ```bash
-v_ase gui /path/to/STRUCTURE --no-browser
+v_ase gui physics:/path/to/STRUCTURE
 ```
 
-v_ase automatically selects an unused remote loopback port and prints the
-complete URL. For example, if that URL uses port `55363`, keep the remote
-command running and open a second terminal on the local computer:
+That is the complete workflow. v_ase starts the backend beside the remote file,
+creates a private SSH connection, and opens the local browser automatically.
+The source file remains on the server. Trajectories transfer only the frame
+needed for the current view instead of downloading the complete trajectory.
+This is the remote-session rule for every file size, not a large-file
+threshold. Three.js renders in the local browser, so the displayed atom/frame
+data crosses the encrypted tunnel; the original structure or trajectory file
+does not.
+Closing the browser tab stops the remote viewer and removes the connection.
 
-```bash
-ssh -N -L 55363:127.0.0.1:55363 USER@SERVER
-```
-
-Open the complete URL printed by v_ase in the local browser. No administrator
-port allocation is required: the port is temporary, automatically selected,
-and bound only to remote `127.0.0.1`. Closing the v_ase browser tab stops the
-remote viewer and releases the terminal command.
-
-If that same port is already occupied on the local computer, forward another
-local port to the printed remote port:
-
-```bash
-ssh -N -L 59000:127.0.0.1:55363 USER@SERVER
-```
-
-Then open the printed URL after changing only its port from `55363` to `59000`.
-
-To connect directly to a compute node through a login node:
-
-```bash
-ssh -J USER@LOGIN USER@COMPUTE
-v_ase gui /path/to/STRUCTURE --no-browser
-```
-
-After noting the automatically selected port, open a second local terminal:
-
-```bash
-ssh -N -J USER@LOGIN -L 55363:127.0.0.1:55363 USER@COMPUTE
-```
-
-Replace `55363` with the port printed on the compute node. Use `--port PORT`
-only when a scheduler or script requires a predetermined port. Do not expose
-the viewer port directly to a public network.
+For a compute node reached through a login node, put `ProxyJump` in the local
+`~/.ssh/config` entry and use that host alias in the same command.
 
 ## Controls
 
@@ -461,11 +436,9 @@ filesystem (for example under `~/data`) instead of `/mnt/c/...`.
 <details>
 <summary>Run v_ase on a remote server</summary>
 
-Follow [Remote Servers And Clusters](#remote-servers-and-clusters). If the
-printed URL does not open, confirm that the port after `ssh -L` exactly matches
-the automatically selected remote port printed by v_ase, and that the SSH
-connection is still open. If the local port differs, replace only the port in
-the browser URL with the local forwarding port.
+Run `v_ase gui HOST:/path/to/STRUCTURE` on the local computer. Confirm that
+`ssh HOST` works and that a current v_ase release is installed on the remote
+server. v_ase manages the private connection automatically.
 
 </details>
 
@@ -492,8 +465,8 @@ frame.
 - Confirm that the original `v_ase gui` process is still running.
 - Open the exact URL printed by that process; old session URLs cannot be reused.
 - Reload once after the terminal reports that the local server is ready.
-- v_ase chooses an unused port automatically. When using SSH, verify that the
-  forwarded remote port matches the one printed by v_ase.
+- For a remote file, rerun the single `v_ase gui HOST:/path/to/STRUCTURE`
+  command rather than reusing an old browser URL.
 
 </details>
 

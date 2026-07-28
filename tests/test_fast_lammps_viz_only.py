@@ -108,6 +108,37 @@ def test_virtual_lammps_trajectory_exposes_background_binary_cache(tmp_path):
     )
 
 
+def test_remote_style_virtual_trajectory_streams_only_requested_frames(tmp_path):
+    dump_path = tmp_path / "tiny-streamed.lammpstrj"
+    write_dump(dump_path)
+    result = read_fast_lammps_dump(dump_path, ":")
+    session = EditorSession(
+        session_id="fast-lammps-stream-test",
+        original_atoms=result.atoms.copy(),
+        working_atoms=result.atoms.copy(),
+        original_frames=[result.atoms.copy()],
+        trajectory_frames=[result.atoms.copy()],
+        trajectory_source=result.trajectory,
+        config={"viz_only": True, "stream_trajectory": True},
+    )
+    sessions[session.session_id] = session
+    try:
+        payload = session_atoms_to_json(session)
+        assert payload["metadata"]["trajectory_streaming"] is True
+        assert payload["metadata"]["trajectory_positions_binary"] is False
+        assert "trajectory_positions" not in payload
+        assert trajectory_position_array(session) is None
+
+        response = asyncio.run(get_frame_positions(session.session_id, 1))
+        values = np.frombuffer(response.body, dtype=np.float32).reshape(2, 3)
+        np.testing.assert_allclose(
+            values,
+            [[1.5, 2.5, 3.5], [4.5, 5.5, 6.5]],
+        )
+    finally:
+        sessions.pop(session.session_id, None)
+
+
 def test_virtual_lammps_trajectory_materializes_all_frames_for_edit_mode(tmp_path):
     dump_path = tmp_path / "tiny-mode-switch.lammpstrj"
     write_dump(dump_path)
