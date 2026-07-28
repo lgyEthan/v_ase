@@ -1,7 +1,12 @@
+from pathlib import Path
+
 from ase.constraints import FixedLine, FixedPlane, Hookean
 from ase.io import read
+from PIL import Image
 
 from examples.readme_scenes import SCENE_NAMES, write_scene_assets
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_readme_scene_assets_write_reopenable_traj_files(tmp_path):
@@ -26,3 +31,14 @@ def test_readme_scene_assets_write_reopenable_traj_files(tmp_path):
     assert any(isinstance(constraint, FixedPlane) for constraint in fixedplane.constraints)
     assert any(isinstance(constraint, Hookean) for constraint in hookean.constraints)
     assert any(isinstance(constraint, Hookean) for constraint in showcase.constraints)
+
+
+def test_brand_logo_is_native_high_resolution_transparent_png():
+    docs_logo = ROOT / "docs" / "assets" / "v_ase-logo.png"
+    static_logo = ROOT / "v_ase" / "static" / "v_ase-logo.png"
+
+    assert docs_logo.read_bytes() == static_logo.read_bytes()
+    with Image.open(docs_logo) as image:
+        assert image.size == (4800, 1476)
+        assert image.mode == "RGBA"
+        assert image.getchannel("A").getextrema() == (0, 255)

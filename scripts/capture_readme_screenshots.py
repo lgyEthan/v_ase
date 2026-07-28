@@ -45,6 +45,7 @@ def configured_asset_dir() -> Path:
 
 ASSET_DIR = configured_asset_dir()
 MEDIA_SIZE = parse_media_size(os.environ.get("V_ASE_README_MEDIA_SIZE"), (1920, 1080))
+LOGO_SIZE = parse_media_size(os.environ.get("V_ASE_LOGO_SIZE"), (4800, 1476))
 
 LOGO_GLYPHS = {
     "V": {"width": 6.0, "paths": (((0.0, 8.0), (3.0, 0.0), (6.0, 8.0)),)},
@@ -237,8 +238,9 @@ def set_readme_lighting(page, target, *, intensity=2.9, position_offset=(-12.0, 
 
 
 def save_logo_render(page, path: Path):
+    width, height = LOGO_SIZE
     data_url = page.evaluate(
-        """() => window.__V_ASE_APP__.renderer.exportPNG(2400, 738, {
+        """({ width, height }) => window.__V_ASE_APP__.renderer.exportPNG(width, height, {
             transparentBackground: true,
             includeGrid: false,
             includeAxes: false,
@@ -247,23 +249,24 @@ def save_logo_render(page, path: Path):
             sunIntensity: 3.1,
             sunPosition: [-22, -26, 42],
             sunTarget: [0, 0, 0]
-        })"""
+        })""",
+        {"width": width, "height": height},
     )
     payload = base64.b64decode(data_url.split(",", 1)[1])
     image = Image.open(BytesIO(payload)).convert("RGBA")
     bounds = image.getbbox()
     if bounds:
         image = image.crop(bounds)
-    padding = 16
-    scale = min((1200 - padding * 2) / image.width, (369 - padding * 2) / image.height)
+    padding = max(32, round(min(width, height) * 0.035))
+    scale = min((width - padding * 2) / image.width, (height - padding * 2) / image.height)
     image = image.resize(
         (max(1, round(image.width * scale)), max(1, round(image.height * scale))),
         Image.Resampling.LANCZOS,
     )
-    canvas = Image.new("RGBA", (1200, 369), (0, 0, 0, 0))
-    canvas.alpha_composite(image, ((1200 - image.width) // 2, (369 - image.height) // 2))
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    canvas.alpha_composite(image, ((width - image.width) // 2, (height - image.height) // 2))
     path.parent.mkdir(parents=True, exist_ok=True)
-    canvas.save(path)
+    canvas.save(path, optimize=True, compress_level=9)
 
 
 def capture_logo(browser):

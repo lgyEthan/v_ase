@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.0.98
+
+- Re-rendered the shared transparent V_ASE logo at `4800 x 1476` with Ultra
+  sphere quality and restored the dark-teal and warm-gold brand palette.
+- Added an asset regression check so the documentation and packaged interface
+  keep the same native-resolution RGBA logo.
+
 ## 0.0.97
 
 - Moved anti-aliasing and atom smoothness into View while keeping label and
