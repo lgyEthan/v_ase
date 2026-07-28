@@ -813,10 +813,13 @@ export class ASERenderer {
                 depthTest: true,
                 depthWrite: false
             }),
-            hookean: new THREE.MeshBasicMaterial({
+            hookean: new THREE.MeshStandardMaterial({
                 color: 0xff9f43,
+                roughness: 0.28,
+                metalness: 0.16,
                 transparent: true,
                 opacity: 0.92,
+                depthTest: true,
                 depthWrite: false
             }),
             hookeanInactive: new THREE.MeshBasicMaterial({
@@ -5528,19 +5531,30 @@ export class ASERenderer {
         return points;
     }
 
-    makeFlatSpringPoints(startY, endY, amplitude = 0.11, coils = 8, laneOffset = 0) {
+    makeHelicalSpringPoints(startY, endY, radius = 0.13, turns = 8, samples = 120) {
         if (endY - startY < 1e-4) return [
-            new THREE.Vector3(0, startY, laneOffset),
-            new THREE.Vector3(0, endY, laneOffset)
+            new THREE.Vector3(0, startY, 0),
+            new THREE.Vector3(0, endY, 0)
         ];
-        const points = [new THREE.Vector3(0, startY, laneOffset)];
-        const steps = Math.max(8, coils * 2);
-        for (let i = 1; i < steps; i++) {
-            const t = i / steps;
-            const x = i % 2 === 0 ? -amplitude : amplitude;
-            points.push(new THREE.Vector3(x, THREE.MathUtils.lerp(startY, endY, t), laneOffset));
+        const span = endY - startY;
+        const lead = Math.min(0.14, span * 0.12);
+        const coilStart = startY + lead;
+        const coilEnd = endY - lead;
+        const coilSpan = Math.max(0.001, coilEnd - coilStart);
+        const count = Math.max(32, Math.round(samples));
+        const points = [new THREE.Vector3(0, startY, 0)];
+        for (let i = 0; i <= count; i++) {
+            const t = i / count;
+            const angle = t * Math.PI * 2 * turns;
+            const ramp = Math.min(1, t * 8, (1 - t) * 8);
+            const localRadius = radius * Math.max(0, ramp);
+            points.push(new THREE.Vector3(
+                Math.cos(angle) * localRadius,
+                THREE.MathUtils.lerp(coilStart, coilEnd, t),
+                Math.sin(angle) * localRadius
+            ));
         }
-        points.push(new THREE.Vector3(0, endY, laneOffset));
+        points.push(new THREE.Vector3(0, endY, 0));
         return points;
     }
 
@@ -5629,13 +5643,18 @@ export class ASERenderer {
 
         springLine.visible = state !== 'inactive' && springEnd > springStart;
         if (springLine.visible) {
-            this.setLinePoints(springLine, this.makeFlatSpringPoints(
+            const coilRadius = THREE.MathUtils.clamp(
+                Math.min(radiusA, radiusB) * 0.34,
+                0.16,
+                0.27
+            );
+            this.setLinePoints(springLine, this.makeHelicalSpringPoints(
                 springStart,
                 springEnd,
-                Math.min(0.22, span * 0.10),
+                Math.min(coilRadius, span * 0.12),
                 coils,
-                0
-            ), 'springSignature', 0.030);
+                Math.max(72, coils * 14)
+            ), 'springSignature', 0.043);
         }
         springLine.material = state === 'inactive' ? this.constraintMaterials.hookeanInactive : this.constraintMaterials.hookean;
         springLine.userData.sharedMaterial = true;
@@ -5982,6 +6001,24 @@ export class ASERenderer {
         try {
             this.renderExportCaptureFrame(capture);
             return this.renderer.domElement.toDataURL('image/png');
+        } finally {
+            this.endExportCapture(capture);
+        }
+    }
+
+    async exportPNGBlob(width, height, options = {}) {
+        const capture = this.beginExportCapture(width, height, options);
+        try {
+            this.renderExportCaptureFrame(capture);
+            const blob = await new Promise((resolve, reject) => {
+                this.renderer.domElement.toBlob(
+                    result => result
+                        ? resolve(result)
+                        : reject(new Error('Canvas PNG encoding failed.')),
+                    'image/png'
+                );
+            });
+            return blob;
         } finally {
             this.endExportCapture(capture);
         }

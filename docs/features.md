@@ -112,8 +112,9 @@ Constraint rendering:
   are never collapsed to a selection center.
 - `FixScaled`: allowed fractional directions are converted through the current
   cell and displayed as line/plane/fixed behavior.
-- Hookean: threshold, inactive gap, and active spring state update from the
-  current distance.
+- Hookean: threshold, inactive gap, and active state update from the current
+  distance. The active segment is a shaded three-dimensional helical spring,
+  not a screen-plane zigzag; the Blender scene uses the same spatial model.
 
 Directional guides use shared materials, remain local to their owning atom,
 and are depth-tested so they do not read as selection outlines through unrelated
@@ -311,7 +312,7 @@ the controls remain screen-relative after arbitrary view roll, cell transforms,
 and axis alignment. Opposite buttons are exact camera-pose inverses.
 
 Output Preview uses a cloned camera and a fixed screen-space frame with the
-requested output aspect ratio. Preview, PNG, and trajectory video share one
+requested output aspect ratio. Preview, image output, and trajectory video share one
 authoritative profile for:
 
 - camera and framing;
@@ -320,6 +321,17 @@ authoritative profile for:
 - grid, axes, and unit cell;
 - renderer and Sun settings.
 
+Image export supports lossless WebP and PNG. WebP is the compact default and
+preserves the rendered dimensions and exact RGBA pixels. PNG output is
+losslessly recompressed server-side by rebuilding its IDAT stream; it is never
+resampled. The original browser PNG is retained when recompression is not
+smaller.
+
+Video export preserves the selected pixel dimensions. MOV uses H.264 with a
+slow encoder preset and visually lossless-oriented quality settings; AVI uses
+MPEG-4 with a bounded quality level. Compression changes encoding efficiency,
+not the requested width or height.
+
 Frame-scoped mutation and export requests include the browser's current
 `frame_index`. Trajectory-wide translation, wrapping, repetition, and matrix
 supercell operations apply independently with each frame's own cell and PBC.
@@ -327,6 +339,8 @@ supercell operations apply independently with each frame's own cell and PBC.
 ## Save And Export
 
 - ASE Pickle: current-frame ASE interchange only.
+- Image: lossless WebP or optimized PNG at the exact requested dimensions.
+- Video: H.264 MOV or MPEG-4 AVI with source-frame or interpolated playback.
 - Visual Settings JSON: structure-independent presentation preset.
 - `.vase`: complete validated project archive.
 - Blender: optimized label-group point meshes, Geometry Nodes spheres,

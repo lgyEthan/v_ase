@@ -198,6 +198,22 @@ def test_ai_bridge_screen_relative_camera_and_constraint_vector_workflow():
                 snap: document.getElementById('chk-commensurate-snap').checked
             })""")
             assert defaults == {"bonds": True, "guide": True, "snap": False}
+            helix = editor_page.evaluate("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                const points = renderer.makeHelicalSpringPoints(0, 3, 0.2, 7, 98);
+                const xs = points.map(point => point.x);
+                const zs = points.map(point => point.z);
+                return {
+                    points: points.length,
+                    xSpan: Math.max(...xs) - Math.min(...xs),
+                    zSpan: Math.max(...zs) - Math.min(...zs),
+                    materialType: renderer.constraintMaterials.hookean.type
+                };
+            }""")
+            assert helix["points"] >= 100
+            assert helix["xSpan"] > 0.38
+            assert helix["zSpan"] > 0.38
+            assert helix["materialType"] == "MeshStandardMaterial"
 
             result = page.evaluate("""async () => await window.v_aseAI.apply({
                 display: {
@@ -206,6 +222,7 @@ def test_ai_bridge_screen_relative_camera_and_constraint_vector_workflow():
                     viewportBackground: 'white',
                     atomDisplayMode: '2d'
                 },
+                quality: {antiAliasing: false, sphereQuality: 'low'},
                 camera: {axis: '+Z', fit: 'structure'},
                 selection: {clear: true, indices: [0]}
             })""")
@@ -213,9 +230,16 @@ def test_ai_bridge_screen_relative_camera_and_constraint_vector_workflow():
             assert result["selection"][0]["index"] == 0
             assert result["camera"]["projection"] == "orthographic"
             assert result["display"]["showBonds"] is True
+            assert result["display"]["antiAliasing"] is False
+            assert result["display"]["sphereQuality"] == "low"
+            assert editor_page.evaluate("""() => ({
+                antiAliasing: window.__ASE_APP__.renderer.displayOptions.antiAliasing,
+                sphereQuality: window.__ASE_APP__.renderer.displayOptions.sphereQuality
+            })""") == {"antiAliasing": False, "sphereQuality": "low"}
 
             rendered = page.evaluate("""async () => {
                 const image = await window.v_aseAI.render({
+                    format: 'png',
                     width: 320,
                     height: 240,
                     options: {
@@ -234,16 +258,156 @@ def test_ai_bridge_screen_relative_camera_and_constraint_vector_workflow():
                 return {
                     protocol: image.protocol,
                     mimeType: image.mimeType,
+                    filename: image.filename,
+                    bytes: image.bytes,
                     dimensions: loaded,
                     prefix: image.dataUrl.slice(0, 22)
                 };
             }""")
-            assert rendered == {
-                "protocol": "v_ase.ai.v1",
-                "mimeType": "image/png",
-                "dimensions": [320, 240],
-                "prefix": "data:image/png;base64,",
-            }
+            assert rendered["protocol"] == "v_ase.ai.v1"
+            assert rendered["mimeType"] == "image/png"
+            assert rendered["filename"] == "v_ase-render.png"
+            assert rendered["bytes"] > 0
+            assert rendered["dimensions"] == [320, 240]
+            assert rendered["prefix"] == "data:image/png;base64,"
+
+            compact_rendered = page.evaluate("""async () => {
+                const image = await window.v_aseAI.render({
+                    width: 320,
+                    height: 240,
+                    options: {
+                        includeGrid: false,
+                        includeAxes: false,
+                        includeCell: true,
+                        backgroundColor: '#ffffff'
+                    }
+                });
+                const loaded = await new Promise((resolve, reject) => {
+                    const element = new Image();
+                    element.onload = () => resolve([element.naturalWidth, element.naturalHeight]);
+                    element.onerror = reject;
+                    element.src = image.dataUrl;
+                });
+                return {
+                    format: image.format,
+                    mimeType: image.mimeType,
+                    bytes: image.bytes,
+                    dimensions: loaded,
+                    prefix: image.dataUrl.slice(0, 23)
+                };
+            }""")
+            assert compact_rendered["format"] == "webp"
+            assert compact_rendered["mimeType"] == "image/webp"
+            assert compact_rendered["bytes"] > 0
+            assert compact_rendered["bytes"] < rendered["bytes"]
+            assert compact_rendered["dimensions"] == [320, 240]
+            assert compact_rendered["prefix"] == "data:image/webp;base64,"
+
+            image_export = page.evaluate("""async () => {
+                const image = await window.v_aseAI.export({
+                    format: 'image',
+                    imageFormat: 'png',
+                    width: 256,
+                    height: 256,
+                    options: {includeGrid: false, includeAxes: false}
+                });
+                return {
+                    exportFormat: image.exportFormat,
+                    format: image.format,
+                    filename: image.filename,
+                    bytes: image.bytes,
+                    prefix: image.dataUrl.slice(0, 22)
+                };
+            }""")
+            assert image_export["exportFormat"] == "image"
+            assert image_export["format"] == "png"
+            assert image_export["filename"] == "v_ase-render.png"
+            assert image_export["bytes"] > 0
+            assert image_export["prefix"] == "data:image/png;base64,"
+
+            capabilities = page.evaluate("async () => await window.v_aseAI.capabilities()")
+            assert set(
+                [
+                    "wrap",
+                    "translate-all",
+                    "set-supercell",
+                    "make-supercell",
+                    "add-atom",
+                    "delete-selection",
+                    "set-identity",
+                    "set-constraints",
+                    "move-selection",
+                    "rotate-selection",
+                    "undo",
+                    "redo",
+                    "reset-coordinates",
+                    "start-relaxation",
+                    "stop-relaxation",
+                    "refresh-displacements",
+                ]
+            ).issubset(capabilities["operations"])
+            assert {"image", "video", "poscar", "pickle", "blender", "3dm", "obj", "project", "settings"}.issubset(
+                capabilities["exports"]
+            )
+
+            moved = page.evaluate("""async () => {
+                await window.v_aseAI.apply({mode: 'edit'});
+                await window.v_aseAI.apply({
+                    selection: {clear: true, indices: [1]},
+                    operation: {
+                        name: 'move-selection',
+                        vector: [0.1, 0.2, 0.0],
+                        applyConstraints: true
+                    }
+                });
+                return await window.v_aseAI.describe();
+            }""")
+            assert moved["positions"][1] == pytest.approx(
+                (atoms.positions[1] + np.array([0.1, 0.2, 0.0])).tolist(),
+                abs=1e-8,
+            )
+            page.evaluate("async () => await window.v_aseAI.apply({operation: 'undo'})")
+            restored_position = page.evaluate(
+                "async () => (await window.v_aseAI.describe()).positions[1]"
+            )
+            assert restored_position == pytest.approx(atoms.positions[1].tolist(), abs=1e-8)
+            page.evaluate(
+                "async () => await window.v_aseAI.apply({selection: {clear: true, indices: [0]}})"
+            )
+
+            exported = page.evaluate("""async () => {
+                const result = await window.v_aseAI.export({format: 'poscar'});
+                return {
+                    format: result.format,
+                    filename: result.filename,
+                    mimeType: result.mimeType,
+                    bytes: result.bytes,
+                    prefix: result.dataUrl.slice(0, 37)
+                };
+            }""")
+            assert exported["format"] == "poscar"
+            assert exported["filename"] == "POSCAR"
+            assert exported["bytes"] > 0
+            assert exported["prefix"].startswith("data:application/octet-stream;base64,")
+
+            obj_export = page.evaluate("""async () => {
+                const result = await window.v_aseAI.export({
+                    format: 'obj',
+                    includeCell: true
+                });
+                return {
+                    format: result.format,
+                    filename: result.filename,
+                    mimeType: result.mimeType,
+                    bytes: result.bytes,
+                    prefix: result.dataUrl.slice(0, 28)
+                };
+            }""")
+            assert obj_export["format"] == "obj"
+            assert obj_export["filename"] == "v_ase_obj_scene.zip"
+            assert obj_export["mimeType"] == "application/zip"
+            assert obj_export["bytes"] > 0
+            assert obj_export["prefix"].startswith("data:application/zip;base64,")
 
             _expand_inspector(editor_page)
             _select_structure_section(editor_page, "constraints")

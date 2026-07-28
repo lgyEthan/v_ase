@@ -418,6 +418,34 @@ class VAseWorkspace {
                 await workspace.ready;
                 return await (await workspace.waitForActiveAIBridge()).describe(options);
             },
+            capabilities: async () => {
+                await workspace.ready;
+                return await (await workspace.waitForActiveAIBridge()).capabilities();
+            },
+            documents: async () => {
+                await workspace.ready;
+                return {
+                    activeSessionId: workspace.activeSessionId,
+                    documents: [...workspace.tabs.values()].map(entry => ({
+                        sessionId: entry.sessionId,
+                        title: entry.title,
+                        active: entry.sessionId === workspace.activeSessionId
+                    }))
+                };
+            },
+            activate: async sessionId => {
+                await workspace.ready;
+                if (!workspace.tabs.has(sessionId)) {
+                    throw new Error(`Unknown v_ase document session '${sessionId}'.`);
+                }
+                workspace.activateDocument(sessionId);
+                return await (await workspace.waitForActiveAIBridge()).ready();
+            },
+            newDocument: async () => {
+                await workspace.ready;
+                await workspace.createDocument();
+                return await (await workspace.waitForActiveAIBridge()).ready();
+            },
             apply: async command => {
                 await workspace.ready;
                 return await (await workspace.waitForActiveAIBridge()).apply(command);
@@ -425,6 +453,10 @@ class VAseWorkspace {
             render: async request => {
                 await workspace.ready;
                 return await (await workspace.waitForActiveAIBridge()).render(request);
+            },
+            export: async request => {
+                await workspace.ready;
+                return await (await workspace.waitForActiveAIBridge()).export(request);
             }
         });
     }

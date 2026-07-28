@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import tomllib
 from pathlib import Path
@@ -51,7 +52,46 @@ def test_release_version_is_synchronized():
 def test_source_distribution_includes_release_documents():
     manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8").splitlines()
     included = {line.removeprefix("include ").strip() for line in manifest if line.startswith("include ")}
-    assert {"README.md", "CHANGELOG.md", "LICENSE", "requirements.txt"} <= included
+    assert {
+        "README.md",
+        "AGENTS.md",
+        "CHANGELOG.md",
+        "LICENSE",
+        "requirements.txt",
+    } <= included
+
+
+def test_release_contract_covers_user_agent_and_rendered_docs():
+    contract = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    checklist = (ROOT / "docs/release_checklist.md").read_text(encoding="utf-8")
+    for required in (
+        "README.md",
+        "v_ase/skills_v_ase.md",
+        "scripts/capture_readme_screenshots.py",
+        "docs/assets/github/",
+        "GitHub",
+        "PyPI",
+    ):
+        assert required in contract
+        assert required in checklist
+
+
+def test_readme_render_assets_are_synchronized_for_github():
+    source_dir = ROOT / "docs/assets"
+    github_dir = source_dir / "github"
+    names = {
+        path.name
+        for path in source_dir.iterdir()
+        if path.is_file() and path.name.startswith("readme_")
+    }
+    assert names
+    for name in sorted(names):
+        source = source_dir / name
+        github = github_dir / name
+        assert github.exists(), name
+        assert hashlib.sha256(source.read_bytes()).digest() == hashlib.sha256(
+            github.read_bytes()
+        ).digest(), name
 
 
 def test_requirements_include_every_runtime_dependency():

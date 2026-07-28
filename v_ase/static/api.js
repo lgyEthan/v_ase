@@ -876,6 +876,20 @@ export class ASEApi {
         );
     }
 
+    async encodeImage(image, format = 'webp') {
+        if (this.mock) return image;
+        const normalized = String(format).toLowerCase() === 'png' ? 'png' : 'webp';
+        return await this.request(
+            `/api/export/image/{session_id}?format=${normalized}`,
+            {
+                method: 'POST',
+                headers: {'Content-Type': 'image/png'},
+                body: image
+            },
+            { expect: 'blob' }
+        );
+    }
+
     async saveVisualSettings(settings) {
         return await this.request(`/api/settings/save/{session_id}`, {
             method: 'POST',

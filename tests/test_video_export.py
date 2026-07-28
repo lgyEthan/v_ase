@@ -3,7 +3,7 @@ import subprocess
 
 import pytest
 
-from v_ase.export import transcode_video_file, video_export_format
+from v_ase.export import VIDEO_EXPORT_FORMATS, transcode_video_file, video_export_format
 
 
 def make_test_webm(path):
@@ -26,6 +26,15 @@ def test_video_export_format_rejects_unknown_container():
     assert video_export_format("AVI")["media_type"] == "video/x-msvideo"
     with pytest.raises(ValueError, match="Unsupported video format"):
         video_export_format("mp4")
+
+
+def test_video_profiles_prioritize_compact_high_resolution_output():
+    mov = VIDEO_EXPORT_FORMATS["mov"]["codec_args"]
+    avi = VIDEO_EXPORT_FORMATS["avi"]["codec_args"]
+    assert mov[mov.index("-preset") + 1] == "slow"
+    assert mov[mov.index("-crf") + 1] == "20"
+    assert mov[mov.index("-profile:v") + 1] == "high"
+    assert avi[avi.index("-q:v") + 1] == "3"
 
 
 @pytest.mark.parametrize(

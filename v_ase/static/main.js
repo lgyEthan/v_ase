@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.99&rev=3';
-import { ASERenderer } from './renderer.js?v=0.0.99&rev=3';
-import { ASESelection } from './selection.js?v=0.0.99&rev=3';
-import { ASETransform } from './transform.js?v=0.0.99&rev=3';
+import { ASEApi } from './api.js?v=0.0.100&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.100&rev=1';
+import { ASESelection } from './selection.js?v=0.0.100&rev=1';
+import { ASETransform } from './transform.js?v=0.0.100&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.99&rev=3';
+} from './trajectory.js?v=0.0.100&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -5469,6 +5469,267 @@ class VAseApp {
         this.completeCameraViewChange('ai-axis-view');
     }
 
+    aiCapabilities() {
+        return {
+            protocol: 'v_ase.ai.v1',
+            state: [
+                'atoms', 'labels', 'elements', 'positions', 'cell', 'pbc',
+                'constraints', 'forces', 'charges', 'tags', 'magnetic-moments',
+                'selection', 'measurement', 'trajectory', 'camera', 'display'
+            ],
+            apply: [
+                'frame', 'mode', 'display', 'quality', 'applyConstraints',
+                'camera', 'selection', 'operation'
+            ],
+            operations: [
+                'wrap', 'translate-all', 'set-supercell', 'make-supercell',
+                'add-atom', 'delete-selection', 'set-identity', 'set-constraints',
+                'move-selection', 'rotate-selection', 'undo', 'redo',
+                'reset-coordinates', 'start-relaxation', 'stop-relaxation',
+                'refresh-displacements'
+            ],
+            exports: [
+                'image', 'video', 'poscar', 'pickle', 'blender', '3dm', 'obj',
+                'project', 'settings'
+            ]
+        };
+    }
+
+    aiFiniteVector(value, name = 'vector') {
+        if (
+            !Array.isArray(value)
+            || value.length !== 3
+            || !value.every(component => Number.isFinite(Number(component)))
+        ) {
+            throw new Error(`${name} must contain three finite numbers.`);
+        }
+        return value.map(Number);
+    }
+
+    aiOperationIndices(operation) {
+        const values = operation.indices === undefined
+            ? this.selectedAtomIndices()
+            : operation.indices;
+        if (!Array.isArray(values) || !values.length) {
+            throw new Error('The operation requires selected atoms or a non-empty indices array.');
+        }
+        const atomCount = this.state.atoms?.positions?.length || 0;
+        const indices = [...new Set(values.map(Number))];
+        if (!indices.every(index => Number.isInteger(index) && index >= 0 && index < atomCount)) {
+            throw new Error(`Operation indices must be integers inside 0..${Math.max(0, atomCount - 1)}.`);
+        }
+        return indices;
+    }
+
+    aiRequireEdit(operationName) {
+        if (this.state.vizOnly) {
+            throw new Error(`${operationName} requires Edit mode. Apply {mode: "edit"} first.`);
+        }
+    }
+
+    async aiApplyOperation(operation) {
+        if (typeof operation === 'string') operation = { name: operation };
+        if (!operation || typeof operation !== 'object' || Array.isArray(operation)) {
+            throw new Error('operation must be a string or object with a name.');
+        }
+        const name = String(operation.name || '').trim().toLowerCase();
+        const applyConstraints = operation.applyConstraints ?? this.state.applyConstraints;
+        const positions = () => this.backendPositionsPayload().map(position => [...position]);
+        const setData = (data, clearSelection = false) => {
+            this.setAtomsData(data, { clearSelection });
+            return data;
+        };
+
+        if (name === 'wrap') {
+            if (!this.hasUsableCell()) throw new Error('Wrap requires a defined unit cell.');
+            if (this.state.vizOnly) {
+                this.wrapVisibleAtomsIntoCell();
+                return;
+            }
+            setData(await this.api.wrap(positions(), applyConstraints));
+            return;
+        }
+        if (name === 'translate-all') {
+            this.aiRequireEdit('translate-all');
+            const vector = this.aiFiniteVector(operation.vector);
+            const coordinateMode = operation.coordinateMode === 'fractional'
+                ? 'fractional'
+                : 'cartesian';
+            setData(await this.api.applyTranslation(
+                positions(), vector, coordinateMode, applyConstraints
+            ));
+            return;
+        }
+        if (name === 'set-supercell') {
+            this.aiRequireEdit('set-supercell');
+            const reps = this.aiFiniteVector(operation.reps, 'reps');
+            if (!reps.every(value => Number.isInteger(value) && value >= 1 && value <= 64)) {
+                throw new Error('Supercell repetitions must be integers from 1 to 64.');
+            }
+            setData(await this.api.applySupercell(positions(), reps, applyConstraints), true);
+            this.state.display.supercell = [1, 1, 1];
+            return;
+        }
+        if (name === 'make-supercell') {
+            this.aiRequireEdit('make-supercell');
+            const matrix = operation.matrix;
+            if (
+                !Array.isArray(matrix)
+                || matrix.length !== 3
+                || !matrix.every(row => (
+                    Array.isArray(row)
+                    && row.length === 3
+                    && row.every(value => Number.isInteger(Number(value)))
+                ))
+            ) {
+                throw new Error('matrix must be a 3 x 3 integer array.');
+            }
+            setData(await this.api.applySupercellMatrix(
+                positions(),
+                matrix.map(row => row.map(Number)),
+                applyConstraints
+            ), true);
+            this.state.display.supercell = [1, 1, 1];
+            return;
+        }
+        if (name === 'add-atom') {
+            this.aiRequireEdit('add-atom');
+            const label = String(operation.label || operation.element || '').trim();
+            if (!label) throw new Error('add-atom requires label or element.');
+            const position = this.aiFiniteVector(operation.position, 'position');
+            setData(await this.api.addAtom(label, position, operation.element || null));
+            return;
+        }
+        if (name === 'delete-selection') {
+            this.aiRequireEdit('delete-selection');
+            setData(await this.api.deleteAtoms(this.aiOperationIndices(operation)), true);
+            return;
+        }
+        if (name === 'set-identity') {
+            this.aiRequireEdit('set-identity');
+            const label = String(operation.label || '').trim();
+            if (!label) throw new Error('set-identity requires a non-empty label.');
+            setData(await this.api.updateAtomIdentity(
+                this.aiOperationIndices(operation),
+                label,
+                positions(),
+                applyConstraints,
+                operation.element || null
+            ));
+            return;
+        }
+        if (name === 'set-constraints') {
+            this.aiRequireEdit('set-constraints');
+            const options = {};
+            if (operation.fixAtoms !== undefined) options.fix_atoms = Boolean(operation.fixAtoms);
+            if (operation.clearDirectional) options.directional_kind = 'none';
+            else if (operation.kind !== undefined) options.directional_kind = String(operation.kind);
+            if (operation.vector !== undefined) options.vector = this.aiFiniteVector(operation.vector);
+            setData(await this.api.updateConstraints(
+                this.aiOperationIndices(operation),
+                options,
+                positions(),
+                applyConstraints
+            ));
+            return;
+        }
+        if (name === 'move-selection') {
+            this.aiRequireEdit('move-selection');
+            const vector = this.aiFiniteVector(operation.vector);
+            const next = positions();
+            this.aiOperationIndices(operation).forEach(index => {
+                next[index] = next[index].map((value, axis) => value + vector[axis]);
+            });
+            setData(await this.api.applyPositions(next, applyConstraints));
+            return;
+        }
+        if (name === 'rotate-selection') {
+            this.aiRequireEdit('rotate-selection');
+            const axis = this.aiFiniteVector(operation.axis || [0, 0, 1], 'axis');
+            const axisVector = new THREE.Vector3(...axis);
+            if (axisVector.lengthSq() <= 1e-16) throw new Error('Rotation axis must be non-zero.');
+            axisVector.normalize();
+            const angle = Number(operation.angleDeg);
+            if (!Number.isFinite(angle)) throw new Error('rotate-selection requires finite angleDeg.');
+            const indices = this.aiOperationIndices(operation);
+            const next = positions();
+            let pivot;
+            if (Array.isArray(operation.pivot)) {
+                pivot = new THREE.Vector3(...this.aiFiniteVector(operation.pivot, 'pivot'));
+            } else if (operation.pivot === 'origin') {
+                pivot = new THREE.Vector3(0, 0, 0);
+            } else if (operation.pivot === 'cell') {
+                const cell = this.state.atoms?.cell || [];
+                pivot = new THREE.Vector3();
+                cell.forEach(row => pivot.add(new THREE.Vector3(...row).multiplyScalar(0.5)));
+            } else {
+                pivot = new THREE.Vector3();
+                indices.forEach(index => pivot.add(new THREE.Vector3(...next[index])));
+                pivot.multiplyScalar(1 / indices.length);
+            }
+            const quaternion = new THREE.Quaternion().setFromAxisAngle(
+                axisVector,
+                THREE.MathUtils.degToRad(angle)
+            );
+            indices.forEach(index => {
+                const point = new THREE.Vector3(...next[index])
+                    .sub(pivot)
+                    .applyQuaternion(quaternion)
+                    .add(pivot);
+                next[index] = point.toArray();
+            });
+            setData(await this.api.applyPositions(next, applyConstraints));
+            return;
+        }
+        if (name === 'undo') {
+            await this.performUndo();
+            return;
+        }
+        if (name === 'redo') {
+            await this.performRedo();
+            return;
+        }
+        if (name === 'reset-coordinates') {
+            this.aiRequireEdit('reset-coordinates');
+            setData(await this.api.resetCoordinates(), true);
+            return;
+        }
+        if (name === 'start-relaxation') {
+            this.aiRequireEdit('start-relaxation');
+            if (!this.state.atoms?.metadata?.has_calculator) {
+                throw new Error('Relaxation requires an attached ASE calculator.');
+            }
+            this.startRelaxTrajectory();
+            const response = await this.api.relaxStart(
+                positions(),
+                Number(operation.fmax) || 0.05,
+                Math.max(1, Math.round(Number(operation.steps) || 200)),
+                applyConstraints,
+                operation.calculator || this.currentCalculatorPayload()
+            );
+            this.state.isRelaxing = ['started', 'restarting'].includes(response.status);
+            this.updateUI();
+            return;
+        }
+        if (name === 'stop-relaxation') {
+            await this.api.relaxStop();
+            return;
+        }
+        if (name === 'refresh-displacements') {
+            if (operation.display) {
+                this.applyDesignSettings({
+                    display: {
+                        ...this.clonePlain(this.state.display),
+                        ...this.clonePlain(operation.display)
+                    }
+                });
+            }
+            await this.refreshDisplacementAnalysis();
+            return;
+        }
+        throw new Error(`Unsupported AI operation '${name}'.`);
+    }
+
     async aiApply(command = {}) {
         if (!command || typeof command !== 'object' || Array.isArray(command)) {
             throw new Error('AI control command must be an object.');
@@ -5497,6 +5758,31 @@ class VAseApp {
                     ...this.clonePlain(command.display)
                 }
             });
+        }
+        if (command.quality !== undefined) {
+            if (!command.quality || typeof command.quality !== 'object' || Array.isArray(command.quality)) {
+                throw new Error('quality must be an object.');
+            }
+            const sphereQuality = command.quality.sphereQuality || this.state.sphereQuality;
+            if (!['auto', 'low', 'medium', 'high', 'ultra'].includes(sphereQuality)) {
+                throw new Error("quality.sphereQuality must be auto, low, medium, high, or ultra.");
+            }
+            const antiAliasing = command.quality.antiAliasing ?? this.state.antiAliasing;
+            this.applyDesignSettings({
+                display: {
+                    ...this.clonePlain(this.state.display),
+                    antiAliasing: Boolean(antiAliasing),
+                    sphereQuality
+                },
+                antiAliasing: Boolean(antiAliasing),
+                sphereQuality
+            });
+        }
+        if (command.applyConstraints !== undefined) {
+            this.state.applyConstraints = Boolean(command.applyConstraints);
+            const input = document.getElementById('chk-constraints');
+            if (input) input.checked = this.state.applyConstraints;
+            this.renderer.setApplyConstraints?.(this.state.applyConstraints);
         }
         if (command.camera !== undefined) {
             const cameraCommand = command.camera;
@@ -5558,6 +5844,9 @@ class VAseApp {
             this.updateSelectionVisuals();
             this.updateUI();
         }
+        if (command.operation !== undefined) {
+            await this.aiApplyOperation(command.operation);
+        }
         this.renderer.renderNow();
         return this.aiDescribe();
     }
@@ -5565,21 +5854,154 @@ class VAseApp {
     async aiRender(request = {}) {
         const width = Math.max(64, Math.min(8192, Math.round(Number(request.width) || 1920)));
         const height = Math.max(64, Math.min(8192, Math.round(Number(request.height) || 1080)));
+        const format = request.format === 'png' ? 'png' : 'webp';
         const options = {
             ...this.defaultImageExportOptions(),
             ...this.clonePlain(request.options || {})
         };
         this.renderer.renderNow();
-        const dataUrl = this.renderer.exportPNG(width, height, options);
+        const blob = await this.renderOptimizedImage(width, height, options, format);
+        const dataUrl = await this.blobToDataUrl(blob);
         return {
             protocol: 'v_ase.ai.v1',
-            mimeType: 'image/png',
+            mimeType: format === 'png' ? 'image/png' : 'image/webp',
+            format,
+            filename: `v_ase-render.${format}`,
+            bytes: blob.size,
             width,
             height,
             dataUrl,
             camera: this.cameraHistorySnapshot(),
             options
         };
+    }
+
+    async aiExport(request = {}) {
+        const format = String(request.format || '').trim().toLowerCase();
+        if (format === 'image') {
+            const imageFormat = request.imageFormat === 'png' ? 'png' : 'webp';
+            return {
+                ...(await this.aiRender({...request, format: imageFormat})),
+                exportFormat: 'image'
+            };
+        }
+        if (format === 'video') {
+            const blob = await this.exportTrajectoryVideo(
+                {
+                    width: request.width || 1920,
+                    height: request.height || 1080,
+                    fps: request.fps || 12,
+                    format: request.container === 'avi' ? 'avi' : 'mov',
+                    interpolationMultiplier: request.interpolationMultiplier || 1,
+                    interpolationMic: request.interpolationMic !== false,
+                    ...this.clonePlain(request.options || {})
+                },
+                null,
+                { returnBlob: true }
+            );
+            const container = request.container === 'avi' ? 'avi' : 'mov';
+            return {
+                protocol: 'v_ase.ai.v1',
+                format: 'video',
+                filename: `v_ase-trajectory.${container}`,
+                mimeType: blob.type || (container === 'avi' ? 'video/x-msvideo' : 'video/quicktime'),
+                bytes: blob.size,
+                dataUrl: await this.blobToDataUrl(blob)
+            };
+        }
+
+        const positions = this.backendPositionsPayload();
+        const includeCell = request.includeCell ?? this.state.display.exportIncludeCell !== false;
+        const display = this.clonePlain(this.state.display);
+        const camera = this.currentCameraForExport();
+        const bonds = this.renderer.bondPairs || [];
+        const bridges = this.renderer.supercellBridgeBondRecords || [];
+        let blob;
+        let filename;
+        let mimeType;
+        if (format === 'poscar') {
+            blob = await this.api.exportPoscar(positions, this.state.applyConstraints);
+            filename = 'POSCAR';
+            mimeType = 'application/octet-stream';
+        } else if (format === 'pickle') {
+            blob = await this.api.exportPickle(positions, this.state.applyConstraints);
+            filename = 'atoms.pkl';
+            mimeType = 'application/octet-stream';
+        } else if (format === 'blender') {
+            blob = await this.api.exportBlender(
+                positions,
+                this.state.applyConstraints,
+                camera,
+                display,
+                bonds,
+                this.currentLightingForExport(),
+                includeCell
+            );
+            filename = 'v_ase_blender_scene.py';
+            mimeType = 'text/x-python';
+        } else if (format === '3dm') {
+            blob = await this.api.export3dm(
+                positions,
+                this.state.applyConstraints,
+                display,
+                bonds,
+                bridges,
+                camera,
+                includeCell
+            );
+            filename = 'v_ase_scene.3dm';
+            mimeType = 'model/vnd.3dm';
+        } else if (format === 'obj') {
+            blob = await this.api.exportObj(
+                positions,
+                this.state.applyConstraints,
+                display,
+                bonds,
+                bridges,
+                camera,
+                includeCell
+            );
+            filename = 'v_ase_obj_scene.zip';
+            mimeType = 'application/zip';
+        } else if (format === 'project') {
+            blob = await this.api.saveProject(
+                positions,
+                this.designSettingsSnapshot(),
+                this.state.applyConstraints
+            );
+            filename = this.projectFilename();
+            mimeType = 'application/vnd.v-ase.project+zip';
+        } else if (format === 'settings') {
+            blob = await this.api.saveVisualSettings(this.designSettingsSnapshot());
+            filename = 'v_ase-settings.json';
+            mimeType = 'application/json';
+        } else {
+            throw new Error(
+                "export format must be image, video, poscar, pickle, blender, 3dm, obj, project, or settings."
+            );
+        }
+        return {
+            protocol: 'v_ase.ai.v1',
+            format,
+            filename,
+            mimeType: blob.type || mimeType,
+            bytes: blob.size,
+            dataUrl: await this.blobToDataUrl(blob)
+        };
+    }
+
+    blobToDataUrl(blob) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(reader.error || new Error('Image encoding failed.'));
+            reader.readAsDataURL(blob);
+        });
+    }
+
+    async renderOptimizedImage(width, height, options = {}, format = 'webp') {
+        const source = await this.renderer.exportPNGBlob(width, height, options);
+        return await this.api.encodeImage(source, format);
     }
 
     createAIBridge() {
@@ -5599,6 +6021,10 @@ class VAseApp {
                 await app.ready;
                 return app.aiDescribe(options);
             },
+            capabilities: async () => {
+                await app.ready;
+                return app.aiCapabilities();
+            },
             apply: async command => {
                 await app.ready;
                 return await app.aiApply(command);
@@ -5606,6 +6032,10 @@ class VAseApp {
             render: async request => {
                 await app.ready;
                 return await app.aiRender(request);
+            },
+            export: async request => {
+                await app.ready;
+                return await app.aiExport(request);
             }
         });
     }
@@ -5981,8 +6411,14 @@ class VAseApp {
             supercell: this.clonePlain(nextDisplay.supercell)
         };
         if ('applyConstraints' in source) this.state.applyConstraints = Boolean(source.applyConstraints);
-        if ('antiAliasing' in source) this.state.antiAliasing = Boolean(source.antiAliasing);
-        if ('sphereQuality' in source) this.state.sphereQuality = source.sphereQuality || 'auto';
+        if ('antiAliasing' in source) {
+            this.state.antiAliasing = Boolean(source.antiAliasing);
+            this.state.display.antiAliasing = this.state.antiAliasing;
+        }
+        if ('sphereQuality' in source) {
+            this.state.sphereQuality = source.sphereQuality || 'auto';
+            this.state.display.sphereQuality = this.state.sphereQuality;
+        }
         if ('moveIncrement' in source) this.state.moveIncrement = Number(source.moveIncrement) || 0;
         if ('rotateIncrementDeg' in source) this.state.rotateIncrementDeg = Number(source.rotateIncrementDeg) || 0;
         this.state.imageExportProfile = source.imageExportProfile
@@ -6683,6 +7119,9 @@ class VAseApp {
         if (lower.endsWith('.png')) {
             return [{ description: 'PNG image', accept: { 'image/png': ['.png'] } }];
         }
+        if (lower.endsWith('.webp')) {
+            return [{ description: 'Lossless WebP image', accept: { 'image/webp': ['.webp'] } }];
+        }
         return [{ description: 'v_ase export', accept: { [mimeType]: ['.vasp', '.poscar', '.txt'] } }];
     }
 
@@ -7090,6 +7529,7 @@ class VAseApp {
         );
         return {
             kind: 'image',
+            format: profile?.format === 'png' ? 'png' : 'webp',
             width: Math.max(256, Math.round(Number(dimensions.width) || 1920)),
             height: Math.max(256, Math.round(Number(dimensions.height) || 1080)),
             options: {
@@ -7156,7 +7596,7 @@ class VAseApp {
         this.state.exportPreviewProfile = null;
         const initialProfile = this.currentImageExportProfile();
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
-        const { width, height, options: imageOptions } = initialProfile;
+        const { width, height, format: imageFormat, options: imageOptions } = initialProfile;
         const position = imageOptions.sunPosition;
         const target = imageOptions.sunTarget;
         const scaleMode = imageOptions.scaleMode;
@@ -7169,6 +7609,11 @@ class VAseApp {
             <div class="export-image-columns">
                 <div class="export-image-column">
                 <div class="export-grid">
+                    <label for="export-image-format">Format</label>
+                    <select id="export-image-format">
+                        <option value="webp" ${selected('webp', imageFormat)}>WebP (lossless, compact)</option>
+                        <option value="png" ${selected('png', imageFormat)}>PNG (lossless, compatible)</option>
+                    </select>
                     <label for="export-width">Width</label>
                     <input type="number" id="export-width" value="${width}" min="256" step="128">
                     <label for="export-height">Height</label>
@@ -7257,6 +7702,7 @@ class VAseApp {
         const readImageProfile = () => {
             const renderModeSelection = document.getElementById('export-render-mode')?.value || 'current';
             return this.normalizedImageExportProfile({
+                format: document.getElementById('export-image-format')?.value || 'webp',
                 width: Math.max(256, parseInt(document.getElementById('export-width')?.value || `${width}`, 10)),
                 height: Math.max(256, parseInt(document.getElementById('export-height')?.value || `${height}`, 10)),
                 options: {
@@ -7327,7 +7773,7 @@ class VAseApp {
         ]
             .forEach(id => document.getElementById(id)?.addEventListener('input', updateExportSummary));
         [
-            'export-transparent', 'export-grid', 'export-axes', 'export-cell', 'export-framing-mode',
+            'export-image-format', 'export-transparent', 'export-grid', 'export-axes', 'export-cell', 'export-framing-mode',
             'export-sphere-quality', 'export-render-mode'
         ]
             .forEach(id => document.getElementById(id)?.addEventListener('change', updateExportSummary));
@@ -7336,9 +7782,10 @@ class VAseApp {
         document.getElementById('modal-export-image')?.addEventListener('click', async () => {
             try {
                 const profile = this.setImageExportProfile(readImageProfile());
-                const { width: exportWidth, height: exportHeight, options } = profile;
-                const filename = `v_ase-${exportWidth}x${exportHeight}.png`;
-                const destination = await this.chooseSaveDestination(filename, 'image/png');
+                const { width: exportWidth, height: exportHeight, format, options } = profile;
+                const mimeType = format === 'png' ? 'image/png' : 'image/webp';
+                const filename = `v_ase-${exportWidth}x${exportHeight}.${format}`;
+                const destination = await this.chooseSaveDestination(filename, mimeType);
                 if (!destination) return;
                 Object.assign(this.state.display, {
                     imageFramingMode: options.scaleMode,
@@ -7348,12 +7795,11 @@ class VAseApp {
                 });
                 this.setBusy(`Rendering ${exportWidth} x ${exportHeight} image...`);
                 await new Promise(resolve => requestAnimationFrame(resolve));
-                const dataUrl = this.renderer.exportPNG(exportWidth, exportHeight, options);
-                const blob = await (await fetch(dataUrl)).blob();
+                const blob = await this.renderOptimizedImage(exportWidth, exportHeight, options, format);
                 const saved = await this.savePreparedBlob(
                     blob,
                     filename,
-                    'image/png',
+                    mimeType,
                     destination
                 );
                 this.syncImageExportPreview();
@@ -7699,7 +8145,7 @@ class VAseApp {
         interpolationMultiplier = 1,
         interpolationMic = true,
         ...renderOptions
-    }, destination) {
+    }, destination, { returnBlob = false } = {}) {
         const meta = this.state.atoms?.metadata || {};
         const frameCount = meta.frame_count || 1;
         if (frameCount <= 1) throw new Error('A trajectory with at least two frames is required.');
@@ -7715,9 +8161,10 @@ class VAseApp {
         const outputFormat = format === 'avi' ? 'avi' : 'mov';
         const filename = `v_ase-trajectory.${outputFormat}`;
         const outputMime = outputFormat === 'avi' ? 'video/x-msvideo' : 'video/quicktime';
-        const selectedDestination = destination
-            || await this.chooseSaveDestination(filename, outputMime);
-        if (!selectedDestination) return false;
+        const selectedDestination = returnBlob
+            ? null
+            : (destination || await this.chooseSaveDestination(filename, outputMime));
+        if (!returnBlob && !selectedDestination) return false;
         const originalFrame = meta.current_frame || 0;
         if (this.state.trajectoryTimer) {
             clearTimeout(this.state.trajectoryTimer);
@@ -7815,6 +8262,7 @@ class VAseApp {
                 outputFps,
                 outputFrameCount
             );
+            if (returnBlob) return video;
             const saved = await this.savePreparedBlob(
                 video,
                 filename,

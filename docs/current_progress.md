@@ -182,6 +182,15 @@ and documentation use `view()`.
     available for human takeover. Agents obtain semantic structure state over
     HTTP and use `window.v_aseAI` to set frame, display, selection, and camera
     before rendering through the exact Export Image capture path.
+45. Image storage optimization is post-render only. Lossless WebP and optimized
+    PNG preserve the requested dimensions and exact RGBA pixels; PNG keeps the
+    browser source when recompression is not smaller.
+46. Hookean active-state geometry is a shaded three-dimensional helix in both
+    the live viewport and generated Blender scene. Cutoff and inactive-gap
+    graphics remain separate so the physical threshold is readable.
+47. The installed vendor-neutral agent contract is
+    `v_ase/skills_v_ase.md`. Every release updates it together with README,
+    implementation docs, and all README captures affected by renderer changes.
 
 ## Canonical Names And Compatibility
 
@@ -294,10 +303,12 @@ Current benchmark method and results are in [performance.md](performance.md).
 10. Headless Linux installation and real browser rendering through the managed
     one-command SSH workflow, including per-frame trajectory transfer and CLI
     release after the browser tab closes.
-11. AI handshake, semantic state, deterministic browser control, exact PNG
-    rendering, and immediate human takeover of the same workspace.
+11. AI handshake, semantic state, deterministic browser control, exact
+    lossless WebP/PNG rendering, semantic export, and immediate human takeover
+    of the same workspace.
 
 Run installed-wheel verification from outside the repository checkout. The
 checkout contains build metadata, so invoking pip from its root can make pip
 mistake that metadata for an installed distribution during repeated local
-release checks.
+release checks. The complete mandatory publication sequence is maintained in
+[release_checklist.md](release_checklist.md).

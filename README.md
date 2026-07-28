@@ -15,6 +15,9 @@ and enables direct atom editing when requested.
 
 ![v_ase overview](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_overview.png)
 
+Graphene/hBN in axis-locked rotate mode, with commensurate cell-match angles
+shown directly in the viewport.
+
 ## Quick Start
 
 Install from PyPI:
@@ -72,7 +75,7 @@ view.
 | Repeat or wrap a cell | Use **Structure > Cell & Replication** |
 | Save the complete session | Use **Export > Save Project** to create a self-contained `.vase` |
 | Work with a remote file | Run `v_ase gui HOST:/path/to/STRUCTURE` locally |
-| Let an AI inspect and render | Run `v_ase gui FILE --for-ai` and provide the JSON handshake |
+| Let an AI inspect, edit, and render | Run `v_ase gui FILE --for-ai`; use the [agent skill guide](https://github.com/lgyEthan/v_ase/blob/main/v_ase/skills_v_ase.md) |
 
 > **Tip:** After selecting atoms, press `Esc` to close the control panel before
 > starting `G`/`R` transforms. This returns keyboard focus to the viewport
@@ -96,17 +99,17 @@ v_ase gui STRUCTURE --for-ai
 ```
 
 v_ase prints one JSON handshake containing the live GUI URL, semantic structure
-state, control schema, and bundled agent guide. An agent reads coordinates,
-cell, PBC, labels, constraints, frame state, visual settings, and camera
-directly instead of repeatedly interpreting screenshots. It can set a
-deterministic camera, configure the view, select atoms, and request a PNG
-through the same renderer used by **Export Image**.
+state, control schema, and bundled agent guide. Agents can read coordinates,
+cell, PBC, labels, constraints, trajectories, measurements, visual settings,
+and camera state directly. They can edit structures, configure the scene,
+control documents, and produce final exports without a screenshot-analysis
+loop.
 
 The interface is vendor-neutral and exposed as `window.v_aseAI` in the live
 page. Open the handshake's `human_url` at any time to take over the same
 document, frame, camera, and settings in the regular GUI. Complete command and
-JavaScript examples are available at its `skill_url` and installed as
-`v_ase/skills_v_ase.md`.
+JavaScript examples are available at its `skill_url` and in
+[skills_v_ase.md](https://github.com/lgyEthan/v_ase/blob/main/v_ase/skills_v_ase.md).
 
 ## Opening And Documents
 
@@ -247,8 +250,9 @@ treatment. They remain visible without looking selected.
 
 ### Hookean
 
-Hookean constraints show the inactive cutoff, threshold, and active spring
-state. The spring engages only after the constrained distance passes `rt`.
+Hookean constraints show the inactive cutoff, threshold, and active state. A
+shaded 3D helical spring appears only after the constrained distance passes
+`rt`, so the force-free region and engaged extension remain distinct.
 
 ![Hookean constraint](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_hookean.png)
 
@@ -343,8 +347,8 @@ cutoffs.
 | --- | --- |
 | Export POSCAR | Current atomic structure in VASP format |
 | Export ASE Pickle | Current ASE `Atoms`, labels, constraints, arrays, and valid `SinglePointCalculator` results |
-| Export Image | PNG using the Preview Area camera and crop |
-| Export Video | Complete trajectory as MOV or AVI, with optional N× interpolation and MIC |
+| Export Image | Lossless WebP (compact default) or optimized PNG, using the Preview Area camera and crop |
+| Export Video | Compact H.264 MOV or MPEG-4 AVI, with optional N× interpolation and MIC |
 | Export Blender | Optimized Python scene with atoms, bonds, camera, Sun, optional cell, and trajectory animation |
 | Export 3DM | Instanced Rhino geometry, metadata, and saved views |
 | Export OBJ | OBJ/MTL plus camera and metadata JSON in a ZIP |
@@ -355,6 +359,11 @@ cutoffs.
 and lighting profile used for export. The frame stays fixed while orbit and zoom
 change the structure inside it. Unit cell, grid, axes, background, atom
 smoothness, and renderer are independently selectable for output.
+
+Lossless WebP keeps the exact rendered dimensions and RGBA pixels while usually
+using less space than PNG. Choose PNG when compatibility with a PNG-only
+workflow is required. Video encoding preserves the selected pixel dimensions;
+compression settings reduce storage without resizing the frames.
 
 When the browser supports the system save picker, v_ase asks for the destination
 before generating a structure, image, video, Blender, Rhino, OBJ, project, or

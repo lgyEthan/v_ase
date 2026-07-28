@@ -241,7 +241,8 @@ Endpoint groups:
   add/delete;
 - coordinate commit and constraint editing;
 - calculator and relaxation control;
-- POSCAR, ASE Pickle, image/video support, Blender, 3DM, and OBJ export;
+- POSCAR, ASE Pickle, lossless WebP/optimized PNG image support, video support,
+  Blender, 3DM, and OBJ export;
 - visual-settings and `.vase` save/load;
 - binary current-frame and full-trajectory coordinate transfer.
 - semantic AI schema, skill guide, and current-frame state.
@@ -288,8 +289,25 @@ GET /api/ai/skill
 GET /api/ai/state/{session_id}
 ```
 
-The live browser exposes `window.v_aseAI.ready()`, `describe()`, `apply()`, and
-`render()`. Rendering uses the same capture path as Export Image.
+Image encoding is available through:
+
+```text
+POST /api/export/image/{session_id}?format=webp
+POST /api/export/image/{session_id}?format=png
+```
+
+The endpoint accepts the exact browser-rendered PNG bytes. WebP conversion is
+lossless; PNG conversion is a lossless IDAT recompression. Both responses keep
+the original pixel dimensions and RGBA values.
+
+The live browser exposes `window.v_aseAI.ready()`, `capabilities()`,
+`describe()`, `apply()`, `render()`, and `export()`. `apply()` covers frame and
+mode changes, quality, display and camera state, selection, constrained
+transforms, identity and constraint edits, wrapping, translation, atom
+creation/deletion, supercells, history, reset, relaxation, and displacement
+analysis. `export()` covers image, video, POSCAR, ASE Pickle, Blender, Rhino
+3DM, OBJ, `.vase`, and visual settings. Rendering and image export use the same
+capture path as the human Export workspace.
 
 WebSockets stream relaxation updates and own browser-document/workspace
 lifetime. Closing the last connected browser document finalizes blocking calls

@@ -291,8 +291,8 @@ def test_image_export_has_exact_preview_and_option_modal_controls():
     assert "setImageExportProfile(readImageProfile())" in main_js
     assert "const profile = this.state.exportPreviewProfile || this.currentImageExportProfile()" in main_js
     assert "options: profile.options" in main_js
-    assert "const dataUrl = this.renderer.exportPNG(exportWidth, exportHeight, options)" in main_js
-    assert "this.renderer.exportPNG(exportWidth, exportHeight" in main_js
+    assert "this.renderer.exportPNGBlob(width, height, options)" in main_js
+    assert "this.api.encodeImage(source, format)" in main_js
     assert "modalContainer?.addEventListener('pointerdown'" in main_js
     assert "e.stopPropagation()" in main_js
     assert "transparentBackground" in renderer_js
@@ -466,7 +466,9 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "addFixedPlaneGuide" in renderer_js
     assert "rebuildHookeanConstraints" in renderer_js
     assert "makeSpringPoints" in renderer_js
-    assert "makeFlatSpringPoints" in renderer_js
+    assert "makeHelicalSpringPoints" in renderer_js
+    assert "makeFlatSpringPoints" not in renderer_js
+    assert "hookean: new THREE.MeshStandardMaterial" in renderer_js
     assert "hookeanState" in renderer_js
     assert "hookeanDistance" in renderer_js
     assert "hookeanThreshold" in renderer_js
@@ -782,6 +784,46 @@ def test_new_scientific_defaults_and_ai_control_contract_are_wired():
     assert "--for-ai" in cli_py
     assert '@app.get("/api/ai/state/{session_id}")' in server_py
     assert "ai.render" in skill
+    for operation in (
+        "wrap",
+        "translate-all",
+        "set-supercell",
+        "make-supercell",
+        "add-atom",
+        "delete-selection",
+        "set-identity",
+        "set-constraints",
+        "move-selection",
+        "rotate-selection",
+        "undo",
+        "redo",
+        "reset-coordinates",
+        "start-relaxation",
+        "stop-relaxation",
+        "refresh-displacements",
+    ):
+        assert f"'{operation}'" in main_js
+        assert f"`{operation}`" in skill
+    for export_format in (
+        "image",
+        "video",
+        "poscar",
+        "pickle",
+        "blender",
+        "3dm",
+        "obj",
+        "project",
+        "settings",
+    ):
+        assert f"`{export_format}`" in skill
+    assert '"white"` or `"dark"`' in skill
+    assert '"unlit"`, `"standard"`, or `"metal"`' in skill
+    assert "quality.sphereQuality must be auto" in main_js
+    matrix_operation = main_js[
+        main_js.index("if (name === 'make-supercell')"):
+        main_js.index("if (name === 'add-atom')")
+    ]
+    assert "this.state.display.supercell = [1, 1, 1]" in matrix_operation
 
 
 def test_open_file_uses_the_native_system_picker_immediately():
@@ -998,8 +1040,10 @@ def test_export_downloads_use_save_picker_and_fallback_anchor():
         main_js.index("\n    showExportVideoModal()", main_js.index("document.getElementById('modal-export-image')"))
     ]
     assert image_handler.index("await this.chooseSaveDestination") < image_handler.index(
-        "this.renderer.exportPNG"
+        "this.renderOptimizedImage"
     )
+    assert "export-image-format" in main_js
+    assert "WebP (lossless, compact)" in main_js
     video_handler = main_js[
         main_js.index("document.getElementById('modal-export-video')"):
         main_js.index("\n    async exportTrajectoryVideo", main_js.index("document.getElementById('modal-export-video')"))

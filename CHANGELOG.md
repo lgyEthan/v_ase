@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.100
+
+- Added lossless WebP as the compact image default and losslessly optimized PNG
+  output while preserving the requested dimensions and exact RGBA pixels.
+- Reduced MOV/AVI storage with quality-based H.264/MPEG-4 profiles without
+  resizing rendered frames.
+- Replaced the screen-plane Hookean zigzag with a shaded three-dimensional
+  helical spring in the live viewport and Blender export.
+- Expanded the vendor-neutral AI bridge and installed agent skill to cover
+  semantic editing, analysis, camera/quality control, image/video/scientific
+  exports, CAD scenes, projects, settings, and multi-document control.
+- Replaced the first README figure with a graphene/hBN commensurate rotation
+  scene and synchronized all current renderer captures.
+- Added a repository release contract that requires README, agent skill,
+  rendered assets, GitHub, and PyPI to remain synchronized.
+
 ## 0.0.99
 
 - Rebuilt the transparent V_ASE logo with a true native-resolution render:

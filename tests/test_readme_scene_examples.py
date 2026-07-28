@@ -14,8 +14,16 @@ def test_readme_scene_assets_write_reopenable_traj_files(tmp_path):
     written = write_scene_assets(tmp_path)
     written_names = {path.name for path in written}
 
-    assert set(SCENE_NAMES) == {"fixedline", "fixedplane", "hookean", "ferrocene", "showcase"}
+    assert set(SCENE_NAMES) == {
+        "commensurate",
+        "fixedline",
+        "fixedplane",
+        "hookean",
+        "ferrocene",
+        "showcase",
+    }
     assert "README.md" in written_names
+    assert "graphene_hbn_commensurate.traj" in written_names
     assert "fixedline.traj" in written_names
     assert "fixedplane.traj" in written_names
     assert "hookean.traj" in written_names

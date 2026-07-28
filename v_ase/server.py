@@ -138,6 +138,7 @@ if FASTAPI_AVAILABLE:
 MAX_INLINE_TRAJECTORY_CACHE_VALUES = 750_000
 MAX_BINARY_TRAJECTORY_CACHE_VALUES = 30_000_000
 MAX_UPLOADED_STRUCTURE_BYTES = 64 * 1024 * 1024 * 1024
+MAX_UPLOADED_IMAGE_BYTES = 512 * 1024 * 1024
 MAX_UPLOADED_VIDEO_BYTES = 2 * 1024 * 1024 * 1024
 MAX_LAUNCH_DIRECTORY_ENTRIES = 5000
 
@@ -154,6 +155,17 @@ AI_CONTROL_SCHEMA = {
     "properties": {
         "frame": {"type": "integer", "minimum": 0},
         "mode": {"enum": ["view", "edit"]},
+        "applyConstraints": {"type": "boolean"},
+        "quality": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "antiAliasing": {"type": "boolean"},
+                "sphereQuality": {
+                    "enum": ["auto", "low", "medium", "high", "ultra"],
+                },
+            },
+        },
         "display": {
             "type": "object",
             "description": (
@@ -195,6 +207,43 @@ AI_CONTROL_SCHEMA = {
                     },
                 },
             },
+        },
+        "operation": {
+            "description": (
+                "One semantic structure operation. Supported names are wrap, "
+                "translate-all, set-supercell, make-supercell, add-atom, "
+                "delete-selection, set-identity, set-constraints, "
+                "move-selection, rotate-selection, undo, redo, "
+                "reset-coordinates, start-relaxation, stop-relaxation, and "
+                "refresh-displacements."
+            ),
+            "oneOf": [
+                {
+                    "type": "string",
+                    "enum": [
+                        "wrap", "undo", "redo", "reset-coordinates",
+                        "stop-relaxation", "refresh-displacements",
+                    ],
+                },
+                {
+                    "type": "object",
+                    "required": ["name"],
+                    "properties": {
+                        "name": {
+                            "enum": [
+                                "wrap", "translate-all", "set-supercell",
+                                "make-supercell", "add-atom",
+                                "delete-selection", "set-identity",
+                                "set-constraints", "move-selection",
+                                "rotate-selection", "undo", "redo",
+                                "reset-coordinates", "start-relaxation",
+                                "stop-relaxation", "refresh-displacements",
+                            ],
+                        },
+                    },
+                    "additionalProperties": True,
+                },
+            ],
         },
         "camera": {
             "type": "object",
@@ -1330,8 +1379,13 @@ async def ai_control_schema():
             "methods": [
                 "ready()",
                 "describe()",
+                "capabilities()",
+                "documents() [workspace page]",
+                "activate(sessionId) [workspace page]",
+                "newDocument() [workspace page]",
                 "apply(command)",
                 "render({width, height, options})",
+                "export({format, ...options})",
             ],
         },
     }
@@ -2576,6 +2630,7 @@ if FASTAPI_AVAILABLE:
         export_obj_response,
         export_pickle_response,
         export_poscar_response,
+        encode_export_image,
         transcode_video_file,
     )
 
@@ -2616,6 +2671,49 @@ if FASTAPI_AVAILABLE:
             return export_obj_response(session, payload)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/export/image/{session_id}")
+    async def api_export_image(
+        session_id: str,
+        request: Request,
+        format: str = "webp",
+    ):
+        """Encode a rendered PNG without changing its dimensions or RGBA pixels."""
+        get_session(session_id)
+        declared_size = request.headers.get("content-length")
+        if declared_size:
+            try:
+                if int(declared_size) > MAX_UPLOADED_IMAGE_BYTES:
+                    raise HTTPException(status_code=413, detail="Rendered PNG exceeds the 512 MB optimization limit.")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid PNG content length.")
+
+        payload = bytearray()
+        async for chunk in request.stream():
+            payload.extend(chunk)
+            if len(payload) > MAX_UPLOADED_IMAGE_BYTES:
+                raise HTTPException(status_code=413, detail="Rendered PNG exceeds the 512 MB optimization limit.")
+        if not payload:
+            raise HTTPException(status_code=400, detail="Rendered PNG is empty.")
+        try:
+            encoded, media_type = await asyncio.to_thread(
+                encode_export_image,
+                bytes(payload),
+                format,
+            )
+        except OptionalExportDependencyError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return Response(
+            content=encoded,
+            media_type=media_type,
+            headers={
+                "X-V-Ase-Source-Bytes": str(len(payload)),
+                "X-V-Ase-Encoded-Bytes": str(len(encoded)),
+                "X-V-Ase-Image-Format": str(format).lower(),
+            },
+        )
 
     @app.post("/api/export/video/{session_id}")
     async def api_export_video(

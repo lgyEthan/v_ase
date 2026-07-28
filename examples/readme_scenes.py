@@ -13,7 +13,7 @@ from pathlib import Path
 
 import numpy as np
 from ase import Atoms
-from ase.build import bulk, fcc111, nanotube
+from ase.build import bulk, fcc111, graphene, nanotube
 from ase.constraints import FixAtoms, FixedLine, FixedPlane, Hookean
 from ase.io import write
 
@@ -140,6 +140,20 @@ def make_ferrocene_scene() -> tuple[Atoms, dict[str, list[int]]]:
     }
 
 
+def make_graphene_hbn_commensurate_scene() -> tuple[Atoms, dict[str, list[int]]]:
+    graphene_layer = graphene(formula="C2", a=2.46, size=(6, 6, 1), vacuum=8.0)
+    hbn_layer = graphene(formula="BN", a=2.46, size=(6, 6, 1), vacuum=8.0)
+    hbn_layer.positions[:, 2] += 3.35
+    atoms = graphene_layer + hbn_layer
+    atoms.set_cell(graphene_layer.cell)
+    atoms.pbc = [True, True, False]
+    atoms.info["readme_scene"] = "graphene_hbn_commensurate_rotation"
+    return atoms, {
+        "graphene": list(range(len(graphene_layer))),
+        "hbn": list(range(len(graphene_layer), len(atoms))),
+    }
+
+
 def make_showcase_scene() -> tuple[Atoms, dict[str, int]]:
     def constraints():
         return [
@@ -217,10 +231,20 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
             notes=("Use this when you want one compact scene with all major constraint types.",),
         )
         return atoms, info
+    if name == "commensurate":
+        atoms, idx = make_graphene_hbn_commensurate_scene()
+        info = SceneInfo(
+            name=name,
+            description="Graphene/hBN stack for the periodic commensurate rotation guide.",
+            static_file="graphene_hbn_commensurate.traj",
+            selected_indices=tuple(idx["hbn"]),
+            notes=("Select the hBN layer, press R then Z, and rotate toward a displayed cell match.",),
+        )
+        return atoms, info
     raise KeyError(name)
 
 
-SCENE_NAMES = ("fixedline", "fixedplane", "hookean", "ferrocene", "showcase")
+SCENE_NAMES = ("commensurate", "fixedline", "fixedplane", "hookean", "ferrocene", "showcase")
 STALE_MOTION_FILES = (
     "fixedline_motion.traj",
     "fixedplane_motion.traj",
@@ -284,6 +308,7 @@ def print_written_assets(paths: list[Path], out_dir: Path = DEFAULT_OUT_DIR) -> 
         print(f"  {path}")
     print()
     print("Open them with normal user-facing v_ase commands:")
+    print(f"  v_ase gui {display_path(out_dir / 'graphene_hbn_commensurate.traj')} --show-bonds")
     print(f"  v_ase gui {display_path(out_dir / 'fixedline.traj')} --show-bonds")
     print(f"  v_ase gui {display_path(out_dir / 'fixedplane.traj')} --show-bonds")
     print(f"  v_ase gui {display_path(out_dir / 'hookean.traj')} --show-bonds")

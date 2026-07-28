@@ -236,6 +236,8 @@ def test_blender_export_includes_constraints_and_hookean_spring():
     assert "_dead_zone_rail" in script
     assert "_cutoff_gate" in script
     assert "_lock_pin" in script
+    assert "angle = t * math.tau * coils" in script
+    assert "math.sin(angle) * radius" in script
     assert "'indices': [1, 2]" in script
     assert "CAMERA = DATA.get(\"camera\", {})" in script
     assert "'position': [4.0, -5.0, 6.0]" in script

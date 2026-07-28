@@ -33,6 +33,34 @@ Canvas capture uses manual frame requests when the browser supports them.
 Transcoding enforces the selected FPS and expected output count, so a 60 Hz
 display cannot silently multiply identical video frames.
 
+## Output Encoding
+
+The render canvas is always created at the user-selected width and height.
+Storage optimization occurs after rendering:
+
+- lossless WebP uses exact RGBA encoding and is the compact image default;
+- PNG concatenates and validates the browser IDAT stream, then performs a
+  higher-effort lossless DEFLATE pass while preserving all non-IDAT chunks;
+- PNG falls back to the original browser bytes when recompression is larger;
+- MOV uses H.264 with a slow preset and quality-based rate control;
+- AVI uses MPEG-4 quality-based rate control.
+
+None of these paths resize the canvas, lower the atom sphere quality, or alter
+the selected renderer. Browser recording retains a high-quality intermediate
+bitrate; only the final ffmpeg pass performs storage compression. The browser
+sends binary image blobs instead of base64 strings so large captures do not
+require an additional 33% text copy.
+
+Reference storage check on the development Mac:
+
+| 1920 x 1080 workload | Previous/output bytes | Optimized bytes | Reduction |
+| --- | ---: | ---: | ---: |
+| Lossless README overview image | 532,460 PNG | 340,158 WebP | 36.1% |
+| 3 s, 30 FPS MOV transcode | 3,699,245 | 3,035,709 | 17.9% |
+
+The image comparison decoded to byte-identical RGBA. The video comparison kept
+all 90 frames at 1920 x 1080; it changes only the final H.264 encoding profile.
+
 ## Large LAMMPS Pipeline
 
 Numeric LAMMPS text dumps use:

@@ -3,6 +3,7 @@ from typing import Dict, Any
 from ase.io import write
 from ase.calculators.singlepoint import SinglePointCalculator
 import copy
+import io
 import json
 import math
 import os
@@ -10,7 +11,9 @@ import re
 import subprocess
 import tempfile
 import pickle
+import struct
 import zipfile
+import zlib
 import numpy as np
 from .serialization import atoms_to_json
 
@@ -30,8 +33,9 @@ VIDEO_EXPORT_FORMATS = {
         "filename": "v_ase-trajectory.mov",
         "codec_args": [
             "-c:v", "libx264",
-            "-preset", "medium",
-            "-crf", "18",
+            "-preset", "slow",
+            "-crf", "20",
+            "-profile:v", "high",
             "-pix_fmt", "yuv420p",
             "-movflags", "+faststart",
         ],
@@ -42,11 +46,130 @@ VIDEO_EXPORT_FORMATS = {
         "filename": "v_ase-trajectory.avi",
         "codec_args": [
             "-c:v", "mpeg4",
-            "-q:v", "2",
+            "-q:v", "3",
             "-pix_fmt", "yuv420p",
         ],
     },
 }
+
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+MAX_PNG_DECOMPRESSED_BYTES = 512 * 1024 * 1024
+
+
+def _png_chunk(kind: bytes, payload: bytes) -> bytes:
+    checksum = zlib.crc32(kind)
+    checksum = zlib.crc32(payload, checksum) & 0xFFFFFFFF
+    return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", checksum)
+
+
+def optimize_png_bytes(source: bytes) -> bytes:
+    """Losslessly recompress a browser PNG and keep the smaller byte stream.
+
+    Canvas PNG encoders favor latency. Recompressing only the concatenated IDAT
+    stream preserves every decoded pixel, alpha value, dimension, and ancillary
+    chunk while avoiding a second lossy image representation.
+    """
+
+    if not isinstance(source, (bytes, bytearray)) or not source.startswith(PNG_SIGNATURE):
+        raise ValueError("Image export payload is not a PNG file.")
+    source = bytes(source)
+    chunks: list[tuple[bytes, bytes]] = []
+    offset = len(PNG_SIGNATURE)
+    saw_iend = False
+    while offset + 12 <= len(source):
+        length = struct.unpack(">I", source[offset : offset + 4])[0]
+        end = offset + 12 + length
+        if end > len(source):
+            raise ValueError("PNG image is truncated.")
+        kind = source[offset + 4 : offset + 8]
+        payload = source[offset + 8 : offset + 8 + length]
+        expected_crc = struct.unpack(">I", source[offset + 8 + length : end])[0]
+        actual_crc = zlib.crc32(kind)
+        actual_crc = zlib.crc32(payload, actual_crc) & 0xFFFFFFFF
+        if expected_crc != actual_crc:
+            raise ValueError("PNG image contains a corrupt chunk.")
+        chunks.append((kind, payload))
+        offset = end
+        if kind == b"IEND":
+            saw_iend = True
+            break
+    if not saw_iend or offset != len(source):
+        raise ValueError("PNG image has an invalid end marker.")
+    if any(kind == b"acTL" for kind, _ in chunks):
+        return source
+
+    idat = b"".join(payload for kind, payload in chunks if kind == b"IDAT")
+    if not idat:
+        raise ValueError("PNG image has no pixel data.")
+    try:
+        decoder = zlib.decompressobj()
+        scanlines = decoder.decompress(idat, MAX_PNG_DECOMPRESSED_BYTES + 1)
+        if len(scanlines) > MAX_PNG_DECOMPRESSED_BYTES or decoder.unconsumed_tail:
+            raise ValueError("PNG image is too large to optimize safely.")
+        remaining = MAX_PNG_DECOMPRESSED_BYTES + 1 - len(scanlines)
+        scanlines += decoder.flush(remaining)
+    except zlib.error as exc:
+        raise ValueError("PNG pixel data cannot be decoded.") from exc
+    if len(scanlines) > MAX_PNG_DECOMPRESSED_BYTES:
+        raise ValueError("PNG image is too large to optimize safely.")
+    if not decoder.eof or decoder.unused_data:
+        raise ValueError("PNG image contains an invalid compressed pixel stream.")
+
+    compressor = zlib.compressobj(
+        level=9,
+        method=zlib.DEFLATED,
+        wbits=15,
+        memLevel=9,
+        strategy=zlib.Z_DEFAULT_STRATEGY,
+    )
+    optimized_idat = compressor.compress(scanlines) + compressor.flush()
+
+    output = bytearray(PNG_SIGNATURE)
+    inserted = False
+    for kind, payload in chunks:
+        if kind == b"IDAT":
+            if inserted:
+                continue
+            payload = optimized_idat
+            inserted = True
+        output.extend(_png_chunk(kind, payload))
+    optimized = bytes(output)
+    return optimized if len(optimized) < len(source) else source
+
+
+def encode_lossless_webp(source_png: bytes) -> bytes:
+    """Encode a PNG as lossless WebP at identical decoded RGBA resolution."""
+    try:
+        from PIL import Image
+    except ModuleNotFoundError as exc:
+        raise OptionalExportDependencyError(
+            "Lossless WebP export requires Pillow. Reinstall v_ase-gui to restore it."
+        ) from exc
+
+    try:
+        with Image.open(io.BytesIO(source_png)) as image:
+            rgba = image.convert("RGBA")
+            output = io.BytesIO()
+            rgba.save(
+                output,
+                format="WEBP",
+                lossless=True,
+                quality=100,
+                method=6,
+                exact=True,
+            )
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"Rendered PNG cannot be encoded as lossless WebP: {exc}") from exc
+    return output.getvalue()
+
+
+def encode_export_image(source_png: bytes, output_format: str = "webp") -> tuple[bytes, str]:
+    normalized = str(output_format or "").strip().lower()
+    if normalized == "png":
+        return optimize_png_bytes(source_png), "image/png"
+    if normalized == "webp":
+        return encode_lossless_webp(source_png), "image/webp"
+    raise ValueError("Image format must be 'png' or 'webp'.")
 
 ATOM_MATERIAL_PRESETS = {
     "standard": {
@@ -2004,9 +2127,13 @@ def add_hookean_spring(name, start, end, threshold=None, radius_start=0.7, radiu
     spring_start = threshold_y
     spring_end = right
     spring_len = max(0.001, spring_end - spring_start)
-    amplitude = min(0.16, span * 0.08)
+    coil_radius = min(
+        max(min(radius_start, radius_end) * 0.34, 0.16),
+        0.27,
+        span * 0.12,
+    )
     coils = max(6, round(5 + spring_len * 2.2))
-    steps = max(8, coils * 2)
+    steps = max(72, coils * 14)
 
     add_poly_curve(name + "_dead_zone_rail", [
         to_world(0, left, 0),
@@ -2026,12 +2153,21 @@ def add_hookean_spring(name, start, end, threshold=None, radius_start=0.7, radiu
 
     if state != "inactive" and spring_end > spring_start:
         spring_points = [to_world(0, spring_start, 0)]
-        for step in range(1, steps):
+        lead = min(0.14, spring_len * 0.12)
+        coil_start = spring_start + lead
+        coil_end = spring_end - lead
+        for step in range(steps + 1):
             t = step / steps
-            x = amplitude if step % 2 else -amplitude
-            spring_points.append(to_world(x, spring_start + (spring_end - spring_start) * t, 0))
+            angle = t * math.tau * coils
+            ramp = min(1.0, t * 8.0, (1.0 - t) * 8.0)
+            radius = coil_radius * max(0.0, ramp)
+            spring_points.append(to_world(
+                math.cos(angle) * radius,
+                coil_start + (coil_end - coil_start) * t,
+                math.sin(angle) * radius,
+            ))
         spring_points.append(to_world(0, spring_end, 0))
-        add_poly_curve(name + "_spring", spring_points, MAT_HOOKEAN)
+        add_poly_curve(name + "_spring", spring_points, MAT_HOOKEAN, bevel=0.043)
 
     if state == "inactive" and threshold_y > right:
         add_poly_curve(name + "_inactive_gap", [to_world(0, right, 0), to_world(0, threshold_y, 0)], MAT_HOOKEAN_SLACK, bevel=0.015)

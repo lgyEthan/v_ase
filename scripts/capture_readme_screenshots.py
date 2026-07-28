@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 from ase import Atoms
-from ase.build import fcc111, nanotube
+from ase.build import fcc111, graphene, nanotube
 from ase.constraints import FixAtoms, FixedLine, FixedPlane, Hookean
 from PIL import Image
 from playwright.sync_api import sync_playwright
@@ -356,10 +356,15 @@ def set_selection(page, indices):
 
 def enter_mode(page, mode, axis=None):
     page.evaluate(
-        """({ mode, axis }) => {
+        """async ({ mode, axis }) => {
             const app = window.__V_ASE_APP__;
             app.enterTransformMode(mode);
-            if (axis) app.transform.setAxis(axis, app.renderer.camera);
+            if (axis) {
+                app.transform.setAxis(axis, app.renderer.camera);
+                if (mode === 'ROTATE') {
+                    await app.prepareCommensurateRotation([...app.state.selected]);
+                }
+            }
             app.updateUI();
             app.renderer.renderer.render(app.renderer.scene, app.renderer.camera);
         }""",
@@ -579,6 +584,20 @@ def make_ferrocene_scene() -> tuple[Atoms, dict[str, list[int]]]:
     }
 
 
+def make_graphene_hbn_commensurate_scene() -> tuple[Atoms, dict[str, list[int]]]:
+    graphene_layer = graphene(formula="C2", a=2.46, size=(6, 6, 1), vacuum=8.0)
+    hbn_layer = graphene(formula="BN", a=2.46, size=(6, 6, 1), vacuum=8.0)
+    hbn_layer.positions[:, 2] += 3.35
+    atoms = graphene_layer + hbn_layer
+    atoms.set_cell(graphene_layer.cell)
+    atoms.pbc = [True, True, False]
+    atoms.info["readme_scene"] = "graphene_hbn_commensurate_rotation"
+    return atoms, {
+        "graphene": list(range(len(graphene_layer))),
+        "hbn": list(range(len(graphene_layer), len(atoms))),
+    }
+
+
 def open_scene(browser, atoms_or_frames, *, show_bonds=False):
     editor = view(
         atoms_or_frames,
@@ -689,10 +708,60 @@ def main() -> int:
             if ASSET_DIR.resolve() == (ROOT / "docs" / "assets").resolve():
                 capture_logo(browser)
 
-            editor, page = open_scene(browser, make_frames(), show_bonds=True)
-            settle_view(page, target=[5.6, 5.0, 2.2], position=[17.0, -12.5, 10.0], fov=40)
-            set_readme_lighting(page, [5.6, 5.0, 2.2], intensity=2.85)
-            configure_inspector(page, "inspect", ["structure-info", "selection"])
+            overview_atoms, overview_idx = make_graphene_hbn_commensurate_scene()
+            editor, page = open_scene(browser, overview_atoms, show_bonds=True)
+            set_display(page, {
+                "atomRadiusScale": 0.58,
+                "showBonds": True,
+                "showGrid": False,
+                "showCell": True,
+                "showAxes": True,
+                "viewportBackground": "white",
+                "labelColors": {
+                    "C": "#46545b",
+                    "B": "#d89a4a",
+                    "N": "#3f72c9",
+                },
+                "commensurateGuide": True,
+                "commensurateSnap": False,
+                "commensurateMaxIndex": 32,
+                "commensurateStrainTolerance": 0.01,
+            })
+            set_selection(page, overview_idx["hbn"])
+            configure_inspector(page, "structure", ["transform"], width=440)
+            center = np.mean(overview_atoms.positions, axis=0)
+            settle_view(
+                page,
+                target=(center + np.array([0.0, 0.0, 0.45])).tolist(),
+                position=(center + np.array([9.2, -11.6, 14.8])).tolist(),
+                fov=36,
+            )
+            set_readme_lighting(
+                page,
+                center.tolist(),
+                intensity=3.0,
+                position_offset=(-10.0, -13.0, 18.0),
+            )
+            enter_mode(page, "ROTATE", "Z")
+            page.wait_for_function(
+                "window.__V_ASE_APP__.state.commensurateCandidates?.length > 0"
+            )
+            page.evaluate(
+                """() => {
+                    const app = window.__V_ASE_APP__;
+                    app.transform.rotationAngle = 13.1735511 * Math.PI / 180;
+                    app.applyTransformPreview();
+                    app.renderer.renderNow();
+                }"""
+            )
+            set_atomic_scale(page, 52.0)
+            page.evaluate("""() => {
+                const app = window.__V_ASE_APP__;
+                app.state.display.showGrid = false;
+                if (app.renderer.gridGroup) app.renderer.gridGroup.visible = false;
+                app.renderer.renderNow();
+            }""")
+            page.wait_for_timeout(300)
             page.screenshot(path=ASSET_DIR / "readme_overview.png")
 
             set_display(page, {
@@ -767,18 +836,22 @@ def main() -> int:
             oxygen_pos = base[hidx["oxygen"]].copy()
             direction = oxygen_pos - carbon_pos
             direction /= np.linalg.norm(direction)
-            target = (carbon_pos + oxygen_pos) * 0.5 + np.array([0.15, 0.05, 0.12])
+            preview_delta = direction * 1.38
+            target = (
+                (carbon_pos + oxygen_pos) * 0.5
+                + preview_delta * 0.48
+                + np.array([0.15, 0.05, 0.12])
+            )
             camera = target + np.array([3.90, -4.70, 2.90])
             settle_view(page, target=target.tolist(), position=camera.tolist(), fov=33)
             set_atomic_scale(page, min(230.0, MEDIA_SIZE[0] / 9.5))
             set_readme_lighting(page, target.tolist(), intensity=3.0, position_offset=(-7.0, -9.0, 12.0))
             active_preview = base.copy()
-            preview_delta = direction * 0.62
             active_preview[hidx["oxygen"]] = base[hidx["oxygen"]] + preview_delta
             active_preview[hidx["hydroxyl_h"]] = base[hidx["hydroxyl_h"]] + preview_delta
             update_positions(page, active_preview)
             page.screenshot(path=ASSET_DIR / "readme_hookean.png")
-            end = carbon_pos + direction * 2.18
+            end = carbon_pos + direction * 3.02
             delta = end - oxygen_pos
             capture_animation(
                 page,
