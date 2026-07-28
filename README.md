@@ -360,8 +360,8 @@ the viewport and carried into Blender export.
 | --- | --- |
 | Export POSCAR | Current physical ASE structure in VASP format |
 | Export ASE Pickle | ASE `Atoms`, labels, constraints, arrays, and a valid `SinglePointCalculator` |
-| Export Image | Lossless WebP or optimized PNG from the exact preview frame |
-| Export Video | H.264 MOV or MPEG-4 AVI with optional interpolation |
+| Export Image | PNG by default; JPEG, PDF, and lossless WebP from the exact preview frame |
+| Export Video | Constant-frame-rate H.264 MOV or MPEG-4 AVI with optional interpolation |
 | Export Blender | Optimized scene script with atoms, bonds, cell, camera, and Sun |
 | Export 3DM | Instanced Rhino geometry, metadata, and saved camera views |
 | Export OBJ | OBJ/MTL, camera, and metadata in a ZIP |
@@ -374,7 +374,17 @@ Cell, grid, axes, and background can be included or excluded independently.
 
 The system save picker is opened before expensive rendering or scene
 generation when the browser supports it. Canceling the picker cancels the
-export.
+export. Chrome may then show **This site can view changes you make to this
+file**. That message is Chrome's File System Access permission notice: v_ase
+can write only to the destination selected in that picker. Browser code cannot
+hide the notice while retaining destination selection before rendering.
+
+Video progress covers frame rendering, upload, encoding, and the final file
+write. It increases monotonically, reports an estimated remaining time, and
+reaches 100% only after the output has been written. Every source frame is
+retained exactly once at `1x`; interpolation adds in-between frames. Visible
+displacement vectors and other selected scene overlays are recalculated for
+each rendered frame.
 
 `.vase` is self-contained and does not reference the original input file.
 Opening an ordinary structure in an existing tab keeps the current visual
@@ -396,6 +406,10 @@ selected file can:
 1. replace the active document;
 2. append structures to its current trajectory;
 3. open in a new independent v_ase tab.
+
+If the active document is empty, the selected file opens there immediately;
+the destination chooser is shown only when a document already contains a
+structure or trajectory.
 
 The **+** beside the document tabs creates an empty independent document. Each
 tab owns its structure, trajectory, camera, selection, history, settings,
@@ -559,7 +573,20 @@ distance, and other measurements.
 Video export requires at least two frames and browser `MediaRecorder` support.
 MOV/AVI conversion uses the bundled `imageio-ffmpeg`. Interpolation renders
 additional frames and requires stable atom count, element, label, and ordering
-between adjacent source frames.
+between adjacent source frames. The selected FPS controls playback time:
+72 frames at 30 FPS produce 2.40 seconds. The progress indicator reaches 100%
+only after encoding and the destination write both finish.
+
+</details>
+
+<details>
+<summary>Chrome says this site can view changes made to the saved file</summary>
+
+This is a Chrome security notice for the File System Access API. v_ase opens
+the system save picker before a costly image, video, Blender, or CAD export so
+canceling does not waste time. It receives write access only to the file you
+choose. Chrome does not allow a page to suppress this notice; using an ordinary
+browser download would remove advance destination selection.
 
 </details>
 

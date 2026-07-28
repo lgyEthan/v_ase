@@ -43,12 +43,33 @@ def test_lossless_webp_preserves_resolution_pixels_and_reduces_smooth_scene():
     np.testing.assert_array_equal(_decode_rgba(encoded), expected)
 
 
+def test_jpeg_export_preserves_dimensions_and_flattens_alpha_on_white():
+    source, _ = _source_png(160, 96)
+    encoded, media_type = encode_export_image(source, "jpg")
+
+    assert media_type == "image/jpeg"
+    with Image.open(io.BytesIO(encoded)) as image:
+        assert image.size == (160, 96)
+        assert image.mode == "RGB"
+
+
+def test_pdf_export_is_single_page_raster_payload():
+    source, _ = _source_png(160, 96)
+    encoded, media_type = encode_export_image(source, "pdf")
+
+    assert media_type == "application/pdf"
+    assert encoded.startswith(b"%PDF-")
+    assert len(encoded) > 1000
+
+
 def test_image_export_rejects_unknown_format():
     source, _ = _source_png(64, 64)
     try:
-        encode_export_image(source, "jpeg")
+        encode_export_image(source, "tiff")
     except ValueError as exc:
         assert "png" in str(exc).lower()
+        assert "jpg" in str(exc).lower()
+        assert "pdf" in str(exc).lower()
         assert "webp" in str(exc).lower()
     else:
         raise AssertionError("Unknown image export format was accepted.")

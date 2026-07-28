@@ -1,5 +1,5 @@
 from fastapi.responses import FileResponse
-from typing import Dict, Any
+from typing import Dict, Any, Callable
 from ase.io import write
 from ase.calculators.singlepoint import SinglePointCalculator
 import copy
@@ -7,9 +7,12 @@ import io
 import json
 import math
 import os
+import queue
 import re
 import subprocess
 import tempfile
+import threading
+import time
 import pickle
 import struct
 import zipfile
@@ -163,13 +166,63 @@ def encode_lossless_webp(source_png: bytes) -> bytes:
     return output.getvalue()
 
 
-def encode_export_image(source_png: bytes, output_format: str = "webp") -> tuple[bytes, str]:
+def _flatten_png_for_opaque_export(source_png: bytes):
+    try:
+        from PIL import Image
+    except ModuleNotFoundError as exc:
+        raise OptionalExportDependencyError(
+            "JPEG and PDF export require Pillow. Reinstall v_ase-gui to restore it."
+        ) from exc
+
+    try:
+        image = Image.open(io.BytesIO(source_png)).convert("RGBA")
+        background = Image.new("RGB", image.size, (255, 255, 255))
+        background.paste(image, mask=image.getchannel("A"))
+        return background
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"Rendered PNG cannot be decoded: {exc}") from exc
+
+
+def encode_jpeg(source_png: bytes) -> bytes:
+    """Encode an opaque, high-quality JPEG with the exact source dimensions."""
+    image = _flatten_png_for_opaque_export(source_png)
+    output = io.BytesIO()
+    image.save(
+        output,
+        format="JPEG",
+        quality=95,
+        subsampling=0,
+        optimize=True,
+        progressive=True,
+    )
+    return output.getvalue()
+
+
+def encode_pdf(source_png: bytes) -> bytes:
+    """Embed the rendered RGB pixels as a single-page 300 dpi PDF."""
+    image = _flatten_png_for_opaque_export(source_png)
+    output = io.BytesIO()
+    image.save(
+        output,
+        format="PDF",
+        resolution=300.0,
+        quality=95,
+        subsampling=0,
+    )
+    return output.getvalue()
+
+
+def encode_export_image(source_png: bytes, output_format: str = "png") -> tuple[bytes, str]:
     normalized = str(output_format or "").strip().lower()
     if normalized == "png":
         return optimize_png_bytes(source_png), "image/png"
     if normalized == "webp":
         return encode_lossless_webp(source_png), "image/webp"
-    raise ValueError("Image format must be 'png' or 'webp'.")
+    if normalized in {"jpg", "jpeg"}:
+        return encode_jpeg(source_png), "image/jpeg"
+    if normalized == "pdf":
+        return encode_pdf(source_png), "application/pdf"
+    raise ValueError("Image format must be png, jpg, pdf, or webp.")
 
 ATOM_MATERIAL_PRESETS = {
     "standard": {
@@ -225,6 +278,7 @@ def transcode_video_file(
     output_format: str,
     fps: int | None = None,
     frame_count: int | None = None,
+    progress_callback: Callable[[float, float | None, int], None] | None = None,
 ) -> tuple[str, str, str]:
     """Convert a browser-recorded WebM into a portable MOV or AVI file."""
     config = video_export_format(output_format)
@@ -251,7 +305,10 @@ def transcode_video_file(
         "-i", source_path,
         "-an",
         *(
-            ["-vf", f"fps={normalized_fps}:round=near"]
+            [
+                "-vf",
+                f"setpts=N/({normalized_fps}*TB),fps={normalized_fps}:round=near",
+            ]
             if normalized_fps is not None
             else []
         ),
@@ -261,28 +318,110 @@ def transcode_video_file(
             else []
         ),
         *config["codec_args"],
+        *(["-progress", "pipe:1", "-nostats"] if progress_callback else []),
         target_path,
     ]
     try:
-        completed = subprocess.run(
-            command,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=30 * 60,
-        )
+        if progress_callback is None:
+            completed = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30 * 60,
+            )
+            return_code = completed.returncode
+            detail_output = completed.stderr or completed.stdout
+        else:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+            )
+            messages: queue.Queue[tuple[str, str | None]] = queue.Queue()
+            stderr_lines: list[str] = []
+
+            def read_stream(name: str, stream) -> None:
+                try:
+                    for line in iter(stream.readline, ""):
+                        messages.put((name, line.rstrip()))
+                finally:
+                    messages.put((name, None))
+
+            readers = [
+                threading.Thread(
+                    target=read_stream,
+                    args=("stdout", process.stdout),
+                    daemon=True,
+                ),
+                threading.Thread(
+                    target=read_stream,
+                    args=("stderr", process.stderr),
+                    daemon=True,
+                ),
+            ]
+            for reader in readers:
+                reader.start()
+
+            started = time.monotonic()
+            open_streams = len(readers)
+            last_ratio = -1.0
+            while open_streams:
+                if time.monotonic() - started > 30 * 60:
+                    process.kill()
+                    raise subprocess.TimeoutExpired(command, 30 * 60)
+                try:
+                    name, line = messages.get(timeout=0.25)
+                except queue.Empty:
+                    continue
+                if line is None:
+                    open_streams -= 1
+                    continue
+                if name == "stderr":
+                    stderr_lines.append(line)
+                    continue
+                if not line.startswith("frame=") or normalized_frame_count is None:
+                    continue
+                try:
+                    completed_frames = max(0, int(line.split("=", 1)[1].strip()))
+                except (TypeError, ValueError):
+                    continue
+                ratio = min(0.995, completed_frames / normalized_frame_count)
+                if ratio <= last_ratio:
+                    continue
+                elapsed = time.monotonic() - started
+                eta = (
+                    elapsed * (1.0 - ratio) / ratio
+                    if ratio > 0
+                    else None
+                )
+                try:
+                    progress_callback(ratio, eta, completed_frames)
+                except Exception:
+                    pass
+                last_ratio = ratio
+
+            return_code = process.wait(timeout=10)
+            detail_output = "\n".join(stderr_lines)
+            if return_code == 0:
+                try:
+                    progress_callback(1.0, 0.0, normalized_frame_count or 0)
+                except Exception:
+                    pass
     except (OSError, subprocess.TimeoutExpired) as exc:
         try:
             os.unlink(target_path)
         except OSError:
             pass
         raise VideoExportError(f"Video conversion could not start: {exc}") from exc
-    if completed.returncode != 0 or not os.path.isfile(target_path) or os.path.getsize(target_path) == 0:
+    if return_code != 0 or not os.path.isfile(target_path) or os.path.getsize(target_path) == 0:
         try:
             os.unlink(target_path)
         except OSError:
             pass
-        detail = (completed.stderr or completed.stdout or "Unknown FFmpeg error").strip()
+        detail = (detail_output or "Unknown FFmpeg error").strip()
         if len(detail) > 1200:
             detail = detail[-1200:]
         raise VideoExportError(f"Video conversion failed: {detail}")

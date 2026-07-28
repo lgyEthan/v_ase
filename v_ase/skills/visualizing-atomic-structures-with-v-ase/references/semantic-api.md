@@ -319,9 +319,11 @@ const image = await ai.render({
 });
 ```
 
-Use WebP for compact lossless output or PNG for compatibility. Both preserve
-requested dimensions. `scaleMode: "physical"` requires `pixelsPerAngstrom`;
-`"viewport"` preserves live framing.
+PNG is the default. Use WebP for compact lossless output, JPEG for compact
+opaque output, or PDF for a single raster page. Every format preserves
+requested pixel dimensions; JPEG and PDF flatten transparency onto white.
+`scaleMode: "physical"` requires `pixelsPerAngstrom`; `"viewport"` preserves
+live framing.
 
 The result includes data URL, MIME type, dimensions, byte count, camera, and
 effective options. Decode and inspect it; do not crop a page screenshot.
@@ -336,7 +338,7 @@ Supported formats:
 
 | Format | Output |
 | --- | --- |
-| `image` | WebP/PNG, using render fields plus `imageFormat` |
+| `image` | PNG/JPEG/PDF/WebP, using render fields plus `imageFormat` |
 | `video` | MOV/H.264 or AVI/MPEG-4 |
 | `poscar` | current structure |
 | `pickle` | ASE state and valid SinglePointCalculator |

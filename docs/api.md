@@ -299,11 +299,14 @@ Image encoding is available through:
 ```text
 POST /api/export/image/{session_id}?format=webp
 POST /api/export/image/{session_id}?format=png
+POST /api/export/image/{session_id}?format=jpg
+POST /api/export/image/{session_id}?format=pdf
 ```
 
 The endpoint accepts the exact browser-rendered PNG bytes. WebP conversion is
-lossless; PNG conversion is a lossless IDAT recompression. Both responses keep
-the original pixel dimensions and RGBA values.
+lossless; PNG conversion is a lossless IDAT recompression. JPEG and PDF flatten
+transparency onto white. Every response keeps the original pixel dimensions.
+PNG is the browser UI and semantic API default.
 
 The live browser exposes `window.v_aseAI.ready()`, `capabilities()`,
 `describe()`, `apply()`, `render()`, and `export()`. `apply()` covers frame and

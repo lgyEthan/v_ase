@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.0.104
+
+- Kept every export modal action visible at short viewport heights by making
+  the dialog body independently scrollable with a fixed action footer.
+- Made PNG the image default and added JPEG and single-page PDF alongside
+  lossless WebP, with correct white compositing for opaque formats.
+- Rebuilt video timestamps from ordered frame number and selected FPS so
+  browser rendering latency cannot cause dropped, duplicated, or shortened
+  MOV/AVI playback.
+- Added one monotonic video progress indicator across rendering, upload,
+  encoding, and file writing, with ETA and 100% reserved for a completed save.
+- Recomputed and rendered displacement vectors for every real or interpolated
+  video frame.
+- Opened files directly into empty documents while retaining the
+  Replace/Add/New Tab chooser for populated documents.
+- Documented Chrome's unavoidable selected-file permission notice and expanded
+  browser, media, and agent-skill regression coverage.
+
 ## 0.0.103
 
 - Restored an explicit FixedPlane motion surface during `G`: every constrained

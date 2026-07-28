@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.103"
+python -m pip install "v_ase-gui==0.0.104"
 ```
 
 Start an agent-ready live session:
@@ -185,7 +185,9 @@ For any nontrivial task, verify all applicable items:
 - constraints: persistent per-atom FixedLine/FixedPlane markers and one
   original-position FixedPlane motion guide per selected atom during `G`;
 - render: exact dimensions, format, options, nonblank decoded pixels;
-- export: MIME type, filename, byte count, and reopenability where supported.
+- export: MIME type, filename, byte count, and reopenability where supported;
+- video: exact decoded frame count and `frames / FPS` duration, with visible
+  displacement vectors present in the captured frames when enabled.
 
 If an instruction in this skill prevents a correct result, inspect the live
 schema and implementation, correct the skill and add a regression test. Do not

@@ -389,6 +389,7 @@ def test_ai_bridge_screen_relative_camera_and_constraint_vector_workflow():
                 const image = await window.v_aseAI.render({
                     width: 320,
                     height: 240,
+                    format: 'webp',
                     options: {
                         includeGrid: false,
                         includeAxes: false,
@@ -648,14 +649,10 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
             with page.expect_file_chooser() as chooser_info:
                 page.click('#btn-empty-open')
             chooser_info.value.set_files(str(source))
-            assert page.locator('#open-file-name').inner_text() == source.name
-            assert page.locator('#open-file-format').input_value() == ''
-            assert page.locator('#open-file-index').input_value() == ':'
-            page.click('#open-file-confirm')
-
             page.wait_for_function("window.__ASE_APP__?.state?.atoms?.metadata?.natoms === 3")
             page.wait_for_function("window.__ASE_APP__?.state?.atoms?.metadata?.frame_count === 2")
             page.wait_for_function("document.getElementById('busy-overlay').classList.contains('hidden')")
+            assert page.locator('#modal-container').is_hidden()
             assert not page.locator('#empty-workspace').is_visible()
             assert not page.locator('#btn-export-pickle').is_disabled()
             assert page.locator('#frame-label').inner_text() == '1 / 2'
@@ -1872,6 +1869,17 @@ def test_image_export_modal_is_the_authoritative_retina_preview(tmp_path):
             )
 
             page.click('#btn-export-image')
+            assert page.locator('#export-image-format').input_value() == 'png'
+            assert set(page.locator('#export-image-format option').evaluate_all(
+                "options => options.map(option => option.value)"
+            )) == {'png', 'jpg', 'pdf', 'webp'}
+            page.select_option('#export-image-format', 'jpg')
+            assert page.locator('#export-transparent').is_disabled()
+            assert page.locator('#export-transparent').is_checked() is False
+            page.select_option('#export-image-format', 'pdf')
+            assert page.locator('#export-transparent').is_disabled()
+            page.select_option('#export-image-format', 'png')
+            assert not page.locator('#export-transparent').is_disabled()
             assert page.locator('#export-cell').is_checked() is False
             page.fill('#export-width', '640')
             page.fill('#export-height', '640')
@@ -2050,6 +2058,74 @@ def test_image_export_modal_is_the_authoritative_retina_preview(tmp_path):
         editor.close()
 
 
+def test_export_video_modal_keeps_actions_visible_in_a_short_viewport():
+    first = molecule("H2O")
+    second = first.copy()
+    second.positions[:, 0] += 0.2
+    port = find_free_port()
+    editor = view(
+        [first, second],
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1040, "height": 620})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.state?.atoms?.metadata?.frame_count === 2"
+            )
+            page.evaluate("window.__ASE_APP__.showExportVideoModal()")
+            page.wait_for_function(
+                "!document.getElementById('modal-container').classList.contains('hidden')"
+            )
+            layout = page.evaluate("""() => {
+                const modal = document.querySelector('#modal-container .modal');
+                const content = document.getElementById('modal-content');
+                const actions = modal.querySelector('.modal-actions');
+                const cancel = document.getElementById('modal-close');
+                const submit = document.getElementById('modal-export-video');
+                const modalRect = modal.getBoundingClientRect();
+                const actionsRect = actions.getBoundingClientRect();
+                const visible = element => {
+                    const rect = element.getBoundingClientRect();
+                    const style = getComputedStyle(element);
+                    return style.visibility !== 'hidden'
+                        && style.display !== 'none'
+                        && rect.width > 0
+                        && rect.height > 0
+                        && rect.top >= 0
+                        && rect.bottom <= window.innerHeight;
+                };
+                return {
+                    modalTop: modalRect.top,
+                    modalBottom: modalRect.bottom,
+                    viewportHeight: window.innerHeight,
+                    contentScrollable: content.scrollHeight > content.clientHeight,
+                    actionsBottom: actionsRect.bottom,
+                    cancelVisible: visible(cancel),
+                    submitVisible: visible(submit)
+                };
+            }""")
+            assert layout["modalTop"] >= 0
+            assert layout["modalBottom"] <= layout["viewportHeight"]
+            assert layout["contentScrollable"] is True
+            assert layout["actionsBottom"] <= layout["viewportHeight"]
+            assert layout["cancelVisible"] is True
+            assert layout["submitVisible"] is True
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_trajectory_video_export_downloads_preview_matched_mov(tmp_path):
     first = molecule("H2O")
     first.set_cell([10.0, 10.0, 10.0])
@@ -2079,6 +2155,36 @@ def test_trajectory_video_export_downloads_preview_matched_mov(tmp_path):
             page = browser.new_page(viewport={"width": 1280, "height": 800}, accept_downloads=True)
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
             page.wait_for_function("window.__ASE_APP__?.state?.atoms?.metadata?.frame_count === 3")
+            page.evaluate("""() => {
+                const toggle = document.getElementById('chk-displacement');
+                toggle.checked = true;
+                toggle.dispatchEvent(new Event('change', { bubbles: true }));
+            }""")
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                window.__videoCaptureRecords = [];
+                window.__videoProgress = [];
+                const originalCapture = app.renderer.renderExportCaptureFrame.bind(app.renderer);
+                app.renderer.renderExportCaptureFrame = capture => {
+                    window.__videoCaptureRecords.push({
+                        frame: app.state.atoms.metadata.current_frame,
+                        count: Number(app.renderer.domElement.dataset.displacementCount || 0),
+                        visible: app.renderer.displacementGroup.visible
+                    });
+                    return originalCapture(capture);
+                };
+                const progress = document.getElementById('busy-progress');
+                const recordProgress = () => {
+                    window.__videoProgress.push({
+                        value: Number(progress.getAttribute('aria-valuenow') || 0),
+                        eta: document.getElementById('busy-progress-eta')?.textContent || ''
+                    });
+                };
+                new MutationObserver(recordProgress).observe(progress, {
+                    attributes: true,
+                    attributeFilter: ['aria-valuenow']
+                });
+            }""")
 
             options = {
                 "width": 320,
@@ -2137,6 +2243,28 @@ def test_trajectory_video_export_downloads_preview_matched_mov(tmp_path):
             assert metadata["size"] == (320, 256)
             assert len(decoded_frames) == 5
             assert len({hashlib.sha1(frame).hexdigest() for frame in decoded_frames}) == 5
+            export_contract = page.evaluate("""() => ({
+                captures: window.__videoCaptureRecords,
+                progress: window.__videoProgress
+            })""")
+            assert len(export_contract["captures"]) == 5
+            assert any(
+                capture["frame"] > 0
+                and capture["count"] > 0
+                and capture["visible"]
+                for capture in export_contract["captures"]
+            )
+            progress_values = [
+                entry["value"] for entry in export_contract["progress"]
+            ]
+            assert progress_values
+            assert progress_values == sorted(progress_values)
+            assert progress_values[-1] == 100
+            assert progress_values.count(100) == 1
+            assert any(
+                "remaining" in entry["eta"].lower()
+                for entry in export_contract["progress"]
+            )
 
             first_frame = tmp_path / "video-first-frame.png"
             subprocess.run(
@@ -2153,6 +2281,89 @@ def test_trajectory_video_export_downloads_preview_matched_mov(tmp_path):
                 assert image.size == (320, 256)
                 corner = image.getpixel((2, 2))
             assert min(corner) >= 245
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_trajectory_video_export_preserves_all_72_frames_at_30_fps(tmp_path):
+    frames = []
+    for index in range(72):
+        angle = 2 * math.pi * index / 72
+        frames.append(Atoms(
+            "LiH",
+            positions=[
+                [4.0, 4.0, 4.0],
+                [4.0 + 2.2 * math.cos(angle), 4.0 + 2.2 * math.sin(angle), 4.0],
+            ],
+            cell=[8.0, 8.0, 8.0],
+            pbc=True,
+        ))
+
+    port = find_free_port()
+    editor = view(
+        frames,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 960, "height": 700}, accept_downloads=True)
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.state?.atoms?.metadata?.frame_count === 72"
+            )
+            options = {
+                "width": 320,
+                "height": 256,
+                "fps": 30,
+                "format": "mov",
+                "interpolationMultiplier": 1,
+                "interpolationMic": True,
+                "transparentBackground": False,
+                "backgroundColor": "#ffffff",
+                "includeGrid": False,
+                "includeAxes": False,
+                "includeCell": False,
+                "scaleMode": "viewport",
+                "pixelsPerAngstrom": 70,
+                "sphereQuality": "medium",
+                "sphereQualityScale": 1,
+                "renderMode": "modeling",
+                "sunIntensity": 2.2,
+                "sunPosition": [8, -10, 14],
+                "sunTarget": [0, 0, 0],
+            }
+            with page.expect_download(timeout=120_000) as download_info:
+                page.evaluate(
+                    "options => window.__ASE_APP__.exportTrajectoryVideo(options)",
+                    options,
+                )
+            download = download_info.value
+            output = tmp_path / download.suggested_filename
+            download.save_as(output)
+
+            import imageio_ffmpeg
+
+            decoded = imageio_ffmpeg.read_frames(str(output), pix_fmt="rgb24")
+            metadata = next(decoded)
+            decoded_frames = list(decoded)
+            assert metadata["size"] == (320, 256)
+            assert metadata["fps"] == pytest.approx(30.0, abs=0.05)
+            assert len(decoded_frames) == 72
+            assert metadata["duration"] == pytest.approx(72 / 30, abs=0.05)
+            assert len({
+                hashlib.sha1(frame).hexdigest()
+                for frame in decoded_frames
+            }) >= 68
             browser.close()
     finally:
         editor.close()

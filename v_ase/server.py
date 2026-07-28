@@ -2692,7 +2692,7 @@ if FASTAPI_AVAILABLE:
     async def api_export_image(
         session_id: str,
         request: Request,
-        format: str = "webp",
+        format: str = "png",
     ):
         """Encode a rendered PNG without changing its dimensions or RGBA pixels."""
         get_session(session_id)
@@ -2738,6 +2738,7 @@ if FASTAPI_AVAILABLE:
         format: str = "mov",
         fps: int = 12,
         frames: int | None = None,
+        export_id: str = "",
     ):
         get_session(session_id)
         if fps < 1 or fps > 60:
@@ -2755,6 +2756,28 @@ if FASTAPI_AVAILABLE:
         source = tempfile.NamedTemporaryFile(delete=False, suffix=".webm")
         source_path = source.name
         total = 0
+        normalized_export_id = str(export_id or "").strip()[:128]
+
+        def report_progress(ratio: float, eta_seconds: float | None, frame: int) -> None:
+            if not normalized_export_id:
+                return
+            ws_manager.broadcast_sync(
+                {
+                    "type": "video_export_progress",
+                    "export_id": normalized_export_id,
+                    "phase": "encoding",
+                    "progress": max(0.0, min(1.0, float(ratio))),
+                    "eta_seconds": (
+                        None
+                        if eta_seconds is None
+                        else max(0.0, float(eta_seconds))
+                    ),
+                    "frame": max(0, int(frame)),
+                    "frame_count": frames,
+                },
+                session_id,
+            )
+
         try:
             async for chunk in request.stream():
                 total += len(chunk)
@@ -2764,12 +2787,14 @@ if FASTAPI_AVAILABLE:
             source.close()
             if total == 0:
                 raise HTTPException(status_code=400, detail="Recorded video is empty.")
+            report_progress(0.0, None, 0)
             target_path, filename, media_type = await asyncio.to_thread(
                 transcode_video_file,
                 source_path,
                 format,
                 fps,
                 frames,
+                report_progress if normalized_export_id else None,
             )
         except HTTPException:
             source.close()

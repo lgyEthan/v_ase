@@ -218,6 +218,19 @@ and documentation use `view()`.
     an actual ASE FIRE trajectory for compressed C60 using the repulsive
     fallback calculator. Tests validate the structures before browser media are
     regenerated.
+52. Export dialogs use a fixed action footer and independently scrollable body.
+    Cancel and Export therefore remain visible at short desktop viewport
+    heights while all render controls remain reachable.
+53. PNG is the image-export default. JPEG, single-page raster PDF, and lossless
+    WebP are explicit alternatives; opaque formats flatten transparency onto
+    white without changing dimensions.
+54. Video capture preserves ordered source samples and transcoding rebuilds
+    constant timestamps from output frame number and selected FPS. Rendering,
+    upload, encoding, and destination writing share one monotonic progress/ETA
+    display; 100% means the file write completed. Displacement vectors are
+    recomputed before every captured real or interpolated frame.
+55. File Open directly replaces an empty document. Replace/Add/New Tab choices
+    appear only when the active document already contains atoms.
 
 ## Canonical Names And Compatibility
 

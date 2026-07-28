@@ -35,7 +35,9 @@ Browser Open has three explicit destinations:
 - upload into a new independent workspace document.
 
 Open invokes the operating system file picker immediately. Reader, frame range,
-and destination are selected after the file is chosen.
+and destination are selected after the file is chosen. When the active
+document is empty, the file directly replaces that document and the
+destination chooser is skipped.
 
 A `.vase` project restores all saved state when replacing a document or opening
 in a new tab. When appended, only its selected structure frames are used. The
@@ -247,7 +249,12 @@ temporary fractional position for rendering. Atom count, order, labels, and
 chemical types must remain stable when interpolation is enabled.
 Canvas samples are requested explicitly and MOV/AVI transcoding receives both
 the selected FPS and expected frame count, preventing browser refresh-rate
-duplicates from changing playback duration.
+duplicates from changing playback duration. Transcoding rebuilds constant
+timestamps from frame order, so rendering delays cannot drop, duplicate, or
+retime source frames. The progress indicator combines rendering, upload,
+encoding, and file writing, stays monotonic, reports ETA, and reaches 100% only
+after the destination write succeeds. Displacement vectors are recalculated
+from each real or interpolated frame before that frame is captured.
 
 Files appended from the Open dialog become frames in the active source
 trajectory. The active frame and document visual state are preserved; newly
@@ -342,11 +349,12 @@ authoritative profile for:
 - grid, axes, and unit cell;
 - renderer and Sun settings.
 
-Image export supports lossless WebP and PNG. WebP is the compact default and
-preserves the rendered dimensions and exact RGBA pixels. PNG output is
-losslessly recompressed server-side by rebuilding its IDAT stream; it is never
-resampled. The original browser PNG is retained when recompression is not
-smaller.
+Image export defaults to PNG and also supports JPEG, single-page raster PDF,
+and lossless WebP. PNG and WebP preserve rendered dimensions and exact RGBA
+pixels. PNG is losslessly recompressed server-side by rebuilding its IDAT
+stream; it is never resampled. JPEG and PDF are composited onto white because
+they do not preserve the transparent canvas. The original browser PNG is
+retained when recompression is not smaller.
 
 Video export preserves the selected pixel dimensions. MOV uses H.264 with a
 slow encoder preset and visually lossless-oriented quality settings; AVI uses
@@ -362,7 +370,8 @@ the View/Edit visual translation saved in display settings.
 ## Save And Export
 
 - ASE Pickle: current-frame ASE interchange only.
-- Image: lossless WebP or optimized PNG at the exact requested dimensions.
+- Image: PNG by default, plus JPEG, PDF, or lossless WebP at the exact
+  requested dimensions.
 - Video: H.264 MOV or MPEG-4 AVI with source-frame or interpolated playback.
 - Visual Settings JSON: structure-independent presentation preset.
 - `.vase`: complete validated project archive.

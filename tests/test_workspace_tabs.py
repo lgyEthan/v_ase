@@ -268,10 +268,20 @@ def test_workspace_browser_tabs_suspend_inactive_renderers_and_keep_settings_sep
             child_frame = page.frame_locator(
                 f'iframe[data-session-id="{child_id}"]'
             )
-            child_frame.locator("#structure-file").set_input_files(str(imported_file))
-            child_frame.locator('input[name="open-file-mode"][value="new-tab"]').check()
-            assert child_frame.locator("#open-file-confirm").inner_text() == "Open New Tab"
-            child_frame.locator("#open-file-confirm").click()
+            page.locator(".document-tab").nth(0).locator(".document-select").click()
+            page.wait_for_function(
+                """sessionId => {
+                    const frame = document.querySelector(
+                        `iframe[data-session-id="${sessionId}"]`
+                    );
+                    return frame && !frame.hidden;
+                }""",
+                arg=host.session_id,
+            )
+            first_frame.locator("#structure-file").set_input_files(str(imported_file))
+            first_frame.locator('input[name="open-file-mode"][value="new-tab"]').check()
+            assert first_frame.locator("#open-file-confirm").inner_text() == "Open New Tab"
+            first_frame.locator("#open-file-confirm").click()
             page.wait_for_function(
                 "document.querySelectorAll('.document-tab').length === 3"
             )

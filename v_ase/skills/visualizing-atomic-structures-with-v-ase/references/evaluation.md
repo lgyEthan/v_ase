@@ -111,6 +111,11 @@ Run all scenarios, not only static document checks:
    - render interpolation with known frame count.
 9. **Exports**
    - render exact PNG/WebP dimensions and compare decoded pixels;
+   - verify JPEG and PDF preserve dimensions and use opaque output;
+   - export 72 source frames at 30 FPS, decode exactly 72 frames, and verify
+     2.40 seconds of playback;
+   - enable displacement vectors and verify they are present in captured video
+     frames;
    - reopen POSCAR, pickle, `.vase`, settings, OBJ metadata, and 3DM;
    - syntax-check Blender output and inspect camera, bonds, cell, and light;
    - probe MOV/AVI dimensions, FPS, and frame count.

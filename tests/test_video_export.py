@@ -94,3 +94,29 @@ def test_video_transcode_applies_requested_fps_and_exact_frame_count(tmp_path):
     finally:
         if os.path.exists(target):
             os.unlink(target)
+
+
+def test_video_transcode_reports_monotonic_encoding_progress(tmp_path):
+    source = tmp_path / "browser-recording.webm"
+    make_test_webm(source)
+    updates = []
+
+    target, _, _ = transcode_video_file(
+        str(source),
+        "mov",
+        fps=6,
+        frame_count=3,
+        progress_callback=lambda ratio, eta, frame: updates.append(
+            (ratio, eta, frame)
+        ),
+    )
+    try:
+        assert updates
+        ratios = [item[0] for item in updates]
+        assert ratios == sorted(ratios)
+        assert ratios[-1] == pytest.approx(1.0)
+        assert updates[-1][1] == pytest.approx(0.0)
+        assert updates[-1][2] == 3
+    finally:
+        if os.path.exists(target):
+            os.unlink(target)

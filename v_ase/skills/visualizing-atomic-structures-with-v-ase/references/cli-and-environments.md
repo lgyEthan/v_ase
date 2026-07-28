@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.103"
+python -m pip install "v_ase-gui==0.0.104"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.0.103"
+python -m pip install "v_ase-gui[rhino]==0.0.104"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, imageio-ffmpeg, and
@@ -119,7 +119,7 @@ and byte count.
 Main outputs:
 
 - structure: POSCAR or ASE pickle;
-- image: lossless WebP or optimized PNG;
+- image: PNG by default, or JPEG, PDF, and lossless WebP;
 - trajectory movie: MOV/H.264 or AVI/MPEG-4;
 - editable scene: Blender Python, Rhino 3DM, or OBJ bundle;
 - complete session: `.vase`;

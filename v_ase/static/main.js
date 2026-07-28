@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.103&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.103&rev=1';
-import { ASESelection } from './selection.js?v=0.0.103&rev=1';
-import { ASETransform } from './transform.js?v=0.0.103&rev=1';
+import { ASEApi } from './api.js?v=0.0.104&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.104&rev=1';
+import { ASESelection } from './selection.js?v=0.0.104&rev=1';
+import { ASETransform } from './transform.js?v=0.0.104&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.103&rev=1';
+} from './trajectory.js?v=0.0.104&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -204,7 +204,9 @@ class VAseApp {
             isRelaxing: false,
             displacementRequestToken: 0,
             displacementRefreshTimer: null,
-            displacementStats: null
+            displacementStats: null,
+            videoExportId: null,
+            videoExportStartedAt: null
         };
         this.api.currentFrameProvider = () => Number(
             this.state.atoms?.metadata?.current_frame ?? 0
@@ -1241,7 +1243,11 @@ class VAseApp {
         }, Math.max(0, delay));
     }
 
-    async refreshDisplacementAnalysis() {
+    async refreshDisplacementAnalysis({
+        positions = null,
+        frameIndex = null,
+        suppressBusy = false
+    } = {}) {
         const token = ++this.state.displacementRequestToken;
         const frameCount = Number(this.state.atoms?.metadata?.frame_count) || 1;
         if (!this.state.display.showDisplacements) {
@@ -1263,7 +1269,9 @@ class VAseApp {
             return;
         }
 
-        const currentFrame = Number(this.state.atoms?.metadata?.current_frame) || 0;
+        const currentFrame = frameIndex === null
+            ? (Number(this.state.atoms?.metadata?.current_frame) || 0)
+            : Math.max(0, Math.min(frameCount - 1, Number(frameIndex) || 0));
         if (this.state.display.displacementReferenceMode === 'previous' && currentFrame === 0) {
             this.setDisplacementStatus(
                 'warning',
@@ -1278,7 +1286,7 @@ class VAseApp {
             'Calculating displacement',
             `Frame ${currentFrame + 1} of ${frameCount}`
         );
-        const busyTimer = setTimeout(() => {
+        const busyTimer = suppressBusy ? null : setTimeout(() => {
             if (token === this.state.displacementRequestToken && !document.body.dataset.busy) {
                 this.setBusy('Calculating displacement vectors...');
                 document.body.dataset.displacementBusy = `${token}`;
@@ -1288,9 +1296,11 @@ class VAseApp {
             const payload = {
                 reference_mode: this.state.display.displacementReferenceMode,
                 reference_frame: this.state.display.displacementReferenceFrame,
+                frame_index: currentFrame,
                 mic: this.state.display.displacementMic
             };
-            if (!this.state.vizOnly) payload.positions = this.backendPositionsPayload();
+            if (Array.isArray(positions)) payload.positions = positions;
+            else if (!this.state.vizOnly) payload.positions = this.backendPositionsPayload();
             const data = await this.api.fetchDisplacements(payload);
             if (token !== this.state.displacementRequestToken) return;
             if (data.status !== 'ok') {
@@ -1308,7 +1318,7 @@ class VAseApp {
                 warning || `${mic} mapping from frame ${data.reference_frame + 1} to ${data.current_frame + 1}.`
             );
         } finally {
-            clearTimeout(busyTimer);
+            if (busyTimer !== null) clearTimeout(busyTimer);
             if (document.body.dataset.displacementBusy === `${token}`) {
                 delete document.body.dataset.displacementBusy;
                 this.clearBusy();
@@ -5939,7 +5949,7 @@ class VAseApp {
     async aiRender(request = {}) {
         const width = Math.max(64, Math.min(8192, Math.round(Number(request.width) || 1920)));
         const height = Math.max(64, Math.min(8192, Math.round(Number(request.height) || 1080)));
-        const format = request.format === 'png' ? 'png' : 'webp';
+        const format = this.normalizedImageFormat(request.format);
         const options = {
             ...this.defaultImageExportOptions(),
             ...this.clonePlain(request.options || {})
@@ -5949,7 +5959,7 @@ class VAseApp {
         const dataUrl = await this.blobToDataUrl(blob);
         return {
             protocol: 'v_ase.ai.v1',
-            mimeType: format === 'png' ? 'image/png' : 'image/webp',
+            mimeType: this.imageMimeType(format),
             format,
             filename: `v_ase-render.${format}`,
             bytes: blob.size,
@@ -5964,7 +5974,7 @@ class VAseApp {
     async aiExport(request = {}) {
         const format = String(request.format || '').trim().toLowerCase();
         if (format === 'image') {
-            const imageFormat = request.imageFormat === 'png' ? 'png' : 'webp';
+            const imageFormat = this.normalizedImageFormat(request.imageFormat);
             return {
                 ...(await this.aiRender({...request, format: imageFormat})),
                 exportFormat: 'image'
@@ -6084,7 +6094,7 @@ class VAseApp {
         });
     }
 
-    async renderOptimizedImage(width, height, options = {}, format = 'webp') {
+    async renderOptimizedImage(width, height, options = {}, format = 'png') {
         const source = await this.renderer.exportPNGBlob(width, height, options);
         return await this.api.encodeImage(source, format);
     }
@@ -6611,17 +6621,79 @@ class VAseApp {
         });
     }
 
-    setBusy(message = 'Working...') {
+    formatRemainingTime(seconds) {
+        const value = Number(seconds);
+        if (!Number.isFinite(value) || value < 0) return 'Estimating time remaining...';
+        const rounded = Math.max(0, Math.ceil(value));
+        if (rounded < 60) return `About ${rounded} s remaining`;
+        const minutes = Math.floor(rounded / 60);
+        const remainder = rounded % 60;
+        return `About ${minutes} min ${remainder.toString().padStart(2, '0')} s remaining`;
+    }
+
+    setBusyProgress(progress, {
+        message = null,
+        etaSeconds = null,
+        complete = false
+    } = {}) {
+        const bar = document.getElementById('busy-progress');
+        const fill = bar?.querySelector('span');
+        const meta = document.getElementById('busy-progress-meta');
+        const percent = document.getElementById('busy-progress-percent');
+        const eta = document.getElementById('busy-progress-eta');
+        const text = document.getElementById('busy-message');
+        if (!bar || !fill || !meta || !percent || !eta) return;
+        const requested = Math.max(0, Math.min(100, Number(progress) || 0));
+        const capped = complete ? requested : Math.min(99, requested);
+        const previous = Number(document.body.dataset.busyProgress || 0);
+        const next = Math.max(previous, capped);
+        document.body.dataset.busyProgress = `${next}`;
+        bar.dataset.mode = 'determinate';
+        bar.setAttribute('aria-valuemin', '0');
+        bar.setAttribute('aria-valuemax', '100');
+        bar.setAttribute('aria-valuenow', `${Math.round(next)}`);
+        fill.style.width = `${next}%`;
+        percent.textContent = `${Math.floor(next)}%`;
+        eta.textContent = complete && next >= 100
+            ? 'Complete'
+            : this.formatRemainingTime(etaSeconds);
+        meta.classList.remove('hidden');
+        if (message !== null && text) text.textContent = message;
+    }
+
+    setBusy(message = 'Working...', {
+        title = 'Working',
+        progress = null,
+        etaSeconds = null
+    } = {}) {
         const overlay = document.getElementById('busy-overlay');
         const text = document.getElementById('busy-message');
+        const heading = document.getElementById('busy-title');
+        const bar = document.getElementById('busy-progress');
+        const fill = bar?.querySelector('span');
+        const meta = document.getElementById('busy-progress-meta');
+        if (heading) heading.textContent = title;
         if (text) text.innerText = message;
+        delete document.body.dataset.busyProgress;
+        if (progress === null) {
+            if (bar) {
+                bar.dataset.mode = 'indeterminate';
+                bar.removeAttribute('aria-valuenow');
+            }
+            if (fill) fill.style.width = '';
+            meta?.classList.add('hidden');
+        }
         overlay?.classList.remove('hidden');
         document.body.dataset.busy = 'true';
+        if (progress !== null) {
+            this.setBusyProgress(progress, { message, etaSeconds });
+        }
     }
 
     clearBusy() {
         document.getElementById('busy-overlay')?.classList.add('hidden');
         delete document.body.dataset.busy;
+        delete document.body.dataset.busyProgress;
     }
 
     async withBusy(message, task) {
@@ -7257,6 +7329,20 @@ class VAseApp {
         window.addEventListener('beforeunload', closeSocket, { once: true });
         ws.onmessage = (event) => {
             const msg = JSON.parse(event.data);
+            if (
+                msg.type === 'video_export_progress'
+                && msg.export_id
+                && msg.export_id === this.state.videoExportId
+            ) {
+                const ratio = Math.max(0, Math.min(1, Number(msg.progress) || 0));
+                const frameDetail = Number(msg.frame_count) > 0
+                    ? ` · ${Math.min(Number(msg.frame) || 0, Number(msg.frame_count))}/${Number(msg.frame_count)}`
+                    : '';
+                this.setBusyProgress(78 + ratio * 20, {
+                    message: `Encoding video${frameDetail}...`,
+                    etaSeconds: msg.eta_seconds
+                });
+            }
             if (msg.type === 'relax_step') {
                 this.state.atoms.positions = msg.positions;
                 this.state.originalPositions = msg.positions.map(p => [...p]);
@@ -7350,6 +7436,12 @@ class VAseApp {
         if (lower.endsWith('.png')) {
             return [{ description: 'PNG image', accept: { 'image/png': ['.png'] } }];
         }
+        if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
+            return [{ description: 'JPEG image', accept: { 'image/jpeg': ['.jpg', '.jpeg'] } }];
+        }
+        if (lower.endsWith('.pdf')) {
+            return [{ description: 'PDF image', accept: { 'application/pdf': ['.pdf'] } }];
+        }
         if (lower.endsWith('.webp')) {
             return [{ description: 'Lossless WebP image', accept: { 'image/webp': ['.webp'] } }];
         }
@@ -7407,6 +7499,7 @@ class VAseApp {
         const content = document.getElementById('modal-content');
         const actions = document.querySelector('#modal-container .modal-actions');
         if (!container || !content || !actions) return;
+        container.querySelector('.modal')?.classList.remove('export-image-modal');
         content.innerHTML = contentHtml;
         actions.innerHTML = actionsHtml;
         container.classList.remove('hidden');
@@ -7699,6 +7792,8 @@ class VAseApp {
             </div>
             <h3 class="help-section-title">Saving</h3>
             <div class="help-save-grid">
+                <strong>Browser save access</strong>
+                <span>Chrome may state that this site can view changes to the file you selected. This is the browser's File System Access notice; v_ase receives access only to the destination you explicitly choose.</span>
                 <strong>ASE Pickle (.pkl)</strong>
                 <span>Current ASE Atoms data for Python: coordinates, labels, cell, PBC, constraints, arrays, and valid SinglePointCalculator results. Visual settings are excluded.</span>
                 <strong>Visual Settings (.json)</strong>
@@ -7713,6 +7808,25 @@ class VAseApp {
         const width = Math.max(256, parseInt(document.getElementById('image-width')?.value || '1920', 10));
         const height = Math.max(256, parseInt(document.getElementById('image-height')?.value || '1080', 10));
         return { width, height };
+    }
+
+    normalizedImageFormat(value, fallback = 'png') {
+        const normalized = String(value || '').trim().toLowerCase();
+        if (normalized === 'jpeg') return 'jpg';
+        return ['png', 'jpg', 'pdf', 'webp'].includes(normalized) ? normalized : fallback;
+    }
+
+    imageMimeType(format) {
+        return {
+            png: 'image/png',
+            jpg: 'image/jpeg',
+            pdf: 'application/pdf',
+            webp: 'image/webp'
+        }[this.normalizedImageFormat(format)] || 'image/png';
+    }
+
+    imageFormatSupportsTransparency(format) {
+        return ['png', 'webp'].includes(this.normalizedImageFormat(format));
     }
 
     defaultImageExportOptions() {
@@ -7760,11 +7874,13 @@ class VAseApp {
         );
         return {
             kind: 'image',
-            format: profile?.format === 'png' ? 'png' : 'webp',
+            format: this.normalizedImageFormat(profile?.format),
             width: Math.max(256, Math.round(Number(dimensions.width) || 1920)),
             height: Math.max(256, Math.round(Number(dimensions.height) || 1080)),
             options: {
-                transparentBackground: source.transparentBackground ?? fallback.transparentBackground,
+                transparentBackground: this.imageFormatSupportsTransparency(profile?.format)
+                    ? (source.transparentBackground ?? fallback.transparentBackground)
+                    : false,
                 backgroundColor: source.backgroundColor || fallback.backgroundColor,
                 includeGrid: source.includeGrid ?? fallback.includeGrid,
                 includeAxes: source.includeAxes ?? fallback.includeAxes,
@@ -7842,8 +7958,10 @@ class VAseApp {
                 <div class="export-grid">
                     <label for="export-image-format">Format</label>
                     <select id="export-image-format">
-                        <option value="webp" ${selected('webp', imageFormat)}>WebP (lossless, compact)</option>
                         <option value="png" ${selected('png', imageFormat)}>PNG (lossless, compatible)</option>
+                        <option value="jpg" ${selected('jpg', imageFormat)}>JPEG (compact, opaque)</option>
+                        <option value="pdf" ${selected('pdf', imageFormat)}>PDF (single-page raster)</option>
+                        <option value="webp" ${selected('webp', imageFormat)}>WebP (lossless, compact)</option>
                     </select>
                     <label for="export-width">Width</label>
                     <input type="number" id="export-width" value="${width}" min="256" step="128">
@@ -7933,7 +8051,7 @@ class VAseApp {
         const readImageProfile = () => {
             const renderModeSelection = document.getElementById('export-render-mode')?.value || 'current';
             return this.normalizedImageExportProfile({
-                format: document.getElementById('export-image-format')?.value || 'webp',
+                format: document.getElementById('export-image-format')?.value || 'png',
                 width: Math.max(256, parseInt(document.getElementById('export-width')?.value || `${width}`, 10)),
                 height: Math.max(256, parseInt(document.getElementById('export-height')?.value || `${height}`, 10)),
                 options: {
@@ -7966,6 +8084,16 @@ class VAseApp {
 
         const updateExportSummary = () => {
             const profile = this.setImageExportProfile(readImageProfile());
+            const transparency = document.getElementById('export-transparent');
+            if (transparency) {
+                const supportsTransparency = this.imageFormatSupportsTransparency(profile.format);
+                transparency.disabled = !supportsTransparency;
+                transparency.checked = supportsTransparency && profile.options.transparentBackground;
+                transparency.closest('.check-row')?.classList.toggle('disabled', !supportsTransparency);
+                transparency.title = supportsTransparency
+                    ? 'Keep the canvas background transparent.'
+                    : `${profile.format.toUpperCase()} output is composited onto white.`;
+            }
             const mode = profile.options.scaleMode;
             const outputWidth = profile.width;
             const outputHeight = profile.height;
@@ -8014,7 +8142,7 @@ class VAseApp {
             try {
                 const profile = this.setImageExportProfile(readImageProfile());
                 const { width: exportWidth, height: exportHeight, format, options } = profile;
-                const mimeType = format === 'png' ? 'image/png' : 'image/webp';
+                const mimeType = this.imageMimeType(format);
                 const filename = `v_ase-${exportWidth}x${exportHeight}.${format}`;
                 const destination = await this.chooseSaveDestination(filename, mimeType);
                 if (!destination) return;
@@ -8102,6 +8230,7 @@ class VAseApp {
                         <input type="checkbox" id="video-interpolation-mic" ${interpolationMic ? 'checked' : ''}>
                     </label>
                     <p id="video-interpolation-note" class="export-note"></p>
+                    <p class="export-note">Visible displacement vectors are recalculated and rendered for every output frame.</p>
                     <label class="check-row" for="video-grid">
                         <span>Include grid</span>
                         <input type="checkbox" id="video-grid" ${this.state.display.showGrid ? 'checked' : ''}>
@@ -8237,7 +8366,7 @@ class VAseApp {
             if (interpolationToggle) interpolationToggle.disabled = options.interpolationMultiplier <= 1;
             if (interpolationNote) {
                 interpolationNote.textContent = options.interpolationMultiplier <= 1
-                    ? `${count} source frames; interpolation is off.`
+                    ? `${count} source frames → ${outputFrames} output frames (${(outputFrames / options.fps).toFixed(2)} s). Every source frame is retained once.`
                     : `${options.interpolationMultiplier}× creates ${outputFrames} frames (${(outputFrames / options.fps).toFixed(2)} s). Higher values take longer to render.`;
             }
             const {
@@ -8340,16 +8469,57 @@ class VAseApp {
         }
     }
 
+    videoAnalysisPositions(sample = null) {
+        const flattened = sample?.positions;
+        const count = Number(sample?.count) || 0;
+        if (flattened && count > 0) {
+            return Array.from({ length: count }, (_, index) => {
+                const offset = index * 3;
+                return [
+                    Number(flattened[offset]) || 0,
+                    Number(flattened[offset + 1]) || 0,
+                    Number(flattened[offset + 2]) || 0
+                ];
+            });
+        }
+        const positions = this.renderer?.atomsData?.positions || this.state.atoms?.positions || [];
+        return positions.map(position => [
+            Number(position?.[0]) || 0,
+            Number(position?.[1]) || 0,
+            Number(position?.[2]) || 0
+        ]);
+    }
+
+    async synchronizeVideoDisplacements(sample = null) {
+        if (!this.state.display.showDisplacements) return;
+        if (this.state.displacementRefreshTimer !== null) {
+            clearTimeout(this.state.displacementRefreshTimer);
+            this.state.displacementRefreshTimer = null;
+        }
+        await this.refreshDisplacementAnalysis({
+            positions: this.videoAnalysisPositions(sample),
+            frameIndex: Number(this.state.atoms?.metadata?.current_frame) || 0,
+            suppressBusy: true
+        });
+    }
+
     async captureCurrentVideoFrame(
         capture,
         videoTrack,
         outputIndex,
         outputCount,
-        outputFps
+        outputFps,
+        startedAt
     ) {
         this.renderer.renderExportCaptureFrame(capture);
         videoTrack?.requestFrame?.();
-        this.setBusy(`Rendering video frame ${outputIndex} / ${outputCount}...`);
+        const elapsedSeconds = Math.max(0.001, (performance.now() - startedAt) / 1000);
+        const secondsPerFrame = elapsedSeconds / Math.max(1, outputIndex);
+        const etaSeconds = secondsPerFrame * Math.max(0, outputCount - outputIndex);
+        this.setBusyProgress(3 + (outputIndex / outputCount) * 72, {
+            message: `Rendering frame ${outputIndex} of ${outputCount}...`,
+            etaSeconds
+        });
         await new Promise(resolve => setTimeout(resolve, 1000 / outputFps));
     }
 
@@ -8359,12 +8529,14 @@ class VAseApp {
         sample,
         outputIndex,
         outputCount,
-        outputFps
+        outputFps,
+        startedAt
     ) {
         this.applyFrameLattice(sample.cell, sample.pbc);
         this.renderer.updatePositionsFlat(sample.positions, 0, sample.count);
+        await this.synchronizeVideoDisplacements(sample);
         await this.captureCurrentVideoFrame(
-            capture, videoTrack, outputIndex, outputCount, outputFps
+            capture, videoTrack, outputIndex, outputCount, outputFps, startedAt
         );
     }
 
@@ -8397,6 +8569,11 @@ class VAseApp {
             : (destination || await this.chooseSaveDestination(filename, outputMime));
         if (!returnBlob && !selectedDestination) return false;
         const originalFrame = meta.current_frame || 0;
+        const exportId = globalThis.crypto?.randomUUID?.()
+            || `video-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const renderingStartedAt = performance.now();
+        this.state.videoExportId = exportId;
+        this.state.videoExportStartedAt = renderingStartedAt;
         if (this.state.trajectoryTimer) {
             clearTimeout(this.state.trajectoryTimer);
             this.state.trajectoryTimer = null;
@@ -8433,7 +8610,10 @@ class VAseApp {
         });
 
         this.closeModal();
-        this.setBusy(`Rendering ${outputFrameCount} video frames...`);
+        this.setBusy(`Preparing ${outputFrameCount} video frames...`, {
+            title: 'Exporting video',
+            progress: 1
+        });
         recorder.start(100);
         try {
             await new Promise(resolve => setTimeout(resolve, 80));
@@ -8442,17 +8622,29 @@ class VAseApp {
             if (interpolationFactor <= 1) {
                 for (let frame = 0; frame < frameCount; frame++) {
                     await this.loadFrame(frame);
+                    await this.synchronizeVideoDisplacements(this.videoFrameSnapshot());
                     outputIndex += 1;
                     await this.captureCurrentVideoFrame(
-                        capture, videoTrack, outputIndex, outputFrameCount, outputFps
+                        capture,
+                        videoTrack,
+                        outputIndex,
+                        outputFrameCount,
+                        outputFps,
+                        renderingStartedAt
                     );
                 }
             } else {
                 await this.loadFrame(0);
                 let first = this.videoFrameSnapshot();
+                await this.synchronizeVideoDisplacements(first);
                 outputIndex += 1;
                 await this.captureCurrentVideoFrame(
-                    capture, videoTrack, outputIndex, outputFrameCount, outputFps
+                    capture,
+                    videoTrack,
+                    outputIndex,
+                    outputFrameCount,
+                    outputFps,
+                    renderingStartedAt
                 );
                 for (let frame = 1; frame < frameCount; frame++) {
                     await this.loadFrame(frame);
@@ -8468,12 +8660,24 @@ class VAseApp {
                         if (interpolationMic && !sample.micApplied) micFallback = true;
                         outputIndex += 1;
                         await this.renderVideoCaptureSample(
-                            capture, videoTrack, sample, outputIndex, outputFrameCount, outputFps
+                            capture,
+                            videoTrack,
+                            sample,
+                            outputIndex,
+                            outputFrameCount,
+                            outputFps,
+                            renderingStartedAt
                         );
                     }
                     outputIndex += 1;
                     await this.renderVideoCaptureSample(
-                        capture, videoTrack, second, outputIndex, outputFrameCount, outputFps
+                        capture,
+                        videoTrack,
+                        second,
+                        outputIndex,
+                        outputFrameCount,
+                        outputFps,
+                        renderingStartedAt
                     );
                     first = second;
                 }
@@ -8486,21 +8690,48 @@ class VAseApp {
             const recording = new Blob(chunks, {
                 type: recorder.mimeType || mimeType || 'application/octet-stream'
             });
-            this.setBusy(`Encoding ${outputFormat.toUpperCase()} video...`);
+            this.setBusyProgress(77, {
+                message: `Uploading frames for ${outputFormat.toUpperCase()} encoding...`
+            });
             const video = await this.api.transcodeVideo(
                 recording,
                 outputFormat,
                 outputFps,
-                outputFrameCount
+                outputFrameCount,
+                exportId
             );
-            if (returnBlob) return video;
+            this.setBusyProgress(98, {
+                message: 'Finalizing encoded video...',
+                etaSeconds: 1
+            });
+            if (returnBlob) {
+                this.setBusyProgress(100, {
+                    message: 'Video export complete.',
+                    etaSeconds: 0,
+                    complete: true
+                });
+                await new Promise(resolve => setTimeout(resolve, 160));
+                return video;
+            }
+            this.setBusyProgress(99, {
+                message: 'Writing the selected output file...',
+                etaSeconds: 1
+            });
             const saved = await this.savePreparedBlob(
                 video,
                 filename,
                 outputMime,
                 selectedDestination
             );
-            if (saved) this.toast(`${outputFormat.toUpperCase()} video saved.`, 'success');
+            if (saved) {
+                this.setBusyProgress(100, {
+                    message: 'Video export complete.',
+                    etaSeconds: 0,
+                    complete: true
+                });
+                await new Promise(resolve => setTimeout(resolve, 220));
+                this.toast(`${outputFormat.toUpperCase()} video saved.`, 'success');
+            }
             if (micFallback) {
                 this.toast(
                     'MIC was unavailable for one or more transitions; direct interpolation was used there.',
@@ -8512,6 +8743,8 @@ class VAseApp {
             if (recorder.state !== 'inactive') recorder.stop();
             if (capture) this.renderer.endExportCapture(capture);
             await this.loadFrame(originalFrame);
+            this.state.videoExportId = null;
+            this.state.videoExportStartedAt = null;
             this.state.exportPreviewProfile = null;
             if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
             this.clearBusy();
@@ -8801,7 +9034,12 @@ class VAseApp {
         document.getElementById('structure-file')?.addEventListener('change', event => {
             const file = event.target.files?.[0];
             event.target.value = '';
-            if (file) this.showOpenFileModal(file);
+            if (!file) return;
+            if (!this.hasLoadedAtoms()) {
+                this.loadStructureFile(file, '', ':');
+                return;
+            }
+            this.showOpenFileModal(file);
         });
         
         document.getElementById('btn-reset').onclick = async () => {

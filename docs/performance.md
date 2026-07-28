@@ -31,17 +31,23 @@ bond, selection, constraint, and supercell batches. No interpolated frame is
 stored in the backend trajectory.
 Canvas capture uses manual frame requests when the browser supports them.
 Transcoding enforces the selected FPS and expected output count, so a 60 Hz
-display cannot silently multiply identical video frames.
+display cannot silently multiply identical video frames. The final transcode
+rebuilds constant timestamps as `frame_index / FPS`; variable browser render
+latency therefore cannot shorten or stutter the movie.
 
 ## Output Encoding
 
 The render canvas is always created at the user-selected width and height.
 Storage optimization occurs after rendering:
 
-- lossless WebP uses exact RGBA encoding and is the compact image default;
+- PNG is the user-facing image default;
+- lossless WebP remains available for compact exact-RGBA storage;
 - PNG concatenates and validates the browser IDAT stream, then performs a
   higher-effort lossless DEFLATE pass while preserving all non-IDAT chunks;
 - PNG falls back to the original browser bytes when recompression is larger;
+- JPEG uses optimized progressive 4:4:4 encoding and an opaque white
+  background;
+- PDF embeds one full-resolution raster page at the requested pixel size;
 - MOV uses H.264 with a slow preset and quality-based rate control;
 - AVI uses MPEG-4 quality-based rate control.
 

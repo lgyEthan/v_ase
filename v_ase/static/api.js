@@ -850,7 +850,13 @@ export class ASEApi {
         return await this.exportCad('obj', positions, applyConstraint, display, bondPairs, bondBridges, camera, includeCell);
     }
 
-    async transcodeVideo(recording, format = 'mov', fps = 12, frameCount = null) {
+    async transcodeVideo(
+        recording,
+        format = 'mov',
+        fps = 12,
+        frameCount = null,
+        exportId = ''
+    ) {
         const normalized = ['mov', 'avi'].includes(String(format).toLowerCase())
             ? String(format).toLowerCase()
             : 'mov';
@@ -865,6 +871,7 @@ export class ASEApi {
         if (normalizedFrameCount !== null) {
             query.set('frames', String(normalizedFrameCount));
         }
+        if (exportId) query.set('export_id', String(exportId));
         return await this.request(
             `/api/export/video/{session_id}?${query.toString()}`,
             {
@@ -876,9 +883,12 @@ export class ASEApi {
         );
     }
 
-    async encodeImage(image, format = 'webp') {
+    async encodeImage(image, format = 'png') {
         if (this.mock) return image;
-        const normalized = String(format).toLowerCase() === 'png' ? 'png' : 'webp';
+        const requested = String(format).trim().toLowerCase();
+        const normalized = ['png', 'jpg', 'jpeg', 'pdf', 'webp'].includes(requested)
+            ? requested
+            : 'png';
         return await this.request(
             `/api/export/image/{session_id}?format=${normalized}`,
             {

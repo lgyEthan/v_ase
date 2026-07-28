@@ -125,6 +125,7 @@
     --shadow-inspector: -16px 0 42px rgba(0, 0, 0, 0.28);
     --shadow-control: 0 1px 7px rgba(0, 0, 0, 0.46);
     --shadow-gizmo: drop-shadow(0 5px 9px rgba(0, 0, 0, 0.28));
+    --shadow-modal-actions: 0 -10px 22px rgba(0, 0, 0, 0.12);
 }
 
 @keyframes spin {
@@ -327,7 +328,7 @@ body.dragging-create-atom {
     min-height: 132px;
     display: grid;
     grid-template-columns: 132px minmax(0, 1fr);
-    grid-template-rows: 1fr 4px;
+    grid-template-rows: minmax(64px, auto) 4px;
     gap: 18px;
     align-items: center;
     padding: 22px 24px 18px;
@@ -362,6 +363,28 @@ body.dragging-create-atom {
     line-height: 1.45;
 }
 
+#busy-progress-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 9px;
+    color: var(--muted);
+    font-size: 0.68rem;
+    font-variant-numeric: tabular-nums;
+}
+
+#busy-progress-percent {
+    color: var(--teal);
+    font-weight: 760;
+}
+
+#busy-progress-eta {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .busy-progress {
     grid-column: 1 / -1;
     height: 3px;
@@ -376,6 +399,12 @@ body.dragging-create-atom {
     height: 100%;
     background: var(--teal);
     animation: busy-scan 1.15s ease-in-out infinite;
+}
+
+.busy-progress[data-mode="determinate"] span {
+    width: 0;
+    animation: none;
+    transition: width 160ms linear;
 }
 
 .busy-spinner {
@@ -1718,6 +1747,11 @@ body.inspector-wide #inspector .supercell-row {
     min-height: 32px;
 }
 
+.check-row.disabled {
+    color: var(--muted);
+    opacity: 0.62;
+}
+
 /* Appearance and bond tables */
 .appearance-table,
 .pairwise-bond-panel {
@@ -3035,11 +3069,22 @@ body.resizing-pairwise-column * {
 
 .modal {
     width: min(520px, calc(100vw - 32px));
-    max-height: min(760px, calc(100vh - 40px));
-    overflow: auto;
-    padding: 20px;
+    max-height: min(820px, calc(100vh - 40px));
+    max-height: min(820px, calc(100dvh - 40px));
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    overflow: hidden;
+    padding: 0;
     border-radius: 8px;
     background: var(--panel-raised);
+}
+
+#modal-content {
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: 20px;
+    scrollbar-gutter: stable;
 }
 
 .modal h2 {
@@ -3231,7 +3276,7 @@ body.resizing-pairwise-column * {
 }
 
 .modal.export-image-modal {
-    width: min(780px, calc(100vw - 32px));
+    width: min(940px, calc(100vw - 32px));
 }
 
 .export-image-columns {
@@ -3335,7 +3380,27 @@ body.resizing-pairwise-column * {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
-    margin-top: 16px;
+    min-height: 58px;
+    margin: 0;
+    padding: 12px 20px;
+    border-top: 1px solid var(--line);
+    background: var(--panel-raised);
+    box-shadow: var(--shadow-modal-actions);
+}
+
+@media (max-height: 560px) {
+    #modal-container {
+        padding: 10px;
+    }
+
+    .modal {
+        max-height: calc(100vh - 20px);
+        max-height: calc(100dvh - 20px);
+    }
+
+    #modal-content {
+        padding: 16px;
+    }
 }
 
 #toast-container {
