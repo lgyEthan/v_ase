@@ -1,11 +1,19 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 from ase.constraints import FixedLine, FixedPlane, Hookean
 from ase.io import read
+from ase.units import Bohr
 from PIL import Image
 
-from examples.readme_scenes import SCENE_NAMES, write_scene_assets
+from examples.readme_scenes import (
+    SCENE_NAMES,
+    make_black_phosphorene_unit_cell,
+    make_crowded_c60_relaxation_scene,
+    make_phosphorene_twist_scene,
+    write_scene_assets,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -15,10 +23,13 @@ def test_readme_scene_assets_write_reopenable_traj_files(tmp_path):
     written_names = {path.name for path in written}
 
     assert set(SCENE_NAMES) == {
+        "phosphorene",
         "commensurate",
         "fixedline",
         "fixedplane",
         "hookean",
+        "relaxation",
+        "measurement",
         "ferrocene",
         "showcase",
     }
@@ -29,6 +40,13 @@ def test_readme_scene_assets_write_reopenable_traj_files(tmp_path):
     assert "hookean.traj" in written_names
     assert "ferrocene.traj" in written_names
     assert "showcase.traj" in written_names
+    assert "phosphorene_nanosheet.cif" in written_names
+    assert "phosphorene_twisted_nanoribbon_15deg.cif" in written_names
+    assert "phosphorene_twist_15deg.traj" in written_names
+    assert "crowded_c60_initial.cif" in written_names
+    assert "crowded_c60_relaxed.cif" in written_names
+    assert "crowded_c60_relaxation.traj" in written_names
+    assert "ethane_measurement.cif" in written_names
     assert not any(path.name.endswith("_motion.traj") for path in written)
 
     fixedline = read(tmp_path / "fixedline.traj")
@@ -40,6 +58,34 @@ def test_readme_scene_assets_write_reopenable_traj_files(tmp_path):
     assert any(isinstance(constraint, FixedPlane) for constraint in fixedplane.constraints)
     assert any(isinstance(constraint, Hookean) for constraint in hookean.constraints)
     assert any(isinstance(constraint, Hookean) for constraint in showcase.constraints)
+
+
+def test_phosphorene_scene_uses_published_cell_and_uniform_slice_twist():
+    unit = make_black_phosphorene_unit_cell()
+    source, twisted, frames, metadata = make_phosphorene_twist_scene()
+
+    assert unit.cell.lengths() == pytest.approx(
+        [8.628 * Bohr, 6.243 * Bohr, 51.930 * Bohr],
+        abs=1e-8,
+    )
+    assert len(source) == len(twisted) == 132
+    assert len(frames) == 25
+    assert metadata["axis"] == "X"
+    assert metadata["angle_step_degrees"] == pytest.approx(15.0)
+    assert len(metadata["selected_slice"]) == 12
+    assert np.max(np.linalg.norm(twisted.positions - source.positions, axis=1)) > 2.0
+    assert np.allclose(frames[0].positions, source.positions)
+    assert np.allclose(frames[-1].positions, twisted.positions)
+
+
+def test_relaxation_scene_is_an_actual_fire_trajectory_with_lower_repulsion():
+    initial, relaxed, frames, metrics = make_crowded_c60_relaxation_scene()
+
+    assert len(initial) == len(relaxed) == 60
+    assert len(frames) >= 20
+    assert metrics["final_energy"] < metrics["initial_energy"] * 0.01
+    assert metrics["final_fmax"] < 0.05
+    assert not np.allclose(initial.positions, relaxed.positions)
 
 
 def test_brand_logo_is_native_high_resolution_transparent_png():

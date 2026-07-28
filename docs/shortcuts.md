@@ -78,6 +78,10 @@ Move and rotate snapping can be set in the right-side Transform section. A zero
 increment keeps motion continuous; non-zero increments make mouse transforms step
 in Angstrom or degree units.
 
+During every atom rotation, the viewport shows the active pivot axis, a fixed
+neutral start reference, and an amber reference that follows the current
+rotation. Commensurate or magnetic candidates use separate cyan guides.
+
 ## Saving
 
 The Export workspace keeps structure-independent settings separate from project
@@ -112,6 +116,9 @@ the complete saved project.
 
 `FixedLine` and `FixedPlane` guides remain visible without selecting the atom.
 They stay local to each constrained atom and scale with its displayed radius.
+Starting `G` on a FixedPlane atom additionally shows a larger translucent
+permitted-plane guide at that atom's original position until the move is
+confirmed or canceled.
 
 ## Calculator Controls
 - Repulsion controls live under **Structure > Relaxation** and appear only in

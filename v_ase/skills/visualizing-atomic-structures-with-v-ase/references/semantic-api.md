@@ -253,7 +253,15 @@ Transform and commensurate settings:
 | `commensurateSnapRangeDeg` | angular snap window |
 
 Constraint visualization includes FixAtoms, FixScaled, FixedLine, FixedPlane,
-and Hookean. Hookean active state is a 3D helix after its cutoff.
+and Hookean. FixedLine and FixedPlane keep compact per-atom markers without
+selection. During an interactive `G` transform, every selected FixedPlane atom
+shows a larger permitted-plane surface anchored at its original position.
+Hookean active state is a 3D helix after its cutoff.
+
+Interactive atom rotation shows an axis through the selected pivot, a fixed
+start reference, and a moving current reference. Commensurate candidates are
+separate guides. These overlays are visual state and do not alter the ASE
+coordinates returned by `describe()`.
 
 ## Trajectory Analysis
 

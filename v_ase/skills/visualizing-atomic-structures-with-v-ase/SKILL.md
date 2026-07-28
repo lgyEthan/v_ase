@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.102"
+python -m pip install "v_ase-gui==0.0.103"
 ```
 
 Start an agent-ready live session:
@@ -180,6 +180,10 @@ For any nontrivial task, verify all applicable items:
 - trajectory: frame count, active frame, stable selection, analysis reference;
 - appearance: visibility, radii, colors, materials, bonds, cell, background;
 - camera: projection, position, target, up vector, framing, expected direction;
+- manipulation overlays: rotation axis, fixed start reference, moving current
+  reference, and separate commensurate candidates when a human is editing;
+- constraints: persistent per-atom FixedLine/FixedPlane markers and one
+  original-position FixedPlane motion guide per selected atom during `G`;
 - render: exact dimensions, format, options, nonblank decoded pixels;
 - export: MIME type, filename, byte count, and reopenability where supported.
 

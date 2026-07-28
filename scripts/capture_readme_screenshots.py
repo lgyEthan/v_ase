@@ -13,8 +13,7 @@ from pathlib import Path
 
 import numpy as np
 from ase import Atoms
-from ase.build import fcc111, graphene, nanotube
-from ase.constraints import FixAtoms, FixedLine, FixedPlane, Hookean
+from ase.build import fcc111
 from PIL import Image
 from playwright.sync_api import sync_playwright
 
@@ -24,6 +23,15 @@ if str(ROOT) not in sys.path:
 
 from tests.manual_showcase import make_frames
 from v_ase import view
+from examples.readme_scenes import (
+    make_crowded_c60_relaxation_scene,
+    make_ethane_measurement_scene,
+    make_graphene_hbn_commensurate_scene,
+    make_hookean_surface_scene,
+    make_phosphorene_twist_scene,
+    make_surface_fixedplane_scene,
+    make_cnt_fixedline_scene,
+)
 
 
 def parse_media_size(value: str | None, default: tuple[int, int]) -> tuple[int, int]:
@@ -358,7 +366,8 @@ def set_selection(page, indices):
     page.evaluate(
         """(indices) => {
             const app = window.__V_ASE_APP__;
-            app.state.selected = new Set(indices);
+            app.clearAtomSelection();
+            indices.forEach(index => app.addSelectionReference(index));
             app.updateSelectionVisuals();
             app.renderer.syncConstraintGuides();
             app.updateUI();
@@ -443,6 +452,8 @@ def update_positions(page, positions):
             app.renderer.syncSelectionOutlines();
             app.renderer.syncConstraintGuides();
             app.renderer.updateHookeanPositions();
+            app.renderer.refreshBondsForCurrentPositions();
+            app.renderer.updateSupercellPositions();
             app.updateUI();
             app.renderer.renderer.render(app.renderer.scene, app.renderer.camera);
         }""",
@@ -470,145 +481,21 @@ def save_gif(frames: list[Image.Image], path: Path, duration=85):
     )
 
 
-def capture_animation(page, path: Path, position_frames: list[np.ndarray], duration=85):
+def capture_animation(
+    page,
+    path: Path,
+    position_frames: list[np.ndarray],
+    duration=85,
+    on_frame=None,
+):
     frames = []
-    for positions in position_frames:
+    for frame_index, positions in enumerate(position_frames):
         update_positions(page, positions)
+        if on_frame is not None:
+            on_frame(page, frame_index, len(position_frames))
         page.wait_for_timeout(35)
         frames.append(screenshot_frame(page))
     save_gif(frames, path, duration=duration)
-
-
-def make_cnt_fixedline_scene() -> tuple[Atoms, dict[str, int]]:
-    tube = nanotube(8, 0, length=4, bond=1.42)
-    tube.positions[:, 0] += 7.0
-    tube.positions[:, 1] += 7.0
-    z_length = float(tube.cell.lengths()[2])
-    tube.cell = [14.0, 14.0, z_length]
-    tube.pbc = [False, False, True]
-    ion = Atoms("Li", positions=[[7.0, 7.0, z_length * 0.5]])
-    atoms = tube + ion
-    ion_idx = len(tube)
-    atoms.set_constraint(FixedLine(ion_idx, [0, 0, 1]))
-    atoms.info["readme_scene"] = "li_in_cnt_fixed_line"
-    return atoms, {"ion": ion_idx, "z_length": z_length}
-
-
-def make_surface_fixedplane_scene() -> tuple[Atoms, dict[str, int]]:
-    slab = fcc111("Cu", size=(4, 4, 2), vacuum=7.0, orthogonal=True)
-    positions = slab.get_positions()
-    top_z = float(np.max(positions[:, 2]))
-    center = np.mean(positions, axis=0)
-    x0, y0 = float(center[0]), float(center[1])
-
-    ads_symbols = ["Li", "O", "H"]
-    ads_positions = [
-        [x0 + 0.35, y0 + 0.25, top_z + 1.55],  # mobile ion in the surface plane
-        [x0 - 1.45, y0 - 0.35, top_z + 1.60],
-        [x0 - 2.05, y0 + 0.25, top_z + 2.00],
-    ]
-    atoms = slab + Atoms(ads_symbols, positions=ads_positions)
-    atoms.pbc = [True, True, False]
-
-    ion_idx = len(slab)
-    bottom = [i for i, p in enumerate(positions) if p[2] < top_z - 0.5]
-    atoms.set_constraint([
-        FixAtoms(indices=bottom),
-        FixedPlane(ion_idx, [0, 0, 1]),
-    ])
-    atoms.info["readme_scene"] = "li_on_cu111_fixed_plane"
-    return atoms, {"ion": ion_idx}
-
-
-def make_hookean_surface_scene() -> tuple[Atoms, dict[str, int]]:
-    slab = fcc111("Cu", size=(4, 4, 2), vacuum=7.0, orthogonal=True)
-    positions = slab.get_positions()
-    top_z = float(np.max(positions[:, 2]))
-    center = np.mean(positions, axis=0)
-    x0, y0 = float(center[0]), float(center[1])
-
-    # Ethanol-like adsorbate: the Hookean constraint keeps the C-O bond from
-    # over-stretching while the hydroxyl group is pulled away from the surface.
-    ads_symbols = ["C", "C", "O", "H", "H", "H", "H", "H", "H"]
-    base = np.array([x0 - 2.25, y0 - 0.25, top_z + 3.15])
-    rel_positions = np.array([
-        [0.00, 0.00, 0.00],
-        [1.52, 0.08, 0.05],
-        [2.93, 0.16, 0.08],
-        [3.50, 0.88, 0.15],
-        [-0.52, 0.93, 0.18],
-        [-0.57, -0.50, 0.78],
-        [-0.54, -0.42, -0.78],
-        [1.63, 0.86, 0.85],
-        [1.66, -0.88, -0.70],
-    ])
-    ads_positions = (base + rel_positions).tolist()
-    atoms = slab + Atoms(ads_symbols, positions=ads_positions)
-    atoms.pbc = [True, True, False]
-    carbon = len(slab) + 1
-    oxygen = len(slab) + 2
-    hydroxyl_h = len(slab) + 3
-    bottom = [i for i, p in enumerate(positions) if p[2] < top_z - 0.5]
-    atoms.set_constraint([
-        FixAtoms(indices=bottom),
-        Hookean(carbon, oxygen, rt=1.50, k=12.0),
-    ])
-    atoms.info["readme_scene"] = "cu111_hookean_ethanol_co_bond"
-    return atoms, {
-        "carbon": carbon,
-        "oxygen": oxygen,
-        "hydroxyl_h": hydroxyl_h,
-        "top_z": top_z,
-        "center": [x0, y0, top_z],
-    }
-
-
-def make_ferrocene_scene() -> tuple[Atoms, dict[str, list[int]]]:
-    symbols = ["Fe"]
-    positions = [[0.0, 0.0, 0.0]]
-    carbon_radius = 1.22
-    hydrogen_radius = 2.28
-    z_ring = 1.65
-    top_c, bottom_c, top_h, bottom_h = [], [], [], []
-
-    for ring, z, phase in [("top", z_ring, 0.0), ("bottom", -z_ring, math.pi / 5)]:
-        c_indices = []
-        h_indices = []
-        for i in range(5):
-            angle = phase + i * 2 * math.pi / 5
-            c_indices.append(len(symbols))
-            symbols.append("C")
-            positions.append([carbon_radius * math.cos(angle), carbon_radius * math.sin(angle), z])
-        for i in range(5):
-            angle = phase + i * 2 * math.pi / 5
-            h_indices.append(len(symbols))
-            symbols.append("H")
-            positions.append([hydrogen_radius * math.cos(angle), hydrogen_radius * math.sin(angle), z])
-        if ring == "top":
-            top_c, top_h = c_indices, h_indices
-        else:
-            bottom_c, bottom_h = c_indices, h_indices
-
-    atoms = Atoms(symbols=symbols, positions=positions, cell=[7.0, 7.0, 7.0], pbc=False)
-    atoms.info["readme_scene"] = "idealized_ferrocene"
-    return atoms, {
-        "top_ring": top_c + top_h,
-        "bottom_ring": bottom_c + bottom_h,
-    }
-
-
-def make_graphene_hbn_commensurate_scene() -> tuple[Atoms, dict[str, list[int]]]:
-    graphene_layer = graphene(formula="C2", a=2.46, size=(6, 6, 1), vacuum=8.0)
-    hbn_layer = graphene(formula="BN", a=2.46, size=(6, 6, 1), vacuum=8.0)
-    hbn_layer.positions[:, 2] += 3.35
-    atoms = graphene_layer + hbn_layer
-    atoms.set_cell(graphene_layer.cell)
-    atoms.pbc = [True, True, False]
-    atoms.info["readme_scene"] = "graphene_hbn_commensurate_rotation"
-    return atoms, {
-        "graphene": list(range(len(graphene_layer))),
-        "hbn": list(range(len(graphene_layer), len(atoms))),
-    }
 
 
 def open_scene(browser, atoms_or_frames, *, show_bonds=False):
@@ -663,16 +550,6 @@ def plane_sweep_frames(base: np.ndarray, index: int, count=38) -> list[np.ndarra
     return frames
 
 
-def hookean_frames(base: np.ndarray, index: int, start: np.ndarray, end: np.ndarray, count=38) -> list[np.ndarray]:
-    frames = []
-    for step in range(count):
-        t = 0.5 - 0.5 * math.cos(2 * math.pi * step / count)
-        positions = base.copy()
-        positions[index] = start * (1 - t) + end * t
-        frames.append(positions)
-    return frames
-
-
 def hookean_group_frames(base: np.ndarray, indices: list[int], delta: np.ndarray, count=42) -> list[np.ndarray]:
     frames = []
     for step in range(count):
@@ -684,18 +561,297 @@ def hookean_group_frames(base: np.ndarray, indices: list[int], delta: np.ndarray
     return frames
 
 
-def ferrocene_rotate_frames(base: np.ndarray, indices: list[int], count=46) -> list[np.ndarray]:
-    frames = []
-    pivot = np.array([0.0, 0.0, 0.0])
-    for step in range(count):
-        angle = math.radians(95) * math.sin(2 * math.pi * step / count)
-        ca, sa = math.cos(angle), math.sin(angle)
-        rot = np.array([[1, 0, 0], [0, ca, -sa], [0, sa, ca]], dtype=float)
-        positions = base.copy()
-        for idx in indices:
-            positions[idx] = pivot + rot @ (base[idx] - pivot)
-        frames.append(positions)
-    return frames
+def capture_phosphorene_media(browser) -> None:
+    source, _, frames, metadata = make_phosphorene_twist_scene()
+    editor, page = open_scene(browser, source, show_bonds=True)
+    try:
+        set_display(page, {
+            "atomRadiusScale": 0.53,
+            "showBonds": True,
+            "bondThickness": 0.20,
+            "showGrid": False,
+            "showCell": False,
+            "showAxes": True,
+            "viewportBackground": "white",
+            "rotatePivot": "selection",
+            "commensurateGuide": False,
+            "labelMaterials": {"P": "standard"},
+        })
+        set_selection(page, metadata["selected_slice"])
+        configure_inspector(page, "structure", ["transform"], width=430)
+        center = np.mean(source.positions, axis=0)
+        settle_view(
+            page,
+            target=center.tolist(),
+            position=(center + np.array([20.0, -33.0, 20.0])).tolist(),
+            fov=34,
+        )
+        set_atomic_scale(page, 24.0)
+        set_readme_lighting(
+            page,
+            center.tolist(),
+            intensity=3.0,
+            position_offset=(-18.0, -24.0, 30.0),
+        )
+        enter_mode(page, "ROTATE", metadata["axis"])
+
+        def update_rotation_guide(active_page, frame_index, frame_total):
+            progress = frame_index / max(1, frame_total - 1)
+            active_page.evaluate(
+                """(angle) => {
+                    const app = window.__V_ASE_APP__;
+                    app.updateRotationReferenceGuide(angle);
+                    app.renderer.renderNow();
+                }""",
+                math.radians(float(metadata["angle_step_degrees"])) * progress,
+            )
+
+        capture_animation(
+            page,
+            ASSET_DIR / "readme_phosphorene_twist.gif",
+            [frame.positions for frame in frames],
+            duration=82,
+            on_frame=update_rotation_guide,
+        )
+        page.screenshot(path=ASSET_DIR / "readme_overview.png")
+    finally:
+        page.close()
+        editor.close()
+
+
+def capture_commensurate_media(browser) -> None:
+    atoms, indices = make_graphene_hbn_commensurate_scene()
+    editor, page = open_scene(browser, atoms, show_bonds=True)
+    try:
+        set_display(page, {
+            "atomRadiusScale": 0.58,
+            "showBonds": True,
+            "showGrid": False,
+            "showCell": True,
+            "showAxes": True,
+            "viewportBackground": "white",
+            "labelColors": {"C": "#46545b", "B": "#d89a4a", "N": "#3f72c9"},
+            "commensurateGuide": True,
+            "commensurateSnap": False,
+            "commensurateMaxIndex": 32,
+            "commensurateStrainTolerance": 0.01,
+        })
+        set_selection(page, indices["hbn"])
+        configure_inspector(page, "structure", ["transform"], width=440)
+        center = np.mean(atoms.positions, axis=0)
+        settle_view(
+            page,
+            target=(center + np.array([0.0, 0.0, 0.45])).tolist(),
+            position=(center + np.array([9.2, -11.6, 14.8])).tolist(),
+            fov=36,
+        )
+        set_readme_lighting(page, center.tolist(), intensity=3.0, position_offset=(-10.0, -13.0, 18.0))
+        enter_mode(page, "ROTATE", "Z")
+        page.wait_for_function("window.__V_ASE_APP__.state.commensurateCandidates?.length > 0")
+        page.evaluate(
+            """() => {
+                const app = window.__V_ASE_APP__;
+                app.transform.rotationAngle = 13.1735511 * Math.PI / 180;
+                app.applyTransformPreview();
+                app.renderer.renderNow();
+            }"""
+        )
+        set_atomic_scale(page, 52.0)
+        page.screenshot(path=ASSET_DIR / "readme_commensurate.png")
+    finally:
+        page.close()
+        editor.close()
+
+
+def capture_bond_media(browser) -> None:
+    atoms = make_frames()[-1]
+    editor, page = open_scene(browser, atoms, show_bonds=True)
+    try:
+        set_display(page, {
+            "atomRadiusScale": 0.58,
+            "bondMode": "pairwise",
+            "showBonds": True,
+            "pairwiseBondRanges": {
+                "Na-Na": {"enabled": False, "max": 3.15},
+                "Cl-Na": {"enabled": True, "max": 3.10},
+                "Cl-Cl": {"enabled": False, "max": 3.55},
+            },
+            "showGrid": True,
+            "viewportBackground": "white",
+        })
+        configure_inspector(page, "structure", ["bonding"], width=520)
+        center = np.mean(atoms.positions, axis=0)
+        settle_view(page, target=center.tolist(), position=(center + np.array([12, -16, 11])).tolist(), fov=37)
+        set_readme_lighting(page, center.tolist(), intensity=2.8)
+        page.screenshot(path=ASSET_DIR / "readme_bonds.png")
+    finally:
+        page.close()
+        editor.close()
+
+
+def capture_constraint_media(browser) -> None:
+    fixedline_atoms, line_idx = make_cnt_fixedline_scene()
+    editor, page = open_scene(browser, fixedline_atoms, show_bonds=True)
+    try:
+        set_display(page, {"atomRadiusScale": 0.54, "showBonds": True, "showGrid": True})
+        set_selection(page, [line_idx["ion"]])
+        configure_inspector(page, "structure", ["constraints", "transform"])
+        target = [7.0, 7.0, line_idx["z_length"] * 0.52]
+        settle_view(page, target=target, position=[16.5, -6.2, line_idx["z_length"] * 0.72], fov=38)
+        set_readme_lighting(page, target, intensity=2.8)
+        page.screenshot(path=ASSET_DIR / "readme_constraints.png")
+        enter_mode(page, "MOVE", "Z")
+        capture_animation(
+            page,
+            ASSET_DIR / "readme_fixedline.gif",
+            sinusoidal_frames(
+                fixedline_atoms.get_positions(),
+                line_idx["ion"],
+                lambda phase: [0, 0, 2.2 * phase],
+            ),
+        )
+    finally:
+        page.close()
+        editor.close()
+
+    fixedplane_atoms, plane_idx = make_surface_fixedplane_scene()
+    editor, page = open_scene(browser, fixedplane_atoms, show_bonds=True)
+    try:
+        set_display(page, {
+            "atomRadiusScale": 0.60,
+            "showBonds": True,
+            "showGrid": False,
+            "showCell": True,
+            "viewportBackground": "white",
+        })
+        set_selection(page, [plane_idx["ion"]])
+        configure_inspector(page, "structure", ["constraints", "transform"])
+        ion_position = fixedplane_atoms.positions[plane_idx["ion"]]
+        target = (ion_position + np.array([0.0, 0.0, -0.7])).tolist()
+        settle_view(
+            page,
+            target=target,
+            position=(np.asarray(target) + np.array([7.8, -10.2, 7.2])).tolist(),
+            fov=36,
+        )
+        set_atomic_scale(page, 72.0)
+        set_readme_lighting(page, target, intensity=2.75)
+        enter_mode(page, "MOVE", None)
+
+        def keep_fixed_plane_motion_guide(active_page, _frame_index, _frame_total):
+            active_page.evaluate(
+                """(atomIndex) => {
+                    const app = window.__V_ASE_APP__;
+                    app.renderer.setConstraintMotionGuides({
+                        mode: 'MOVE',
+                        indices: [atomIndex],
+                        originalPositions: app.state.originalPositions,
+                        applyConstraints: true
+                    });
+                    app.renderer.renderNow();
+                }""",
+                plane_idx["ion"],
+            )
+
+        capture_animation(
+            page,
+            ASSET_DIR / "readme_fixedplane.gif",
+            plane_sweep_frames(fixedplane_atoms.get_positions(), plane_idx["ion"]),
+            on_frame=keep_fixed_plane_motion_guide,
+        )
+    finally:
+        page.close()
+        editor.close()
+
+    hookean_atoms, indices = make_hookean_surface_scene()
+    editor, page = open_scene(browser, hookean_atoms, show_bonds=True)
+    try:
+        set_display(page, {
+            "atomRadiusScale": 0.54,
+            "labelRadii": {"Cu": 0.42, "C": 0.56, "O": 0.60, "H": 0.28},
+            "showBonds": True,
+            "showGrid": True,
+        })
+        set_selection(page, [])
+        configure_inspector(page, "inspect", ["structure-info", "selection"])
+        base = hookean_atoms.get_positions()
+        carbon_pos = base[indices["carbon"]].copy()
+        oxygen_pos = base[indices["oxygen"]].copy()
+        direction = oxygen_pos - carbon_pos
+        direction /= np.linalg.norm(direction)
+        preview_delta = direction * 1.38
+        target = (carbon_pos + oxygen_pos) * 0.5 + preview_delta * 0.48 + np.array([0.15, 0.05, 0.12])
+        settle_view(page, target=target.tolist(), position=(target + np.array([3.9, -4.7, 2.9])).tolist(), fov=33)
+        set_atomic_scale(page, min(230.0, MEDIA_SIZE[0] / 9.5))
+        set_readme_lighting(page, target.tolist(), intensity=3.0, position_offset=(-7.0, -9.0, 12.0))
+        active_preview = base.copy()
+        active_preview[indices["oxygen"]] += preview_delta
+        active_preview[indices["hydroxyl_h"]] += preview_delta
+        update_positions(page, active_preview)
+        page.screenshot(path=ASSET_DIR / "readme_hookean.png")
+        end = carbon_pos + direction * 3.02
+        delta = end - oxygen_pos
+        capture_animation(
+            page,
+            ASSET_DIR / "readme_hookean.gif",
+            hookean_group_frames(base, [indices["oxygen"], indices["hydroxyl_h"]], delta),
+        )
+    finally:
+        page.close()
+        editor.close()
+
+
+def capture_measurement_media(browser) -> None:
+    atoms, indices = make_ethane_measurement_scene()
+    editor, page = open_scene(browser, atoms, show_bonds=True)
+    try:
+        set_display(page, {
+            "atomRadiusScale": 0.72,
+            "showBonds": True,
+            "showGrid": False,
+            "showCell": False,
+            "viewportBackground": "white",
+        })
+        set_selection(page, indices["ordered_selection"])
+        configure_inspector(page, "inspect", ["selection"], width=440)
+        center = np.mean(atoms.positions, axis=0)
+        settle_view(page, target=center.tolist(), position=(center + np.array([5.6, -7.2, 4.7])).tolist(), fov=34)
+        set_atomic_scale(page, 145.0)
+        set_readme_lighting(page, center.tolist(), intensity=2.85, position_offset=(-6.0, -8.0, 10.0))
+        page.screenshot(path=ASSET_DIR / "readme_measurement.png")
+    finally:
+        page.close()
+        editor.close()
+
+
+def capture_relaxation_media(browser) -> None:
+    initial, relaxed, frames, _ = make_crowded_c60_relaxation_scene()
+    editor, page = open_scene(browser, initial, show_bonds=True)
+    try:
+        set_display(page, {
+            "atomRadiusScale": 0.46,
+            "showBonds": False,
+            "showGrid": False,
+            "showCell": False,
+            "viewportBackground": "white",
+        })
+        configure_inspector(page, "structure", ["scientific-tools"], width=430)
+        center = np.mean(initial.positions, axis=0)
+        settle_view(page, target=center.tolist(), position=(center + np.array([8.5, -10.5, 7.5])).tolist(), fov=35)
+        set_atomic_scale(page, 82.0)
+        set_readme_lighting(page, center.tolist(), intensity=2.9, position_offset=(-8.0, -10.0, 13.0))
+        position_frames = [frame.positions for frame in frames]
+        capture_animation(
+            page,
+            ASSET_DIR / "readme_relaxation.gif",
+            position_frames,
+            duration=95,
+        )
+        update_positions(page, relaxed.positions)
+        page.screenshot(path=ASSET_DIR / "readme_relaxation.png")
+    finally:
+        page.close()
+        editor.close()
 
 
 def main() -> int:
@@ -705,6 +861,16 @@ def main() -> int:
         action="store_true",
         help="Regenerate only the shared transparent v_ase logo asset.",
     )
+    parser.add_argument(
+        "--skip-logo",
+        action="store_true",
+        help="Keep the existing logo while regenerating README scenes.",
+    )
+    parser.add_argument(
+        "--only",
+        choices=("phosphorene", "commensurate", "bonds", "constraints", "measurement", "relaxation"),
+        help="Regenerate one README scene group.",
+    )
     args = parser.parse_args()
     ASSET_DIR.mkdir(parents=True, exist_ok=True)
     import webbrowser
@@ -712,190 +878,27 @@ def main() -> int:
     original_open = webbrowser.open
     webbrowser.open = lambda *args, **kwargs: True
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
         try:
             if args.logo_only:
                 capture_logo(browser)
                 return 0
-            if ASSET_DIR.resolve() == (ROOT / "docs" / "assets").resolve():
+            if not args.skip_logo and ASSET_DIR.resolve() == (ROOT / "docs" / "assets").resolve():
                 capture_logo(browser)
-
-            overview_atoms, overview_idx = make_graphene_hbn_commensurate_scene()
-            editor, page = open_scene(browser, overview_atoms, show_bonds=True)
-            set_display(page, {
-                "atomRadiusScale": 0.58,
-                "showBonds": True,
-                "showGrid": False,
-                "showCell": True,
-                "showAxes": True,
-                "viewportBackground": "white",
-                "labelColors": {
-                    "C": "#46545b",
-                    "B": "#d89a4a",
-                    "N": "#3f72c9",
-                },
-                "commensurateGuide": True,
-                "commensurateSnap": False,
-                "commensurateMaxIndex": 32,
-                "commensurateStrainTolerance": 0.01,
-            })
-            set_selection(page, overview_idx["hbn"])
-            configure_inspector(page, "structure", ["transform"], width=440)
-            center = np.mean(overview_atoms.positions, axis=0)
-            settle_view(
-                page,
-                target=(center + np.array([0.0, 0.0, 0.45])).tolist(),
-                position=(center + np.array([9.2, -11.6, 14.8])).tolist(),
-                fov=36,
-            )
-            set_readme_lighting(
-                page,
-                center.tolist(),
-                intensity=3.0,
-                position_offset=(-10.0, -13.0, 18.0),
-            )
-            enter_mode(page, "ROTATE", "Z")
-            page.wait_for_function(
-                "window.__V_ASE_APP__.state.commensurateCandidates?.length > 0"
-            )
-            page.evaluate(
-                """() => {
-                    const app = window.__V_ASE_APP__;
-                    app.transform.rotationAngle = 13.1735511 * Math.PI / 180;
-                    app.applyTransformPreview();
-                    app.renderer.renderNow();
-                }"""
-            )
-            set_atomic_scale(page, 52.0)
-            page.evaluate("""() => {
-                const app = window.__V_ASE_APP__;
-                app.state.display.showGrid = false;
-                if (app.renderer.gridGroup) app.renderer.gridGroup.visible = false;
-                app.renderer.renderNow();
-            }""")
-            page.wait_for_timeout(300)
-            page.screenshot(path=ASSET_DIR / "readme_overview.png")
-
-            set_display(page, {
-                "bondMode": "pairwise",
-                "showBonds": True,
-                "pairwiseBondRanges": {
-                    "Na-Na": {"enabled": False, "min": 0.0, "max": 3.15},
-                    "Cl-Na": {"enabled": True, "min": 1.8, "max": 3.10},
-                    "Cl-Cl": {"enabled": False, "min": 0.0, "max": 3.55},
-                },
-            })
-            configure_inspector(page, "structure", ["bonding"], width=520)
-            page.screenshot(path=ASSET_DIR / "readme_bonds.png")
-            page.close()
-            editor.close()
-
-            fixedline_atoms, line_idx = make_cnt_fixedline_scene()
-            editor, page = open_scene(browser, fixedline_atoms, show_bonds=True)
-            set_display(page, {"atomRadiusScale": 0.54, "showBonds": True, "showGrid": True})
-            set_selection(page, [line_idx["ion"]])
-            configure_inspector(page, "structure", ["constraints", "transform"])
-            settle_view(
-                page,
-                target=[7.0, 7.0, line_idx["z_length"] * 0.52],
-                position=[16.5, -6.2, line_idx["z_length"] * 0.72],
-                fov=38,
-            )
-            set_readme_lighting(page, [7.0, 7.0, line_idx["z_length"] * 0.52], intensity=2.8)
-            page.screenshot(path=ASSET_DIR / "readme_constraints.png")
-
-            base = fixedline_atoms.get_positions()
-            set_selection(page, [line_idx["ion"]])
-            enter_mode(page, "MOVE", "Z")
-            capture_animation(
-                page,
-                ASSET_DIR / "readme_fixedline.gif",
-                sinusoidal_frames(base, line_idx["ion"], lambda phase: [0, 0, 2.2 * phase]),
-            )
-            page.close()
-            editor.close()
-
-            fixedplane_atoms, plane_idx = make_surface_fixedplane_scene()
-            editor, page = open_scene(browser, fixedplane_atoms, show_bonds=True)
-            set_display(page, {"atomRadiusScale": 0.60, "showBonds": True, "showGrid": True})
-            set_selection(page, [plane_idx["ion"]])
-            configure_inspector(page, "structure", ["constraints", "transform"])
-            settle_view(page, target=[5.1, 4.5, 11.6], position=[11.6, -5.5, 17.2], fov=39)
-            set_readme_lighting(page, [5.1, 4.5, 11.6], intensity=2.75)
-            base = fixedplane_atoms.get_positions()
-            set_selection(page, [plane_idx["ion"]])
-            enter_mode(page, "MOVE", None)
-            capture_animation(
-                page,
-                ASSET_DIR / "readme_fixedplane.gif",
-                plane_sweep_frames(base, plane_idx["ion"]),
-            )
-            page.close()
-            editor.close()
-
-            hookean_atoms, hidx = make_hookean_surface_scene()
-            editor, page = open_scene(browser, hookean_atoms, show_bonds=True)
-            set_display(page, {
-                "atomRadiusScale": 0.54,
-                "labelRadii": {"Cu": 0.42, "C": 0.56, "O": 0.60, "H": 0.28},
-                "showBonds": True,
-                "showGrid": True
-            })
-            set_selection(page, [])
-            configure_inspector(page, "inspect", ["structure-info", "selection"])
-            base = hookean_atoms.get_positions()
-            carbon_pos = base[hidx["carbon"]].copy()
-            oxygen_pos = base[hidx["oxygen"]].copy()
-            direction = oxygen_pos - carbon_pos
-            direction /= np.linalg.norm(direction)
-            preview_delta = direction * 1.38
-            target = (
-                (carbon_pos + oxygen_pos) * 0.5
-                + preview_delta * 0.48
-                + np.array([0.15, 0.05, 0.12])
-            )
-            camera = target + np.array([3.90, -4.70, 2.90])
-            settle_view(page, target=target.tolist(), position=camera.tolist(), fov=33)
-            set_atomic_scale(page, min(230.0, MEDIA_SIZE[0] / 9.5))
-            set_readme_lighting(page, target.tolist(), intensity=3.0, position_offset=(-7.0, -9.0, 12.0))
-            active_preview = base.copy()
-            active_preview[hidx["oxygen"]] = base[hidx["oxygen"]] + preview_delta
-            active_preview[hidx["hydroxyl_h"]] = base[hidx["hydroxyl_h"]] + preview_delta
-            update_positions(page, active_preview)
-            page.screenshot(path=ASSET_DIR / "readme_hookean.png")
-            end = carbon_pos + direction * 3.02
-            delta = end - oxygen_pos
-            capture_animation(
-                page,
-                ASSET_DIR / "readme_hookean.gif",
-                hookean_group_frames(base, [hidx["oxygen"], hidx["hydroxyl_h"]], delta),
-            )
-            page.close()
-            editor.close()
-
-            ferrocene, fidx = make_ferrocene_scene()
-            editor, page = open_scene(browser, ferrocene, show_bonds=True)
-            set_display(page, {
-                "atomRadiusScale": 0.72,
-                "showBonds": True,
-                "showGrid": True,
-                "rotatePivot": "origin"
-            })
-            set_selection(page, fidx["top_ring"])
-            configure_inspector(page, "structure", ["constraints", "transform"])
-            settle_view(page, target=[0, 0, 0], position=[6.2, -7.8, 4.6], fov=36)
-            set_readme_lighting(page, [0, 0, 0], intensity=2.9, position_offset=(-7.0, -10.0, 13.0))
-            enter_mode(page, "ROTATE", "X")
-            page.screenshot(path=ASSET_DIR / "readme_rotate.png")
-            capture_animation(
-                page,
-                ASSET_DIR / "readme_ferrocene_rotate_x.gif",
-                ferrocene_rotate_frames(ferrocene.get_positions(), fidx["top_ring"]),
-                duration=75,
-            )
-            page.close()
-            editor.close()
+            captures = {
+                "phosphorene": capture_phosphorene_media,
+                "commensurate": capture_commensurate_media,
+                "bonds": capture_bond_media,
+                "constraints": capture_constraint_media,
+                "measurement": capture_measurement_media,
+                "relaxation": capture_relaxation_media,
+            }
+            if args.only:
+                captures[args.only](browser)
+            else:
+                for capture in captures.values():
+                    capture(browser)
         finally:
             browser.close()
             webbrowser.open = original_open

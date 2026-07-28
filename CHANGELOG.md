@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.0.103
+
+- Restored an explicit FixedPlane motion surface during `G`: every constrained
+  atom keeps its own original-position plane, perimeter, and in-plane axes
+  while ASE remains authoritative for the committed movement.
+- Added universal atom-rotation references for the active pivot axis, fixed
+  start direction, and moving current direction, while keeping commensurate
+  and magnetic candidates visually separate.
+- Rebuilt the README around practical use, AI control, structure manipulation,
+  measurement, constraints, relaxation, trajectories, and export.
+- Added reproducible literature-derived phosphorene nanosheet/nanoribbon CIFs,
+  a 15-degree slice-twist trajectory, an ordered ethane measurement scene, and
+  an actual ASE FIRE relaxation trajectory for compressed C60.
+- Regenerated and visually checked the 1920 x 1080 README media, including the
+  FixedPlane motion guide, phosphorene manipulation, commensurate candidates,
+  measurement, and relaxation.
+- Updated the canonical vendor-neutral agent skill, implementation contracts,
+  and browser regression tests for the new guide semantics and examples.
+
 ## 0.0.102
 
 - Made whole-scene atom translation a View/Edit visual setting instead of a

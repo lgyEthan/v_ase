@@ -8,15 +8,16 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/v_ase-gui.svg)](https://pypi.org/project/v-ase-gui/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-`v_ase` combines ASE's convenient terminal and Python workflow with flexible
-3D structure manipulation in one local visualizer. It opens atomic structures
-and trajectories in a browser, remains lightweight for viewing large systems,
-and enables direct atom editing when requested.
+`v_ase` combines ASE's convenient terminal and Python workflow with the
+flexibility of direct 3D structure manipulation. Open structures and
+trajectories with one command, inspect or measure them in a local browser,
+edit atoms when needed, and export publication or CAD-ready results.
 
-![v_ase overview](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_overview.png)
+![Phosphorene nanoribbon manipulation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_phosphorene_twist.gif)
 
-Graphene/hBN in axis-locked rotate mode, with commensurate cell-match angles
-shown directly in the viewport.
+The example above turns a literature-derived phosphorene nanosheet into a
+twisted nanoribbon. Each crystallographic slice is rotated around its own
+center of mass in 15 degree steps while bonds remain visible.
 
 ## Quick Start
 
@@ -34,199 +35,207 @@ cd v_ase
 python -m pip install -e .
 ```
 
-Open an empty workspace or a structure directly:
+Start an empty workspace or open a file:
 
 ```bash
 v_ase gui
 v_ase gui FILE
 ```
 
-| File | Example |
-| --- | --- |
-| POSCAR | `v_ase gui POSCAR` |
-| VASP structure | `v_ase gui structure.vasp` |
-| XYZ trajectory | `v_ase gui trajectory.extxyz` |
-| ASE trajectory | `v_ase gui relaxation.traj` |
-| Saved v_ase project | `v_ase gui project.vase` |
+Examples:
 
-No Node.js installation is required. The terminal is released when the v_ase
-browser document closes.
+```bash
+v_ase gui POSCAR
+v_ase gui trajectory.extxyz
+v_ase gui relaxation.traj
+v_ase gui project.vase
+```
 
-**View** is the lightweight default for inspection, movies, measurement,
-appearance, bonds, supercells, and export. Switch to **Edit** in the top bar,
-or start there directly:
+The default **View** mode is optimized for visualization, trajectories,
+measurement, appearance, bonds, supercells, and export. Use the top-bar mode
+switch or start directly in **Edit** when atomic coordinates must change:
 
 ```bash
 v_ase gui structure.vasp --interactive
 ```
 
-Automatic bonds are visible by default. Use `--hide-bonds` for an atom-only
-view.
+No Node.js installation or hosted account is required. Closing the v_ase
+browser document releases the blocking terminal process.
 
-## Practical Guide
+## Everyday Workflow
 
 | Goal | Action |
 | --- | --- |
-| Inspect a structure | Open it, then orbit with middle drag and select with left click |
-| Edit coordinates | Enter **Edit**, select atoms, close the panel with `Esc`, then use `G` or `R` |
-| Measure geometry | Select 2, 3, or 4 atoms in order for distance, angle, or torsion |
-| Play a trajectory | Use the bottom timeline or press `Space`; adjust FPS and Skip live |
-| Style a figure | Use **Structure > Appearance**, **Bonding**, and **View** |
+| Inspect a structure | Middle-drag to orbit, wheel to zoom, left-click to select |
+| Edit coordinates | Enter **Edit**, select atoms, press `Esc` to focus the viewport, then use `G` or `R` |
+| Measure geometry | Select 2, 3, or 4 atoms in the required order |
+| Play a trajectory | Use the bottom timeline or `Space`; FPS and Skip update live |
+| Style a figure | Use **Structure > Appearance/Bonding** and **View** |
 | Repeat or wrap a cell | Use **Structure > Cell & Replication** |
-| Offset atoms relative to the cell | Set Cartesian or fractional **Translate atoms** values in View or Edit |
-| Save the complete session | Use **Export > Save Project** to create a self-contained `.vase` |
-| Work with a remote file | Run `v_ase gui HOST:/path/to/STRUCTURE` locally |
-| Let an AI inspect, edit, and render | Run `v_ase gui FILE --for-ai`; use the [installable agent skill](https://github.com/lgyEthan/v_ase/blob/main/v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md) |
+| Save the whole session | Use **Export > Save Project** to create a self-contained `.vase` |
+| Reuse only the visual style | Use **Export > Save Settings** |
+| Hand the scene to an AI | Launch with `--for-ai` and provide the bundled agent skill |
 
-> **Tip:** After selecting atoms, press `Esc` to close the control panel before
-> starting `G`/`R` transforms. This returns keyboard focus to the viewport
-> without clearing the selection.
-
-The **?** button shows all shortcuts. The top-bar renderer button switches
-between fast modeling light and publication-oriented Sun lighting. Unit-cell
-color, thickness, and material are available under **View > Viewport**.
-
-The current structure, trajectory frame, camera, labels, appearance, bonds,
-and selection remain in place during a mode change. If individual atoms have
-different visual materials, switching to View creates numbered labels only for
-those visual variants. Position-only edits stay in the same label group.
+> **Viewport tip:** after selecting atoms, press `Esc` to close the control
+> panel before using `G` or `R`. The selection is preserved and keyboard focus
+> returns to the 3D viewport.
 
 ## AI And Agent Use
 
-Start an agent-ready session without creating a separate renderer:
+v_ase exposes atomistic state directly to an AI agent. The agent can read
+elements, labels, coordinates, cell, PBC, constraints, trajectory frames,
+measurements, camera, bonds, materials, and render settings without repeatedly
+interpreting screenshots.
+
+Start a machine-readable session:
 
 ```bash
 v_ase gui STRUCTURE --for-ai
 ```
 
-v_ase prints one JSON handshake containing the live GUI URL, semantic structure
-state, control schema, and bundled agent guide. Agents can read coordinates,
-cell, PBC, labels, constraints, trajectories, measurements, visual settings,
-and camera state directly. They can edit structures, configure the scene,
-control documents, and produce final exports without a screenshot-analysis
-loop.
+The first output line is a JSON handshake containing:
 
-The interface is vendor-neutral and exposed as `window.v_aseAI` in the live
-page. Open the handshake's `human_url` at any time to take over the same
-document, frame, camera, and settings in the regular GUI. Complete command and
-JavaScript examples are available at its `skill_url` and in the canonical
-[v_ase agent SKILL.md](https://github.com/lgyEthan/v_ase/blob/main/v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md).
-The skill follows the standard `skill-name/SKILL.md` layout, includes explicit
-safety checks, and links to progressive references for CLI use, the semantic
-API, complete workflows, error handling, and release-time end-to-end tests.
+- the normal GUI URL for human takeover;
+- semantic state and command-schema URLs;
+- the live `window.v_aseAI` browser API;
+- the installed path and HTTP URL for the agent skill.
 
-## Opening And Documents
+An agent can configure and verify the structure, camera, lighting, analysis,
+and export state, render the final image, then give the same live document back
+to the user for manual refinement.
 
-The top-bar **Open** command starts with the operating system file picker. After
-choosing a file, select its reader, frame range, and one of these actions:
+### Teach An Agent v_ase
 
-| Action | Result |
-| --- | --- |
-| Replace this tab | Replace the current structure or trajectory |
-| Add to trajectory | Append the selected frames to the current movie |
-| Open in new tab | Open an independent document beside the current tab |
+Use the complete
+[v_ase agent skill](https://github.com/lgyEthan/v_ase/tree/main/v_ase/skills/visualizing-atomic-structures-with-v-ase),
+not only its first page. The compatibility link
+[skills_v_ase.md](https://github.com/lgyEthan/v_ase/blob/main/v_ase/skills_v_ase.md)
+resolves to the same canonical skill. The folder contains:
 
-Replacing a tab or opening a new tab with `.vase` restores the complete saved
-project. Adding `.vase` to a trajectory imports its structures only and keeps
-the active tab's camera, appearance, bonds, lighting, and other visual settings.
-New labels and chemical types are added to the existing Appearance and
-pairwise-bond controls automatically.
+- [SKILL.md](https://github.com/lgyEthan/v_ase/blob/main/v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md):
+  triggers, workflow, safety rules, and verification gates;
+- `references/semantic-api.md`: supported state, edit, camera, render, and
+  export commands;
+- `references/workflows-and-examples.md`: complete working recipes;
+- `references/safety-and-errors.md`: destructive actions and recovery;
+- `references/evaluation.md`: end-to-end tests an agent should run.
 
-Use **+** immediately after the document tabs to create an empty independent
-tab. Tabs resize as documents are added. Each tab owns its structure or
-trajectory, camera, selection, calculator, history, display settings,
-relaxation state, and `.vase` project. Inactive tabs pause rendering and movie
-playback.
-
-### Remote Servers And Clusters
-
-Install v_ase on both the local computer and remote server. Then run one command
-from the **local computer**:
+For an AI client that supports skill folders, place the entire
+`visualizing-atomic-structures-with-v-ase` directory in that client's skills
+directory. For example:
 
 ```bash
-v_ase gui USER@SERVER:/path/to/STRUCTURE
+# Codex
+cp -R v_ase/skills/visualizing-atomic-structures-with-v-ase "$CODEX_HOME/skills/"
+
+# Claude Code, from a project root
+mkdir -p .claude/skills
+cp -R v_ase/skills/visualizing-atomic-structures-with-v-ase .claude/skills/
 ```
 
-An SSH config alias works as well:
+For clients without a skill loader, provide `SKILL.md` and the relevant
+one-level `references/` files in the agent context. The contract is
+vendor-neutral; it does not require an OpenAI or Anthropic API.
+
+## Structure Manipulation
+
+### Phosphorene Nanoribbon
+
+The main example starts from a puckered black-phosphorene unit cell, repeats it
+into a one-layer nanosheet, and rotates each successive crystallographic slice
+by 15 degrees around the ribbon axis through that slice's center of mass.
+
+Try the exact assets:
+
+- [flat phosphorene nanosheet](examples/readme_scene_assets/phosphorene_nanosheet.cif)
+- [twisted 15 degree nanoribbon](examples/readme_scene_assets/phosphorene_twisted_nanoribbon_15deg.cif)
+- [complete manipulation trajectory](examples/readme_scene_assets/phosphorene_twist_15deg.traj)
 
 ```bash
-v_ase gui physics:/path/to/STRUCTURE
+v_ase gui examples/readme_scene_assets/phosphorene_nanosheet.cif --interactive
 ```
 
-That is the complete workflow. v_ase starts the backend beside the remote file,
-creates a private SSH connection, and opens the local browser automatically.
-The source file remains on the server. Trajectories transfer only the frame
-needed for the current view instead of downloading the complete trajectory.
-This is the remote-session rule for every file size, not a large-file
-threshold. Three.js renders in the local browser, so the displayed atom/frame
-data crosses the encrypted tunnel; the original structure or trajectory file
-does not.
-Closing the browser tab stops the remote viewer and removes the connection.
+To reproduce the operation, select one crystallographic slice, set
+**Rotate pivot** to **Selection COM**, press `R`, lock the ribbon axis with
+`X`, type `15`, and confirm. Repeat for neighboring slices with the required
+signed angle.
 
-For a compute node reached through a login node, put `ProxyJump` in the local
-`~/.ssh/config` entry and use that host alias in the same command.
+The source coordinates are converted directly from the black-phosphorene
+cell and positions reported in the
+[supporting information of Villegas et al.](https://www.rsc.org/suppdata/c6/cp/c6cp05566d/c6cp05566d1.pdf).
+The puckered anisotropic structure is consistent with the black-phosphorus
+description in
+[Qiao et al., Nature Communications 5, 4475 (2014)](https://www.nature.com/articles/ncomms5475).
+This example demonstrates deterministic manipulation; it is not presented as
+an energy-minimized nanoribbon.
 
-## Controls
+### Rotation References
 
-| Input | Action |
-| --- | --- |
-| Left click | Select an atom or confirm a transform |
-| Shift + left click | Add or remove selection |
-| Left drag | Box selection |
-| Middle drag | Orbit |
-| Shift + middle drag | Pan |
-| Wheel | Zoom |
-| `G` | Move selected atoms |
-| `R` | Rotate selected atoms |
-| `X`, `Y`, `Z` | Lock a transform axis; otherwise align the camera |
-| Number keys | Enter an exact distance or angle during `G`/`R` |
-| `Enter` / left click | Confirm a transform |
-| `Esc` / right click | Cancel a transform |
-| `Ctrl+C`, `Ctrl+V` | Copy and paste atoms |
-| `Ctrl+Z`, `Ctrl+Shift+Z` | Undo and redo structure or camera changes |
-| `Delete` / `Backspace` | Delete selected atoms |
-| `Space` | Play or pause the selected timeline |
-| `Left Arrow` / `Right Arrow` | Previous or next frame in the selected timeline |
-| `Tab` / `Esc` | Open the collapsed control panel |
-| `Esc` | Close the open panel and return focus to the viewport |
+Every atom rotation displays three references through the selected pivot:
 
-The **?** button shows the complete shortcut list. The six camera buttons are
-ordered as up/down, left/right, and counterclockwise/clockwise roll. The first
-four are 3D orbit controls; the last two rotate in the screen plane. They change
-only the view by the selected angle, never the atomic coordinates.
+- **axis line**: the actual rotation axis;
+- **neutral start line**: the direction at the moment `R` started;
+- **amber current line**: the direction after the current rotation.
 
-## Trajectories
+For periodic 2D matching, additional cyan candidate lines show low-boundary-
+strain commensurate angles. Candidate guides remain visually separate from the
+start and current references. Magnetic snapping is optional.
 
-Multi-frame inputs add a timeline below the viewport. Frame scrubbing updates
-immediately, FPS changes apply during playback, and **Skip** advances by
-`skip + 1` frames per tick. Bond settings, appearance, and supercell display
-remain active across all frames. Valid selected atom indices remain selected
-when the frame changes, so measurements update without rebuilding the
-selection.
+### Graphene/hBN Commensurate Rotation
 
-Video export keeps FPS as the playback-speed control. Optional linear
-interpolation can create `N×` as many intervals between source frames; `1×`
-keeps the original trajectory unchanged. **Minimum image convention** follows
-the shortest periodic displacement using each adjacent frame's cell and PBC.
-Interpolation increases the number of rendered frames and therefore takes
-longer.
+![Graphene hBN commensurate guide](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_commensurate.png)
 
-In interactive mode, relaxation creates a separate optimization timeline.
-When source and relaxation trajectories both exist, choose **Source frames** or
-**Relaxation · calculator** from the timeline selector. Playback, `Space`, and
-the Left/Right Arrow keys control only the selected timeline; the other
-timeline remains visible in a separate row.
+Open the included stack, select the hBN layer, then use `R`, `Z`. The guide
+searches reproducible integer cell matches and labels candidate angle/strain
+pairs; enabling **Magnetic angle snap** pulls the current rotation into the
+selected tolerance.
+
+```bash
+v_ase gui examples/readme_scene_assets/graphene_hbn_commensurate.traj --interactive
+```
+
+The normal `R` operation edits selected atoms. **Cell Transform** is a
+different operation that applies an integer matrix to the periodic cell and
+all trajectory frames. The equations and assumptions are documented in
+[unit_cell_aware_rotate.md](docs/unit_cell_aware_rotate.md).
+
+## Measurement And Analysis
+
+![Ordered atom measurement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_measurement.png)
+
+Select atoms in order:
+
+- 1 atom: element, label, position, force, charge, tag, and magnetic moment;
+- 2 atoms: direct distance and minimum-image distance;
+- 3 atoms: angle `a1-a2-a3`, centered on `a2`;
+- 4 atoms: signed torsion `a1-a2-a3-a4`;
+- 5 or more atoms: total and per-label selection counts.
+
+The ordered reference labels `a1` through `a4` are separate from atom indices.
+Hovered-atom information is also separate, so a saved measurement remains
+visible while the pointer moves.
+
+Try the measurement scene:
+
+```bash
+v_ase gui examples/readme_scene_assets/ethane_measurement.cif
+```
+
+**Analysis** adds displacement vectors for trajectories. Choose the previous
+frame or a specific reference frame, toggle minimum-image correction, and
+style the vectors as 3D or flat 2D arrows. Displayed supercells repeat the
+vectors, and a visual translation moves both endpoints without changing the
+physical displacement.
 
 ## Constraints
 
-ASE constraints remain authoritative during interactive transforms while
-**Apply constraints** is enabled.
+ASE remains authoritative when **Apply constraints** is enabled. Constraint
+visualization is local to each atom rather than merged at a group center.
 
 ### FixedLine
 
-The atom moves only along its permitted line. A short cyan axis and compact
-collar remain visible around every constrained atom even when it is not
-selected.
+A compact cyan collar and local axis remain visible without selection. During
+`G`, ASE restricts the atom to that line.
 
 ![FixedLine movement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedline.gif)
 
@@ -236,12 +245,16 @@ v_ase gui examples/readme_scene_assets/fixedline.traj --interactive
 
 ### FixedPlane And FixScaled
 
-`FixedPlane` atoms move within their displayed plane. VASP selective dynamics
-read as `FixScaled` are displayed from their allowed fractional directions.
-Each constrained atom keeps its own local plane ring, crosshair, and normal
-marker visible without selection.
+Each constrained atom keeps its own local ring, crosshair, and normal marker.
+When `G` starts, a larger translucent guide plane appears at that atom's
+original position so the permitted surface remains visible while the atom
+moves. Multiple selected atoms retain independent planes; no center-of-mass
+plane is substituted.
 
-![FixedPlane movement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedplane.gif)
+VASP selective dynamics read as `FixScaled` are displayed from their allowed
+fractional directions.
+
+![FixedPlane movement and guide plane](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedplane.gif)
 
 ```bash
 v_ase gui examples/readme_scene_assets/fixedplane.traj --interactive
@@ -249,14 +262,14 @@ v_ase gui examples/readme_scene_assets/fixedplane.traj --interactive
 
 ### FixAtoms
 
-Fixed atoms keep their element color and use a distinct constrained surface
-treatment. They remain visible without looking selected.
+Fixed atoms keep their element color but use a distinct constrained surface
+treatment. They remain identifiable without looking selected.
 
 ### Hookean
 
-Hookean constraints show the inactive cutoff, threshold, and active state. A
-shaded 3D helical spring appears only after the constrained distance passes
-`rt`, so the force-free region and engaged extension remain distinct.
+Hookean constraints show their inactive cutoff and engaged state separately.
+After the constrained distance passes `rt`, a shaded 3D helical spring appears
+between the constrained atoms.
 
 ![Hookean constraint](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_hookean.png)
 
@@ -266,135 +279,131 @@ shaded 3D helical spring appears only after the constrained distance passes
 v_ase gui examples/readme_scene_assets/hookean.traj --interactive
 ```
 
-## Editing And Measurement
+## Relaxation
 
-Move and angle increments, transform pivot, constraints, and physical cell
-transforms are available in Edit. Supercell display, wrapping, and **Translate
-atoms** are also available in View. Translation is an absolute visual offset:
-enter Cartesian values in Angstrom or fractional cell coordinates, then select
-**Apply Translation**. It is applied after displayed supercell replication,
-keeps ASE coordinates and the cell unchanged, remains in the input fields, and
-returns to the unshifted view when `0, 0, 0` is applied.
-Axis-locked rotation can show low-strain commensurate cell-boundary angles and
-optionally snap to them. The guide is enabled by default; magnetic snapping is
-opt-in.
+![Repulsive relaxation trajectory](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_relaxation.gif)
 
-![Rotate mode](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_rotate.png)
+**Structure > Relaxation** places every optimization step on a dedicated
+timeline. A single loaded structure gains a relaxation movie after the first
+run. If a source trajectory is already open, source and relaxation timelines
+remain separate and the active timeline is clearly selected.
 
-![Ferrocene rotation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ferrocene_rotate_x.gif)
+The included example starts from a deliberately compressed C60 geometry and
+runs ASE FIRE with v_ase's repulsive fallback calculator:
 
-One through four ordered selections are marked `a1` through `a4`. The viewport
-shows point information, `a1-a2` distance, the `a1-a2-a3` angle centered on
-`a2`, or the signed `a1-a2-a3-a4` torsion. Distances report direct and
-minimum-image-convention (MIC) values; selecting a displayed supercell image
-also reports its unit-cell-mapped distance. Angles and torsions use the
-displayed coordinates without an additional MIC value. Larger selections show
-the total followed by counts for each atom label. Hovered-atom metadata is
-displayed separately.
+- [crowded initial C60](examples/readme_scene_assets/crowded_c60_initial.cif)
+- [relaxed C60](examples/readme_scene_assets/crowded_c60_relaxed.cif)
+- [optimization trajectory](examples/readme_scene_assets/crowded_c60_relaxation.traj)
 
-### Displacement Analysis
+```bash
+v_ase gui examples/readme_scene_assets/crowded_c60_initial.cif --interactive
+```
 
-The **Analysis** workspace displays per-atom displacement vectors for a
-trajectory. Compare the current frame with the previous frame or a specific
-frame, enable or disable minimum-image correction, and choose 3D or flat 2D
-arrows. Vector scale, thickness, and color are display-only controls. Particle
-IDs are used when present; otherwise equal-size frames use stable atom indices.
-Each arrow starts at the atom's current visible position. Display translation
-moves both endpoints without changing the physical vector, and displayed
-supercells repeat the same vectors in every visible image.
+The fallback calculator is intended for removing obvious close contacts, not
+for predictive chemistry. Its cutoff scale and strength are editable. Attach a
+scientific ASE calculator when the optimized energy or forces will be used as
+physical results.
 
-## Structure, View, And Rendering
+## Trajectories
 
-The control panel has five workspaces: **Inspect**, **Structure**,
-**Analysis**, **View**, and **Export**. **Structure** keeps related scientific
-controls together: **Atoms & Appearance**, **Cell & Replication**,
-**Cell Transform**, **Atom Transform**, **Constraints**, **Bonding**, and
-**Relaxation**. Use the section selector to jump directly to a group.
+Multi-frame inputs add a timeline below the viewport. Scrubbing updates the
+frame continuously, selected atom indices persist when topology permits, FPS
+changes apply during playback, and **Skip** advances by `skip + 1` source
+frames per tick.
 
-**View** provides:
+Bond topology is evaluated for each frame, so bonds form or break when a
+pair crosses its cutoff. Appearance, pair settings, supercell display, camera,
+and analysis settings remain active across the movie.
 
-- orthographic or perspective projection;
-- a true-white viewport background by default, with balanced modeling light
-  for clear element colors and a dark background option;
-- 3D spheres/cylinders or 2D atoms/flat bonds;
-- live atomic scale in pixels per Angstrom;
-- anti-aliasing and atom smoothness controls;
-- unit cell, axes, grid, and overlay controls;
-- unit-cell color, thickness in Angstrom, and Unlit, Standard, or Metal
-  material.
+Video export uses FPS as playback speed. Optional `N x` interpolation creates
+`(source_frames - 1) * N + 1` output frames. Minimum-image interpolation uses
+periodic cells to avoid jumps across a boundary. Interpolation takes longer
+because more frames are rendered.
 
-**Structure > Atoms & Appearance** controls per-label TYPE, label, visibility,
-color, radius, and material. New documents use a `0.60x` atom radius. Material
-presets are **Standard**, **Metal**, and **Rubber**. In View, a preset applies
-to a complete label group. In Edit, selected atoms can use independent
-materials and can be merged into an existing label by entering that exact
-label. Chemical TYPE remains synchronized with ASE while labels control visual
-grouping.
+## Appearance, Bonds, And Rendering
 
-The top-bar renderer switches among **Modeling**, **Studio Sun**, and
-**Sun + Soft Shadow**. Sun intensity, source, target, and viewport handles are
-editable.
+**Structure > Appearance** controls each stable atom label:
 
-**Structure > Bonding** supports automatic element-radius inference, explicit
-label-pair specifications, and manual atom-index pairs. Each pair specification
-has an enable checkbox and maximum distance in Angstrom; zero disables that
-pair. Drag the Label pair header divider when long labels need more room.
-Changes apply immediately; no separate apply step is required. Thickness,
-cylinder/flat style, custom color, and midpoint-split atom colors are
-configurable. New documents show bonds by default and use a `0.25 A` bond
-diameter. Interactive bonds form and break during atom transforms.
+- ASE chemical TYPE and independent visual label;
+- visibility and selection availability;
+- color and radius;
+- Standard, Metal, or Rubber material;
+- all/partial/none selection checkbox.
 
-**Structure > Relaxation** exposes the repulsive fallback calculator's cutoff
-scale and strength. The default cutoff scale is `0.70`; reducing it shortens
-the pair-interaction range, while strength scales the repulsive force. These
-controls affect only the repulsive calculator, not visualization or bond
-cutoffs.
+View mode applies appearance by label. Edit mode can keep per-atom material
+overrides. Relabeling does not reorder the table or merge otherwise distinct
+atom types accidentally.
 
-![Bond pair specifications](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_bonds.png)
+![Pairwise bond settings](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_bonds.png)
+
+**Structure > Bonding** provides automatic inference, explicit label-pair
+cutoffs, and manual index pairs. A pair cutoff of zero disables that pair.
+Changes apply immediately. Bonds support:
+
+- cell-local or periodic minimum-image display;
+- cylinder or flat 2D geometry;
+- custom color or two half-bonds using the atom colors;
+- configurable diameter;
+- live formation and breaking during Edit transforms.
+
+**View** controls projection, atomic scale, anti-aliasing, sphere smoothness,
+background, 2D/3D display, grid, axes, unit cell, overlays, and cell material.
+New documents use orthographic projection and a true-white background.
+
+The top-bar renderer switches between fast modeling light and Sun/soft-shadow
+rendering. Sun source, target, intensity, and direction can be manipulated in
+the viewport and carried into Blender export.
 
 ## Export And Save
 
-| Option | Contents |
+| Command | Result |
 | --- | --- |
-| Export POSCAR | Current atomic structure in VASP format |
-| Export ASE Pickle | Current ASE `Atoms`, labels, constraints, arrays, and valid `SinglePointCalculator` results |
-| Export Image | Lossless WebP (compact default) or optimized PNG, using the Preview Area camera and crop |
-| Export Video | Compact H.264 MOV or MPEG-4 AVI, with optional N× interpolation and MIC |
-| Export Blender | Optimized Python scene with atoms, bonds, camera, Sun, optional cell, and trajectory animation |
-| Export 3DM | Instanced Rhino geometry, metadata, and saved views |
-| Export OBJ | OBJ/MTL plus camera and metadata JSON in a ZIP |
-| Save Project | Self-contained `.vase` structure/trajectory and complete visual state |
-| Save Settings | Reusable appearance, bonds, camera, lighting, quality, display supercell, and visual translation JSON |
+| Export POSCAR | Current physical ASE structure in VASP format |
+| Export ASE Pickle | ASE `Atoms`, labels, constraints, arrays, and a valid `SinglePointCalculator` |
+| Export Image | Lossless WebP or optimized PNG from the exact preview frame |
+| Export Video | H.264 MOV or MPEG-4 AVI with optional interpolation |
+| Export Blender | Optimized scene script with atoms, bonds, cell, camera, and Sun |
+| Export 3DM | Instanced Rhino geometry, metadata, and saved camera views |
+| Export OBJ | OBJ/MTL, camera, and metadata in a ZIP |
+| Save Project | Self-contained `.vase` with structure/trajectory and visual state |
+| Save Settings | Reusable visual settings without coordinates |
 
-**Preview Area** uses the exact image/video aspect ratio, camera, crop, display,
-and lighting profile used for export. The frame stays fixed while orbit and zoom
-change the structure inside it. Unit cell, grid, axes, background, atom
-smoothness, and renderer are independently selectable for output.
+The **Preview Area** is the authoritative image/video frame. Its aspect ratio,
+camera, crop, lighting, atom scale, and included overlays match the export.
+Cell, grid, axes, and background can be included or excluded independently.
 
-Lossless WebP keeps the exact rendered dimensions and RGBA pixels while usually
-using less space than PNG. Choose PNG when compatibility with a PNG-only
-workflow is required. Video encoding preserves the selected pixel dimensions;
-compression settings reduce storage without resizing the frames.
+The system save picker is opened before expensive rendering or scene
+generation when the browser supports it. Canceling the picker cancels the
+export.
 
-When the browser supports the system save picker, v_ase asks for the destination
-before generating a structure, image, video, Blender, Rhino, OBJ, project, or
-settings export. Canceling the picker cancels the export before rendering or
-encoding starts.
+`.vase` is self-contained and does not reference the original input file.
+Opening an ordinary structure in an existing tab keeps the current visual
+settings; opening `.vase` restores the saved project.
 
-`.vase` files are self-contained; reopening one does not require the original
-structure file. Opening an ordinary structure from an active workspace keeps
-the current visual settings. Opening a `.vase` project restores its saved state.
-**Reset Coords** restores physical coordinates and the original cell while
-keeping displayed replication and visual translation. Full **Reset** also
-returns visual translation to `0, 0, 0`.
-
-Rhino export requires:
+Rhino export requires the optional dependency:
 
 ```bash
 python -m pip install "v_ase-gui[rhino]"
 ```
 
-OBJ export has no optional dependency.
+OBJ export has no optional Python dependency.
+
+## Documents And File Opening
+
+The top-bar **Open** button starts with the operating system file picker. A
+selected file can:
+
+1. replace the active document;
+2. append structures to its current trajectory;
+3. open in a new independent v_ase tab.
+
+The **+** beside the document tabs creates an empty independent document. Each
+tab owns its structure, trajectory, camera, selection, history, settings,
+calculator, and `.vase` output.
+
+Adding `.vase` to an existing trajectory imports only its structures and keeps
+the current tab's visual state. Replacing a tab or opening a new one restores
+the complete `.vase` project.
 
 ## Python
 
@@ -403,116 +412,127 @@ from ase.build import molecule
 from v_ase.visualize import view
 
 atoms = molecule("H2O")
-view(atoms)  # lightweight visualization mode
+view(atoms)  # View mode
 ```
 
-To edit and return an ASE object:
+Return an edited ASE object:
 
 ```python
 edited = view(atoms, viz_only=False)
 print(edited.positions)
 ```
 
-`view()` works with one `Atoms`, a sequence of frames, or a supported file path.
-`view_edit()` remains as a compatibility alias for interactive mode.
+`view()` accepts one ASE `Atoms`, a sequence of frames, or a supported file
+path. `view_edit()` remains a compatibility alias for Edit mode.
 
 ## File Formats
 
-File type is normally detected automatically. Common inputs include POSCAR,
-CONTCAR, VASP files, XDATCAR, `vasprun.xml`, XYZ/extxyz, ASE `.traj`, LAMMPS
-dump/data files, and `.vase`.
+Common inputs include POSCAR/CONTCAR, VASP files, XDATCAR, `vasprun.xml`,
+XYZ/extxyz, ASE `.traj`, LAMMPS dump/data, CIF, and `.vase`. ASE readers cover
+additional formats.
 
-Repeated POSCAR/CONTCAR species blocks remain separate visual groups. For
-example, `O Cu O` with counts `1 14 5` appears as `O1`, `Cu`, and `O2`.
-The ASE chemical symbols remain unchanged, so calculations and exports continue
-to use the correct elements.
-
-For an ambiguous filename, select the reader explicitly:
+Use `--format` when an ambiguous filename does not identify the reader:
 
 ```bash
 v_ase gui ABCD --format POSCAR
-v_ase gui ABCD --format XDATCAR
 v_ase gui ABCD --format vasprun.xml
 v_ase gui ABCD --format lammpstrj
-v_ase gui ABCD --format extxyz
 v_ase gui ABCD --format data
 ```
 
-Use `--index :` for all frames, `--index -1` for the last frame, or an integer
+Use `--index :` for every frame, `--index -1` for the last frame, or an integer
 for one frame.
 
-## Help
+Repeated POSCAR/CONTCAR species blocks remain separate visual labels. For
+example, `O Cu O` with counts `1 14 5` becomes `O1`, `Cu`, and `O2` while all
+oxygen atoms remain ASE element `O`.
+
+## Controls
+
+| Input | Action |
+| --- | --- |
+| Left click / Shift + click | Select / extend selection |
+| Left drag | Box select |
+| Middle drag | Orbit without inertia |
+| Shift + middle drag | Pan |
+| Wheel | Zoom |
+| `G` / `R` | Move / rotate selected atoms |
+| `X`, `Y`, `Z` during `G`/`R` | Lock transform axis |
+| `X`, `Y`, `Z` otherwise | Align camera to an axis |
+| Number keys | Exact move distance or rotation angle |
+| `Enter` or left click | Confirm transform |
+| `Esc` or right click | Cancel transform |
+| `Ctrl+C`, `Ctrl+V` | Copy and paste atoms |
+| `Ctrl+Z`, `Ctrl+Shift+Z` | Undo and redo structure or camera changes |
+| `Delete` / `Backspace` | Delete selected atoms |
+| `Space` | Play or pause the active timeline |
+| Left / Right Arrow | Previous / next frame in the active timeline |
+| `Tab` or `Esc` | Open a collapsed control panel |
+| `Esc` with the panel open | Close it and return focus to the viewport |
+
+The **?** button contains the complete shortcut table.
+
+## Remote Servers
+
+Install v_ase on both the local computer and remote host, then run one command
+locally:
 
 ```bash
-v_ase --help
-v_ase gui --help
+v_ase gui USER@SERVER:/absolute/path/to/STRUCTURE
 ```
 
-## Troubleshooting
+An SSH config alias works:
 
-Open the item that matches the visible symptom.
+```bash
+v_ase gui physics:/absolute/path/to/trajectory.extxyz
+```
+
+v_ase selects private ports automatically, starts the backend beside the
+remote file, creates the SSH tunnel, and opens the local browser. The source
+file and full trajectory cache remain on the server; only the current frame
+data required for local Three.js rendering crosses the tunnel. Use `ProxyJump`
+in `~/.ssh/config` when a login node is required.
+
+## Troubleshooting
 
 <details>
 <summary><code>v_ase</code> command is not found</summary>
 
-Use the same Python environment for installation and execution:
+Install and run with the same Python environment:
 
 ```bash
 python -m pip install --upgrade v_ase-gui
 python -m v_ase.cli --version
 ```
 
-If `python -m v_ase.cli` works but `v_ase` does not, reopen the terminal after
-activating the environment and check that its Python scripts directory is on
-`PATH`. A clean virtual environment is the fastest way to isolate broken
-metadata from manually installed development packages.
+If the module command works but the console command does not, reactivate the
+environment or add its Python scripts directory to `PATH`.
 
 </details>
 
 <details>
-<summary>The browser does not open automatically</summary>
+<summary>The browser does not open, or WSL prints <code>gio: ... Operation not supported</code></summary>
 
-The terminal prints a complete local URL when automatic launch is unavailable.
-Ctrl+click the URL, or copy the text beginning with `http://` into a browser.
-Keep the terminal process running while using the application.
+The terminal also prints the complete local URL. Ctrl+click it or copy the text
+beginning with `http://` into Chrome, Edge, Firefox, or another browser. Keep
+the terminal process running.
 
-</details>
-
-<details>
-<summary>WSL reports <code>gio: ... Operation not supported</code></summary>
-
-Current v_ase releases detect WSL and try the Windows default browser through
-`wslview`, PowerShell, or Explorer instead of Linux `gio`. The message can
-still appear with an older v_ase release or when Windows interoperability is
-disabled. In that case, use the printed URL:
+Example with sensitive session identifiers masked:
 
 ```text
 (base) giyeok@DESKTOP-XXXX:~$ v_ase gui
 gio: http://127.0.0.1:58039/workspace?workspace_id=xxxx&session_id=xxxx: Operation not supported
 ```
 
-Ctrl+click the URL or paste it into Chrome, Edge, Firefox, or another Windows
-browser. The identifiers above are intentionally masked; use the complete URL
-printed by your own session.
-
-For better large-file performance in WSL, keep trajectories in the Linux
-filesystem (for example under `~/data`) instead of `/mnt/c/...`.
+For better WSL performance, keep trajectories under the Linux filesystem
+rather than `/mnt/c/...`.
 
 </details>
 
 <details>
-<summary>Run v_ase on a remote server</summary>
+<summary>A file is detected with the wrong format</summary>
 
-Run `v_ase gui HOST:/path/to/STRUCTURE` on the local computer. Confirm that
-`ssh HOST` works and that a current v_ase release is installed on the remote
-server. v_ase manages the private connection automatically.
-
-</details>
-
-<details>
-<summary>A file is not detected correctly</summary>
-
-Specify the reader explicitly:
+Force the reader:
 
 ```bash
 v_ase gui FILE --format POSCAR
@@ -521,82 +541,46 @@ v_ase gui FILE --format lammpstrj
 v_ase gui FILE --format data
 ```
 
-Use `--index :` for the complete trajectory or `--index -1` for its final
-frame.
-
-</details>
-
-<details>
-<summary>The page is blank or says the session is unavailable</summary>
-
-- Confirm that the original `v_ase gui` process is still running.
-- Open the exact URL printed by that process; old session URLs cannot be reused.
-- Reload once after the terminal reports that the local server is ready.
-- For a remote file, rerun the single `v_ase gui HOST:/path/to/STRUCTURE`
-  command rather than reusing an old browser URL.
-
 </details>
 
 <details>
 <summary>Replicated supercell atoms cannot be selected</summary>
 
-In **Edit**, displayed replicas are previews and cannot be selected or modified.
-Use **Set Supercell as Cell** to create real ASE atoms and an editable larger
-cell. In **View**, displayed replicas are selectable and participate in center,
-distance, and other measurements without changing the ASE structure.
+In **Edit**, displayed replicas are noneditable previews. Use
+**Set Supercell as Cell** to create real ASE atoms and an editable larger cell.
+In **View**, displayed replicas are selectable and participate in center,
+distance, and other measurements.
 
 </details>
 
 <details>
-<summary>Export does not show a save picker, or video export fails</summary>
+<summary>Video export is unavailable or slow</summary>
 
-Chrome and Edge can show the native save picker on a local secure context.
-Other browsers may save directly to their configured Downloads directory.
-Canceling a supported picker stops export before rendering or encoding.
-
-Video export requires a trajectory with at least two frames and browser support
-for `MediaRecorder`. MOV/AVI conversion uses the bundled
-`imageio-ffmpeg` dependency. Interpolation requires stable atom ordering,
-chemical types, labels, and atom count between adjacent frames. With `N` source
-frames and an interpolation multiplier `m`, output contains
-`(N - 1) × m + 1` frames.
+Video export requires at least two frames and browser `MediaRecorder` support.
+MOV/AVI conversion uses the bundled `imageio-ffmpeg`. Interpolation renders
+additional frames and requires stable atom count, element, label, and ordering
+between adjacent source frames.
 
 </details>
 
 <details>
 <summary>A large trajectory opens or plays slowly</summary>
 
-- Use the default **View** mode unless atom editing is required.
-- In WSL, keep the file in the Linux filesystem rather than `/mnt/c/...`.
+- Keep the default View mode unless editing is required.
+- Use `--stream-frames` when frame data should be loaded on demand.
 - Keep browser hardware acceleration enabled.
-- Close unused v_ase tabs; inactive tabs pause rendering, but their structures
-  remain in memory.
-- LAMMPS dump files use the optimized numeric loader automatically in View.
+- Close unused v_ase tabs; inactive tabs pause rendering but retain document
+  state in memory.
+- In WSL, keep data in the Linux filesystem.
 
 </details>
 
 <details>
-<summary>Optional export tools are unavailable</summary>
+<summary>Installation fails while pip checks an unrelated package version</summary>
 
-Rhino 3DM export requires:
-
-```bash
-python -m pip install "v_ase-gui[rhino]"
-```
-
-OBJ export has no optional dependency. Blender export generates a Python scene
-script; run it with a supported Blender installation if Blender is not found
-automatically.
-
-</details>
-
-<details>
-<summary>Installation reports an unrelated package metadata error</summary>
-
-An error mentioning a package version of `None` generally comes from another
-manually installed or incomplete package in that Python environment. Verify the
-environment with `python -m pip check`, repair or uninstall the named package,
-or install v_ase in a clean environment:
+A package version reported as `None` usually belongs to a different incomplete
+or manually installed distribution in that environment. Run
+`python -m pip check`, repair that distribution, or use a clean environment:
 
 ```bash
 python -m venv .venv
@@ -606,5 +590,6 @@ python -m pip install v_ase-gui
 
 </details>
 
-Report reproducible problems at
+Run `v_ase --help` or `v_ase gui --help` for all CLI options. Report
+reproducible problems at
 [GitHub Issues](https://github.com/lgyEthan/v_ase/issues).

@@ -1517,6 +1517,7 @@ def test_grid_guides_scale_to_large_unit_cells():
 def test_rotate_pivot_and_commensurate_cell_matching_are_wired():
     main_js = (ROOT / "v_ase/static/main.js").read_text()
     renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
+    transform_js = (ROOT / "v_ase/static/transform.js").read_text()
     api_js = (ROOT / "v_ase/static/api.js").read_text()
     server_py = (ROOT / "v_ase/server.py").read_text()
     index_html = (ROOT / "v_ase/static/index.html").read_text()
@@ -1540,6 +1541,11 @@ def test_rotate_pivot_and_commensurate_cell_matching_are_wired():
     assert "prepareCommensurateRotation" in main_js
     assert "nearestCommensurateCandidate" in main_js
     assert "snapCommensurateAngle" in main_js
+    assert "configureRotationReference" in main_js
+    assert "updateRotationReferenceGuide" in main_js
+    assert "v_ase_rotation_axis" in transform_js
+    assert "v_ase_rotation_start_reference" in transform_js
+    assert "v_ase_rotation_current_reference" in transform_js
     assert "setCommensurateGuides" in renderer_js
     assert "clearCommensurateGuides" in renderer_js
     assert "commensurateAngles" in api_js
@@ -1555,6 +1561,19 @@ def test_rotate_pivot_and_commensurate_cell_matching_are_wired():
     assert "10.1016/j.cpc.2015.08.038" in docs
     assert "10.1021/acs.jpcc.6b01496" in docs
     assert "10.1073/pnas.1108174108" in docs
+
+
+def test_fixed_plane_motion_guide_is_per_atom_and_transform_scoped():
+    main_js = (ROOT / "v_ase/static/main.js").read_text()
+    renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
+
+    assert "setConstraintMotionGuides" in main_js
+    assert "clearConstraintMotionGuides" in main_js
+    assert "v_ase_constraint_motion_guides" in renderer_js
+    assert "fixed_plane_motion" in renderer_js
+    assert "fixedPlaneMotionSurface" in renderer_js
+    assert "fixedPlaneMotionPerimeter" in renderer_js
+    assert "fixedPlaneMotionAxis" in renderer_js
 
 
 def test_displacement_analysis_uses_instancing_and_frame_scoped_requests():

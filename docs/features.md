@@ -115,16 +115,27 @@ Constraint rendering:
   compact perpendicular collar that remain visible without selection.
 - `FixedPlane`: each atom receives its own radius-scaled ring, crosshair, and
   normal marker that remain visible without selection; multiple constraints
-  are never collapsed to a selection center.
+  are never collapsed to a selection center. During `G`, every selected
+  FixedPlane atom also receives a larger translucent plane, perimeter, and
+  crosshair anchored at its original position. This motion-only CAD overlay is
+  rendered above the atom scene so the allowed plane remains readable while
+  the constrained atom moves.
 - `FixScaled`: allowed fractional directions are converted through the current
   cell and displayed as line/plane/fixed behavior.
 - Hookean: threshold, inactive gap, and active state update from the current
   distance. The active segment is a shaded three-dimensional helical spring,
   not a screen-plane zigzag; the Blender scene uses the same spatial model.
 
-Directional guides use shared materials, remain local to their owning atom,
-and are depth-tested so they do not read as selection outlines through unrelated
-geometry.
+Persistent directional guides use shared materials, remain local to their
+owning atom, and are depth-tested so they do not read as selection outlines
+through unrelated geometry. The larger FixedPlane motion surface exists only
+during `G`, uses low opacity, and clears on commit or cancel.
+
+Every selected-atom rotation displays a finite axis through the active pivot,
+a neutral start reference, and an amber current reference. The current
+reference follows free and axis-locked mouse rotation continuously.
+Commensurate/magnetic candidates are separate cyan rays and do not duplicate
+the zero-degree start reference.
 
 Turning **Apply constraints** off permits unrestricted coordinate editing
 without deleting the ASE constraints.

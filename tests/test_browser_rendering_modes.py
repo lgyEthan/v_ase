@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from ase import Atoms
 from ase.build import molecule
-from ase.constraints import FixAtoms
+from ase.constraints import FixAtoms, FixedPlane
 from ase.io import write
 from PIL import Image
 from playwright._impl._errors import Error as PlaywrightError
@@ -49,6 +49,89 @@ def _select_structure_section(page, section):
         }""",
         arg=section,
     )
+
+
+def test_fixed_plane_move_restores_per_atom_motion_plane_guide():
+    atoms = Atoms(
+        "LiOH",
+        positions=[
+            [0.0, 0.0, 0.0],
+            [2.2, 0.0, 0.0],
+            [2.8, 0.7, 0.0],
+        ],
+        cell=[8.0, 8.0, 8.0],
+        pbc=False,
+    )
+    atoms.set_constraint(FixedPlane(0, [0, 0, 1]))
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
+
+            state = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.state.selected = new Set([0]);
+                app.updateSelectionVisuals();
+                app.enterTransformMode('MOVE');
+                app.transform.setAxis('X', app.renderer.camera);
+                app.transform.buffer = '1.25';
+                app.applyTransformPreview();
+                const guide = app.renderer.constraintMotionGuideGroup.children[0];
+                return {
+                    atom: app.renderer.atomMeshByIndex.get(0).position.toArray(),
+                    persistent: app.renderer.constraintGuideGroup.children.length,
+                    motionVisible: app.renderer.constraintMotionGuideGroup.visible,
+                    motionCount: app.renderer.constraintMotionGuideGroup.children.length,
+                    motionKind: guide?.userData?.kind,
+                    motionIndex: guide?.userData?.atomIndex,
+                    motionAnchor: guide?.userData?.anchor,
+                    surfaces: guide?.children.filter(
+                        child => child.userData?.fixedPlaneMotionSurface
+                    ).length,
+                    surfaceVisible: guide?.children.find(
+                        child => child.userData?.fixedPlaneMotionSurface
+                    )?.visible,
+                    perimeters: guide?.children.filter(
+                        child => child.userData?.fixedPlaneMotionPerimeter
+                    ).length,
+                    axes: guide?.children.filter(
+                        child => child.userData?.fixedPlaneMotionAxis
+                    ).length
+                };
+            }""")
+            assert state["atom"] == pytest.approx([1.25, 0.0, 0.0])
+            assert state["persistent"] == 1
+            assert state["motionVisible"] is True
+            assert state["motionCount"] == 1
+            assert state["motionKind"] == "fixed_plane_motion"
+            assert state["motionIndex"] == 0
+            assert state["motionAnchor"] == pytest.approx([0.0, 0.0, 0.0])
+            assert state["surfaces"] == 1
+            assert state["surfaceVisible"] is True
+            assert state["perimeters"] == 1
+            assert state["axes"] == 2
+
+            page.evaluate("window.__ASE_APP__.cancelTransform()")
+            assert page.evaluate(
+                "window.__ASE_APP__.renderer.constraintMotionGuideGroup.children.length"
+            ) == 0
+            browser.close()
+    finally:
+        editor.close()
 
 
 def test_axis_shortcuts_restore_canonical_roll_before_opposite_view():
@@ -1201,6 +1284,20 @@ def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
             assert page.evaluate("document.activeElement?.tagName") == 'CANVAS'
             page.keyboard.press('r')
             assert page.evaluate("window.__ASE_APP__.transform.mode") == 'ROTATE'
+            rotation_guide = page.evaluate("""() => {
+                const guide = window.__ASE_APP__.transform.rotationGuideGroup;
+                return {
+                    visible: guide.visible,
+                    roles: guide.children
+                        .filter(child => child.visible)
+                        .map(child => child.userData.rotationGuideRole)
+                        .sort(),
+                    angle: window.__ASE_APP__.transform.rotationGuide?.angle
+                };
+            }""")
+            assert rotation_guide["visible"] is True
+            assert rotation_guide["roles"] == ["axis", "current", "start"]
+            assert rotation_guide["angle"] == pytest.approx(0.0)
             page.keyboard.press('Escape')
 
             # From +Z, free R and R+Z must apply the same visible clockwise
@@ -1219,13 +1316,16 @@ def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
                     app.applyTransformPreview();
                     const positions = app.currentPositionsFromScene();
                     const angle = app.transform.rotationAngle;
+                    const guideAngle = app.transform.rotationGuide?.angle;
                     app.cancelTransform();
-                    return { positions, angle };
+                    return { positions, angle, guideAngle };
                 };
                 return { free: run(null), locked: run('Z') };
             }""")
             assert rotation["free"]["angle"] == pytest.approx(-math.pi / 2, abs=1e-5)
             assert rotation["locked"]["angle"] == pytest.approx(-math.pi / 2, abs=1e-5)
+            assert rotation["free"]["guideAngle"] == pytest.approx(math.pi / 2, abs=1e-5)
+            assert rotation["locked"]["guideAngle"] == pytest.approx(-math.pi / 2, abs=1e-5)
             assert np.asarray(rotation["free"]["positions"]) == pytest.approx(
                 np.asarray(rotation["locked"]["positions"]), abs=1e-5
             )
@@ -1242,6 +1342,8 @@ def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
             page.keyboard.press('z')
             page.wait_for_function("window.__ASE_APP__.state.commensurateCandidates.length >= 60")
             page.wait_for_function("window.__ASE_APP__.renderer.commensurateGuideGroup.children.length > 0")
+            page.wait_for_function("""window.__ASE_APP__.renderer.commensurateGuideGroup.children
+                .some(object => object.isSprite)""")
             labels = page.evaluate("""() => window.__ASE_APP__.renderer.commensurateGuideGroup.children
                 .filter(object => object.isSprite)
                 .map(object => object.material.map.image.getContext('2d') ? object.userData : null)
@@ -1261,12 +1363,29 @@ def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
                 return {
                     candidate: app.state.commensurateSnappedCandidate,
                     readout: app.state.transformReadout,
-                    sprites: app.renderer.commensurateGuideGroup.children.filter(object => object.isSprite).length
+                    sprites: app.renderer.commensurateGuideGroup.children.filter(object => object.isSprite).length,
+                    rotationGuideAngle: app.transform.rotationGuide?.angle,
+                    rotationGuideRoles: app.transform.rotationGuideGroup.children
+                        .filter(child => child.visible)
+                        .map(child => child.userData.rotationGuideRole)
+                        .sort(),
+                    candidateRays: app.renderer.commensurateGuideGroup.children
+                        .filter(object => object.userData?.commensurateCandidate).length,
+                    baselineRays: app.renderer.commensurateGuideGroup.children
+                        .filter(object => (
+                            object.isLine && !object.userData?.commensurateCandidate
+                        )).length
                 };
             }""")
             assert snapped["candidate"]["targetAngleDeg"] == pytest.approx(21.7867893, abs=1e-5)
             assert "MATCH" in snapped["readout"]
             assert snapped["sprites"] > 0
+            assert snapped["rotationGuideAngle"] == pytest.approx(
+                math.radians(21.7867893), abs=1e-5
+            )
+            assert snapped["rotationGuideRoles"] == ["axis", "current", "start"]
+            assert snapped["candidateRays"] > 0
+            assert snapped["baselineRays"] == 0
             assert '21.79 deg' in page.locator('#cmd-val').inner_text()
             assert page.locator('#commensurate-candidates-readout').is_visible()
             assert page.locator('#commensurate-candidates-values .commensurate-candidate-chip').count() >= 3

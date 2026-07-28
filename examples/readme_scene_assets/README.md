@@ -1,5 +1,25 @@
 # v_ase README Scene Assets
 
+## phosphorene
+
+Literature-derived black-phosphorene sheet twisted by 15 degrees per
+crystallographic slice around the ribbon axis through each slice's center of
+mass.
+
+- Static: `phosphorene_twisted_nanoribbon_15deg.cif`
+- Suggested selected indices: `72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83`
+- Source coordinates: DOI 10.1039/C6CP05566D.
+- The trajectory records the complete twist from the flat source sheet.
+- Select a slice, choose Selection COM, then use `R`, `X`, `15`, `Enter`.
+- Additional: `phosphorene_nanosheet.cif`
+- Additional: `phosphorene_twist_15deg.traj`
+
+Open command:
+
+```bash
+v_ase gui examples/readme_scene_assets/phosphorene_twisted_nanoribbon_15deg.cif --show-bonds
+```
+
 ## commensurate
 
 Graphene/hBN stack for the periodic commensurate rotation guide.
@@ -34,7 +54,9 @@ Li ion constrained to a FixedPlane over a Cu(111) surface.
 
 - Static: `fixedplane.traj`
 - Suggested selected indices: `32`
-- Select the Li atom to show the FixedPlane guide.
+- The compact local plane marker remains visible without selection.
+- Select the Li atom and press `G` to show the larger motion guide at its
+  original position.
 
 Open command:
 
@@ -54,6 +76,37 @@ Open command:
 
 ```bash
 v_ase gui examples/readme_scene_assets/hookean.traj --show-bonds
+```
+
+## relaxation
+
+Compressed C60 relaxed with the built-in repulsive fallback calculator and ASE FIRE.
+
+- Static: `crowded_c60_relaxed.cif`
+- Suggested selected indices: ``
+- This is a clash-removal demonstration, not a predictive chemical potential.
+- Energy: 32.644 -> 0.008 eV.
+- Additional: `crowded_c60_initial.cif`
+- Additional: `crowded_c60_relaxation.traj`
+
+Open command:
+
+```bash
+v_ase gui examples/readme_scene_assets/crowded_c60_relaxed.cif --show-bonds
+```
+
+## measurement
+
+Ethane with an H-C-C-H ordered selection for distance, angle, and torsion measurement.
+
+- Static: `ethane_measurement.cif`
+- Suggested selected indices: `3, 0, 1, 6`
+- Select the listed atoms in order to display a1 through a4.
+
+Open command:
+
+```bash
+v_ase gui examples/readme_scene_assets/ethane_measurement.cif --show-bonds
 ```
 
 ## ferrocene

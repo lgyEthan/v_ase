@@ -588,6 +588,9 @@ export class ASERenderer {
         this.scene.add(this.constraintMarkGroup);
         this.constraintGuideGroup = new THREE.Group();
         this.scene.add(this.constraintGuideGroup);
+        this.constraintMotionGuideGroup = new THREE.Group();
+        this.constraintMotionGuideGroup.name = 'v_ase_constraint_motion_guides';
+        this.scene.add(this.constraintMotionGuideGroup);
         this.hookeanGroup = new THREE.Group();
         this.scene.add(this.hookeanGroup);
         this.atomMeshByIndex = new Map();
@@ -815,6 +818,58 @@ export class ASERenderer {
                 depthTest: true,
                 depthWrite: false
             }),
+            planeMotion: new THREE.ShaderMaterial({
+                transparent: true,
+                side: THREE.DoubleSide,
+                depthTest: false,
+                depthWrite: false,
+                uniforms: {
+                    color: { value: new THREE.Color(0x2ab89f) },
+                    opacity: { value: 0.18 }
+                },
+                vertexShader: `
+                    varying vec2 vUv;
+                    void main() {
+                        vUv = uv;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform vec3 color;
+                    uniform float opacity;
+                    varying vec2 vUv;
+                    void main() {
+                        float edge = max(
+                            abs((vUv.x - 0.5) * 2.0),
+                            abs((vUv.y - 0.5) * 2.0)
+                        );
+                        float interior = 1.0 - smoothstep(0.72, 1.0, edge);
+                        vec2 grid = abs(fract((vUv - vec2(0.5)) * 10.0) - 0.5);
+                        float gridLine = max(
+                            smoothstep(0.455, 0.500, grid.x),
+                            smoothstep(0.455, 0.500, grid.y)
+                        );
+                        float alpha = opacity * interior
+                            + opacity * 0.34 * gridLine * (1.0 - smoothstep(0.70, 1.0, edge));
+                        if (alpha < 0.002) discard;
+                        gl_FragColor = vec4(color, alpha);
+                    }
+                `
+            }),
+            planeMotionPerimeter: new THREE.LineBasicMaterial({
+                color: 0x20a58e,
+                transparent: true,
+                opacity: 1.0,
+                depthTest: false,
+                depthWrite: false
+            }),
+            planeMotionAxis: new THREE.MeshBasicMaterial({
+                color: 0x178b79,
+                transparent: true,
+                opacity: 0.88,
+                depthTest: false,
+                depthWrite: false
+            }),
             hookean: new THREE.MeshStandardMaterial({
                 color: 0xff9f43,
                 roughness: 0.28,
@@ -1007,6 +1062,7 @@ export class ASERenderer {
             this.commensurateGuideGroup,
             this.constraintMarkGroup,
             this.constraintGuideGroup,
+            this.constraintMotionGuideGroup,
             this.hookeanGroup
         ].forEach(group => {
             if (group) group.position.copy(translation);
@@ -1835,6 +1891,7 @@ export class ASERenderer {
         this.clearGroup(this.supercellGroup);
         this.clearGroup(this.constraintMarkGroup);
         this.clearGroup(this.constraintGuideGroup);
+        this.clearGroup(this.constraintMotionGuideGroup);
         this.clearGroup(this.hookeanGroup);
         this.clearSelectionOutlines();
         this.clearReplicaSelectionOutlines();
@@ -3124,6 +3181,7 @@ export class ASERenderer {
         if (this.selectionOutlines) this.selectionOutlines.visible = visible;
         if (this.replicaSelectionOutlines) this.replicaSelectionOutlines.visible = visible;
         if (this.constraintGuideGroup) this.constraintGuideGroup.visible = visible;
+        if (this.constraintMotionGuideGroup) this.constraintMotionGuideGroup.visible = visible;
         if (this.constraintMarkGroup) this.constraintMarkGroup.visible = visible;
         if (this.hookeanGroup) this.hookeanGroup.visible = visible;
         if (this.displacementGroup) {
@@ -4235,7 +4293,15 @@ export class ASERenderer {
         if (!baseline.lengthSq()) return;
 
         const labelAnchors = [];
-        const addRay = (angleDeg, color, opacity, active, label, priority = 0) => {
+        const addRay = (
+            angleDeg,
+            color,
+            opacity,
+            active,
+            label,
+            priority = 0,
+            candidateIndex = null
+        ) => {
             const direction = baseline.clone().applyAxisAngle(normal, THREE.MathUtils.degToRad(angleDeg));
             const start = center.clone().addScaledVector(direction, guideRadius * 0.14);
             const end = center.clone().addScaledVector(direction, guideRadius);
@@ -4249,6 +4315,10 @@ export class ASERenderer {
                 toneMapped: false
             });
             const ray = new THREE.Line(geometry, material);
+            ray.userData = {
+                commensurateCandidate: candidateIndex !== null,
+                candidateIndex
+            };
             ray.renderOrder = active ? 47 : 45;
             this.commensurateGuideGroup.add(ray);
             if (!label) return;
@@ -4260,15 +4330,7 @@ export class ASERenderer {
             });
         };
 
-        addRay(
-            0,
-            baselineActive ? 0xf3be57 : 0x9aa3a0,
-            baselineActive ? 1.0 : 0.38,
-            baselineActive,
-            baselineActive ? 'SNAP 0.00 deg' : '0.00 deg',
-            baselineActive ? 3 : -1
-        );
-        candidates.forEach(candidate => {
+        candidates.forEach((candidate, candidateIndex) => {
             const active = Boolean(candidate.active);
             addRay(
                 Number(candidate.angle_deg),
@@ -4276,7 +4338,8 @@ export class ASERenderer {
                 active ? 1.0 : 0.66,
                 active,
                 candidate.label,
-                active ? 3 : (candidate.primary || candidate.magic_reference ? 2 : 0)
+                active ? 3 : (candidate.primary || candidate.magic_reference ? 2 : 0),
+                candidateIndex
             );
         });
 
@@ -5463,6 +5526,100 @@ export class ASERenderer {
         group.renderOrder = 19;
         this.constraintGuideGroup.add(group);
         this.updateFixedPlaneGuideMotion(group, atom);
+    }
+
+    clearConstraintMotionGuides() {
+        this.clearGroup(this.constraintMotionGuideGroup);
+        this.requestRender();
+    }
+
+    setConstraintMotionGuides({
+        mode = 'IDLE',
+        indices = [],
+        originalPositions = [],
+        applyConstraints = true
+    } = {}) {
+        this.clearGroup(this.constraintMotionGuideGroup);
+        if (
+            mode !== 'MOVE'
+            || !applyConstraints
+            || this.displayOptions.showOverlays === false
+            || !this.atomsData?.constraints?.fixed_plane
+        ) {
+            this.requestRender();
+            return;
+        }
+
+        const fixedPlane = this.atomsData.constraints.fixed_plane;
+        const guideSize = Math.max(3.4, Math.min(10.0, (this.desiredGuideSize?.() || 24) * 0.18));
+        const edgeWidth = THREE.MathUtils.clamp(guideSize * 0.012, 0.024, 0.065);
+        const axisRadius = edgeWidth * 0.42;
+        [...new Set(indices.map(Number).filter(Number.isInteger))].forEach(index => {
+            const normalValues = fixedPlane[index] || fixedPlane[String(index)];
+            const normal = this.normalizedVector(normalValues || []);
+            const source = originalPositions[index];
+            const atom = this.atomMeshByIndex.get(index);
+            if (!normalValues || (!source && !atom) || !this.atomLabelVisible(index)) return;
+            const anchor = source
+                ? new THREE.Vector3(...source)
+                : atom.position.clone();
+            const group = new THREE.Group();
+            group.userData = {
+                kind: 'fixed_plane_motion',
+                atomIndex: index,
+                anchor: anchor.toArray(),
+                normal: normal.toArray()
+            };
+
+            const disk = new THREE.Mesh(
+                new THREE.PlaneGeometry(guideSize * 2, guideSize * 2, 1, 1),
+                this.constraintMaterials.planeMotion
+            );
+            disk.userData = { sharedMaterial: true, fixedPlaneMotionSurface: true };
+            disk.renderOrder = 24;
+            group.add(disk);
+
+            const perimeter = new THREE.LineSegments(
+                new THREE.EdgesGeometry(
+                    new THREE.PlaneGeometry(guideSize * 2, guideSize * 2, 1, 1)
+                ),
+                this.constraintMaterials.planeMotionPerimeter
+            );
+            perimeter.userData = { sharedMaterial: true, fixedPlaneMotionPerimeter: true };
+            perimeter.renderOrder = 25;
+            group.add(perimeter);
+
+            const axisLength = guideSize * 0.78;
+            [
+                [[-axisLength, 0, 0.01], [axisLength, 0, 0.01]],
+                [[0, -axisLength, 0.01], [0, axisLength, 0.01]]
+            ].forEach((points, axisIndex) => {
+                const line = new THREE.Mesh(
+                    new THREE.BufferGeometry(),
+                    this.constraintMaterials.planeMotionAxis
+                );
+                line.userData = {
+                    sharedMaterial: true,
+                    fixedPlaneMotionAxis: true,
+                    axisIndex
+                };
+                this.setLinePoints(
+                    line,
+                    points.map(point => new THREE.Vector3(...point)),
+                    `fixedPlaneMotionAxis${axisIndex}`,
+                    axisRadius
+                );
+                line.renderOrder = 26;
+                group.add(line);
+            });
+
+            group.position.copy(anchor).addScaledVector(normal, -0.055);
+            group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+            group.renderOrder = 24;
+            this.constraintMotionGuideGroup.add(group);
+        });
+        this.applyVisualTranslation();
+        this.requestRender();
     }
 
     fixedPlaneBasis(normal) {

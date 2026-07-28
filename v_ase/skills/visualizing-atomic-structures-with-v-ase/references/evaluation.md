@@ -81,6 +81,10 @@ Run all scenarios, not only static document checks:
 4. **Edit and constraints**
    - enter Edit, move and rotate atoms, then undo/redo;
    - apply FixAtoms, FixedLine, and FixedPlane;
+   - verify FixedPlane keeps one local marker per atom and adds one original-
+     position motion plane per selected constrained atom during `G`;
+   - verify every rotation shows axis/start/current references and that the
+     current reference follows the actual rotation sign;
    - verify returned backend coordinates;
    - add, relabel, change element, and delete a test atom.
 5. **Periodic structure**
@@ -96,6 +100,8 @@ Run all scenarios, not only static document checks:
    - verify bonds, pairwise cutoffs, MIC toggle, cell styling, and lighting.
 7. **Constraints rendering**
    - inspect FixAtoms, FixScaled, FixedLine, FixedPlane, and Hookean;
+   - verify persistent FixedPlane markers remain depth-tested while its
+     motion-only plane remains readable above the moving atom scene;
    - verify the active Hookean spring has nonzero depth and visible coil pitch.
 8. **Trajectory**
    - step frames, retain selection, play, change FPS/skip;
@@ -116,8 +122,15 @@ Run all scenarios, not only static document checks:
     - save and reload display supercell and visual translation;
     - verify Reset Coordinates preserves both;
     - verify full Reset returns translation to zero;
-    - verify pairwise rows expose enabled/max only and retain a resized label
-      column.
+   - verify pairwise rows expose enabled/max only and retain a resized label
+     column.
+12. **README scientific examples**
+    - open the flat and twisted phosphorene CIFs and verify 15-degree
+      neighboring slice increments about each slice COM;
+    - inspect the graphene/hBN commensurate candidates;
+    - select the ethane H-C-C-H order and verify distance, angle, and torsion;
+    - play the compressed-C60 FIRE trajectory and verify energy and fmax
+      decrease before publishing its relaxation example.
 
 ## Visual Assertions
 
@@ -129,6 +142,10 @@ Every browser render test must check:
 - axis-view direction and projection are correct;
 - atom colors and materials are distinguishable;
 - visible constraints have nonzero pixel coverage;
+- FixedPlane motion planes have a visible surface, perimeter, and two in-plane
+  axes without replacing the compact persistent per-atom marker;
+- rotation axis, fixed start, moving current, and commensurate candidate guides
+  remain visually distinguishable;
 - Hookean spring has X and Z span around its axis and wire radius smaller than
   its coil radius;
 - preview and exported image decode to the same composition;

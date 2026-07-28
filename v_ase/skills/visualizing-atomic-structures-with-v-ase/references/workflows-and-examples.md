@@ -3,10 +3,12 @@
 ## Contents
 
 1. Publication Image
-2. Constraint-Aware Edit
-3. Trajectory Analysis And Video
-4. Periodic Supercell Measurement
-5. Multi-Document Human Handoff
+2. Phosphorene Slice Rotation
+3. Constraint-Aware Edit
+4. Ordered Measurement
+5. Trajectory Analysis And Video
+6. Periodic Supercell Measurement
+7. Multi-Document Human Handoff
 
 These templates are starting points. Preserve the plan, validate, execute, and
 verify sequence even when parameters change.
@@ -68,6 +70,45 @@ if (image.width !== 3840 || image.height !== 2160 || image.bytes <= 0) {
 
 Output: a lossless WebP data URL and the same live view at `human_url`.
 
+## Phosphorene Slice Rotation
+
+Input: `examples/readme_scene_assets/phosphorene_nanosheet.cif`.
+
+For a human-assisted edit, open Edit mode, select one complete
+crystallographic slice, set the pivot to Selection COM, then use `R`, `X`, and
+an exact 15-degree value. Verify that the axis passes through the selected COM,
+the neutral start reference remains fixed, and the amber reference follows the
+actual rotation. Repeat for neighboring slices with the intended signed angle.
+
+For deterministic semantic editing:
+
+```javascript
+await ai.apply({mode: "edit", applyConstraints: true});
+const before = await ai.describe({includePositions: true});
+const slice = [72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83];
+
+await ai.apply({
+  selection: {clear: true, indices: slice},
+  operation: {
+    name: "rotate-selection",
+    axis: [1, 0, 0],
+    angleDeg: 15,
+    pivot: "selection",
+    applyConstraints: true
+  }
+});
+
+const after = await ai.describe({includePositions: true});
+if (after.atomCount !== before.atomCount || after.selection.length !== slice.length) {
+  throw new Error("Phosphorene slice rotation failed verification.");
+}
+```
+
+The canonical final structure and complete preview trajectory are
+`phosphorene_twisted_nanoribbon_15deg.cif` and
+`phosphorene_twist_15deg.traj`. Treat them as a manipulation example, not a
+relaxed physical prediction.
+
 ## Constraint-Aware Edit
 
 Input: move selected atoms while honoring FixedLine, FixedPlane, FixAtoms, or
@@ -100,6 +141,27 @@ const restored = await ai.describe({includePositions: true});
 
 Do not compare only the requested vector. ASE may project it onto the allowed
 line or plane; the returned coordinates are authoritative.
+
+During human FixedPlane movement, verify that each constrained atom retains its
+compact local plane marker and that `G` adds a larger translucent guide at the
+atom's original position. A group COM plane is an implementation error.
+
+## Ordered Measurement
+
+Input: `examples/readme_scene_assets/ethane_measurement.cif`.
+
+```javascript
+await ai.apply({
+  selection: {clear: true, indices: [3, 0, 1, 6]}
+});
+const measured = await ai.describe({includePositions: true});
+if (measured.selection.length !== 4 || !measured.measurement) {
+  throw new Error("Ordered H-C-C-H torsion was not produced.");
+}
+```
+
+Never sort the ordered selection. Two atoms measure direct and MIC distance,
+three use `a1-a2-a3`, and four use the signed `a1-a2-a3-a4` torsion.
 
 ## Trajectory Analysis And Video
 

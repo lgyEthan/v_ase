@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.102&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.102&rev=1';
-import { ASESelection } from './selection.js?v=0.0.102&rev=1';
-import { ASETransform } from './transform.js?v=0.0.102&rev=1';
+import { ASEApi } from './api.js?v=0.0.103&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.103&rev=1';
+import { ASESelection } from './selection.js?v=0.0.103&rev=1';
+import { ASETransform } from './transform.js?v=0.0.103&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.102&rev=1';
+} from './trajectory.js?v=0.0.103&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -162,6 +162,9 @@ class VAseApp {
             rotationScreenPivot: new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
             rotationLastAngle: 0,
             rotationPointerActive: false,
+            rotationReferenceDirection: null,
+            rotationGuideAxis: null,
+            rotationGuideRadius: 3,
             commensurateCandidates: [],
             commensurateSearch: null,
             commensurateRequestToken: 0,
@@ -3891,6 +3894,7 @@ class VAseApp {
         this.renderer.updateHookeanPositions();
         this.updateSelectionMeasureUI();
         if (this.transform.mode === 'ROTATE') {
+            this.updateRotationReferenceGuide(appliedRotationAngle);
             this.renderCommensurateRotationGuides(appliedRotationAngle);
         }
         
@@ -3948,6 +3952,7 @@ class VAseApp {
         this.state.originalPositions = newPositions.map(p => [...p]);
         this.state.transformReadout = '';
         this.clearCommensurateRotation({ keepStatus: true });
+        this.renderer.clearConstraintMotionGuides?.();
 
         // Confirm immediately in the viewport. Backend apply follows asynchronously
         // and may correct constrained positions authoritatively.
@@ -3992,8 +3997,21 @@ class VAseApp {
         this.state.rotationLastAngle = 0;
         this.state.rotationPointerActive = false;
         this.state.transformSubject = 'atoms';
-        this.transform.enter(mode, pivot, this.renderer.camera);
-        this.prepareCommensurateRotation(editableSelection);
+        this.transform.enter(mode, pivot, this.renderer.camera, {
+            visualOffset: this.renderer.visualTranslationVector?.() || new THREE.Vector3()
+        });
+        this.renderer.setConstraintMotionGuides?.({
+            mode,
+            indices: editableSelection,
+            originalPositions: this.state.originalPositions,
+            applyConstraints: this.state.applyConstraints
+        });
+        if (mode === 'ROTATE') {
+            this.configureRotationReference(editableSelection);
+            this.prepareCommensurateRotation(editableSelection);
+        } else {
+            this.clearCommensurateRotation({ keepStatus: true });
+        }
         this.renderer.controls.enabled = false;
         this.updateToolState();
         this.updateUI();
@@ -4008,6 +4026,7 @@ class VAseApp {
         this.renderer.updatePositions(this.state.originalPositions);
         this.state.transformReadout = '';
         this.clearCommensurateRotation({ keepStatus: true });
+        this.renderer.clearConstraintMotionGuides?.();
         this.transform.exit();
         this.state.transformSubject = null;
         this.renderer.controls.enabled = true;
@@ -4030,6 +4049,7 @@ class VAseApp {
         this.state.rotationScreenPivot.copy(this.worldToScreen(pivot));
         this.state.rotationLastAngle = 0;
         this.state.rotationPointerActive = false;
+        this.renderer.clearConstraintMotionGuides?.();
         this.transform.enter(mode, pivot, this.renderer.camera);
         this.renderer.controls.enabled = false;
         this.updateToolState();
@@ -6939,7 +6959,17 @@ class VAseApp {
         return null;
     }
 
-    commensurateReferenceForSelection(editableSelection, axis) {
+    activeRotationAxisVector() {
+        const locked = this.lockedRotationAxisVector();
+        if (locked) return locked;
+        const viewAxis = new THREE.Vector3();
+        this.renderer.camera.getWorldDirection(viewAxis);
+        return viewAxis.lengthSq() > 1e-12
+            ? viewAxis.normalize()
+            : new THREE.Vector3(0, 0, -1);
+    }
+
+    rotationReferenceForSelection(editableSelection, axis) {
         let reference = null;
         let maxLength = 0;
         editableSelection.forEach(index => {
@@ -6954,11 +6984,61 @@ class VAseApp {
             }
         });
         if (!reference || maxLength < 1e-5) {
-            reference = Math.abs(axis.z) < 0.9
-                ? new THREE.Vector3(0, 0, 1).cross(axis).normalize()
-                : new THREE.Vector3(1, 0, 0);
+            this.renderer.camera.updateMatrixWorld();
+            reference = new THREE.Vector3().setFromMatrixColumn(
+                this.renderer.camera.matrixWorld,
+                0
+            );
+            reference.addScaledVector(axis, -reference.dot(axis));
+            if (reference.lengthSq() <= 1e-12) {
+                reference = Math.abs(axis.z) < 0.9
+                    ? new THREE.Vector3(0, 0, 1).cross(axis)
+                    : new THREE.Vector3(1, 0, 0);
+            }
+            reference.normalize();
         }
-        this.state.commensurateGuideRadius = Math.max(3.2, maxLength * 1.18);
+        return {
+            reference,
+            radius: Math.max(3.2, maxLength * 1.45)
+        };
+    }
+
+    configureRotationReference(editableSelection = [...this.state.selected]) {
+        if (this.transform.mode !== 'ROTATE') return;
+        const axis = this.activeRotationAxisVector();
+        const { reference, radius } = this.rotationReferenceForSelection(editableSelection, axis);
+        this.state.rotationGuideAxis = axis.clone();
+        this.state.rotationReferenceDirection = reference.clone();
+        this.state.rotationGuideRadius = radius;
+        this.transform.setRotationGuide({
+            axis,
+            reference,
+            radius,
+            angle: 0
+        }, this.renderer.camera);
+    }
+
+    updateRotationReferenceGuide(angle) {
+        if (this.transform.mode !== 'ROTATE') return;
+        const axis = this.activeRotationAxisVector();
+        const editableSelection = [...this.state.selected].filter(idx => this.isEditableIndex(idx));
+        const axisChanged = !this.state.rotationGuideAxis
+            || this.state.rotationGuideAxis.angleTo(axis) > 1e-5;
+        if (axisChanged || !this.state.rotationReferenceDirection) {
+            this.configureRotationReference(editableSelection);
+        }
+        const guideAngle = this.transform.axis ? angle : -angle;
+        this.transform.setRotationGuide({
+            axis,
+            reference: this.state.rotationReferenceDirection,
+            radius: this.state.rotationGuideRadius,
+            angle: guideAngle
+        }, this.renderer.camera);
+    }
+
+    commensurateReferenceForSelection(editableSelection, axis) {
+        const { reference, radius } = this.rotationReferenceForSelection(editableSelection, axis);
+        this.state.commensurateGuideRadius = Math.max(3.2, radius);
         return reference;
     }
 
@@ -6983,7 +7063,11 @@ class VAseApp {
         }
         const axis = this.lockedRotationAxisVector();
         if (!axis) return;
-        this.state.commensurateReferenceDirection = this.commensurateReferenceForSelection(editableSelection, axis);
+        this.configureRotationReference(editableSelection);
+        this.state.commensurateReferenceDirection = this.state.rotationReferenceDirection
+            ? this.state.rotationReferenceDirection.clone()
+            : this.commensurateReferenceForSelection(editableSelection, axis);
+        this.state.commensurateGuideRadius = Math.max(3.2, this.state.rotationGuideRadius * 0.82);
         this.updateCommensurateStatus('Scanning integer periodic-cell boundaries...', 'ready');
         try {
             const result = await this.api.commensurateAngles(
@@ -7089,10 +7173,11 @@ class VAseApp {
             if (chosen.length >= 7) break;
         }
         const nearest = this.nearestCommensurateCandidate(angle);
+        const primaryCandidate = nearest && !nearest.identity ? nearest : ranked[0];
         return chosen.slice(0, 7).map(candidate => {
             const isActive = Boolean(active) && Math.abs(candidate.targetAngleDeg - active.targetAngleDeg) < 1e-5;
-            const isPrimary = Boolean(nearest)
-                && Math.abs(candidate.targetAngleDeg - nearest.targetAngleDeg) < 1e-5;
+            const isPrimary = Boolean(primaryCandidate)
+                && Math.abs(candidate.targetAngleDeg - primaryCandidate.targetAngleDeg) < 1e-5;
             const prefix = isActive ? 'SNAP ' : candidate.magic_reference ? 'TBG ' : '';
             return {
                 ...candidate,

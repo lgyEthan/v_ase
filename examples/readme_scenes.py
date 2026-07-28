@@ -2,24 +2,35 @@
 
 These are the structures used for the README screenshots and GIFs. The default
 output format is ASE ``.traj`` because it preserves constraints such as
-FixedLine, FixedPlane, and Hookean.
+FixedLine, FixedPlane, and Hookean. Literature-derived structure examples also
+include portable CIF files.
 """
 
 from __future__ import annotations
 
 import math
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 from ase import Atoms
-from ase.build import bulk, fcc111, graphene, nanotube
+from ase.build import bulk, fcc111, graphene, molecule, nanotube
 from ase.constraints import FixAtoms, FixedLine, FixedPlane, Hookean
 from ase.io import write
-
+from ase.optimize import FIRE
+from ase.units import Bohr
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from v_ase.repulsion import RepulsionCalculator
+
+
 DEFAULT_OUT_DIR = ROOT / "examples" / "readme_scene_assets"
+PHOSPHORENE_REFERENCE = "https://doi.org/10.1039/C6CP05566D"
+PHOSPHORENE_ESI = "https://www.rsc.org/suppdata/c6/cp/c6cp05566d/c6cp05566d1.pdf"
 
 
 @dataclass(frozen=True)
@@ -154,6 +165,180 @@ def make_graphene_hbn_commensurate_scene() -> tuple[Atoms, dict[str, list[int]]]
     }
 
 
+def make_black_phosphorene_unit_cell() -> Atoms:
+    """Return the relaxed black-phosphorene cell reported by Villegas et al.
+
+    The supporting information publishes the cell and Cartesian coordinates
+    in Bohr. They are converted here without refitting or idealization.
+    """
+
+    cell_bohr = np.array([
+        [8.628, 0.000, 0.000],
+        [0.000, 6.243, 0.000],
+        [0.000, 0.000, 51.930],
+    ])
+    positions_bohr = np.array([
+        [0.0010552522, 0.0000356586, 29.9470289674],
+        [2.8030439932, 3.1217420556, 29.9470395784],
+        [4.3153452296, 3.1217421076, 25.9662853800],
+        [7.1173323694, 0.0000357105, 25.96627772033],
+    ])
+    atoms = Atoms(
+        "P4",
+        positions=positions_bohr * Bohr,
+        cell=cell_bohr * Bohr,
+        pbc=[True, True, False],
+    )
+    atoms.info.update({
+        "readme_scene": "black_phosphorene_unit_cell",
+        "source_doi": PHOSPHORENE_REFERENCE,
+        "source_coordinates": PHOSPHORENE_ESI,
+    })
+    return atoms
+
+
+def _twist_phosphorene_slices(
+    positions: np.ndarray,
+    slice_ids: np.ndarray,
+    slice_count: int,
+    angle_step_degrees: float,
+    progress: float,
+) -> np.ndarray:
+    twisted = np.asarray(positions, dtype=float).copy()
+    center_slice = (slice_count - 1) / 2
+    for slice_id in range(slice_count):
+        indices = np.flatnonzero(slice_ids == slice_id)
+        if not len(indices):
+            continue
+        pivot = positions[indices].mean(axis=0)
+        angle = math.radians((slice_id - center_slice) * angle_step_degrees * progress)
+        cosine, sine = math.cos(angle), math.sin(angle)
+        rotation = np.array([
+            [1.0, 0.0, 0.0],
+            [0.0, cosine, -sine],
+            [0.0, sine, cosine],
+        ])
+        twisted[indices] = pivot + (positions[indices] - pivot) @ rotation.T
+    return twisted
+
+
+def make_phosphorene_twist_scene(
+    repeat: tuple[int, int, int] = (11, 3, 1),
+    angle_step_degrees: float = 15.0,
+    frame_count: int = 25,
+) -> tuple[Atoms, Atoms, list[Atoms], dict[str, object]]:
+    """Build a source nanosheet and a uniformly twisted phosphorene ribbon."""
+
+    unit = make_black_phosphorene_unit_cell()
+    source = unit.repeat(repeat)
+    source.pbc = False
+    source_positions = source.get_positions()
+    slice_width = float(unit.cell.lengths()[0])
+    slice_ids = np.floor((source_positions[:, 0] + 1e-7) / slice_width).astype(int)
+    slice_ids = np.clip(slice_ids, 0, repeat[0] - 1)
+
+    raw_frames = [
+        _twist_phosphorene_slices(
+            source_positions,
+            slice_ids,
+            repeat[0],
+            angle_step_degrees,
+            progress,
+        )
+        for progress in np.linspace(0.0, 1.0, frame_count)
+    ]
+    all_positions = np.concatenate([source_positions, raw_frames[-1]], axis=0)
+    lower = np.min(all_positions, axis=0)
+    upper = np.max(all_positions, axis=0)
+    padding = np.array([4.0, 4.5, 4.5])
+    shift = padding - lower
+    cell_lengths = upper - lower + 2 * padding
+
+    frames: list[Atoms] = []
+    for frame_index, positions in enumerate(raw_frames):
+        frame = source.copy()
+        frame.positions = positions + shift
+        frame.cell = np.diag(cell_lengths)
+        frame.pbc = False
+        frame.new_array("readme_slice_id", slice_ids.copy())
+        frame.info.update({
+            "readme_scene": "phosphorene_twisted_nanoribbon_15deg",
+            "twist_step_degrees": angle_step_degrees,
+            "twist_progress": frame_index / max(1, frame_count - 1),
+            "source_doi": PHOSPHORENE_REFERENCE,
+            "source_coordinates": PHOSPHORENE_ESI,
+        })
+        frames.append(frame)
+
+    source = frames[0].copy()
+    source.info["readme_scene"] = "phosphorene_nanosheet_source"
+    twisted = frames[-1].copy()
+    selected_slice = min(repeat[0] - 1, repeat[0] // 2 + 1)
+    selected = np.flatnonzero(slice_ids == selected_slice).tolist()
+    return source, twisted, frames, {
+        "selected_slice": selected,
+        "slice_ids": slice_ids.tolist(),
+        "axis": "X",
+        "angle_step_degrees": angle_step_degrees,
+    }
+
+
+def make_crowded_c60_relaxation_scene(
+    frame_interval: int = 1,
+) -> tuple[Atoms, Atoms, list[Atoms], dict[str, float]]:
+    """Run a real repulsive FIRE relaxation from a compressed C60 geometry."""
+
+    atoms = molecule("C60")
+    atoms.positions -= atoms.get_center_of_mass()
+    atoms.positions *= 0.45
+    atoms.cell = [18.0, 18.0, 18.0]
+    atoms.center()
+    atoms.pbc = False
+    atoms.calc = RepulsionCalculator(cutoff_scale=0.7, k_repulsion=4.0)
+    frames: list[Atoms] = []
+
+    def snapshot() -> None:
+        forces = atoms.get_forces()
+        frame = atoms.copy()
+        frame.calc = None
+        frame.info.update({
+            "readme_scene": "crowded_c60_repulsive_relaxation",
+            "energy": float(atoms.get_potential_energy()),
+            "fmax": float(np.linalg.norm(forces, axis=1).max()),
+            "calculator": "v_ase.RepulsionCalculator",
+            "cutoff_scale": 0.7,
+            "k_repulsion": 4.0,
+        })
+        frames.append(frame)
+
+    snapshot()
+    optimizer = FIRE(atoms, logfile=None)
+    optimizer.attach(snapshot, interval=max(1, int(frame_interval)))
+    optimizer.run(fmax=0.05, steps=150)
+    if not np.allclose(frames[-1].positions, atoms.positions):
+        snapshot()
+
+    initial = frames[0].copy()
+    initial.info["readme_scene"] = "crowded_c60_initial"
+    relaxed = frames[-1].copy()
+    relaxed.info["readme_scene"] = "crowded_c60_relaxed"
+    return initial, relaxed, frames, {
+        "initial_energy": float(frames[0].info["energy"]),
+        "final_energy": float(frames[-1].info["energy"]),
+        "initial_fmax": float(frames[0].info["fmax"]),
+        "final_fmax": float(frames[-1].info["fmax"]),
+    }
+
+
+def make_ethane_measurement_scene() -> tuple[Atoms, dict[str, list[int]]]:
+    atoms = molecule("C2H6")
+    atoms.cell = [10.0, 10.0, 10.0]
+    atoms.center()
+    atoms.pbc = False
+    atoms.info["readme_scene"] = "ordered_ethane_measurement"
+    return atoms, {"ordered_selection": [3, 0, 1, 6]}
+
+
 def make_showcase_scene() -> tuple[Atoms, dict[str, int]]:
     def constraints():
         return [
@@ -241,10 +426,56 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
             notes=("Select the hBN layer, press R then Z, and rotate toward a displayed cell match.",),
         )
         return atoms, info
+    if name == "phosphorene":
+        _, atoms, _, idx = make_phosphorene_twist_scene()
+        info = SceneInfo(
+            name=name,
+            description="Literature-derived black-phosphorene sheet twisted by 15 degrees per crystallographic slice.",
+            static_file="phosphorene_twisted_nanoribbon_15deg.cif",
+            selected_indices=tuple(idx["selected_slice"]),
+            notes=(
+                "The relaxed cell and coordinates come from Villegas et al. (DOI 10.1039/C6CP05566D).",
+                "Use R then X with a slice selected to reproduce the ribbon twist.",
+            ),
+        )
+        return atoms, info
+    if name == "relaxation":
+        _, atoms, _, _ = make_crowded_c60_relaxation_scene()
+        info = SceneInfo(
+            name=name,
+            description="Compressed C60 relaxed with the built-in repulsive fallback calculator and ASE FIRE.",
+            static_file="crowded_c60_relaxed.cif",
+            selected_indices=(),
+            notes=(
+                "This demonstrates clash removal, not a chemically predictive energy model.",
+                "Open the trajectory to inspect every optimization step.",
+            ),
+        )
+        return atoms, info
+    if name == "measurement":
+        atoms, idx = make_ethane_measurement_scene()
+        info = SceneInfo(
+            name=name,
+            description="Ethane with an H-C-C-H ordered selection for distance, angle, and torsion measurement.",
+            static_file="ethane_measurement.cif",
+            selected_indices=tuple(idx["ordered_selection"]),
+            notes=("Select the listed atoms in order to display a1 through a4.",),
+        )
+        return atoms, info
     raise KeyError(name)
 
 
-SCENE_NAMES = ("commensurate", "fixedline", "fixedplane", "hookean", "ferrocene", "showcase")
+SCENE_NAMES = (
+    "phosphorene",
+    "commensurate",
+    "fixedline",
+    "fixedplane",
+    "hookean",
+    "relaxation",
+    "measurement",
+    "ferrocene",
+    "showcase",
+)
 STALE_MOTION_FILES = (
     "fixedline_motion.traj",
     "fixedplane_motion.traj",
@@ -272,10 +503,48 @@ def write_scene_assets(out_dir: Path, scene_names: tuple[str, ...] = SCENE_NAMES
     summary_lines = ["# v_ase README Scene Assets", ""]
 
     for name in scene_names:
-        static_atoms, info = build_scene(name)
+        extra_assets: list[tuple[str, Atoms | list[Atoms]]] = []
+        if name == "phosphorene":
+            source, static_atoms, frames, idx = make_phosphorene_twist_scene()
+            info = SceneInfo(
+                name=name,
+                description="Literature-derived black-phosphorene sheet twisted by 15 degrees per crystallographic slice.",
+                static_file="phosphorene_twisted_nanoribbon_15deg.cif",
+                selected_indices=tuple(idx["selected_slice"]),
+                notes=(
+                    "Source coordinates: DOI 10.1039/C6CP05566D.",
+                    "The trajectory records the complete twist from the flat source sheet.",
+                ),
+            )
+            extra_assets = [
+                ("phosphorene_nanosheet.cif", source),
+                ("phosphorene_twist_15deg.traj", frames),
+            ]
+        elif name == "relaxation":
+            initial, static_atoms, frames, metrics = make_crowded_c60_relaxation_scene()
+            info = SceneInfo(
+                name=name,
+                description="Compressed C60 relaxed with the built-in repulsive fallback calculator and ASE FIRE.",
+                static_file="crowded_c60_relaxed.cif",
+                selected_indices=(),
+                notes=(
+                    "This is a clash-removal demonstration, not a predictive chemical potential.",
+                    f"Energy: {metrics['initial_energy']:.3f} -> {metrics['final_energy']:.3f} eV.",
+                ),
+            )
+            extra_assets = [
+                ("crowded_c60_initial.cif", initial),
+                ("crowded_c60_relaxation.traj", frames),
+            ]
+        else:
+            static_atoms, info = build_scene(name)
         static_path = out_dir / info.static_file
         write(static_path, static_atoms)
         written.append(static_path)
+        for filename, payload in extra_assets:
+            extra_path = out_dir / filename
+            write(extra_path, payload)
+            written.append(extra_path)
 
         summary_lines.extend([
             f"## {name}",
@@ -287,6 +556,8 @@ def write_scene_assets(out_dir: Path, scene_names: tuple[str, ...] = SCENE_NAMES
         ])
         if info.notes:
             summary_lines.extend(f"- {note}" for note in info.notes)
+        if extra_assets:
+            summary_lines.extend(f"- Additional: `{filename}`" for filename, _ in extra_assets)
 
         summary_lines.extend([
             "",
@@ -308,6 +579,8 @@ def print_written_assets(paths: list[Path], out_dir: Path = DEFAULT_OUT_DIR) -> 
         print(f"  {path}")
     print()
     print("Open them with normal user-facing v_ase commands:")
+    print(f"  v_ase gui {display_path(out_dir / 'phosphorene_twisted_nanoribbon_15deg.cif')} --show-bonds")
+    print(f"  v_ase gui {display_path(out_dir / 'crowded_c60_relaxation.traj')} --show-bonds")
     print(f"  v_ase gui {display_path(out_dir / 'graphene_hbn_commensurate.traj')} --show-bonds")
     print(f"  v_ase gui {display_path(out_dir / 'fixedline.traj')} --show-bonds")
     print(f"  v_ase gui {display_path(out_dir / 'fixedplane.traj')} --show-bonds")

@@ -161,7 +161,10 @@ and documentation use `view()`.
 37. `FixedLine` and `FixedPlane` guides are persistent per-atom overlays. They
     remain visible without selection, stay local to each constrained atom, are
     depth-tested against the structure, and scale from the displayed atom
-    radius instead of viewport size.
+    radius instead of viewport size. During `G`, each selected FixedPlane atom
+    additionally gets its own low-opacity guide surface, perimeter, and
+    crosshair anchored at the atom's original position. This motion guide is
+    never collapsed to a selection COM and clears on commit or cancel.
 38. Unit-cell edges use one instanced cylinder primitive in the viewport and
     expose color, Angstrom thickness, and material controls. Supercell previews
     reuse the same style and deduplicate shared edges so repeated cells do not
@@ -204,6 +207,17 @@ and documentation use `view()`.
 49. Displacement vectors keep their physical backend values, begin at each
     currently visible atom position, and repeat over every displayed
     supercell image. Visual translation moves both endpoints equally.
+50. Every atom rotation shows the active pivot axis, a fixed neutral start
+    reference, and an amber current reference. The current reference follows
+    the actual free or axis-locked rotation sign. Commensurate/magnetic
+    candidates remain separate cyan guides and never replace or duplicate the
+    start reference.
+51. README scientific scenes are generated from canonical Python constructors:
+    a literature-derived black-phosphorene slice-twist workflow, graphene/hBN
+    commensurate rotation, ordered ethane measurement, constraint scenes, and
+    an actual ASE FIRE trajectory for compressed C60 using the repulsive
+    fallback calculator. Tests validate the structures before browser media are
+    regenerated.
 
 ## Canonical Names And Compatibility
 
