@@ -61,6 +61,26 @@ def _valid_cpu_threads(value: Any | None) -> int:
     return min(max(1, threads), max_threads)
 
 
+def _valid_cutoff_scale(value: Any | None) -> float:
+    try:
+        scale = float(value)
+    except (TypeError, ValueError):
+        scale = 0.7
+    if not np.isfinite(scale):
+        scale = 0.7
+    return min(3.0, max(0.05, scale))
+
+
+def _valid_repulsion_strength(value: Any | None) -> float:
+    try:
+        strength = float(value)
+    except (TypeError, ValueError):
+        strength = 1.0
+    if not np.isfinite(strength):
+        strength = 1.0
+    return min(1000.0, max(0.0, strength))
+
+
 def _copy_calc_config(source: "VAseRepulsionCalculator") -> dict[str, Any]:
     return {
         "min_bondinfo": source.min_bondinfo,
@@ -68,6 +88,7 @@ def _copy_calc_config(source: "VAseRepulsionCalculator") -> dict[str, Any]:
         "set_region_as_prohibited": source.set_region_as_prohibited,
         "k_boundary": source.k_boundary,
         "k_repulsion": source.k_repulsion,
+        "cutoff_scale": source.cutoff_scale,
         "max_force_norm": source.max_force_norm,
         "mic": source.mic,
         "work_on_relax_atoms_too": source.work_on_relax_atoms_too,
@@ -105,6 +126,7 @@ class VAseRepulsionCalculator(Calculator):
         set_region_as_prohibited: bool = False,
         k_boundary: float = 1.0,
         k_repulsion: float = 1.0,
+        cutoff_scale: float = 0.7,
         max_force_norm: float | None = 10.0,
         mic: bool = True,
         work_on_relax_atoms_too: bool = True,
@@ -120,7 +142,8 @@ class VAseRepulsionCalculator(Calculator):
             raise ValueError("region must be a list of length 6")
         self.set_region_as_prohibited = bool(set_region_as_prohibited)
         self.k_boundary = float(k_boundary)
-        self.k_repulsion = float(k_repulsion)
+        self.k_repulsion = _valid_repulsion_strength(k_repulsion)
+        self.cutoff_scale = _valid_cutoff_scale(cutoff_scale)
         self.max_force_norm = None if max_force_norm is None else float(max_force_norm)
         self.mic = bool(mic)
         self.work_on_relax_atoms_too = bool(work_on_relax_atoms_too)
@@ -130,11 +153,22 @@ class VAseRepulsionCalculator(Calculator):
         self.backend_used = "numpy"
         self.device_used = "cpu"
 
-    def configure(self, *, device: str | None = None, cpu_threads: int | None = None):
+    def configure(
+        self,
+        *,
+        device: str | None = None,
+        cpu_threads: int | None = None,
+        cutoff_scale: float | None = None,
+        k_repulsion: float | None = None,
+    ):
         if device is not None:
             self.device_requested = _normalized_device(device)
         if cpu_threads is not None:
             self.cpu_threads = _valid_cpu_threads(cpu_threads)
+        if cutoff_scale is not None:
+            self.cutoff_scale = _valid_cutoff_scale(cutoff_scale)
+        if k_repulsion is not None:
+            self.k_repulsion = _valid_repulsion_strength(k_repulsion)
         self.reset()
 
     def status(self) -> dict[str, Any]:
@@ -149,6 +183,8 @@ class VAseRepulsionCalculator(Calculator):
             "torch_available": torch_available(),
             "cuda_available": cuda_available(),
             "min_bondinfo": self.min_bondinfo,
+            "cutoff_scale": self.cutoff_scale,
+            "k_repulsion": self.k_repulsion,
         }
 
     def _min_bondinfo_for_atoms(self, atoms: Atoms):
@@ -174,8 +210,8 @@ class VAseRepulsionCalculator(Calculator):
             key_ij = f"{sym_i}-{sym_j}"
             key_ji = f"{sym_j}-{sym_i}"
             value = min_bondinfo.get(key_ij, min_bondinfo.get(key_ji))
-            return None if value is None else float(value)
-        return float(min_bondinfo)
+            return None if value is None else float(value) * self.cutoff_scale
+        return float(min_bondinfo) * self.cutoff_scale
 
     def _manual_pairs(self, atoms: Atoms, min_bondinfo):
         positions = atoms.get_positions()
@@ -197,9 +233,10 @@ class VAseRepulsionCalculator(Calculator):
             return []
         if isinstance(min_bondinfo, dict):
             max_cutoff = max(float(value) for value in min_bondinfo.values()) if min_bondinfo else 0.0
+            max_cutoff *= self.cutoff_scale
             cutoff = max_cutoff
         else:
-            cutoff = float(min_bondinfo)
+            cutoff = float(min_bondinfo) * self.cutoff_scale
             max_cutoff = cutoff
         if max_cutoff <= 0:
             return []

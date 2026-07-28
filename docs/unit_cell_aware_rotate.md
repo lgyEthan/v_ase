@@ -99,7 +99,8 @@ interlayer tunneling, relaxation, Fermi velocity, and the chosen Hamiltonian.
 
 ## Viewport Guide And Magnetic Snap
 
-Enable `Commensurate guide`, start `R`, and lock `X`, `Y`, or `Z`.
+`Commensurate guide` is enabled by default. Start `R`, then lock `X`, `Y`, or
+`Z`.
 
 - Thin teal rays leave the active pivot in candidate directions.
 - A fixed `CELL MATCHES` strip lists candidate angles without camera-dependent
@@ -110,6 +111,8 @@ Enable `Commensurate guide`, start `R`, and lock `X`, `Y`, or `Z`.
 - The unchanged `0 deg` identity is included, so enabling snap never rotates a
   structure before the pointer or numeric angle actually moves away from zero.
 - `Magnetic angle snap` independently enables or disables attraction.
+- Magnetic snapping is disabled by default, so the guide never changes a
+  rotation unless the user explicitly enables snapping.
 - `Snap range / deg` controls the angular capture distance.
 - `Max lattice index` controls the analytic search depth; the default `32`
   includes the `1.050121 deg` hexagonal candidate.
@@ -117,6 +120,12 @@ Enable `Commensurate guide`, start `R`, and lock `X`, `Y`, or `Z`.
 Turning magnetic snap off leaves every angle continuously editable while
 keeping the scientific guide visible. Unlike the removed bond-strain guard, no
 rotation is colored invalid or blocked at commit.
+
+The analytic hexagonal candidates are identical for graphene and an ideal
+hexagonal h-BN primitive cell because the angle family depends on lattice
+geometry, not chemical species. Browser and Python regression tests verify the
+`21.786789`, `13.173551`, and `1.050121` degree candidates for both lattices
+with zero boundary strain.
 
 ## Constructing The Periodic Supercell
 

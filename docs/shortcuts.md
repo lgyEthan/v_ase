@@ -113,8 +113,9 @@ the complete saved project.
 They stay local to each constrained atom and scale with its displayed radius.
 
 ## Calculator Controls
-- The top-right `DEVICE` and `CPU` controls are active only for the default
-  v_ase repulsion calculator.
+- Repulsion controls live under **Structure > Relaxation** and appear only in
+  Edit mode with the built-in v_ase calculator.
 - `CPU` is the default device. `CUDA` is enabled only when torch and CUDA are
   available in the Python environment.
+- Cutoff scale defaults to `0.70`; strength defaults to `1.0`.
 - Torch is optional; NumPy fallback is used when torch is not installed.

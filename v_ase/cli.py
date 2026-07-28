@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -79,7 +80,19 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="transfer trajectory coordinates one frame at a time instead of preloading a browser cache",
     )
-    gui.add_argument("--show-bonds", action="store_true", help="show inferred bonds on startup")
+    bonds = gui.add_mutually_exclusive_group()
+    bonds.add_argument(
+        "--show-bonds",
+        dest="show_bonds",
+        action="store_true",
+        help="show inferred bonds on startup (default)",
+    )
+    bonds.add_argument(
+        "--hide-bonds",
+        dest="show_bonds",
+        action="store_false",
+        help="start with inferred bonds hidden",
+    )
     gui.add_argument("--hide-cell", action="store_true", help="hide the unit cell on startup")
     gui.add_argument("--hide-axes", action="store_true", help="hide axes on startup")
     gui.add_argument(
@@ -91,7 +104,15 @@ def build_parser() -> argparse.ArgumentParser:
             "visualization mode."
         ),
     )
-    gui.set_defaults(func=run_gui)
+    gui.add_argument(
+        "--for-ai",
+        action="store_true",
+        help=(
+            "start a machine-readable agent session, print a JSON handshake, "
+            "and leave the same URL available for normal human use"
+        ),
+    )
+    gui.set_defaults(func=run_gui, show_bonds=True)
 
     return parser
 
@@ -159,9 +180,10 @@ def run_gui(args: argparse.Namespace) -> int:
     if not frames:
         raise SystemExit(f"v_ase: no frames found in {path}")
 
+    keep_alive = bool(args.no_block or args.for_ai)
     result = view(
         frames,
-        block=not args.no_block,
+        block=not keep_alive,
         port=args.port,
         show_cell=not args.hide_cell,
         show_axes=not args.hide_axes,
@@ -171,13 +193,24 @@ def run_gui(args: argparse.Namespace) -> int:
         initial_frame=initial_frame,
         initial_design_settings=initial_design_settings,
         document_name=path.name if path is not None else "Untitled",
-        open_browser=not args.no_browser,
+        open_browser=not args.no_browser and not args.for_ai,
         stream_trajectory=args.stream_frames,
     )
 
-    if args.no_block:
-        print(f"Viewer URL: {result.url}")
-        print("Server is kept alive for manual testing. Press Ctrl+C here to stop it.")
+    if keep_alive:
+        if args.for_ai:
+            from v_ase.ai import ai_handshake
+
+            print(json.dumps(ai_handshake(result.url), separators=(",", ":")), flush=True)
+            print(
+                "v_ase AI session is running. Open the reported human_url for "
+                "the normal GUI; press Ctrl+C here to stop it.",
+                file=sys.stderr,
+                flush=True,
+            )
+        else:
+            print(f"Viewer URL: {result.url}")
+            print("Server is kept alive for manual testing. Press Ctrl+C here to stop it.")
         try:
             while True:
                 time.sleep(3600)

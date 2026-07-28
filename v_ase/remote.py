@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import shlex
 import shutil
@@ -79,14 +80,16 @@ def build_remote_gui_command(
         command.extend(["--output", str(args.output)])
     if args.output_format:
         command.extend(["--output-format", str(args.output_format)])
-    if args.show_bonds:
-        command.append("--show-bonds")
+    if not args.show_bonds:
+        command.append("--hide-bonds")
     if args.hide_cell:
         command.append("--hide-cell")
     if args.hide_axes:
         command.append("--hide-axes")
     if args.interactive:
         command.append("--interactive")
+    if args.for_ai:
+        command.append("--for-ai")
     command.extend(["--", target.path])
     return shlex.join(command)
 
@@ -271,7 +274,17 @@ def launch_remote_gui(args: argparse.Namespace, target: RemoteTarget) -> int:
         )
         drain_thread.start()
 
-        if args.no_browser or not open_browser_url(local_url):
+        if args.for_ai:
+            from .ai import ai_handshake
+
+            print(json.dumps(ai_handshake(local_url), separators=(",", ":")), flush=True)
+            print(
+                "The structure remains on the remote host. Open the reported "
+                "human_url for the normal GUI.",
+                file=sys.stderr,
+                flush=True,
+            )
+        elif args.no_browser or not open_browser_url(local_url):
             print(
                 "Open this URL in your browser:\n"
                 f"{local_url}",

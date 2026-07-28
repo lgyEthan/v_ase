@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.96&amp;rev=3">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.97&amp;rev=3">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.96';
+            : '/static/vendor/three.module.js?v=0.0.97';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -63,7 +63,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.96</span>
+            <span class="version">0.0.97</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -452,6 +452,20 @@
                     <option value="2d">2D flat</option>
                 </select>
             </div>
+            <div class="prop-row">
+                <label for="chk-antialias">Anti-aliasing</label>
+                <input type="checkbox" id="chk-antialias" checked>
+            </div>
+            <div class="prop-row">
+                <label for="sphere-quality">Atom smoothness</label>
+                <select id="sphere-quality">
+                    <option value="auto">Auto</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="ultra">Ultra</option>
+                    <option value="low">Low</option>
+                </select>
+            </div>
             <div class="prop-row atomic-scale-row">
                 <label for="atomic-scale">Atomic scale</label>
                 <div class="atomic-scale-control">
@@ -498,20 +512,6 @@
 
         <details class="panel-section" open data-panel="appearance" data-panel-group="structure">
             <summary class="section-header">Appearance</summary>
-            <div class="prop-row">
-                <label for="chk-antialias">Anti-aliasing</label>
-                <input type="checkbox" id="chk-antialias" checked>
-            </div>
-            <div class="prop-row">
-                <label for="sphere-quality">Atom smoothness</label>
-                <select id="sphere-quality">
-                    <option value="auto">Auto</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                    <option value="ultra">Ultra</option>
-                    <option value="low">Low</option>
-                </select>
-            </div>
             <div class="range-row">
                 <div class="range-head">
                     <label for="atom-radius-scale">Atom radius</label>
@@ -617,11 +617,11 @@
             </div>
             <div class="prop-row">
                 <label for="chk-commensurate-guide">Commensurate guide</label>
-                <input type="checkbox" id="chk-commensurate-guide">
+                <input type="checkbox" id="chk-commensurate-guide" checked>
             </div>
             <div class="prop-row">
                 <label for="chk-commensurate-snap">Magnetic angle snap</label>
-                <input type="checkbox" id="chk-commensurate-snap" checked>
+                <input type="checkbox" id="chk-commensurate-snap">
             </div>
             <div class="prop-row">
                 <label for="commensurate-strain">Boundary strain / %</label>
@@ -677,7 +677,7 @@
             <div class="panel-subhead">Connectivity</div>
             <div class="prop-row">
                 <label for="chk-bonds">Show Bonds</label>
-                <input type="checkbox" id="chk-bonds">
+                <input type="checkbox" id="chk-bonds" checked>
             </div>
             <div class="prop-row">
                 <label for="chk-periodic-bonds" title="Include minimum-image bonds to periodic copies outside the displayed cell">Periodic image bonds</label>
@@ -754,7 +754,15 @@
                     <label for="calc-cpus">CPU threads</label>
                     <select id="calc-cpus"></select>
                 </div>
-                <p class="panel-note">Device and thread settings affect only the built-in Repulsion calculator.</p>
+                <div class="prop-row">
+                    <label for="calc-cutoff-scale">Cutoff scale</label>
+                    <input type="number" id="calc-cutoff-scale" value="0.70" min="0.05" max="3" step="0.05" inputmode="decimal">
+                </div>
+                <div class="prop-row">
+                    <label for="calc-strength">Strength</label>
+                    <input type="number" id="calc-strength" value="1.0" min="0" max="1000" step="0.1" inputmode="decimal">
+                </div>
+                <p class="panel-note">Cutoff scales pair radii; strength is the harmonic repulsion constant. These settings affect only the built-in Repulsion calculator.</p>
             </div>
             <div class="relax-grid">
                 <label>fmax</label>
@@ -962,7 +970,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.96&rev=3';
+            : './static/main.js?v=0.0.97&rev=3';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

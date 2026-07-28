@@ -1,4 +1,5 @@
 import shlex
+import json
 import tomllib
 from pathlib import Path
 
@@ -38,6 +39,8 @@ def test_v_ase_gui_parser_accepts_an_empty_workspace():
     assert args.interactive is False
     assert args.no_browser is False
     assert args.port is None
+    assert args.show_bonds is True
+    assert args.for_ai is False
 
 
 def test_v_ase_gui_parser_accepts_headless_server_mode():
@@ -104,7 +107,6 @@ def test_remote_gui_command_preserves_user_options_and_quotes_the_path():
         "--stream-frames",
         "--format",
         "extxyz",
-        "--show-bonds",
         "--interactive",
         "--",
         "/data/final structure.extxyz",
@@ -121,6 +123,45 @@ def test_remote_url_is_rewritten_to_the_automatically_selected_local_endpoint():
         "http://127.0.0.1:49152/workspace"
         "?workspace_id=workspace&session_id=session"
     )
+
+
+def test_for_ai_prints_one_machine_readable_handshake_and_keeps_session_alive(
+    monkeypatch,
+    capsys,
+):
+    parser = build_parser()
+    args = parser.parse_args(["gui", "--for-ai"])
+    captured = {}
+
+    class FakeEditor:
+        url = (
+            "http://127.0.0.1:49152/workspace"
+            "?workspace_id=workspace&session_id=session"
+        )
+
+        def close(self):
+            captured["closed"] = True
+
+    def fake_view(frames, **kwargs):
+        captured["frames"] = frames
+        captured["kwargs"] = kwargs
+        return FakeEditor()
+
+    monkeypatch.setattr("v_ase.cli.view", fake_view)
+    monkeypatch.setattr("v_ase.cli.time.sleep", lambda _seconds: (_ for _ in ()).throw(KeyboardInterrupt()))
+
+    assert run_gui(args) == 0
+    stdout = capsys.readouterr().out.strip()
+    handshake = json.loads(stdout)
+    assert handshake["protocol"] == "v_ase.ai.v1"
+    assert handshake["status"] == "ready"
+    assert handshake["session_id"] == "session"
+    assert handshake["browser_api"] == "window.v_aseAI"
+    assert handshake["state_url"].endswith("/api/ai/state/session")
+    assert captured["kwargs"]["block"] is False
+    assert captured["kwargs"]["open_browser"] is False
+    assert captured["kwargs"]["show_bonds"] is True
+    assert captured["closed"] is True
 
 
 def test_run_gui_delegates_remote_targets_before_local_file_validation(monkeypatch):
@@ -251,9 +292,16 @@ def test_v_ase_gui_parser_defaults_to_visualization_mode_and_accepts_interactive
 
     assert args.file == "movie.extxyz"
     assert args.interactive is False
+    assert args.show_bonds is True
 
     interactive = parser.parse_args(["gui", "movie.extxyz", "--interactive"])
     assert interactive.interactive is True
+
+    hidden = parser.parse_args(["gui", "movie.extxyz", "--hide-bonds"])
+    assert hidden.show_bonds is False
+
+    agent = parser.parse_args(["gui", "movie.extxyz", "--for-ai"])
+    assert agent.for_ai is True
 
 
 def test_v_ase_visualize_import_path_exposes_view():
@@ -267,6 +315,7 @@ def test_pyproject_exposes_v_ase_console_script():
 
     assert config["project"]["scripts"]["v_ase"] == "v_ase.cli:main"
     assert config["project"]["name"] == "v_ase-gui"
+    assert "skills_v_ase.md" in config["tool"]["setuptools"]["package-data"]["v_ase"]
 
 
 def test_read_structure_frames_supports_single_structure_files(tmp_path):

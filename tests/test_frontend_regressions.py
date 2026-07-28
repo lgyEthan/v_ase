@@ -702,6 +702,14 @@ def test_camera_view_background_and_2d_display_controls_are_wired():
     assert 'id="btn-view-toggle"' not in index_html
     assert 'id="viewport-background"' in index_html
     assert 'id="atom-display-mode"' in index_html
+    viewport_start = index_html.index('data-panel="view"')
+    appearance_start = index_html.index('data-panel="appearance"')
+    anti_aliasing = index_html.index('id="chk-antialias"')
+    atom_smoothness = index_html.index('id="sphere-quality"')
+    atom_radius = index_html.index('id="atom-radius-scale"')
+    assert viewport_start < anti_aliasing < appearance_start
+    assert viewport_start < atom_smoothness < appearance_start
+    assert appearance_start < atom_radius
     assert "setupViewControls()" in main_js
     assert "cameraViewBasis()" in main_js
     assert "rotateCameraView(direction, stepDegrees" in main_js
@@ -744,9 +752,36 @@ def test_camera_view_background_and_2d_display_controls_are_wired():
     assert "new THREE.MeshBasicMaterial" in renderer_js
     assert "applyFlatAtomShader(material, isFixed)" in renderer_js
     assert "material.userData.flatOutlineEnabled = outline" in renderer_js
+    assert "applyFlatBondShader(material)" in renderer_js
+    assert "flatBondOutlineApplied" in renderer_js
     assert "vec3(0.012)" in renderer_js
     assert ".view-toolbar" in style_css
     assert ".view-arrow-btn" in style_css
+
+
+def test_new_scientific_defaults_and_ai_control_contract_are_wired():
+    index_html = (ROOT / "v_ase/static/index.html").read_text()
+    main_js = (ROOT / "v_ase/static/main.js").read_text()
+    workspace_js = (ROOT / "v_ase/static/workspace.js").read_text()
+    cli_py = (ROOT / "v_ase/cli.py").read_text()
+    server_py = (ROOT / "v_ase/server.py").read_text()
+    skill = (ROOT / "v_ase/skills_v_ase.md").read_text()
+
+    assert 'id="chk-bonds" checked' in index_html
+    assert 'id="chk-commensurate-guide" checked' in index_html
+    assert 'id="chk-commensurate-snap">' in index_html
+    assert 'id="calc-cutoff-scale" value="0.70"' in index_html
+    assert 'id="calc-strength" value="1.0"' in index_html
+    assert "showBonds: true" in main_js
+    assert "commensurateGuide: true" in main_js
+    assert "commensurateSnap: false" in main_js
+    assert "camera.getWorldQuaternion" in main_js
+    assert "kindSelect.dataset.draftKind" in main_js
+    assert "window.v_aseAI" in main_js
+    assert "window.v_aseAI" in workspace_js
+    assert "--for-ai" in cli_py
+    assert '@app.get("/api/ai/state/{session_id}")' in server_py
+    assert "ai.render" in skill
 
 
 def test_open_file_uses_the_native_system_picker_immediately():

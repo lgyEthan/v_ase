@@ -15,7 +15,7 @@ viewer_result = view(
     port=None,
     show_cell=True,
     show_axes=True,
-    show_bonds=False,
+    show_bonds=True,
     respect_constraints=True,
     allow_relax=True,
     viz_only=True,
@@ -47,6 +47,7 @@ Important options:
 - `respect_constraints=True` commits coordinates through ASE constraint logic.
 - `close_on_disconnect=True` lets a closed browser document release a blocking
   Python or CLI call.
+- `show_bonds=True` is the default; pass `False` for an atom-only initial view.
 
 The caller's input object is copied and is never mutated.
 
@@ -106,6 +107,7 @@ v_ase gui
 v_ase gui FILE
 v_ase gui HOST:/REMOTE/FILE
 v_ase gui FILE --interactive
+v_ase gui FILE --for-ai
 v_ase gui AMBIGUOUS --format FORMAT
 v_ase gui FILE --no-browser
 ```
@@ -130,6 +132,11 @@ changes request only the needed frame through the encrypted tunnel.
 applies the same per-frame transfer policy to a local trajectory. `--port`
 remains an advanced override for a predetermined local integration endpoint;
 neither option is required for `HOST:/REMOTE/FILE`.
+
+`--for-ai` suppresses automatic browser launch, prints one JSON handshake, and
+keeps the session alive. Its semantic state and browser control schema avoid
+pixel-based structure inspection; the reported `human_url` opens the same live
+document for normal use.
 
 The browser **Open** dialog can replace the active document, append selected
 frames to its trajectory, or open an independent workspace tab. `.vase`
@@ -166,14 +173,21 @@ Visualization mode does not attach it.
 ```python
 from v_ase.calculators import RepulsionCalculator
 
-atoms.calc = RepulsionCalculator(device="cpu", cpu_threads=4)
+atoms.calc = RepulsionCalculator(
+    device="cpu",
+    cpu_threads=4,
+    cutoff_scale=0.70,
+    k_repulsion=1.0,
+)
 energy = atoms.get_potential_energy()
 forces = atoms.get_forces()
 ```
 
 Torch is optional. The calculator uses NumPy when torch is absent and can use
 torch CPU or CUDA when available. Browser DEVICE/CPU controls apply only to
-this built-in calculator.
+this built-in calculator. `cutoff_scale` multiplies its pair-distance
+thresholds; `k_repulsion` scales the repulsive force. Both are editable under
+**Structure > Relaxation** and persist with supported calculator state.
 
 Compatibility imports remain available from `v_ase`, `v_ase.calculator`, and
 `v_ase.repulsion`. `Conditioner` is an alias for the same class.
@@ -230,6 +244,7 @@ Endpoint groups:
 - POSCAR, ASE Pickle, image/video support, Blender, 3DM, and OBJ export;
 - visual-settings and `.vase` save/load;
 - binary current-frame and full-trajectory coordinate transfer.
+- semantic AI schema, skill guide, and current-frame state.
 
 Mutable structure requests and structure/CAD exports carry `frame_index`. The
 server switches to that frame before applying browser coordinates or producing
@@ -264,6 +279,17 @@ POST /api/analysis/displacement/{session_id}
 The payload selects the current/reference frames and MIC policy. Common unique
 particle-ID arrays are preferred; equal-size frames fall back to atom index.
 Different-size frames without IDs return a physical-mapping error.
+
+Agent discovery and semantic state are available through:
+
+```text
+GET /api/ai/schema
+GET /api/ai/skill
+GET /api/ai/state/{session_id}
+```
+
+The live browser exposes `window.v_aseAI.ready()`, `describe()`, `apply()`, and
+`render()`. Rendering uses the same capture path as Export Image.
 
 WebSockets stream relaxation updates and own browser-document/workspace
 lifetime. Closing the last connected browser document finalizes blocking calls

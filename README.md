@@ -57,6 +57,9 @@ or start there directly:
 v_ase gui structure.vasp --interactive
 ```
 
+Automatic bonds are visible by default. Use `--hide-bonds` for an atom-only
+view.
+
 ## Practical Guide
 
 | Goal | Action |
@@ -69,6 +72,7 @@ v_ase gui structure.vasp --interactive
 | Repeat or wrap a cell | Use **Structure > Cell & Replication** |
 | Save the complete session | Use **Export > Save Project** to create a self-contained `.vase` |
 | Work with a remote file | Run `v_ase gui HOST:/path/to/STRUCTURE` locally |
+| Let an AI inspect and render | Run `v_ase gui FILE --for-ai` and provide the JSON handshake |
 
 > **Tip:** After selecting atoms, press `Esc` to close the control panel before
 > starting `G`/`R` transforms. This returns keyboard focus to the viewport
@@ -82,6 +86,27 @@ The current structure, trajectory frame, camera, labels, appearance, bonds,
 and selection remain in place during a mode change. If individual atoms have
 different visual materials, switching to View creates numbered labels only for
 those visual variants. Position-only edits stay in the same label group.
+
+## AI And Agent Use
+
+Start an agent-ready session without creating a separate renderer:
+
+```bash
+v_ase gui STRUCTURE --for-ai
+```
+
+v_ase prints one JSON handshake containing the live GUI URL, semantic structure
+state, control schema, and bundled agent guide. An agent reads coordinates,
+cell, PBC, labels, constraints, frame state, visual settings, and camera
+directly instead of repeatedly interpreting screenshots. It can set a
+deterministic camera, configure the view, select atoms, and request a PNG
+through the same renderer used by **Export Image**.
+
+The interface is vendor-neutral and exposed as `window.v_aseAI` in the live
+page. Open the handshake's `human_url` at any time to take over the same
+document, frame, camera, and settings in the regular GUI. Complete command and
+JavaScript examples are available at its `skill_url` and installed as
+`v_ase/skills_v_ase.md`.
 
 ## Opening And Documents
 
@@ -199,7 +224,7 @@ selected.
 ![FixedLine movement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedline.gif)
 
 ```bash
-v_ase gui examples/readme_scene_assets/fixedline.traj --show-bonds --interactive
+v_ase gui examples/readme_scene_assets/fixedline.traj --interactive
 ```
 
 ### FixedPlane And FixScaled
@@ -212,7 +237,7 @@ marker visible without selection.
 ![FixedPlane movement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedplane.gif)
 
 ```bash
-v_ase gui examples/readme_scene_assets/fixedplane.traj --show-bonds --interactive
+v_ase gui examples/readme_scene_assets/fixedplane.traj --interactive
 ```
 
 ### FixAtoms
@@ -230,7 +255,7 @@ state. The spring engages only after the constrained distance passes `rt`.
 ![Hookean motion](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_hookean.gif)
 
 ```bash
-v_ase gui examples/readme_scene_assets/hookean.traj --show-bonds --interactive
+v_ase gui examples/readme_scene_assets/hookean.traj --interactive
 ```
 
 ## Editing And Measurement
@@ -240,7 +265,8 @@ supercells, and wrapping are available from **Structure**. **Translate atoms**
 moves every frame while keeping the cell fixed; enter either Cartesian values
 in Angstrom or fractional cell coordinates, then select **Apply Translation**.
 Axis-locked rotation can show low-strain commensurate cell-boundary angles and
-optionally snap to them.
+optionally snap to them. The guide is enabled by default; magnetic snapping is
+opt-in.
 
 ![Rotate mode](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_rotate.png)
 
@@ -278,17 +304,18 @@ controls together: **Atoms & Appearance**, **Cell & Replication**,
   for clear element colors and a dark background option;
 - 3D spheres/cylinders or 2D atoms/flat bonds;
 - live atomic scale in pixels per Angstrom;
+- anti-aliasing and atom smoothness controls;
 - unit cell, axes, grid, and overlay controls;
 - unit-cell color, thickness in Angstrom, and Unlit, Standard, or Metal
   material.
 
 **Structure > Atoms & Appearance** controls per-label TYPE, label, visibility,
-color, radius, material, atom smoothness, and anti-aliasing. New documents use
-a `0.60x` atom radius. Material presets are **Standard**, **Metal**, and
-**Rubber**. In View, a preset applies to a complete label group. In Edit,
-selected atoms can use independent materials and can be merged into an existing
-label by entering that exact label. Chemical TYPE remains synchronized with ASE
-while labels control visual grouping.
+color, radius, and material. New documents use a `0.60x` atom radius. Material
+presets are **Standard**, **Metal**, and **Rubber**. In View, a preset applies
+to a complete label group. In Edit, selected atoms can use independent
+materials and can be merged into an existing label by entering that exact
+label. Chemical TYPE remains synchronized with ASE while labels control visual
+grouping.
 
 The top-bar renderer switches among **Modeling**, **Studio Sun**, and
 **Sun + Soft Shadow**. Sun intensity, source, target, and viewport handles are
@@ -299,8 +326,14 @@ label-pair specifications, and manual atom-index pairs. Each pair specification
 has an enable checkbox plus minimum and maximum distances in Angstrom. Changes
 apply immediately; no separate apply step is required. Thickness, cylinder/flat
 style, custom color, and midpoint-split atom colors are configurable. New
-documents use a `0.25 A` bond diameter. Interactive bonds form and break during
-atom transforms.
+documents show bonds by default and use a `0.25 A` bond diameter. Interactive
+bonds form and break during atom transforms.
+
+**Structure > Relaxation** exposes the repulsive fallback calculator's cutoff
+scale and strength. The default cutoff scale is `0.70`; reducing it shortens
+the pair-interaction range, while strength scales the repulsive force. These
+controls affect only the repulsive calculator, not visualization or bond
+cutoffs.
 
 ![Bond pair specifications](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_bonds.png)
 

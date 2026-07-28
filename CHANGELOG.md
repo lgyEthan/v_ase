@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.97
+
+- Moved anti-aliasing and atom smoothness into View while keeping label and
+  atom appearance controls with Structure.
+- Made camera tilt and orbit derive from the live screen basis, including
+  arbitrary rolled views and transformed cells.
+- Reworked Metal into a stronger shared studio-reflection material and added
+  persistent high-contrast atom and bond outlines in flat 2D mode.
+- Enabled bonds and the commensurate guide by default, kept magnetic snapping
+  opt-in, and verified the exact hexagonal angle family for graphene and h-BN.
+- Added editable repulsion cutoff scale and force strength with a `0.70`
+  default cutoff scale, plus stable constraint-vector keyboard entry.
+- Added `--for-ai`, semantic structure state, deterministic browser control,
+  exact renderer output, a machine-readable schema, and an installed
+  vendor-neutral agent guide with immediate human takeover.
+
 ## 0.0.96
 
 - Rebuilt the transparent rendered V_ASE logo with a dark-teal atom substrate,

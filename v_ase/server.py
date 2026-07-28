@@ -6,6 +6,7 @@ import pickle
 import io
 import json
 import tempfile
+from collections import Counter
 from pathlib import Path
 from typing import Dict, Any, List
 from .session import (
@@ -30,6 +31,7 @@ from .repulsion import (
     repulsion_metadata,
 )
 from .commensurate import find_commensurate_angles
+from .ai import AI_PROTOCOL
 from .project import (
     PROJECT_MIME,
     SETTINGS_SCHEMA,
@@ -138,6 +140,116 @@ MAX_BINARY_TRAJECTORY_CACHE_VALUES = 30_000_000
 MAX_UPLOADED_STRUCTURE_BYTES = 64 * 1024 * 1024 * 1024
 MAX_UPLOADED_VIDEO_BYTES = 2 * 1024 * 1024 * 1024
 MAX_LAUNCH_DIRECTORY_ENTRIES = 5000
+
+AI_CONTROL_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://github.com/lgyEthan/v_ase/blob/main/v_ase/skills_v_ase.md",
+    "title": "v_ase semantic browser control",
+    "description": (
+        "Commands accepted by window.v_aseAI.apply(). They control the same "
+        "live document that a human sees in the v_ase GUI."
+    ),
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "frame": {"type": "integer", "minimum": 0},
+        "mode": {"enum": ["view", "edit"]},
+        "display": {
+            "type": "object",
+            "description": (
+                "Partial visual settings. Common keys include showBonds, "
+                "showCell, showAxes, showGrid, viewportBackground, "
+                "atomDisplayMode, atomRadiusScale, bondThickness, "
+                "lightingMode, sunIntensity, sunPosition, and sunTarget."
+            ),
+            "additionalProperties": True,
+        },
+        "selection": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "clear": {"type": "boolean"},
+                "indices": {
+                    "type": "array",
+                    "items": {"type": "integer", "minimum": 0},
+                    "uniqueItems": True,
+                },
+                "references": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["index", "cellOffset"],
+                        "properties": {
+                            "index": {"type": "integer", "minimum": 0},
+                            "cellOffset": {
+                                "type": "array",
+                                "prefixItems": [
+                                    {"type": "integer"},
+                                    {"type": "integer"},
+                                    {"type": "integer"},
+                                ],
+                                "minItems": 3,
+                                "maxItems": 3,
+                            },
+                        },
+                    },
+                },
+            },
+        },
+        "camera": {
+            "type": "object",
+            "description": (
+                "Use axis for a deterministic +/-X, +/-Y, or +/-Z view; use "
+                "position/target/up for an explicit camera; fit='structure' "
+                "frames the complete structure; orbit applies screen-relative "
+                "left/right/up/down/roll-cw/roll-ccw rotations."
+            ),
+            "additionalProperties": True,
+            "properties": {
+                "axis": {
+                    "enum": ["+X", "-X", "+Y", "-Y", "+Z", "-Z"],
+                },
+                "position": {
+                    "type": "array",
+                    "items": {"type": "number"},
+                    "minItems": 3,
+                    "maxItems": 3,
+                },
+                "target": {
+                    "type": "array",
+                    "items": {"type": "number"},
+                    "minItems": 3,
+                    "maxItems": 3,
+                },
+                "up": {
+                    "type": "array",
+                    "items": {"type": "number"},
+                    "minItems": 3,
+                    "maxItems": 3,
+                },
+                "projection": {"enum": ["orthographic", "perspective"]},
+                "fit": {"enum": ["structure"]},
+                "orbit": {
+                    "type": "object",
+                    "required": ["direction"],
+                    "properties": {
+                        "direction": {
+                            "enum": [
+                                "left", "right", "up", "down",
+                                "roll-cw", "roll-ccw",
+                            ],
+                        },
+                        "degrees": {
+                            "type": "number",
+                            "exclusiveMinimum": 0,
+                            "maximum": 360,
+                        },
+                    },
+                },
+            },
+        },
+    },
+}
 
 
 def trajectory_layout_compatible(session: EditorSession) -> bool:
@@ -1110,12 +1222,24 @@ def update_atom_constraints_where_present(
     )
 
 
-def configure_repulsion_calculators(session: EditorSession, *, device=None, cpu_threads=None):
+def configure_repulsion_calculators(
+    session: EditorSession,
+    *,
+    device=None,
+    cpu_threads=None,
+    cutoff_scale=None,
+    k_repulsion=None,
+):
     configured = False
     frames = [session.working_atoms, *session.trajectory_frames, *session.original_frames]
     for atoms in frames:
         if is_vase_repulsion_calculator(atoms.calc):
-            atoms.calc.configure(device=device, cpu_threads=cpu_threads)
+            atoms.calc.configure(
+                device=device,
+                cpu_threads=cpu_threads,
+                cutoff_scale=cutoff_scale,
+                k_repulsion=k_repulsion,
+            )
             configured = True
     return configured
 
@@ -1194,6 +1318,52 @@ async def close_workspace_browser(workspace_id: str, client_id: str):
 async def get_atoms(session_id: str):
     session = get_session(session_id)
     return session_atoms_to_json(session)
+
+
+@app.get("/api/ai/schema")
+async def ai_control_schema():
+    return {
+        "protocol": AI_PROTOCOL,
+        "control_schema": AI_CONTROL_SCHEMA,
+        "browser_api": {
+            "object": "window.v_aseAI",
+            "methods": [
+                "ready()",
+                "describe()",
+                "apply(command)",
+                "render({width, height, options})",
+            ],
+        },
+    }
+
+
+@app.get("/api/ai/skill")
+async def ai_skill():
+    path = Path(__file__).with_name("skills_v_ase.md")
+    return Response(
+        content=path.read_text(encoding="utf-8"),
+        media_type="text/markdown; charset=utf-8",
+    )
+
+
+@app.get("/api/ai/state/{session_id}")
+async def ai_semantic_state(session_id: str):
+    session = get_session(session_id)
+    data = session_update_to_json(session)
+    labels = [str(value) for value in data.get("labels", data.get("symbols", []))]
+    elements = [str(value) for value in data.get("chemical_symbols", [])]
+    data["ai"] = {
+        "protocol": AI_PROTOCOL,
+        "units": {"length": "angstrom", "angle": "degree"},
+        "document_name": str((session.config or {}).get("document_name") or "Untitled"),
+        "mode": "view" if is_viz_only(session) else "edit",
+        "frame": int(session.current_frame),
+        "frame_count": int(session.frame_count),
+        "label_counts": dict(Counter(labels)),
+        "element_counts": dict(Counter(elements)),
+        "browser_control": "window.v_aseAI",
+    }
+    return data
 
 
 @app.post("/api/mode/{session_id}")
@@ -2081,6 +2251,8 @@ async def update_calculator(session_id: str, payload: Dict[str, Any]):
         session,
         device=payload.get("device"),
         cpu_threads=payload.get("cpu_threads"),
+        cutoff_scale=payload.get("cutoff_scale"),
+        k_repulsion=payload.get("k_repulsion"),
     )
     session.sync_current_frame()
     return session_update_to_json(session)

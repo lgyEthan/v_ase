@@ -300,6 +300,7 @@ def _write_calculator_sidecar(path: Path, frames: list[Atoms]) -> dict[str, Any]
                 "set_region_as_prohibited": calculator.set_region_as_prohibited,
                 "k_boundary": calculator.k_boundary,
                 "k_repulsion": calculator.k_repulsion,
+                "cutoff_scale": calculator.cutoff_scale,
                 "max_force_norm": calculator.max_force_norm,
                 "mic": calculator.mic,
                 "work_on_relax_atoms_too": calculator.work_on_relax_atoms_too,
@@ -341,7 +342,11 @@ def _restore_calculator_sidecar(frames: list[Atoms], path: Path, manifest: Any) 
                     raise ValueError("Missing calculator result array in .vase project.")
                 results[name] = np.array(arrays[key], copy=True)
             if entry.get("kind") == "v_ase_repulsion":
-                calculator = VAseRepulsionCalculator(**(entry.get("parameters") or {}))
+                parameters = dict(entry.get("parameters") or {})
+                # Projects written before cutoff_scale was persisted used the
+                # unscaled radius threshold. Preserve that behavior on load.
+                parameters.setdefault("cutoff_scale", 1.0)
+                calculator = VAseRepulsionCalculator(**parameters)
                 calculator.atoms = frame.copy()
                 calculator.results = results
                 frame.calc = calculator

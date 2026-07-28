@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.96&rev=3';
-import { ASERenderer } from './renderer.js?v=0.0.96&rev=3';
-import { ASESelection } from './selection.js?v=0.0.96&rev=3';
-import { ASETransform } from './transform.js?v=0.0.96&rev=3';
+import { ASEApi } from './api.js?v=0.0.97&rev=3';
+import { ASERenderer } from './renderer.js?v=0.0.97&rev=3';
+import { ASESelection } from './selection.js?v=0.0.97&rev=3';
+import { ASETransform } from './transform.js?v=0.0.97&rev=3';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.96&rev=3';
+} from './trajectory.js?v=0.0.97&rev=3';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -86,7 +86,7 @@ class VAseApp {
             suppressNextPointerUp: false,
             clipboard: null,
             display: {
-                showBonds: false,
+                showBonds: true,
                 showCell: true,
                 showAxes: true,
                 showGrid: true,
@@ -111,8 +111,8 @@ class VAseApp {
                 labelMaterials: {},
                 atomMaterials: {},
                 rotatePivot: 'selection',
-                commensurateGuide: false,
-                commensurateSnap: true,
+                commensurateGuide: true,
+                commensurateSnap: false,
                 commensurateStrainTolerance: 0.01,
                 commensurateMaxIndex: 32,
                 commensurateSnapRangeDeg: 2.0,
@@ -210,7 +210,7 @@ class VAseApp {
             window.addEventListener('message', this.handleWorkspaceMessage);
         }
 
-        this.init();
+        this.ready = this.init();
     }
 
     async init() {
@@ -1530,16 +1530,11 @@ class VAseApp {
         const camera = this.renderer.camera;
         const target = this.renderer.controls.target.clone();
         const offset = camera.position.clone().sub(target);
-        const backward = offset.clone().normalize();
-        const forward = backward.clone().negate();
-        let right = forward.clone().cross(camera.up).normalize();
-        if (right.lengthSq() < 1e-10) {
-            const fallbackUp = Math.abs(forward.z) < 0.9
-                ? new THREE.Vector3(0, 0, 1)
-                : new THREE.Vector3(0, 1, 0);
-            right = forward.clone().cross(fallbackUp).normalize();
-        }
-        const up = right.clone().cross(forward).normalize();
+        camera.updateMatrixWorld(true);
+        const orientation = camera.getWorldQuaternion(new THREE.Quaternion());
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(orientation).normalize();
+        const up = new THREE.Vector3(0, 1, 0).applyQuaternion(orientation).normalize();
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(orientation).normalize();
         return { target, offset, forward, right, up };
     }
 
@@ -1883,9 +1878,21 @@ class VAseApp {
         if (!details.is_default_repulsion) return null;
         const device = document.getElementById('calc-device')?.value || details.requested_device || 'cpu';
         const cpuThreads = parseInt(document.getElementById('calc-cpus')?.value || details.cpu_threads || '4', 10);
+        const cutoffScaleValue = Number(
+            document.getElementById('calc-cutoff-scale')?.value ?? details.cutoff_scale ?? 0.7
+        );
+        const strengthValue = Number(
+            document.getElementById('calc-strength')?.value ?? details.k_repulsion ?? 1.0
+        );
         return {
             device,
-            cpu_threads: Number.isFinite(cpuThreads) ? cpuThreads : 4
+            cpu_threads: Number.isFinite(cpuThreads) ? cpuThreads : 4,
+            cutoff_scale: Number.isFinite(cutoffScaleValue)
+                ? Math.max(0.05, Math.min(3, cutoffScaleValue))
+                : 0.7,
+            k_repulsion: Number.isFinite(strengthValue)
+                ? Math.max(0, Math.min(1000, strengthValue))
+                : 1.0
         };
     }
 
@@ -1903,7 +1910,9 @@ class VAseApp {
         const controls = document.getElementById('calc-controls');
         const device = document.getElementById('calc-device');
         const cpus = document.getElementById('calc-cpus');
-        if (!controls || !device || !cpus) return;
+        const cutoffScale = document.getElementById('calc-cutoff-scale');
+        const strength = document.getElementById('calc-strength');
+        if (!controls || !device || !cpus || !cutoffScale || !strength) return;
 
         const isRepulsion = Boolean(details.is_default_repulsion);
         controls.classList.toggle('disabled', !isRepulsion);
@@ -1931,6 +1940,14 @@ class VAseApp {
         if (cudaOption) cudaOption.disabled = !details.cuda_available;
         device.disabled = !isRepulsion || this.state.isRelaxing;
         cpus.disabled = !isRepulsion || this.state.isRelaxing || device.value !== 'cpu';
+        if (document.activeElement !== cutoffScale) {
+            cutoffScale.value = Number(details.cutoff_scale ?? 0.7).toFixed(2);
+        }
+        if (document.activeElement !== strength) {
+            strength.value = Number(details.k_repulsion ?? 1.0).toFixed(2);
+        }
+        cutoffScale.disabled = !isRepulsion || this.state.isRelaxing;
+        strength.disabled = !isRepulsion || this.state.isRelaxing;
     }
 
     async applyCalculatorControls() {
@@ -2336,7 +2353,7 @@ class VAseApp {
     applyInitialDisplayConfig(data) {
         if (this.state.displayConfigLoaded) return;
         const config = data.metadata?.config || {};
-        this.state.display.showBonds = Boolean(config.show_bonds);
+        this.state.display.showBonds = config.show_bonds !== false;
         this.state.display.showCell = config.show_cell !== false;
         this.state.display.showAxes = config.show_axes !== false;
         this.state.display.showGrid = config.show_grid !== false;
@@ -2387,7 +2404,9 @@ class VAseApp {
         this.state.display.commensurateGuide = Boolean(
             config.commensurate_guide ?? config.unit_cell_aware_rotate ?? this.state.display.commensurateGuide
         );
-        this.state.display.commensurateSnap = config.commensurate_snap !== false;
+        this.state.display.commensurateSnap = Boolean(
+            config.commensurate_snap ?? this.state.display.commensurateSnap
+        );
         const initialStrainTolerance = Number(config.commensurate_strain_tolerance);
         const initialMaxIndex = parseInt(config.commensurate_max_index, 10);
         const initialSnapRange = Number(config.commensurate_snap_range_deg);
@@ -2644,6 +2663,11 @@ class VAseApp {
         if (!fixBox || !kindSelect) return;
 
         const hasSelection = indices.length > 0;
+        const selectionSignature = indices.join(',');
+        if (kindSelect.dataset.selectionSignature !== selectionSignature) {
+            kindSelect.dataset.selectionSignature = selectionSignature;
+            delete kindSelect.dataset.draftKind;
+        }
         const fixedState = this.selectedFixAtomsState(indices);
         fixBox.disabled = !hasSelection || this.state.vizOnly;
         fixBox.checked = fixedState === 'all';
@@ -2651,11 +2675,13 @@ class VAseApp {
         fixBox.dataset.fixAtomsState = fixedState;
 
         const directional = this.selectedDirectionalConstraintState(indices);
-        if (document.activeElement !== kindSelect) {
+        const draftKind = kindSelect.dataset.draftKind;
+        const hasDirectionalDraft = hasSelection && ['fixed_line', 'fixed_plane'].includes(draftKind);
+        if (!hasDirectionalDraft && document.activeElement !== kindSelect && !inputs.includes(document.activeElement)) {
             kindSelect.value = directional.kind;
         }
         kindSelect.disabled = !hasSelection || this.state.vizOnly;
-        if (directional.vector && !inputs.includes(document.activeElement)) {
+        if (directional.vector && !hasDirectionalDraft && !inputs.includes(document.activeElement)) {
             this.setConstraintVectorInputs(directional.vector);
         } else if (!hasSelection && !inputs.includes(document.activeElement)) {
             this.setConstraintVectorInputs([1, 0, 0]);
@@ -2680,7 +2706,7 @@ class VAseApp {
         const indices = [...this.state.selected].sort((a, b) => a - b);
         if (!indices.length) {
             this.toast('Select atoms before editing constraints.', 'warning');
-            return;
+            return false;
         }
         try {
             const data = await this.withBusy(
@@ -2692,8 +2718,10 @@ class VAseApp {
             this.updateSelectionVisuals();
             this.updateUI();
             this.toast('Constraints updated.', 'success');
+            return true;
         } catch (err) {
             this.toast(`Constraint update failed: ${err.message}`, 'error');
+            return false;
         }
     }
 
@@ -2721,14 +2749,27 @@ class VAseApp {
             this.toast(err.message, 'error');
             return;
         }
-        await this.updateSelectedConstraints(
+        const updated = await this.updateSelectedConstraints(
             { directional_kind: kind, vector },
             kind === 'fixed_line' ? 'Applying FixedLine...' : 'Applying FixedPlane...'
         );
+        if (updated) {
+            const kindSelect = document.getElementById('constraint-kind');
+            if (kindSelect) delete kindSelect.dataset.draftKind;
+            this.updateSelectionConstraintControls();
+        }
     }
 
     async clearSelectedDirectionalConstraint() {
-        await this.updateSelectedConstraints({ directional_kind: 'none' }, 'Clearing directional constraints...');
+        const updated = await this.updateSelectedConstraints(
+            { directional_kind: 'none' },
+            'Clearing directional constraints...'
+        );
+        if (updated) {
+            const kindSelect = document.getElementById('constraint-kind');
+            if (kindSelect) delete kindSelect.dataset.draftKind;
+            this.updateSelectionConstraintControls();
+        }
     }
 
     isEditableIndex(idx) {
@@ -5339,6 +5380,236 @@ class VAseApp {
         return JSON.parse(JSON.stringify(value));
     }
 
+    aiSelectionSnapshot() {
+        return this.selectionEntries().map(reference => {
+            const normalized = this.normalizeSelectionReference(reference);
+            if (!normalized) return null;
+            return normalized.kind === 'replica'
+                ? {
+                    kind: 'replica',
+                    index: normalized.index,
+                    cellOffset: [...normalized.cellOffset],
+                    label: this.selectionReferenceSymbol(normalized),
+                    position: this.selectionReferencePosition(normalized)?.toArray() || null
+                }
+                : {
+                    kind: 'atom',
+                    index: normalized.index,
+                    label: this.selectionReferenceSymbol(normalized),
+                    position: this.selectionReferencePosition(normalized)?.toArray() || null
+                };
+        }).filter(Boolean);
+    }
+
+    aiDescribe({ includePositions = true } = {}) {
+        const atoms = this.state.atoms || {};
+        const positions = includePositions
+            ? (atoms.positions || []).map((position, index) => {
+                const current = this.currentAtomPosition(index);
+                return current ? [...current] : [...position];
+            })
+            : undefined;
+        const labelCounts = {};
+        const elementCounts = {};
+        (atoms.symbols || []).forEach(label => {
+            labelCounts[label] = (labelCounts[label] || 0) + 1;
+        });
+        (atoms.chemical_symbols || []).forEach(symbol => {
+            elementCounts[symbol] = (elementCounts[symbol] || 0) + 1;
+        });
+        const result = {
+            protocol: 'v_ase.ai.v1',
+            units: { length: 'angstrom', angle: 'degree' },
+            document: this.workspaceDocumentTitle(),
+            mode: this.state.vizOnly ? 'view' : 'edit',
+            frame: Number(atoms.metadata?.current_frame || 0),
+            frameCount: Number(atoms.metadata?.frame_count || 1),
+            atomCount: Number(atoms.metadata?.natoms || atoms.positions?.length || 0),
+            labels: [...(atoms.symbols || [])],
+            chemicalSymbols: [...(atoms.chemical_symbols || [])],
+            atomicNumbers: [...(atoms.atomic_numbers || [])],
+            labelCounts,
+            elementCounts,
+            cell: this.clonePlain(atoms.cell || []),
+            pbc: [...(atoms.pbc || [])],
+            constraints: this.clonePlain(atoms.constraints || {}),
+            tags: [...(atoms.tags || [])],
+            charges: [...(atoms.charges || [])],
+            magneticMoments: [...(atoms.magmoms || [])],
+            forces: this.clonePlain(atoms.forces || []),
+            selection: this.aiSelectionSnapshot(),
+            measurement: this.getSelectionMeasureText(),
+            display: this.clonePlain(this.state.display),
+            camera: this.cameraHistorySnapshot(),
+            imageExport: this.clonePlain(this.currentImageExportProfile())
+        };
+        if (includePositions) result.positions = positions;
+        return result;
+    }
+
+    setAIAxisView(axis) {
+        const normalized = String(axis || '').trim().toUpperCase();
+        const match = /^([+-])([XYZ])$/.exec(normalized);
+        if (!match) {
+            throw new Error('camera.axis must be one of +X, -X, +Y, -Y, +Z, or -Z.');
+        }
+        const vectors = {
+            X: new THREE.Vector3(1, 0, 0),
+            Y: new THREE.Vector3(0, 1, 0),
+            Z: new THREE.Vector3(0, 0, 1)
+        };
+        const direction = vectors[match[2]].multiplyScalar(match[1] === '+' ? 1 : -1);
+        const camera = this.renderer.camera;
+        const target = this.renderer.controls.target.clone();
+        const distance = Math.max(camera.position.distanceTo(target), 4);
+        camera.up.copy(match[2] === 'Z'
+            ? new THREE.Vector3(0, 1, 0)
+            : new THREE.Vector3(0, 0, 1));
+        camera.position.copy(target).addScaledVector(direction, distance);
+        this.completeCameraViewChange('ai-axis-view');
+    }
+
+    async aiApply(command = {}) {
+        if (!command || typeof command !== 'object' || Array.isArray(command)) {
+            throw new Error('AI control command must be an object.');
+        }
+        if (command.frame !== undefined) {
+            const frame = Number(command.frame);
+            if (!Number.isInteger(frame) || frame < 0 || frame >= this.loadedFrameCount()) {
+                throw new Error(`frame must be an integer from 0 to ${Math.max(0, this.loadedFrameCount() - 1)}.`);
+            }
+            await this.loadFrame(frame);
+        }
+        if (command.mode !== undefined) {
+            if (!['view', 'edit'].includes(command.mode)) {
+                throw new Error("mode must be 'view' or 'edit'.");
+            }
+            const vizOnly = command.mode === 'view';
+            if (vizOnly !== this.state.vizOnly) await this.switchRuntimeMode(vizOnly);
+        }
+        if (command.display !== undefined) {
+            if (!command.display || typeof command.display !== 'object' || Array.isArray(command.display)) {
+                throw new Error('display must be an object.');
+            }
+            this.applyDesignSettings({
+                display: {
+                    ...this.clonePlain(this.state.display),
+                    ...this.clonePlain(command.display)
+                }
+            });
+        }
+        if (command.camera !== undefined) {
+            const cameraCommand = command.camera;
+            if (!cameraCommand || typeof cameraCommand !== 'object' || Array.isArray(cameraCommand)) {
+                throw new Error('camera must be an object.');
+            }
+            this.beginCameraHistoryGesture('ai-camera');
+            if (cameraCommand.projection) {
+                const projection = cameraCommand.projection === 'perspective'
+                    ? 'perspective'
+                    : 'orthographic';
+                this.state.display.projectionMode = projection;
+                this.renderer.setProjectionMode(projection);
+            }
+            if (cameraCommand.axis) this.setAIAxisView(cameraCommand.axis);
+            if (
+                cameraCommand.position !== undefined
+                || cameraCommand.target !== undefined
+                || cameraCommand.up !== undefined
+            ) {
+                this.applyCameraSettings({
+                    ...this.cameraHistorySnapshot(),
+                    ...this.clonePlain(cameraCommand)
+                });
+            }
+            if (cameraCommand.fit !== undefined) {
+                if (cameraCommand.fit !== 'structure') {
+                    throw new Error("camera.fit currently supports only 'structure'.");
+                }
+                this.renderer.fitCameraToStructure();
+                this.completeCameraViewChange('ai-fit');
+            }
+            if (cameraCommand.orbit) {
+                this.rotateCameraView(
+                    cameraCommand.orbit.direction,
+                    cameraCommand.orbit.degrees ?? this.state.display.viewRotationStepDeg
+                );
+            }
+            this.commitCameraHistoryGesture('ai-camera');
+        }
+        if (command.selection !== undefined) {
+            const selection = command.selection;
+            if (!selection || typeof selection !== 'object' || Array.isArray(selection)) {
+                throw new Error('selection must be an object.');
+            }
+            if (selection.clear !== false) this.clearAtomSelection();
+            const atomCount = this.state.atoms?.positions?.length || 0;
+            (selection.indices || []).forEach(index => {
+                if (!Number.isInteger(index) || index < 0 || index >= atomCount) {
+                    throw new Error(`selection index ${index} is outside 0..${Math.max(0, atomCount - 1)}.`);
+                }
+                this.addSelectionReference(index);
+            });
+            (selection.references || []).forEach(reference => {
+                if (!this.addSelectionReference(reference)) {
+                    throw new Error(`Selection reference could not be selected: ${JSON.stringify(reference)}.`);
+                }
+            });
+            this.updateSelectionVisuals();
+            this.updateUI();
+        }
+        this.renderer.renderNow();
+        return this.aiDescribe();
+    }
+
+    async aiRender(request = {}) {
+        const width = Math.max(64, Math.min(8192, Math.round(Number(request.width) || 1920)));
+        const height = Math.max(64, Math.min(8192, Math.round(Number(request.height) || 1080)));
+        const options = {
+            ...this.defaultImageExportOptions(),
+            ...this.clonePlain(request.options || {})
+        };
+        this.renderer.renderNow();
+        const dataUrl = this.renderer.exportPNG(width, height, options);
+        return {
+            protocol: 'v_ase.ai.v1',
+            mimeType: 'image/png',
+            width,
+            height,
+            dataUrl,
+            camera: this.cameraHistorySnapshot(),
+            options
+        };
+    }
+
+    createAIBridge() {
+        const app = this;
+        return Object.freeze({
+            protocol: 'v_ase.ai.v1',
+            ready: async () => {
+                await app.ready;
+                return {
+                    protocol: 'v_ase.ai.v1',
+                    ready: true,
+                    sessionId: app.sessionId,
+                    document: app.workspaceDocumentTitle()
+                };
+            },
+            describe: async options => {
+                await app.ready;
+                return app.aiDescribe(options);
+            },
+            apply: async command => {
+                await app.ready;
+                return await app.aiApply(command);
+            },
+            render: async request => {
+                await app.ready;
+                return await app.aiRender(request);
+            }
+        });
+    }
+
     designSettingsSnapshot({ includeAtomOverrides = true } = {}) {
         this.readTransformSettings();
         this.syncAtomicScaleFromCamera({ forceInput: true, syncPreview: false });
@@ -5586,8 +5857,8 @@ class VAseApp {
             cellMaterial: ['unlit', 'standard', 'metal'].includes(nextDisplay.cellMaterial)
                 ? nextDisplay.cellMaterial
                 : 'unlit',
-            commensurateGuide: Boolean(nextDisplay.commensurateGuide),
-            commensurateSnap: nextDisplay.commensurateSnap !== false,
+            commensurateGuide: nextDisplay.commensurateGuide !== false,
+            commensurateSnap: Boolean(nextDisplay.commensurateSnap),
             commensurateStrainTolerance: finiteClamped(
                 nextDisplay.commensurateStrainTolerance, 0.01, 0, 0.25
             ),
@@ -7919,13 +8190,18 @@ class VAseApp {
             this.toggleSelectedFixAtoms();
         });
         document.getElementById('constraint-kind')?.addEventListener('change', () => {
-            const kind = document.getElementById('constraint-kind')?.value || 'none';
+            const kindSelect = document.getElementById('constraint-kind');
+            const kind = kindSelect?.value || 'none';
+            if (kindSelect) {
+                if (['fixed_line', 'fixed_plane'].includes(kind)) {
+                    kindSelect.dataset.draftKind = kind;
+                } else {
+                    delete kindSelect.dataset.draftKind;
+                }
+            }
             if (kind === 'fixed_line') this.setConstraintVectorInputs([1, 0, 0]);
             if (kind === 'fixed_plane') this.setConstraintVectorInputs([0, 0, 1]);
             this.updateSelectionConstraintControls();
-        });
-        ['constraint-x', 'constraint-y', 'constraint-z'].forEach(id => {
-            document.getElementById(id)?.addEventListener('input', () => this.updateSelectionConstraintControls());
         });
         document.getElementById('btn-apply-constraint')?.addEventListener('click', () => this.applySelectedDirectionalConstraint());
         document.getElementById('btn-clear-directional-constraint')?.addEventListener('click', () => this.clearSelectedDirectionalConstraint());
@@ -8150,6 +8426,8 @@ class VAseApp {
             this.applyCalculatorControls();
         });
         document.getElementById('calc-cpus')?.addEventListener('change', () => this.applyCalculatorControls());
+        document.getElementById('calc-cutoff-scale')?.addEventListener('change', () => this.applyCalculatorControls());
+        document.getElementById('calc-strength')?.addEventListener('change', () => this.applyCalculatorControls());
         document.getElementById('chk-bonds').onchange = () => this.safeApplyBondOptions();
         document.getElementById('chk-periodic-bonds').onchange = () => this.safeApplyBondOptions();
         document.getElementById('chk-cell').onchange = () => this.safeApplyDisplayOptions();
@@ -8628,3 +8906,5 @@ class VAseApp {
 
 window.__V_ASE_APP__ = new VAseApp();
 window.__ASE_APP__ = window.__V_ASE_APP__;
+window.v_aseAI = window.__V_ASE_APP__.createAIBridge();
+window.__V_ASE_AI__ = window.v_aseAI;

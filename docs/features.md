@@ -155,6 +155,9 @@ New documents also use an exact `#ffffff` viewport clear color. Modeling-mode
 hemisphere, ambient, and camera-facing fills keep element colors readable from
 opposite crystallographic views without enabling shadow maps. White-mode grid
 lines use reduced contrast so the background remains visually white.
+Anti-aliasing and atom smoothness are View quality controls; label color,
+radius, visibility, material, text, and chemical TYPE remain Structure
+appearance controls.
 
 Unit-cell edges use shared instanced cylinder geometry. Their color, diameter in
 Angstrom, and Unlit/Standard/Metal material are visual settings. Repeated cells
@@ -191,7 +194,8 @@ toward images outside the displayed cell.
 
 Bond appearance is independent of topology: cylinder or flat style, diameter,
 custom color, or midpoint-split endpoint colors. The new-document bond diameter
-is `0.25 A`; saved explicit values are preserved.
+is `0.25 A`, and bonds are visible by default. Saved explicit values and
+`--hide-bonds` remain authoritative.
 
 ## Trajectories And Relaxation
 
@@ -202,6 +206,11 @@ file offsets and expose the same binary coordinate contract.
 Playback loads the binary array once, then updates GPU instance translations
 without per-frame HTTP, JSON, geometry rebuilds, or complete matrix rewrites.
 Manual scrubbing still synchronizes the backend frame.
+
+The fallback repulsion calculator exposes a pair-cutoff scale and force
+strength under Structure > Relaxation. New calculator instances use a `0.70`
+cutoff scale and `1.0` strength. These are calculator parameters and do not
+change visualization bond cutoffs.
 
 Base-atom selections survive frame changes and are removed only when the new
 frame does not contain the selected index or its label is hidden. Measurements
@@ -297,7 +306,9 @@ more selected atoms show the total followed by stable first-seen label counts.
 The camera-step toolbar is ordered as the three view-relative pairs up/down,
 left/right, and counterclockwise/clockwise roll. Up/down and left/right use
 separate depth-coded paths with shaded rear tails and front faces; roll remains
-a screen-plane operation. Opposite buttons are exact camera-pose inverses.
+a screen-plane operation. The camera world quaternion defines this basis, so
+the controls remain screen-relative after arbitrary view roll, cell transforms,
+and axis alignment. Opposite buttons are exact camera-pose inverses.
 
 Output Preview uses a cloned camera and a fixed screen-space frame with the
 requested output aspect ratio. Preview, PNG, and trajectory video share one

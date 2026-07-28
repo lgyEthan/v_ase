@@ -42,6 +42,8 @@ from v_ase.server import (
     calculate_displacements,
     delete_atoms,
     get_atoms,
+    ai_control_schema,
+    ai_semantic_state,
     load_structure_path,
     load_structure_file,
     load_visual_settings,
@@ -581,13 +583,46 @@ def test_default_repulsion_calculator_device_settings_are_configurable():
     data = asyncio.run(update_calculator(session.session_id, {
         "device": "cpu",
         "cpu_threads": 2,
+        "cutoff_scale": 0.7,
+        "k_repulsion": 3.5,
     }))
 
     details = data["metadata"]["calculator_details"]
     assert details["is_default_repulsion"] is True
     assert details["requested_device"] == "cpu"
     assert details["cpu_threads"] == 2
+    assert details["cutoff_scale"] == pytest.approx(0.7)
+    assert details["k_repulsion"] == pytest.approx(3.5)
     assert 1 in details["cpu_thread_options"]
+
+
+def test_default_repulsion_cutoff_scale_controls_the_physical_threshold():
+    # H-H covalent-radius sum is 0.62 A in ASE. At 0.50 A, the default
+    # 0.70 scale is inactive while the legacy 1.0 scale is repulsive.
+    atoms = Atoms("HH", positions=[[0, 0, 0], [0.50, 0, 0]])
+    atoms.calc = RepulsionCalculator(cutoff_scale=0.7, k_repulsion=2.0)
+    assert atoms.get_potential_energy() == pytest.approx(0.0, abs=1e-12)
+
+    atoms.calc = RepulsionCalculator(cutoff_scale=1.0, k_repulsion=2.0)
+    assert atoms.get_potential_energy() > 0
+
+
+def test_ai_semantic_state_and_schema_are_machine_readable():
+    atoms = Atoms("BN", positions=[[0, 0, 0], [1.45, 0, 0]], cell=[5, 5, 12], pbc=[True, True, False])
+    set_atom_labels(atoms, ["B_site", "N_site"])
+    session = make_session(atoms)
+
+    schema = asyncio.run(ai_control_schema())
+    state = asyncio.run(ai_semantic_state(session.session_id))
+
+    assert schema["protocol"] == "v_ase.ai.v1"
+    assert schema["control_schema"]["properties"]["camera"]["properties"]["axis"]["enum"] == [
+        "+X", "-X", "+Y", "-Y", "+Z", "-Z"
+    ]
+    assert state["ai"]["protocol"] == "v_ase.ai.v1"
+    assert state["ai"]["units"]["length"] == "angstrom"
+    assert state["ai"]["label_counts"] == {"B_site": 1, "N_site": 1}
+    np.testing.assert_allclose(state["positions"], atoms.positions)
 
 
 def test_relaxation_starts_with_default_repulsion_calculator(monkeypatch):
@@ -1306,6 +1341,7 @@ def test_vase_project_restores_builtin_repulsion_calculator_configuration():
     atoms.calc = RepulsionCalculator(
         min_bondinfo=1.1,
         k_repulsion=2.75,
+        cutoff_scale=0.65,
         max_force_norm=4.5,
         mic=False,
         device="cpu",
@@ -1333,6 +1369,7 @@ def test_vase_project_restores_builtin_repulsion_calculator_configuration():
     assert is_vase_repulsion_calculator(restored)
     assert restored.min_bondinfo == pytest.approx(1.1)
     assert restored.k_repulsion == pytest.approx(2.75)
+    assert restored.cutoff_scale == pytest.approx(0.65)
     assert restored.max_force_norm == pytest.approx(4.5)
     assert restored.mic is False
     assert restored.cpu_threads == 2

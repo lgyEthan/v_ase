@@ -31,6 +31,7 @@ and documentation use `view()`.
 - `v_ase/project.py`: visual-settings migration and validated `.vase` archives.
 - `v_ase/serialization.py`: browser payloads and ASE visual defaults.
 - `v_ase/export.py`: scientific, image-supporting, Blender, 3DM, and OBJ export.
+- `v_ase/ai.py`: vendor-neutral AI handshake and installed agent guide.
 - `v_ase/viewer.py`: Python API and local server lifecycle.
 
 ### Browser Frontend
@@ -163,6 +164,24 @@ and documentation use `view()`.
     expose color, Angstrom thickness, and material controls. Supercell previews
     reuse the same style and deduplicate shared edges so repeated cells do not
     become darker at overlaps.
+39. New documents show bonds by default. Explicit projects, reusable settings,
+    and `--hide-bonds` override this default without changing bond topology.
+40. Anti-aliasing and atom smoothness are viewport-quality controls under View.
+    Label radius, color, visibility, chemical TYPE, label text, and material
+    remain under Structure > Atoms & Appearance.
+41. Camera toolbar tilt and orbit use the camera world quaternion to derive
+    screen right, up, and forward. Their meaning stays screen-relative after
+    cell transforms, axis views, roll, and arbitrary camera motion.
+42. Repulsion configuration is calculator state, not display state. Its default
+    pair cutoff scale is `0.70`, strength is user-configurable, and both values
+    survive working-frame and trajectory calculator copies.
+43. Commensurate candidates are deterministic cell-boundary matches. The guide
+    is enabled by default, magnetic snapping is disabled by default, and neither
+    feature depends on the current bond list.
+44. `--for-ai` emits one JSON handshake and keeps the same live document
+    available for human takeover. Agents obtain semantic structure state over
+    HTTP and use `window.v_aseAI` to set frame, display, selection, and camera
+    before rendering through the exact Export Image capture path.
 
 ## Canonical Names And Compatibility
 
@@ -224,6 +243,9 @@ same implementation for compatibility.
 - Video interpolation settings are reusable visual state. Interpolated
   coordinates are temporary render samples and are excluded from `.vase`, ASE
   Pickle, and the source trajectory.
+- The AI state endpoint is read-only and current-frame scoped. Browser-side AI
+  mutations use the same validated UI/backend paths as human actions and never
+  create a second hidden structure state.
 
 ## Performance Contract
 
@@ -272,6 +294,8 @@ Current benchmark method and results are in [performance.md](performance.md).
 10. Headless Linux installation and real browser rendering through the managed
     one-command SSH workflow, including per-frame trajectory transfer and CLI
     release after the browser tab closes.
+11. AI handshake, semantic state, deterministic browser control, exact PNG
+    rendering, and immediate human takeover of the same workspace.
 
 Run installed-wheel verification from outside the repository checkout. The
 checkout contains build metadata, so invoking pip from its root can make pip

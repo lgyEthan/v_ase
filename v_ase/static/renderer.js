@@ -415,12 +415,12 @@ const ATOM_MATERIAL_PRESETS = Object.freeze({
         envMapIntensity: 0.0
     }),
     metal: Object.freeze({
-        roughness: 0.11,
-        metalness: 0.96,
-        clearcoat: 0.03,
-        clearcoatRoughness: 0.08,
+        roughness: 0.18,
+        metalness: 0.90,
+        clearcoat: 0.12,
+        clearcoatRoughness: 0.16,
         specularIntensity: 1.0,
-        envMapIntensity: 1.55
+        envMapIntensity: 2.15
     }),
     rubber: Object.freeze({
         roughness: 0.88,
@@ -610,7 +610,7 @@ export class ASERenderer {
             showCell: true,
             showAxes: true,
             showGrid: true,
-            showBonds: false,
+            showBonds: true,
             showPeriodicBonds: false,
             cellThickness: 0.04,
             cellColor: '#d6bd67',
@@ -631,8 +631,8 @@ export class ASERenderer {
             labelMaterials: {},
             atomMaterials: {},
             rotatePivot: 'selection',
-            commensurateGuide: false,
-            commensurateSnap: true,
+            commensurateGuide: true,
+            commensurateSnap: false,
             commensurateStrainTolerance: 0.01,
             commensurateMaxIndex: 32,
             commensurateSnapRangeDeg: 2.0,
@@ -1340,35 +1340,46 @@ export class ASERenderer {
         if (this.metalEnvironmentMap) return this.metalEnvironmentMap;
         try {
             const canvas = document.createElement('canvas');
-            canvas.width = 192;
-            canvas.height = 96;
+            canvas.width = 256;
+            canvas.height = 128;
             const context = canvas.getContext('2d');
             if (!context) return null;
 
             const background = context.createLinearGradient(0, 0, 0, canvas.height);
-            background.addColorStop(0, '#edf3f2');
-            background.addColorStop(0.38, '#8e9a98');
-            background.addColorStop(0.60, '#303839');
-            background.addColorStop(1, '#111718');
+            background.addColorStop(0, '#f8fbfa');
+            background.addColorStop(0.34, '#d7dfdd');
+            background.addColorStop(0.52, '#899493');
+            background.addColorStop(0.67, '#414a4b');
+            background.addColorStop(1, '#151b1c');
             context.fillStyle = background;
             context.fillRect(0, 0, canvas.width, canvas.height);
 
-            const addPanel = (x, width, strength = 1) => {
-                const panel = context.createLinearGradient(x, 0, x + width, 0);
-                panel.addColorStop(0, 'rgba(255,255,255,0)');
-                panel.addColorStop(0.18, `rgba(255,255,255,${0.62 * strength})`);
-                panel.addColorStop(0.5, `rgba(255,255,255,${0.96 * strength})`);
-                panel.addColorStop(0.82, `rgba(255,255,255,${0.62 * strength})`);
+            const addSoftbox = (x, y, radius, strength = 1) => {
+                const panel = context.createRadialGradient(x, y, 0, x, y, radius);
+                panel.addColorStop(0, `rgba(255,255,255,${0.98 * strength})`);
+                panel.addColorStop(0.48, `rgba(255,255,255,${0.72 * strength})`);
                 panel.addColorStop(1, 'rgba(255,255,255,0)');
                 context.fillStyle = panel;
-                context.fillRect(x, 5, width, 75);
+                context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
             };
-            addPanel(9, 42, 0.92);
-            addPanel(112, 60, 1.0);
-            context.fillStyle = 'rgba(4,8,9,0.72)';
-            context.fillRect(73, 0, 18, canvas.height);
-            context.fillStyle = 'rgba(255,255,255,0.42)';
-            context.fillRect(0, 7, canvas.width, 5);
+            addSoftbox(42, 28, 42, 0.92);
+            addSoftbox(184, 34, 58, 1.0);
+            addSoftbox(239, 70, 30, 0.68);
+
+            const horizon = context.createLinearGradient(0, 0, canvas.width, 0);
+            horizon.addColorStop(0, 'rgba(255,255,255,0.05)');
+            horizon.addColorStop(0.42, 'rgba(255,255,255,0.62)');
+            horizon.addColorStop(0.58, 'rgba(255,255,255,0.72)');
+            horizon.addColorStop(1, 'rgba(255,255,255,0.08)');
+            context.fillStyle = horizon;
+            context.fillRect(0, 61, canvas.width, 7);
+
+            context.fillStyle = 'rgba(5,9,10,0.70)';
+            context.fillRect(96, 0, 17, canvas.height);
+            context.fillStyle = 'rgba(8,12,13,0.46)';
+            context.fillRect(215, 0, 9, canvas.height);
+            context.fillStyle = 'rgba(255,255,255,0.50)';
+            context.fillRect(0, 5, canvas.width, 4);
 
             const source = new THREE.CanvasTexture(canvas);
             source.colorSpace = THREE.SRGBColorSpace;
@@ -1447,8 +1458,8 @@ export class ASERenderer {
 
     atomMaterialCacheKey(color, isFixed, atomSegments, instanced = false, presetName = 'standard') {
         const mode = this.atomDisplayMode();
-        const outline = mode === '2d' && this.viewportBackgroundMode === 'white'
-            ? 'outline'
+        const outline = mode === '2d'
+            ? `outline-${this.viewportBackgroundMode === 'white' ? 'dark' : 'light'}`
             : 'plain';
         const preset = this.normalizedAtomMaterialPreset(presetName);
         return instanced
@@ -1458,7 +1469,10 @@ export class ASERenderer {
 
     applyFlatAtomShader(material, isFixed = false) {
         if (!material || material.userData?.flatAtomShaderApplied) return material;
-        const outline = this.viewportBackgroundMode === 'white';
+        const outline = true;
+        const outlineColor = this.viewportBackgroundMode === 'white'
+            ? 'vec3(0.012)'
+            : 'vec3(0.94)';
         material.userData.flatAtomShaderApplied = true;
         material.userData.flatOutlineEnabled = outline;
         material.userData.fixedEtchedFlatApplied = Boolean(isFixed);
@@ -1477,7 +1491,7 @@ export class ASERenderer {
                 float flatFacing = abs(normalize(vFlatViewNormal).z);
                 float flatEdgeAA = max(fwidth(flatFacing) * 1.35, 0.008);
                 float flatInterior = smoothstep(0.30 - flatEdgeAA, 0.42 + flatEdgeAA, flatFacing);
-                diffuseColor.rgb = mix(vec3(0.012), diffuseColor.rgb, flatInterior);
+                diffuseColor.rgb = mix(${outlineColor}, diffuseColor.rgb, flatInterior);
             `
             : '';
         material.onBeforeCompile = shader => {
@@ -1521,7 +1535,7 @@ export class ASERenderer {
         material.customProgramCacheKey = () => [
             'v-ase-flat-atom-v2',
             isFixed ? 'fixed' : 'normal',
-            outline ? 'outline' : 'plain'
+            this.viewportBackgroundMode === 'white' ? 'dark-outline' : 'light-outline'
         ].join(':');
         material.needsUpdate = true;
         return material;
@@ -4364,7 +4378,7 @@ export class ASERenderer {
     }
 
     bondMaterial(style, color) {
-        const key = `bond:${style}:${color}`;
+        const key = `bond:${style}:${style === 'flat' ? this.viewportBackgroundMode : 'lit'}:${color}`;
         if (this.materialCache.has(key)) return this.materialCache.get(key);
         const material = style === 'flat'
             ? new THREE.MeshBasicMaterial({
@@ -4377,7 +4391,58 @@ export class ASERenderer {
                 roughness: 0.5,
                 metalness: 0.03
             });
+        if (style === 'flat') this.applyFlatBondShader(material);
         this.materialCache.set(key, material);
+        return material;
+    }
+
+    applyFlatBondShader(material) {
+        if (!material || material.userData?.flatBondOutlineApplied) return material;
+        const outlineColor = this.viewportBackgroundMode === 'white'
+            ? 'vec3(0.012)'
+            : 'vec3(0.94)';
+        material.userData.flatBondOutlineApplied = true;
+        material.userData.flatBondOutlineColor = this.viewportBackgroundMode === 'white'
+            ? 'dark'
+            : 'light';
+        material.onBeforeCompile = shader => {
+            shader.vertexShader = shader.vertexShader
+                .replace(
+                    '#include <common>',
+                    '#include <common>\nvarying vec2 vVAseBondUv;'
+                )
+                .replace(
+                    '#include <begin_vertex>',
+                    'vVAseBondUv = uv;\n#include <begin_vertex>'
+                );
+            shader.fragmentShader = shader.fragmentShader
+                .replace(
+                    '#include <common>',
+                    '#include <common>\nvarying vec2 vVAseBondUv;'
+                )
+                .replace(
+                    '#include <color_fragment>',
+                    `
+                    #include <color_fragment>
+                    float vAseBondEdge = min(
+                        min(vVAseBondUv.x, 1.0 - vVAseBondUv.x),
+                        min(vVAseBondUv.y, 1.0 - vVAseBondUv.y)
+                    );
+                    float vAseBondAA = max(fwidth(vAseBondEdge) * 1.25, 0.006);
+                    float vAseBondInterior = smoothstep(
+                        0.035 - vAseBondAA,
+                        0.080 + vAseBondAA,
+                        vAseBondEdge
+                    );
+                    diffuseColor.rgb = mix(${outlineColor}, diffuseColor.rgb, vAseBondInterior);
+                    `
+                );
+        };
+        material.customProgramCacheKey = () => [
+            'v-ase-flat-bond-v1',
+            this.viewportBackgroundMode === 'white' ? 'dark-outline' : 'light-outline'
+        ].join(':');
+        material.needsUpdate = true;
         return material;
     }
 

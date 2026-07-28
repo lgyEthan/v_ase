@@ -153,6 +153,156 @@ def test_axis_shortcuts_restore_canonical_roll_before_opposite_view():
         editor.close()
 
 
+def test_ai_bridge_screen_relative_camera_and_constraint_vector_workflow():
+    lattice = 2.46
+    atoms = Atoms(
+        "BN",
+        scaled_positions=[[0, 0, 0.5], [1 / 3, 2 / 3, 0.5]],
+        cell=[
+            [lattice, 0, 0],
+            [0.5 * lattice, math.sqrt(3) * lattice * 0.5, 0],
+            [0, 0, 14],
+        ],
+        pbc=[True, True, False],
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=False,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+        open_browser=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(editor.url)
+            page.wait_for_function("window.v_aseAI")
+
+            ready = page.evaluate("async () => await window.v_aseAI.ready()")
+            assert ready["protocol"] == "v_ase.ai.v1"
+            assert ready["ready"] is True
+            editor_page = next(
+                frame for frame in page.frames
+                if "workspace_child=1" in frame.url
+            )
+            defaults = editor_page.evaluate("""() => ({
+                bonds: document.getElementById('chk-bonds').checked,
+                guide: document.getElementById('chk-commensurate-guide').checked,
+                snap: document.getElementById('chk-commensurate-snap').checked
+            })""")
+            assert defaults == {"bonds": True, "guide": True, "snap": False}
+
+            result = page.evaluate("""async () => await window.v_aseAI.apply({
+                display: {
+                    showBonds: true,
+                    showGrid: false,
+                    viewportBackground: 'white',
+                    atomDisplayMode: '2d'
+                },
+                camera: {axis: '+Z', fit: 'structure'},
+                selection: {clear: true, indices: [0]}
+            })""")
+            assert result["atomCount"] == 2
+            assert result["selection"][0]["index"] == 0
+            assert result["camera"]["projection"] == "orthographic"
+            assert result["display"]["showBonds"] is True
+
+            rendered = page.evaluate("""async () => {
+                const image = await window.v_aseAI.render({
+                    width: 320,
+                    height: 240,
+                    options: {
+                        includeGrid: false,
+                        includeAxes: false,
+                        includeCell: true,
+                        backgroundColor: '#ffffff'
+                    }
+                });
+                const loaded = await new Promise((resolve, reject) => {
+                    const element = new Image();
+                    element.onload = () => resolve([element.naturalWidth, element.naturalHeight]);
+                    element.onerror = reject;
+                    element.src = image.dataUrl;
+                });
+                return {
+                    protocol: image.protocol,
+                    mimeType: image.mimeType,
+                    dimensions: loaded,
+                    prefix: image.dataUrl.slice(0, 22)
+                };
+            }""")
+            assert rendered == {
+                "protocol": "v_ase.ai.v1",
+                "mimeType": "image/png",
+                "dimensions": [320, 240],
+                "prefix": "data:image/png;base64,",
+            }
+
+            _expand_inspector(editor_page)
+            _select_structure_section(editor_page, "constraints")
+            editor_page.select_option("#constraint-kind", "fixed_line")
+            x_input = editor_page.locator("#constraint-x")
+            x_input.fill("0")
+            x_input.press("Tab")
+            assert editor_page.locator("#constraint-y").is_enabled()
+            editor_page.locator("#constraint-y").fill("0")
+            editor_page.locator("#constraint-y").press("Tab")
+            assert editor_page.locator("#constraint-z").is_enabled()
+            editor_page.locator("#constraint-z").fill("1")
+            editor_page.locator("#constraint-z").press("Tab")
+            draft = editor_page.evaluate("""() => ({
+                kind: document.getElementById('constraint-kind').value,
+                values: ['constraint-x', 'constraint-y', 'constraint-z'].map(
+                    id => document.getElementById(id).value
+                ),
+                disabled: ['constraint-x', 'constraint-y', 'constraint-z'].map(
+                    id => document.getElementById(id).disabled
+                )
+            })""")
+            assert draft == {
+                "kind": "fixed_line",
+                "values": ["0", "0", "1"],
+                "disabled": [False, False, False],
+            }
+            editor_page.click("#btn-apply-constraint")
+            editor_page.wait_for_function("""() => {
+                const line = window.__ASE_APP__.state.atoms.constraints.fixed_line?.['0'];
+                return Array.isArray(line) && line.join(',') === '0,0,1';
+            }""")
+
+            baseline = editor_page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const camera = app.renderer.camera;
+                const target = app.renderer.controls.target;
+                const distance = Math.max(camera.position.distanceTo(target), 4);
+                camera.position.copy(target).add(
+                    new camera.position.constructor(0.38, -0.71, 0.59)
+                        .normalize().multiplyScalar(distance)
+                );
+                camera.up.set(0.61, 0.45, 0.65).normalize();
+                camera.lookAt(target);
+                app.rotateCameraView('roll-cw', 31);
+                app.completeCameraViewChange('arbitrary-screen-basis');
+                return app.cameraHistorySnapshot();
+            }""")
+            editor_page.evaluate("window.__ASE_APP__.rotateCameraView('up', 23)")
+            editor_page.evaluate("window.__ASE_APP__.rotateCameraView('down', 23)")
+            restored = editor_page.evaluate("window.__ASE_APP__.cameraHistorySnapshot()")
+            assert restored["position"] == pytest.approx(baseline["position"], abs=1e-7)
+            assert restored["up"] == pytest.approx(baseline["up"], abs=1e-7)
+            assert restored["target"] == pytest.approx(baseline["target"], abs=1e-7)
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
     first = molecule("H2O")
     first.set_cell([8.0, 8.0, 8.0])
@@ -732,6 +882,7 @@ def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
             page.keyboard.press('Tab')
             page.click('[data-inspector-group="structure"]')
             page.check('#chk-commensurate-guide')
+            page.check('#chk-commensurate-snap')
             page.keyboard.press('Escape')
             page.keyboard.press('r')
             page.keyboard.press('z')
@@ -2850,7 +3001,7 @@ def test_15000_atom_view_keeps_material_presets_instanced_and_renders_under_five
                 const renderer = window.__ASE_APP__.renderer;
                 return renderer.atomMeshes.children.length === 1
                     && renderer.atomMeshes.children[0].count === 15000
-                    && Math.abs(renderer.atomMeshes.children[0].material.metalness - 0.96) < 1e-6;
+                    && Math.abs(renderer.atomMeshes.children[0].material.metalness - 0.90) < 1e-6;
             }""")
             metal_state = page.evaluate("""() => {
                 const renderer = window.__ASE_APP__.renderer;
@@ -2866,9 +3017,9 @@ def test_15000_atom_view_keeps_material_presets_instanced_and_renders_under_five
             }""")
             assert metal_state == {
                 "groups": 1,
-                "metalness": pytest.approx(0.96),
-                "roughness": pytest.approx(0.11),
-                "envMapIntensity": pytest.approx(1.55),
+                "metalness": pytest.approx(0.90),
+                "roughness": pytest.approx(0.18),
+                "envMapIntensity": pytest.approx(2.15),
                 "environmentName": "v_ase_metal_studio_environment",
                 "environmentShared": True,
             }
@@ -2924,7 +3075,7 @@ def test_metal_material_has_visible_studio_reflections(tmp_path):
             page.wait_for_function("""() => {
                 const renderer = window.__ASE_APP__.renderer;
                 const material = renderer.atomMeshByIndex.get(0)?.material;
-                return material?.metalness > 0.95
+                return material?.metalness > 0.85
                     && material?.envMap?.name === 'v_ase_metal_studio_environment';
             }""")
             page.wait_for_timeout(150)
@@ -3482,7 +3633,7 @@ def test_runtime_mode_switch_merges_labels_and_splits_only_material_variants():
             page.wait_for_function("""() => {
                 const app = window.__ASE_APP__;
                 return app.state.display.labelMaterials.C_b === 'metal'
-                    && Math.abs(app.renderer.atomMeshByIndex.get(1).material.metalness - 0.96) < 1e-6;
+                    && Math.abs(app.renderer.atomMeshByIndex.get(1).material.metalness - 0.90) < 1e-6;
             }""")
 
             page.click('[data-runtime-mode="edit"]')
@@ -3547,8 +3698,8 @@ def test_runtime_mode_switch_merges_labels_and_splits_only_material_variants():
             assert np.allclose(switched["positions"], expected_positions)
             assert switched["selected"] == [0]
             assert switched["materials"][0]["roughness"] == pytest.approx(0.88)
-            assert switched["materials"][1]["metalness"] == pytest.approx(0.96)
-            assert switched["materials"][2]["metalness"] == pytest.approx(0.96)
+            assert switched["materials"][1]["metalness"] == pytest.approx(0.90)
+            assert switched["materials"][2]["metalness"] == pytest.approx(0.90)
 
             page.click('[data-runtime-mode="edit"]')
             page.wait_for_function("""() =>
@@ -3779,7 +3930,7 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                 "window.__ASE_APP__.state.display.viewportBackground === 'dark'"
             )
             assert page.evaluate("""() => window.__ASE_APP__.renderer.atomMeshes.children.every(
-                mesh => mesh.material.userData.flatOutlineEnabled === false
+                mesh => mesh.material.userData.flatOutlineEnabled === true
             )""") is True
 
             page.select_option("#viewport-background", "white")

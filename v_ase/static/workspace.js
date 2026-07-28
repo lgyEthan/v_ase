@@ -386,7 +386,55 @@ class VAseWorkspace {
         this.errorMessage.textContent = message;
         this.errorPanel.hidden = false;
     }
+
+    activeAIBridge() {
+        const entry = this.tabs.get(this.activeSessionId);
+        return entry?.pane?.contentWindow?.v_aseAI || null;
+    }
+
+    async waitForActiveAIBridge(timeoutMs = 15000) {
+        const deadline = performance.now() + Math.max(100, Number(timeoutMs) || 15000);
+        while (performance.now() < deadline) {
+            const bridge = this.activeAIBridge();
+            if (bridge) {
+                await bridge.ready();
+                return bridge;
+            }
+            await new Promise(resolve => window.setTimeout(resolve, 25));
+        }
+        throw new Error('The active v_ase document did not become ready for AI control.');
+    }
+
+    createAIBridge() {
+        const workspace = this;
+        return Object.freeze({
+            protocol: 'v_ase.ai.v1',
+            ready: async () => {
+                await workspace.ready;
+                const bridge = await workspace.waitForActiveAIBridge();
+                return await bridge.ready();
+            },
+            describe: async options => {
+                await workspace.ready;
+                return await (await workspace.waitForActiveAIBridge()).describe(options);
+            },
+            apply: async command => {
+                await workspace.ready;
+                return await (await workspace.waitForActiveAIBridge()).apply(command);
+            },
+            render: async request => {
+                await workspace.ready;
+                return await (await workspace.waitForActiveAIBridge()).render(request);
+            }
+        });
+    }
 }
 
 const workspace = new VAseWorkspace();
-workspace.init().catch(error => workspace.showError(error.message));
+workspace.ready = workspace.init().catch(error => {
+    workspace.showError(error.message);
+    throw error;
+});
+window.__V_ASE_WORKSPACE__ = workspace;
+window.v_aseAI = workspace.createAIBridge();
+window.__V_ASE_AI__ = window.v_aseAI;

@@ -64,6 +64,26 @@ def test_magic_reference_is_not_claimed_for_non_carbon_hexagonal_cells():
     assert candidate_near(result, 1.05012088)["magic_reference"] is False
 
 
+def test_hexagonal_boron_nitride_uses_the_same_exact_commensurate_geometry():
+    result = find_commensurate_angles(
+        graphene_cell(),
+        [True, True, False],
+        "Z",
+        max_index=32,
+        strain_tolerance=1e-8,
+        chemical_symbols=["B", "N"],
+    )
+
+    assert result["lattice_family"] == "hexagonal"
+    assert candidate_near(result, 21.7867893)["area"] == 7
+    assert candidate_near(result, 13.1735511)["area"] == 19
+    assert candidate_near(result, 1.05012088)["area"] == 2977
+    assert all(
+        candidate_near(result, angle)["strain"] == pytest.approx(0.0, abs=1e-10)
+        for angle in (21.7867893, 13.1735511, 1.05012088)
+    )
+
+
 def test_commensurate_search_requires_two_projected_periodic_boundaries():
     with pytest.raises(ValueError, match="two independent periodic cell vectors"):
         find_commensurate_angles(
