@@ -6,6 +6,7 @@ import argparse
 import base64
 import math
 import os
+import shutil
 import sys
 from io import BytesIO
 from pathlib import Path
@@ -43,12 +44,24 @@ def configured_asset_dir() -> Path:
     return path if path.is_absolute() else ROOT / path
 
 
+def sync_github_readme_assets() -> None:
+    canonical_dir = (ROOT / "docs" / "assets").resolve()
+    if ASSET_DIR.resolve() != canonical_dir:
+        return
+    github_dir = canonical_dir / "github"
+    github_dir.mkdir(parents=True, exist_ok=True)
+    for source in canonical_dir.glob("readme_*"):
+        if source.is_file():
+            shutil.copy2(source, github_dir / source.name)
+
+
 ASSET_DIR = configured_asset_dir()
 MEDIA_SIZE = parse_media_size(os.environ.get("V_ASE_README_MEDIA_SIZE"), (1920, 1080))
 LOGO_SIZE = parse_media_size(os.environ.get("V_ASE_LOGO_SIZE"), (6144, 1890))
 LOGO_RENDER_SIZE = parse_media_size(os.environ.get("V_ASE_LOGO_RENDER_SIZE"), (7680, 2362))
-LOGO_SUBSTRATE_COLOR = os.environ.get("V_ASE_LOGO_SUBSTRATE_COLOR", "#3d474d")
-LOGO_LETTER_COLOR = os.environ.get("V_ASE_LOGO_LETTER_COLOR", "#71d6c3")
+LOGO_SUBSTRATE_COLOR = os.environ.get("V_ASE_LOGO_SUBSTRATE_COLOR", "#71493f")
+LOGO_LETTER_COLOR = os.environ.get("V_ASE_LOGO_LETTER_COLOR", "#d7f26f")
+LOGO_LETTER_RADIUS = float(os.environ.get("V_ASE_LOGO_LETTER_RADIUS", "0.67"))
 LOGO_PIXELS_PER_ANGSTROM = float(os.environ.get("V_ASE_LOGO_PIXELS_PER_ANGSTROM", "92"))
 
 LOGO_GLYPHS = {
@@ -304,7 +317,7 @@ def capture_logo(browser):
             "showBonds": False,
             "showOverlays": False,
             "atomRadiusScale": 0.96,
-            "labelRadii": {"Cu": 1.278, "O": 0.82},
+            "labelRadii": {"Cu": 1.278, "O": LOGO_LETTER_RADIUS},
             "labelColors": {"Cu": LOGO_SUBSTRATE_COLOR, "O": LOGO_LETTER_COLOR},
             "labelMaterials": {"Cu": "rubber", "O": "standard"},
             "projectionMode": "orthographic",
@@ -887,6 +900,7 @@ def main() -> int:
             browser.close()
             webbrowser.open = original_open
 
+    sync_github_readme_assets()
     print(f"Wrote README media to {ASSET_DIR}")
     return 0
 

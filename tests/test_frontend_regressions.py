@@ -767,7 +767,19 @@ def test_new_scientific_defaults_and_ai_control_contract_are_wired():
     workspace_js = (ROOT / "v_ase/static/workspace.js").read_text()
     cli_py = (ROOT / "v_ase/cli.py").read_text()
     server_py = (ROOT / "v_ase/server.py").read_text()
-    skill = (ROOT / "v_ase/skills_v_ase.md").read_text()
+    skill_root = (
+        ROOT
+        / "v_ase"
+        / "skills"
+        / "visualizing-atomic-structures-with-v-ase"
+    )
+    skill = "\n".join([
+        (skill_root / "SKILL.md").read_text(),
+        *[
+            path.read_text()
+            for path in sorted((skill_root / "references").glob("*.md"))
+        ],
+    ])
 
     assert 'id="chk-bonds" checked' in index_html
     assert 'id="chk-commensurate-guide" checked' in index_html

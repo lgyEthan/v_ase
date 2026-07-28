@@ -1,0 +1,7 @@
+interface:
+  display_name: "v_ase Atomic Visualization"
+  short_description: "Inspect, edit, render, and export atomic structures"
+  brand_color: "#71D6C3"
+  default_prompt: "Use $visualizing-atomic-structures-with-v-ase to inspect this atomic structure semantically and produce a verified final render."
+policy:
+  allow_implicit_invocation: true

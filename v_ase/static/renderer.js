@@ -5587,6 +5587,10 @@ export class ASERenderer {
         return this.constraintMaterials.hookeanInactiveMarker;
     }
 
+    hookeanSpringWireRadius() {
+        return 0.022;
+    }
+
     updateHookeanLatchGeometry(group, spec, length) {
         const threshold = Number(spec.item?.threshold);
         const state = this.hookeanState(length, threshold);
@@ -5605,7 +5609,9 @@ export class ASERenderer {
         const springStart = thresholdY;
         const springEnd = right;
         const springLength = Math.max(0.001, springEnd - springStart);
-        const coils = Math.max(6, Math.round(5 + springLength * 2.2));
+        // Keep enough pitch between turns for the helix to read as a spring
+        // instead of collapsing into a solid tube at short extensions.
+        const coils = THREE.MathUtils.clamp(Math.round(springLength / 0.18), 3, 14);
 
         const hookLine = group.children.find(child => child.userData.hookLine);
         const catchLine = group.children.find(child => child.userData.catchLine);
@@ -5644,17 +5650,17 @@ export class ASERenderer {
         springLine.visible = state !== 'inactive' && springEnd > springStart;
         if (springLine.visible) {
             const coilRadius = THREE.MathUtils.clamp(
-                Math.min(radiusA, radiusB) * 0.34,
-                0.16,
-                0.27
+                Math.min(radiusA, radiusB) * 0.38,
+                0.20,
+                0.32
             );
             this.setLinePoints(springLine, this.makeHelicalSpringPoints(
                 springStart,
                 springEnd,
-                Math.min(coilRadius, span * 0.12),
+                Math.min(coilRadius, span * 0.14),
                 coils,
-                Math.max(72, coils * 14)
-            ), 'springSignature', 0.043);
+                Math.max(72, coils * 18)
+            ), 'springSignature', this.hookeanSpringWireRadius());
         }
         springLine.material = state === 'inactive' ? this.constraintMaterials.hookeanInactive : this.constraintMaterials.hookean;
         springLine.userData.sharedMaterial = true;

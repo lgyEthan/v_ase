@@ -2128,12 +2128,12 @@ def add_hookean_spring(name, start, end, threshold=None, radius_start=0.7, radiu
     spring_end = right
     spring_len = max(0.001, spring_end - spring_start)
     coil_radius = min(
-        max(min(radius_start, radius_end) * 0.34, 0.16),
-        0.27,
-        span * 0.12,
+        max(min(radius_start, radius_end) * 0.38, 0.20),
+        0.32,
+        span * 0.14,
     )
-    coils = max(6, round(5 + spring_len * 2.2))
-    steps = max(72, coils * 14)
+    coils = max(3, min(14, round(spring_len / 0.18)))
+    steps = max(72, coils * 18)
 
     add_poly_curve(name + "_dead_zone_rail", [
         to_world(0, left, 0),
@@ -2167,7 +2167,7 @@ def add_hookean_spring(name, start, end, threshold=None, radius_start=0.7, radiu
                 math.sin(angle) * radius,
             ))
         spring_points.append(to_world(0, spring_end, 0))
-        add_poly_curve(name + "_spring", spring_points, MAT_HOOKEAN, bevel=0.043)
+        add_poly_curve(name + "_spring", spring_points, MAT_HOOKEAN, bevel=0.022)
 
     if state == "inactive" and threshold_y > right:
         add_poly_curve(name + "_inactive_gap", [to_world(0, right, 0), to_world(0, threshold_y, 0)], MAT_HOOKEAN_SLACK, bevel=0.015)

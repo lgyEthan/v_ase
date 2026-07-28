@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.0.101
+
+- Restored the approved brown/lime atomistic logo palette while preserving the
+  native 6144 x 1890 transparent render and reducing overlap between the
+  spheres that form `V_ASE`.
+- Increased Hookean helix readability with length-aware coil pitch, a larger
+  coil-to-wire ratio, and matching live viewport and Blender geometry.
+- Replaced the legacy agent guide with a standards-compliant installable skill,
+  one-level progressive references, explicit safety boundaries, trigger
+  evaluations, and release-time semantic/rendered end-to-end gates.
+- Made the canonical skill discoverable through the AI handshake, live skill
+  endpoint, README, wheel, source distribution, and release contract.
+
 ## 0.0.100
 
 - Added lossless WebP as the compact image default and losslessly optimized PNG

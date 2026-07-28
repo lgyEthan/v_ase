@@ -3,7 +3,8 @@
 ## User Documentation
 
 - [README](../README.md): installation, commands, controls, workflows, and exports.
-- [Agent skill](../v_ase/skills_v_ase.md): vendor-neutral semantic control and export contract.
+- [Agent skill](../v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md):
+  installable vendor-neutral semantic control and export contract.
 - [Release checklist](release_checklist.md): mandatory documentation, media, test, GitHub, and PyPI steps.
 - [Shortcuts](shortcuts.md): complete mouse and keyboard reference.
 - [Commensurate Rotation](unit_cell_aware_rotate.md): cell-boundary matching,

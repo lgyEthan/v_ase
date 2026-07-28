@@ -7,11 +7,16 @@ from urllib.parse import parse_qs, urlsplit
 
 
 AI_PROTOCOL = "v_ase.ai.v1"
+AI_SKILL_RELATIVE_PATH = (
+    "skills",
+    "visualizing-atomic-structures-with-v-ase",
+    "SKILL.md",
+)
 
 
 def ai_skill_path() -> str:
     """Return the installed agent guide path when the package is unpacked."""
-    return str(files("v_ase").joinpath("skills_v_ase.md"))
+    return str(files("v_ase").joinpath(*AI_SKILL_RELATIVE_PATH))
 
 
 def ai_handshake(url: str) -> dict[str, object]:

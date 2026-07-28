@@ -158,6 +158,9 @@ def test_for_ai_prints_one_machine_readable_handshake_and_keeps_session_alive(
     assert handshake["session_id"] == "session"
     assert handshake["browser_api"] == "window.v_aseAI"
     assert handshake["state_url"].endswith("/api/ai/state/session")
+    assert handshake["skill_path"].endswith(
+        "/skills/visualizing-atomic-structures-with-v-ase/SKILL.md"
+    )
     assert captured["kwargs"]["block"] is False
     assert captured["kwargs"]["open_browser"] is False
     assert captured["kwargs"]["show_bonds"] is True
@@ -315,7 +318,10 @@ def test_pyproject_exposes_v_ase_console_script():
 
     assert config["project"]["scripts"]["v_ase"] == "v_ase.cli:main"
     assert config["project"]["name"] == "v_ase-gui"
-    assert "skills_v_ase.md" in config["tool"]["setuptools"]["package-data"]["v_ase"]
+    package_data = config["tool"]["setuptools"]["package-data"]["v_ase"]
+    assert "skills_v_ase.md" in package_data
+    assert "skills/visualizing-atomic-structures-with-v-ase/SKILL.md" in package_data
+    assert "skills/visualizing-atomic-structures-with-v-ase/references/*.md" in package_data
 
 
 def test_read_structure_frames_supports_single_structure_files(tmp_path):

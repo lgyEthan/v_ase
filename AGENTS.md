@@ -4,8 +4,17 @@ Keep implementation, user documentation, agent control documentation, and
 rendered examples synchronized in every release.
 
 - Update `README.md` for every user-visible change.
-- Update `v_ase/skills_v_ase.md` whenever a workflow, semantic command,
-  display setting, analysis feature, or export changes.
+- Update the canonical
+  `v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md` and its
+  one-level `references/` whenever a workflow, semantic command, display
+  setting, analysis feature, export, error, or dependency changes.
+- Compare the canonical skill against `window.v_aseAI.capabilities()` and the
+  live schema. Add or update a regression whenever an AI could not complete a
+  user request because the skill was ambiguous or stale.
+- Run the documented AI end-to-end scenarios, including semantic state,
+  physical edits, constraints, trajectories, camera directions, exact image
+  rendering, exports, and human takeover. Inspect rendered output visually;
+  an HTTP success response is not sufficient.
 - When rendering or constraint visuals change, regenerate every README image
   and animation with `scripts/capture_readme_screenshots.py`, then synchronize
   `docs/assets/` and `docs/assets/github/`.

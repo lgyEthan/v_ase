@@ -75,7 +75,7 @@ view.
 | Repeat or wrap a cell | Use **Structure > Cell & Replication** |
 | Save the complete session | Use **Export > Save Project** to create a self-contained `.vase` |
 | Work with a remote file | Run `v_ase gui HOST:/path/to/STRUCTURE` locally |
-| Let an AI inspect, edit, and render | Run `v_ase gui FILE --for-ai`; use the [agent skill guide](https://github.com/lgyEthan/v_ase/blob/main/v_ase/skills_v_ase.md) |
+| Let an AI inspect, edit, and render | Run `v_ase gui FILE --for-ai`; use the [installable agent skill](https://github.com/lgyEthan/v_ase/blob/main/v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md) |
 
 > **Tip:** After selecting atoms, press `Esc` to close the control panel before
 > starting `G`/`R` transforms. This returns keyboard focus to the viewport
@@ -108,8 +108,11 @@ loop.
 The interface is vendor-neutral and exposed as `window.v_aseAI` in the live
 page. Open the handshake's `human_url` at any time to take over the same
 document, frame, camera, and settings in the regular GUI. Complete command and
-JavaScript examples are available at its `skill_url` and in
-[skills_v_ase.md](https://github.com/lgyEthan/v_ase/blob/main/v_ase/skills_v_ase.md).
+JavaScript examples are available at its `skill_url` and in the canonical
+[v_ase agent SKILL.md](https://github.com/lgyEthan/v_ase/blob/main/v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md).
+The skill follows the standard `skill-name/SKILL.md` layout, includes explicit
+safety checks, and links to progressive references for CLI use, the semantic
+API, complete workflows, error handling, and release-time end-to-end tests.
 
 ## Opening And Documents
 

@@ -233,6 +233,8 @@ def test_blender_export_includes_constraints_and_hookean_spring():
     assert "hookean_state" in script
     assert "threshold_y = left_center + threshold" in script
     assert "_inactive_gap" in script
+    assert "round(spring_len / 0.18)" in script
+    assert 'bevel=0.022' in script
     assert "_dead_zone_rail" in script
     assert "_cutoff_gate" in script
     assert "_lock_pin" in script

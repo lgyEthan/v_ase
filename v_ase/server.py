@@ -31,7 +31,7 @@ from .repulsion import (
     repulsion_metadata,
 )
 from .commensurate import find_commensurate_angles
-from .ai import AI_PROTOCOL
+from .ai import AI_PROTOCOL, ai_skill_path
 from .project import (
     PROJECT_MIME,
     SETTINGS_SCHEMA,
@@ -144,7 +144,10 @@ MAX_LAUNCH_DIRECTORY_ENTRIES = 5000
 
 AI_CONTROL_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "https://github.com/lgyEthan/v_ase/blob/main/v_ase/skills_v_ase.md",
+    "$id": (
+        "https://github.com/lgyEthan/v_ase/blob/main/v_ase/skills/"
+        "visualizing-atomic-structures-with-v-ase/SKILL.md"
+    ),
     "title": "v_ase semantic browser control",
     "description": (
         "Commands accepted by window.v_aseAI.apply(). They control the same "
@@ -1393,7 +1396,7 @@ async def ai_control_schema():
 
 @app.get("/api/ai/skill")
 async def ai_skill():
-    path = Path(__file__).with_name("skills_v_ase.md")
+    path = Path(ai_skill_path())
     return Response(
         content=path.read_text(encoding="utf-8"),
         media_type="text/markdown; charset=utf-8",

@@ -55,3 +55,12 @@ def test_brand_logo_is_native_high_resolution_transparent_png():
         partial_alpha = np.count_nonzero((alpha > 8) & (alpha < 247))
         opaque_alpha = np.count_nonzero(alpha >= 247)
         assert partial_alpha / opaque_alpha < 0.05
+
+
+def test_brand_logo_generation_uses_approved_palette_and_separated_letter_atoms():
+    source = (ROOT / "scripts" / "capture_readme_screenshots.py").read_text()
+    assert 'LOGO_SUBSTRATE_COLOR", "#71493f"' in source
+    assert 'LOGO_LETTER_COLOR", "#d7f26f"' in source
+    assert 'LOGO_LETTER_RADIUS", "0.67"' in source
+    assert "def sync_github_readme_assets()" in source
+    assert "shutil.copy2(source, github_dir / source.name)" in source

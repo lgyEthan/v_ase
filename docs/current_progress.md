@@ -188,9 +188,11 @@ and documentation use `view()`.
 46. Hookean active-state geometry is a shaded three-dimensional helix in both
     the live viewport and generated Blender scene. Cutoff and inactive-gap
     graphics remain separate so the physical threshold is readable.
-47. The installed vendor-neutral agent contract is
-    `v_ase/skills_v_ase.md`. Every release updates it together with README,
-    implementation docs, and all README captures affected by renderer changes.
+47. The installed vendor-neutral agent contract is the canonical
+    `v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md`, with
+    one-level progressive references. Every release validates metadata,
+    trigger cases, semantic capability parity, browser end-to-end workflows,
+    rendered output, README, GitHub, and PyPI together.
 
 ## Canonical Names And Compatibility
 

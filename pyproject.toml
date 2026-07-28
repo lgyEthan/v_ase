@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "v_ase-gui"
-version = "0.0.100"
+version = "0.0.101"
 description = "A local 3D viewer and editor for atomic structures and trajectories."
 readme = "README.md"
 license = "MIT"
@@ -57,4 +57,15 @@ rhino = [
 include = ["v_ase*"]
 
 [tool.setuptools.package-data]
-v_ase = ["skills_v_ase.md", "static/*.html", "static/*.css", "static/*.js", "static/*.png", "static/vendor/*.js", "static/vendor/THREE_LICENSE"]
+v_ase = [
+  "skills_v_ase.md",
+  "skills/visualizing-atomic-structures-with-v-ase/SKILL.md",
+  "skills/visualizing-atomic-structures-with-v-ase/references/*.md",
+  "skills/visualizing-atomic-structures-with-v-ase/agents/*.yaml",
+  "static/*.html",
+  "static/*.css",
+  "static/*.js",
+  "static/*.png",
+  "static/vendor/*.js",
+  "static/vendor/THREE_LICENSE",
+]

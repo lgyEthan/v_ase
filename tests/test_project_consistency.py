@@ -66,7 +66,7 @@ def test_release_contract_covers_user_agent_and_rendered_docs():
     checklist = (ROOT / "docs/release_checklist.md").read_text(encoding="utf-8")
     for required in (
         "README.md",
-        "v_ase/skills_v_ase.md",
+        "v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md",
         "scripts/capture_readme_screenshots.py",
         "docs/assets/github/",
         "GitHub",

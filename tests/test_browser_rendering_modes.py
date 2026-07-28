@@ -207,13 +207,15 @@ def test_ai_bridge_screen_relative_camera_and_constraint_vector_workflow():
                     points: points.length,
                     xSpan: Math.max(...xs) - Math.min(...xs),
                     zSpan: Math.max(...zs) - Math.min(...zs),
-                    materialType: renderer.constraintMaterials.hookean.type
+                    materialType: renderer.constraintMaterials.hookean.type,
+                    wireRadius: renderer.hookeanSpringWireRadius()
                 };
             }""")
             assert helix["points"] >= 100
             assert helix["xSpan"] > 0.38
             assert helix["zSpan"] > 0.38
             assert helix["materialType"] == "MeshStandardMaterial"
+            assert helix["wireRadius"] == pytest.approx(0.022)
 
             result = page.evaluate("""async () => await window.v_aseAI.apply({
                 display: {
@@ -236,6 +238,35 @@ def test_ai_bridge_screen_relative_camera_and_constraint_vector_workflow():
                 antiAliasing: window.__ASE_APP__.renderer.displayOptions.antiAliasing,
                 sphereQuality: window.__ASE_APP__.renderer.displayOptions.sphereQuality
             })""") == {"antiAliasing": False, "sphereQuality": "low"}
+
+            axis_views = page.evaluate("""async () => {
+                const snapshots = {};
+                for (const axis of ['+X', '-X', '+Y', '-Y', '+Z', '-Z']) {
+                    snapshots[axis] = (
+                        await window.v_aseAI.apply({
+                            camera: {axis, fit: 'structure'}
+                        })
+                    ).camera;
+                }
+                await window.v_aseAI.apply({
+                    camera: {axis: '+Z', fit: 'structure'}
+                });
+                return snapshots;
+            }""")
+            expected_axes = {
+                "+X": [1, 0, 0],
+                "-X": [-1, 0, 0],
+                "+Y": [0, 1, 0],
+                "-Y": [0, -1, 0],
+                "+Z": [0, 0, 1],
+                "-Z": [0, 0, -1],
+            }
+            for axis, expected in expected_axes.items():
+                position = np.asarray(axis_views[axis]["position"], dtype=float)
+                target = np.asarray(axis_views[axis]["target"], dtype=float)
+                direction = position - target
+                direction /= np.linalg.norm(direction)
+                assert direction.tolist() == pytest.approx(expected, abs=1e-8)
 
             rendered = page.evaluate("""async () => {
                 const image = await window.v_aseAI.render({
