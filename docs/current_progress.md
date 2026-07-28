@@ -97,9 +97,9 @@ and documentation use `view()`.
 20. The default viewport clear color is exact white. Modeling lights lift atom
     midtones consistently without allocating rendered-mode shadows, and the
     white-background grid remains low contrast.
-21. Pair-specification mode uses explicit label-pair enabled/min/max records.
+21. Pair-specification mode uses explicit label-pair enabled/max records.
     These visible records are the sole topology rule in that mode and update
-    live without an apply button.
+    live without an apply button. Legacy minimum values normalize to zero.
 22. Metal materials allocate one shared low-resolution PMREM reflection
     environment on first use. Standard/rubber-only scenes do not pay that
     allocation or preprocessing cost.
@@ -107,7 +107,7 @@ and documentation use `view()`.
     Analysis, View, and Export. Appearance and bonding are Structure sections
     because both participate in atom identity and scientific structure
     interpretation.
-24. Cartesian or fractional whole-structure translation applies to every
+24. Physical Cartesian or fractional `translate-all` applies to every
     trajectory frame and never changes the unit cell. Fractional vectors use
     the complete, potentially non-orthogonal cell matrix.
 25. Browser history interleaves structural mutations and camera changes.
@@ -145,8 +145,10 @@ and documentation use `view()`.
     Page teardown sends a keepalive close signal in addition to closing its
     WebSocket. The backend ignores stale sockets belonging to closing pages,
     preserves a workspace while any other browser client remains active, and
-    releases blocking CLI/Python calls after the final page closes. This
-    contract applies through SSH local port forwarding as well as localhost.
+    releases blocking CLI/Python calls after the final page closes.
+    `close_on_disconnect=False` explicitly opts API sessions out of workspace
+    autoclose. This contract applies through SSH local port forwarding as well
+    as localhost.
 34. CLI sessions select an unused loopback port automatically when `--port` is
     omitted. No public listener or administrator-assigned port is required.
 35. An scp-style `HOST:/path` input makes remote use a one-command workflow.
@@ -193,6 +195,15 @@ and documentation use `view()`.
     one-level progressive references. Every release validates metadata,
     trigger cases, semantic capability parity, browser end-to-end workflows,
     rendered output, README, GitHub, and PyPI together.
+48. Cartesian or fractional visual translation is an absolute display setting
+    available in View and Edit. It is applied after display supercell
+    repetition to atoms, bonds, constraints, selections, and analysis
+    overlays, while the ASE coordinates and cell remain unchanged. Visual
+    Settings and `.vase` preserve it; Reset Coordinates preserves it; full
+    Reset returns it to zero.
+49. Displacement vectors keep their physical backend values, begin at each
+    currently visible atom position, and repeat over every displayed
+    supercell image. Visual translation moves both endpoints equally.
 
 ## Canonical Names And Compatibility
 
@@ -210,10 +221,11 @@ Canonical display keys:
 - bond mode `pairwise`
 
 `pairwiseBondCutoffs` remains a maximum-distance compatibility mirror for
-projects made before enabled/min/max specifications. Loaders migrate it to
+projects made before enabled/max specifications. Loaders migrate it to
 `pairwiseBondRanges`, as well as the previous `elementBondCutoffs`, `elementRadii`,
 `elementColors`, `elementVisible`, and bond mode `element` names. Saved output
-contains only canonical v3 keys.
+contains only canonical v3 keys. Legacy pair minimums are accepted but
+normalized to zero.
 
 Canonical Python label helpers are `atom_labels()` and `set_atom_labels()`.
 `atom_type_labels()`, `set_atom_type_labels()`, and `ATOM_TYPE_ARRAY` remain

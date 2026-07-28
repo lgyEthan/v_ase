@@ -88,7 +88,7 @@ supplies both base-cell topology and internal supercell bridge records. Manual
 pairs bypass neighbor inference.
 
 Large scenes cache a `maximum cutoff + skin` neighbor candidate list. Actual
-distances and pair minimum/maximum ranges are still evaluated every frame, so
+distances and pair maximum cutoffs are still evaluated every frame, so
 bonds form and break live. The candidate list is rebuilt when an atom moves
 more than half the skin or when labels, visibility, cutoffs, cell, PBC,
 periodic policy, or constraints change. Cylinder instance matrices are written
@@ -207,6 +207,8 @@ Performance-sensitive static contracts are locked by
 - label visibility and appearance updates;
 - visualization-mode replica selection;
 - frame-persistent selection and displacement-vector instancing;
+- visual translation after supercell instancing without coordinate copies;
+- supercell-repeated displacement vectors with shared physical values;
 - frame-specific cell/PBC handling for wrap, translation, and supercells;
 - output preview/capture parity;
 - inactive multi-document suspension.

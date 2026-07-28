@@ -160,6 +160,25 @@ def test_workspace_browser_close_keeps_another_browser_connected():
         sessions.pop(host.session_id, None)
 
 
+def test_workspace_browser_close_respects_disabled_autoclose():
+    host, workspace = _workspace_host()
+    host.config["workspace_auto_close_on_disconnect"] = False
+    try:
+        schedule_workspace_autoclose(
+            workspace.workspace_id,
+            delay=0.01,
+            closing_client_id="closing-client",
+        )
+        time.sleep(0.08)
+
+        assert not host.done_event.is_set()
+        assert workspace.workspace_id in workspaces
+    finally:
+        cancel_workspace_autoclose(workspace.workspace_id)
+        finalize_workspace(workspace.workspace_id)
+        sessions.pop(host.session_id, None)
+
+
 def test_workspace_browser_tabs_suspend_inactive_renderers_and_keep_settings_separate(tmp_path):
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     playwright_error = pytest.importorskip("playwright._impl._errors").Error

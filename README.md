@@ -73,6 +73,7 @@ view.
 | Play a trajectory | Use the bottom timeline or press `Space`; adjust FPS and Skip live |
 | Style a figure | Use **Structure > Appearance**, **Bonding**, and **View** |
 | Repeat or wrap a cell | Use **Structure > Cell & Replication** |
+| Offset atoms relative to the cell | Set Cartesian or fractional **Translate atoms** values in View or Edit |
 | Save the complete session | Use **Export > Save Project** to create a self-contained `.vase` |
 | Work with a remote file | Run `v_ase gui HOST:/path/to/STRUCTURE` locally |
 | Let an AI inspect, edit, and render | Run `v_ase gui FILE --for-ai`; use the [installable agent skill](https://github.com/lgyEthan/v_ase/blob/main/v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md) |
@@ -267,10 +268,13 @@ v_ase gui examples/readme_scene_assets/hookean.traj --interactive
 
 ## Editing And Measurement
 
-Move and angle increments, transform pivot, constraints, cell transforms,
-supercells, and wrapping are available from **Structure**. **Translate atoms**
-moves every frame while keeping the cell fixed; enter either Cartesian values
-in Angstrom or fractional cell coordinates, then select **Apply Translation**.
+Move and angle increments, transform pivot, constraints, and physical cell
+transforms are available in Edit. Supercell display, wrapping, and **Translate
+atoms** are also available in View. Translation is an absolute visual offset:
+enter Cartesian values in Angstrom or fractional cell coordinates, then select
+**Apply Translation**. It is applied after displayed supercell replication,
+keeps ASE coordinates and the cell unchanged, remains in the input fields, and
+returns to the unshifted view when `0, 0, 0` is applied.
 Axis-locked rotation can show low-strain commensurate cell-boundary angles and
 optionally snap to them. The guide is enabled by default; magnetic snapping is
 opt-in.
@@ -295,6 +299,9 @@ trajectory. Compare the current frame with the previous frame or a specific
 frame, enable or disable minimum-image correction, and choose 3D or flat 2D
 arrows. Vector scale, thickness, and color are display-only controls. Particle
 IDs are used when present; otherwise equal-size frames use stable atom indices.
+Each arrow starts at the atom's current visible position. Display translation
+moves both endpoints without changing the physical vector, and displayed
+supercells repeat the same vectors in every visible image.
 
 ## Structure, View, And Rendering
 
@@ -330,11 +337,12 @@ editable.
 
 **Structure > Bonding** supports automatic element-radius inference, explicit
 label-pair specifications, and manual atom-index pairs. Each pair specification
-has an enable checkbox plus minimum and maximum distances in Angstrom. Changes
-apply immediately; no separate apply step is required. Thickness, cylinder/flat
-style, custom color, and midpoint-split atom colors are configurable. New
-documents show bonds by default and use a `0.25 A` bond diameter. Interactive
-bonds form and break during atom transforms.
+has an enable checkbox and maximum distance in Angstrom; zero disables that
+pair. Drag the Label pair header divider when long labels need more room.
+Changes apply immediately; no separate apply step is required. Thickness,
+cylinder/flat style, custom color, and midpoint-split atom colors are
+configurable. New documents show bonds by default and use a `0.25 A` bond
+diameter. Interactive bonds form and break during atom transforms.
 
 **Structure > Relaxation** exposes the repulsive fallback calculator's cutoff
 scale and strength. The default cutoff scale is `0.70`; reducing it shortens
@@ -356,7 +364,7 @@ cutoffs.
 | Export 3DM | Instanced Rhino geometry, metadata, and saved views |
 | Export OBJ | OBJ/MTL plus camera and metadata JSON in a ZIP |
 | Save Project | Self-contained `.vase` structure/trajectory and complete visual state |
-| Save Settings | Reusable appearance, bonds, camera, lighting, quality, and supercell JSON |
+| Save Settings | Reusable appearance, bonds, camera, lighting, quality, display supercell, and visual translation JSON |
 
 **Preview Area** uses the exact image/video aspect ratio, camera, crop, display,
 and lighting profile used for export. The frame stays fixed while orbit and zoom
@@ -376,6 +384,9 @@ encoding starts.
 `.vase` files are self-contained; reopening one does not require the original
 structure file. Opening an ordinary structure from an active workspace keeps
 the current visual settings. Opening a `.vase` project restores its saved state.
+**Reset Coords** restores physical coordinates and the original cell while
+keeping displayed replication and visual translation. Full **Reset** also
+returns visual translation to `0, 0, 0`.
 
 Rhino export requires:
 
@@ -523,6 +534,16 @@ frame.
 - Reload once after the terminal reports that the local server is ready.
 - For a remote file, rerun the single `v_ase gui HOST:/path/to/STRUCTURE`
   command rather than reusing an old browser URL.
+
+</details>
+
+<details>
+<summary>Replicated supercell atoms cannot be selected</summary>
+
+In **Edit**, displayed replicas are previews and cannot be selected or modified.
+Use **Set Supercell as Cell** to create real ASE atoms and an editable larger
+cell. In **View**, displayed replicas are selectable and participate in center,
+distance, and other measurements without changing the ASE structure.
 
 </details>
 

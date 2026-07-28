@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.101&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.101&rev=1';
-import { ASESelection } from './selection.js?v=0.0.101&rev=1';
-import { ASETransform } from './transform.js?v=0.0.101&rev=1';
+import { ASEApi } from './api.js?v=0.0.102&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.102&rev=1';
+import { ASESelection } from './selection.js?v=0.0.102&rev=1';
+import { ASETransform } from './transform.js?v=0.0.102&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.101&rev=1';
+} from './trajectory.js?v=0.0.102&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -100,6 +100,7 @@ class VAseApp {
                 manualBondPairs: [],
                 pairwiseBondCutoffs: {},
                 pairwiseBondRanges: {},
+                pairwiseLabelColumnWidth: 210,
                 bondStyle: 'cylinder',
                 bondThickness: 0.25,
                 bondColorMode: 'split',
@@ -117,6 +118,8 @@ class VAseApp {
                 commensurateMaxIndex: 32,
                 commensurateSnapRangeDeg: 2.0,
                 supercell: [1, 1, 1],
+                translation: [0, 0, 0],
+                translationMode: 'cartesian',
                 projectionMode: 'orthographic',
                 viewportBackground: 'white',
                 atomDisplayMode: '3d',
@@ -850,7 +853,6 @@ class VAseApp {
             '#commensurate-strain',
             '#commensurate-max-index',
             '#commensurate-snap-range',
-            '.pairwise-bond-min',
             '.pairwise-bond-max',
             '.label-radius-input',
             '.label-color-input'
@@ -1697,7 +1699,7 @@ class VAseApp {
             this.applyLightingControls();
         });
         document.getElementById('btn-sun-target-selection')?.addEventListener('click', () => {
-            const target = this.getSceneCenter();
+            const target = this.renderer.toVisualAtomPosition(this.getSceneCenter());
             this.state.display.sunTarget = [target.x, target.y, target.z];
             this.syncLightingControls();
             this.applyLightingControls();
@@ -3268,7 +3270,7 @@ class VAseApp {
         const points = selectedReferences.map((reference, index) => {
             const position = this.selectionReferencePosition(reference);
             if (!position) return null;
-            const projected = position.clone().project(camera);
+            const projected = this.renderer.toVisualAtomPosition(position).project(camera);
             if (![projected.x, projected.y, projected.z].every(Number.isFinite) ||
                 projected.z < -1 || projected.z > 1) {
                 return null;
@@ -3984,7 +3986,9 @@ class VAseApp {
         const pivot = this.rotationPivotPosition(editableSelection);
         this.state.transformReadout = '';
         this.state.transformStartPointer.copy(this.state.lastPointer);
-        this.state.rotationScreenPivot.copy(this.worldToScreen(pivot));
+        this.state.rotationScreenPivot.copy(
+            this.worldToScreen(this.renderer.toVisualAtomPosition(pivot))
+        );
         this.state.rotationLastAngle = 0;
         this.state.rotationPointerActive = false;
         this.state.transformSubject = 'atoms';
@@ -4454,7 +4458,6 @@ class VAseApp {
                 return { enabled: false, min: 0, max: 0 };
             }
             const maximum = Number(source.max);
-            const minimum = Number(source.min);
             const max = Number.isFinite(maximum) && maximum >= 0 ? maximum : fallback.max;
             const sourceEnabled = source.enabled !== false && max > 0;
             if (hasLegacyMaximum && legacyMaximum !== null) {
@@ -4465,16 +4468,14 @@ class VAseApp {
                 if (!recordsAgree) {
                     return {
                         enabled: legacyEnabled,
-                        min: legacyEnabled && Number.isFinite(minimum)
-                            ? Math.max(0, Math.min(minimum, legacyMaximum))
-                            : 0,
+                        min: 0,
                         max: legacyMaximum
                     };
                 }
             }
             return {
                 enabled: sourceEnabled,
-                min: Number.isFinite(minimum) ? Math.max(0, Math.min(minimum, max)) : 0,
+                min: 0,
                 max
             };
         }
@@ -5071,6 +5072,7 @@ class VAseApp {
     renderPairwiseBondControls({ capture = true } = {}) {
         const root = document.getElementById('pairwise-bond-list');
         if (!root || !this.state.atoms?.symbols) return;
+        this.applyPairwiseLabelColumnWidth();
         if (capture) this.captureBondSettingsFromControls();
         const existingFocus = document.activeElement?.dataset?.pairKey
             ? {
@@ -5115,10 +5117,9 @@ class VAseApp {
                 input.addEventListener('change', () => this.safeApplyBondOptions());
                 return input;
             };
-            const minimum = makeDistanceInput('min', range.min);
             const maximum = makeDistanceInput('max', range.max);
             enabled.addEventListener('change', () => this.safeApplyBondOptions());
-            row.append(enabled, label, minimum, maximum);
+            row.append(enabled, label, maximum);
             root.appendChild(row);
         });
         if (existingFocus) {
@@ -5129,6 +5130,74 @@ class VAseApp {
             target?.focus();
         }
         this.updateBondModeUI();
+    }
+
+    normalizedPairwiseLabelColumnWidth(value = this.state.display.pairwiseLabelColumnWidth) {
+        const parsed = Number(value);
+        return Math.round(Math.max(120, Math.min(520, Number.isFinite(parsed) ? parsed : 210)));
+    }
+
+    applyPairwiseLabelColumnWidth(value = this.state.display.pairwiseLabelColumnWidth) {
+        const width = this.normalizedPairwiseLabelColumnWidth(value);
+        this.state.display.pairwiseLabelColumnWidth = width;
+        const panel = document.getElementById('pairwise-bond-panel');
+        panel?.style.setProperty('--pair-label-width', `${width}px`);
+        const resizer = document.getElementById('pairwise-label-column-resizer');
+        if (resizer) {
+            resizer.setAttribute('aria-valuemin', '120');
+            resizer.setAttribute('aria-valuemax', '520');
+            resizer.setAttribute('aria-valuenow', String(width));
+        }
+        return width;
+    }
+
+    setupPairwiseLabelColumnResizer() {
+        const resizer = document.getElementById('pairwise-label-column-resizer');
+        if (!resizer || resizer.dataset.bound === 'true') return;
+        resizer.dataset.bound = 'true';
+        let drag = null;
+        const finish = event => {
+            if (!drag) return;
+            if (event?.pointerId === drag.pointerId && resizer.hasPointerCapture?.(drag.pointerId)) {
+                resizer.releasePointerCapture(drag.pointerId);
+            }
+            drag = null;
+            document.body.classList.remove('resizing-pairwise-column');
+        };
+        resizer.addEventListener('pointerdown', event => {
+            if (event.button !== 0) return;
+            drag = {
+                pointerId: event.pointerId,
+                startX: event.clientX,
+                startWidth: this.normalizedPairwiseLabelColumnWidth()
+            };
+            resizer.setPointerCapture?.(event.pointerId);
+            document.body.classList.add('resizing-pairwise-column');
+            event.preventDefault();
+            event.stopPropagation();
+        });
+        resizer.addEventListener('pointermove', event => {
+            if (!drag || event.pointerId !== drag.pointerId) return;
+            this.applyPairwiseLabelColumnWidth(
+                drag.startWidth + event.clientX - drag.startX
+            );
+            event.preventDefault();
+        });
+        ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(type => {
+            resizer.addEventListener(type, finish);
+        });
+        resizer.addEventListener('keydown', event => {
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+            const current = this.normalizedPairwiseLabelColumnWidth();
+            const next = event.key === 'Home'
+                ? 120
+                : event.key === 'End'
+                    ? 520
+                    : current + (event.key === 'ArrowRight' ? 12 : -12);
+            this.applyPairwiseLabelColumnWidth(next);
+            event.preventDefault();
+        });
+        this.applyPairwiseLabelColumnWidth();
     }
 
     parsePairwiseBondRanges() {
@@ -5143,15 +5212,11 @@ class VAseApp {
                 max: 0
             };
             const enabled = row.querySelector('.pairwise-bond-enabled')?.checked !== false;
-            const rawMinimum = Number(row.querySelector('.pairwise-bond-min')?.value);
             const rawMaximum = Number(row.querySelector('.pairwise-bond-max')?.value);
             const maximum = Number.isFinite(rawMaximum)
                 ? Math.max(0, rawMaximum)
                 : Math.max(0, Number(current.max) || 0);
-            const minimum = Number.isFinite(rawMinimum)
-                ? Math.max(0, Math.min(rawMinimum, maximum))
-                : Math.max(0, Math.min(Number(current.min) || 0, maximum));
-            ranges[key] = { enabled, min: minimum, max: maximum };
+            ranges[key] = { enabled, min: 0, max: maximum };
             cutoffs[key] = enabled ? maximum : 0;
         });
         return { ranges, cutoffs };
@@ -6141,6 +6206,11 @@ class VAseApp {
         setValue('rotate-increment', this.state.rotateIncrementDeg || 0);
         this.syncDisplacementControls(display);
         this.setSupercellInputs(display.supercell || [1, 1, 1]);
+        this.setTranslationCoordinateMode(
+            display.translationMode === 'fractional' ? 'fractional' : 'cartesian',
+            { convert: false, render: false }
+        );
+        this.applyPairwiseLabelColumnWidth(display.pairwiseLabelColumnWidth);
         this.writeBondPairs(display.manualBondPairs || []);
         this.syncViewControls(display);
         this.syncLightingControls(display);
@@ -6277,6 +6347,14 @@ class VAseApp {
             const value = Math.max(1, parseInt(requestedSupercell[axis] || 1, 10));
             return usableCell && (value === 1 || Boolean(pbc[axis])) ? value : 1;
         });
+        let translation = this.normalizedTranslationVector(nextDisplay.translation);
+        let translationMode = nextDisplay.translationMode === 'fractional'
+            ? 'fractional'
+            : 'cartesian';
+        if (translationMode === 'fractional' && !usableCell) {
+            translationMode = 'cartesian';
+            translation = [0, 0, 0];
+        }
 
         return {
             ...this.clonePlain(nextDisplay),
@@ -6346,6 +6424,11 @@ class VAseApp {
             displacementColor: this.validHexColor(nextDisplay.displacementColor)
                 ? nextDisplay.displacementColor
                 : '#e58b2a',
+            pairwiseLabelColumnWidth: finiteClamped(
+                nextDisplay.pairwiseLabelColumnWidth, 210, 120, 520
+            ),
+            translation,
+            translationMode,
             supercell
         };
     }
@@ -6408,7 +6491,8 @@ class VAseApp {
             labelVisible: this.clonePlain(nextDisplay.labelVisible),
             labelMaterials: this.clonePlain(nextDisplay.labelMaterials),
             atomMaterials: this.clonePlain(nextDisplay.atomMaterials),
-            supercell: this.clonePlain(nextDisplay.supercell)
+            supercell: this.clonePlain(nextDisplay.supercell),
+            translation: this.clonePlain(nextDisplay.translation)
         };
         if ('applyConstraints' in source) this.state.applyConstraints = Boolean(source.applyConstraints);
         if ('antiAliasing' in source) {
@@ -6483,7 +6567,8 @@ class VAseApp {
             items: [
                 'Coordinates: every trajectory frame goes back to the original file.',
                 'Cell: any applied supercell returns to the original unit cell.',
-                'Visual settings: bonds, radii, grid, axes, quality, and cutoffs return to startup values.',
+                'Visual settings: bonds, radii, grid, axes, quality, cutoffs, and displayed replication return to startup values.',
+                'Visual translation: the atom offset returns to (0, 0, 0).',
                 'Selection: current selection is cleared.'
             ],
             confirmText: 'Yes, reset all',
@@ -6497,8 +6582,8 @@ class VAseApp {
             intro: 'This keeps visual settings but restores the physical structure.',
             items: [
                 'Coordinates: every trajectory frame returns to its original atom positions.',
-                'Cell: the structure returns to the original 1 x 1 x 1 unit cell.',
-                'Visual settings kept: bond display, bond cutoffs, atom radii, grid, axes, and rendering quality.',
+                'Cell: any physically materialized supercell returns to the original unit cell.',
+                'Visual settings kept: displayed replication, visual translation, bonds, radii, grid, axes, and rendering quality.',
                 'Selection: current selection is cleared.'
             ],
             confirmText: 'Yes, reset coordinates',
@@ -6550,8 +6635,62 @@ class VAseApp {
         }
     }
 
-    setTranslationCoordinateMode(mode) {
+    normalizedTranslationVector(vector = [0, 0, 0]) {
+        if (!Array.isArray(vector) || vector.length < 3) return [0, 0, 0];
+        return vector.slice(0, 3).map(value => {
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : 0;
+        });
+    }
+
+    translationVectorToCartesian(vector, mode = this.state.translationCoordinateMode) {
+        const values = this.normalizedTranslationVector(vector);
+        if (mode !== 'fractional') return values;
+        if (!this.hasUsableCell()) {
+            if (values.every(value => Math.abs(value) < 1e-12)) return [0, 0, 0];
+            throw new Error('Fractional translation requires a defined unit cell.');
+        }
+        return this.renderer.fracToCart(new THREE.Vector3(...values)).toArray();
+    }
+
+    translationVectorFromCartesian(vector, mode = this.state.translationCoordinateMode) {
+        const values = this.normalizedTranslationVector(vector);
+        if (mode !== 'fractional') return values;
+        if (!this.hasUsableCell()) {
+            if (values.every(value => Math.abs(value) < 1e-12)) return [0, 0, 0];
+            throw new Error('Fractional translation requires a defined unit cell.');
+        }
+        return this.renderer.cartToFrac(new THREE.Vector3(...values)).toArray();
+    }
+
+    writeTranslationControls(vector = this.state.display.translation) {
+        const values = this.normalizedTranslationVector(vector);
+        ['translate-x', 'translate-y', 'translate-z'].forEach((id, index) => {
+            const input = document.getElementById(id);
+            if (!input) return;
+            const rounded = Math.abs(values[index]) < 5e-13
+                ? 0
+                : Number(values[index].toFixed(8));
+            input.value = String(rounded);
+        });
+    }
+
+    setTranslationCoordinateMode(mode, { convert = true, render = true } = {}) {
         const next = mode === 'fractional' ? 'fractional' : 'cartesian';
+        if (convert && next === 'fractional' && !this.hasUsableCell()) {
+            this.toast('Fractional translation requires a defined unit cell.', 'warning');
+            return false;
+        }
+        const current = this.state.display.translationMode === 'fractional'
+            ? 'fractional'
+            : 'cartesian';
+        let vector = this.normalizedTranslationVector(this.state.display.translation);
+        if (convert && current !== next) {
+            const cartesian = this.translationVectorToCartesian(vector, current);
+            vector = this.translationVectorFromCartesian(cartesian, next);
+            this.state.display.translation = vector;
+        }
+        this.state.display.translationMode = next;
         this.state.translationCoordinateMode = next;
         document.querySelectorAll('[data-translation-mode]').forEach(button => {
             button.setAttribute(
@@ -6563,6 +6702,15 @@ class VAseApp {
         ['translate-x', 'translate-y', 'translate-z'].forEach(id => {
             document.getElementById(id)?.setAttribute('step', step);
         });
+        this.writeTranslationControls(vector);
+        if (render) {
+            this.renderer.setDisplayOptions({
+                translation: this.state.display.translation,
+                translationMode: next
+            });
+            if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+        }
+        return true;
     }
 
     translationVectorFromControls() {
@@ -6571,9 +6719,6 @@ class VAseApp {
             if (!Number.isFinite(value)) throw new Error('Translation components must be finite numbers.');
             return value;
         });
-        if (vector.every(value => Math.abs(value) < 1e-12)) {
-            throw new Error('Enter a non-zero translation vector.');
-        }
         return vector;
     }
 
@@ -6583,23 +6728,24 @@ class VAseApp {
             const mode = this.state.translationCoordinateMode === 'fractional'
                 ? 'fractional'
                 : 'cartesian';
-            const frameCount = this.state.atoms?.metadata?.frame_count || 1;
-            const data = await this.withBusy(
-                `Translating atoms in ${frameCount} frame${frameCount > 1 ? 's' : ''}...`,
-                () => this.api.applyTranslation(
-                    this.backendPositionsPayload(),
-                    vector,
-                    mode,
-                    this.state.applyConstraints
-                )
-            );
-            this.setAtomsData(data);
-            ['translate-x', 'translate-y', 'translate-z'].forEach(id => {
-                const input = document.getElementById(id);
-                if (input) input.value = '0';
+            this.translationVectorToCartesian(vector, mode);
+            this.state.display.translation = [...vector];
+            this.state.display.translationMode = mode;
+            this.renderer.setDisplayOptions({
+                translation: this.state.display.translation,
+                translationMode: mode
             });
+            this.writeTranslationControls(vector);
+            this.updateSelectionMeasurementOverlay();
+            if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
             const unit = mode === 'fractional' ? 'fractional' : 'Å';
-            this.toast(`Translated all atoms by (${vector.join(', ')}) ${unit}; cell unchanged.`, 'success');
+            const reset = vector.every(value => Math.abs(value) < 1e-12);
+            this.toast(
+                reset
+                    ? 'Visual atom translation reset to (0, 0, 0).'
+                    : `Visual atom translation set to (${vector.join(', ')}) ${unit}; ASE coordinates and cell unchanged.`,
+                'success'
+            );
         } catch (err) {
             this.toast(`Translation failed: ${err.message}`, 'error');
         }
@@ -7471,7 +7617,7 @@ class VAseApp {
                 <strong>ASE Pickle (.pkl)</strong>
                 <span>Current ASE Atoms data for Python: coordinates, labels, cell, PBC, constraints, arrays, and valid SinglePointCalculator results. Visual settings are excluded.</span>
                 <strong>Visual Settings (.json)</strong>
-                <span>Reusable display preset: bonds, appearance, camera, lighting, quality, and supercell preview. Atomic coordinates are not included.</span>
+                <span>Reusable display preset: bonds, appearance, camera, lighting, quality, display replication, and visual translation. Atomic coordinates are not included.</span>
                 <strong>v_ase Project (.vase)</strong>
                 <span>Complete working state: structures or trajectory, current frame, coordinates, cell, constraints, labels, cached results, and visual setup.</span>
             </div>
@@ -8581,6 +8727,9 @@ class VAseApp {
                     () => this.api.reset()
                 );
                 this.applyDesignSettings(this.initialDesignSettings, { render: false });
+                this.state.display.translation = [0, 0, 0];
+                this.state.display.translationMode = 'cartesian';
+                this.syncDesignControls();
                 this.setAtomsData(data, { clearSelection: true });
                 this.toast('Reset to the loaded starting state.', 'success');
             } catch (err) {
@@ -8591,14 +8740,13 @@ class VAseApp {
             try {
                 if (!await this.confirmCoordinateReset()) return;
                 const preservedSettings = this.designSettingsSnapshot();
-                preservedSettings.display.supercell = [1, 1, 1];
                 const data = await this.withBusy(
-                    'Resetting coordinates and original unit cell...',
+                    'Resetting physical coordinates and original unit cell...',
                     () => this.api.resetCoordinates()
                 );
                 this.applyDesignSettings(preservedSettings, { render: false });
                 this.setAtomsData(data, { clearSelection: true });
-                this.toast('Coordinates and original unit cell restored. Visual settings were kept.', 'success');
+                this.toast('Physical coordinates and original unit cell restored. Display replication and visual translation were kept.', 'success');
             } catch (err) {
                 this.toast(`Coordinate reset failed: ${err.message}`, 'error');
             }
@@ -8956,6 +9104,7 @@ class VAseApp {
             this.applyBondOptions();
             this.toast('Pair specifications reset to element-radius suggestions.', 'success');
         };
+        this.setupPairwiseLabelColumnResizer();
         ['super-x', 'super-y', 'super-z'].forEach(id => {
             document.getElementById(id).onchange = () => this.safeApplyDisplayOptions();
             document.getElementById(id).oninput = () => this.safeApplyDisplayOptions();

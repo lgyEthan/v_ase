@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.101"
+python -m pip install "v_ase-gui==0.0.102"
 ```
 
 Start an agent-ready live session:

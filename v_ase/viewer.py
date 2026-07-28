@@ -387,6 +387,10 @@ def view(
             "initial_design_settings": initial_design_settings,
             "empty_workspace": len(frames) == 1 and len(frames[0]) == 0,
             "auto_close_on_disconnect": bool(close_on_disconnect and not notebook),
+            # Notebook sessions normally use an iframe without a workspace.
+            # If a caller later wraps one in a workspace, retain the established
+            # workspace-close behavior instead of inheriting the iframe flag.
+            "workspace_auto_close_on_disconnect": bool(close_on_disconnect or notebook),
             "document_name": document_name or "Untitled",
             "launch_directory": launch_directory,
             "stream_trajectory": bool(stream_trajectory),

@@ -87,6 +87,10 @@ def normalize_visual_settings(settings: Any) -> dict[str, Any]:
                 "max": maximum,
             }
         display["pairwiseBondRanges"] = ranges
+    elif isinstance(display.get("pairwiseBondRanges"), dict):
+        for value in display["pairwiseBondRanges"].values():
+            if isinstance(value, dict):
+                value["min"] = 0.0
     display.pop(LEGACY_PAIRWISE_CUTOFF_KEY, None)
     for legacy_key, current_key in LEGACY_LABEL_DISPLAY_KEYS.items():
         if current_key not in display and legacy_key in display:

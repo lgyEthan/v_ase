@@ -175,7 +175,8 @@ AI_CONTROL_SCHEMA = {
                 "Partial visual settings. Common keys include showBonds, "
                 "showCell, showAxes, showGrid, viewportBackground, "
                 "atomDisplayMode, atomRadiusScale, bondThickness, "
-                "lightingMode, sunIntensity, sunPosition, and sunTarget."
+                "supercell, translation, translationMode, lightingMode, "
+                "sunIntensity, sunPosition, and sunTarget."
             ),
             "additionalProperties": True,
         },
@@ -542,6 +543,15 @@ def schedule_workspace_autoclose(
     *,
     closing_client_id: str | None = None,
 ) -> None:
+    workspace = workspaces.get(workspace_id)
+    if workspace is None or not bool(
+        (workspace.host_session.config or {}).get(
+            "workspace_auto_close_on_disconnect",
+            True,
+        )
+    ):
+        return
+
     def close_if_still_disconnected() -> None:
         should_finalize = False
         try:
@@ -2477,7 +2487,10 @@ def calculate_displacements(session: EditorSession, payload: Dict[str, Any]):
         else:
             warnings.append("MIC was requested but the current frame has no invertible unit cell.")
 
-    starts = current_mapped - vectors
+    # Vectors describe the physical current-reference displacement, while the
+    # glyph anchor is the atom's current position. The renderer may add a
+    # visual-only translation or displayed supercell offset to both endpoints.
+    starts = current_mapped
     magnitudes = np.linalg.norm(vectors, axis=1)
     return {
         "status": "ok",

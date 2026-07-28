@@ -32,6 +32,11 @@ test edit and a new filename for output.
   movement. Keep `applyConstraints: true` unless free editing is requested.
 - A materialized supercell changes atom count and cell in every trajectory
   frame. Display repetition does not.
+- `display.translation` is a visual offset applied after display repetition.
+  It moves atoms and their overlays but never changes ASE coordinates or the
+  cell. `translate-all` is a separate physical Edit operation.
+- Reset Coordinates preserves display repetition and visual translation. Full
+  Reset returns the visual translation to zero.
 - Trajectory interpolation requires stable atom count, ordering, elements, and
   labels.
 - Angle and torsion measurements preserve selection order and do not use MIC.
@@ -47,6 +52,7 @@ test edit and a new filename for output.
 | atom labels must match atom count | Inconsistent topology metadata | Reload/describe; do not invent missing identities |
 | wrap requires a cell | Cell is undefined | Stop and ask for a valid cell |
 | supercell rejected | Invalid repetition or integer matrix | Validate bounds and determinant |
+| repeated atoms cannot be selected | Edit keeps preview replicas noneditable | Use View for replica measurements or materialize with Set Supercell as Cell |
 | relaxation requires calculator | No ASE calculator is attached | Attach a supported calculator or do not relax |
 | optional 3DM export fails | `rhino3dm` is absent | Install `v_ase-gui[rhino]` |
 | video capture unavailable | Browser lacks `MediaRecorder` | Use Chromium-family browser |

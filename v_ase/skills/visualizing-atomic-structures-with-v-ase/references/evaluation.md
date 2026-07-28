@@ -86,6 +86,8 @@ Run all scenarios, not only static document checks:
 5. **Periodic structure**
    - wrap atoms;
    - display a monoclinic supercell;
+   - apply Cartesian and fractional visual offsets after repetition;
+   - verify View replicas remain selectable while Edit replicas do not;
    - materialize repetitions and an integer cell transform;
    - verify every trajectory frame gets its own transformed cell.
 6. **Appearance**
@@ -98,6 +100,8 @@ Run all scenarios, not only static document checks:
 8. **Trajectory**
    - step frames, retain selection, play, change FPS/skip;
    - compute displacement with and without MIC;
+   - verify current-position vector anchors, supercell repetition, and equal
+     endpoint translation without changing vector values;
    - render interpolation with known frame count.
 9. **Exports**
    - render exact PNG/WebP dimensions and compare decoded pixels;
@@ -108,6 +112,12 @@ Run all scenarios, not only static document checks:
     - create and switch independent documents;
     - verify state isolation and distinct `.vase` output;
     - open `human_url` and confirm it shows the AI-modified state.
+11. **Settings and resets**
+    - save and reload display supercell and visual translation;
+    - verify Reset Coordinates preserves both;
+    - verify full Reset returns translation to zero;
+    - verify pairwise rows expose enabled/max only and retain a resized label
+      column.
 
 ## Visual Assertions
 

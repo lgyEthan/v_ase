@@ -163,7 +163,11 @@ Use View mode when the user only needs displayed replicas:
 ```javascript
 await ai.apply({
   mode: "view",
-  display: {supercell: [2, 2, 1]},
+  display: {
+    supercell: [2, 2, 1],
+    translationMode: "fractional",
+    translation: [0.25, 0, 0]
+  },
   selection: {
     clear: true,
     references: [
@@ -174,6 +178,10 @@ await ai.apply({
 });
 const measured = await ai.describe({includePositions: true});
 ```
+
+The translation above is a scene offset applied after repetition. It is saved
+in Visual Settings and `.vase`, but `measured.positions` and ASE exports remain
+physical coordinates. Use `[0,0,0]` to remove it.
 
 Use `set-supercell` only when the user explicitly wants new atoms and a
 materialized larger cell. It changes topology in every frame and requires Edit

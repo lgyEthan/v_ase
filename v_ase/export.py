@@ -390,7 +390,15 @@ def _pairwise_bond_ranges(display: Dict[str, Any]) -> Dict[str, Any]:
     ranges = display.get("pairwiseBondRanges")
     legacy_cutoffs = _pairwise_bond_cutoffs(display)
     if isinstance(ranges, dict) and not legacy_cutoffs:
-        return ranges
+        return {
+            key: {
+                "enabled": value.get("enabled") is not False,
+                "min": 0.0,
+                "max": value.get("max", 0.0),
+            }
+            for key, value in ranges.items()
+            if isinstance(value, dict)
+        }
     result = {}
     for key, value in legacy_cutoffs.items():
         try:
@@ -401,13 +409,8 @@ def _pairwise_bond_ranges(display: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(source, dict):
             try:
                 source_maximum = max(0.0, float(source.get("max", 0.0)))
-                source_minimum = max(
-                    0.0,
-                    min(float(source.get("min", 0.0)), source_maximum),
-                )
             except (TypeError, ValueError):
                 source_maximum = 0.0
-                source_minimum = 0.0
             source_enabled = source.get("enabled") is not False and source_maximum > 0
             legacy_enabled = maximum > 0
             if (
@@ -416,7 +419,7 @@ def _pairwise_bond_ranges(display: Dict[str, Any]) -> Dict[str, Any]:
             ):
                 result[key] = {
                     "enabled": source_enabled,
-                    "min": source_minimum,
+                    "min": 0.0,
                     "max": source_maximum,
                 }
                 continue
@@ -483,8 +486,7 @@ def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs
                 return 0.0, 0.0
             try:
                 maximum = max(0.0, float(source.get("max", 0.0)))
-                minimum = max(0.0, min(float(source.get("min", 0.0)), maximum))
-                return minimum, maximum
+                return 0.0, maximum
             except (TypeError, ValueError):
                 return 0.0, 0.0
         scale = float(display.get("bondCutoffScale") or 1.0)
@@ -615,6 +617,50 @@ def _normalized_supercell(display, data):
     return repetitions, cell
 
 
+def _display_translation(display, cell):
+    raw = display.get("translation") if isinstance(display, dict) else None
+    if not isinstance(raw, (list, tuple)) or len(raw) < 3:
+        return np.zeros(3, dtype=float)
+    try:
+        vector = np.asarray(raw[:3], dtype=float)
+    except (TypeError, ValueError):
+        return np.zeros(3, dtype=float)
+    if vector.shape != (3,) or not np.all(np.isfinite(vector)):
+        return np.zeros(3, dtype=float)
+    if display.get("translationMode") != "fractional":
+        return vector
+    matrix = np.asarray(cell if cell is not None else [], dtype=float)
+    if matrix.shape != (3, 3) or not np.all(np.isfinite(matrix)):
+        return np.zeros(3, dtype=float)
+    return vector @ matrix
+
+
+def _translate_visual_frame(data, display):
+    """Apply the visual-only atom offset while leaving the unit cell fixed."""
+    translation = _display_translation(display, data.get("cell"))
+    if not np.any(np.abs(translation) > 1e-15):
+        return translation
+    positions = np.asarray(data.get("positions") or [], dtype=float)
+    if positions.ndim == 2 and positions.shape[1:] == (3,):
+        data["positions"] = (positions + translation).tolist()
+    constraints = data.get("constraints")
+    if isinstance(constraints, dict):
+        for item in constraints.get("hookean") or []:
+            if not isinstance(item, dict):
+                continue
+            if item.get("kind") == "point":
+                origin = np.asarray(item.get("origin") or [], dtype=float)
+                if origin.shape == (3,) and np.all(np.isfinite(origin)):
+                    item["origin"] = (origin + translation).tolist()
+            elif item.get("kind") == "plane":
+                plane = np.asarray(item.get("plane") or [], dtype=float)
+                if plane.shape == (4,) and np.all(np.isfinite(plane)):
+                    plane[3] -= float(np.dot(plane[:3], translation))
+                    item["plane"] = plane.tolist()
+    data["visual_translation"] = translation.tolist()
+    return translation
+
+
 def _cell_offsets(repetitions):
     return [
         (ix, iy, iz)
@@ -661,6 +707,7 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
     data = atoms_to_json(atoms)
     display = payload.get("display") or {}
     repetitions, cell = _normalized_supercell(display, data)
+    visual_translation = _display_translation(display, data.get("cell"))
     offsets = _cell_offsets(repetitions)
     total_atoms = len(data.get("positions") or []) * len(offsets)
     if total_atoms > 1_000_000:
@@ -706,7 +753,7 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
             atom_materials.get(str(index), atom_materials.get(index, label_materials.get(label)))
         )
         for offset in offsets:
-            shifted = position + _offset_vector(offset, cell)
+            shifted = position + _offset_vector(offset, cell) + visual_translation
             atom_specs.append({
                 "index": index,
                 "label": str(label),
@@ -773,8 +820,13 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
             continue
         for offset in offsets:
             shift = _offset_vector(offset, cell)
-            add_bond(i, j, np.asarray(bond["start"]) + shift, np.asarray(bond["end"]) + shift,
-                     "_".join(map(str, offset)))
+            add_bond(
+                i,
+                j,
+                np.asarray(bond["start"]) + shift + visual_translation,
+                np.asarray(bond["end"]) + shift + visual_translation,
+                "_".join(map(str, offset)),
+            )
 
     for record in payload.get("bond_bridges") or []:
         try:
@@ -788,8 +840,8 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
             end_offset = tuple(offset[axis] + image_offset[axis] for axis in range(3))
             if not all(0 <= end_offset[axis] < repetitions[axis] for axis in range(3)):
                 continue
-            start = positions[i] + _offset_vector(offset, cell)
-            end = positions[j] + _offset_vector(end_offset, cell)
+            start = positions[i] + _offset_vector(offset, cell) + visual_translation
+            end = positions[j] + _offset_vector(end_offset, cell) + visual_translation
             add_bond(i, j, start, end, "bridge_" + "_".join(map(str, offset)))
 
     include_cell = payload.get("include_cell")
@@ -812,6 +864,7 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
         "camera": copy.deepcopy(payload.get("camera") or {}),
         "include_cell": bool(include_cell),
         "repetitions": repetitions,
+        "translation": visual_translation.tolist(),
         "units": "angstrom",
     }
 
@@ -1441,6 +1494,7 @@ def export_obj_response(session, payload: Dict[str, Any]):
                 "camera": scene.get("camera") or {},
                 "include_cell": scene["include_cell"],
                 "repetitions": scene["repetitions"],
+                "translation": scene["translation"],
                 "atoms": scene["atoms"],
                 "bonds": scene["bonds"],
                 "cell_edges": scene["cell_edges"],
@@ -2309,6 +2363,9 @@ def export_blender_response(session, payload: Dict[str, Any]):
     display = payload.get("display") or {}
     if display:
         data["display"] = display
+    _translate_visual_frame(data, display)
+    for frame in frames:
+        _translate_visual_frame(frame, display)
     lighting = payload.get("lighting") or {
         "mode": display.get("lightingMode", "modeling"),
         "intensity": display.get("sunIntensity", 2.2),

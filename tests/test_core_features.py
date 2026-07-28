@@ -1007,6 +1007,8 @@ def test_displacement_analysis_supports_mic_and_stable_particle_id_mapping():
     assert direct["indices"] == [0, 1]
     np.testing.assert_allclose(direct["vectors"], [[0.4, 0.0, 0.0], [-9.6, 0.0, 0.0]])
     np.testing.assert_allclose(mic["vectors"], [[0.4, 0.0, 0.0], [0.4, 0.0, 0.0]])
+    np.testing.assert_allclose(direct["starts"], [[2.4, 0.0, 0.0], [0.2, 0.0, 0.0]])
+    np.testing.assert_allclose(mic["starts"], [[2.4, 0.0, 0.0], [0.2, 0.0, 0.0]])
     assert mic["matched"] == 2
     assert mic["unmatched_current"] == 1
 
@@ -1162,7 +1164,10 @@ def test_visual_settings_save_and_load_json_roundtrip_and_legacy_pickle():
             "bondCustomColor": "#18a7d8",
             "atomRadiusScale": 1.4,
             "labelRadii": {"O": 0.72},
-            "supercell": [1, 1, 1],
+            "supercell": [2, 1, 1],
+            "translation": [0.25, -0.5, 0.75],
+            "translationMode": "fractional",
+            "pairwiseLabelColumnWidth": 318,
         },
         "applyConstraints": False,
         "sphereQuality": "high",
@@ -1175,10 +1180,16 @@ def test_visual_settings_save_and_load_json_roundtrip_and_legacy_pickle():
     assert payload["settings"]["display"]["bondStyle"] == "flat"
     assert payload["settings"]["display"]["bondThickness"] == 0.24
     assert payload["settings"]["display"]["bondCustomColor"] == "#18a7d8"
+    assert payload["settings"]["display"]["supercell"] == [2, 1, 1]
+    assert payload["settings"]["display"]["translation"] == [0.25, -0.5, 0.75]
+    assert payload["settings"]["display"]["translationMode"] == "fractional"
+    assert payload["settings"]["display"]["pairwiseLabelColumnWidth"] == 318
+    assert payload["settings"]["display"]["pairwiseBondRanges"]["H-O"]["min"] == 0.0
 
     loaded = asyncio.run(load_visual_settings(session.session_id, BytesRequest(response.body)))
     assert loaded["settings"]["display"]["atomRadiusScale"] == 1.4
     assert loaded["settings"]["display"]["bondColorMode"] == "custom"
+    assert loaded["settings"]["display"]["translation"] == [0.25, -0.5, 0.75]
     assert loaded["settings"]["sphereQuality"] == "high"
 
     legacy = pickle.dumps({"schema": "v_ase.visual_settings.v1", "settings": settings})
@@ -1275,6 +1286,8 @@ def test_vase_project_roundtrip_restores_trajectory_edits_constraints_and_settin
             "sunPosition": [11, -7, 16],
             "sunTarget": [1, 2, 3],
             "supercell": [2, 1, 1],
+            "translation": [0.4, -0.25, 0.75],
+            "translationMode": "cartesian",
             "labelMaterials": {
                 "O_surface": "metal",
                 "H_a": "standard",
@@ -1305,6 +1318,8 @@ def test_vase_project_roundtrip_restores_trajectory_edits_constraints_and_settin
     np.testing.assert_allclose(target.working_atoms.get_forces(apply_constraint=False), 0.2)
     assert loaded["project"]["settings"]["display"]["sunIntensity"] == 3.75
     assert loaded["project"]["settings"]["display"]["supercell"] == [2, 1, 1]
+    assert loaded["project"]["settings"]["display"]["translation"] == [0.4, -0.25, 0.75]
+    assert loaded["project"]["settings"]["display"]["translationMode"] == "cartesian"
     assert loaded["project"]["settings"]["display"]["labelMaterials"]["O_surface"] == "metal"
     assert loaded["project"]["settings"]["display"]["atomMaterials"] == {"2": "rubber"}
     asyncio.run(response.background())

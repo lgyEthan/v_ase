@@ -64,7 +64,8 @@ View is the default. It supports:
 - camera navigation and axis alignment;
 - click/box/label selection and measurements;
 - trajectory scrubbing and playback;
-- bonds, appearance, wrapping, supercells, lighting, and exports.
+- bonds, appearance, wrapping, supercells, visual translation, lighting, and
+  exports.
 
 It does not attach the fallback calculator or invoke edit-only workflows.
 Positive supercell images are selectable and measurable using a base index and
@@ -82,6 +83,11 @@ Edit additionally enables:
 
 Display-only supercell images remain uneditable until **Set Supercell as Cell**
 creates a real ASE supercell.
+
+**Translate atoms** is a View/Edit scene offset rather than an ASE coordinate
+edit. Cartesian or fractional values are absolute, apply after display
+repetition, and move atom-attached overlays while the cell stays fixed. The
+input retains the applied value; applying zero restores the unshifted scene.
 
 The top-bar **View / Edit** switch changes mode without reopening the document.
 Entering Edit materializes a lazy trajectory into editable ASE frames before
@@ -174,10 +180,10 @@ Bond topology modes:
   default; metal-ligand, H-containing, and other covalent pairs use separate
   tolerances.
 - **Pair specifications**: each label pair has an enabled state and explicit
-  minimum/maximum distances. The range is the complete topology rule for that
+  maximum distance. The maximum is the complete topology rule for that
   mode; a disabled row or zero maximum produces no bond. Initial specifications
   are deterministic element-radius suggestions, not values learned from a
-  previous structure or user setting.
+  previous structure or user setting. The label-pair column can be resized.
 - **Manual index pairs**: explicit atom-index topology.
 
 Automatic and pair-specification topology is inferred for each trajectory frame
@@ -216,6 +222,10 @@ change visualization bond cutoffs.
 Base-atom selections survive frame changes and are removed only when the new
 frame does not contain the selected index or its label is hidden. Measurements
 are recomputed from the newly displayed positions.
+
+Displacement arrows begin at the currently visible atom position, repeat over
+the displayed supercell, and retain the physical vector returned by the
+backend. A visual translation shifts both endpoints equally.
 
 Video export uses source frames directly at `1x`. An optional integer
 interpolation multiplier inserts linear subframes between adjacent snapshots;
@@ -335,6 +345,8 @@ not the requested width or height.
 Frame-scoped mutation and export requests include the browser's current
 `frame_index`. Trajectory-wide translation, wrapping, repetition, and matrix
 supercell operations apply independently with each frame's own cell and PBC.
+This trajectory-wide translation is the physical Edit operation, distinct from
+the View/Edit visual translation saved in display settings.
 
 ## Save And Export
 

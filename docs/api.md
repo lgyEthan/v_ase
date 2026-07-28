@@ -47,6 +47,8 @@ Important options:
 - `respect_constraints=True` commits coordinates through ASE constraint logic.
 - `close_on_disconnect=True` lets a closed browser document release a blocking
   Python or CLI call.
+- `close_on_disconnect=False` keeps the API session and its local server alive
+  across workspace-tab disconnects until the session is finalized explicitly.
 - `show_bonds=True` is the default; pass `False` for an atom-only initial view.
 
 The caller's input object is copied and is never mutated.
@@ -213,7 +215,7 @@ Reusable presentation preset containing:
 - bond configuration;
 - camera, projection, and atomic scale;
 - lighting, quality, and overlays;
-- supercell preview.
+- display supercell and absolute Cartesian/fractional visual translation.
 
 Coordinates are never included. Loading reconciles label-specific values with
 the new structure, ignores absent labels, and creates defaults for new labels
@@ -280,6 +282,9 @@ POST /api/analysis/displacement/{session_id}
 The payload selects the current/reference frames and MIC policy. Common unique
 particle-ID arrays are preferred; equal-size frames fall back to atom index.
 Different-size frames without IDs return a physical-mapping error.
+Returned vectors retain physical values. The renderer anchors them at current
+visible atom positions, repeats them over display supercells, and applies visual
+translation equally to both endpoints.
 
 Agent discovery and semantic state are available through:
 
@@ -303,9 +308,11 @@ the original pixel dimensions and RGBA values.
 The live browser exposes `window.v_aseAI.ready()`, `capabilities()`,
 `describe()`, `apply()`, `render()`, and `export()`. `apply()` covers frame and
 mode changes, quality, display and camera state, selection, constrained
-transforms, identity and constraint edits, wrapping, translation, atom
+transforms, identity and constraint edits, wrapping, physical translation, atom
 creation/deletion, supercells, history, reset, relaxation, and displacement
-analysis. `export()` covers image, video, POSCAR, ASE Pickle, Blender, Rhino
+analysis. Visual translation and display supercells are ordinary `display`
+settings available in View and Edit. `export()` covers image, video, POSCAR,
+ASE Pickle, Blender, Rhino
 3DM, OBJ, `.vase`, and visual settings. Rendering and image export use the same
 capture path as the human Export workspace.
 

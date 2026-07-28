@@ -967,11 +967,170 @@ def test_trajectory_selection_persists_and_displacement_vectors_render():
                 "selectionOrder": ["atom:0", "atom:1"],
             }
 
+            page.click('[data-inspector-group="structure"]')
+            _open_panel(page, "cell-replication")
+            page.fill("#super-x", "2")
+            page.wait_for_function(
+                "window.__ASE_APP__.renderer.domElement.dataset.displacementCount === '6'"
+            )
+            page.fill("#translate-x", "1.0")
+            page.fill("#translate-y", "-0.5")
+            page.fill("#translate-z", "0.25")
+            page.click("#btn-apply-translation")
+            page.wait_for_function(
+                "window.__ASE_APP__.renderer.domElement.dataset.visualTranslation === '1.000000,-0.500000,0.250000'"
+            )
+            repeated = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const entries = app.renderer.displacementGroup.userData.entries;
+                const preview = app.renderer.supercellGroup.children.find(
+                    child => child.userData?.supercellCellPreview
+                );
+                return {
+                    vizOnly: app.state.vizOnly,
+                    physicalPositions: app.state.atoms.positions.map(position => [...position]),
+                    translation: [...app.state.display.translation],
+                    supercell: [...app.state.display.supercell],
+                    atomGroup: app.renderer.atomMeshes.position.toArray(),
+                    vectorGroup: app.renderer.displacementGroup.position.toArray(),
+                    previewPosition: preview?.position.toArray(),
+                    starts: entries.map(entry => entry.start),
+                    offsets: entries.map(entry => entry.cellOffset),
+                    vectors: entries.map(entry => entry.vector),
+                    saved: app.designSettingsSnapshot().display,
+                    inputs: ['translate-x', 'translate-y', 'translate-z'].map(
+                        id => Number(document.getElementById(id).value)
+                    )
+                };
+            }""")
+            assert repeated["vizOnly"] is True
+            np.testing.assert_allclose(repeated["physicalPositions"], second.positions)
+            assert repeated["translation"] == pytest.approx([1.0, -0.5, 0.25])
+            assert repeated["supercell"] == [2, 1, 1]
+            assert repeated["atomGroup"] == pytest.approx([1.0, -0.5, 0.25])
+            assert repeated["vectorGroup"] == pytest.approx([1.0, -0.5, 0.25])
+            assert repeated["previewPosition"] == pytest.approx([0.0, 0.0, 0.0])
+            np.testing.assert_allclose(repeated["starts"], [
+                [0.2, 0.0, 0.0],
+                [10.2, 0.0, 0.0],
+                [1.4, 0.0, 0.0],
+                [11.4, 0.0, 0.0],
+                [2.8, 0.0, 0.0],
+                [12.8, 0.0, 0.0],
+            ])
+            assert repeated["offsets"] == [
+                [0, 0, 0], [1, 0, 0],
+                [0, 0, 0], [1, 0, 0],
+                [0, 0, 0], [1, 0, 0],
+            ]
+            np.testing.assert_allclose(repeated["vectors"], [
+                [0.2, 0.0, 0.0], [0.2, 0.0, 0.0],
+                [0.4, 0.0, 0.0], [0.4, 0.0, 0.0],
+                [0.8, 0.0, 0.0], [0.8, 0.0, 0.0],
+            ])
+            assert repeated["saved"]["translation"] == pytest.approx([1.0, -0.5, 0.25])
+            assert repeated["saved"]["translationMode"] == "cartesian"
+            assert repeated["saved"]["supercell"] == [2, 1, 1]
+            assert repeated["inputs"] == [1.0, -0.5, 0.25]
+
+            page.click('[data-inspector-group="analysis"]')
             page.select_option("#displacement-style", "2d")
             page.wait_for_function(
                 "window.__ASE_APP__.renderer.displacementGroup.userData.flat === true"
             )
             assert not console_errors
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_coordinate_reset_preserves_visual_translation_and_display_supercell():
+    atoms = Atoms(
+        "H2",
+        positions=[[0.0, 0.0, 0.0], [0.75, 0.0, 0.0]],
+        cell=[6.0, 7.0, 8.0],
+        pbc=True,
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
+
+            _expand_inspector(page)
+            page.click('[data-inspector-group="structure"]')
+            _open_panel(page, "cell-replication")
+            page.fill("#super-x", "2")
+            page.fill("#super-y", "2")
+            page.fill("#translate-x", "0.4")
+            page.fill("#translate-y", "-0.2")
+            page.fill("#translate-z", "0.1")
+            page.click("#btn-apply-translation")
+            page.wait_for_function(
+                "window.__ASE_APP__.renderer.domElement.dataset.visualTranslation === '0.400000,-0.200000,0.100000'"
+            )
+
+            page.click("#btn-reset-coords")
+            page.wait_for_selector("#modal-confirm-action")
+            assert "displayed replication" in page.locator("#modal-content").inner_text()
+            assert "visual translation" in page.locator("#modal-content").inner_text()
+            page.click("#modal-confirm-action")
+            page.wait_for_function(
+                "document.getElementById('busy-overlay').classList.contains('hidden')"
+            )
+            preserved = page.evaluate("""() => ({
+                positions: window.__ASE_APP__.state.atoms.positions,
+                supercell: window.__ASE_APP__.state.display.supercell,
+                translation: window.__ASE_APP__.state.display.translation,
+                atomGroup: window.__ASE_APP__.renderer.atomMeshes.position.toArray(),
+                inputs: ['translate-x', 'translate-y', 'translate-z'].map(
+                    id => Number(document.getElementById(id).value)
+                ),
+                superInputs: ['super-x', 'super-y', 'super-z'].map(
+                    id => Number(document.getElementById(id).value)
+                )
+            })""")
+            np.testing.assert_allclose(preserved["positions"], atoms.positions)
+            assert preserved["supercell"] == [2, 2, 1]
+            assert preserved["translation"] == pytest.approx([0.4, -0.2, 0.1])
+            assert preserved["atomGroup"] == pytest.approx([0.4, -0.2, 0.1])
+            assert preserved["inputs"] == [0.4, -0.2, 0.1]
+            assert preserved["superInputs"] == [2, 2, 1]
+
+            page.click("#btn-reset")
+            page.wait_for_selector("#modal-confirm-action")
+            page.click("#modal-confirm-action")
+            page.wait_for_function(
+                "document.getElementById('busy-overlay').classList.contains('hidden')"
+            )
+            reset = page.evaluate("""() => ({
+                supercell: window.__ASE_APP__.state.display.supercell,
+                translation: window.__ASE_APP__.state.display.translation,
+                translationMode: window.__ASE_APP__.state.display.translationMode,
+                inputs: ['translate-x', 'translate-y', 'translate-z'].map(
+                    id => Number(document.getElementById(id).value)
+                )
+            })""")
+            assert reset == {
+                "supercell": [1, 1, 1],
+                "translation": [0, 0, 0],
+                "translationMode": "cartesian",
+                "inputs": [0, 0, 0],
+            }
             browser.close()
     finally:
         editor.close()
@@ -2964,14 +3123,35 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
             )
             cutoff.fill('0.90')
             page.wait_for_function("window.__ASE_APP__.renderer.bondPairs.length === 1")
-            minimum = page.locator('.pairwise-bond-min[data-pair-key="C_left-C_right"]')
-            minimum.fill('0.75')
-            page.wait_for_function(
-                "window.__ASE_APP__.state.display.pairwiseBondRanges['C_left-C_right'].min === 0.75 && "
-                "window.__ASE_APP__.renderer.bondPairs.length === 0"
+            assert page.locator('.pairwise-bond-min').count() == 0
+            initial_width = page.evaluate(
+                "window.__ASE_APP__.state.display.pairwiseLabelColumnWidth"
             )
-            minimum.fill('0.50')
-            page.wait_for_function("window.__ASE_APP__.renderer.bondPairs.length === 1")
+            resizer = page.locator("#pairwise-label-column-resizer")
+            resizer_box = resizer.bounding_box()
+            assert resizer_box is not None
+            page.mouse.move(
+                resizer_box["x"] + resizer_box["width"] / 2,
+                resizer_box["y"] + resizer_box["height"] / 2,
+            )
+            page.mouse.down()
+            page.mouse.move(
+                resizer_box["x"] + resizer_box["width"] / 2 + 48,
+                resizer_box["y"] + resizer_box["height"] / 2,
+            )
+            page.mouse.up()
+            page.wait_for_function(
+                "before => window.__ASE_APP__.state.display.pairwiseLabelColumnWidth > before + 35",
+                arg=initial_width,
+            )
+            resized = page.evaluate("""() => ({
+                state: window.__ASE_APP__.state.display.pairwiseLabelColumnWidth,
+                snapshot: window.__ASE_APP__.designSettingsSnapshot().display.pairwiseLabelColumnWidth,
+                css: getComputedStyle(document.getElementById('pairwise-bond-panel'))
+                    .getPropertyValue('--pair-label-width').trim()
+            })""")
+            assert resized["state"] == resized["snapshot"]
+            assert resized["css"] == f'{resized["state"]}px'
 
             page.evaluate("""() => {
                 document.activeElement?.blur();
@@ -4434,52 +4614,65 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             page.fill("#translate-z", "0.75")
             page.click("#btn-apply-translation")
             page.wait_for_function(
-                """baseline => Math.abs(
-                    window.__ASE_APP__.state.atoms.positions[0][0]
-                    - baseline.positions[0][0] - 1.25
-                ) < 1e-8""",
-                arg=translation_baseline,
+                """() => {
+                    const app = window.__ASE_APP__;
+                    const expected = [1.25, -0.5, 0.75];
+                    return app.state.display.translation.every(
+                        (value, index) => Math.abs(value - expected[index]) < 1e-8
+                    ) && app.renderer.domElement.dataset.visualTranslation === '1.250000,-0.500000,0.750000';
+                }"""
             )
             translated_ui = page.evaluate("""() => ({
                 positions: window.__ASE_APP__.state.atoms.positions,
                 cell: window.__ASE_APP__.state.atoms.cell,
                 undoKinds: window.__ASE_APP__.undoTimeline.map(action => action.kind),
+                translation: window.__ASE_APP__.state.display.translation,
+                atomGroup: window.__ASE_APP__.renderer.atomMeshes.position.toArray(),
+                cellGroup: window.__ASE_APP__.renderer.cellGroup.position.toArray(),
                 inputs: ['translate-x', 'translate-y', 'translate-z'].map(
                     id => Number(document.getElementById(id).value)
                 )
             })""")
-            assert translated_ui["undoKinds"] == ["structure"]
-            assert translated_ui["inputs"] == [0, 0, 0]
+            assert translated_ui["undoKinds"] == []
+            assert translated_ui["inputs"] == [1.25, -0.5, 0.75]
+            assert translated_ui["translation"] == pytest.approx([1.25, -0.5, 0.75])
+            assert translated_ui["atomGroup"] == pytest.approx([1.25, -0.5, 0.75])
+            assert translated_ui["cellGroup"] == pytest.approx([0, 0, 0])
             np.testing.assert_allclose(
                 translated_ui["cell"],
                 translation_baseline["cell"],
             )
-            for translated_position, original_position in zip(
+            for current_position, original_position in zip(
                 translated_ui["positions"],
                 translation_baseline["positions"],
             ):
-                assert translated_position == pytest.approx(
-                    np.asarray(original_position) + np.asarray([1.25, -0.5, 0.75])
-                )
+                assert current_position == pytest.approx(original_position)
 
-            page.evaluate("document.querySelector('#app-viewport canvas').focus()")
-            page.keyboard.press("Control+z")
+            page.fill("#translate-x", "0")
+            page.fill("#translate-y", "0")
+            page.fill("#translate-z", "0")
+            page.click("#btn-apply-translation")
             page.wait_for_function(
-                "window.__ASE_APP__.undoTimeline.length === 0"
-                " && window.__ASE_APP__.redoTimeline.length === 1"
+                "window.__ASE_APP__.renderer.domElement.dataset.visualTranslation === '0.000000,0.000000,0.000000'"
             )
-            translation_undone = page.evaluate("""() => ({
+            translation_reset = page.evaluate("""() => ({
                 positions: window.__ASE_APP__.state.atoms.positions,
-                cell: window.__ASE_APP__.state.atoms.cell
+                cell: window.__ASE_APP__.state.atoms.cell,
+                translation: window.__ASE_APP__.state.display.translation,
+                inputs: ['translate-x', 'translate-y', 'translate-z'].map(
+                    id => Number(document.getElementById(id).value)
+                )
             })""")
             np.testing.assert_allclose(
-                translation_undone["positions"],
+                translation_reset["positions"],
                 translation_baseline["positions"],
             )
             np.testing.assert_allclose(
-                translation_undone["cell"],
+                translation_reset["cell"],
                 translation_baseline["cell"],
             )
+            assert translation_reset["translation"] == [0, 0, 0]
+            assert translation_reset["inputs"] == [0, 0, 0]
 
             assert page.evaluate(
                 "JSON.stringify(window.__ASE_APP__.state.atoms.positions)"

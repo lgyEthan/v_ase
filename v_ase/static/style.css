@@ -1729,6 +1729,7 @@ body.inspector-wide #inspector .supercell-row {
 }
 
 .pairwise-bond-panel {
+    --pair-label-width: 210px;
     overflow-x: auto;
     overflow-y: hidden;
     scrollbar-width: thin;
@@ -1930,9 +1931,9 @@ body.inspector-wide #inspector #appearance-table-body {
 
 .pairwise-bond-panel .mini-table-head,
 .pairwise-bond-row {
-    min-width: 500px;
+    min-width: calc(var(--pair-label-width) + 186px);
     display: grid;
-    grid-template-columns: 34px minmax(170px, 1fr) 92px 92px;
+    grid-template-columns: 34px var(--pair-label-width) 92px;
     gap: 10px;
     align-items: center;
 }
@@ -1970,9 +1971,53 @@ body.inspector-wide #inspector #appearance-table-body {
     white-space: nowrap;
 }
 
+.pairwise-label-heading {
+    position: relative;
+    min-width: 0;
+}
+
+.pairwise-column-resizer {
+    position: absolute;
+    top: 50%;
+    right: -10px;
+    width: 12px;
+    height: 26px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    transform: translateY(-50%);
+    cursor: col-resize;
+    touch-action: none;
+}
+
+.pairwise-column-resizer::before {
+    content: "";
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    left: 5px;
+    width: 1px;
+    border-radius: 1px;
+    background: var(--line-strong);
+    transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.pairwise-column-resizer:hover::before,
+.pairwise-column-resizer:focus-visible::before,
+body.resizing-pairwise-column .pairwise-column-resizer::before {
+    background: var(--teal);
+    box-shadow: 0 0 0 2px var(--teal-soft);
+}
+
+body.resizing-pairwise-column,
+body.resizing-pairwise-column * {
+    cursor: col-resize !important;
+    user-select: none !important;
+}
+
 #inspector .pairwise-reset {
     width: calc(100% - 20px);
-    min-width: 480px;
+    min-width: calc(var(--pair-label-width) + 166px);
     margin: 8px 10px 10px;
     padding: 9px 12px;
     border: 1px solid var(--line-strong);

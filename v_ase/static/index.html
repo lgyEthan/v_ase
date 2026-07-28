@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.101&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.102&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.101';
+            : '/static/vendor/three.module.js?v=0.0.102';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -63,7 +63,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.101</span>
+            <span class="version">0.0.102</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -565,7 +565,7 @@
             </div>
             <button id="btn-set-supercell" class="btn-block" data-edit-only>Set Supercell as Cell</button>
             <button id="btn-wrap" class="btn-block">Wrap Atoms Into Cell</button>
-            <div class="cell-translation" data-edit-only>
+            <div class="cell-translation">
                 <div class="panel-subhead">Translate atoms</div>
                 <div class="translation-mode-toggle" role="group" aria-label="Translation coordinate system">
                     <button type="button" data-translation-mode="cartesian" aria-pressed="true">Cartesian / Å</button>
@@ -577,7 +577,7 @@
                     <input type="number" id="translate-z" value="0" step="0.1" aria-label="Translation z component">
                 </div>
                 <button id="btn-apply-translation" class="btn-block" type="button">Apply Translation</button>
-                <p class="panel-note">Moves every atom in every frame. The unit cell remains unchanged.</p>
+                <p class="panel-note">Offsets displayed atoms after cell replication. ASE coordinates and the unit cell remain unchanged.</p>
             </div>
         </details>
 
@@ -696,10 +696,20 @@
                 <input type="number" id="bond-cutoff" value="1.00" min="0.5" max="3.0" step="0.05">
             </div>
             <div id="pairwise-bond-panel" class="pairwise-bond-panel hidden">
-                <div class="mini-table-head">
+                <div class="mini-table-head pairwise-bond-head">
                     <span>On</span>
-                    <span>Label pair</span>
-                    <span>Min / A</span>
+                    <span class="pairwise-label-heading">
+                        Label pair
+                        <button
+                            id="pairwise-label-column-resizer"
+                            class="pairwise-column-resizer"
+                            type="button"
+                            role="separator"
+                            aria-label="Resize label pair column"
+                            aria-orientation="vertical"
+                            title="Drag to resize the label pair column"
+                        ></button>
+                    </span>
                     <span>Max / A</span>
                 </div>
                 <div id="pairwise-bond-list"></div>
@@ -828,13 +838,13 @@
 
         <section class="panel-section utility-section" data-panel="settings" data-panel-group="export">
             <div class="section-header static-header">Visual Settings</div>
-            <p class="panel-note">Appearance, bonds, lighting, viewport, and render quality only. Atom coordinates and cell contents are not included.</p>
+            <p class="panel-note">Appearance, bonds, lighting, viewport, display replication, visual translation, and render quality only. Atom coordinates and cell contents are not included.</p>
             <div class="btn-stack-row two">
                 <button id="btn-save-settings">Save Settings</button>
                 <button id="btn-load-settings">Load Settings</button>
             </div>
             <input type="file" id="settings-file" class="hidden" accept=".json,.pkl,.pickle,application/json">
-            <div class="btn-stack-row" data-edit-only>
+            <div class="btn-stack-row">
                 <button id="btn-undo" title="Undo (Ctrl+Z)">↺</button>
                 <button id="btn-redo" title="Redo (Ctrl+Shift+Z)">↻</button>
             </div>
@@ -970,7 +980,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.101&rev=1';
+            : './static/main.js?v=0.0.102&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

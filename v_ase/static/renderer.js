@@ -642,6 +642,8 @@ export class ASERenderer {
             viewRotationStepDeg: 15,
             showOverlays: true,
             supercell: [1, 1, 1],
+            translation: [0, 0, 0],
+            translationMode: 'cartesian',
             antiAliasing: true,
             sphereQuality: 'auto',
             imageFramingMode: 'viewport',
@@ -973,6 +975,59 @@ export class ASERenderer {
         });
     }
 
+    visualTranslationVector(options = this.displayOptions) {
+        const raw = Array.isArray(options?.translation)
+            ? options.translation.slice(0, 3)
+            : [0, 0, 0];
+        const vector = new THREE.Vector3(
+            Number(raw[0]) || 0,
+            Number(raw[1]) || 0,
+            Number(raw[2]) || 0
+        );
+        if (options?.translationMode !== 'fractional') return vector;
+        if (!this.hasValidCell()) return new THREE.Vector3();
+        return this.fracToCart(vector);
+    }
+
+    toVisualAtomPosition(position, options = this.displayOptions) {
+        const vector = position?.isVector3
+            ? position.clone()
+            : new THREE.Vector3(...(Array.isArray(position) ? position : [0, 0, 0]));
+        return vector.add(this.visualTranslationVector(options));
+    }
+
+    applyVisualTranslation() {
+        const translation = this.visualTranslationVector();
+        [
+            this.atomMeshes,
+            this.selectionOutlines,
+            this.replicaSelectionOutlines,
+            this.bondGroup,
+            this.displacementGroup,
+            this.commensurateGuideGroup,
+            this.constraintMarkGroup,
+            this.constraintGuideGroup,
+            this.hookeanGroup
+        ].forEach(group => {
+            if (group) group.position.copy(translation);
+        });
+        if (this.supercellGroup) {
+            this.supercellGroup.position.set(0, 0, 0);
+            this.supercellGroup.children.forEach(child => {
+                if (child.userData?.supercellCellPreview) child.position.set(0, 0, 0);
+                else child.position.copy(translation);
+            });
+        }
+        this.domElement.dataset.visualTranslation = [
+            translation.x,
+            translation.y,
+            translation.z
+        ].map(value => value.toFixed(6)).join(',');
+        this.invalidateSunShadowBounds();
+        this.refreshStudioSunForStructure({ invalidate: false });
+        this.requestRender();
+    }
+
     setLightingOptions(options = {}, { requestRender = true } = {}) {
         const previousMode = this.lightingOptions?.lightingMode || 'modeling';
         const mode = ['studio', 'studio-shadow'].includes(options.lightingMode)
@@ -1083,6 +1138,7 @@ export class ASERenderer {
             }
             base.copy(expanded);
         }
+        base.translate(this.visualTranslationVector());
 
         this.sunShadowBoundsCache = base.clone();
         return base;
@@ -1806,6 +1862,7 @@ export class ASERenderer {
             this.rebuildConstraintGuides();
             this.rebuildHookeanConstraints();
             this.rebuildSupercell();
+            this.applyVisualTranslation();
             this.applyOverlayVisibility();
             if (this.needsInitialCameraFit) {
                 this.fitCameraToStructure();
@@ -1854,6 +1911,7 @@ export class ASERenderer {
         this.rebuildConstraintGuides();
         this.rebuildHookeanConstraints();
         this.rebuildSupercell();
+        this.applyVisualTranslation();
         this.applyOverlayVisibility();
         if (this.needsInitialCameraFit) {
             this.fitCameraToStructure();
@@ -2100,34 +2158,60 @@ export class ASERenderer {
 
     structureBounds() {
         const box = new THREE.Box3();
+        const atomBox = new THREE.Box3();
         let hasPoint = false;
         if (this.atomsData?.positions?.length) {
             this.atomsData.positions.forEach((position, index) => {
-                if (!position || position.length < 3) return;
+                if (!position || position.length < 3 || !this.atomLabelVisible(index)) return;
                 const [x, y, z] = position.map(Number);
                 if (![x, y, z].every(Number.isFinite)) return;
                 const radius = this.atomVisualRadius(index);
-                box.min.x = Math.min(box.min.x, x - radius);
-                box.min.y = Math.min(box.min.y, y - radius);
-                box.min.z = Math.min(box.min.z, z - radius);
-                box.max.x = Math.max(box.max.x, x + radius);
-                box.max.y = Math.max(box.max.y, y + radius);
-                box.max.z = Math.max(box.max.z, z + radius);
-                hasPoint = true;
+                atomBox.min.x = Math.min(atomBox.min.x, x - radius);
+                atomBox.min.y = Math.min(atomBox.min.y, y - radius);
+                atomBox.min.z = Math.min(atomBox.min.z, z - radius);
+                atomBox.max.x = Math.max(atomBox.max.x, x + radius);
+                atomBox.max.y = Math.max(atomBox.max.y, y + radius);
+                atomBox.max.z = Math.max(atomBox.max.z, z + radius);
             });
+        }
+
+        const repetitions = this.displayOptions?.supercell || [1, 1, 1];
+        const visualTranslation = this.visualTranslationVector();
+        if (!atomBox.isEmpty()) {
+            const atomCorners = this.boxCorners(atomBox);
+            const cell = this.hasValidCell()
+                ? this.atomsData.cell.map(vector => new THREE.Vector3(...vector))
+                : null;
+            for (let ix = 0; ix <= (cell ? 1 : 0); ix++) {
+                for (let iy = 0; iy <= (cell ? 1 : 0); iy++) {
+                    for (let iz = 0; iz <= (cell ? 1 : 0); iz++) {
+                        const shift = visualTranslation.clone();
+                        if (cell) {
+                            shift
+                                .addScaledVector(cell[0], ix * Math.max(0, repetitions[0] - 1))
+                                .addScaledVector(cell[1], iy * Math.max(0, repetitions[1] - 1))
+                                .addScaledVector(cell[2], iz * Math.max(0, repetitions[2] - 1));
+                        }
+                        atomCorners.forEach(corner => box.expandByPoint(corner.clone().add(shift)));
+                    }
+                }
+            }
+            hasPoint = true;
         }
 
         if (this.hasValidCell()) {
             const [a, b, c] = this.atomsData.cell.map(v => new THREE.Vector3(...v));
             const corners = [
                 new THREE.Vector3(0, 0, 0),
-                a,
-                b,
-                c,
-                a.clone().add(b),
-                a.clone().add(c),
-                b.clone().add(c),
-                a.clone().add(b).add(c)
+                a.clone().multiplyScalar(repetitions[0]),
+                b.clone().multiplyScalar(repetitions[1]),
+                c.clone().multiplyScalar(repetitions[2]),
+                a.clone().multiplyScalar(repetitions[0]).addScaledVector(b, repetitions[1]),
+                a.clone().multiplyScalar(repetitions[0]).addScaledVector(c, repetitions[2]),
+                b.clone().multiplyScalar(repetitions[1]).addScaledVector(c, repetitions[2]),
+                a.clone().multiplyScalar(repetitions[0])
+                    .addScaledVector(b, repetitions[1])
+                    .addScaledVector(c, repetitions[2])
             ];
             corners.forEach(point => box.expandByPoint(point));
             hasPoint = true;
@@ -2924,6 +3008,7 @@ export class ASERenderer {
             labelMaterials: { ...(options.labelMaterials || this.displayOptions.labelMaterials || {}) },
             atomMaterials: { ...(options.atomMaterials || this.displayOptions.atomMaterials || {}) },
             supercell: [...(options.supercell || this.displayOptions.supercell || [1, 1, 1])],
+            translation: [...(options.translation || this.displayOptions.translation || [0, 0, 0])],
             sunPosition: [...(options.sunPosition || this.displayOptions.sunPosition || [8, -10, 14])],
             sunTarget: [...(options.sunTarget || this.displayOptions.sunTarget || [0, 0, 0])]
         };
@@ -2948,6 +3033,8 @@ export class ASERenderer {
             ])].filter(label => previous.labelVisible?.[label] !== this.displayOptions.labelVisible?.[label])
             : [];
         const supercellChanged = !numberArrayEqual(previous.supercell, this.displayOptions.supercell);
+        const translationChanged = previous.translationMode !== this.displayOptions.translationMode ||
+            !numberArrayEqual(previous.translation, this.displayOptions.translation);
         const cellStyleChanged = previous.cellThickness !== this.displayOptions.cellThickness ||
             previous.cellColor !== this.displayOptions.cellColor ||
             previous.cellMaterial !== this.displayOptions.cellMaterial;
@@ -2971,6 +3058,7 @@ export class ASERenderer {
         if (lightingChanged) this.setLightingOptions(this.displayOptions);
         if (!rebuild) {
             if (antiAliasingChanged) this.updateRenderQuality();
+            if (translationChanged) this.applyVisualTranslation();
             this.updateCellVisibility();
             if (this.axesHelper) this.axesHelper.visible = this.displayOptions.showAxes;
             if (this.gridGroup) this.gridGroup.visible = this.displayOptions.showGrid;
@@ -3021,9 +3109,10 @@ export class ASERenderer {
         if (visibilityChanged) this.applyAtomVisibility(changedVisibilityLabels);
         else if (bondsChanged) this.rebuildBonds();
         if (supercellChanged) this.rebuildSupercell();
-        if ((displacementChanged || visibilityChanged) && this.displacementData) {
+        if ((displacementChanged || visibilityChanged || supercellChanged) && this.displacementData) {
             this.setDisplacementVectors(this.displacementData, this.displayOptions);
         }
+        if (translationChanged) this.applyVisualTranslation();
         if ((radiusChanged || supercellChanged) && !visibilityChanged) {
             this.refreshStudioSunForStructure();
         }
@@ -3205,7 +3294,6 @@ export class ASERenderer {
         if (source && typeof source === 'object') {
             if (hasAnyLegacyCutoff && !hasLegacyMaximum) return null;
             const maximum = Number(source.max);
-            const minimum = Number(source.min);
             const sourceEnabled = source.enabled !== false
                 && Number.isFinite(maximum)
                 && maximum > 0;
@@ -3216,19 +3304,11 @@ export class ASERenderer {
                 );
                 if (!recordsAgree) {
                     if (!legacyEnabled) return null;
-                    return {
-                        min: Number.isFinite(minimum)
-                            ? Math.max(0, Math.min(minimum, legacyMaximum))
-                            : 0,
-                        max: legacyMaximum
-                    };
+                    return { min: 0, max: legacyMaximum };
                 }
             }
             if (!sourceEnabled) return null;
-            return {
-                min: Number.isFinite(minimum) ? Math.max(0, Math.min(minimum, maximum)) : 0,
-                max: maximum
-            };
+            return { min: 0, max: maximum };
         }
         return legacyMaximum !== null && legacyMaximum > 0
             ? { min: 0, max: legacyMaximum }
@@ -3815,6 +3895,15 @@ export class ASERenderer {
         const vectors = this.displacementData.vectors || [];
         const indices = this.displacementData.indices || [];
         const entries = [];
+        const displacementTranslations = [{
+            cellOffset: [0, 0, 0],
+            vector: new THREE.Vector3()
+        }];
+        const repetitions = options?.supercell || [1, 1, 1];
+        if (this.hasValidCell() && repetitions.some(value => Number(value) > 1)) {
+            const cell = this.atomsData.cell.map(vector => new THREE.Vector3(...vector));
+            displacementTranslations.push(...this.supercellTranslations(cell, repetitions));
+        }
         const count = Math.min(starts.length, vectors.length, indices.length);
         for (let item = 0; item < count; item++) {
             const index = Number(indices[item]);
@@ -3832,10 +3921,17 @@ export class ASERenderer {
             }
             const magnitudeSquared = Number(vector[0]) ** 2 + Number(vector[1]) ** 2 + Number(vector[2]) ** 2;
             if (!Number.isFinite(magnitudeSquared) || magnitudeSquared < 1e-14) continue;
-            entries.push({
-                index,
-                start: start.map(Number),
-                vector: vector.map(Number)
+            const visibleStart = this.atomMeshByIndex.get(index)?.position;
+            const baseStart = visibleStart
+                ? visibleStart.clone()
+                : new THREE.Vector3(...start.map(Number));
+            displacementTranslations.forEach(translation => {
+                entries.push({
+                    index,
+                    cellOffset: [...translation.cellOffset],
+                    start: baseStart.clone().add(translation.vector).toArray(),
+                    vector: vector.map(Number)
+                });
             });
         }
 
@@ -4190,7 +4286,9 @@ export class ASERenderer {
         labelAnchors
             .sort((first, second) => second.priority - first.priority)
             .forEach(anchor => {
-                const projected = anchor.position.clone().project(this.camera);
+                const projected = anchor.position.clone()
+                    .add(this.visualTranslationVector())
+                    .project(this.camera);
                 const screen = {
                     x: (projected.x * 0.5 + 0.5) * width,
                     y: (-projected.y * 0.5 + 0.5) * height
@@ -4664,6 +4762,7 @@ export class ASERenderer {
         this.addSupercellCellPreview(cell, reps);
         this.rebuildSupercellAtoms(cell, reps);
         this.rebuildSupercellBonds(cell, reps);
+        this.applyVisualTranslation();
         this.applyShadowFlags();
         this.requestRender();
     }

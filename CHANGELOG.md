@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.0.102
+
+- Made whole-scene atom translation a View/Edit visual setting instead of a
+  coordinate mutation. Cartesian and fractional offsets are absolute, apply
+  after display replication, persist in reusable settings, and leave the cell
+  and ASE coordinates unchanged.
+- Repeated displacement vectors across the displayed supercell, anchored them
+  at each currently visible atom position, and translated both vector
+  endpoints with the scene without changing the physical displacement.
+- Preserved display replication and visual translation through Reset Coords
+  while keeping full Reset authoritative for returning the visual offset to
+  zero.
+- Simplified pairwise bond specifications to enabled/max-only rows and added a
+  user-resizable label-pair column.
+- Added browser and export regression coverage for translated replicated
+  structures, displacement geometry, settings/project round trips, CAD and
+  Blender coordinates, and reset behavior.
+- Preserved `close_on_disconnect=False` through workspace lifecycle handling,
+  preventing an automatically opened or transient browser tab from terminating
+  an API-controlled blocking session.
+
 ## 0.0.101
 
 - Restored the approved brown/lime atomistic logo palette while preserving the

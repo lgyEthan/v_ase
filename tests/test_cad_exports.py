@@ -106,6 +106,28 @@ def test_cad_scene_preserves_unit_cell_style():
     assert scene["cell_material"] == "metal"
 
 
+def test_cad_scene_applies_visual_translation_after_supercell_without_moving_cell():
+    payload = cad_payload()
+    payload["display"].update({
+        "translation": [0.25, 0.5, -0.1],
+        "translationMode": "fractional",
+    })
+    scene = _cad_scene_data(cad_session(), payload)
+
+    assert scene["translation"] == pytest.approx([1.25, 2.1, -0.5])
+    base_oxygen = next(
+        atom for atom in scene["atoms"]
+        if atom["index"] == 0 and atom["cell_offset"] == [0, 0, 0]
+    )
+    repeated_oxygen = next(
+        atom for atom in scene["atoms"]
+        if atom["index"] == 0 and atom["cell_offset"] == [1, 0, 0]
+    )
+    assert base_oxygen["position"] == pytest.approx([1.25, 2.1, -0.5])
+    assert repeated_oxygen["position"] == pytest.approx([5.25, 2.1, -0.5])
+    assert scene["cell_edges"][0]["start"] == pytest.approx([0.0, 0.0, 0.0])
+
+
 def test_obj_export_is_dependency_free_and_bundles_materials():
     response = export_obj_response(cad_session(), cad_payload())
     archive_path = Path(response.path)

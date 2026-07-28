@@ -293,6 +293,14 @@ _workspaces_lock = threading.RLock()
 def create_workspace(host_session: EditorSession) -> EditorWorkspace:
     workspace_id = str(uuid.uuid4())
     host_session.config["workspace_id"] = workspace_id
+    host_session.config["workspace_auto_close_on_disconnect"] = bool(
+        host_session.config.get(
+            "workspace_auto_close_on_disconnect",
+            host_session.config.get("auto_close_on_disconnect", True),
+        )
+    )
+    # Document sockets must never finalize the host independently. The
+    # workspace socket owns browser-close behavior through the preserved flag.
     host_session.config["auto_close_on_disconnect"] = False
     host_session.config.setdefault("document_name", "Untitled")
     workspace = EditorWorkspace(

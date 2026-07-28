@@ -1,4 +1,5 @@
 from pathlib import Path
+import ast
 import asyncio
 import re
 import tomllib
@@ -884,8 +885,8 @@ def test_frontend_reset_video_and_visual_settings_controls_are_wired():
     assert "confirmFullReset" in main_js
     assert "confirmCoordinateReset" in main_js
     assert "resetCoordinates" in api_js
-    assert "Resetting coordinates and original unit cell" in main_js
-    assert "Visual settings were kept" in main_js
+    assert "Resetting physical coordinates and original unit cell" in main_js
+    assert "Display replication and visual translation were kept" in main_js
     assert "btn-export-video" in index_html
     assert '<section class="panel-section export-section"' in index_html
     assert '<section class="panel-section utility-section"' in index_html
@@ -1069,18 +1070,23 @@ def test_structure_translation_controls_and_api_are_explicit():
     index_html = (ROOT / "v_ase/static/index.html").read_text()
     main_js = (ROOT / "v_ase/static/main.js").read_text()
     api_js = (ROOT / "v_ase/static/api.js").read_text()
+    renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
 
-    assert 'class="cell-translation" data-edit-only' in index_html
+    assert 'class="cell-translation" data-edit-only' not in index_html
+    assert 'class="cell-translation"' in index_html
     assert 'data-translation-mode="cartesian"' in index_html
     assert 'data-translation-mode="fractional"' in index_html
     assert 'id="translate-x"' in index_html
     assert 'id="translate-y"' in index_html
     assert 'id="translate-z"' in index_html
     assert 'id="btn-apply-translation"' in index_html
-    assert "Moves every atom in every frame. The unit cell remains unchanged." in index_html
+    assert "Offsets displayed atoms after cell replication." in index_html
+    assert "ASE coordinates and the unit cell remain unchanged." in index_html
     assert "translationVectorFromControls" in main_js
     assert "applyAtomTranslation" in main_js
-    assert "this.api.applyTranslation" in main_js
+    assert "this.state.display.translation = [...vector]" in main_js
+    assert "visualTranslationVector" in renderer_js
+    assert "applyVisualTranslation" in renderer_js
     assert "/api/translate/{session_id}" in api_js
 
 
@@ -1100,6 +1106,8 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
             "bondStyle": "flat",
             "bondThickness": 0.24,
             "bondColorMode": "split",
+            "translation": [1.0, -0.5, 0.25],
+            "translationMode": "cartesian",
             "labelMaterials": {"H": "metal"},
             "atomMaterials": {"1": "rubber"},
         },
@@ -1119,6 +1127,9 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
         },
     })
     script = Path(response.path).read_text(encoding="utf-8")
+    exported_data = ast.literal_eval(
+        script.split("DATA = ", 1)[1].splitlines()[0]
+    )
 
     assert "BONDS = DATA.get(\"bonds\", [])" in script
     assert "MAT_BOND" in script
@@ -1158,6 +1169,12 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
     assert 'metallic.default_value = surface["metalness"]' in script
     assert "'labelMaterials': {'H': 'metal'}" in script
     assert "'atomMaterials': {'1': 'rubber'}" in script
+    assert exported_data["visual_translation"] == pytest.approx([1.0, -0.5, 0.25])
+    np.testing.assert_allclose(
+        exported_data["positions"],
+        atoms.positions + np.asarray([1.0, -0.5, 0.25]),
+    )
+    np.testing.assert_allclose(exported_data["cell"], atoms.cell.array)
     assert 'scene.render.engine = render_engine' in script
     assert 'INCLUDE_CELL = bool(DATA.get("include_cell", True))' in script
     assert 'if INCLUDE_CELL:\n    add_unit_cell(CELL)' in script
@@ -1195,6 +1212,10 @@ def test_bond_appearance_controls_and_instanced_renderer_contract():
     assert 'id="btn-bond-apply"' not in index_html
     assert "enabled.className = 'pairwise-bond-enabled'" in main_js
     assert 'className = `pairwise-bond-${field}`' in main_js
+    assert "makeDistanceInput('max'" in main_js
+    assert "makeDistanceInput('min'" not in main_js
+    assert 'id="pairwise-label-column-resizer"' in index_html
+    assert "setupPairwiseLabelColumnResizer" in main_js
     assert "pairwiseBondRanges" in main_js
     assert "pairwiseBondRanges" in renderer_js
     assert "bondStyle: 'cylinder'" in main_js
@@ -1233,14 +1254,14 @@ def test_pairwise_cutoff_export_is_label_keyed_and_zero_disables_the_pair():
         "bondMode": "pairwise",
         "pairwiseBondCutoffs": {"H-H": 1.0},
     })
-    below_minimum = _display_bonds(data, {
+    legacy_minimum_is_ignored = _display_bonds(data, {
         "showBonds": True,
         "bondMode": "pairwise",
         "pairwiseBondRanges": {
             "H_left-H_right": {"enabled": True, "min": 0.8, "max": 1.0}
         },
     })
-    explicit_range = _display_bonds(data, {
+    second_legacy_minimum_is_ignored = _display_bonds(data, {
         "showBonds": True,
         "bondMode": "pairwise",
         "pairwiseBondRanges": {
@@ -1251,8 +1272,8 @@ def test_pairwise_cutoff_export_is_label_keyed_and_zero_disables_the_pair():
     assert len(enabled) == 1
     assert disabled == []
     assert chemical_key_is_not_used == []
-    assert below_minimum == []
-    assert len(explicit_range) == 1
+    assert len(legacy_minimum_is_ignored) == 1
+    assert len(second_legacy_minimum_is_ignored) == 1
 
 
 def test_automatic_bond_export_matches_viewport_pair_class_rules():
@@ -1556,3 +1577,5 @@ def test_displacement_analysis_uses_instancing_and_frame_scoped_requests():
     assert "displacementGroup" in renderer_js
     assert "updateDisplacementVectorMatrices" in renderer_js
     assert "displacementCameraSignature" in renderer_js
+    assert "this.supercellTranslations(cell, repetitions)" in renderer_js
+    assert "const visibleStart = this.atomMeshByIndex.get(index)?.position" in renderer_js

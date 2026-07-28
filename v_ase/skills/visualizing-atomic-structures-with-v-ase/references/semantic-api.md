@@ -122,7 +122,7 @@ Pass `operation` as a name string or object:
 | Operation | Fields | Effect |
 | --- | --- | --- |
 | `wrap` | none | Wrap current View frame or all Edit frames |
-| `translate-all` | `vector`, `coordinateMode` | Move atoms, leave cell fixed |
+| `translate-all` | `vector`, `coordinateMode` | Physically move every atom, leave cell fixed |
 | `set-supercell` | `reps` | Materialize repeated cell in every frame |
 | `make-supercell` | integer `matrix` | Apply ASE `make_supercell` |
 | `add-atom` | `label`/`element`, `position` | Add one atom |
@@ -137,7 +137,9 @@ Pass `operation` as a name string or object:
 | `stop-relaxation` | none | Request optimizer stop |
 | `refresh-displacements` | optional `display` | Recompute displacement vectors |
 
-All physical edits except View-mode wrapping require Edit mode:
+All physical edits except View-mode wrapping require Edit mode. For a
+nonphysical scene offset in either mode, set `display.translation` and
+`display.translationMode` instead of calling `translate-all`:
 
 ```javascript
 await ai.apply({mode: "edit"});
@@ -152,6 +154,22 @@ await ai.apply({
   }
 });
 ```
+
+```javascript
+await ai.apply({
+  mode: "view",
+  display: {
+    supercell: [2, 2, 1],
+    translationMode: "fractional",
+    translation: [0.5, 0, 0]
+  }
+});
+```
+
+Visual translation is an absolute display setting, is evaluated after
+supercell repetition, moves atoms/bonds/constraints/analysis overlays together,
+and does not alter ASE coordinates or the unit cell. Setting it to `[0,0,0]`
+removes the offset.
 
 `pivot` is `"selection"`, `"origin"`, `"cell"`, or an explicit three-vector.
 
@@ -193,7 +211,8 @@ Bond settings:
 | `showBonds` | boolean |
 | `bondMode` | `"auto"`, `"pairwise"`, or `"manual"` |
 | `bondCutoffScale` | automatic cutoff multiplier |
-| `pairwiseBondRanges` | label-pair `{enabled,min,max}` records |
+| `pairwiseBondRanges` | label-pair `{enabled,max}` records |
+| `pairwiseLabelColumnWidth` | resizable pair-label column width in pixels |
 | `manualBondPairs` | atom-index pairs |
 | `showPeriodicBonds` | include periodic/MIC boundary bonds |
 | `bondStyle` | `"cylinder"` or `"flat"` |
@@ -209,6 +228,8 @@ is disabled. Bonds update per frame and during interactive edits.
 | Setting | Values |
 | --- | --- |
 | `supercell` | display repetition `[nx,ny,nz]` |
+| `translation` | absolute visual atom offset `[x,y,z]` |
+| `translationMode` | `"cartesian"` or `"fractional"` |
 | `showCell`, `showAxes`, `showGrid`, `showOverlays` | boolean |
 | `cellThickness` | diameter in Angstrom |
 | `cellColor` | `"#rrggbb"` |
@@ -260,6 +281,9 @@ await ai.apply({
 ```
 
 Reference mode is `"previous"` or `"frame"`. Style is `"3d"` or `"2d"`.
+Vectors begin at each atom's currently visible position, repeat across the
+displayed supercell, and keep their physical value when visual translation
+moves both endpoints.
 
 ## Rendering
 
