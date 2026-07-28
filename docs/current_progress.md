@@ -212,12 +212,15 @@ and documentation use `view()`.
     the actual free or axis-locked rotation sign. Commensurate/magnetic
     candidates remain separate cyan guides and never replace or duplicate the
     start reference.
-51. README scientific scenes are generated from canonical Python constructors:
-    a literature-derived black-phosphorene slice-twist workflow, graphene/hBN
-    commensurate rotation, ordered ethane measurement, constraint scenes, and
-    an actual ASE FIRE trajectory for compressed C60 using the repulsive
-    fallback calculator. Tests validate the structures before browser media are
-    regenerated.
+51. README scientific scenes are generated from canonical Python constructors
+    and captured from the real browser UI. The phosphorene hero records
+    successively shorter tail selections, each rotated 15 degrees from the
+    coordinates produced by the previous step. Ferrocene demonstrates an
+    external pivot, graphene/hBN shows start/current/commensurate references
+    with world axes hidden, ordered ethane selection shows distance/angle/
+    torsion, and a separate trajectory scene shows displacement analysis.
+    Tests validate scene construction and live View toggles before media are
+    published.
 52. Export dialogs use a fixed action footer and independently scrollable body.
     Cancel and Export therefore remain visible at short desktop viewport
     heights while all render controls remain reachable.

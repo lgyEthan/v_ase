@@ -8,16 +8,26 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/v_ase-gui.svg)](https://pypi.org/project/v-ase-gui/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-`v_ase` combines ASE's convenient terminal and Python workflow with the
-flexibility of direct 3D structure manipulation. Open structures and
-trajectories with one command, inspect or measure them in a local browser,
-edit atoms when needed, and export publication or CAD-ready results.
+`v_ase` brings ASE's convenient terminal and Python workflow together with
+direct, Blender-style 3D structure editing. Open a structure or trajectory
+with one command, inspect and measure it in a local browser, modify atoms when
+needed, and export publication or CAD-ready results.
 
 ![Phosphorene nanoribbon manipulation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_phosphorene_twist.gif)
 
-The example above turns a literature-derived phosphorene nanosheet into a
-twisted nanoribbon. Each crystallographic slice is rotated around its own
-center of mass in 15 degree steps while bonds remain visible.
+This is an actual v_ase editing sequence, not playback of a finished model.
+At each step a shorter phosphorene ribbon tail is selected, rotated by 15
+degrees around its selection center, and used as the starting structure for
+the next edit.
+
+| Work directly in v_ase | Included |
+| --- | --- |
+| Structures and trajectories | ASE-supported formats, live timeline, per-frame bonds |
+| Geometry editing | Ordered selection, `G` move, `R` rotate, axis locks, numeric input |
+| Scientific inspection | Distances, angles, torsions, displacement vectors, constraints |
+| Figure preparation | Appearance, bonds, lighting, exact preview, image/video export |
+| Reproducible sessions | Self-contained `.vase` projects and reusable visual settings |
+| Agent workflows | Semantic state/command API and a vendor-neutral AI skill |
 
 ## Quick Start
 
@@ -80,152 +90,107 @@ browser document releases the blocking terminal process.
 > panel before using `G` or `R`. The selection is preserved and keyboard focus
 > returns to the 3D viewport.
 
-## AI And Agent Use
-
-v_ase exposes atomistic state directly to an AI agent. The agent can read
-elements, labels, coordinates, cell, PBC, constraints, trajectory frames,
-measurements, camera, bonds, materials, and render settings without repeatedly
-interpreting screenshots.
-
-Start a machine-readable session:
-
-```bash
-v_ase gui STRUCTURE --for-ai
-```
-
-The first output line is a JSON handshake containing:
-
-- the normal GUI URL for human takeover;
-- semantic state and command-schema URLs;
-- the live `window.v_aseAI` browser API;
-- the installed path and HTTP URL for the agent skill.
-
-An agent can configure and verify the structure, camera, lighting, analysis,
-and export state, render the final image, then give the same live document back
-to the user for manual refinement.
-
-### Teach An Agent v_ase
-
-Use the complete
-[v_ase agent skill](https://github.com/lgyEthan/v_ase/tree/main/v_ase/skills/visualizing-atomic-structures-with-v-ase),
-not only its first page. The compatibility link
-[skills_v_ase.md](https://github.com/lgyEthan/v_ase/blob/main/v_ase/skills_v_ase.md)
-resolves to the same canonical skill. The folder contains:
-
-- [SKILL.md](https://github.com/lgyEthan/v_ase/blob/main/v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md):
-  triggers, workflow, safety rules, and verification gates;
-- `references/semantic-api.md`: supported state, edit, camera, render, and
-  export commands;
-- `references/workflows-and-examples.md`: complete working recipes;
-- `references/safety-and-errors.md`: destructive actions and recovery;
-- `references/evaluation.md`: end-to-end tests an agent should run.
-
-For an AI client that supports skill folders, place the entire
-`visualizing-atomic-structures-with-v-ase` directory in that client's skills
-directory. For example:
-
-```bash
-# Codex
-cp -R v_ase/skills/visualizing-atomic-structures-with-v-ase "$CODEX_HOME/skills/"
-
-# Claude Code, from a project root
-mkdir -p .claude/skills
-cp -R v_ase/skills/visualizing-atomic-structures-with-v-ase .claude/skills/
-```
-
-For clients without a skill loader, provide `SKILL.md` and the relevant
-one-level `references/` files in the agent context. The contract is
-vendor-neutral; it does not require an OpenAI or Anthropic API.
-
 ## Structure Manipulation
 
-### Phosphorene Nanoribbon
+Use **Edit** when atom coordinates must change. Selection, measurement,
+appearance, bonds, replication, wrapping, visual translation, and export
+remain available in the default **View** mode.
 
-The main example starts from a puckered black-phosphorene unit cell, repeats it
-into a one-layer nanosheet, and rotates each successive crystallographic slice
-by 15 degrees around the ribbon axis through that slice's center of mass.
+### Select
 
-Try the exact assets:
+- Left-click selects one atom; `Shift` + click extends or removes selection.
+- Left-drag draws a visible selection box.
+- Appearance rows select complete label groups without merging distinct labels.
+- Ordered single-atom selections are retained for geometry measurement.
 
-- [flat phosphorene nanosheet](examples/readme_scene_assets/phosphorene_nanosheet.cif)
-- [twisted 15 degree nanoribbon](examples/readme_scene_assets/phosphorene_twisted_nanoribbon_15deg.cif)
-- [complete manipulation trajectory](examples/readme_scene_assets/phosphorene_twist_15deg.traj)
+### Move
 
-```bash
-v_ase gui examples/readme_scene_assets/phosphorene_nanosheet.cif --interactive
-```
+Press `G` after selecting atoms. Lock the move with `X`, `Y`, or `Z`, type an
+exact displacement in angstrom, then confirm with left-click or `Enter`.
+Configured ASE constraints remain authoritative when **Apply constraints** is
+enabled.
 
-To reproduce the operation, select one crystallographic slice, set
-**Rotate pivot** to **Selection COM**, press `R`, lock the ribbon axis with
-`X`, type `15`, and confirm. Repeat for neighboring slices with the required
-signed angle.
+### Rotate
 
-The source coordinates are converted directly from the black-phosphorene
-cell and positions reported in the
+Press `R` after selecting atoms. Choose **Selection COM**, **Origin**, or
+**Unit-cell center** as the pivot, lock an axis if needed, and enter an exact
+angle. Every active rotation shows:
+
+- the rotation axis through the chosen pivot;
+- a neutral line fixed at the direction where the operation started;
+- an amber line that follows the current structure;
+- cyan candidate lines only when the commensurate guide is enabled.
+
+#### Ferrocene: Choose The Pivot
+
+![Ferrocene pivot rotation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ferrocene_pivot.gif)
+
+The upper cyclopentadienyl ring is selected while the Fe atom remains
+unselected. **Rotate pivot = Origin** places the rotation axis through Fe, so
+the animated ring rotates around a chemically meaningful external center
+rather than around its own center of mass.
+
+#### Phosphorene: Build The Twist One Edit At A Time
+
+![Cumulative phosphorene manipulation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_phosphorene_twist.gif)
+
+The animation records a sequence of normal v_ase edits:
+
+1. Select the current phosphorene slice through the end of the ribbon.
+2. Use **Selection COM**, press `R`, lock `X`, type `15`, and confirm.
+3. Start from the edited coordinates, move the selection boundary forward,
+   and apply the next 15 degree rotation.
+
+The yellow outline always identifies the atoms affected by the current step.
+Bonds update while the selected tail moves, so the accumulating deformation is
+visible rather than replaced by playback of a prebuilt final structure.
+
+The source cell and coordinates are converted from the
 [supporting information of Villegas et al.](https://www.rsc.org/suppdata/c6/cp/c6cp05566d/c6cp05566d1.pdf).
-The puckered anisotropic structure is consistent with the black-phosphorus
-description in
-[Qiao et al., Nature Communications 5, 4475 (2014)](https://www.nature.com/articles/ncomms5475).
-This example demonstrates deterministic manipulation; it is not presented as
-an energy-minimized nanoribbon.
+This is a deterministic manipulation example, not an energy-minimized
+nanoribbon.
 
-### Rotation References
+#### Graphene/hBN: Find A Commensurate Rotation
 
-Every atom rotation displays three references through the selected pivot:
+![Graphene hBN commensurate rotation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_commensurate.gif)
 
-- **axis line**: the actual rotation axis;
-- **neutral start line**: the direction at the moment `R` started;
-- **amber current line**: the direction after the current rotation.
+Select the hBN layer, enable **Commensurate guide**, then use `R`, `Z`. The
+top view intentionally hides the world X/Y/Z axes so the neutral start line,
+amber current line, and labeled cyan cell-match candidates remain distinct.
+**Magnetic angle snap** can pull the active rotation to a candidate within the
+configured tolerance.
 
-For periodic 2D matching, additional cyan candidate lines show low-boundary-
-strain commensurate angles. Candidate guides remain visually separate from the
-start and current references. Magnetic snapping is optional.
-
-### Graphene/hBN Commensurate Rotation
-
-![Graphene hBN commensurate guide](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_commensurate.png)
-
-Open the included stack, select the hBN layer, then use `R`, `Z`. The guide
-searches reproducible integer cell matches and labels candidate angle/strain
-pairs; enabling **Magnetic angle snap** pulls the current rotation into the
-selected tolerance.
-
-```bash
-v_ase gui examples/readme_scene_assets/graphene_hbn_commensurate.traj --interactive
-```
-
-The normal `R` operation edits selected atoms. **Cell Transform** is a
-different operation that applies an integer matrix to the periodic cell and
-all trajectory frames. The equations and assumptions are documented in
+Normal `R` rotates selected atoms. **Cell Transform** is a separate periodic
+operation that applies an integer matrix to the cell and every trajectory
+frame. Its equations and assumptions are documented in
 [unit_cell_aware_rotate.md](docs/unit_cell_aware_rotate.md).
 
 ## Measurement And Analysis
 
-![Ordered atom measurement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_measurement.png)
+![Ordered distance angle and torsion measurement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_measurement.gif)
 
-Select atoms in order:
+The numbered `a1` to `a4` markers record selection order; they are deliberately
+different from atom indices.
 
-- 1 atom: element, label, position, force, charge, tag, and magnetic moment;
-- 2 atoms: direct distance and minimum-image distance;
-- 3 atoms: angle `a1-a2-a3`, centered on `a2`;
-- 4 atoms: signed torsion `a1-a2-a3-a4`;
-- 5 or more atoms: total and per-label selection counts.
+| Ordered selection | Reported result |
+| --- | --- |
+| 1 atom | Label, element, position, force, charge, tag, magnetic moment |
+| 2 atoms | Direct distance and minimum-image distance |
+| 3 atoms | Angle `a1-a2-a3`, centered on `a2` |
+| 4 atoms | Signed torsion `a1-a2-a3-a4` |
+| 5 or more | Total count and per-label counts |
 
-The ordered reference labels `a1` through `a4` are separate from atom indices.
-Hovered-atom information is also separate, so a saved measurement remains
-visible while the pointer moves.
+The connector, angle arc, torsion axis, and compact value badge stay attached
+to the selected atoms. Hover information is independent, so moving the pointer
+does not replace a saved measurement.
 
-Try the measurement scene:
+![Trajectory displacement analysis](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_displacement.png)
 
-```bash
-v_ase gui examples/readme_scene_assets/ethane_measurement.cif
-```
-
-**Analysis** adds displacement vectors for trajectories. Choose the previous
-frame or a specific reference frame, toggle minimum-image correction, and
-style the vectors as 3D or flat 2D arrows. Displayed supercells repeat the
-vectors, and a visual translation moves both endpoints without changing the
-physical displacement.
+For trajectories, **Analysis > Displacement** compares the current frame with
+the previous frame or a chosen reference. Minimum-image correction, vector
+scale, thickness, color, and 2D/3D style are configurable. Displayed
+supercells repeat the vectors, and visual translation moves both endpoints
+without changing the physical displacement.
 
 ## Constraints
 
@@ -348,7 +313,10 @@ Changes apply immediately. Bonds support:
 
 **View** controls projection, atomic scale, anti-aliasing, sphere smoothness,
 background, 2D/3D display, grid, axes, unit cell, overlays, and cell material.
-New documents use orthographic projection and a true-white background.
+The **Axes** and **Unit Cell** switches update the working viewport
+immediately; they are not export-only settings. Hiding world axes does not
+remove the compact orientation gizmo. New documents use orthographic
+projection and a true-white background.
 
 The top-bar renderer switches between fast modeling light and Sun/soft-shadow
 rendering. Sun source, target, intensity, and direction can be manipulated in
@@ -397,6 +365,43 @@ python -m pip install "v_ase-gui[rhino]"
 ```
 
 OBJ export has no optional Python dependency.
+
+## AI And Agent Use
+
+`--for-ai` exposes the same document through a semantic state and command API,
+so an agent can inspect coordinates, cell, constraints, trajectory frames,
+selection, measurements, camera, materials, lighting, and export state without
+repeatedly interpreting screenshots.
+
+```bash
+v_ase gui STRUCTURE --for-ai
+```
+
+The startup handshake reports the human GUI URL, state and command-schema
+URLs, the live `window.v_aseAI` browser API, and the installed agent-skill
+location. A user can take over the same document in the normal GUI at any time.
+
+Use the complete
+[v_ase agent skill](https://github.com/lgyEthan/v_ase/tree/main/v_ase/skills/visualizing-atomic-structures-with-v-ase).
+The compatibility link
+[skills_v_ase.md](https://github.com/lgyEthan/v_ase/blob/main/v_ase/skills_v_ase.md)
+resolves to the same canonical instructions. The skill folder includes the
+semantic API, verified workflows, safety rules, troubleshooting, and
+end-to-end evaluation cases.
+
+Clients with skill-folder support should install the complete directory:
+
+```bash
+# Codex
+cp -R v_ase/skills/visualizing-atomic-structures-with-v-ase "$CODEX_HOME/skills/"
+
+# Claude Code, from a project root
+mkdir -p .claude/skills
+cp -R v_ase/skills/visualizing-atomic-structures-with-v-ase .claude/skills/
+```
+
+For clients without a skill loader, provide `SKILL.md` and the relevant
+one-level `references/` files as context. The contract is vendor-neutral.
 
 ## Documents And File Opening
 

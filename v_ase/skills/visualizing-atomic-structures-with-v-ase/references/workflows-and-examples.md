@@ -70,44 +70,77 @@ if (image.width !== 3840 || image.height !== 2160 || image.bytes <= 0) {
 
 Output: a lossless WebP data URL and the same live view at `human_url`.
 
-## Phosphorene Slice Rotation
+## Phosphorene Cumulative Tail Rotation
 
 Input: `examples/readme_scene_assets/phosphorene_nanosheet.cif`.
 
-For a human-assisted edit, open Edit mode, select one complete
-crystallographic slice, set the pivot to Selection COM, then use `R`, `X`, and
-an exact 15-degree value. Verify that the axis passes through the selected COM,
-the neutral start reference remains fixed, and the amber reference follows the
-actual rotation. Repeat for neighboring slices with the intended signed angle.
+For a human-assisted edit, open Edit mode and select the first
+crystallographic slice through the end of the ribbon. Set the pivot to
+Selection COM, then use `R`, `X`, and an exact 15-degree value. Confirm the
+edit, advance the selection boundary by one slice, and repeat from the edited
+coordinates. Do not compute every operation from the original flat sheet.
 
 For deterministic semantic editing:
 
 ```javascript
 await ai.apply({mode: "edit", applyConstraints: true});
-const before = await ai.describe({includePositions: true});
-const slice = [72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83];
+const initial = await ai.describe({includePositions: true});
+const x = initial.positions.map(position => position[0]);
+const xMin = Math.min(...x);
+const xMax = Math.max(...x);
+const sliceCount = 11;
+const sliceWidth = (xMax - xMin + 1e-8) / sliceCount;
+const sliceIds = x.map(value =>
+  Math.min(sliceCount - 1, Math.floor((value - xMin) / sliceWidth))
+);
 
-await ai.apply({
-  selection: {clear: true, indices: slice},
-  operation: {
-    name: "rotate-selection",
-    axis: [1, 0, 0],
-    angleDeg: 15,
-    pivot: "selection",
-    applyConstraints: true
-  }
-});
+for (let sliceStart = 0; sliceStart < sliceCount - 1; sliceStart += 1) {
+  const tail = sliceIds
+    .map((sliceId, index) => sliceId >= sliceStart ? index : -1)
+    .filter(index => index >= 0);
+  await ai.apply({
+    selection: {clear: true, indices: tail},
+    operation: {
+      name: "rotate-selection",
+      axis: [1, 0, 0],
+      angleDeg: 15,
+      pivot: "selection",
+      applyConstraints: true
+    }
+  });
+}
 
-const after = await ai.describe({includePositions: true});
-if (after.atomCount !== before.atomCount || after.selection.length !== slice.length) {
-  throw new Error("Phosphorene slice rotation failed verification.");
+const final = await ai.describe({includePositions: true});
+if (final.atomCount !== initial.atomCount) {
+  throw new Error("Cumulative phosphorene rotation changed atom count.");
+}
+if (final.positions.every((position, index) =>
+  position.every((value, axis) =>
+    Math.abs(value - initial.positions[index][axis]) < 1e-8
+  )
+)) {
+  throw new Error("Cumulative phosphorene rotation did not change coordinates.");
 }
 ```
 
-The canonical final structure and complete preview trajectory are
-`phosphorene_twisted_nanoribbon_15deg.cif` and
-`phosphorene_twist_15deg.traj`. Treat them as a manipulation example, not a
-relaxed physical prediction.
+For every operation verify:
+
+```javascript
+const state = await ai.describe({includePositions: false});
+if (state.mode !== "edit" || state.selection.length === 0) {
+  throw new Error("The active tail selection or Edit mode was lost.");
+}
+```
+
+The browser media must also show:
+
+```text
+selection outline -> pivot axis -> fixed start line -> moving current line
+```
+
+The generated trajectory records the editing sequence for documentation, but
+the workflow above is the authority: each step starts from the previous
+confirmed structure.
 
 ## Constraint-Aware Edit
 

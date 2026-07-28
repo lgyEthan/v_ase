@@ -3146,6 +3146,70 @@ def test_grid_button_and_ordered_distance_angle_torsion_measurements():
         editor.close()
 
 
+def test_live_view_axes_and_unit_cell_toggles_control_viewport_guides():
+    atoms = Atoms(
+        "Si2",
+        positions=[[1.0, 1.0, 1.0], [3.0, 3.0, 3.0]],
+        cell=[6.0, 7.0, 8.0],
+        pbc=True,
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+        show_axes=True,
+        show_cell=True,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1360, "height": 820})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.renderer?.cellGroup?.children?.length > 0"
+            )
+            _expand_inspector(page)
+            page.click('[data-inspector-group="view"]')
+
+            assert page.locator("#chk-axes").is_checked()
+            assert page.locator("#chk-cell").is_checked()
+            assert page.evaluate("""() => ({
+                axes: window.__ASE_APP__.renderer.axesHelper.visible,
+                cell: window.__ASE_APP__.renderer.cellGroup.visible
+            })""") == {"axes": True, "cell": True}
+
+            page.uncheck("#chk-axes")
+            page.uncheck("#chk-cell")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.state.display.showAxes === false
+                    && app.state.display.showCell === false
+                    && app.renderer.axesHelper.visible === false
+                    && app.renderer.cellGroup.visible === false;
+            }""")
+
+            page.check("#chk-axes")
+            page.check("#chk-cell")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.state.display.showAxes === true
+                    && app.state.display.showCell === true
+                    && app.renderer.axesHelper.visible === true
+                    && app.renderer.cellGroup.visible === true;
+            }""")
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_periodic_measurement_reports_direct_and_mic_values():
     atoms = Atoms(
         "HH",

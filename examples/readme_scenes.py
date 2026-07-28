@@ -197,37 +197,97 @@ def make_black_phosphorene_unit_cell() -> Atoms:
     return atoms
 
 
-def _twist_phosphorene_slices(
+def _rotate_about_x(
+    positions: np.ndarray,
+    indices: np.ndarray,
+    pivot: np.ndarray,
+    angle_degrees: float,
+) -> np.ndarray:
+    rotated = np.asarray(positions, dtype=float).copy()
+    angle = math.radians(float(angle_degrees))
+    cosine, sine = math.cos(angle), math.sin(angle)
+    rotation = np.array([
+        [1.0, 0.0, 0.0],
+        [0.0, cosine, -sine],
+        [0.0, sine, cosine],
+    ])
+    rotated[indices] = pivot + (rotated[indices] - pivot) @ rotation.T
+    return rotated
+
+
+def _cumulative_phosphorene_twist(
     positions: np.ndarray,
     slice_ids: np.ndarray,
     slice_count: int,
     angle_step_degrees: float,
-    progress: float,
-) -> np.ndarray:
-    twisted = np.asarray(positions, dtype=float).copy()
-    center_slice = (slice_count - 1) / 2
-    for slice_id in range(slice_count):
-        indices = np.flatnonzero(slice_ids == slice_id)
-        if not len(indices):
-            continue
-        pivot = positions[indices].mean(axis=0)
-        angle = math.radians((slice_id - center_slice) * angle_step_degrees * progress)
-        cosine, sine = math.cos(angle), math.sin(angle)
-        rotation = np.array([
-            [1.0, 0.0, 0.0],
-            [0.0, cosine, -sine],
-            [0.0, sine, cosine],
-        ])
-        twisted[indices] = pivot + (positions[indices] - pivot) @ rotation.T
-    return twisted
+    frame_count: int,
+) -> tuple[list[np.ndarray], list[dict[str, object]], list[dict[str, object]]]:
+    """Rotate successively shorter ribbon tails using the current selection COM."""
+
+    operations: list[dict[str, object]] = []
+    completed = [np.asarray(positions, dtype=float).copy()]
+    current = completed[0]
+
+    for slice_start in range(max(0, slice_count - 1)):
+        selected = np.flatnonzero(slice_ids >= slice_start)
+        pivot = current[selected].mean(axis=0)
+        operations.append({
+            "slice_start": slice_start,
+            "selected_indices": selected.tolist(),
+            "pivot": pivot.tolist(),
+            "angle_degrees": float(angle_step_degrees),
+        })
+        current = _rotate_about_x(
+            current,
+            selected,
+            pivot,
+            angle_step_degrees,
+        )
+        completed.append(current)
+
+    if not operations:
+        return [completed[0]], [], []
+
+    frame_positions: list[np.ndarray] = []
+    frame_operations: list[dict[str, object]] = []
+    progress_values = np.linspace(0.0, float(len(operations)), max(2, int(frame_count)))
+    for progress in progress_values:
+        if progress >= len(operations):
+            operation_index = len(operations) - 1
+            fraction = 1.0
+            frame = completed[-1].copy()
+        else:
+            operation_index = min(int(math.floor(progress)), len(operations) - 1)
+            fraction = progress - operation_index
+            operation = operations[operation_index]
+            selected = np.asarray(operation["selected_indices"], dtype=int)
+            pivot = np.asarray(operation["pivot"], dtype=float)
+            frame = _rotate_about_x(
+                completed[operation_index],
+                selected,
+                pivot,
+                angle_step_degrees * fraction,
+            )
+
+        operation = operations[operation_index]
+        frame_positions.append(frame)
+        frame_operations.append({
+            "operation_index": operation_index,
+            "operation_count": len(operations),
+            "slice_start": operation["slice_start"],
+            "selected_indices": operation["selected_indices"],
+            "pivot": operation["pivot"],
+            "angle_degrees": float(angle_step_degrees * fraction),
+        })
+    return frame_positions, frame_operations, operations
 
 
 def make_phosphorene_twist_scene(
     repeat: tuple[int, int, int] = (11, 3, 1),
     angle_step_degrees: float = 15.0,
-    frame_count: int = 25,
+    frame_count: int = 31,
 ) -> tuple[Atoms, Atoms, list[Atoms], dict[str, object]]:
-    """Build a source nanosheet and a uniformly twisted phosphorene ribbon."""
+    """Build a nanosheet and its cumulative, selection-driven twist workflow."""
 
     unit = make_black_phosphorene_unit_cell()
     source = unit.repeat(repeat)
@@ -237,16 +297,13 @@ def make_phosphorene_twist_scene(
     slice_ids = np.floor((source_positions[:, 0] + 1e-7) / slice_width).astype(int)
     slice_ids = np.clip(slice_ids, 0, repeat[0] - 1)
 
-    raw_frames = [
-        _twist_phosphorene_slices(
-            source_positions,
-            slice_ids,
-            repeat[0],
-            angle_step_degrees,
-            progress,
-        )
-        for progress in np.linspace(0.0, 1.0, frame_count)
-    ]
+    raw_frames, frame_operations, operations = _cumulative_phosphorene_twist(
+        source_positions,
+        slice_ids,
+        repeat[0],
+        angle_step_degrees,
+        frame_count,
+    )
     all_positions = np.concatenate([source_positions, raw_frames[-1]], axis=0)
     lower = np.min(all_positions, axis=0)
     upper = np.max(all_positions, axis=0)
@@ -262,9 +319,11 @@ def make_phosphorene_twist_scene(
         frame.pbc = False
         frame.new_array("readme_slice_id", slice_ids.copy())
         frame.info.update({
-            "readme_scene": "phosphorene_twisted_nanoribbon_15deg",
+            "readme_scene": "phosphorene_cumulative_nanoribbon_manipulation",
             "twist_step_degrees": angle_step_degrees,
             "twist_progress": frame_index / max(1, frame_count - 1),
+            "twist_operation": int(frame_operations[frame_index]["operation_index"]) + 1,
+            "twist_slice_start": int(frame_operations[frame_index]["slice_start"]),
             "source_doi": PHOSPHORENE_REFERENCE,
             "source_coordinates": PHOSPHORENE_ESI,
         })
@@ -273,13 +332,17 @@ def make_phosphorene_twist_scene(
     source = frames[0].copy()
     source.info["readme_scene"] = "phosphorene_nanosheet_source"
     twisted = frames[-1].copy()
-    selected_slice = min(repeat[0] - 1, repeat[0] // 2 + 1)
-    selected = np.flatnonzero(slice_ids == selected_slice).tolist()
+    showcase_operation = operations[min(len(operations) - 1, len(operations) // 2)]
     return source, twisted, frames, {
-        "selected_slice": selected,
+        "selected_slice": np.flatnonzero(
+            slice_ids == int(showcase_operation["slice_start"])
+        ).tolist(),
+        "selected_range": showcase_operation["selected_indices"],
         "slice_ids": slice_ids.tolist(),
         "axis": "X",
         "angle_step_degrees": angle_step_degrees,
+        "operations": operations,
+        "frame_operations": frame_operations,
     }
 
 
@@ -430,12 +493,12 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
         _, atoms, _, idx = make_phosphorene_twist_scene()
         info = SceneInfo(
             name=name,
-            description="Literature-derived black-phosphorene sheet twisted by 15 degrees per crystallographic slice.",
+            description="Literature-derived black-phosphorene sheet edited through cumulative 15 degree tail rotations.",
             static_file="phosphorene_twisted_nanoribbon_15deg.cif",
-            selected_indices=tuple(idx["selected_slice"]),
+            selected_indices=tuple(idx["selected_range"]),
             notes=(
                 "The relaxed cell and coordinates come from Villegas et al. (DOI 10.1039/C6CP05566D).",
-                "Use R then X with a slice selected to reproduce the ribbon twist.",
+                "Select each successively shorter tail, then use Selection COM, R, X, 15.",
             ),
         )
         return atoms, info
@@ -508,12 +571,12 @@ def write_scene_assets(out_dir: Path, scene_names: tuple[str, ...] = SCENE_NAMES
             source, static_atoms, frames, idx = make_phosphorene_twist_scene()
             info = SceneInfo(
                 name=name,
-                description="Literature-derived black-phosphorene sheet twisted by 15 degrees per crystallographic slice.",
+                description="Literature-derived black-phosphorene sheet edited through cumulative 15 degree tail rotations.",
                 static_file="phosphorene_twisted_nanoribbon_15deg.cif",
-                selected_indices=tuple(idx["selected_slice"]),
+                selected_indices=tuple(idx["selected_range"]),
                 notes=(
                     "Source coordinates: DOI 10.1039/C6CP05566D.",
-                    "The trajectory records the complete twist from the flat source sheet.",
+                    "Each trajectory stage starts from the previously edited coordinates.",
                 ),
             )
             extra_assets = [

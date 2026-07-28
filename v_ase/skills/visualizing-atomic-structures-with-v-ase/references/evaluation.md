@@ -130,10 +130,18 @@ Run all scenarios, not only static document checks:
    - verify pairwise rows expose enabled/max only and retain a resized label
      column.
 12. **README scientific examples**
-    - open the flat and twisted phosphorene CIFs and verify 15-degree
-      neighboring slice increments about each slice COM;
-    - inspect the graphene/hBN commensurate candidates;
-    - select the ethane H-C-C-H order and verify distance, angle, and torsion;
+    - verify the phosphorene media starts from a flat sheet, reduces the active
+      tail selection at each step, and accumulates one 15-degree Selection-COM
+      rotation per operation;
+    - verify the ferrocene media keeps Fe outside the selected ring and places
+      the active axis through the Origin pivot;
+    - inspect graphene/hBN from top view with world axes hidden and confirm the
+      neutral start, amber current, and cyan commensurate candidates remain
+      distinguishable;
+    - select the ethane H-C-C-H order and verify the media visibly transitions
+      through distance, angle, and torsion;
+    - inspect the separate displacement image for nonzero vectors and readable
+      frame/reference statistics;
     - play the compressed-C60 FIRE trajectory and verify energy and fmax
       decrease before publishing its relaxation example.
 
@@ -151,6 +159,8 @@ Every browser render test must check:
   axes without replacing the compact persistent per-atom marker;
 - rotation axis, fixed start, moving current, and commensurate candidate guides
   remain visually distinguishable;
+- live View checkboxes hide and restore world axes and the unit cell without
+  affecting the orientation gizmo;
 - Hookean spring has X and Z span around its axis and wire radius smaller than
   its coil radius;
 - preview and exported image decode to the same composition;

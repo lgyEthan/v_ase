@@ -2,15 +2,12 @@
 
 ## phosphorene
 
-Literature-derived black-phosphorene sheet twisted by 15 degrees per
-crystallographic slice around the ribbon axis through each slice's center of
-mass.
+Literature-derived black-phosphorene sheet edited through cumulative 15 degree tail rotations.
 
 - Static: `phosphorene_twisted_nanoribbon_15deg.cif`
-- Suggested selected indices: `72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83`
+- Suggested selected indices: `60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131`
 - Source coordinates: DOI 10.1039/C6CP05566D.
-- The trajectory records the complete twist from the flat source sheet.
-- Select a slice, choose Selection COM, then use `R`, `X`, `15`, `Enter`.
+- Each trajectory stage starts from the previously edited coordinates.
 - Additional: `phosphorene_nanosheet.cif`
 - Additional: `phosphorene_twist_15deg.traj`
 
@@ -54,9 +51,7 @@ Li ion constrained to a FixedPlane over a Cu(111) surface.
 
 - Static: `fixedplane.traj`
 - Suggested selected indices: `32`
-- The compact local plane marker remains visible without selection.
-- Select the Li atom and press `G` to show the larger motion guide at its
-  original position.
+- Select the Li atom to show the FixedPlane guide.
 
 Open command:
 

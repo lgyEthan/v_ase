@@ -26,6 +26,7 @@ from v_ase import view
 from examples.readme_scenes import (
     make_crowded_c60_relaxation_scene,
     make_ethane_measurement_scene,
+    make_ferrocene_scene,
     make_graphene_hbn_commensurate_scene,
     make_hookean_surface_scene,
     make_phosphorene_twist_scene,
@@ -239,6 +240,26 @@ def set_display(page, options):
     )
 
 
+def set_view_toggles(page, *, grid=None, axes=None, cell=None):
+    for element_id, value, state_key in (
+        ("chk-grid", grid, "showGrid"),
+        ("chk-axes", axes, "showAxes"),
+        ("chk-cell", cell, "showCell"),
+    ):
+        if value is None:
+            continue
+        page.locator(f"#{element_id}").set_checked(bool(value))
+        expected = "true" if value else "false"
+        page.wait_for_function(
+            f"window.__V_ASE_APP__.state.display.{state_key} === {expected}"
+        )
+    page.evaluate("""() => {
+        const app = window.__V_ASE_APP__;
+        app.renderer.setDisplayOptions(app.state.display, { rebuild: false });
+        app.renderer.renderNow();
+    }""")
+
+
 def set_readme_lighting(page, target, *, intensity=2.9, position_offset=(-12.0, -15.0, 20.0)):
     target = [float(value) for value in target]
     position = [target[i] + float(position_offset[i]) for i in range(3)]
@@ -391,6 +412,54 @@ def enter_mode(page, mode, axis=None):
             app.renderer.renderer.render(app.renderer.scene, app.renderer.camera);
         }""",
         {"mode": mode, "axis": axis},
+    )
+
+
+def start_atom_rotation(page, indices, *, axis: str, pivot_mode: str):
+    page.evaluate(
+        """async ({ indices, axis, pivotMode }) => {
+            const app = window.__V_ASE_APP__;
+            if (app.transform.mode !== 'IDLE') {
+                app.transform.exit();
+                app.state.transformSubject = null;
+                app.renderer.controls.enabled = true;
+                app.clearCommensurateRotation({ keepStatus: true });
+            }
+            app.clearAtomSelection();
+            indices.forEach(index => app.addSelectionReference(index));
+            app.state.display.rotatePivot = pivotMode;
+            const pivotInput = document.getElementById('rotate-pivot');
+            if (pivotInput) pivotInput.value = pivotMode;
+            app.updateSelectionVisuals();
+            app.enterTransformMode('ROTATE');
+            app.transform.setAxis(axis, app.renderer.camera);
+            app.configureRotationReference(indices);
+            await app.prepareCommensurateRotation(indices);
+            app.updateUI();
+            app.renderer.renderNow();
+        }""",
+        {
+            "indices": [int(index) for index in indices],
+            "axis": axis,
+            "pivotMode": pivot_mode,
+        },
+    )
+
+
+def set_atom_rotation_angle(page, angle_degrees: float, status: str = ""):
+    page.evaluate(
+        """({ angleDegrees, status }) => {
+            const app = window.__V_ASE_APP__;
+            app.transform.rotationAngle = angleDegrees * Math.PI / 180;
+            app.applyTransformPreview();
+            if (status) {
+                app.state.transformReadout =
+                    `${app.formatRotateReadout(app.transform.rotationAngle)} | ${status}`;
+                app.updateCommandReadout();
+            }
+            app.renderer.renderNow();
+        }""",
+        {"angleDegrees": float(angle_degrees), "status": status},
     )
 
 
@@ -566,54 +635,122 @@ def capture_phosphorene_media(browser) -> None:
     editor, page = open_scene(browser, source, show_bonds=True)
     try:
         set_display(page, {
-            "atomRadiusScale": 0.53,
+            "atomRadiusScale": 0.56,
             "showBonds": True,
             "bondThickness": 0.20,
             "showGrid": False,
             "showCell": False,
-            "showAxes": True,
+            "showAxes": False,
             "viewportBackground": "white",
             "rotatePivot": "selection",
             "commensurateGuide": False,
             "labelMaterials": {"P": "standard"},
         })
-        set_selection(page, metadata["selected_slice"])
         configure_inspector(page, "structure", ["transform"], width=430)
         center = np.mean(source.positions, axis=0)
         settle_view(
             page,
             target=center.tolist(),
-            position=(center + np.array([20.0, -33.0, 20.0])).tolist(),
-            fov=34,
+            position=(center + np.array([18.0, -31.0, 17.0])).tolist(),
+            fov=32,
         )
-        set_atomic_scale(page, 24.0)
+        set_atomic_scale(page, 27.0)
         set_readme_lighting(
             page,
             center.tolist(),
-            intensity=3.0,
+            intensity=3.15,
             position_offset=(-18.0, -24.0, 30.0),
         )
-        enter_mode(page, "ROTATE", metadata["axis"])
-
-        def update_rotation_guide(active_page, frame_index, frame_total):
-            progress = frame_index / max(1, frame_total - 1)
-            active_page.evaluate(
-                """(angle) => {
-                    const app = window.__V_ASE_APP__;
-                    app.updateRotationReferenceGuide(angle);
-                    app.renderer.renderNow();
-                }""",
-                math.radians(float(metadata["angle_step_degrees"])) * progress,
+        rendered_frames: list[Image.Image] = []
+        active_operation = None
+        operation_frames = metadata["frame_operations"]
+        for frame, operation in zip(frames, operation_frames):
+            operation_index = int(operation["operation_index"])
+            if operation_index != active_operation:
+                update_positions(page, frame.positions)
+                start_atom_rotation(
+                    page,
+                    operation["selected_indices"],
+                    axis=metadata["axis"],
+                    pivot_mode="selection",
+                )
+                set_view_toggles(page, grid=False, axes=False, cell=False)
+                active_operation = operation_index
+            set_atom_rotation_angle(
+                page,
+                operation["angle_degrees"],
+                (
+                    f"step {operation_index + 1}/{operation['operation_count']} | "
+                    f"slices {int(operation['slice_start']) + 1}-end"
+                ),
             )
-
-        capture_animation(
-            page,
+            page.wait_for_timeout(35)
+            rendered_frames.append(screenshot_frame(page))
+        save_gif(
+            rendered_frames,
             ASSET_DIR / "readme_phosphorene_twist.gif",
-            [frame.positions for frame in frames],
-            duration=82,
-            on_frame=update_rotation_guide,
+            duration=105,
         )
-        page.screenshot(path=ASSET_DIR / "readme_overview.png")
+        rendered_frames[-1].save(ASSET_DIR / "readme_overview.png", optimize=True)
+    finally:
+        page.close()
+        editor.close()
+
+
+def capture_ferrocene_media(browser) -> None:
+    atoms, indices = make_ferrocene_scene()
+    editor, page = open_scene(browser, atoms, show_bonds=True)
+    try:
+        set_display(page, {
+            "atomRadiusScale": 0.74,
+            "showBonds": True,
+            "bondThickness": 0.18,
+            "showGrid": False,
+            "showCell": False,
+            "showAxes": False,
+            "viewportBackground": "white",
+            "rotatePivot": "origin",
+            "commensurateGuide": False,
+            "labelMaterials": {"Fe": "metal", "C": "standard", "H": "standard"},
+        })
+        configure_inspector(page, "structure", ["transform"], width=420)
+        settle_view(
+            page,
+            target=[0.0, 0.0, 0.0],
+            position=[6.4, -8.6, 5.4],
+            fov=31,
+        )
+        set_atomic_scale(page, 142.0)
+        set_readme_lighting(
+            page,
+            [0.0, 0.0, 0.0],
+            intensity=3.05,
+            position_offset=(-6.0, -8.0, 10.0),
+        )
+        start_atom_rotation(
+            page,
+            indices["top_ring"],
+            axis="Z",
+            pivot_mode="origin",
+        )
+        set_view_toggles(page, grid=False, axes=False, cell=False)
+        rendered_frames: list[Image.Image] = []
+        count = 36
+        for frame_index in range(count):
+            phase = 0.5 - 0.5 * math.cos(2 * math.pi * frame_index / (count - 1))
+            angle = 72.0 * phase
+            set_atom_rotation_angle(page, angle, "pivot: origin (Fe)")
+            page.wait_for_timeout(35)
+            rendered_frames.append(screenshot_frame(page))
+        save_gif(
+            rendered_frames,
+            ASSET_DIR / "readme_ferrocene_pivot.gif",
+            duration=90,
+        )
+        rendered_frames[count // 2].save(
+            ASSET_DIR / "readme_rotate.png",
+            optimize=True,
+        )
     finally:
         page.close()
         editor.close()
@@ -624,11 +761,11 @@ def capture_commensurate_media(browser) -> None:
     editor, page = open_scene(browser, atoms, show_bonds=True)
     try:
         set_display(page, {
-            "atomRadiusScale": 0.58,
+            "atomRadiusScale": 0.52,
             "showBonds": True,
             "showGrid": False,
             "showCell": True,
-            "showAxes": True,
+            "showAxes": False,
             "viewportBackground": "white",
             "labelColors": {"C": "#46545b", "B": "#d89a4a", "N": "#3f72c9"},
             "commensurateGuide": True,
@@ -639,25 +776,54 @@ def capture_commensurate_media(browser) -> None:
         set_selection(page, indices["hbn"])
         configure_inspector(page, "structure", ["transform"], width=440)
         center = np.mean(atoms.positions, axis=0)
-        settle_view(
+        camera_target = center + np.array([-2.2, 0.0, 0.45])
+        set_camera(
             page,
-            target=(center + np.array([0.0, 0.0, 0.45])).tolist(),
-            position=(center + np.array([9.2, -11.6, 14.8])).tolist(),
-            fov=36,
+            target=camera_target.tolist(),
+            position=(camera_target + np.array([0.0, 0.0, 31.0])).tolist(),
+            up=(0.0, 1.0, 0.0),
+            fov=32,
         )
         set_readme_lighting(page, center.tolist(), intensity=3.0, position_offset=(-10.0, -13.0, 18.0))
-        enter_mode(page, "ROTATE", "Z")
-        page.wait_for_function("window.__V_ASE_APP__.state.commensurateCandidates?.length > 0")
-        page.evaluate(
-            """() => {
-                const app = window.__V_ASE_APP__;
-                app.transform.rotationAngle = 13.1735511 * Math.PI / 180;
-                app.applyTransformPreview();
-                app.renderer.renderNow();
-            }"""
+        set_atomic_scale(page, 59.0)
+        start_atom_rotation(
+            page,
+            indices["hbn"],
+            axis="Z",
+            pivot_mode="selection",
         )
-        set_atomic_scale(page, 52.0)
-        page.screenshot(path=ASSET_DIR / "readme_commensurate.png")
+        set_view_toggles(page, grid=False, axes=False, cell=True)
+        page.wait_for_function("window.__V_ASE_APP__.state.commensurateCandidates?.length > 0")
+        target_angle = page.evaluate("""() => {
+            const candidates = window.__V_ASE_APP__.state.commensurateCandidates || [];
+            const ranked = [...candidates].sort((left, right) =>
+                Math.abs(Math.abs(Number(left.angle_deg)) - 6)
+                - Math.abs(Math.abs(Number(right.angle_deg)) - 6)
+            );
+            return Math.abs(Number(ranked[0]?.angle_deg || 6));
+        }""")
+        rendered_frames: list[Image.Image] = []
+        count = 38
+        peak_frame = count // 2
+        for frame_index in range(count):
+            phase = 0.5 - 0.5 * math.cos(2 * math.pi * frame_index / (count - 1))
+            angle = target_angle * phase
+            set_atom_rotation_angle(
+                page,
+                angle,
+                f"cell match: {target_angle:.2f} deg",
+            )
+            page.wait_for_timeout(35)
+            rendered_frames.append(screenshot_frame(page))
+        save_gif(
+            rendered_frames,
+            ASSET_DIR / "readme_commensurate.gif",
+            duration=95,
+        )
+        rendered_frames[peak_frame].save(
+            ASSET_DIR / "readme_commensurate.png",
+            optimize=True,
+        )
     finally:
         page.close()
         editor.close()
@@ -806,19 +972,98 @@ def capture_measurement_media(browser) -> None:
     editor, page = open_scene(browser, atoms, show_bonds=True)
     try:
         set_display(page, {
-            "atomRadiusScale": 0.72,
+            "atomRadiusScale": 0.78,
             "showBonds": True,
             "showGrid": False,
             "showCell": False,
+            "showAxes": False,
             "viewportBackground": "white",
         })
-        set_selection(page, indices["ordered_selection"])
-        configure_inspector(page, "inspect", ["selection"], width=440)
+        configure_inspector(page, "inspect", ["selection"], width=500)
         center = np.mean(atoms.positions, axis=0)
-        settle_view(page, target=center.tolist(), position=(center + np.array([5.6, -7.2, 4.7])).tolist(), fov=34)
-        set_atomic_scale(page, 145.0)
+        settle_view(
+            page,
+            target=center.tolist(),
+            position=(center + np.array([4.8, -6.4, 4.0])).tolist(),
+            fov=31,
+        )
+        set_atomic_scale(page, 178.0)
         set_readme_lighting(page, center.tolist(), intensity=2.85, position_offset=(-6.0, -8.0, 10.0))
-        page.screenshot(path=ASSET_DIR / "readme_measurement.png")
+        rendered_frames: list[Image.Image] = []
+        ordered = indices["ordered_selection"]
+        for selection_size in (2, 3, 4, 3):
+            set_selection(page, ordered[:selection_size])
+            page.wait_for_timeout(140)
+            frame = screenshot_frame(page)
+            rendered_frames.extend([frame.copy() for _ in range(5)])
+        save_gif(
+            rendered_frames,
+            ASSET_DIR / "readme_measurement.gif",
+            duration=125,
+        )
+        set_selection(page, ordered)
+        page.wait_for_timeout(120)
+        screenshot_frame(page).save(
+            ASSET_DIR / "readme_measurement.png",
+            optimize=True,
+        )
+    finally:
+        page.close()
+        editor.close()
+
+    initial = fcc111("Cu", size=(3, 4, 2), vacuum=6.0, orthogonal=True)
+    displaced = initial.copy()
+    center = np.mean(initial.positions, axis=0)
+    offsets = displaced.positions - center
+    displacement = np.column_stack([
+        0.42 * np.sin(offsets[:, 1] * 0.75),
+        0.36 * np.cos(offsets[:, 0] * 0.65),
+        0.18 + 0.12 * np.sin((offsets[:, 0] + offsets[:, 1]) * 0.55),
+    ])
+    displaced.positions += displacement
+    editor, page = open_scene(browser, [initial, displaced], show_bonds=False)
+    try:
+        set_display(page, {
+            "atomRadiusScale": 0.60,
+            "showBonds": False,
+            "showGrid": False,
+            "showCell": True,
+            "showAxes": False,
+            "viewportBackground": "white",
+            "displacementReferenceMode": "previous",
+            "displacementMic": True,
+            "displacementStyle": "3d",
+            "displacementScale": 3.4,
+            "displacementThickness": 0.12,
+            "displacementColor": "#dc5c32",
+        })
+        configure_inspector(page, "analysis", ["displacement"], width=455)
+        page.evaluate("window.__V_ASE_APP__.loadFrame(1)")
+        page.wait_for_function(
+            "window.__V_ASE_APP__.state.atoms.metadata.current_frame === 1"
+        )
+        page.check("#chk-displacement")
+        page.wait_for_function(
+            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.displacementCount || 0) > 0"
+        )
+        center = np.mean(displaced.positions, axis=0)
+        settle_view(
+            page,
+            target=center.tolist(),
+            position=(center + np.array([7.5, -10.5, 8.0])).tolist(),
+            fov=34,
+        )
+        set_atomic_scale(page, 77.0)
+        set_readme_lighting(
+            page,
+            center.tolist(),
+            intensity=2.9,
+            position_offset=(-8.0, -10.0, 13.0),
+        )
+        screenshot_frame(page).save(
+            ASSET_DIR / "readme_displacement.png",
+            optimize=True,
+        )
     finally:
         page.close()
         editor.close()
@@ -868,7 +1113,15 @@ def main() -> int:
     )
     parser.add_argument(
         "--only",
-        choices=("phosphorene", "commensurate", "bonds", "constraints", "measurement", "relaxation"),
+        choices=(
+            "phosphorene",
+            "ferrocene",
+            "commensurate",
+            "bonds",
+            "constraints",
+            "measurement",
+            "relaxation",
+        ),
         help="Regenerate one README scene group.",
     )
     args = parser.parse_args()
@@ -888,6 +1141,7 @@ def main() -> int:
                 capture_logo(browser)
             captures = {
                 "phosphorene": capture_phosphorene_media,
+                "ferrocene": capture_ferrocene_media,
                 "commensurate": capture_commensurate_media,
                 "bonds": capture_bond_media,
                 "constraints": capture_constraint_media,

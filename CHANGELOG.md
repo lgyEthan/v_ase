@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.0.105
+
+- Rebuilt the README around the actual select, move, rotate, measure, and
+  analyze workflows instead of presenting finished example files as the main
+  manipulation demonstration.
+- Replaced the phosphorene hero with cumulative tail selections: every
+  15-degree Selection-COM rotation starts from the previously edited
+  coordinates.
+- Added current-UI ferrocene pivot and graphene/hBN commensurate GIFs, with
+  world axes hidden in the latter so start, current, and candidate references
+  remain readable.
+- Added ordered distance/angle/torsion media and a separate trajectory
+  displacement analysis image.
+- Added browser regression coverage proving that live View toggles hide and
+  restore the world axes and unit cell.
+- Updated the agent skill, evaluation gates, and internal progress contract to
+  match the published workflows.
+
 ## 0.0.104
 
 - Kept every export modal action visible at short viewport heights by making
