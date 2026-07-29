@@ -380,6 +380,10 @@ the View/Edit visual translation saved in display settings.
 - Video: H.264 MOV or MPEG-4 AVI with source-frame or interpolated playback.
 - Visual Settings JSON: structure-independent presentation preset.
 - `.vase`: complete validated project archive.
+- Standalone HTML View: a single offline, view-only document containing
+  inlined Three.js/runtime assets, browser-ready scene and trajectory data,
+  and a Base64 copy of the complete validated `.vase` archive. It preserves
+  camera navigation and playback but exposes no mutation controls.
 - Blender: optimized label-group point meshes, Geometry Nodes spheres,
   trajectory shape keys, bonds, optional cell, camera, and Sun.
 - Rhino 3DM: block-instanced atoms/bonds with metadata and saved views; optional

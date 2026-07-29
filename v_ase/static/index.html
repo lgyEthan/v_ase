@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.108&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.109&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.108';
+            : '/static/vendor/three.module.js?v=0.0.109';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -68,7 +68,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.108</span>
+            <span class="version">0.0.109</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -809,8 +809,12 @@
                 <button id="btn-export-3dm" data-requires-atoms title="Editable Rhino 3DM scene; requires the optional rhino3dm package">Export 3DM</button>
                 <button id="btn-export-obj" data-requires-atoms title="Dependency-free OBJ, MTL, and camera/metadata bundle">Export OBJ</button>
             </div>
+            <button id="btn-export-html" class="btn-block" data-requires-atoms
+                    title="Self-contained offline 3D view with an embedded .vase project">
+                Export HTML View
+            </button>
             <p class="panel-note cad-export-note">
-                The unit-cell option applies to Blender, 3DM, OBJ, image, and video output. 3DM uses editable instances and requires <code>rhino3dm</code>. OBJ includes mesh, materials, and a camera/metadata sidecar.
+                The unit-cell option applies to Blender, 3DM, OBJ, image, and video output. HTML View preserves the live viewport and trajectory in an offline, view-only page and embeds the complete .vase project.
             </p>
             <div class="relax-grid">
                 <label>image W</label>
@@ -862,6 +866,10 @@
             <div>
                 <strong>OBJ Bundle</strong>
                 <span>Dependency-free static geometry. The ZIP keeps OBJ mesh, MTL colors, and a camera/metadata JSON sidecar together.</span>
+            </div>
+            <div>
+                <strong>HTML View</strong>
+                <span>A self-contained offline 3D viewer. It allows camera navigation and trajectory playback, exposes no editing controls, and embeds the complete .vase project for lossless recovery.</span>
             </div>
             <div>
                 <strong>ASE Pickle</strong>
@@ -985,7 +993,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.108&rev=1';
+            : './static/main.js?v=0.0.109&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

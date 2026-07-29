@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en" data-v-ase-mode="view-only">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="v_ase-version" content="{{V_ASE_VERSION}}">
+    <meta name="v_ase-project-schema" content="v_ase.project.v1">
+    <meta name="v_ase-html-schema" content="v_ase.html-view.v1">
+    <meta name="robots" content="noindex">
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; worker-src blob:">
+    <title>{{DOCUMENT_TITLE}} - v_ase</title>
+    <style>{{STANDALONE_CSS}}</style>
+</head>
+<body>
+    <main id="standalone-app">
+        <header class="viewer-header">
+            <div class="document-identity">
+                <span class="wordmark">V_ASE</span>
+                <span id="document-title" class="document-title">{{DOCUMENT_TITLE}}</span>
+                <span class="view-only-badge">VIEW ONLY</span>
+            </div>
+            <div class="header-actions">
+                <button id="reset-view" class="icon-button" type="button" title="Reset saved view" aria-label="Reset saved view">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 12a8 8 0 1 0 2.35-5.65L4 8.7"></path>
+                        <path d="M4 4v4.7h4.7"></path>
+                    </svg>
+                </button>
+                <button id="show-metadata" class="icon-button" type="button" title="Document metadata" aria-label="Document metadata">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9"></circle>
+                        <path d="M12 10.7v6M12 7.2h.01"></path>
+                    </svg>
+                </button>
+                <button id="download-project" class="text-button" type="button" title="Extract the embedded editable .vase project">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M12 3v12M7.5 10.5 12 15l4.5-4.5"></path>
+                        <path d="M4 19h16"></path>
+                    </svg>
+                    <span id="download-project-label">Download .vase</span>
+                </button>
+            </div>
+        </header>
+        <section class="viewer-stage">
+            <div id="viewer-frame"></div>
+            <aside id="metadata-popover" class="metadata-popover" hidden>
+                <h2>Embedded document</h2>
+                <dl class="metadata-grid"></dl>
+            </aside>
+            <div id="timeline" class="timeline" hidden>
+                <button id="previous-frame" type="button" aria-label="Previous frame">‹</button>
+                <button id="play-frame" type="button" aria-label="Play trajectory">▶</button>
+                <button id="next-frame" type="button" aria-label="Next frame">›</button>
+                <span id="frame-label" class="frame-label">1 / 1</span>
+                <input id="frame-slider" type="range" min="0" max="0" value="0" aria-label="Trajectory frame">
+                <label class="fps-label">FPS <input id="playback-fps" type="number" value="12" min="1" max="60"></label>
+            </div>
+            <div id="boot-error" hidden></div>
+        </section>
+    </main>
+
+    <script id="v-ase-scene-data" type="application/vnd.v-ase.view+json" data-encoding="base64">{{SCENE_DATA_BASE64}}</script>
+    <script id="v-ase-project-data" type="application/vnd.v-ase.project+zip" data-encoding="base64">{{PROJECT_DATA_BASE64}}</script>
+    <script id="v-ase-three-source" type="application/javascript" data-encoding="base64">{{THREE_SOURCE_BASE64}}</script>
+    <script id="v-ase-renderer-source" type="application/javascript" data-encoding="base64">{{RENDERER_SOURCE_BASE64}}</script>
+    <script id="v-ase-viewer-source" type="application/javascript" data-encoding="base64">{{VIEWER_SOURCE_BASE64}}</script>
+    <script type="module">
+        const encoded = id => document.getElementById(id).textContent.trim();
+        const decodeText = value => {
+            const binary = atob(value);
+            const bytes = new Uint8Array(binary.length);
+            for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+            return new TextDecoder().decode(bytes);
+        };
+        const moduleUrl = source => URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
+        try {
+            const threeUrl = moduleUrl(decodeText(encoded('v-ase-three-source')));
+            const rendererSource = decodeText(encoded('v-ase-renderer-source')).replace(
+                /from\s+['"]three['"]/,
+                `from '${threeUrl}'`
+            );
+            const rendererUrl = moduleUrl(rendererSource);
+            const viewerSource = decodeText(encoded('v-ase-viewer-source'))
+                .replace(/from\s+['"]three['"]/, `from '${threeUrl}'`)
+                .replace(/from\s+['"]\.\/renderer\.js['"]/, `from '${rendererUrl}'`);
+            const viewerUrl = moduleUrl(viewerSource);
+            const scene = JSON.parse(decodeText(encoded('v-ase-scene-data')));
+            const viewer = await import(viewerUrl);
+            viewer.startStandaloneViewer(scene, encoded('v-ase-project-data'));
+        } catch (error) {
+            const panel = document.getElementById('boot-error');
+            panel.hidden = false;
+            panel.textContent = `This v_ase HTML view could not start: ${error?.message || error}`;
+            console.error(error);
+        }
+    </script>
+</body>
+</html>

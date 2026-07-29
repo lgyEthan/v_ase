@@ -350,8 +350,29 @@ Supported formats:
 | `blender` | optimized Blender Python scene |
 | `3dm` | Rhino scene, optional dependency |
 | `obj` | OBJ/MTL/camera metadata ZIP |
+| `html` | offline view-only 3D document with the complete `.vase` embedded |
 | `project` | self-contained `.vase` project |
 | `settings` | reusable visual settings without coordinates |
+
+Standalone HTML:
+
+```javascript
+const sharedView = await ai.export({format: "html"});
+if (
+  sharedView.mimeType !== "text/html"
+  || !sharedView.filename.endsWith(".html")
+  || sharedView.bytes <= 0
+) {
+  throw new Error("Standalone HTML export failed validation.");
+}
+```
+
+The returned data URL is one offline document with no CDN dependency. It
+allows camera navigation and trajectory playback but exposes no editing or
+settings controls. It also embeds the complete `.vase` project for lossless
+recovery. Decode the data URL, open it from `file://`, wait for
+`window.v_aseStandalone.ready`, verify `document.body.dataset.viewOnly` is
+`"true"`, and reject any HTTP/HTTPS request before reporting success.
 
 Video:
 

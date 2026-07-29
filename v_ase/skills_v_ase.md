@@ -24,4 +24,6 @@ v_ase gui STRUCTURE --for-ai
 
 Give the AI the first JSON line printed by the command. It identifies the
 human GUI, state, schema, skill, and browser API for the same live document.
-This compatibility file remains available so existing links do not fail.
+The canonical skill also documents standalone `html` export: one offline,
+view-only browser document with the complete `.vase` embedded. This
+compatibility file remains available so existing links do not fail.

@@ -85,6 +85,7 @@ browser document releases the blocking terminal process.
 | Repeat or wrap a cell | Use **Structure > Cell & Replication** |
 | Save the whole session | Use **Export > Save Project** to create a self-contained `.vase` |
 | Reuse only the visual style | Use **Export > Save Settings** |
+| Share an offline 3D view | Use **Export > Export HTML View** |
 | Hand the scene to an AI | Launch with `--for-ai` and provide the bundled agent skill |
 
 > **Viewport tip:** after selecting atoms, press `Esc` to close the control
@@ -409,6 +410,7 @@ the viewport and carried into Blender export.
 | Export Blender | Optimized scene script with atoms, bonds, cell, camera, and Sun |
 | Export 3DM | Instanced Rhino geometry, metadata, and saved camera views |
 | Export OBJ | OBJ/MTL, camera, and metadata in a ZIP |
+| Export HTML View | One offline, view-only 3D document with the complete `.vase` embedded |
 | Save Project | Self-contained `.vase` with structure/trajectory and visual state |
 | Save Settings | Reusable visual settings without coordinates |
 
@@ -431,7 +433,30 @@ Every source frame is retained exactly once at `1x`; interpolation adds
 in-between frames. Visible displacement vectors and other selected scene
 overlays are recalculated for each rendered frame.
 
-`.vase` is self-contained and does not reference the original input file.
+### Project Or Shareable HTML
+
+Use **Save Project** when the result will be reopened and edited in v_ase.
+The `.vase` file is the compact, canonical project: it contains every loaded
+frame, coordinates, cells, PBC, labels, constraints, safe calculator results,
+camera, appearance, bonds, lighting, analysis, and export settings.
+It is self-contained and never references the original input file.
+
+Use **Export HTML View** when the result should open directly in a browser.
+The generated `.html`:
+
+- opens offline without v_ase, Python, a server, or a CDN;
+- restores the saved camera, viewport styling, bonds, constraint overlays,
+  displacement vectors, supercell, visual translation, and trajectory;
+- allows orbit, pan, zoom, frame stepping, and movie playback;
+- exposes no atom, structure, appearance, or project editing controls;
+- embeds the complete `.vase`, which can be downloaded from the viewer for
+  lossless reopening in v_ase.
+
+An HTML View is larger than its `.vase` because it also contains the browser
+renderer, immediately readable scene data, and a Base64 copy of the project.
+Keep `.vase` as the editable source of truth and use HTML as the portable
+view-only handoff.
+
 Opening an ordinary structure in an existing tab keeps the current visual
 settings; opening `.vase` restores the saved project.
 

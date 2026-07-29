@@ -671,7 +671,7 @@ def test_ai_bridge_screen_relative_camera_and_constraint_vector_workflow():
                     "refresh-displacements",
                 ]
             ).issubset(capabilities["operations"])
-            assert {"image", "video", "poscar", "pickle", "blender", "3dm", "obj", "project", "settings"}.issubset(
+            assert {"image", "video", "poscar", "pickle", "blender", "3dm", "obj", "html", "project", "settings"}.issubset(
                 capabilities["exports"]
             )
 

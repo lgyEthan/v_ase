@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.108&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.108&rev=1';
-import { ASESelection } from './selection.js?v=0.0.108&rev=1';
-import { ASETransform } from './transform.js?v=0.0.108&rev=1';
+import { ASEApi } from './api.js?v=0.0.109&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.109&rev=1';
+import { ASESelection } from './selection.js?v=0.0.109&rev=1';
+import { ASETransform } from './transform.js?v=0.0.109&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.108&rev=1';
+} from './trajectory.js?v=0.0.109&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -272,6 +272,10 @@ class VAseApp {
             .replace(/^\.+|\.+$/g, '')
             .trim();
         return `${safe || 'v_ase_project'}.vase`;
+    }
+
+    htmlViewFilename() {
+        return this.projectFilename().replace(/\.vase$/i, '_view.html');
     }
 
     notifyWorkspaceDocument(type = 'v_ase:document-title') {
@@ -5712,7 +5716,7 @@ class VAseApp {
             ],
             exports: [
                 'image', 'video', 'poscar', 'pickle', 'blender', '3dm', 'obj',
-                'project', 'settings'
+                'html', 'project', 'settings'
             ]
         };
     }
@@ -6185,6 +6189,16 @@ class VAseApp {
             );
             filename = 'v_ase_obj_scene.zip';
             mimeType = 'application/zip';
+        } else if (format === 'html') {
+            blob = await this.api.exportHtml(
+                positions,
+                this.designSettingsSnapshot(),
+                this.state.applyConstraints,
+                [...this.state.selected],
+                this.workspaceDocumentTitle()
+            );
+            filename = this.htmlViewFilename();
+            mimeType = 'text/html';
         } else if (format === 'project') {
             blob = await this.api.saveProject(
                 positions,
@@ -6199,7 +6213,7 @@ class VAseApp {
             mimeType = 'application/json';
         } else {
             throw new Error(
-                "export format must be image, video, poscar, pickle, blender, 3dm, obj, project, or settings."
+                "export format must be image, video, poscar, pickle, blender, 3dm, obj, html, project, or settings."
             );
         }
         return {
@@ -7565,6 +7579,9 @@ class VAseApp {
         }
         if (lower.endsWith('.zip')) {
             return [{ description: 'OBJ scene bundle', accept: { 'application/zip': ['.zip'] } }];
+        }
+        if (lower.endsWith('.html') || lower.endsWith('.htm')) {
+            return [{ description: 'Self-contained HTML view', accept: { 'text/html': ['.html', '.htm'] } }];
         }
         if (lower.endsWith('.pkl') || lower.endsWith('.pickle')) {
             return [{ description: 'Pickle file', accept: { 'application/octet-stream': ['.pkl', '.pickle'] } }];
@@ -9408,6 +9425,28 @@ class VAseApp {
                 if (saved) this.toast('OBJ scene bundle saved.', 'success');
             } catch (err) {
                 this.toast(`OBJ export failed: ${err.message}`, 'error');
+            }
+        };
+        document.getElementById('btn-export-html').onclick = async () => {
+            try {
+                this.applyDisplayOptions();
+                const saved = await this.saveBlobFromAction(
+                    () => this.api.exportHtml(
+                        this.backendPositionsPayload(),
+                        this.designSettingsSnapshot(),
+                        this.state.applyConstraints,
+                        [...this.state.selected],
+                        this.workspaceDocumentTitle()
+                    ),
+                    this.htmlViewFilename(),
+                    'text/html',
+                    'Building self-contained HTML view...'
+                );
+                if (saved) {
+                    this.toast('Offline view-only HTML saved with its embedded .vase project.', 'success');
+                }
+            } catch (err) {
+                this.toast(`HTML export failed: ${err.message}`, 'error');
             }
         };
         document.getElementById('btn-export-image').onclick = () => {

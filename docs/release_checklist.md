@@ -22,6 +22,9 @@ and rendered examples in sync.
 6. Run the complete browser AI workflows listed in the skill evaluation
    reference. Verify state, selection, edits, constraints, trajectory, camera
    directions, nonblank exact-size renders, exports, and human takeover.
+   For standalone HTML, reopen the GUI-downloaded file from `file://`, verify
+   view-only navigation and playback at desktop/mobile sizes, extract its
+   `.vase`, and assert that it makes no HTTP/HTTPS request.
 7. Run the complete test suite, build wheel and source distribution, and run
    `twine check`.
 8. Push the release commit to GitHub and upload the same version to PyPI.

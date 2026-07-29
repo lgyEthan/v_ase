@@ -10,6 +10,7 @@
 6. Trajectory Analysis And Video
 7. Periodic Supercell Measurement
 8. Multi-Document Human Handoff
+9. Offline View-Only Handoff
 
 These templates are starting points. Preserve the plan, validate, execute, and
 verify sequence even when parameters change.
@@ -454,3 +455,30 @@ Every document is independent. Before modifying a document:
 
 Give the handshake's `human_url` to the user for manual pointer edits. The user
 and AI operate the same state, not copies.
+
+## Offline View-Only Handoff
+
+Use this only after the scene, trajectory, camera, and overlays are verified:
+
+```javascript
+const before = await ai.describe({includePositions: false});
+if (!before.atomCount) throw new Error("The document is empty.");
+
+const shared = await ai.export({format: "html"});
+if (shared.mimeType !== "text/html" || shared.bytes <= 0) {
+  throw new Error("HTML export did not produce a document.");
+}
+```
+
+Decode `shared.dataUrl` to the requested destination. Reopen the result with
+network access disabled and verify:
+
+1. `window.v_aseStandalone.ready` resolves;
+2. the canvas is nonblank and uses the saved camera;
+3. orbit, pan, zoom, and trajectory controls work;
+4. no structure, appearance, settings, or export editor is present;
+5. no HTTP/HTTPS request occurs;
+6. the embedded `.vase` download has a nonzero byte count.
+
+HTML is a shareable view, not the editable source of truth. Keep or deliver
+the `.vase` project whenever subsequent v_ase editing is expected.

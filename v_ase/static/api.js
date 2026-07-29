@@ -850,6 +850,27 @@ export class ASEApi {
         return await this.exportCad('obj', positions, applyConstraint, display, bondPairs, bondBridges, camera, includeCell);
     }
 
+    async exportHtml(
+        positions,
+        settings,
+        applyConstraint = true,
+        selection = [],
+        documentName = 'v_ase view'
+    ) {
+        const body = this.framePayload({
+            positions,
+            settings,
+            apply_constraint: applyConstraint,
+            selection,
+            document_name: documentName
+        });
+        return await this.request(`/api/export/html/{session_id}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        }, { expect: 'blob' });
+    }
+
     async transcodeVideo(
         recording,
         format = 'mov',

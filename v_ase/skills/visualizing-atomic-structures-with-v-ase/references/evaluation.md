@@ -59,7 +59,7 @@ Current operation coverage:
 
 Current export coverage:
 
-- image, video, poscar, pickle, blender, 3dm, obj, project, settings.
+- image, video, poscar, pickle, blender, 3dm, obj, html, project, settings.
 
 ## End-To-End Scenarios
 
@@ -124,6 +124,9 @@ Run all scenarios, not only static document checks:
    - enable displacement vectors and verify they are present in captured video
      frames;
    - reopen POSCAR, pickle, `.vase`, settings, OBJ metadata, and 3DM;
+   - open standalone HTML from `file://`, verify saved camera and trajectory,
+     orbit the canvas, confirm view-only controls, extract its embedded
+     `.vase`, and fail on any HTTP/HTTPS request;
    - syntax-check Blender output and inspect camera, bonds, cell, and light;
    - probe MOV/AVI dimensions, FPS, and frame count.
    - verify image progress is monotonic, reports an ETA, emits 100 exactly

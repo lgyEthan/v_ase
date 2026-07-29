@@ -124,8 +124,24 @@ def test_skill_explains_vendor_neutral_agent_handoff():
         "first stdout line as JSON",
         "window.v_aseAI",
         "human_url",
+        "standalone `html` export",
     ):
         assert required in setup + readme + compatibility
+
+
+def test_skill_documents_offline_html_handoff_contract():
+    documented = _documented_skill_text()
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    for required in (
+        '`html`',
+        "view-only",
+        "embedded `.vase`",
+        "file://",
+        "zero network requests",
+    ):
+        assert required in documented
+    assert "Export HTML View" in readme
+    assert "without v_ase, Python, a server, or a CDN" in readme
 
 
 def test_skill_trigger_evaluation_has_positive_and_negative_boundaries():

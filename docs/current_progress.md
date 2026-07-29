@@ -15,6 +15,7 @@ cell-rotation details belong in
 - Editable mode: `--interactive` or `view(..., viz_only=False)`
 - Runtime mode switch: top-bar **View / Edit**
 - Full project format: `.vase`
+- Shareable view format: self-contained view-only HTML with embedded `.vase`
 - Reusable presentation preset: visual-settings JSON
 
 `view_edit()` remains a compatibility alias for interactive mode. New examples
@@ -30,7 +31,8 @@ and documentation use `view()`.
 - `v_ase/server.py`: local FastAPI and WebSocket contract.
 - `v_ase/project.py`: visual-settings migration and validated `.vase` archives.
 - `v_ase/serialization.py`: browser payloads and ASE visual defaults.
-- `v_ase/export.py`: scientific, image-supporting, Blender, 3DM, and OBJ export.
+- `v_ase/export.py`: scientific, image-supporting, Blender, 3DM, OBJ, and
+  standalone offline HTML export.
 - `v_ase/ai.py`: vendor-neutral AI handshake and installed agent guide.
 - `v_ase/viewer.py`: Python API and local server lifecycle.
 
@@ -307,6 +309,10 @@ same implementation for compatibility.
   frame, edits, cells/PBC, constraints, labels, safe arrays and metadata,
   cached standard results, supported built-in calculator configuration, and
   visual settings. It does not reference the source file.
+- Standalone HTML export first creates that validated `.vase`, embeds it as
+  Base64, and also embeds browser-ready scene data and all runtime assets. It
+  opens directly from `file://`, provides view navigation and trajectory
+  playback only, and makes no network request.
 - Browser Open keeps visual state for ordinary structures and trajectories.
   Opening `.vase` restores the project state instead.
 - Browser Open uses the native operating system picker and streams the selected

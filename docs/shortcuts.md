@@ -96,6 +96,9 @@ state:
 - **Save .vase** writes the complete structure or trajectory, current frame,
   edited coordinates, cell/PBC, constraints, labels, cached standard calculator
   results, and visual setup. Reopen it with `v_ase gui FILE.vase`.
+- **Export HTML View** writes one offline view-only browser document with the
+  saved camera, scene, trajectory controls, and complete `.vase` embedded.
+  Recipients can inspect it without v_ase but cannot edit the scene.
 
 Start with `v_ase gui` to open an empty workspace, then use the top-bar **Open**
 command to launch the operating system file picker and load a structure,

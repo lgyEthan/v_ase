@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.108"
+python -m pip install "v_ase-gui==0.0.109"
 ```
 
 Start an agent-ready live session:
@@ -187,6 +187,8 @@ For any nontrivial task, verify all applicable items:
   FixedLine uses only linear rails, while rings and discs are plane-only;
 - render: exact dimensions, format, options, nonblank decoded pixels;
 - export: MIME type, filename, byte count, and reopenability where supported;
+- standalone HTML: offline `file://` load, saved camera and trajectory,
+  view-only controls, embedded `.vase` recovery, and zero network requests;
 - video: exact decoded frame count and `frames / FPS` duration, with visible
   displacement vectors present in the captured frames when enabled.
 

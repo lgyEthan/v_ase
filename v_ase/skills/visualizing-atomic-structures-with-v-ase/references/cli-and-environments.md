@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.108"
+python -m pip install "v_ase-gui==0.0.109"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.0.108"
+python -m pip install "v_ase-gui[rhino]==0.0.109"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, imageio-ffmpeg, and
@@ -122,8 +122,15 @@ Main outputs:
 - image: PNG by default, or JPEG, PDF, and lossless WebP;
 - trajectory movie: MOV/H.264 or AVI/MPEG-4;
 - editable scene: Blender Python, Rhino 3DM, or OBJ bundle;
+- shareable view: one offline view-only HTML document with its complete
+  `.vase` project embedded;
 - complete session: `.vase`;
 - reusable appearance: visual settings JSON.
+
+Use `.vase` as the canonical editable project. Use HTML when the recipient
+should inspect the saved 3D scene and trajectory in a browser without
+installing v_ase. HTML is larger because it includes the renderer, browser
+scene data, and a Base64 copy of the `.vase` archive.
 
 The terminal remains occupied while the browser document is active unless
 `--no-block` or `--for-ai` is used. Close the document or stop the process after

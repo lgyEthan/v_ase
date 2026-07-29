@@ -233,6 +233,20 @@ Self-contained project archive containing:
 The archive is ZIP-based, validated before extraction, and does not unpickle
 executable Python objects.
 
+### Standalone HTML View
+
+One view-only browser document containing:
+
+- inlined Three.js, renderer code, styles, scene data, and trajectory frames;
+- the saved camera, display, bonds, constraints, analysis overlays,
+  supercell, and visual translation;
+- the complete validated `.vase` archive as Base64 metadata.
+
+It opens from `file://` without a server or network request and supports only
+camera navigation and trajectory playback. The embedded `.vase` remains
+downloadable for lossless reopening in v_ase. HTML is intentionally larger
+than `.vase` because browser-ready scene data and the archive coexist.
+
 ## Local Application API
 
 The browser communicates only with a FastAPI server bound to `127.0.0.1`.
@@ -244,7 +258,7 @@ Endpoint groups:
 - coordinate commit and constraint editing;
 - calculator and relaxation control;
 - POSCAR, ASE Pickle, lossless WebP/optimized PNG image support, video support,
-  Blender, 3DM, and OBJ export;
+  Blender, 3DM, OBJ, and standalone HTML export;
 - visual-settings and `.vase` save/load;
 - binary current-frame and full-trajectory coordinate transfer.
 - semantic AI schema, skill guide, and current-frame state.
@@ -321,9 +335,9 @@ transforms, identity and constraint edits, wrapping, physical translation, atom
 creation/deletion, supercells, history, reset, relaxation, and displacement
 analysis. Visual translation and display supercells are ordinary `display`
 settings available in View and Edit. `export()` covers image, video, POSCAR,
-ASE Pickle, Blender, Rhino
-3DM, OBJ, `.vase`, and visual settings. Rendering and image export use the same
-capture path as the human Export workspace.
+ASE Pickle, Blender, Rhino 3DM, OBJ, standalone HTML, `.vase`, and visual
+settings. Rendering and image export use the same capture path as the human
+Export workspace.
 
 WebSockets stream relaxation updates and own browser-document/workspace
 lifetime. Closing the last connected browser document finalizes blocking calls

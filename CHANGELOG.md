@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.109
+
+- Added **Export HTML View**, which creates one offline, view-only 3D document
+  with the saved camera, appearance, bonds, constraints, displacement vectors,
+  supercell, visual translation, and trajectory playback.
+- Embedded the complete validated `.vase` archive inside every HTML View so
+  recipients can recover the lossless editable project without the original
+  input file or a running v_ase server.
+- Inlined the Three.js runtime, renderer, styles, scene data, and project
+  archive without CDN or network dependencies.
+- Added semantic-agent HTML export support and browser regressions covering
+  GUI download, offline `file://` reopening, camera orbit, trajectory
+  navigation, view-only controls, and zero network requests.
+- Documented the roles and storage tradeoffs of canonical `.vase` projects
+  versus shareable standalone HTML views.
+
 ## 0.0.108
 
 - Replaced the FixedLine collar/ring marker with a straight axis and two

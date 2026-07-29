@@ -2643,6 +2643,7 @@ if FASTAPI_AVAILABLE:
         VideoExportError,
         export_3dm_response,
         export_blender_response,
+        export_html_response,
         export_obj_response,
         export_pickle_response,
         export_poscar_response,
@@ -2685,6 +2686,15 @@ if FASTAPI_AVAILABLE:
         sync_session_frame_from_payload(session, payload)
         try:
             return export_obj_response(session, payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/export/html/{session_id}")
+    async def api_export_html(session_id: str, payload: Dict[str, Any]):
+        session = get_session(session_id)
+        sync_session_frame_from_payload(session, payload)
+        try:
+            return await asyncio.to_thread(export_html_response, session, payload)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

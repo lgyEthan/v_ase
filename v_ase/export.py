@@ -1,12 +1,16 @@
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from typing import Dict, Any, Callable
 from ase.io import write
 from ase.calculators.singlepoint import SinglePointCalculator
+from ase.geometry import find_mic
+import base64
 import copy
+import html
 import io
 import json
 import math
 import os
+from pathlib import Path
 import queue
 import re
 import subprocess
@@ -18,6 +22,7 @@ import struct
 import zipfile
 import zlib
 import numpy as np
+from ._version import __version__
 from .serialization import atoms_to_json
 
 
@@ -57,6 +62,7 @@ VIDEO_EXPORT_FORMATS = {
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 MAX_PNG_DECOMPRESSED_BYTES = 512 * 1024 * 1024
+HTML_VIEW_SCHEMA = "v_ase.html-view.v1"
 
 
 def _png_chunk(kind: bytes, payload: bytes) -> bytes:
@@ -486,6 +492,219 @@ def export_pickle_response(session, payload: Dict[str, Any]):
     with open(tmp.name, "wb") as handle:
         pickle.dump(atoms_to_save, handle)
     return FileResponse(tmp.name, filename="atoms.pkl", media_type="application/octet-stream")
+
+
+_HTML_PARTICLE_ID_ARRAY_NAMES = ("lammps_id", "atom_id", "particle_id", "ids", "id")
+
+
+def _unique_html_particle_ids(atoms):
+    for name in _HTML_PARTICLE_ID_ARRAY_NAMES:
+        values = atoms.arrays.get(name)
+        if values is None or len(values) != len(atoms):
+            continue
+        normalized = []
+        for value in np.asarray(values).tolist():
+            if isinstance(value, list):
+                value = tuple(value)
+            normalized.append(value)
+        try:
+            if len(set(normalized)) == len(normalized):
+                return name, normalized
+        except TypeError:
+            continue
+    return None, None
+
+
+def _html_frame_displacement(frames, current_index, display):
+    if len(frames) <= 1:
+        return None
+    reference_mode = (
+        "frame"
+        if str(display.get("displacementReferenceMode", "previous")).lower() == "frame"
+        else "previous"
+    )
+    if reference_mode == "previous":
+        if current_index <= 0:
+            return None
+        reference_index = current_index - 1
+    else:
+        reference_index = max(
+            0,
+            min(
+                len(frames) - 1,
+                int(display.get("displacementReferenceFrame", 0) or 0),
+            ),
+        )
+
+    current = frames[current_index]
+    reference = frames[reference_index]
+    current_id_name, current_ids = _unique_html_particle_ids(current)
+    reference_id_name, reference_ids = _unique_html_particle_ids(reference)
+    mapping = "index"
+    if (
+        current_ids is not None
+        and reference_ids is not None
+        and current_id_name == reference_id_name
+    ):
+        mapping = f"particle-id:{current_id_name}"
+        lookup = {particle_id: index for index, particle_id in enumerate(reference_ids)}
+        current_indices = [
+            index
+            for index, particle_id in enumerate(current_ids)
+            if particle_id in lookup
+        ]
+        reference_indices = [lookup[current_ids[index]] for index in current_indices]
+    elif len(current) == len(reference):
+        current_indices = list(range(len(current)))
+        reference_indices = list(range(len(reference)))
+    else:
+        return None
+    if not current_indices:
+        return None
+
+    current_positions = np.asarray(current.positions, dtype=float)[current_indices]
+    reference_positions = np.asarray(reference.positions, dtype=float)[reference_indices]
+    vectors = current_positions - reference_positions
+    mic_requested = display.get("displacementMic", True) is not False
+    mic_applied = False
+    if mic_requested and np.asarray(current.pbc, dtype=bool).any():
+        cell = np.asarray(current.cell.array, dtype=float)
+        if (
+            cell.shape == (3, 3)
+            and np.isfinite(cell).all()
+            and abs(np.linalg.det(cell)) > 1e-12
+        ):
+            vectors, _ = find_mic(vectors, current.cell, current.pbc)
+            vectors = np.asarray(vectors, dtype=float)
+            mic_applied = True
+    magnitudes = np.linalg.norm(vectors, axis=1)
+    return {
+        "status": "ok",
+        "current_frame": current_index,
+        "reference_frame": reference_index,
+        "reference_mode": reference_mode,
+        "mapping": mapping,
+        "mic_requested": mic_requested,
+        "mic_applied": mic_applied,
+        "indices": [int(index) for index in current_indices],
+        "reference_indices": [int(index) for index in reference_indices],
+        "starts": current_positions.tolist(),
+        "vectors": vectors.tolist(),
+        "magnitudes": magnitudes.tolist(),
+    }
+
+
+def _html_view_displacements(frames, settings):
+    source = settings.get("settings", settings) if isinstance(settings, dict) else {}
+    display = source.get("display", source) if isinstance(source, dict) else {}
+    if not isinstance(display, dict) or display.get("showDisplacements") is not True:
+        return []
+    return [
+        _html_frame_displacement(frames, frame_index, display)
+        for frame_index in range(len(frames))
+    ]
+
+
+def _base64_text(source: bytes | str) -> str:
+    if isinstance(source, str):
+        source = source.encode("utf-8")
+    return base64.b64encode(source).decode("ascii")
+
+
+def _safe_export_stem(value: Any, fallback: str = "v_ase_view") -> str:
+    source = Path(str(value or "")).name
+    source = re.sub(r"\.(?:vase|vasp|poscar|contcar|cif|xyz|extxyz|traj|html?)$", "", source, flags=re.I)
+    source = re.sub(r"[^A-Za-z0-9._-]+", "_", source).strip("._-")
+    return source or fallback
+
+
+def export_html_response(session, payload: Dict[str, Any]):
+    """Build one offline, view-only HTML document with an embedded .vase project."""
+    from .project import PROJECT_SCHEMA, read_project_archive, write_project_archive
+
+    settings = payload.get("settings") or {}
+    document_name = Path(str(payload.get("document_name") or "v_ase view")).name
+    project_file = tempfile.NamedTemporaryFile(delete=False, suffix=".vase")
+    project_file.close()
+    try:
+        write_project_archive(
+            project_file.name,
+            session,
+            settings,
+            current_positions=payload.get("positions"),
+        )
+        project_bytes = Path(project_file.name).read_bytes()
+        project = read_project_archive(project_file.name)
+    finally:
+        try:
+            os.unlink(project_file.name)
+        except OSError:
+            pass
+
+    frames = [atoms_to_json(frame) for frame in project.frames]
+    selection = []
+    for value in payload.get("selection") or []:
+        try:
+            index = int(value)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= index < len(project.frames[project.current_frame]):
+            selection.append(index)
+    scene = {
+        "schema": HTML_VIEW_SCHEMA,
+        "createdWith": {"application": "v_ase", "version": __version__},
+        "documentName": document_name,
+        "projectFilename": f"{_safe_export_stem(document_name, 'v_ase_project')}.vase",
+        "projectSchema": PROJECT_SCHEMA,
+        "currentFrame": project.current_frame,
+        "settings": project.settings,
+        "selection": sorted(set(selection)),
+        "frames": frames,
+        "displacements": _html_view_displacements(project.frames, project.settings),
+    }
+
+    static_dir = Path(__file__).with_name("static")
+    template = (static_dir / "standalone.html").read_text(encoding="utf-8")
+    replacements = {
+        "{{V_ASE_VERSION}}": html.escape(__version__, quote=True),
+        "{{DOCUMENT_TITLE}}": html.escape(document_name, quote=True),
+        "{{STANDALONE_CSS}}": (static_dir / "standalone.css").read_text(encoding="utf-8"),
+        "{{SCENE_DATA_BASE64}}": _base64_text(
+            json.dumps(
+                scene,
+                ensure_ascii=False,
+                allow_nan=False,
+                separators=(",", ":"),
+            )
+        ),
+        "{{PROJECT_DATA_BASE64}}": _base64_text(project_bytes),
+        "{{THREE_SOURCE_BASE64}}": _base64_text(
+            (static_dir / "vendor" / "three.module.js").read_bytes()
+        ),
+        "{{RENDERER_SOURCE_BASE64}}": _base64_text(
+            (static_dir / "renderer.js").read_bytes()
+        ),
+        "{{VIEWER_SOURCE_BASE64}}": _base64_text(
+            (static_dir / "standalone.js").read_bytes()
+        ),
+    }
+    for marker, value in replacements.items():
+        template = template.replace(marker, value)
+    if "{{" in template or "}}" in template:
+        raise RuntimeError("Standalone HTML template contains an unresolved marker.")
+
+    output = template.encode("utf-8")
+    filename = f"{_safe_export_stem(document_name)}.html"
+    return Response(
+        content=output,
+        media_type="text/html",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-V-Ase-View-Schema": HTML_VIEW_SCHEMA,
+            "X-V-Ase-Embedded-Project-Bytes": str(len(project_bytes)),
+            "X-V-Ase-Frame-Count": str(len(frames)),
+        },
+    )
 
 
 def _trajectory_frames_json(session):
