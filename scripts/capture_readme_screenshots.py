@@ -644,7 +644,11 @@ def capture_phosphorene_media(browser) -> None:
             "viewportBackground": "white",
             "rotatePivot": "selection",
             "commensurateGuide": False,
-            "labelMaterials": {"P": "standard"},
+            "labelColors": metadata["sublayer_colors"],
+            "labelMaterials": {
+                "P_upper": "standard",
+                "P_lower": "standard",
+            },
         })
         configure_inspector(page, "structure", ["transform"], width=430)
         center = np.mean(source.positions, axis=0)
@@ -680,8 +684,9 @@ def capture_phosphorene_media(browser) -> None:
                 page,
                 operation["angle_degrees"],
                 (
-                    f"step {operation_index + 1}/{operation['operation_count']} | "
-                    f"slices {int(operation['slice_start']) + 1}-end"
+                    f"ridge {operation_index + 1}/{operation['operation_count']} | "
+                    f"local {operation['angle_increment_degrees']:.2f} deg | "
+                    f"target {operation['target_twist_degrees']:.0f} deg"
                 ),
             )
             page.wait_for_timeout(35)

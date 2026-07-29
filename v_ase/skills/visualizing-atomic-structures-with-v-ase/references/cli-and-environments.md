@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.105"
+python -m pip install "v_ase-gui==0.0.106"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.0.105"
+python -m pip install "v_ase-gui[rhino]==0.0.106"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, imageio-ffmpeg, and

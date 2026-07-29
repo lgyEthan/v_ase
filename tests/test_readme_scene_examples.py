@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from ase.constraints import FixedLine, FixedPlane, Hookean
 from ase.io import read
+from ase.neighborlist import neighbor_list
 from ase.units import Bohr
 from PIL import Image
 
@@ -14,6 +15,7 @@ from examples.readme_scenes import (
     make_phosphorene_twist_scene,
     write_scene_assets,
 )
+from v_ase.io import atom_labels
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -41,8 +43,8 @@ def test_readme_scene_assets_write_reopenable_traj_files(tmp_path):
     assert "ferrocene.traj" in written_names
     assert "showcase.traj" in written_names
     assert "phosphorene_nanosheet.cif" in written_names
-    assert "phosphorene_twisted_nanoribbon_15deg.cif" in written_names
-    assert "phosphorene_twist_15deg.traj" in written_names
+    assert "phosphorene_twisted_nanoribbon_36deg.cif" in written_names
+    assert "phosphorene_twist_36deg.traj" in written_names
     assert "crowded_c60_initial.cif" in written_names
     assert "crowded_c60_relaxed.cif" in written_names
     assert "crowded_c60_relaxation.traj" in written_names
@@ -53,14 +55,20 @@ def test_readme_scene_assets_write_reopenable_traj_files(tmp_path):
     fixedplane = read(tmp_path / "fixedplane.traj")
     hookean = read(tmp_path / "hookean.traj")
     showcase = read(tmp_path / "showcase.traj")
+    phosphorene_frames = read(tmp_path / "phosphorene_twist_36deg.traj", index=":")
 
     assert any(isinstance(constraint, FixedLine) for constraint in fixedline.constraints)
     assert any(isinstance(constraint, FixedPlane) for constraint in fixedplane.constraints)
     assert any(isinstance(constraint, Hookean) for constraint in hookean.constraints)
     assert any(isinstance(constraint, Hookean) for constraint in showcase.constraints)
+    assert len(phosphorene_frames) == 43
+    assert all(
+        frame.info["twist_target_degrees"] == pytest.approx(36.0)
+        for frame in phosphorene_frames
+    )
 
 
-def test_phosphorene_scene_uses_published_cell_and_cumulative_tail_rotations():
+def test_phosphorene_scene_uses_published_cell_angle_and_single_puckered_ridges():
     unit = make_black_phosphorene_unit_cell()
     source, twisted, frames, metadata = make_phosphorene_twist_scene()
 
@@ -69,31 +77,82 @@ def test_phosphorene_scene_uses_published_cell_and_cumulative_tail_rotations():
         abs=1e-8,
     )
     assert len(source) == len(twisted) == 132
-    assert len(frames) == 31
+    assert len(frames) == 43
     assert metadata["axis"] == "X"
-    assert metadata["angle_step_degrees"] == pytest.approx(15.0)
-    assert len(metadata["selected_slice"]) == 12
-    assert len(metadata["operations"]) == 10
-    assert [operation["slice_start"] for operation in metadata["operations"]] == list(range(10))
+    assert metadata["ribbon_direction"] == "armchair"
+    assert metadata["target_twist_degrees"] == pytest.approx(36.0)
+    assert metadata["angle_increment_degrees"] == pytest.approx(36.0 / 21.0)
+    assert metadata["ridge_count"] == 22
+    assert len(metadata["selected_ridge"]) == 6
+    assert len(metadata["operations"]) == 21
+    assert [operation["ridge_start"] for operation in metadata["operations"]] == list(range(1, 22))
     assert [len(operation["selected_indices"]) for operation in metadata["operations"]] == [
-        132, 120, 108, 96, 84, 72, 60, 48, 36, 24,
+        126, 120, 114, 108, 102, 96, 90, 84, 78, 72, 66,
+        60, 54, 48, 42, 36, 30, 24, 18, 12, 6,
     ]
     assert all(
-        operation["angle_degrees"] == pytest.approx(15.0)
+        operation["angle_degrees"] == pytest.approx(36.0 / 21.0)
         for operation in metadata["operations"]
     )
-    assert np.max(np.linalg.norm(twisted.positions - source.positions, axis=1)) > 2.0
+    assert np.max(np.linalg.norm(twisted.positions - source.positions, axis=1)) > 1.0
     assert np.allclose(frames[0].positions, source.positions)
     assert np.allclose(frames[-1].positions, twisted.positions)
+    assert set(atom_labels(source)) == {"P_upper", "P_lower"}
+    assert metadata["sublayer_colors"] == {
+        "P_upper": "#6faf68",
+        "P_lower": "#8064a2",
+    }
 
-    slice_ids = np.asarray(metadata["slice_ids"])
-    for operation_index in range(1, len(metadata["operations"])):
-        start = frames[operation_index * 3].positions
-        end = frames[(operation_index + 1) * 3].positions
-        frozen = slice_ids < operation_index
-        moving = slice_ids >= operation_index
+    ridge_ids = np.asarray(metadata["ridge_ids"])
+    sublayer_ids = np.asarray(metadata["sublayer_ids"])
+    assert np.bincount(ridge_ids).tolist() == [6] * 22
+    assert [
+        int(np.unique(sublayer_ids[ridge_ids == ridge_id]).item())
+        for ridge_id in range(22)
+    ] == [1, 0] * 11
+    assert np.allclose(
+        source.positions[ridge_ids == 0],
+        twisted.positions[ridge_ids == 0],
+    )
+    last_ridge = np.flatnonzero(ridge_ids == 21)
+    same_x = last_ridge[
+        np.isclose(
+            source.positions[last_ridge, 0],
+            np.min(source.positions[last_ridge, 0]),
+        )
+    ]
+    lower_y = same_x[np.argmin(source.positions[same_x, 1])]
+    upper_y = same_x[np.argmax(source.positions[same_x, 1])]
+    initial_vector = source.positions[upper_y, 1:3] - source.positions[lower_y, 1:3]
+    final_vector = twisted.positions[upper_y, 1:3] - twisted.positions[lower_y, 1:3]
+    accumulated_angle = np.degrees(np.arctan2(
+        initial_vector[0] * final_vector[1] - initial_vector[1] * final_vector[0],
+        np.dot(initial_vector, final_vector),
+    ))
+    assert accumulated_angle == pytest.approx(36.0, abs=1e-8)
+
+    bond_i, bond_j = neighbor_list("ij", source, 2.45)
+    unique_bonds = bond_i < bond_j
+    bond_i, bond_j = bond_i[unique_bonds], bond_j[unique_bonds]
+    initial_lengths = np.linalg.norm(
+        source.positions[bond_j] - source.positions[bond_i],
+        axis=1,
+    )
+    final_lengths = np.linalg.norm(
+        twisted.positions[bond_j] - twisted.positions[bond_i],
+        axis=1,
+    )
+    bond_strain_percent = 100.0 * (final_lengths / initial_lengths - 1.0)
+    assert np.max(np.abs(bond_strain_percent)) < 10.0
+
+    for operation_index in range(len(metadata["operations"])):
+        start = frames[operation_index * 2].positions
+        end = frames[(operation_index + 1) * 2].positions
+        ridge_start = operation_index + 1
+        frozen = ridge_ids < ridge_start
+        moving = ridge_ids >= ridge_start
         assert np.allclose(start[frozen], end[frozen])
-        assert np.max(np.linalg.norm(end[moving] - start[moving], axis=1)) > 0.1
+        assert np.max(np.linalg.norm(end[moving] - start[moving], axis=1)) > 0.01
 
 
 def test_relaxation_scene_is_an_actual_fire_trajectory_with_lower_repulsion():
@@ -144,6 +203,11 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert structure < select < move < rotate < ferrocene < phosphorene < commensurate < measurement
     assert "Try the exact assets" not in readme
     assert "playback of a finished model" in readme
+    assert "one half-cell ridge per step" in readme
+    assert "6 atoms at this ribbon" in readme
+    assert "final ridge is rotated by exactly 36 degrees" in readme
+    assert "Green and purple distinguish" in readme
+    assert "the upper and lower P sublayers" in readme
     assert "**Axes** and **Unit Cell** switches update the working viewport" in readme
 
     for filename in (

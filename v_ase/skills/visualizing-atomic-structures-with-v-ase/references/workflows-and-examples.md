@@ -74,11 +74,16 @@ Output: a lossless WebP data URL and the same live view at `human_url`.
 
 Input: `examples/readme_scene_assets/phosphorene_nanosheet.cif`.
 
-For a human-assisted edit, open Edit mode and select the first
-crystallographic slice through the end of the ribbon. Set the pivot to
-Selection COM, then use `R`, `X`, and an exact 15-degree value. Confirm the
-edit, advance the selection boundary by one slice, and repeat from the edited
-coordinates. Do not compute every operation from the original flat sheet.
+For a human-assisted edit, open Edit mode and keep the first puckered ridge
+fixed. Select the second ridge through the end of the ribbon, set the pivot to
+Selection COM, then use `R`, `X`, and an exact `36 / 21 = 1.7142857` degree
+increment. Confirm the edit, advance the selection boundary by one ridge, and
+repeat from the edited coordinates. A ridge is one phosphorus sublayer in a
+half armchair cell, not the two-ridge crystallographic cell. The final ridge
+must accumulate exactly 36 degrees, matching the largest H-APNR angle
+tabulated by Jang et al. (DOI 10.1039/C6NR04354B). This is a deterministic
+editing workflow that borrows the literature angle; do not describe it as the
+paper's periodic DFT cell or as an energy-minimized structure.
 
 For deterministic semantic editing:
 
@@ -86,24 +91,30 @@ For deterministic semantic editing:
 await ai.apply({mode: "edit", applyConstraints: true});
 const initial = await ai.describe({includePositions: true});
 const x = initial.positions.map(position => position[0]);
-const xMin = Math.min(...x);
-const xMax = Math.max(...x);
-const sliceCount = 11;
-const sliceWidth = (xMax - xMin + 1e-8) / sliceCount;
-const sliceIds = x.map(value =>
-  Math.min(sliceCount - 1, Math.floor((value - xMin) / sliceWidth))
+const xPlanes = [...new Set(x.map(value => value.toFixed(6)))]
+  .map(Number)
+  .sort((a, b) => a - b);
+if (xPlanes.length !== 44) {
+  throw new Error(`Expected 44 phosphorene x planes, found ${xPlanes.length}.`);
+}
+const planeByX = new Map(xPlanes.map((value, index) => [value.toFixed(6), index]));
+const ridgeIds = x.map(value =>
+  Math.floor(planeByX.get(value.toFixed(6)) / 2)
 );
+const ridgeCount = 22;
+const targetTwistDeg = 36;
+const incrementDeg = targetTwistDeg / (ridgeCount - 1);
 
-for (let sliceStart = 0; sliceStart < sliceCount - 1; sliceStart += 1) {
-  const tail = sliceIds
-    .map((sliceId, index) => sliceId >= sliceStart ? index : -1)
+for (let ridgeStart = 1; ridgeStart < ridgeCount; ridgeStart += 1) {
+  const tail = ridgeIds
+    .map((ridgeId, index) => ridgeId >= ridgeStart ? index : -1)
     .filter(index => index >= 0);
   await ai.apply({
     selection: {clear: true, indices: tail},
     operation: {
       name: "rotate-selection",
       axis: [1, 0, 0],
-      angleDeg: 15,
+      angleDeg: incrementDeg,
       pivot: "selection",
       applyConstraints: true
     }
@@ -120,6 +131,16 @@ if (final.positions.every((position, index) =>
   )
 )) {
   throw new Error("Cumulative phosphorene rotation did not change coordinates.");
+}
+const fixedReference = ridgeIds
+  .map((ridgeId, index) => ridgeId === 0 ? index : -1)
+  .filter(index => index >= 0);
+if (fixedReference.some(index =>
+  final.positions[index].some((value, axis) =>
+    Math.abs(value - initial.positions[index][axis]) > 1e-8
+  )
+)) {
+  throw new Error("The fixed reference ridge moved during cumulative twist.");
 }
 ```
 
@@ -139,8 +160,9 @@ selection outline -> pivot axis -> fixed start line -> moving current line
 ```
 
 The generated trajectory records the editing sequence for documentation, but
-the workflow above is the authority: each step starts from the previous
-confirmed structure.
+the workflow above is the authority: every step starts from the previous
+confirmed structure. Published media colors the upper and lower phosphorus
+sublayers green and purple while preserving `P` as the ASE element.
 
 ## Constraint-Aware Edit
 

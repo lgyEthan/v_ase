@@ -16,9 +16,9 @@ needed, and export publication or CAD-ready results.
 ![Phosphorene nanoribbon manipulation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_phosphorene_twist.gif)
 
 This is an actual v_ase editing sequence, not playback of a finished model.
-At each step a shorter phosphorene ribbon tail is selected, rotated by 15
-degrees around its selection center, and used as the starting structure for
-the next edit.
+Each selection boundary advances by one puckered phosphorene ridge. Small
+Selection-COM rotations accumulate from the fixed first ridge to the
+36 degree H-APNR target tabulated in the cited study.
 
 | Work directly in v_ase | Included |
 | --- | --- |
@@ -136,19 +136,30 @@ rather than around its own center of mass.
 
 The animation records a sequence of normal v_ase edits:
 
-1. Select the current phosphorene slice through the end of the ribbon.
-2. Use **Selection COM**, press `R`, lock `X`, type `15`, and confirm.
-3. Start from the edited coordinates, move the selection boundary forward,
-   and apply the next 15 degree rotation.
+1. Keep the first puckered ridge fixed and select the next ridge through the
+   end of the ribbon.
+2. Use **Selection COM**, press `R`, lock `X`, enter `1.714`, and confirm.
+3. Start from the edited coordinates and advance the selection boundary by
+   one ridge. After 21 edits, the final ridge is rotated by exactly 36 degrees.
 
 The yellow outline always identifies the atoms affected by the current step.
 Bonds update while the selected tail moves, so the accumulating deformation is
 visible rather than replaced by playback of a prebuilt final structure.
 
-The source cell and coordinates are converted from the
+Black phosphorene has two puckered sublayers in one armchair unit cell. The
+example therefore uses one half-cell ridge per step (6 atoms at this ribbon
+width), rather than rotating both ridges together. Green and purple distinguish
+the upper and lower P sublayers; both remain phosphorus in the ASE structure.
+
+The relaxed source coordinates come from the
 [supporting information of Villegas et al.](https://www.rsc.org/suppdata/c6/cp/c6cp05566d/c6cp05566d1.pdf).
-This is a deterministic manipulation example, not an energy-minimized
-nanoribbon.
+The 36 degree target is the largest H-APNR angle tabulated by
+[Jang et al.](https://www.rsc.org/suppdata/c6/nr/c6nr04354b/c6nr04354b1.pdf),
+and the green/purple sublayer convention follows published phosphorene
+structure diagrams such as
+[Zhang et al.](https://doi.org/10.1038/srep13927). The sequence is a
+deterministic v_ase editing demonstration. It uses the paper's target angle,
+but it is not the paper's periodic DFT cell or an energy-minimized nanoribbon.
 
 #### Graphene/hBN: Find A Commensurate Rotation
 

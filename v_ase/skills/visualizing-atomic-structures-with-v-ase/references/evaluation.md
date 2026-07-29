@@ -131,8 +131,11 @@ Run all scenarios, not only static document checks:
      column.
 12. **README scientific examples**
     - verify the phosphorene media starts from a flat sheet, reduces the active
-      tail selection at each step, and accumulates one 15-degree Selection-COM
-      rotation per operation;
+      tail selection by one 6-atom puckered ridge at each step, keeps the first
+      ridge fixed, and accumulates exactly 36 degrees at the final ridge using
+      21 Selection-COM increments;
+    - verify the phosphorene upper/lower ridge labels remain ASE phosphorus and
+      render in the documented green/purple sublayer colors;
     - verify the ferrocene media keeps Fe outside the selected ring and places
       the active axis through the Origin pivot;
     - inspect graphene/hBN from top view with world axes hidden and confirm the

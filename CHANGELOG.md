@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.106
+
+- Replaced the arbitrary 15-degree phosphorene edits with the 36-degree
+  H-APNR target tabulated by Jang et al., distributed across the ribbon
+  instead of repeated as a per-cell angle.
+- Split every armchair unit cell into its two physical puckered sublayer
+  ridges, so each edit advances by one 6-atom ridge rather than rotating two
+  ridges together.
+- Kept the first ridge fixed, removed the initial rigid-body rotation, and
+  verified that the final ridge accumulates exactly 36 degrees over 21 edits.
+- Styled the upper and lower phosphorus sublayers with the green/purple
+  convention used in published phosphorene structure diagrams while
+  preserving phosphorus as the ASE chemical element.
+- Regenerated the phosphorene example structures, trajectory, README hero, and
+  browser-captured manipulation media.
+
 ## 0.0.105
 
 - Rebuilt the README around the actual select, move, rotate, measure, and

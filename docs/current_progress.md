@@ -214,13 +214,15 @@ and documentation use `view()`.
     start reference.
 51. README scientific scenes are generated from canonical Python constructors
     and captured from the real browser UI. The phosphorene hero records
-    successively shorter tail selections, each rotated 15 degrees from the
-    coordinates produced by the previous step. Ferrocene demonstrates an
-    external pivot, graphene/hBN shows start/current/commensurate references
-    with world axes hidden, ordered ethane selection shows distance/angle/
-    torsion, and a separate trajectory scene shows displacement analysis.
-    Tests validate scene construction and live View toggles before media are
-    published.
+    successively shorter tail selections separated by one physical puckered
+    sublayer ridge. The first ridge stays fixed and 21 Selection-COM
+    increments accumulate the paper-tabulated 36-degree H-APNR target at the
+    final ridge. Upper/lower ridges use green/purple visual labels while both
+    remain ASE phosphorus. Ferrocene demonstrates an external pivot,
+    graphene/hBN shows start/current/commensurate references with world axes
+    hidden, ordered ethane selection shows distance/angle/torsion, and a
+    separate trajectory scene shows displacement analysis. Tests validate
+    scene construction and live View toggles before media are published.
 52. Export dialogs use a fixed action footer and independently scrollable body.
     Cancel and Export therefore remain visible at short desktop viewport
     heights while all render controls remain reachable.
