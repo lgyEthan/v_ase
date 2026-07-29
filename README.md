@@ -86,9 +86,9 @@ browser document releases the blocking terminal process.
 | Play a trajectory | Use the bottom timeline or `Space`; FPS and Skip update live |
 | Style a figure | Use **Structure > Appearance/Bonding** and **View** |
 | Repeat or wrap a cell | Use **Structure > Cell & Replication** |
-| Save the whole session | Use **Export > Save Project** to create a self-contained `.vase` |
+| Save the whole session | Use **Export > v_ase Project** and choose compact `.vase` or browser-ready HTML |
 | Reuse only the visual style | Use **Export > Save Settings** |
-| Share an offline 3D view | Use **Export > Export HTML View** |
+| Share an offline 3D view | Use **Export HTML View**, then choose whether to embed the editable `.vase` |
 | Hand the scene to an AI | Launch with `--for-ai` and provide the bundled agent skill |
 
 > **Viewport tip:** after selecting atoms, press `Esc` to close the control
@@ -379,7 +379,7 @@ and radius, so only the optical material changes:
 Materials affect rendering only. ASE elements, coordinates, calculators, and
 constraints are unchanged.
 
-![Cu O pairwise bond settings on oxygen-covered Cu111](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_bonds.png)
+![Pairwise Cu O bonds in a Cu2O(111) film on Cu(111)](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_bonds.png)
 
 **Structure > Bonding** provides automatic inference, explicit label-pair
 cutoffs, and manual index pairs. A pair cutoff of zero disables that pair.
@@ -391,13 +391,22 @@ Changes apply immediately. Bonds support:
 - configurable diameter;
 - live formation and breaking during Edit transforms.
 
-The example uses an oxygen-covered Cu(111) slab and label-specific pairs:
-`Cu_surface-Cu_surface` and `O_ads-O_ads` are disabled, while
-`Cu_surface-O_ads` is enabled. The structure remains chemically Cu/O; the
-labels only let the visualization apply different pair rules.
+The example uses a coherent `3 x 3 Cu2O(111) / 7 x 7 Cu(111)` model.
+`Cu_oxide-O_oxide` and `Cu_substrate-O_oxide` are enabled, while
+`Cu_substrate-Cu_substrate`, `Cu_oxide-Cu_oxide`, cross-region Cu-Cu, and
+O-O pairs are disabled. The labels separate bonding rules without changing
+the ASE chemical elements.
+
+The scene is an unrelaxed visualization model generated from bulk cuprite and
+Cu(111), with about 1.22% in-plane compression applied to the oxide. It is
+intended to demonstrate bond filtering, not to replace an interface
+relaxation. The Cu2O(111) construction follows the pristine surface described
+in [DOI 10.1039/C8CP06023A](https://doi.org/10.1039/C8CP06023A); the parallel
+Cu2O(111)/Cu(111) growth context is documented in
+[DOI 10.1016/0022-0248(78)90299-3](https://doi.org/10.1016/0022-0248(78)90299-3).
 
 ```bash
-v_ase gui examples/readme_scene_assets/cu111_oxygen_pairwise_bonds.traj
+v_ase gui examples/readme_scene_assets/cu2o111_on_cu111_pairwise_bonds.traj
 ```
 
 **View** controls projection, atomic scale, anti-aliasing, sphere smoothness,
@@ -422,8 +431,9 @@ the viewport and carried into Blender export.
 | Export Blender | Optimized scene script with atoms, bonds, cell, camera, and Sun |
 | Export 3DM | Instanced Rhino geometry, metadata, and saved camera views |
 | Export OBJ | OBJ/MTL, camera, and metadata in a ZIP |
-| Export HTML View | One offline, view-only 3D document with the complete `.vase` embedded |
-| Save Project | Self-contained `.vase` with structure/trajectory and visual state |
+| Export HTML View | Offline, view-only 3D document; optionally embed `.vase` recovery |
+| Save `.vase` | Compact project with structure/trajectory and complete visual state |
+| Save HTML | Browser-ready project with optional embedded `.vase` recovery |
 | Save Settings | Reusable visual settings without coordinates |
 
 The **Preview Area** is the authoritative image/video frame. Its aspect ratio,
@@ -447,30 +457,41 @@ overlays are recalculated for each rendered frame.
 
 ### Project Or Shareable HTML
 
-Use **Save Project** when the result will be reopened and edited in v_ase.
-The `.vase` file is the compact, canonical project: it contains every loaded
-frame, coordinates, cells, PBC, labels, constraints, safe calculator results,
-camera, appearance, bonds, lighting, analysis, and export settings.
-It is self-contained and never references the original input file.
+Under **Export > v_ase Project**, use **Save .vase** for the smallest complete
+project. It contains every loaded frame, coordinates, cells, PBC, labels,
+constraints, safe calculator results, camera, appearance, bonds, lighting,
+analysis, and export settings. It is self-contained and never references the
+original input file.
 
-Use **Export HTML View** when the result should open directly in a browser.
-The generated `.html`:
+Use **Save HTML** or **Export HTML View** when the result should open directly
+in a browser. Before saving, choose whether to enable **Embed editable .vase
+project**. Every generated HTML:
 
 - opens offline without v_ase, Python, a server, or a CDN;
 - restores the saved camera, viewport styling, bonds, constraint overlays,
   displacement vectors, supercell, visual translation, and trajectory;
 - allows orbit, pan, zoom, frame stepping, and movie playback;
-- exposes no atom, structure, appearance, or project editing controls;
-- embeds the complete `.vase`, which can be downloaded from the viewer for
-  lossless reopening in v_ase.
+- exposes no atom, structure, appearance, or project editing controls.
 
-An HTML View is larger than its `.vase` because it also contains the browser
-renderer, immediately readable scene data, and a Base64 copy of the project.
-Keep `.vase` as the editable source of truth and use HTML as the portable
-view-only handoff.
+With project embedding enabled, the HTML also includes the complete `.vase`.
+The viewer exposes **Download .vase**, and either command restores the full
+editable project:
+
+```bash
+v_ase gui project.vase
+v_ase gui project.html
+```
+
+With project embedding disabled, the file is smaller and remains a portable
+view-only document. It cannot be restored as an editable v_ase project. v_ase
+reports this explicitly if that lightweight HTML is opened as input.
+
+HTML is larger than `.vase` because it contains the browser renderer and
+immediately readable scene data. Embedding adds a Base64 copy of `.vase` on
+top of that. Keep `.vase` as the compact editable source of truth.
 
 Opening an ordinary structure in an existing tab keeps the current visual
-settings; opening `.vase` restores the saved project.
+settings; opening `.vase` or project-embedded HTML restores the saved project.
 
 Rhino export requires the optional dependency:
 

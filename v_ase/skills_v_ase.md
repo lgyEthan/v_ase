@@ -24,6 +24,7 @@ v_ase gui STRUCTURE --for-ai
 
 Give the AI the first JSON line printed by the command. It identifies the
 human GUI, state, schema, skill, and browser API for the same live document.
-The canonical skill also documents standalone `html` export: one offline,
-view-only browser document with the complete `.vase` embedded. This
+The canonical skill also documents standalone `html` export in lightweight
+view-only and project-embedded modes. Embedded HTML can be reopened with
+`v_ase gui FILE.html`; lightweight HTML cannot restore editable state. This
 compatibility file remains available so existing links do not fail.

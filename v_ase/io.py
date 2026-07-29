@@ -48,6 +48,9 @@ INPUT_FORMAT_ALIASES = {
     "lammps_data": "lammps-data",
     "vase": "vase-project",
     "vase-project": "vase-project",
+    "html": "vase-html-project",
+    "vase-html": "vase-html-project",
+    "vase-html-project": "vase-html-project",
 }
 
 

@@ -37,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
         "file",
         nargs="?",
         help=(
-            "optional local structure, trajectory, or .vase project; "
+            "optional local structure, trajectory, .vase project, or v_ase HTML project; "
             "use HOST:/path for a file that must remain on a remote server"
         ),
     )
@@ -55,7 +55,8 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="FORMAT",
         help=(
             "force the input file format when the filename is ambiguous. "
-            "Common aliases: POSCAR, XDATCAR, vasprun.xml, lammpstrj, traj, xyz, extxyz, data, vase. "
+            "Common aliases: POSCAR, XDATCAR, vasprun.xml, lammpstrj, traj, xyz, "
+            "extxyz, data, vase, html. "
             "Raw ASE format names such as vasp-xml and lammps-data also work."
         ),
     )
@@ -149,16 +150,27 @@ def run_gui(args: argparse.Namespace) -> int:
     initial_frame = 0
     initial_design_settings = None
     is_vase_project = suffix == ".vase" or resolved_format == "vase-project"
+    is_html_project = (
+        suffix in {".html", ".htm"}
+        or resolved_format == "vase-html-project"
+    )
     is_lammps_dump = resolved_format == "lammps-dump-text" or (
         args.format is None and suffix in {".lammpstrj", ".dump"}
     )
     viz_only = not args.interactive
     if path is None:
         frames = [Atoms()]
-    elif is_vase_project:
-        from v_ase.project import read_project_archive
+    elif is_vase_project or is_html_project:
+        from v_ase.project import read_project_archive, read_project_html
 
-        project = read_project_archive(path)
+        try:
+            project = (
+                read_project_html(path)
+                if is_html_project
+                else read_project_archive(path)
+            )
+        except ValueError as exc:
+            raise SystemExit(f"v_ase: could not open project: {exc}") from exc
         frames = project.frames
         initial_frame = project.current_frame
         initial_design_settings = project.settings

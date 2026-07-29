@@ -619,11 +619,12 @@ def _safe_export_stem(value: Any, fallback: str = "v_ase_view") -> str:
 
 
 def export_html_response(session, payload: Dict[str, Any]):
-    """Build one offline, view-only HTML document with an embedded .vase project."""
+    """Build one offline, view-only HTML document with optional project recovery."""
     from .project import PROJECT_SCHEMA, read_project_archive, write_project_archive
 
     settings = payload.get("settings") or {}
     document_name = Path(str(payload.get("document_name") or "v_ase view")).name
+    embed_project = payload.get("embed_project", True) is not False
     project_file = tempfile.NamedTemporaryFile(delete=False, suffix=".vase")
     project_file.close()
     try:
@@ -654,8 +655,13 @@ def export_html_response(session, payload: Dict[str, Any]):
         "schema": HTML_VIEW_SCHEMA,
         "createdWith": {"application": "v_ase", "version": __version__},
         "documentName": document_name,
-        "projectFilename": f"{_safe_export_stem(document_name, 'v_ase_project')}.vase",
-        "projectSchema": PROJECT_SCHEMA,
+        "hasEmbeddedProject": embed_project,
+        "projectFilename": (
+            f"{_safe_export_stem(document_name, 'v_ase_project')}.vase"
+            if embed_project
+            else ""
+        ),
+        "projectSchema": PROJECT_SCHEMA if embed_project else None,
         "currentFrame": project.current_frame,
         "settings": project.settings,
         "selection": sorted(set(selection)),
@@ -677,7 +683,7 @@ def export_html_response(session, payload: Dict[str, Any]):
                 separators=(",", ":"),
             )
         ),
-        "{{PROJECT_DATA_BASE64}}": _base64_text(project_bytes),
+        "{{PROJECT_DATA_BASE64}}": _base64_text(project_bytes) if embed_project else "",
         "{{THREE_SOURCE_BASE64}}": _base64_text(
             (static_dir / "vendor" / "three.module.js").read_bytes()
         ),
@@ -701,7 +707,10 @@ def export_html_response(session, payload: Dict[str, Any]):
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "X-V-Ase-View-Schema": HTML_VIEW_SCHEMA,
-            "X-V-Ase-Embedded-Project-Bytes": str(len(project_bytes)),
+            "X-V-Ase-Embedded-Project": "true" if embed_project else "false",
+            "X-V-Ase-Embedded-Project-Bytes": (
+                str(len(project_bytes)) if embed_project else "0"
+            ),
             "X-V-Ase-Frame-Count": str(len(frames)),
         },
     )

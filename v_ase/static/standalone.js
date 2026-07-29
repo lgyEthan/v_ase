@@ -111,13 +111,15 @@ function downloadEmbeddedProject(projectBase64, filename) {
 }
 
 function metadataRows(scene, frame) {
+    const hasEmbeddedProject = scene.hasEmbeddedProject === true;
     return [
         ['Document', scene.documentName || 'v_ase view'],
         ['Atoms', String(frame?.positions?.length || 0)],
         ['Frames', String(scene.frames.length)],
         ['Units', frame?.metadata?.units || 'angstrom'],
         ['Created with', `v_ase ${scene.createdWith?.version || ''}`.trim()],
-        ['Project schema', scene.projectSchema || 'v_ase.project.v1'],
+        ['Embedded project', hasEmbeddedProject ? 'Included' : 'Not included'],
+        ['Project schema', hasEmbeddedProject ? (scene.projectSchema || 'v_ase.project.v1') : 'None'],
         ['HTML schema', scene.schema || 'v_ase.html-view.v1'],
     ];
 }
@@ -160,6 +162,11 @@ export function startStandaloneViewer(scene, projectBase64) {
     const frameLabel = document.getElementById('frame-label');
     const playButton = document.getElementById('play-frame');
     const fpsInput = document.getElementById('playback-fps');
+    const hasEmbeddedProject = (
+        scene.hasEmbeddedProject === true
+        && typeof projectBase64 === 'string'
+        && projectBase64.trim().length > 0
+    );
 
     const updateFrameControls = () => {
         slider.value = String(frameIndex);
@@ -227,9 +234,13 @@ export function startStandaloneViewer(scene, projectBase64) {
         else renderer.fitCameraToStructure();
     };
     document.getElementById('reset-view').addEventListener('click', resetCamera);
-    document.getElementById('download-project').addEventListener('click', () => {
-        downloadEmbeddedProject(projectBase64, scene.projectFilename);
-    });
+    const downloadProject = document.getElementById('download-project');
+    downloadProject.hidden = !hasEmbeddedProject;
+    if (hasEmbeddedProject) {
+        downloadProject.addEventListener('click', () => {
+            downloadEmbeddedProject(projectBase64, scene.projectFilename);
+        });
+    }
     const metadata = document.getElementById('metadata-popover');
     document.getElementById('show-metadata').addEventListener('click', () => {
         metadata.hidden = !metadata.hidden;
@@ -275,7 +286,10 @@ export function startStandaloneViewer(scene, projectBase64) {
         },
         setFrame: renderFrame,
         resetCamera,
-        projectBytes: () => bytesFromBase64(projectBase64)
+        hasEmbeddedProject,
+        projectBytes: () => (
+            hasEmbeddedProject ? bytesFromBase64(projectBase64) : new Uint8Array()
+        )
     };
     document.documentElement.dataset.vAseReady = 'true';
     document.documentElement.dataset.vAseFrameCount = String(frames.length);

@@ -14,7 +14,7 @@ from playwright.sync_api import sync_playwright
 
 from v_ase.export import HTML_VIEW_SCHEMA, export_html_response
 from v_ase.io import set_atom_labels
-from v_ase.project import read_project_archive
+from v_ase.project import read_project_archive, read_project_html
 from v_ase.session import EditorSession
 from v_ase.viewer import find_free_port, view
 
@@ -28,7 +28,7 @@ def _embedded_base64(html, element_id):
     return "".join(match.group(1).split())
 
 
-def _html_export_fixture():
+def _html_export_fixture(*, embed_project=True):
     first = Atoms(
         "CuO",
         positions=[[0.0, 0.0, 0.0], [1.8, 0.0, 0.0]],
@@ -129,6 +129,7 @@ def _html_export_fixture():
             "settings": settings,
             "selection": [1],
             "document_name": "CuO trajectory.extxyz",
+            "embed_project": embed_project,
         },
     )
     return response, second, settings
@@ -140,6 +141,7 @@ def test_html_export_is_self_contained_and_embeds_lossless_vase(tmp_path):
     assert response.media_type == "text/html"
     assert response.headers["x-v-ase-view-schema"] == HTML_VIEW_SCHEMA
     assert response.headers["x-v-ase-frame-count"] == "2"
+    assert response.headers["x-v-ase-embedded-project"] == "true"
     assert 'data-v-ase-mode="view-only"' in html
     assert "VIEW ONLY" in html
     assert "Download .vase" in html
@@ -152,6 +154,7 @@ def test_html_export_is_self_contained_and_embeds_lossless_vase(tmp_path):
         _embedded_base64(html, "v-ase-scene-data")
     ).decode("utf-8"))
     assert scene["schema"] == HTML_VIEW_SCHEMA
+    assert scene["hasEmbeddedProject"] is True
     assert scene["currentFrame"] == 1
     assert scene["selection"] == [1]
     assert len(scene["frames"]) == 2
@@ -173,6 +176,36 @@ def test_html_export_is_self_contained_and_embeds_lossless_vase(tmp_path):
     np.testing.assert_allclose(project.frames[1].positions, second.positions)
     assert project.frames[1].constraints
     assert project.frames[1].get_potential_energy() == pytest.approx(-1.40)
+
+
+def test_lightweight_html_omits_project_recovery_and_is_smaller(tmp_path):
+    embedded, _, _ = _html_export_fixture(embed_project=True)
+    lightweight, _, _ = _html_export_fixture(embed_project=False)
+    embedded_html = embedded.body.decode("utf-8")
+    lightweight_html = lightweight.body.decode("utf-8")
+
+    assert lightweight.headers["x-v-ase-embedded-project"] == "false"
+    assert lightweight.headers["x-v-ase-embedded-project-bytes"] == "0"
+    assert len(lightweight.body) < len(embedded.body)
+    scene = json.loads(base64.b64decode(
+        _embedded_base64(lightweight_html, "v-ase-scene-data")
+    ).decode("utf-8"))
+    assert scene["hasEmbeddedProject"] is False
+    assert scene["projectFilename"] == ""
+    assert scene["projectSchema"] is None
+    assert '<script id="v-ase-project-data"' in lightweight_html
+
+    embedded_path = tmp_path / "recoverable.html"
+    embedded_path.write_bytes(embedded.body)
+    project = read_project_html(embedded_path)
+    assert len(project.frames) == 2
+    assert project.current_frame == 1
+    assert project.settings["display"]["supercell"] == [2, 1, 1]
+
+    lightweight_path = tmp_path / "view-only.html"
+    lightweight_path.write_bytes(lightweight.body)
+    with pytest.raises(ValueError, match="no embedded .vase project"):
+        read_project_html(lightweight_path)
 
 
 def test_exported_html_opens_offline_as_view_only_interactive_trajectory(tmp_path):
@@ -200,6 +233,7 @@ def test_exported_html_opens_offline_as_view_only_interactive_trajectory(tmp_pat
         assert page.locator("#timeline").is_visible()
         assert page.locator("#frame-label").inner_text() == "2 / 2"
         assert page.locator("#download-project").is_visible()
+        assert page.evaluate("window.v_aseStandalone.hasEmbeddedProject") is True
         assert page.evaluate("window.v_aseStandalone.scene.frames.length") == 2
         assert page.evaluate(
             "window.v_aseStandalone.scene.settings.display.labelMaterials.Cu_surface"
@@ -259,6 +293,28 @@ def test_exported_html_opens_offline_as_view_only_interactive_trajectory(tmp_pat
         browser.close()
 
 
+def test_lightweight_html_opens_offline_without_project_download(tmp_path):
+    response, _, _ = _html_export_fixture(embed_project=False)
+    document = tmp_path / "lightweight_view.html"
+    document.write_bytes(response.body)
+
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch(headless=True)
+        except PlaywrightError as exc:
+            pytest.skip(f"Playwright Chromium is not installed: {exc}")
+        page = browser.new_page(viewport={"width": 960, "height": 640})
+        page.goto(document.as_uri(), wait_until="load")
+        page.locator("html[data-v-ase-ready='true']").wait_for(state="attached")
+        assert page.locator("#download-project").is_hidden()
+        assert page.evaluate("window.v_aseStandalone.hasEmbeddedProject") is False
+        assert page.evaluate("window.v_aseStandalone.projectBytes().length") == 0
+        assert page.evaluate(
+            "window.v_aseStandalone.scene.frames.length"
+        ) == 2
+        browser.close()
+
+
 def test_html_export_button_downloads_an_offline_document_that_reopens(tmp_path):
     first = Atoms(
         "CO",
@@ -297,8 +353,16 @@ def test_html_export_button_downloads_an_offline_document_that_reopens(tmp_path)
             page.wait_for_function(
                 "document.querySelector('#btn-export-html')?.getBoundingClientRect().height > 0"
             )
+            page.click("#btn-export-html")
+            page.locator("#html-export-confirm").wait_for(state="visible")
+            assert page.locator("#html-embed-project").is_checked()
+            page.uncheck("#html-embed-project")
+            assert "Smaller view-only HTML" in page.locator(
+                "#html-embed-project-detail"
+            ).inner_text()
+            page.check("#html-embed-project")
             with page.expect_download() as download_info:
-                page.click("#btn-export-html")
+                page.click("#html-export-confirm")
             download = download_info.value
             exported = tmp_path / "downloaded_view.html"
             download.save_as(exported)
@@ -310,6 +374,19 @@ def test_html_export_button_downloads_an_offline_document_that_reopens(tmp_path)
             assert offline.locator(".view-only-badge").inner_text() == "VIEW ONLY"
             assert offline.evaluate("window.v_aseStandalone.scene.frames.length") == 2
             assert offline.locator("#timeline").is_visible()
+
+            page.set_input_files("#project-file", exported)
+            page.wait_for_function(
+                "window.__ASE_APP__?.state?.atoms?.metadata?.frame_count === 2"
+            )
+            assert page.evaluate(
+                "window.__ASE_APP__.state.display.supercell.join(',')"
+            ) == "1,1,1"
+
+            page.click("#btn-save-project-html")
+            assert page.locator("#modal-content h2").inner_text() == "Save HTML Project"
+            assert page.locator("#html-embed-project").is_checked()
+            page.click("#html-export-cancel")
             browser.close()
     finally:
         editor.close()

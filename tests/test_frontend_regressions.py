@@ -507,7 +507,10 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "btn-export-obj" in index_html
     assert "btn-export-html" in index_html
     assert "htmlViewFilename" in main_js
-    assert "Offline view-only HTML saved with its embedded .vase project." in main_js
+    assert "showHtmlExportModal" in main_js
+    assert "Embed editable .vase project" in main_js
+    assert "Lightweight view-only HTML saved without project recovery." in main_js
+    assert "btn-save-project-html" in index_html
     assert 'data-inspector-group="export"' in index_html
     assert "renderer.supercellBridgeBondRecords" in main_js
     assert "selected-measure" in index_html

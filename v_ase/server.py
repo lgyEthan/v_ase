@@ -37,6 +37,7 @@ from .project import (
     SETTINGS_SCHEMA,
     normalize_visual_settings,
     read_project_archive,
+    read_project_html,
     replace_session_from_project,
     write_project_archive,
 )
@@ -1729,7 +1730,15 @@ async def _replace_session_from_file(
     suffix = Path(display_name).suffix
     format_hint = _uploaded_format_hint(display_name, input_format)
     resolved_format = resolve_input_format(format_hint)
-    is_project = suffix.lower() == ".vase" or resolved_format == "vase-project"
+    is_vase_project = (
+        suffix.lower() == ".vase"
+        or resolved_format == "vase-project"
+    )
+    is_html_project = (
+        suffix.lower() in {".html", ".htm"}
+        or resolved_format == "vase-html-project"
+    )
+    is_project = is_vase_project or is_html_project
     is_lammps_dump = (
         resolved_format == "lammps-dump-text"
         or (format_hint is None and suffix.lower() in {".lammpstrj", ".dump"})
@@ -1738,7 +1747,8 @@ async def _replace_session_from_file(
     keep_source = False
 
     if is_project:
-        project = await asyncio.to_thread(read_project_archive, source_path)
+        project_reader = read_project_html if is_html_project else read_project_archive
+        project = await asyncio.to_thread(project_reader, source_path)
         session.cleanup_temporary_files()
         replace_session_from_project(session, project)
         loaded_kind = "project"
@@ -1777,7 +1787,11 @@ async def _replace_session_from_file(
     data["loaded_file"] = {
         "filename": display_name,
         "kind": loaded_kind,
-        "format": resolved_format or "auto",
+        "format": resolved_format or (
+            "vase-html-project" if is_html_project
+            else "vase-project" if is_vase_project
+            else "auto"
+        ),
     }
     if project is not None:
         data["project"] = {
@@ -1800,14 +1814,23 @@ async def _append_session_from_file(
     was_empty = bool((session.config or {}).get("empty_workspace", False)) and len(session.working_atoms) == 0
     format_hint = _uploaded_format_hint(display_name, input_format)
     resolved_format = resolve_input_format(format_hint)
-    is_project = suffix.lower() == ".vase" or resolved_format == "vase-project"
+    is_vase_project = (
+        suffix.lower() == ".vase"
+        or resolved_format == "vase-project"
+    )
+    is_html_project = (
+        suffix.lower() in {".html", ".htm"}
+        or resolved_format == "vase-html-project"
+    )
+    is_project = is_vase_project or is_html_project
     is_lammps_dump = (
         resolved_format == "lammps-dump-text"
         or (format_hint is None and suffix.lower() in {".lammpstrj", ".dump"})
     )
 
     if is_project:
-        project = await asyncio.to_thread(read_project_archive, source_path)
+        project_reader = read_project_html if is_html_project else read_project_archive
+        project = await asyncio.to_thread(project_reader, source_path)
         selected_indices = _selected_frame_indices(index, len(project.frames))
         frames = [project.frames[frame_index] for frame_index in selected_indices]
         source_kind = "project"
@@ -1843,7 +1866,11 @@ async def _append_session_from_file(
         "filename": display_name,
         "kind": "append",
         "source_kind": source_kind,
-        "format": resolved_format or "auto",
+        "format": resolved_format or (
+            "vase-html-project" if is_html_project
+            else "vase-project" if is_vase_project
+            else "auto"
+        ),
         "appended_frames": appended_count,
         "project_settings_ignored": bool(is_project),
     }

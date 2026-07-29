@@ -350,14 +350,17 @@ Supported formats:
 | `blender` | optimized Blender Python scene |
 | `3dm` | Rhino scene, optional dependency |
 | `obj` | OBJ/MTL/camera metadata ZIP |
-| `html` | offline view-only 3D document with the complete `.vase` embedded |
+| `html` | offline view-only 3D document; `.vase` recovery is optional |
 | `project` | self-contained `.vase` project |
 | `settings` | reusable visual settings without coordinates |
 
 Standalone HTML:
 
 ```javascript
-const sharedView = await ai.export({format: "html"});
+const sharedView = await ai.export({
+  format: "html",
+  embedProject: true
+});
 if (
   sharedView.mimeType !== "text/html"
   || !sharedView.filename.endsWith(".html")
@@ -369,10 +372,13 @@ if (
 
 The returned data URL is one offline document with no CDN dependency. It
 allows camera navigation and trajectory playback but exposes no editing or
-settings controls. It also embeds the complete `.vase` project for lossless
-recovery. Decode the data URL, open it from `file://`, wait for
+settings controls. `embedProject` defaults to `true`; keep it enabled for
+lossless `.vase` recovery or set it to `false` for a smaller view-only file.
+Decode the data URL, open it from `file://`, wait for
 `window.v_aseStandalone.ready`, verify `document.body.dataset.viewOnly` is
-`"true"`, and reject any HTTP/HTTPS request before reporting success.
+`"true"`, and reject any HTTP/HTTPS request before reporting success. For
+embedded mode, also verify `window.v_aseStandalone.hasEmbeddedProject` and
+reopen the written file with `v_ase gui FILE.html`.
 
 Video:
 

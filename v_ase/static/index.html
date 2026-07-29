@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.111&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.112&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.111';
+            : '/static/vendor/three.module.js?v=0.0.112';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -68,7 +68,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.111</span>
+            <span class="version">0.0.112</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -827,11 +827,11 @@
                 <button id="btn-export-obj" data-requires-atoms title="Dependency-free OBJ, MTL, and camera/metadata bundle">Export OBJ</button>
             </div>
             <button id="btn-export-html" class="btn-block" data-requires-atoms
-                    title="Self-contained offline 3D view with an embedded .vase project">
+                    title="Self-contained offline 3D view with optional editable project recovery">
                 Export HTML View
             </button>
             <p class="panel-note cad-export-note">
-                The unit-cell option applies to Blender, 3DM, OBJ, image, and video output. HTML View preserves the live viewport and trajectory in an offline, view-only page and embeds the complete .vase project.
+                The unit-cell option applies to Blender, 3DM, OBJ, image, and video output. HTML View preserves the live viewport and trajectory in an offline, view-only page; project recovery is optional.
             </p>
             <div class="relax-grid">
                 <label>image W</label>
@@ -854,12 +854,13 @@
 
         <section class="panel-section utility-section" data-panel="project" data-panel-group="export">
             <div class="section-header static-header">v_ase Project</div>
-            <p class="panel-note">Save or restore the complete working structure, trajectory, cell, constraints, labels, and visual setup.</p>
+            <p class="panel-note">Save the complete working structure, trajectory, cell, constraints, labels, and visual setup as a compact .vase project or a browser-ready HTML project.</p>
             <div class="btn-stack-row two">
-                <button id="btn-save-project" data-requires-atoms>Save Project</button>
-                <button id="btn-load-project">Open .vase</button>
+                <button id="btn-save-project" data-requires-atoms>Save .vase</button>
+                <button id="btn-save-project-html" data-requires-atoms>Save HTML</button>
             </div>
-            <input type="file" id="project-file" class="hidden" accept=".vase,application/vnd.v-ase.project+zip">
+            <button id="btn-load-project" class="btn-block">Open Project</button>
+            <input type="file" id="project-file" class="hidden" accept=".vase,.html,.htm,application/vnd.v-ase.project+zip,text/html">
         </section>
 
         <section class="panel-section utility-section" data-panel="settings" data-panel-group="export">
@@ -886,7 +887,7 @@
             </div>
             <div>
                 <strong>HTML View</strong>
-                <span>A self-contained offline 3D viewer. It allows camera navigation and trajectory playback, exposes no editing controls, and embeds the complete .vase project for lossless recovery.</span>
+                <span>A self-contained offline 3D viewer. Choose a smaller view-only file or embed the complete .vase project for lossless recovery.</span>
             </div>
             <div>
                 <strong>ASE Pickle</strong>
@@ -894,7 +895,7 @@
             </div>
             <div>
                 <strong>v_ase Project</strong>
-                <span>The complete working state exactly as shown, including trajectory and visualization.</span>
+                <span>Save the complete working state as compact .vase, or as HTML with optional embedded .vase recovery.</span>
             </div>
             <div>
                 <strong>Visual Settings</strong>
@@ -1010,7 +1011,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.111&rev=1';
+            : './static/main.js?v=0.0.112&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

@@ -59,7 +59,7 @@ def test_readme_scene_assets_write_reopenable_traj_files(tmp_path):
     assert "ai_pyridinic_n3_graphene.cif" in written_names
     assert "ai_pyridinic_n3_li_graphene.cif" in written_names
     assert "ai_pyridinic_n3_li_graphene.traj" in written_names
-    assert "cu111_oxygen_pairwise_bonds.traj" in written_names
+    assert "cu2o111_on_cu111_pairwise_bonds.traj" in written_names
     assert "material_presets.traj" in written_names
     assert not any(path.name.endswith("_motion.traj") for path in written)
 
@@ -206,19 +206,37 @@ def test_ai_graphene_scene_is_generated_and_matches_the_n3_vacancy_edit():
     )
 
 
-def test_copper_oxide_bond_scene_has_separate_surface_and_adsorbate_labels():
+def test_copper_oxide_bond_scene_is_coherent_cu2o111_on_cu111():
     atoms, groups = make_copper_oxide_bond_scene()
 
-    assert len(groups["copper"]) == 48
-    assert len(groups["oxygen"]) == 4
-    assert set(atom_labels(atoms)) == {"Cu_surface", "O_ads"}
+    assert len(groups["substrate_copper"]) == 196
+    assert len(groups["oxide_copper"]) == 72
+    assert len(groups["oxide_oxygen"]) == 36
+    assert set(atom_labels(atoms)) == {
+        "Cu_substrate",
+        "Cu_oxide",
+        "O_oxide",
+    }
     assert set(atoms.get_chemical_symbols()) == {"Cu", "O"}
-    cu_o = atoms.get_distances(
-        groups["oxygen"][0],
-        groups["copper"],
-        mic=True,
+    assert atoms.get_chemical_formula() == "Cu268O36"
+    assert atoms.info["in_plane_oxide_strain_percent"] == pytest.approx(
+        -1.2202548,
+        abs=1e-5,
     )
-    assert np.count_nonzero(cu_o < 2.25) == 3
+    oxide_bonds = sum(
+        np.count_nonzero(
+            atoms.get_distances(index, groups["oxide_copper"], mic=True) < 2.08
+        )
+        for index in groups["oxide_oxygen"]
+    )
+    interface_bonds = sum(
+        np.count_nonzero(
+            atoms.get_distances(index, groups["substrate_copper"], mic=True) < 2.08
+        )
+        for index in groups["oxide_oxygen"]
+    )
+    assert oxide_bonds == 108
+    assert interface_bonds == 7
 
 
 def test_material_scene_keeps_elements_equal_while_labels_separate_presets():
@@ -278,8 +296,8 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "three" in readme[ai:structure]
     assert "no screenshot ocr or coordinate guessing is required." in normalized_readme
     assert "Standard Metal and Rubber atom materials" in readme
-    assert "Cu_surface-Cu_surface" in readme
-    assert "Cu_surface-O_ads" in readme
+    assert "Cu_substrate-Cu_substrate" in readme
+    assert "Cu_oxide-O_oxide" in readme
     assert "Materials affect rendering only." in readme
     assert "reaches 100% once" in readme
     assert "appearance, bond, and rendering changes" in readme

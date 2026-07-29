@@ -6,7 +6,8 @@ include requirements.txt
 recursive-include v_ase/static *.html *.css *.js *.png
 recursive-include v_ase/static/vendor *
 recursive-include v_ase/skills *.md *.yaml
-recursive-include docs *.md *.png *.gif *.html
-prune docs/assets/github
+recursive-include docs *.md *.html
+prune docs/assets
 recursive-include examples *.py *.traj *.md
 recursive-include scripts *.py
+prune tests

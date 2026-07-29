@@ -336,10 +336,10 @@ def view(
     if document_name is None:
         document_name = os.path.basename(source_path) if source_path else "Untitled"
 
-    if source_path and source_path.lower().endswith(".vase"):
-        from .project import read_project_archive
+    if source_path and source_path.lower().endswith((".vase", ".html", ".htm")):
+        from .project import read_project_document
 
-        project = read_project_archive(atoms)
+        project = read_project_document(atoms)
         atoms = project.frames
         initial_frame = project.current_frame
         if initial_design_settings is None:

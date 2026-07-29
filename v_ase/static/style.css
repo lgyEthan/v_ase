@@ -3137,6 +3137,50 @@ body.resizing-pairwise-column * {
     line-height: 1.5;
 }
 
+.html-project-option {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr);
+    gap: 11px;
+    align-items: start;
+    margin-top: 14px;
+    padding: 14px;
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    background: var(--surface-subtle);
+    cursor: pointer;
+}
+
+.html-project-option input {
+    margin: 2px 0 0;
+}
+
+.html-project-option span,
+.html-export-summary {
+    min-width: 0;
+    display: grid;
+    gap: 5px;
+}
+
+.html-project-option strong,
+.html-export-summary strong {
+    color: var(--text);
+    font-size: 0.78rem;
+}
+
+.html-project-option small,
+.html-export-summary span {
+    color: var(--text-soft);
+    font-size: 0.72rem;
+    line-height: 1.45;
+}
+
+.html-export-summary {
+    margin-top: 10px;
+    padding: 11px 14px;
+    border-left: 2px solid var(--teal);
+    background: var(--teal-soft);
+}
+
 .open-file-summary {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;

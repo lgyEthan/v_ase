@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.0.112
+
+- Replaced the simple oxygen-on-Cu bond demo with a generated coherent
+  `3 x 3 Cu2O(111) / 7 x 7 Cu(111)` interface, separate substrate/oxide
+  labels, and independently controlled oxide and interface Cu-O bonds.
+- Added an HTML save choice between a smaller standalone view and a
+  project-embedded view with complete `.vase` recovery.
+- Split project save into explicit **Save .vase** and **Save HTML** actions.
+- Added validated, bounded-memory reopening of project-embedded HTML through
+  the CLI, Python viewer, current-tab replacement, trajectory append, and
+  multi-tab file workflows.
+- Updated the README, internal docs, agent skill, scene assets, and browser
+  regressions for the new bond example and project formats.
+
 ## 0.0.111
 
 - Replaced the long 11 x 3 phosphorene README ribbon with a compact 8 x 4

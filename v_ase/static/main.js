@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.111&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.111&rev=1';
-import { ASESelection } from './selection.js?v=0.0.111&rev=1';
-import { ASETransform } from './transform.js?v=0.0.111&rev=1';
+import { ASEApi } from './api.js?v=0.0.112&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.112&rev=1';
+import { ASESelection } from './selection.js?v=0.0.112&rev=1';
+import { ASETransform } from './transform.js?v=0.0.112&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.111&rev=1';
+} from './trajectory.js?v=0.0.112&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -276,6 +276,10 @@ class VAseApp {
 
     htmlViewFilename() {
         return this.projectFilename().replace(/\.vase$/i, '_view.html');
+    }
+
+    htmlProjectFilename() {
+        return this.projectFilename().replace(/\.vase$/i, '.html');
     }
 
     notifyWorkspaceDocument(type = 'v_ase:document-title') {
@@ -6234,7 +6238,8 @@ class VAseApp {
                 this.designSettingsSnapshot(),
                 this.state.applyConstraints,
                 [...this.state.selected],
-                this.workspaceDocumentTitle()
+                this.workspaceDocumentTitle(),
+                request.embedProject !== false
             );
             filename = this.htmlViewFilename();
             mimeType = 'text/html';
@@ -7707,6 +7712,87 @@ class VAseApp {
         actions.querySelector('#modal-close')?.addEventListener('click', () => this.closeModal());
     }
 
+    showHtmlExportModal({ projectSave = false } = {}) {
+        const title = projectSave ? 'Save HTML Project' : 'Export HTML View';
+        const intro = projectSave
+            ? 'Save the current scene as an offline browser document. Embed the editable project when this HTML must reopen with the complete v_ase state.'
+            : 'Create an offline, view-only 3D document with the current camera, trajectory, styling, bonds, constraints, and analysis overlays.';
+        this.showModal(`
+            <h2>${title}</h2>
+            <p class="modal-intro">${intro}</p>
+            <label class="html-project-option" for="html-embed-project">
+                <input id="html-embed-project" type="checkbox" checked>
+                <span>
+                    <strong>Embed editable .vase project</strong>
+                    <small id="html-embed-project-detail">Lossless reopening in v_ase. The HTML is larger because it also contains the complete project archive.</small>
+                </span>
+            </label>
+            <div class="html-export-summary" id="html-export-summary">
+                <strong>View + project</strong>
+                <span>Opens directly in a browser and restores like a .vase file when opened in v_ase.</span>
+            </div>
+        `, `
+            <button id="html-export-cancel" class="btn">Cancel</button>
+            <button id="html-export-confirm" class="btn primary">Save HTML</button>
+        `);
+
+        const embed = document.getElementById('html-embed-project');
+        const detail = document.getElementById('html-embed-project-detail');
+        const summary = document.getElementById('html-export-summary');
+        const syncOption = () => {
+            const enabled = embed?.checked !== false;
+            if (detail) {
+                detail.textContent = enabled
+                    ? 'Lossless reopening in v_ase. The HTML is larger because it also contains the complete project archive.'
+                    : 'Smaller view-only HTML. It cannot restore editable project state in v_ase.';
+            }
+            if (summary) {
+                summary.innerHTML = enabled
+                    ? '<strong>View + project</strong><span>Opens directly in a browser and restores like a .vase file when opened in v_ase.</span>'
+                    : '<strong>View only</strong><span>Opens directly in a browser, but contains no recoverable .vase project.</span>';
+            }
+        };
+        embed?.addEventListener('change', syncOption);
+        syncOption();
+        document.getElementById('html-export-cancel')?.addEventListener(
+            'click',
+            () => this.closeModal(),
+            { once: true }
+        );
+        document.getElementById('html-export-confirm')?.addEventListener('click', async () => {
+            const embedProject = embed?.checked !== false;
+            this.closeModal();
+            try {
+                this.applyDisplayOptions();
+                const saved = await this.saveBlobFromAction(
+                    () => this.api.exportHtml(
+                        this.backendPositionsPayload(),
+                        this.designSettingsSnapshot(),
+                        this.state.applyConstraints,
+                        [...this.state.selected],
+                        this.workspaceDocumentTitle(),
+                        embedProject
+                    ),
+                    projectSave ? this.htmlProjectFilename() : this.htmlViewFilename(),
+                    'text/html',
+                    embedProject
+                        ? 'Building HTML view with project recovery...'
+                        : 'Building lightweight HTML view...'
+                );
+                if (saved) {
+                    this.toast(
+                        embedProject
+                            ? 'HTML saved with its embedded .vase project.'
+                            : 'Lightweight view-only HTML saved without project recovery.',
+                        'success'
+                    );
+                }
+            } catch (err) {
+                this.toast(`HTML export failed: ${err.message}`, 'error');
+            }
+        }, { once: true });
+    }
+
     formatFileSize(bytes) {
         const value = Number(bytes) || 0;
         if (value < 1024) return `${value} B`;
@@ -7747,6 +7833,7 @@ class VAseApp {
                     <option value="xyz">XYZ</option>
                     <option value="extxyz">Extended XYZ</option>
                     <option value="vase">v_ase project</option>
+                    <option value="html">v_ase HTML project</option>
                 </select>
                 <label for="open-file-index">Frames</label>
                 <input id="open-file-index" type="text" value=":" autocomplete="off" spellcheck="false">
@@ -7758,14 +7845,14 @@ class VAseApp {
                     <input type="radio" name="open-file-mode" value="replace" checked>
                     <span>
                         <strong>Replace this tab</strong>
-                        <small>Open the selected document in the current tab. A .vase project restores its complete visual setup.</small>
+                        <small>Open the selected document in the current tab. A .vase project or project-embedded HTML restores its complete visual setup.</small>
                     </span>
                 </label>
                 <label class="open-file-mode">
                     <input type="radio" name="open-file-mode" value="append">
                     <span>
                         <strong>Add to trajectory</strong>
-                        <small>Append every selected frame to this tab for movie playback. A .vase file contributes structures only.</small>
+                        <small>Append every selected frame to this tab for movie playback. A .vase file or project-embedded HTML contributes structures only.</small>
                     </span>
                 </label>
                 <label class="open-file-mode${newTabAvailable ? '' : ' disabled'}">
@@ -9466,27 +9553,8 @@ class VAseApp {
                 this.toast(`OBJ export failed: ${err.message}`, 'error');
             }
         };
-        document.getElementById('btn-export-html').onclick = async () => {
-            try {
-                this.applyDisplayOptions();
-                const saved = await this.saveBlobFromAction(
-                    () => this.api.exportHtml(
-                        this.backendPositionsPayload(),
-                        this.designSettingsSnapshot(),
-                        this.state.applyConstraints,
-                        [...this.state.selected],
-                        this.workspaceDocumentTitle()
-                    ),
-                    this.htmlViewFilename(),
-                    'text/html',
-                    'Building self-contained HTML view...'
-                );
-                if (saved) {
-                    this.toast('Offline view-only HTML saved with its embedded .vase project.', 'success');
-                }
-            } catch (err) {
-                this.toast(`HTML export failed: ${err.message}`, 'error');
-            }
+        document.getElementById('btn-export-html').onclick = () => {
+            this.showHtmlExportModal({ projectSave: false });
         };
         document.getElementById('btn-export-image').onclick = () => {
             this.showExportImageModal();
@@ -9528,6 +9596,9 @@ class VAseApp {
                 this.toast(`Save project failed: ${err.message}`, 'error');
             }
         };
+        document.getElementById('btn-save-project-html').onclick = () => {
+            this.showHtmlExportModal({ projectSave: true });
+        };
         document.getElementById('btn-load-project').onclick = () => {
             document.getElementById('project-file')?.click();
         };
@@ -9535,7 +9606,7 @@ class VAseApp {
             const file = event.target.files?.[0];
             event.target.value = '';
             if (!file) return;
-            await this.loadStructureFile(file, 'vase', ':');
+            await this.loadStructureFile(file, '', ':');
         };
         document.getElementById('btn-save-settings').onclick = async () => {
             try {

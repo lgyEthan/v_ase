@@ -5,12 +5,15 @@ from pathlib import Path
 
 from ase.build import molecule
 from ase.io import write
+import pytest
 
 import v_ase.remote as remote
 from v_ase.cli import build_parser, normalize_argv, run_gui
+from v_ase.export import export_html_response
 from v_ase.io import read_structure_frames, resolve_input_format
 from v_ase.io import atom_labels
 from v_ase.serialization import atoms_to_json
+from v_ase.session import EditorSession
 from v_ase.remote import (
     RemoteTarget,
     build_remote_gui_command,
@@ -278,7 +281,66 @@ def test_format_aliases_resolve_to_ase_format_names():
     assert resolve_input_format("xyz") == "xyz"
     assert resolve_input_format("data") == "lammps-data"
     assert resolve_input_format("vase") == "vase-project"
+    assert resolve_input_format("html") == "vase-html-project"
     assert resolve_input_format("espresso-in") == "espresso-in"
+
+
+def test_v_ase_gui_reopens_project_embedded_html(tmp_path, monkeypatch):
+    atoms = molecule("H2O")
+    session = EditorSession(
+        "html-cli-source",
+        atoms.copy(),
+        atoms.copy(),
+        config={"viz_only": True},
+    )
+    settings = {
+        "display": {
+            "showBonds": True,
+            "supercell": [2, 1, 1],
+            "viewportBackground": "white",
+        }
+    }
+    response = export_html_response(
+        session,
+        {
+            "positions": atoms.positions.tolist(),
+            "settings": settings,
+            "document_name": "water.vasp",
+            "embed_project": True,
+        },
+    )
+    html_path = tmp_path / "water_project.html"
+    html_path.write_bytes(response.body)
+
+    captured = {}
+
+    def fake_view(frames, **kwargs):
+        captured["frames"] = frames
+        captured["kwargs"] = kwargs
+        return frames[0]
+
+    monkeypatch.setattr("v_ase.cli.view", fake_view)
+    args = build_parser().parse_args(["gui", str(html_path)])
+
+    assert run_gui(args) == 0
+    assert len(captured["frames"]) == 1
+    assert captured["frames"][0].get_chemical_formula() == "H2O"
+    assert captured["kwargs"]["initial_design_settings"]["display"]["supercell"] == [2, 1, 1]
+
+    lightweight = export_html_response(
+        session,
+        {
+            "positions": atoms.positions.tolist(),
+            "settings": settings,
+            "document_name": "water.vasp",
+            "embed_project": False,
+        },
+    )
+    lightweight_path = tmp_path / "water_view_only.html"
+    lightweight_path.write_bytes(lightweight.body)
+    lightweight_args = build_parser().parse_args(["gui", str(lightweight_path)])
+    with pytest.raises(SystemExit, match="no embedded .vase project"):
+        run_gui(lightweight_args)
 
 
 def test_v_ase_gui_parser_accepts_input_format_alias():

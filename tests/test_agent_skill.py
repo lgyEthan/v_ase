@@ -138,6 +138,8 @@ def test_skill_documents_offline_html_handoff_contract():
         "embedded `.vase`",
         "file://",
         "zero network requests",
+        "embedProject",
+        "v_ase gui FILE.html",
     ):
         assert required in documented
     assert "Export HTML View" in readme

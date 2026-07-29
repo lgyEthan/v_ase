@@ -52,18 +52,18 @@ v_ase gui examples/readme_scene_assets/ai_pyridinic_n3_li_graphene.cif --show-bo
 
 ## bonding
 
-Oxygen-covered Cu(111) used to demonstrate label-pair bond control.
+Coherent Cu2O(111)/Cu(111) interface used to demonstrate label-pair bond control.
 
-- Static: `cu111_oxygen_pairwise_bonds.traj`
+- Static: `cu2o111_on_cu111_pairwise_bonds.traj`
 - Suggested selected indices: ``
-- Cu_surface-Cu_surface and O_ads-O_ads are disabled.
-- Only Cu_surface-O_ads bonds are displayed.
-- The scene contains 48 Cu and 4 O atoms.
+- The 3x3 Cu2O(111) film is matched to 7x7 Cu(111) with about 1.22 percent in-plane compression.
+- Cu_oxide-O_oxide and Cu_substrate-O_oxide are enabled; Cu-Cu and O-O pairs are disabled.
+- The scene contains 196 substrate Cu, 72 oxide Cu, and 36 oxide O atoms.
 
 Open command:
 
 ```bash
-v_ase gui examples/readme_scene_assets/cu111_oxygen_pairwise_bonds.traj --show-bonds
+v_ase gui examples/readme_scene_assets/cu2o111_on_cu111_pairwise_bonds.traj --show-bonds
 ```
 
 ## materials

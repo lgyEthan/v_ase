@@ -307,6 +307,10 @@ button {
     display: none;
 }
 
+#download-project[hidden] {
+    display: none;
+}
+
 @media (max-width: 680px) {
     .viewer-header {
         padding-inline: 10px;

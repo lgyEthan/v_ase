@@ -29,10 +29,11 @@ and documentation use `view()`.
 - `v_ase/session.py`: document state, history, calculator-preserving copies,
   trajectory sources, and workspace lifetime.
 - `v_ase/server.py`: local FastAPI and WebSocket contract.
-- `v_ase/project.py`: visual-settings migration and validated `.vase` archives.
+- `v_ase/project.py`: visual-settings migration, validated `.vase` archives,
+  and bounded extraction of project-embedded HTML.
 - `v_ase/serialization.py`: browser payloads and ASE visual defaults.
 - `v_ase/export.py`: scientific, image-supporting, Blender, 3DM, OBJ, and
-  standalone offline HTML export.
+  standalone offline HTML export with optional project recovery.
 - `v_ase/ai.py`: vendor-neutral AI handshake and installed agent guide.
 - `v_ase/viewer.py`: Python API and local server lifecycle.
 
@@ -238,9 +239,10 @@ and documentation use `view()`.
     start/current/commensurate references with world axes hidden, ordered
     ethane selection shows distance/angle/torsion in a viewport-only crop, and
     a separate trajectory scene shows displacement analysis. The bonding scene
-    is an oxygen-covered Cu(111) slab with Cu-Cu and O-O disabled and Cu-O
-    enabled. Tests validate scene construction and live View toggles before
-    media are published.
+    is a coherent 3 x 3 Cu2O(111) film on 7 x 7 Cu(111), with oxide and
+    interface Cu-O pairs enabled and every Cu-Cu/O-O pair disabled. Tests
+    validate scene construction and live View toggles before media are
+    published.
 52. Export dialogs use a fixed action footer and independently scrollable body.
     Cancel and Export therefore remain visible at short desktop viewport
     heights while all render controls remain reachable.

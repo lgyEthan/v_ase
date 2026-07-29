@@ -7,8 +7,11 @@ execute Python objects from an untrusted file.
 
 from __future__ import annotations
 
+import base64
+import binascii
 from dataclasses import dataclass
 import json
+import mmap
 from pathlib import Path
 import tempfile
 from typing import Any, Iterable
@@ -32,6 +35,12 @@ SETTINGS_SCHEMA = "v_ase.visual_settings.v3"
 PROJECT_MIME = "application/vnd.v-ase.project+zip"
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 MAX_ARCHIVE_UNCOMPRESSED_BYTES = 16 * 1024 * 1024 * 1024
+HTML_PROJECT_SCRIPT_ID = "v-ase-project-data"
+HTML_PROJECT_FORMAT = "vase-html-project"
+_HTML_PROJECT_ID_MARKER = f'id="{HTML_PROJECT_SCRIPT_ID}"'.encode("ascii")
+_HTML_SCRIPT_END_MARKER = b"</script>"
+_BASE64_WHITESPACE = b" \t\r\n"
+_BASE64_DECODE_CHUNK_BYTES = 4 * 1024 * 1024
 LEGACY_PAIRWISE_CUTOFF_KEY = "elementBondCutoffs"
 LEGACY_LABEL_DISPLAY_KEYS = {
     "elementRadii": "labelRadii",
@@ -503,6 +512,128 @@ def read_project_archive(path: str | Path) -> VaseProject:
         current_frame=current_frame,
         manifest=manifest,
     )
+
+
+def extract_project_archive_from_html(
+    html_path: str | Path,
+    destination: str | Path,
+) -> Path:
+    """Extract a generated HTML view's optional embedded .vase archive.
+
+    The Base64 payload is decoded in bounded chunks so reopening a large
+    project does not require copying the complete HTML document into memory.
+    """
+
+    source = Path(html_path)
+    output = Path(destination)
+    try:
+        source_size = source.stat().st_size
+    except OSError as exc:
+        raise ValueError(f"Could not read v_ase HTML project: {exc}") from exc
+    if source_size <= 0:
+        raise ValueError("The selected HTML file is empty.")
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    decoded_bytes = 0
+    try:
+        with source.open("rb") as handle, mmap.mmap(
+            handle.fileno(),
+            length=0,
+            access=mmap.ACCESS_READ,
+        ) as document:
+            identifier = document.find(_HTML_PROJECT_ID_MARKER)
+            if identifier < 0:
+                raise ValueError(
+                    "This HTML view has no embedded .vase project. "
+                    "Re-export it with 'Embed editable .vase project' enabled."
+                )
+            tag_start = document.rfind(b"<script", 0, identifier)
+            tag_end = document.find(b">", identifier)
+            payload_end = document.find(_HTML_SCRIPT_END_MARKER, tag_end + 1)
+            if tag_start < 0 or tag_end < 0 or payload_end < 0:
+                raise ValueError("The embedded v_ase project marker is malformed.")
+            start_tag = bytes(document[tag_start:tag_end + 1])
+            if b'data-encoding="base64"' not in start_tag:
+                raise ValueError("The embedded v_ase project encoding is unsupported.")
+
+            payload_start = tag_end + 1
+            remainder = b""
+            with output.open("wb") as archive:
+                cursor = payload_start
+                while cursor < payload_end:
+                    stop = min(payload_end, cursor + _BASE64_DECODE_CHUNK_BYTES)
+                    block = bytes(document[cursor:stop]).translate(
+                        None,
+                        _BASE64_WHITESPACE,
+                    )
+                    cursor = stop
+                    if not block:
+                        continue
+                    block = remainder + block
+                    usable = len(block) - (len(block) % 4)
+                    if usable:
+                        try:
+                            decoded = base64.b64decode(
+                                block[:usable],
+                                validate=True,
+                            )
+                        except (binascii.Error, ValueError) as exc:
+                            raise ValueError(
+                                "The embedded .vase project is not valid Base64 data."
+                            ) from exc
+                        archive.write(decoded)
+                        decoded_bytes += len(decoded)
+                    remainder = block[usable:]
+                if remainder:
+                    try:
+                        decoded = base64.b64decode(remainder, validate=True)
+                    except (binascii.Error, ValueError) as exc:
+                        raise ValueError(
+                            "The embedded .vase project is not valid Base64 data."
+                        ) from exc
+                    archive.write(decoded)
+                    decoded_bytes += len(decoded)
+    except (OSError, ValueError):
+        try:
+            output.unlink()
+        except OSError:
+            pass
+        raise
+
+    if decoded_bytes <= 0:
+        try:
+            output.unlink()
+        except OSError:
+            pass
+        raise ValueError(
+            "This HTML view has no embedded .vase project. "
+            "Re-export it with 'Embed editable .vase project' enabled."
+        )
+    return output
+
+
+def read_project_html(path: str | Path) -> VaseProject:
+    """Read a lossless project embedded in a generated standalone HTML view."""
+
+    temporary = tempfile.NamedTemporaryFile(delete=False, suffix=".vase")
+    temporary.close()
+    try:
+        extract_project_archive_from_html(path, temporary.name)
+        return read_project_archive(temporary.name)
+    finally:
+        try:
+            Path(temporary.name).unlink()
+        except OSError:
+            pass
+
+
+def read_project_document(path: str | Path) -> VaseProject:
+    """Read either a canonical .vase archive or an HTML-embedded project."""
+
+    source = Path(path)
+    if source.suffix.lower() in {".html", ".htm"}:
+        return read_project_html(source)
+    return read_project_archive(source)
 
 
 def replace_session_from_project(session: EditorSession, project: VaseProject) -> None:

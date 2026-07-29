@@ -15,10 +15,11 @@ from pathlib import Path
 
 import numpy as np
 from ase import Atoms
-from ase.build import add_adsorbate, bulk, fcc111, graphene, molecule, nanotube
+from ase.build import bulk, fcc111, graphene, molecule, nanotube, surface
 from ase.constraints import FixAtoms, FixedLine, FixedPlane, Hookean
 from ase.io import write
 from ase.optimize import FIRE
+from ase.spacegroup import crystal
 from ase.units import Bohr
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +36,8 @@ PHOSPHORENE_ESI = "https://www.rsc.org/suppdata/c6/cp/c6cp05566d/c6cp05566d1.pdf
 PHOSPHORENE_TWIST_REFERENCE = "https://doi.org/10.1039/C6NR04354B"
 PHOSPHORENE_TWIST_ESI = "https://www.rsc.org/suppdata/c6/nr/c6nr04354b/c6nr04354b1.pdf"
 PHOSPHORENE_COLOR_REFERENCE = "https://doi.org/10.1038/srep13927"
+CU2O_111_REFERENCE = "https://doi.org/10.1039/C8CP06023A"
+CU2O_CU_EPITAXY_REFERENCE = "https://doi.org/10.1016/0022-0248(78)90299-3"
 PHOSPHORENE_TWIST_DEGREES = 36.0
 PHOSPHORENE_SUBLAYER_COLORS = {
     "P_upper": "#6faf68",
@@ -240,24 +243,90 @@ def make_ai_pyridinic_graphene_scene() -> tuple[Atoms, Atoms, dict[str, object]]
 
 
 def make_copper_oxide_bond_scene() -> tuple[Atoms, dict[str, list[int]]]:
-    """Return a periodic oxygen-covered Cu(111) slab for pairwise bonds."""
+    """Return a coherent Cu2O(111)/Cu(111) interface model for pairwise bonds."""
 
-    primitive = fcc111("Cu", size=(2, 2, 3), vacuum=6.0, orthogonal=True)
-    add_adsorbate(primitive, "O", 1.15, position="fcc")
-    atoms = primitive.repeat((2, 2, 1))
+    copper_lattice = 3.615
+    cuprite_lattice = 4.2696
+    substrate = fcc111(
+        "Cu",
+        size=(7, 7, 4),
+        a=copper_lattice,
+        vacuum=0.0,
+        orthogonal=False,
+    )
+    cuprite = crystal(
+        ["Cu", "O"],
+        basis=[(0.25, 0.25, 0.25), (0.0, 0.0, 0.0)],
+        spacegroup=224,
+        cellpar=[
+            cuprite_lattice,
+            cuprite_lattice,
+            cuprite_lattice,
+            90.0,
+            90.0,
+            90.0,
+        ],
+    )
+    oxide = surface(
+        cuprite,
+        (1, 1, 1),
+        layers=2,
+        vacuum=0.0,
+        periodic=True,
+    ).repeat((3, 3, 1))
+
+    oxide_cell = oxide.cell.array.copy()
+    unstrained_length = float(np.linalg.norm(oxide_cell[0]))
+    oxide_cell[0] = substrate.cell[0]
+    oxide_cell[1] = substrate.cell[1]
+    oxide.set_cell(oxide_cell, scale_atoms=True)
+    in_plane_strain = (
+        float(np.linalg.norm(oxide.cell[0])) / unstrained_length - 1.0
+    )
+
+    interface_gap = 1.85
+    oxide.positions[:, 2] += (
+        float(np.max(substrate.positions[:, 2]))
+        + interface_gap
+        - float(np.min(oxide.positions[:, 2]))
+    )
+    atoms = substrate + oxide
+    atoms.positions[:, 2] += 4.0
+    cell = substrate.cell.array.copy()
+    cell[2] = [0.0, 0.0, float(np.max(atoms.positions[:, 2])) + 7.0]
+    atoms.set_cell(cell)
     atoms.pbc = [True, True, False]
-    labels = [
-        "Cu_surface" if symbol == "Cu" else "O_ads"
-        for symbol in atoms.get_chemical_symbols()
-    ]
+
+    substrate_count = len(substrate)
+    labels = ["Cu_substrate"] * substrate_count
+    labels.extend(
+        "Cu_oxide" if symbol == "Cu" else "O_oxide"
+        for symbol in oxide.get_chemical_symbols()
+    )
     set_atom_labels(atoms, labels)
     atoms.info.update({
-        "readme_scene": "oxygen_covered_cu111_pairwise_bonds",
-        "bond_display": "Cu-O enabled; Cu-Cu and O-O disabled",
+        "readme_scene": "cu2o111_on_cu111_pairwise_bonds",
+        "model": "unrelaxed coherent 3x3 Cu2O(111) on 7x7 Cu(111)",
+        "in_plane_oxide_strain_percent": 100.0 * in_plane_strain,
+        "references": [CU2O_111_REFERENCE, CU2O_CU_EPITAXY_REFERENCE],
+        "bond_display": (
+            "Cu_oxide-O_oxide and Cu_substrate-O_oxide enabled; "
+            "all Cu-Cu and O-O pairs disabled"
+        ),
     })
     return atoms, {
-        "copper": [index for index, label in enumerate(labels) if label == "Cu_surface"],
-        "oxygen": [index for index, label in enumerate(labels) if label == "O_ads"],
+        "substrate_copper": [
+            index for index, label in enumerate(labels)
+            if label == "Cu_substrate"
+        ],
+        "oxide_copper": [
+            index for index, label in enumerate(labels)
+            if label == "Cu_oxide"
+        ],
+        "oxide_oxygen": [
+            index for index, label in enumerate(labels)
+            if label == "O_oxide"
+        ],
     }
 
 
@@ -665,13 +734,15 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
         atoms, groups = make_copper_oxide_bond_scene()
         info = SceneInfo(
             name=name,
-            description="Oxygen-covered Cu(111) used to demonstrate label-pair bond control.",
-            static_file="cu111_oxygen_pairwise_bonds.traj",
+            description="Coherent Cu2O(111)/Cu(111) interface used to demonstrate label-pair bond control.",
+            static_file="cu2o111_on_cu111_pairwise_bonds.traj",
             selected_indices=(),
             notes=(
-                "Cu_surface-Cu_surface and O_ads-O_ads are disabled.",
-                "Only Cu_surface-O_ads bonds are displayed.",
-                f"The scene contains {len(groups['copper'])} Cu and {len(groups['oxygen'])} O atoms.",
+                "The 3x3 Cu2O(111) film is matched to 7x7 Cu(111) with about 1.22 percent in-plane compression.",
+                "Cu_oxide-O_oxide and Cu_substrate-O_oxide are enabled; Cu-Cu and O-O pairs are disabled.",
+                f"The scene contains {len(groups['substrate_copper'])} substrate Cu, "
+                f"{len(groups['oxide_copper'])} oxide Cu, and "
+                f"{len(groups['oxide_oxygen'])} oxide O atoms.",
             ),
         )
         return atoms, info
@@ -752,6 +823,7 @@ STALE_MOTION_FILES = (
     "phosphorene_twisted_nanoribbon_15deg.cif",
     "phosphorene_twist_15deg.traj",
     "ai_pyridinic_n3_graphene.traj",
+    "cu111_oxygen_pairwise_bonds.traj",
 )
 
 

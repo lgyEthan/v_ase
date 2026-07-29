@@ -240,12 +240,18 @@ One view-only browser document containing:
 - inlined Three.js, renderer code, styles, scene data, and trajectory frames;
 - the saved camera, display, bonds, constraints, analysis overlays,
   supercell, and visual translation;
-- the complete validated `.vase` archive as Base64 metadata.
+- optionally, the complete validated `.vase` archive as Base64 metadata.
 
 It opens from `file://` without a server or network request and supports only
-camera navigation and trajectory playback. The embedded `.vase` remains
-downloadable for lossless reopening in v_ase. HTML is intentionally larger
-than `.vase` because browser-ready scene data and the archive coexist.
+camera navigation and trajectory playback. Set `embed_project` to `true`
+(the default) for a downloadable `.vase` and lossless reopening through
+`v_ase gui FILE.html`. Set it to `false` for a smaller view-only handoff that
+cannot be restored as an editable project.
+
+The generated project tag uses bounded Base64 decoding and the extracted ZIP
+passes the same path, schema, size, and integrity checks as a direct `.vase`
+file. HTML is larger than `.vase` because browser-ready scene data and runtime
+code are included; project embedding adds the Base64 archive.
 
 ## Local Application API
 

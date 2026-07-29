@@ -97,12 +97,15 @@ state:
   edited coordinates, cell/PBC, constraints, labels, cached standard calculator
   results, and visual setup. Reopen it with `v_ase gui FILE.vase`.
 - **Export HTML View** writes one offline view-only browser document with the
-  saved camera, scene, trajectory controls, and complete `.vase` embedded.
-  Recipients can inspect it without v_ase but cannot edit the scene.
+  saved camera, scene, and trajectory controls. The save dialog can embed the
+  complete `.vase` for lossless reopening or omit it for a smaller view-only
+  handoff.
+- **Save .vase** writes the compact canonical project. **Save HTML** writes a
+  browser-ready project and exposes the same `.vase` embedding choice.
 
 Start with `v_ase gui` to open an empty workspace, then use the top-bar **Open**
 command to launch the operating system file picker and load a structure,
-trajectory, or `.vase` project. Choose **Replace this tab**, **Add to
+trajectory, `.vase`, or project-embedded HTML. Choose **Replace this tab**, **Add to
 trajectory**, or **Open in new tab** after selecting the file. Appending
 `.vase` imports structures only; replacing or opening it in a new tab restores
 the complete saved project.

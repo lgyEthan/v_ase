@@ -855,14 +855,16 @@ export class ASEApi {
         settings,
         applyConstraint = true,
         selection = [],
-        documentName = 'v_ase view'
+        documentName = 'v_ase view',
+        embedProject = true
     ) {
         const body = this.framePayload({
             positions,
             settings,
             apply_constraint: applyConstraint,
             selection,
-            document_name: documentName
+            document_name: documentName,
+            embed_project: embedProject !== false
         });
         return await this.request(`/api/export/html/{session_id}`, {
             method: 'POST',

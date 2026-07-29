@@ -1076,28 +1076,40 @@ def capture_bond_media(browser) -> None:
     editor, page = open_scene(browser, atoms, show_bonds=True)
     try:
         set_display(page, {
-            "atomRadiusScale": 0.56,
+            "atomRadiusScale": 0.50,
             "bondMode": "pairwise",
             "showBonds": True,
             "pairwiseBondRanges": {
-                "Cu_surface-Cu_surface": {"enabled": False, "max": 2.85},
-                "Cu_surface-O_ads": {"enabled": True, "max": 2.25},
-                "O_ads-O_ads": {"enabled": False, "max": 3.00},
+                "Cu_oxide-Cu_oxide": {"enabled": False, "max": 2.75},
+                "Cu_oxide-Cu_substrate": {"enabled": False, "max": 2.75},
+                "Cu_oxide-O_oxide": {"enabled": True, "max": 2.08},
+                "Cu_substrate-Cu_substrate": {"enabled": False, "max": 2.75},
+                "Cu_substrate-O_oxide": {"enabled": True, "max": 2.08},
+                "O_oxide-O_oxide": {"enabled": False, "max": 3.00},
             },
             "pairwiseBondCutoffs": {
-                "Cu_surface-Cu_surface": 0.0,
-                "Cu_surface-O_ads": 2.25,
-                "O_ads-O_ads": 0.0,
+                "Cu_oxide-Cu_oxide": 0.0,
+                "Cu_oxide-Cu_substrate": 0.0,
+                "Cu_oxide-O_oxide": 2.08,
+                "Cu_substrate-Cu_substrate": 0.0,
+                "Cu_substrate-O_oxide": 2.08,
+                "O_oxide-O_oxide": 0.0,
             },
-            "bondThickness": 0.22,
+            "bondThickness": 0.19,
             "bondColorMode": "split",
             "showGrid": False,
             "showAxes": False,
             "showCell": True,
             "viewportBackground": "white",
             "labelColors": {
-                "Cu_surface": "#c77f3f",
-                "O_ads": "#e62d2d",
+                "Cu_substrate": "#bb7540",
+                "Cu_oxide": "#dea05d",
+                "O_oxide": "#e32d32",
+            },
+            "labelMaterials": {
+                "Cu_substrate": "metal",
+                "Cu_oxide": "standard",
+                "O_oxide": "standard",
             },
         })
         configure_inspector(page, "structure", ["bonding"], width=560)
@@ -1105,10 +1117,10 @@ def capture_bond_media(browser) -> None:
         settle_view(
             page,
             target=center.tolist(),
-            position=(center + np.array([10.0, -14.0, 10.5])).tolist(),
-            fov=35,
+            position=(center + np.array([12.0, -16.0, 11.5])).tolist(),
+            fov=34,
         )
-        set_atomic_scale(page, 63.0)
+        set_atomic_scale(page, 54.0)
         set_readme_lighting(
             page,
             center.tolist(),
@@ -1125,9 +1137,13 @@ def capture_bond_media(browser) -> None:
                 [labels[i], labels[j]].sort().join('-')
             );
         }""")
-        if not pair_state or set(pair_state) != {"Cu_surface-O_ads"}:
+        expected_visible_pairs = {
+            "Cu_oxide-O_oxide",
+            "Cu_substrate-O_oxide",
+        }
+        if not pair_state or set(pair_state) != expected_visible_pairs:
             raise AssertionError(
-                "README bonding scene must display only Cu_surface-O_ads pairs."
+                "README bonding scene must display only oxide and interface Cu-O pairs."
             )
         control_state = page.evaluate("""() => Object.fromEntries(
             [...document.querySelectorAll('.pairwise-bond-row')].map(row => [
@@ -1139,16 +1155,19 @@ def capture_bond_media(browser) -> None:
             ])
         )""")
         expected_controls = {
-            "Cu_surface-Cu_surface": {"enabled": False, "max": 2.85},
-            "Cu_surface-O_ads": {"enabled": True, "max": 2.25},
-            "O_ads-O_ads": {"enabled": False, "max": 3.0},
+            "Cu_oxide-Cu_oxide": {"enabled": False, "max": 2.75},
+            "Cu_oxide-Cu_substrate": {"enabled": False, "max": 2.75},
+            "Cu_oxide-O_oxide": {"enabled": True, "max": 2.08},
+            "Cu_substrate-Cu_substrate": {"enabled": False, "max": 2.75},
+            "Cu_substrate-O_oxide": {"enabled": True, "max": 2.08},
+            "O_oxide-O_oxide": {"enabled": False, "max": 3.0},
         }
         if control_state != expected_controls:
             raise AssertionError(
                 f"README bonding controls differ from the documented settings: {control_state}"
             )
-        if len(groups["oxygen"]) < 4:
-            raise AssertionError("README bonding scene requires multiple surface oxygen atoms.")
+        if len(groups["oxide_oxygen"]) < 30:
+            raise AssertionError("README bonding scene requires a resolved Cu2O film.")
         page.screenshot(path=ASSET_DIR / "readme_bonds.png")
     finally:
         page.close()
