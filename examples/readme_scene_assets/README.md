@@ -2,13 +2,13 @@
 
 ## phosphorene
 
-Armchair black-phosphorene ribbon twisted to the paper-reported 36 degree model one puckered ridge at a time.
+Compact 8 x 4 armchair black-phosphorene ribbon twisted to the paper-reported 36 degree model in 15 ridge edits.
 
 - Static: `phosphorene_twisted_nanoribbon_36deg.cif`
-- Suggested selected indices: `62, 63, 66, 67, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131`
+- Suggested selected indices: `64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127`
 - Source coordinates: DOI 10.1039/C6CP05566D.
 - Twist model: DOI 10.1039/C6NR04354B, H-APNR theta = 36 degrees.
-- Each trajectory stage starts from the previously edited coordinates and advances by one puckered ridge.
+- Each of the 15 trajectory edits starts from the previously committed coordinates and advances by one puckered ridge.
 - Additional: `phosphorene_nanosheet.cif`
 - Additional: `phosphorene_twist_36deg.traj`
 

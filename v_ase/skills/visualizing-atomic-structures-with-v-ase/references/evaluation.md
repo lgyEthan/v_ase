@@ -145,11 +145,11 @@ Run all scenarios, not only static document checks:
     - verify the phosphorene media starts from a flat sheet and records the
       production left-drag marquee selecting ridge 2 through the tail;
     - verify the Transform panel visibly contains Selection COM, X,
-      `1.714286`, and **Rotate Selection**, then repeats with the box boundary
+      `2.4`, and **Rotate Selection**, then repeats with the box boundary
       advanced to ridge 3;
     - verify every actual browser selection matches the intended atom indices,
-      reduces the active tail by one 6-atom puckered ridge, keeps the first
-      ridge fixed, and accumulates exactly 36 degrees after 21 backend commits;
+      reduces the active tail by one 8-atom puckered ridge, keeps the first
+      ridge fixed, and accumulates exactly 36 degrees after 15 backend commits;
     - verify the phosphorene upper/lower ridge labels remain ASE phosphorus and
       render in the documented green/purple sublayer colors;
     - verify the ferrocene media keeps Fe outside the selected ring and places

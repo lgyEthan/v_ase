@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.0.111
+
+- Replaced the long 11 x 3 phosphorene README ribbon with a compact 8 x 4
+  model: the physical width increases, the armchair length decreases, and the
+  36-degree target now takes 15 exact 2.4-degree edits instead of 21.
+- Regenerated the source CIF, final CIF, trajectory, overview, and live browser
+  GIF while preserving the real marquee-selection and Transform-panel workflow.
+- Updated README, installed AI skill guidance, and scientific regressions for
+  the 16-ridge, 8-atoms-per-ridge construction.
+
 ## 0.0.110
 
 - Added **Exact selection rotation** controls to Structure > Transform so a

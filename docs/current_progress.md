@@ -229,7 +229,8 @@ and documentation use `view()`.
     tail, the exact-rotation panel's Selection COM/X/angle controls, and the
     repeated marquee advanced to ridge 3. Successively shorter tail selections
     remain separated by one physical puckered sublayer ridge. The first ridge
-    stays fixed and 21 constraint-aware backend commits accumulate the
+    stays fixed and 15 constraint-aware backend commits on a compact 8 x 4
+    ribbon accumulate the
     paper-tabulated 36-degree H-APNR target at the final ridge. Upper/lower
     ridges use green/purple visual labels while both remain ASE phosphorus.
     Ferrocene demonstrates both an external Origin/Z orbit and a

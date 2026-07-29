@@ -210,7 +210,7 @@ For a human-assisted edit, open Edit mode and keep the first puckered ridge
 fixed. Use a visible left-drag box to select the second ridge through the end
 of the ribbon. In **Structure > Transform > Exact selection rotation**, set
 the pivot to Selection COM, axis to X, angle to
-`36 / 21 = 1.7142857` degrees, and click **Rotate Selection**. Close the panel,
+`36 / 15 = 2.4` degrees, and click **Rotate Selection**. Close the panel,
 left-drag from the third ridge through the end, and repeat from the committed
 coordinates. A ridge is one phosphorus sublayer in a half armchair cell, not
 the two-ridge crystallographic cell. The final ridge must accumulate exactly
@@ -228,14 +228,14 @@ const x = initial.positions.map(position => position[0]);
 const xPlanes = [...new Set(x.map(value => value.toFixed(6)))]
   .map(Number)
   .sort((a, b) => a - b);
-if (xPlanes.length !== 44) {
-  throw new Error(`Expected 44 phosphorene x planes, found ${xPlanes.length}.`);
+if (xPlanes.length !== 32) {
+  throw new Error(`Expected 32 phosphorene x planes, found ${xPlanes.length}.`);
 }
 const planeByX = new Map(xPlanes.map((value, index) => [value.toFixed(6), index]));
 const ridgeIds = x.map(value =>
   Math.floor(planeByX.get(value.toFixed(6)) / 2)
 );
-const ridgeCount = 22;
+const ridgeCount = 16;
 const targetTwistDeg = 36;
 const incrementDeg = targetTwistDeg / (ridgeCount - 1);
 

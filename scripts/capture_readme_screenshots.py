@@ -857,10 +857,10 @@ def capture_phosphorene_media(browser) -> None:
         settle_view(
             page,
             target=center.tolist(),
-            position=(center + np.array([0.0, -39.0, 23.0])).tolist(),
+            position=(center + np.array([0.0, -36.0, 26.0])).tolist(),
             fov=34,
         )
-        set_atomic_scale(page, 26.0)
+        set_atomic_scale(page, 34.0)
         set_readme_lighting(
             page,
             center.tolist(),
@@ -875,7 +875,7 @@ def capture_phosphorene_media(browser) -> None:
         operations = metadata["operations"]
         angle_increment = float(metadata["angle_increment_degrees"])
         for operation_index, operation in enumerate(operations):
-            detailed = operation_index < 3
+            detailed = operation_index < 2
             drag_select_tail(
                 page,
                 operation["selected_indices"],

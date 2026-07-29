@@ -422,11 +422,11 @@ def _cumulative_phosphorene_twist(
 
 
 def make_phosphorene_twist_scene(
-    repeat: tuple[int, int, int] = (11, 3, 1),
+    repeat: tuple[int, int, int] = (8, 4, 1),
     target_twist_degrees: float = PHOSPHORENE_TWIST_DEGREES,
-    frame_count: int = 43,
+    frame_count: int = 31,
 ) -> tuple[Atoms, Atoms, list[Atoms], dict[str, object]]:
-    """Build a literature-angle editing model one puckered ridge at a time."""
+    """Build a compact literature-angle model one puckered ridge at a time."""
 
     unit = make_black_phosphorene_unit_cell()
     source = unit.repeat(repeat)
@@ -692,7 +692,7 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
         _, atoms, _, idx = make_phosphorene_twist_scene()
         info = SceneInfo(
             name=name,
-            description="Armchair black-phosphorene ribbon twisted to the paper-reported 36 degree model one puckered ridge at a time.",
+            description="Compact 8 x 4 armchair black-phosphorene ribbon twisted to the paper-reported 36 degree model in 15 ridge edits.",
             static_file="phosphorene_twisted_nanoribbon_36deg.cif",
             selected_indices=tuple(idx["selected_range"]),
             notes=(
@@ -777,13 +777,13 @@ def write_scene_assets(out_dir: Path, scene_names: tuple[str, ...] = SCENE_NAMES
             source, static_atoms, frames, idx = make_phosphorene_twist_scene()
             info = SceneInfo(
                 name=name,
-                description="Armchair black-phosphorene ribbon twisted to the paper-reported 36 degree model one puckered ridge at a time.",
+                description="Compact 8 x 4 armchair black-phosphorene ribbon twisted to the paper-reported 36 degree model in 15 ridge edits.",
                 static_file="phosphorene_twisted_nanoribbon_36deg.cif",
                 selected_indices=tuple(idx["selected_range"]),
                 notes=(
                     "Source coordinates: DOI 10.1039/C6CP05566D.",
                     "Twist model: DOI 10.1039/C6NR04354B, H-APNR theta = 36 degrees.",
-                    "Each trajectory stage starts from the previously edited coordinates and advances by one puckered ridge.",
+                    "Each of the 15 trajectory edits starts from the previously committed coordinates and advances by one puckered ridge.",
                 ),
             )
             extra_assets = [

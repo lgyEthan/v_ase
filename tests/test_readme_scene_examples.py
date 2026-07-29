@@ -73,7 +73,7 @@ def test_readme_scene_assets_write_reopenable_traj_files(tmp_path):
     assert any(isinstance(constraint, FixedPlane) for constraint in fixedplane.constraints)
     assert any(isinstance(constraint, Hookean) for constraint in hookean.constraints)
     assert any(isinstance(constraint, Hookean) for constraint in showcase.constraints)
-    assert len(phosphorene_frames) == 43
+    assert len(phosphorene_frames) == 31
     assert all(
         frame.info["twist_target_degrees"] == pytest.approx(36.0)
         for frame in phosphorene_frames
@@ -88,22 +88,21 @@ def test_phosphorene_scene_uses_published_cell_angle_and_single_puckered_ridges(
         [8.628 * Bohr, 6.243 * Bohr, 51.930 * Bohr],
         abs=1e-8,
     )
-    assert len(source) == len(twisted) == 132
-    assert len(frames) == 43
+    assert len(source) == len(twisted) == 128
+    assert len(frames) == 31
     assert metadata["axis"] == "X"
     assert metadata["ribbon_direction"] == "armchair"
     assert metadata["target_twist_degrees"] == pytest.approx(36.0)
-    assert metadata["angle_increment_degrees"] == pytest.approx(36.0 / 21.0)
-    assert metadata["ridge_count"] == 22
-    assert len(metadata["selected_ridge"]) == 6
-    assert len(metadata["operations"]) == 21
-    assert [operation["ridge_start"] for operation in metadata["operations"]] == list(range(1, 22))
+    assert metadata["angle_increment_degrees"] == pytest.approx(2.4)
+    assert metadata["ridge_count"] == 16
+    assert len(metadata["selected_ridge"]) == 8
+    assert len(metadata["operations"]) == 15
+    assert [operation["ridge_start"] for operation in metadata["operations"]] == list(range(1, 16))
     assert [len(operation["selected_indices"]) for operation in metadata["operations"]] == [
-        126, 120, 114, 108, 102, 96, 90, 84, 78, 72, 66,
-        60, 54, 48, 42, 36, 30, 24, 18, 12, 6,
+        120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8,
     ]
     assert all(
-        operation["angle_degrees"] == pytest.approx(36.0 / 21.0)
+        operation["angle_degrees"] == pytest.approx(2.4)
         for operation in metadata["operations"]
     )
     assert np.max(np.linalg.norm(twisted.positions - source.positions, axis=1)) > 1.0
@@ -117,16 +116,16 @@ def test_phosphorene_scene_uses_published_cell_angle_and_single_puckered_ridges(
 
     ridge_ids = np.asarray(metadata["ridge_ids"])
     sublayer_ids = np.asarray(metadata["sublayer_ids"])
-    assert np.bincount(ridge_ids).tolist() == [6] * 22
+    assert np.bincount(ridge_ids).tolist() == [8] * 16
     assert [
         int(np.unique(sublayer_ids[ridge_ids == ridge_id]).item())
-        for ridge_id in range(22)
-    ] == [1, 0] * 11
+        for ridge_id in range(16)
+    ] == [1, 0] * 8
     assert np.allclose(
         source.positions[ridge_ids == 0],
         twisted.positions[ridge_ids == 0],
     )
-    last_ridge = np.flatnonzero(ridge_ids == 21)
+    last_ridge = np.flatnonzero(ridge_ids == 15)
     same_x = last_ridge[
         np.isclose(
             source.positions[last_ridge, 0],
@@ -291,10 +290,12 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "from the **third ridge through the end**" in normalized_readme
     assert "**Rotate Selection**" in readme
     assert "one half-cell ridge per step" in readme
-    assert "6 atoms at this ribbon" in readme
+    assert "8 atoms at this ribbon" in normalized_readme
+    assert "compact 8 x 4 repeat" in normalized_readme
+    assert "15 backend commits" in readme
     assert "final ridge is rotated by exactly 36 degrees" in readme
-    assert "Green and purple distinguish" in readme
-    assert "the upper and lower P sublayers" in readme
+    assert "green and purple distinguish" in normalized_readme
+    assert "the upper and lower p sublayers" in normalized_readme
     assert "**Axes** and **Unit Cell** switches update the working viewport" in readme
 
     for filename in (
@@ -320,4 +321,5 @@ def test_phosphorene_capture_drives_the_production_selection_and_rotation_ui():
     assert 'page.select_option("#selection-rotate-axis", "X")' in source
     assert 'page.locator("#selection-rotate-angle")' in source
     assert 'page.locator("#btn-rotate-selection-exact")' in source
+    assert "detailed = operation_index < 2" in source
     assert "np.allclose(actual_positions, twisted.positions" in source
