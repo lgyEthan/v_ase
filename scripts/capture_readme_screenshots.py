@@ -1469,16 +1469,25 @@ def capture_constraint_media(browser) -> None:
             position_offset=(-7.0, -10.0, 12.0),
         )
         collapse_inspector(page)
+        set_selection(page, [])
         page.screenshot(path=ASSET_DIR / "readme_constraints.png")
+        fixedline_frames: list[Image.Image] = []
+        append_hold(fixedline_frames, page, 6)
+        set_selection(page, [line_idx["ion"]])
+        append_hold(fixedline_frames, page, 5)
         enter_mode(page, "MOVE", "Z")
-        capture_animation(
-            page,
+        for positions in sinusoidal_frames(
+            fixedline_atoms.get_positions(),
+            line_idx["ion"],
+            lambda phase: [0, 0, 2.2 * phase],
+        ):
+            update_positions(page, positions)
+            page.wait_for_timeout(35)
+            fixedline_frames.append(screenshot_frame(page))
+        save_gif(
+            fixedline_frames,
             ASSET_DIR / "readme_fixedline.gif",
-            sinusoidal_frames(
-                fixedline_atoms.get_positions(),
-                line_idx["ion"],
-                lambda phase: [0, 0, 2.2 * phase],
-            ),
+            duration=85,
         )
     finally:
         page.close()
@@ -1591,7 +1600,7 @@ def capture_measurement_media(browser) -> None:
             position=(center + np.array([4.2, -5.6, 3.5])).tolist(),
             fov=31,
         )
-        set_atomic_scale(page, 226.0)
+        set_atomic_scale(page, 275.0)
         set_readme_lighting(page, center.tolist(), intensity=2.85, position_offset=(-6.0, -8.0, 10.0))
         rendered_frames: list[Image.Image] = []
         ordered = indices["ordered_selection"]

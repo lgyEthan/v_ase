@@ -727,6 +727,13 @@ export class ASERenderer {
                 depthTest: true,
                 depthWrite: false
             }),
+            lineMotion: new THREE.MeshBasicMaterial({
+                color: 0x178b9f,
+                transparent: true,
+                opacity: 0.9,
+                depthTest: false,
+                depthWrite: false
+            }),
             plane: new THREE.MeshBasicMaterial({
                 color: 0x3dd6b0,
                 side: THREE.DoubleSide,
@@ -5435,35 +5442,16 @@ export class ASERenderer {
         };
 
         const center = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.line);
-        center.userData = { sharedMaterial: true, lineGuideSegment: true };
+        center.userData = {
+            sharedMaterial: true,
+            lineGuideSegment: true,
+            fixedLineAxis: true
+        };
         this.setLinePoints(center, [
             new THREE.Vector3(0, -metrics.lineHalfLength, 0),
             new THREE.Vector3(0, metrics.lineHalfLength, 0)
         ], 'lineGuideCenter', metrics.tubeRadius);
         group.add(center);
-
-        const railOffset = metrics.atomRadius * 1.16;
-        const railHalfLength = THREE.MathUtils.clamp(
-            metrics.atomRadius * 0.42,
-            0.12,
-            0.72
-        );
-        [-1, 1].forEach((side, railIndex) => {
-            const rail = new THREE.Mesh(
-                new THREE.BufferGeometry(),
-                this.constraintMaterials.line
-            );
-            rail.userData = {
-                sharedMaterial: true,
-                fixedLineRail: true
-            };
-            this.setLinePoints(rail, [
-                new THREE.Vector3(side * railOffset, -railHalfLength, 0),
-                new THREE.Vector3(side * railOffset, railHalfLength, 0)
-            ], `fixedLineRail${railIndex}`, metrics.tubeRadius * 0.78);
-            rail.renderOrder = 20;
-            group.add(rail);
-        });
 
         group.position.copy(atom.position);
         this.orientYAxis(group, direction);
@@ -5553,25 +5541,62 @@ export class ASERenderer {
             mode !== 'MOVE'
             || !applyConstraints
             || this.displayOptions.showOverlays === false
-            || !this.atomsData?.constraints?.fixed_plane
+            || !this.atomsData?.constraints
         ) {
             this.requestRender();
             return;
         }
 
-        const fixedPlane = this.atomsData.constraints.fixed_plane;
+        const fixedLine = this.atomsData.constraints.fixed_line || {};
+        const fixedPlane = this.atomsData.constraints.fixed_plane || {};
+        if (Object.keys(fixedLine).length === 0 && Object.keys(fixedPlane).length === 0) {
+            this.requestRender();
+            return;
+        }
         const guideSize = Math.max(3.4, Math.min(10.0, (this.desiredGuideSize?.() || 24) * 0.18));
         const edgeWidth = THREE.MathUtils.clamp(guideSize * 0.012, 0.024, 0.065);
         const axisRadius = edgeWidth * 0.42;
         [...new Set(indices.map(Number).filter(Number.isInteger))].forEach(index => {
+            const lineValues = fixedLine[index] || fixedLine[String(index)];
             const normalValues = fixedPlane[index] || fixedPlane[String(index)];
-            const normal = this.normalizedVector(normalValues || []);
             const source = originalPositions[index];
             const atom = this.atomMeshByIndex.get(index);
-            if (!normalValues || (!source && !atom) || !this.atomLabelVisible(index)) return;
+            if ((!lineValues && !normalValues) || (!source && !atom) || !this.atomLabelVisible(index)) return;
             const anchor = source
                 ? new THREE.Vector3(...source)
                 : atom.position.clone();
+
+            if (lineValues) {
+                const direction = this.normalizedVector(lineValues);
+                const lineGroup = new THREE.Group();
+                lineGroup.userData = {
+                    kind: 'fixed_line_motion',
+                    atomIndex: index,
+                    anchor: anchor.toArray(),
+                    direction: direction.toArray()
+                };
+                const line = new THREE.Mesh(
+                    new THREE.BufferGeometry(),
+                    this.constraintMaterials.lineMotion
+                );
+                line.userData = {
+                    sharedMaterial: true,
+                    fixedLineMotionAxis: true
+                };
+                this.setLinePoints(line, [
+                    new THREE.Vector3(0, -guideSize, 0),
+                    new THREE.Vector3(0, guideSize, 0)
+                ], 'fixedLineMotionAxis', Math.max(axisRadius, edgeWidth * 0.52));
+                line.renderOrder = 26;
+                lineGroup.add(line);
+                lineGroup.position.copy(anchor);
+                this.orientYAxis(lineGroup, direction);
+                lineGroup.renderOrder = 26;
+                this.constraintMotionGuideGroup.add(lineGroup);
+            }
+
+            if (!normalValues) return;
+            const normal = this.normalizedVector(normalValues);
             const group = new THREE.Group();
             group.userData = {
                 kind: 'fixed_plane_motion',

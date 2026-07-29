@@ -731,7 +731,10 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
             description="Li ion constrained to a FixedLine inside a carbon nanotube channel.",
             static_file="fixedline.traj",
             selected_indices=(idx["ion"],),
-            notes=("Select the Li atom to show the FixedLine guide.",),
+            notes=(
+                "The short center axis remains visible without selection.",
+                "Starting G shows the longer original-position direction guide.",
+            ),
         )
         return atoms, info
     if name == "fixedplane":

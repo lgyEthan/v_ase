@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.0.114
+
+- Replaced the persistent FixedLine dual rails with one radius-scaled center
+  axis and added a longer original-position direction guide during `G`.
+- Increased ordered-measurement marker and value readability and re-recorded
+  the README measurement example at a closer scale.
+- Removed documentation-production commentary and unnecessary construction
+  details from the public README while retaining the phosphorene and
+  Cu2O(111)/Cu(111) user workflows.
+- Regenerated the affected README media and synchronized user, developer, and
+  agent documentation.
+
 ## 0.0.113
 
 - Reworked the README phosphorene manipulation into a shorter, wider `5 x 6`

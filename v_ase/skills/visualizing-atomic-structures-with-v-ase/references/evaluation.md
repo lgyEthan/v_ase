@@ -190,7 +190,8 @@ Every browser render test must check:
 - visible constraints have nonzero pixel coverage;
 - FixedPlane motion planes have a visible surface, perimeter, and two in-plane
   axes without replacing the compact persistent per-atom marker;
-- FixedLine and line-like FixScaled guides contain no ring geometry, while
+- FixedLine and line-like FixScaled guides contain one center axis and no ring
+  geometry; during `G`, they add one longer original-position direction guide.
   FixedPlane and plane-like FixScaled guides retain one local ring;
 - selected atoms use a yellow sphere outline with no billboard RingGeometry;
 - rotation axis, fixed start, moving current, and commensurate candidate guides

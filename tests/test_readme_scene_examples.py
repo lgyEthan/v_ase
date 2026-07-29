@@ -346,22 +346,24 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "reaches 100% once" in readme
     assert "appearance, bond, and rendering changes" in readme
     assert "Try the exact assets" not in readme
-    assert "playback of a finished model" in readme
+    assert "playback of a finished model" not in readme
+    assert "long sequence of repetitive steps" not in readme
+    assert "production `left-drag`" not in readme
     assert "visible amber box" in readme
     assert "from the **second ridge through the end**" in normalized_readme
     assert "from the **third ridge through the end**" in normalized_readme
     assert "**Rotate Selection**" in readme
-    assert "one half-cell ridge per step" in readme
-    assert "12 atoms at this ribbon" in normalized_readme
-    assert "short, wide `5 x 6` repeat" in normalized_readme
-    assert "9 backend commits" in readme
+    assert "`5 x 6` model contains 10 puckered ridges" in readme
+    assert "12 atoms per ridge" in normalized_readme
+    assert "backend commits" not in readme
     assert "final ridge is rotated by exactly 13.85 degrees" in readme
-    assert "viewed from above through to below" in normalized_readme
+    assert "from above to below" in normalized_readme
     assert "green and purple distinguish" in normalized_readme
     assert "the upper and lower p sublayers" in normalized_readme
-    assert "`6 x 6` primitive Cu2O(111) mesh" in readme
-    assert "top, bridge, and hollow sites" in readme
-    assert "10.1021/acs.jpcc.0c04453" in readme
+    assert "`6 x 6 Cu2O(111)` film on `7 x 7 Cu(111)`" in readme
+    assert "substrate Cu top site" in readme
+    assert "in-plane compression" not in readme
+    assert "10.1021/acs.jpcc.0c04453" not in readme
     assert "**Axes** and **Unit Cell** switches update the working viewport" in readme
 
     for filename in (

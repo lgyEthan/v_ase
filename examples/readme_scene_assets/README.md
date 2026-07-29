@@ -88,7 +88,8 @@ Li ion constrained to a FixedLine inside a carbon nanotube channel.
 
 - Static: `fixedline.traj`
 - Suggested selected indices: `128`
-- Select the Li atom to show the FixedLine guide.
+- The short center axis remains visible without selection.
+- Starting G shows the longer original-position direction guide.
 
 Open command:
 

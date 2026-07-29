@@ -206,7 +206,7 @@ def test_fixed_plane_move_restores_per_atom_motion_plane_guide():
         editor.close()
 
 
-def test_line_constraints_use_linear_rails_while_only_planes_use_rings():
+def test_line_constraints_use_one_center_axis_and_move_guide_while_only_planes_use_rings():
     atoms = Atoms(
         "Li4",
         positions=[
@@ -253,17 +253,17 @@ def test_line_constraints_use_linear_rails_while_only_planes_use_rings():
                         rings: group.children.filter(
                             child => child.geometry?.type === 'RingGeometry'
                         ).length,
-                        rails: group.children.filter(
-                            child => child.userData?.fixedLineRail
+                        axes: group.children.filter(
+                            child => child.userData?.fixedLineAxis
                         ).length
                     }))
                     .sort((left, right) => left.index - right.index)
             )""")
             assert guides == [
-                {"index": 0, "kind": "fixed_line", "rings": 0, "rails": 2},
-                {"index": 1, "kind": "fixed_plane", "rings": 1, "rails": 0},
-                {"index": 2, "kind": "fixed_line", "rings": 0, "rails": 2},
-                {"index": 3, "kind": "fixed_plane", "rings": 1, "rails": 0},
+                {"index": 0, "kind": "fixed_line", "rings": 0, "axes": 1},
+                {"index": 1, "kind": "fixed_plane", "rings": 1, "axes": 0},
+                {"index": 2, "kind": "fixed_line", "rings": 0, "axes": 1},
+                {"index": 3, "kind": "fixed_plane", "rings": 1, "axes": 0},
             ]
 
             page.evaluate("""() => {
@@ -277,6 +277,31 @@ def test_line_constraints_use_linear_rails_while_only_planes_use_rings():
                 )
             )""")
             assert selection_geometry == ["SphereGeometry"]
+
+            motion = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.enterTransformMode('MOVE');
+                const guide = app.renderer.constraintMotionGuideGroup.children[0];
+                return {
+                    count: app.renderer.constraintMotionGuideGroup.children.length,
+                    kind: guide?.userData?.kind,
+                    index: guide?.userData?.atomIndex,
+                    anchor: guide?.userData?.anchor,
+                    direction: guide?.userData?.direction,
+                    axes: guide?.children.filter(
+                        child => child.userData?.fixedLineMotionAxis
+                    ).length
+                };
+            }""")
+            assert motion == {
+                "count": 1,
+                "kind": "fixed_line_motion",
+                "index": 0,
+                "anchor": [0.0, 0.0, 0.0],
+                "direction": [0.0, 0.0, 1.0],
+                "axes": 1,
+            }
+            page.evaluate("window.__ASE_APP__.cancelTransform()")
             browser.close()
     finally:
         editor.close()

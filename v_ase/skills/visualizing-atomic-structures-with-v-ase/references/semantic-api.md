@@ -253,10 +253,11 @@ Transform and commensurate settings:
 | `commensurateSnapRangeDeg` | angular snap window |
 
 Constraint visualization includes FixAtoms, FixScaled, FixedLine, FixedPlane,
-and Hookean. FixedLine uses a straight axis with compact linear rail marks and
-never uses a ring. FixedPlane uses a local ring, crosshair, and normal marker.
-FixScaled adopts the line or plane design from its allowed Cartesian degrees
-of freedom. These compact per-atom markers remain visible without selection.
+and Hookean. FixedLine uses one straight axis through the atom center and never
+uses a ring. During `G`, it adds a longer direction guide through the original
+position. FixedPlane uses a local ring, crosshair, and normal marker. FixScaled
+adopts the line or plane design from its allowed Cartesian degrees of freedom.
+These compact per-atom markers remain visible without selection.
 Selected atoms retain a yellow sphere outline without a billboard ring, so a
 selection cannot be mistaken for a plane constraint.
 During an interactive `G` transform, every selected FixedPlane atom

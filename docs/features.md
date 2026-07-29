@@ -113,9 +113,10 @@ other supported position constraints.
 Constraint rendering:
 
 - `FixAtoms`: element color is retained with a distinct fixed material surface.
-- `FixedLine`: each constrained atom receives a short, radius-scaled axis and
-  two compact parallel rails that remain visible without selection. It never
-  uses a ring or plane disc.
+- `FixedLine`: each constrained atom receives one short, radius-scaled axis
+  through its center that remains visible without selection. During `G`, a
+  longer line anchored at the original position shows the full permitted
+  direction. It never uses a ring or plane disc.
 - `FixedPlane`: each atom receives its own radius-scaled ring, crosshair, and
   normal marker that remain visible without selection; multiple constraints
   are never collapsed to a selection center. During `G`, every selected

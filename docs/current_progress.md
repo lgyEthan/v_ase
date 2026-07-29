@@ -170,13 +170,13 @@ and documentation use `view()`.
 37. `FixedLine` and `FixedPlane` guides are persistent per-atom overlays. They
     remain visible without selection, stay local to each constrained atom, are
     depth-tested against the structure, and scale from the displayed atom
-    radius instead of viewport size. FixedLine uses a straight axis and two
-    parallel rails without any ring; FixedPlane uses a local ring, crosshair,
+    radius instead of viewport size. FixedLine uses one straight axis through
+    the atom center without any ring; FixedPlane uses a local ring, crosshair,
     and normal. Line-like and plane-like FixScaled constraints inherit those
-    respective designs. During `G`, each selected FixedPlane atom additionally
-    gets its own low-opacity guide surface, perimeter, and crosshair anchored
-    at the atom's original position. This motion guide is never collapsed to a
-    selection COM and clears on commit or cancel.
+    respective designs. During `G`, a selected FixedLine atom gets one longer
+    original-position direction guide, while each selected FixedPlane atom
+    gets its own low-opacity guide surface, perimeter, and crosshair. Motion
+    guides clear on commit or cancel.
 38. Unit-cell edges use one instanced cylinder primitive in the viewport and
     expose color, Angstrom thickness, and material controls. Supercell previews
     reuse the same style and deduplicate shared edges so repeated cells do not

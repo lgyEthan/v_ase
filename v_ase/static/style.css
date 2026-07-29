@@ -2206,7 +2206,7 @@ body.resizing-pairwise-column * {
 .measurement-overlay .measure-atom-badge text {
     fill: var(--amber-contrast);
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 800;
     text-anchor: middle;
     dominant-baseline: central;
@@ -2219,7 +2219,7 @@ body.resizing-pairwise-column * {
 .measurement-overlay .measure-value-badge text {
     fill: var(--teal-contrast);
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 720;
     text-anchor: middle;
     dominant-baseline: central;
@@ -3048,16 +3048,18 @@ body.resizing-pairwise-column * {
 
 #selection-measure-readout {
     display: flex;
-    max-width: min(72vw, 680px);
+    max-width: min(76vw, 760px);
     align-items: center;
     gap: 9px;
     color: var(--text);
+    font-size: 0.78rem;
+    line-height: 1.25;
     white-space: nowrap;
 }
 
 .selection-measure-label {
     color: var(--amber);
-    font-size: 0.58rem;
+    font-size: 0.65rem;
     font-weight: 850;
     letter-spacing: 0.04em;
 }

@@ -122,9 +122,10 @@ the complete saved project.
 
 `FixedLine` and `FixedPlane` guides remain visible without selecting the atom.
 They stay local to each constrained atom and scale with its displayed radius.
-Starting `G` on a FixedPlane atom additionally shows a larger translucent
-permitted-plane guide at that atom's original position until the move is
-confirmed or canceled.
+Starting `G` on a FixedLine atom shows a longer direction guide through its
+original position. Starting `G` on a FixedPlane atom shows a larger
+translucent permitted-plane guide at its original position. Both clear when
+the move is confirmed or canceled.
 
 ## Calculator Controls
 - Repulsion controls live under **Structure > Relaxation** and appear only in

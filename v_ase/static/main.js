@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.113&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.113&rev=1';
-import { ASESelection } from './selection.js?v=0.0.113&rev=1';
-import { ASETransform } from './transform.js?v=0.0.113&rev=1';
+import { ASEApi } from './api.js?v=0.0.114&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.114&rev=1';
+import { ASESelection } from './selection.js?v=0.0.114&rev=1';
+import { ASETransform } from './transform.js?v=0.0.114&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.113&rev=1';
+} from './trajectory.js?v=0.0.114&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -3481,7 +3481,7 @@ class VAseApp {
             parent.appendChild(node);
             return node;
         };
-        const shortenedSegment = (start, end, padding = 13) => {
+        const shortenedSegment = (start, end, padding = 16) => {
             const dx = end.x - start.x;
             const dy = end.y - start.y;
             const length = Math.hypot(dx, dy);
@@ -3508,15 +3508,15 @@ class VAseApp {
                 class: 'measure-value-badge',
                 transform: `translate(${x.toFixed(2)} ${y.toFixed(2)})`
             });
-            const badgeWidth = Math.max(62, Math.min(300, text.length * 6.3 + 16));
+            const badgeWidth = Math.max(76, Math.min(340, text.length * 7.3 + 20));
             appendSvg('rect', {
                 x: (-badgeWidth / 2).toFixed(2),
-                y: -10,
+                y: -13,
                 width: badgeWidth.toFixed(2),
-                height: 20,
-                rx: 5
+                height: 26,
+                rx: 6
             }, group);
-            const label = appendSvg('text', { x: 0, y: 0.5 }, group);
+            const label = appendSvg('text', { x: 0, y: 0.8 }, group);
             label.textContent = text;
         };
 
@@ -3618,8 +3618,8 @@ class VAseApp {
                 length = 1;
             }
             const labelPoint = {
-                x: point.x + dx / length * 25,
-                y: point.y + dy / length * 25
+                x: point.x + dx / length * 30,
+                y: point.y + dy / length * 30
             };
             appendSvg('line', {
                 class: 'measure-label-leader',
@@ -3634,8 +3634,8 @@ class VAseApp {
                 'data-reference': this.selectionReferenceLabel(point.reference),
                 transform: `translate(${labelPoint.x.toFixed(2)} ${labelPoint.y.toFixed(2)})`
             });
-            appendSvg('rect', { x: -14, y: -9, width: 28, height: 18, rx: 5 }, group);
-            const text = appendSvg('text', { x: 0, y: 0.5 }, group);
+            appendSvg('rect', { x: -17, y: -11, width: 34, height: 22, rx: 6 }, group);
+            const text = appendSvg('text', { x: 0, y: 0.7 }, group);
             text.textContent = `a${point.order}`;
         });
     }

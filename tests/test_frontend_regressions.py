@@ -1037,7 +1037,9 @@ def test_persistent_constraint_guides_and_cell_style_controls_are_wired():
     assert "originKeys" in renderer_js
     assert "signature === this.constraintGuideSignature" in renderer_js
     assert "lineHalfLength" in renderer_js
-    assert "fixedLineRail" in renderer_js
+    assert "fixedLineAxis" in renderer_js
+    assert "fixedLineMotionAxis" in renderer_js
+    assert "fixedLineRail" not in renderer_js
     assert "fixedLineCollar" not in renderer_js
     assert "new THREE.RingGeometry" not in renderer_js[
         renderer_js.index("addFixedLineGuide("):
