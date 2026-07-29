@@ -293,7 +293,10 @@ def test_image_export_has_exact_preview_and_option_modal_controls():
     assert "const profile = this.state.exportPreviewProfile || this.currentImageExportProfile()" in main_js
     assert "options: profile.options" in main_js
     assert "this.renderer.exportPNGBlob(width, height, options)" in main_js
-    assert "this.api.encodeImage(source, format)" in main_js
+    assert "this.api.encodeImage(source, format, onProgress)" in main_js
+    assert "xhr.upload.addEventListener('progress'" in (
+        ROOT / "v_ase/static/api.js"
+    ).read_text()
     assert "modalContainer?.addEventListener('pointerdown'" in main_js
     assert "e.stopPropagation()" in main_js
     assert "transparentBackground" in renderer_js

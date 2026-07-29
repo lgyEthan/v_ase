@@ -308,6 +308,12 @@ lossless; PNG conversion is a lossless IDAT recompression. JPEG and PDF flatten
 transparency onto white. Every response keeps the original pixel dimensions.
 PNG is the browser UI and semantic API default.
 
+The human image-export workflow selects its destination before rendering and
+uses one monotonic progress sequence across browser render, pixel capture,
+upload, server encoding, response download, and destination write. Estimated
+remaining time is derived from completed pipeline work; 100% is emitted once,
+after the output file is complete.
+
 The live browser exposes `window.v_aseAI.ready()`, `capabilities()`,
 `describe()`, `apply()`, `render()`, and `export()`. `apply()` covers frame and
 mode changes, quality, display and camera state, selection, constrained

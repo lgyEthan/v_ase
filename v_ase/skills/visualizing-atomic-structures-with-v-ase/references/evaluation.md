@@ -87,6 +87,10 @@ Run all scenarios, not only static document checks:
      current reference follows the actual rotation sign;
    - verify returned backend coordinates;
    - add, relabel, change element, and delete a test atom.
+   - run the generated 72-atom graphene workflow: delete the center-nearest C,
+     remap its three neighbor indices after deletion, change them to ASE N with
+     label `N_pyridinic`, and verify 71 atoms, three N elements, and three
+     matching labels before rendering.
 5. **Periodic structure**
    - wrap atoms;
    - display a monoclinic supercell;
@@ -97,6 +101,9 @@ Run all scenarios, not only static document checks:
 6. **Appearance**
    - change radius, color, visibility, and material;
    - verify standard, metal, rubber, 2D, and 3D;
+   - undo and redo a label color, radius, and material change; verify both
+     semantic display state and rendered pixels, with one history step per
+     completed field edit;
    - verify bonds, pairwise cutoffs, MIC toggle, cell styling, and lighting.
 7. **Constraints rendering**
    - inspect FixAtoms, FixScaled, FixedLine, FixedPlane, and Hookean;
@@ -119,6 +126,8 @@ Run all scenarios, not only static document checks:
    - reopen POSCAR, pickle, `.vase`, settings, OBJ metadata, and 3DM;
    - syntax-check Blender output and inspect camera, bonds, cell, and light;
    - probe MOV/AVI dimensions, FPS, and frame count.
+   - verify image progress is monotonic, reports an ETA, emits 100 exactly
+     once, and reaches it only after the destination write.
 10. **Human takeover and documents**
     - create and switch independent documents;
     - verify state isolation and distinct `.vase` output;
@@ -145,6 +154,12 @@ Run all scenarios, not only static document checks:
       through distance, angle, and torsion;
     - inspect the separate displacement image for nonzero vectors and readable
       frame/reference statistics;
+    - play the semantic graphene edit and verify one center vacancy, three
+      `N_pyridinic` neighbors, the documented source/final CIF files, and a
+      nonblank top-view render;
+    - compare three identical Cu13 clusters and verify Standard, Metal, and
+      Rubber remain visibly distinct without changing ASE element, radius, or
+      color;
     - play the compressed-C60 FIRE trajectory and verify energy and fmax
       decrease before publishing its relaxation example.
 

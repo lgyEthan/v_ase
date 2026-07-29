@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.106&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.106&rev=1';
-import { ASESelection } from './selection.js?v=0.0.106&rev=1';
-import { ASETransform } from './transform.js?v=0.0.106&rev=1';
+import { ASEApi } from './api.js?v=0.0.107&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.107&rev=1';
+import { ASESelection } from './selection.js?v=0.0.107&rev=1';
+import { ASETransform } from './transform.js?v=0.0.107&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.106&rev=1';
+} from './trajectory.js?v=0.0.107&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -46,6 +46,10 @@ class VAseApp {
         this.redoTimeline = [];
         this.cameraGestureStart = null;
         this.historyReplay = false;
+        this.visualHistoryBaseline = null;
+        this.visualHistoryPending = null;
+        this.visualHistoryTimer = null;
+        this.visualHistoryReady = false;
         this.api = new ASEApi(this.sessionId);
         this.api.onUndoableMutation = () => this.recordStructureHistoryAction();
         this.pendingApply = Promise.resolve();
@@ -1160,7 +1164,10 @@ class VAseApp {
             referenceInput.value = `${referenceFrame + 1}`;
         }
         this.syncDisplacementControls();
-        if (applyRenderer) this.renderer.setDisplayOptions(this.state.display);
+        if (applyRenderer) {
+            this.renderer.setDisplayOptions(this.state.display);
+            this.scheduleVisualHistoryCommit('displacement');
+        }
     }
 
     syncDisplacementControls(display = this.state.display) {
@@ -1364,6 +1371,7 @@ class VAseApp {
         this.syncViewControls();
         this.renderer.setDisplayOptions(this.state.display);
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+        this.scheduleVisualHistoryCommit('view-display');
     }
 
     setViewportGridVisible(visible) {
@@ -1373,6 +1381,7 @@ class VAseApp {
         this.syncViewControls();
         this.renderer.setDisplayOptions(this.state.display, { rebuild: false });
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+        this.scheduleVisualHistoryCommit('grid');
     }
 
     completeCameraViewChange(source = 'view-toolbar') {
@@ -1433,13 +1442,99 @@ class VAseApp {
     }
 
     recordStructureHistoryAction() {
-        this.recordHistoryAction({ kind: 'structure' });
+        this.flushVisualHistoryCommit();
+        this.recordHistoryAction({
+            kind: 'structure',
+            visualBefore: this.visualHistoryReady
+                ? this.visualHistorySnapshot()
+                : null
+        });
     }
 
     resetHistoryTimeline() {
         this.undoTimeline = [];
         this.redoTimeline = [];
         this.cameraGestureStart = null;
+        this.resetVisualHistoryBaseline();
+    }
+
+    visualHistorySnapshot() {
+        return {
+            schema: 'v_ase.visual_history.v1',
+            display: this.clonePlain(this.state.display),
+            applyConstraints: Boolean(this.state.applyConstraints),
+            antiAliasing: Boolean(this.state.antiAliasing),
+            sphereQuality: this.state.sphereQuality || 'auto',
+            moveIncrement: Number(this.state.moveIncrement) || 0,
+            rotateIncrementDeg: Number(this.state.rotateIncrementDeg) || 0,
+            imageExportProfile: this.clonePlain(this.currentImageExportProfile())
+        };
+    }
+
+    visualHistorySnapshotsEqual(first, second) {
+        if (!first || !second) return first === second;
+        return JSON.stringify(first) === JSON.stringify(second);
+    }
+
+    resetVisualHistoryBaseline() {
+        if (this.visualHistoryTimer !== null) {
+            clearTimeout(this.visualHistoryTimer);
+            this.visualHistoryTimer = null;
+        }
+        this.visualHistoryPending = null;
+        this.visualHistoryReady = Boolean(this.state.atoms?.positions);
+        this.visualHistoryBaseline = this.visualHistoryReady
+            ? this.visualHistorySnapshot()
+            : null;
+    }
+
+    scheduleVisualHistoryCommit(source = 'visual-settings') {
+        if (this.historyReplay || !this.visualHistoryReady) return;
+        const before = this.visualHistoryPending?.before || this.visualHistoryBaseline;
+        if (!before) {
+            this.visualHistoryBaseline = this.visualHistorySnapshot();
+            return;
+        }
+        this.visualHistoryPending = {
+            kind: 'visual',
+            source: this.visualHistoryPending?.source || source,
+            before
+        };
+        if (this.visualHistoryTimer !== null) clearTimeout(this.visualHistoryTimer);
+        this.visualHistoryTimer = window.setTimeout(
+            () => this.flushVisualHistoryCommit(),
+            180
+        );
+    }
+
+    flushVisualHistoryCommit() {
+        if (this.visualHistoryTimer !== null) {
+            clearTimeout(this.visualHistoryTimer);
+            this.visualHistoryTimer = null;
+        }
+        const pending = this.visualHistoryPending;
+        this.visualHistoryPending = null;
+        if (!pending) return;
+        const action = {
+            ...pending,
+            after: this.visualHistorySnapshot()
+        };
+        if (!action || this.visualHistorySnapshotsEqual(action.before, action.after)) return;
+        this.visualHistoryBaseline = this.clonePlain(action.after);
+        this.recordHistoryAction(action);
+    }
+
+    applyVisualHistorySnapshot(snapshot) {
+        if (!snapshot) return;
+        const previousReplay = this.historyReplay;
+        this.historyReplay = true;
+        try {
+            this.applyDesignSettings(this.clonePlain(snapshot));
+            this.visualHistoryBaseline = this.visualHistorySnapshot();
+            this.visualHistoryPending = null;
+        } finally {
+            this.historyReplay = previousReplay;
+        }
     }
 
     beginCameraHistoryGesture(source = 'camera') {
@@ -1480,6 +1575,7 @@ class VAseApp {
     }
 
     async performUndo() {
+        this.flushVisualHistoryCommit();
         const action = this.undoTimeline.pop();
         if (!action) {
             if (!this.canEditAtoms()) {
@@ -1495,10 +1591,24 @@ class VAseApp {
             if (action.kind === 'camera') {
                 this.applyCameraHistorySnapshot(action.before);
                 this.toast('View change undone.', 'success');
+            } else if (action.kind === 'visual') {
+                this.applyVisualHistorySnapshot(action.before);
+                this.toast('Visual setting undone.', 'success');
             } else {
                 this.historyReplay = true;
+                if (!action.visualAfter && this.visualHistoryReady) {
+                    action.visualAfter = this.visualHistorySnapshot();
+                }
                 const data = await this.api.undo();
                 this.setAtomsData(data);
+                if (
+                    action.visualBefore
+                    && !this.visualHistorySnapshotsEqual(action.visualBefore, action.visualAfter)
+                ) {
+                    this.applyVisualHistorySnapshot(action.visualBefore);
+                } else {
+                    this.resetVisualHistoryBaseline();
+                }
                 this.toast('Undo.', 'success');
             }
             this.redoTimeline.push(action);
@@ -1511,6 +1621,7 @@ class VAseApp {
     }
 
     async performRedo() {
+        this.flushVisualHistoryCommit();
         const action = this.redoTimeline.pop();
         if (!action) {
             if (!this.canEditAtoms()) {
@@ -1526,10 +1637,21 @@ class VAseApp {
             if (action.kind === 'camera') {
                 this.applyCameraHistorySnapshot(action.after);
                 this.toast('View change redone.', 'success');
+            } else if (action.kind === 'visual') {
+                this.applyVisualHistorySnapshot(action.after);
+                this.toast('Visual setting redone.', 'success');
             } else {
                 this.historyReplay = true;
                 const data = await this.api.redo();
                 this.setAtomsData(data);
+                if (
+                    action.visualAfter
+                    && !this.visualHistorySnapshotsEqual(action.visualBefore, action.visualAfter)
+                ) {
+                    this.applyVisualHistorySnapshot(action.visualAfter);
+                } else {
+                    this.resetVisualHistoryBaseline();
+                }
                 this.toast('Redo.', 'success');
             }
             this.undoTimeline.push(action);
@@ -1657,6 +1779,7 @@ class VAseApp {
         }
         this.syncLightingControls();
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+        this.scheduleVisualHistoryCommit('lighting');
     }
 
     sunIsSelectable() {
@@ -1722,6 +1845,7 @@ class VAseApp {
             this.state.display.sunTarget = [...options.sunTarget];
             this.syncLightingControls();
             if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+            this.scheduleVisualHistoryCommit('lighting-gizmo');
         };
         this.syncLightingControls();
     }
@@ -1768,6 +1892,7 @@ class VAseApp {
             if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
             this.notifyWorkspaceDocument();
             this.scheduleDisplacementAnalysisRefresh();
+            this.resetVisualHistoryBaseline();
         } catch (err) {
             console.error("DEBUG: Refresh Failed:", err);
         }
@@ -5417,6 +5542,7 @@ class VAseApp {
         this.updateLabelSelectionControls();
         this.updateBondModeUI();
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+        this.scheduleVisualHistoryCommit('display');
     }
 
     safeApplyDisplayOptions() {
@@ -5456,6 +5582,7 @@ class VAseApp {
             bondCustomColor: this.state.display.bondCustomColor
         });
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+        this.scheduleVisualHistoryCommit('bonds');
     }
 
     safeApplyBondOptions() {
@@ -6094,9 +6221,17 @@ class VAseApp {
         });
     }
 
-    async renderOptimizedImage(width, height, options = {}, format = 'png') {
+    async renderOptimizedImage(
+        width,
+        height,
+        options = {},
+        format = 'png',
+        onProgress = null
+    ) {
+        onProgress?.({ phase: 'render', ratio: 0 });
         const source = await this.renderer.exportPNGBlob(width, height, options);
-        return await this.api.encodeImage(source, format);
+        onProgress?.({ phase: 'capture', ratio: 1, bytes: source.size });
+        return await this.api.encodeImage(source, format, onProgress);
     }
 
     createAIBridge() {
@@ -6559,6 +6694,7 @@ class VAseApp {
             this.scheduleDisplacementAnalysisRefresh();
         }
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+        this.scheduleVisualHistoryCommit('visual-settings');
     }
 
     showConfirmModal({ title, intro, items, confirmText = 'Yes', cancelText = 'No', danger = false }) {
@@ -6629,6 +6765,15 @@ class VAseApp {
         const minutes = Math.floor(rounded / 60);
         const remainder = rounded % 60;
         return `About ${minutes} min ${remainder.toString().padStart(2, '0')} s remaining`;
+    }
+
+    estimatedRemainingFromProgress(startedAt, progress) {
+        const elapsed = (performance.now() - Number(startedAt)) / 1000;
+        const completed = Math.max(0, Math.min(100, Number(progress) || 0));
+        if (!Number.isFinite(elapsed) || elapsed < 0.4 || completed < 8 || completed >= 100) {
+            return null;
+        }
+        return elapsed * (100 - completed) / completed;
     }
 
     setBusyProgress(progress, {
@@ -7660,6 +7805,7 @@ class VAseApp {
             } else {
                 this.initialDesignSettings = this.designSettingsSnapshot();
             }
+            this.resetVisualHistoryBaseline();
             const frameCount = data.metadata?.frame_count || 1;
             this.toast(
                 `Opened ${data.loaded_file?.filename || file.name}${frameCount > 1 ? ` (${frameCount} frames)` : ''}.`,
@@ -7702,6 +7848,7 @@ class VAseApp {
                 preserveDisplay: true
             });
             if (wasEmpty) this.initialDesignSettings = this.designSettingsSnapshot();
+            this.resetVisualHistoryBaseline();
             const added = Number(data.loaded_file?.appended_frames) || 0;
             const total = Number(data.metadata?.frame_count) || 1;
             const projectNote = data.loaded_file?.project_settings_ignored
@@ -8152,9 +8299,48 @@ class VAseApp {
                     imageSphereQuality: options.sphereQuality,
                     imageSmoothnessScale: options.sphereQualityScale
                 });
-                this.setBusy(`Rendering ${exportWidth} x ${exportHeight} image...`);
+                const startedAt = performance.now();
+                const updateProgress = (progress, message, complete = false) => {
+                    this.setBusyProgress(progress, {
+                        message,
+                        etaSeconds: complete
+                            ? 0
+                            : this.estimatedRemainingFromProgress(startedAt, progress),
+                        complete
+                    });
+                };
+                this.setBusy(
+                    `Preparing ${exportWidth} x ${exportHeight} image...`,
+                    {
+                        title: 'Export Image',
+                        progress: 2,
+                        etaSeconds: null
+                    }
+                );
                 await new Promise(resolve => requestAnimationFrame(resolve));
-                const blob = await this.renderOptimizedImage(exportWidth, exportHeight, options, format);
+                const blob = await this.renderOptimizedImage(
+                    exportWidth,
+                    exportHeight,
+                    options,
+                    format,
+                    event => {
+                        const ratio = Math.max(0, Math.min(1, Number(event?.ratio) || 0));
+                        if (event?.phase === 'render') {
+                            updateProgress(8, 'Rendering the exact Preview Area...');
+                        } else if (event?.phase === 'capture') {
+                            updateProgress(48, 'Captured the full-resolution scene.');
+                        } else if (event?.phase === 'upload') {
+                            updateProgress(50 + ratio * 20, 'Sending pixels to the image encoder...');
+                        } else if (event?.phase === 'encoding') {
+                            updateProgress(74, `Encoding ${format.toUpperCase()} without changing dimensions...`);
+                        } else if (event?.phase === 'download') {
+                            updateProgress(80 + ratio * 14, 'Receiving the encoded image...');
+                        } else if (event?.phase === 'complete') {
+                            updateProgress(95, 'Image encoding finished.');
+                        }
+                    }
+                );
+                updateProgress(97, 'Writing the selected output file...');
                 const saved = await this.savePreparedBlob(
                     blob,
                     filename,
@@ -8163,6 +8349,8 @@ class VAseApp {
                 );
                 this.syncImageExportPreview();
                 if (saved) {
+                    updateProgress(100, 'Image export saved.', true);
+                    await new Promise(resolve => window.setTimeout(resolve, 120));
                     this.closeModal();
                     this.toast('Image export saved.', 'success');
                 }

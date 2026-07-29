@@ -15,6 +15,7 @@ from PIL import Image
 from playwright._impl._errors import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
+from examples.readme_scenes import make_ai_pyridinic_graphene_scene
 from v_ase.io import set_atom_labels
 from v_ase.session import sessions
 from v_ase.viewer import find_free_port, view
@@ -231,6 +232,126 @@ def test_axis_shortcuts_restore_canonical_roll_before_opposite_view():
                     abs=1e-8,
                 )
                 assert opposite["up"] == pytest.approx(canonical_up, abs=1e-8)
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_ai_semantic_graphene_defect_edit_matches_documented_cif():
+    source, expected, metadata = make_ai_pyridinic_graphene_scene()
+    port = find_free_port()
+    editor = view(
+        source,
+        notebook=False,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+        open_browser=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(editor.url)
+            page.wait_for_function("window.v_aseAI")
+
+            final = page.evaluate(
+                """async ({vacancy, neighbors}) => {
+                    const ai = window.v_aseAI;
+                    await ai.ready();
+                    await ai.apply({
+                        mode: 'edit',
+                        selection: {clear: true, indices: [vacancy]},
+                        operation: {
+                            name: 'delete-selection',
+                            indices: [vacancy]
+                        }
+                    });
+                    await ai.apply({
+                        selection: {clear: true, indices: neighbors},
+                        operation: {
+                            name: 'set-identity',
+                            indices: neighbors,
+                            label: 'N_pyridinic',
+                            element: 'N'
+                        }
+                    });
+                    await ai.apply({
+                        display: {
+                            showBonds: true,
+                            showGrid: false,
+                            showAxes: false,
+                            viewportBackground: 'white',
+                            lightingMode: 'studio-shadow',
+                            labelColors: {
+                                C: '#686d73',
+                                N_pyridinic: '#3157d5'
+                            },
+                            labelMaterials: {
+                                C: 'standard',
+                                N_pyridinic: 'metal'
+                            }
+                        },
+                        quality: {
+                            antiAliasing: true,
+                            sphereQuality: 'ultra'
+                        },
+                        camera: {axis: '+Z', fit: 'structure'}
+                    });
+                    return await ai.describe({includePositions: true});
+                }""",
+                {
+                    "vacancy": metadata["vacancy_index"],
+                    "neighbors": metadata["neighbors_after"],
+                },
+            )
+            assert final["atomCount"] == len(expected) == 71
+            assert np.allclose(
+                np.asarray(final["positions"], dtype=float),
+                expected.positions,
+                atol=1e-8,
+                rtol=0,
+            )
+            assert final["chemicalSymbols"] == expected.get_chemical_symbols()
+            assert final["labels"].count("N_pyridinic") == 3
+            assert final["chemicalSymbols"].count("N") == 3
+            assert [item["index"] for item in final["selection"]] == metadata[
+                "neighbors_after"
+            ]
+
+            rendered = page.evaluate("""async () => {
+                const image = await window.v_aseAI.render({
+                    format: 'png',
+                    width: 420,
+                    height: 420,
+                    options: {
+                        includeGrid: false,
+                        includeAxes: false,
+                        includeCell: true,
+                        backgroundColor: '#ffffff',
+                        renderMode: 'studio-shadow',
+                        sphereQuality: 'ultra'
+                    }
+                });
+                return {
+                    width: image.width,
+                    height: image.height,
+                    bytes: image.bytes,
+                    dataUrl: image.dataUrl
+                };
+            }""")
+            assert rendered["width"] == 420
+            assert rendered["height"] == 420
+            assert rendered["bytes"] > 0
+            image_bytes = base64.b64decode(rendered["dataUrl"].split(",", 1)[1])
+            with Image.open(io.BytesIO(image_bytes)) as image:
+                assert image.size == (420, 420)
+                pixels = np.asarray(image.convert("RGB"), dtype=np.float32)
+            assert float(pixels.std()) > 12.0
             browser.close()
     finally:
         editor.close()
@@ -1949,6 +2070,23 @@ def test_image_export_modal_is_the_authoritative_retina_preview(tmp_path):
             assert live["profile"]["options"]["sunTarget"] == pytest.approx([1.25, 0.5, -0.75])
             assert live["previewProjection"] == pytest.approx(live["directProjection"])
 
+            page.evaluate("""() => {
+                window.__imageExportProgress = [];
+                const progress = document.getElementById('busy-progress');
+                new MutationObserver(() => {
+                    const value = Number(progress.getAttribute('aria-valuenow'));
+                    if (Number.isFinite(value)) {
+                        window.__imageExportProgress.push({
+                            value,
+                            eta: document.getElementById('busy-progress-eta')?.textContent || '',
+                            message: document.getElementById('busy-message')?.textContent || ''
+                        });
+                    }
+                }).observe(progress, {
+                    attributes: true,
+                    attributeFilter: ['aria-valuenow']
+                });
+            }""")
             with page.expect_download(timeout=60_000) as download_info:
                 page.click('#modal-export-image')
             download = download_info.value
@@ -1957,6 +2095,17 @@ def test_image_export_modal_is_the_authoritative_retina_preview(tmp_path):
             page.wait_for_function(
                 "document.getElementById('modal-container').classList.contains('hidden') && "
                 "window.__ASE_APP__.renderer.lastExportPreview?.outputSize?.join(',') === '640,640'"
+            )
+            image_progress = page.evaluate("window.__imageExportProgress")
+            progress_values = [entry["value"] for entry in image_progress]
+            assert progress_values
+            assert progress_values == sorted(progress_values)
+            assert progress_values[-1] == 100
+            assert progress_values.count(100) == 1
+            assert any(
+                entry["eta"] and entry["eta"] != "Complete"
+                for entry in image_progress
+                if entry["value"] < 100
             )
 
             exported = Image.open(output).convert('RGBA')
@@ -4947,6 +5096,99 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             assert redo_restored["up"] == pytest.approx(
                 undo_moved["camera"]["up"], abs=1e-8
             )
+
+            visual_baseline = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.resetHistoryTimeline();
+                return {
+                    color: app.state.display.labelColors.O || null,
+                    rendered: app.labelVisualColor('O')
+                };
+            }""")
+            page.evaluate("""() => {
+                const input = document.querySelector('.label-color-input[data-atom-label="O"]');
+                input.value = '#12a4d9';
+                input.dispatchEvent(new Event('input', {bubbles: true}));
+                input.dispatchEvent(new Event('change', {bubbles: true}));
+            }""")
+            page.wait_for_function(
+                "window.__ASE_APP__.undoTimeline.length === 1"
+                " && window.__ASE_APP__.undoTimeline[0].kind === 'visual'"
+            )
+            assert page.evaluate(
+                "window.__ASE_APP__.state.display.labelColors.O"
+            ) == "#12a4d9"
+
+            page.locator("#app-viewport canvas").focus()
+            page.keyboard.press("Control+z")
+            page.wait_for_function(
+                "window.__ASE_APP__.undoTimeline.length === 0"
+                " && window.__ASE_APP__.redoTimeline.length === 1"
+            )
+            visual_undone = page.evaluate("""() => ({
+                color: window.__ASE_APP__.state.display.labelColors.O || null,
+                rendered: window.__ASE_APP__.labelVisualColor('O')
+            })""")
+            assert visual_undone == visual_baseline
+
+            page.keyboard.press("Control+Shift+z")
+            page.wait_for_function(
+                "window.__ASE_APP__.undoTimeline.length === 1"
+                " && window.__ASE_APP__.redoTimeline.length === 0"
+            )
+            assert page.evaluate("""() => ({
+                color: window.__ASE_APP__.state.display.labelColors.O,
+                rendered: window.__ASE_APP__.labelVisualColor('O')
+            })""") == {
+                "color": "#12a4d9",
+                "rendered": "#12a4d9",
+            }
+
+            appearance_baseline = page.evaluate("""() => ({
+                radius: window.__ASE_APP__.state.display.labelRadii.O,
+                material: window.__ASE_APP__.state.display.labelMaterials.O || 'standard'
+            })""")
+            changed_radius = appearance_baseline["radius"] + 0.17
+            page.evaluate("""value => {
+                const input = document.querySelector(
+                    '.label-radius-input[data-atom-label="O"]'
+                );
+                input.value = value;
+                input.dispatchEvent(new Event('input', {bubbles: true}));
+                input.dispatchEvent(new Event('change', {bubbles: true}));
+            }""", f"{changed_radius:.4f}")
+            page.wait_for_function("window.__ASE_APP__.undoTimeline.length === 2")
+            page.evaluate("""() => {
+                const select = document.querySelector(
+                    '.appearance-material-select[data-atom-label="O"]'
+                );
+                select.value = 'metal';
+                select.dispatchEvent(new Event('change', {bubbles: true}));
+            }""")
+            page.wait_for_function("window.__ASE_APP__.undoTimeline.length === 3")
+
+            page.locator("#app-viewport canvas").focus()
+            page.keyboard.press("Control+z")
+            page.wait_for_function("window.__ASE_APP__.undoTimeline.length === 2")
+            material_undone = page.evaluate("""() => ({
+                radius: window.__ASE_APP__.state.display.labelRadii.O,
+                material: window.__ASE_APP__.state.display.labelMaterials.O || 'standard'
+            })""")
+            assert material_undone["radius"] == pytest.approx(changed_radius)
+            assert material_undone["material"] == appearance_baseline["material"]
+
+            page.keyboard.press("Control+z")
+            page.wait_for_function("window.__ASE_APP__.undoTimeline.length === 1")
+            appearance_undone = page.evaluate("""() => ({
+                color: window.__ASE_APP__.state.display.labelColors.O,
+                radius: window.__ASE_APP__.state.display.labelRadii.O,
+                material: window.__ASE_APP__.state.display.labelMaterials.O || 'standard'
+            })""")
+            assert appearance_undone == {
+                "color": "#12a4d9",
+                "radius": appearance_baseline["radius"],
+                "material": appearance_baseline["material"],
+            }
 
             orbit_baseline = page.evaluate("""() => {
                 const app = window.__ASE_APP__;

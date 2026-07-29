@@ -34,8 +34,8 @@ Press these keys to enter transformation mode:
 | **Enter / Left Click** | **Confirm** | Confirm the current atom or Sun transform. |
 | **Ctrl+C** | **Copy** | Copy selected atoms to the editor clipboard. |
 | **Ctrl+V** | **Paste** | Paste copied atoms near the selected center. |
-| **Ctrl+Z** | **Undo** | Restore the previous structure state. |
-| **Ctrl+Shift+Z** | **Redo** | Restore the next structure state after undo. |
+| **Ctrl+Z** | **Undo** | Restore the previous structure, camera, appearance, bond, lighting, or view action. |
+| **Ctrl+Shift+Z** | **Redo** | Reapply the next action after undo. |
 | **Delete / Backspace** | **Delete** | Delete selected atoms through the backend and remap supported constraints. |
 | **Space** | **Play/Pause** | Toggle playback for the timeline selected below the viewport. |
 | **Left / Right Arrow** | **Previous / Next Frame** | Move one frame in the selected source or relaxation timeline. |

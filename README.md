@@ -9,9 +9,10 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 `v_ase` brings ASE's convenient terminal and Python workflow together with
-direct, Blender-style 3D structure editing. Open a structure or trajectory
-with one command, inspect and measure it in a local browser, modify atoms when
-needed, and export publication or CAD-ready results.
+direct, Blender-style 3D structure editing and a semantic interface for AI
+agents. Open a structure or trajectory with one command, inspect and measure
+it in a local browser, edit it manually or by natural-language instruction,
+and export publication- or CAD-ready results.
 
 ![Phosphorene nanoribbon manipulation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_phosphorene_twist.gif)
 
@@ -89,6 +90,30 @@ browser document releases the blocking terminal process.
 > **Viewport tip:** after selecting atoms, press `Esc` to close the control
 > panel before using `G` or `R`. The selection is preserved and keyboard focus
 > returns to the 3D viewport.
+
+## Ask An AI To Edit A Structure
+
+Give an AI the bundled [v_ase agent skill](#ai-and-agent-use), then describe
+the scientific result rather than a sequence of mouse actions:
+
+> From this 6 x 6 graphene sheet, remove the carbon nearest the cell center,
+> convert its three nearest neighbors to pyridinic nitrogen, preserve PBC and
+> bonds, use a clean +Z studio-shadow view, and render a 4K image.
+
+![Natural-language pyridinic N3 graphene edit](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_edit.gif)
+
+The agent reads atom identities, coordinates, cell, PBC, selection, and camera
+directly from v_ase's semantic state. It resolves the target indices, performs
+the edit, verifies the resulting 71-atom structure and three
+`N_pyridinic` labels, then renders the same document a human can continue
+editing. No screenshot OCR or coordinate guessing is required.
+
+This example is generated entirely from `ase.build.graphene`, so it contains
+no copied structure or private data:
+
+- [source graphene CIF](examples/readme_scene_assets/ai_graphene_source.cif)
+- [edited pyridinic N3 CIF](examples/readme_scene_assets/ai_pyridinic_n3_graphene.cif)
+- [ASE trajectory preserving labels](examples/readme_scene_assets/ai_pyridinic_n3_graphene.traj)
 
 ## Structure Manipulation
 
@@ -210,8 +235,9 @@ visualization is local to each atom rather than merged at a group center.
 
 ### FixedLine
 
-A compact cyan collar and local axis remain visible without selection. During
-`G`, ASE restricts the atom to that line.
+A compact cyan collar and local axis remain visible without selection. The
+close crop below keeps the constrained ion and its channel context readable.
+During `G`, ASE restricts the atom to that line.
 
 ![FixedLine movement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedline.gif)
 
@@ -310,6 +336,20 @@ View mode applies appearance by label. Edit mode can keep per-atom material
 overrides. Relabeling does not reorder the table or merge otherwise distinct
 atom types accidentally.
 
+![Standard Metal and Rubber atom materials](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_materials.png)
+
+The comparison uses three identical Cu13 clusters with the same element color
+and radius, so only the optical material changes:
+
+| Material | Visual response | Typical use |
+| --- | --- | --- |
+| Standard | Balanced diffuse color and compact highlight | General structures and chemically neutral figures |
+| Metal | Strong environment reflection and bright metallic highlight | Metals, electrodes, and reflective surfaces |
+| Rubber | High roughness with broad, muted highlights | Soft visual grouping and low-glare nonmetal regions |
+
+Materials affect rendering only. ASE elements, coordinates, calculators, and
+constraints are unchanged.
+
 ![Pairwise bond settings](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_bonds.png)
 
 **Structure > Bonding** provides automatic inference, explicit label-pair
@@ -358,12 +398,13 @@ file**. That message is Chrome's File System Access permission notice: v_ase
 can write only to the destination selected in that picker. Browser code cannot
 hide the notice while retaining destination selection before rendering.
 
-Video progress covers frame rendering, upload, encoding, and the final file
-write. It increases monotonically, reports an estimated remaining time, and
-reaches 100% only after the output has been written. Every source frame is
-retained exactly once at `1x`; interpolation adds in-between frames. Visible
-displacement vectors and other selected scene overlays are recalculated for
-each rendered frame.
+Image export uses one determinate progress bar for rendering, pixel capture,
+upload, encoding, download, and the final file write. It reports estimated
+remaining time and reaches 100% once, only after the destination is complete.
+Video export follows the same monotonic rule across all frames and encoding.
+Every source frame is retained exactly once at `1x`; interpolation adds
+in-between frames. Visible displacement vectors and other selected scene
+overlays are recalculated for each rendered frame.
 
 `.vase` is self-contained and does not reference the original input file.
 Opening an ordinary structure in an existing tab keeps the current visual
@@ -493,7 +534,7 @@ oxygen atoms remain ASE element `O`.
 | `Enter` or left click | Confirm transform |
 | `Esc` or right click | Cancel transform |
 | `Ctrl+C`, `Ctrl+V` | Copy and paste atoms |
-| `Ctrl+Z`, `Ctrl+Shift+Z` | Undo and redo structure or camera changes |
+| `Ctrl+Z`, `Ctrl+Shift+Z` | Undo and redo structure, camera, appearance, bond, and rendering changes |
 | `Delete` / `Backspace` | Delete selected atoms |
 | `Space` | Play or pause the active timeline |
 | Left / Right Arrow | Previous / next frame in the active timeline |

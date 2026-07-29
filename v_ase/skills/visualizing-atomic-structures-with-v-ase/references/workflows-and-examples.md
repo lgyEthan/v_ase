@@ -3,12 +3,13 @@
 ## Contents
 
 1. Publication Image
-2. Phosphorene Slice Rotation
-3. Constraint-Aware Edit
-4. Ordered Measurement
-5. Trajectory Analysis And Video
-6. Periodic Supercell Measurement
-7. Multi-Document Human Handoff
+2. Natural-Language Defect Edit
+3. Phosphorene Slice Rotation
+4. Constraint-Aware Edit
+5. Ordered Measurement
+6. Trajectory Analysis And Video
+7. Periodic Supercell Measurement
+8. Multi-Document Human Handoff
 
 These templates are starting points. Preserve the plan, validate, execute, and
 verify sequence even when parameters change.
@@ -69,6 +70,95 @@ if (image.width !== 3840 || image.height !== 2160 || image.bytes <= 0) {
 ```
 
 Output: a lossless WebP data URL and the same live view at `human_url`.
+
+## Natural-Language Defect Edit
+
+Input: `examples/readme_scene_assets/ai_graphene_source.cif`.
+
+Example user intent:
+
+> Remove the carbon nearest the cell center, convert its three nearest
+> neighbors to pyridinic nitrogen, preserve PBC and bonds, use a clean +Z
+> studio-shadow view, and render a 4K image.
+
+This request explicitly authorizes deletion and element changes. Resolve the
+indices from semantic state, never from pixel coordinates:
+
+```javascript
+await ai.apply({mode: "edit", applyConstraints: true});
+const before = await ai.describe({includePositions: true});
+if (before.atomCount !== 72 || before.chemicalSymbols.some(symbol => symbol !== "C")) {
+  throw new Error("Expected the generated 72-atom graphene source.");
+}
+
+const center = [0, 1, 2].map(axis =>
+  0.5 * (before.cell[0][axis] + before.cell[1][axis])
+);
+center[2] = before.positions.reduce((sum, position) => sum + position[2], 0)
+  / before.atomCount;
+const distance = (left, right) => Math.hypot(
+  left[0] - right[0],
+  left[1] - right[1],
+  left[2] - right[2]
+);
+const vacancy = before.positions
+  .map((position, index) => ({index, distance: distance(position, center)}))
+  .sort((left, right) => left.distance - right.distance)[0].index;
+const neighborsBefore = before.positions
+  .map((position, index) => ({
+    index,
+    distance: index === vacancy
+      ? Number.POSITIVE_INFINITY
+      : distance(position, before.positions[vacancy])
+  }))
+  .sort((left, right) => left.distance - right.distance)
+  .slice(0, 3)
+  .map(entry => entry.index);
+
+await ai.apply({
+  selection: {clear: true, indices: [vacancy]},
+  operation: {name: "delete-selection", indices: [vacancy]}
+});
+const neighborsAfter = neighborsBefore.map(
+  index => index - (index > vacancy ? 1 : 0)
+);
+await ai.apply({
+  selection: {clear: true, indices: neighborsAfter},
+  operation: {
+    name: "set-identity",
+    indices: neighborsAfter,
+    label: "N_pyridinic",
+    element: "N"
+  }
+});
+await ai.apply({
+  display: {
+    showBonds: true,
+    showGrid: false,
+    showAxes: false,
+    viewportBackground: "white",
+    lightingMode: "studio-shadow",
+    labelColors: {C: "#686d73", N_pyridinic: "#3157d5"},
+    labelMaterials: {C: "standard", N_pyridinic: "metal"}
+  },
+  quality: {antiAliasing: true, sphereQuality: "ultra"},
+  camera: {axis: "+Z", fit: "structure"}
+});
+
+const final = await ai.describe({includePositions: true});
+if (
+  final.atomCount !== 71
+  || final.chemicalSymbols.filter(symbol => symbol === "N").length !== 3
+  || final.labels.filter(label => label === "N_pyridinic").length !== 3
+) {
+  throw new Error("The pyridinic N3 edit failed semantic verification.");
+}
+```
+
+Render with the Publication Image request above and verify exact dimensions,
+nonblank decoded pixels, and the three blue nitrogen atoms around one vacancy.
+Save to a new filename. The README source and expected result are generated
+from `ase.build.graphene`; no external coordinates or private data are used.
 
 ## Phosphorene Cumulative Tail Rotation
 

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.0.107
+
+- Added debounced visual-state history so Ctrl+Z/Ctrl+Shift+Z restores atom
+  colors, radii, materials, bonds, lighting, view styling, and export display
+  settings without copying large per-atom maps on every input event.
+- Replaced repeated image-export completion cycles with one monotonic
+  render/capture/encode/write progress bar, an estimated remaining time, and a
+  single 100% state after the selected destination is complete.
+- Added a semantic AI editing example that builds a pyridinic N3 graphene
+  vacancy from an ASE-generated source, verifies the resulting structure, and
+  publishes source/result CIF files and current-interface media.
+- Added a same-geometry Standard/Metal/Rubber comparison and documented the
+  optical meaning of each material without conflating it with ASE chemistry.
+- Enlarged and regenerated the FixedLine documentation capture while retaining
+  the nanotube channel context.
+- Expanded browser, scene-asset, README, and agent-skill evaluation coverage
+  for the new workflows.
+
 ## 0.0.106
 
 - Replaced the arbitrary 15-degree phosphorene edits with the 36-degree

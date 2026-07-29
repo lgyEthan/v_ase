@@ -110,14 +110,20 @@ and documentation use `view()`.
 24. Physical Cartesian or fractional `translate-all` applies to every
     trajectory frame and never changes the unit cell. Fractional vectors use
     the complete, potentially non-orthogonal cell matrix.
-25. Browser history interleaves structural mutations and camera changes.
+25. Browser history interleaves structural mutations, camera changes, and
+    visual settings.
     `Ctrl+Z` and `Ctrl+Shift+Z` restore the most recent action in chronological
     order, including orbit, pan, zoom, projection, axis alignment, toolbar
-    rotation, and atomic-scale camera changes.
+    rotation, atomic-scale camera changes, appearance, bonds, lighting, and
+    view styling. Continuous visual inputs are debounced into one action and
+    snapshot only after the edit settles, avoiding per-event copies of large
+    atom-material maps.
 26. Native save destinations are selected before export generation begins.
     Canceling the picker must not call structure generation, image rendering,
     video capture/transcoding, or CAD/Blender scene construction. Browsers
-    without the File System Access API retain the download fallback.
+    without the File System Access API retain the download fallback. Image
+    export uses one monotonic render/capture/encode/write progress sequence,
+    reports ETA, and emits 100% only after the selected file is complete.
 27. Every browser mutation and structure/CAD export carries the displayed
     `frame_index`. The backend synchronizes that frame before consuming
     coordinates, constraints, labels, calculator state, or export payloads.

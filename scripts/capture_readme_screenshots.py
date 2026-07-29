@@ -29,6 +29,8 @@ from examples.readme_scenes import (
     make_ferrocene_scene,
     make_graphene_hbn_commensurate_scene,
     make_hookean_surface_scene,
+    make_ai_pyridinic_graphene_scene,
+    make_material_preset_scene,
     make_phosphorene_twist_scene,
     make_surface_fixedplane_scene,
     make_cnt_fixedline_scene,
@@ -860,16 +862,195 @@ def capture_bond_media(browser) -> None:
         editor.close()
 
 
+def capture_material_media(browser) -> None:
+    atoms, _ = make_material_preset_scene()
+    editor, page = open_scene(browser, atoms, show_bonds=False)
+    try:
+        set_display(page, {
+            "atomRadiusScale": 0.62,
+            "showBonds": False,
+            "showCell": False,
+            "showAxes": False,
+            "showGrid": True,
+            "viewportBackground": "white",
+            "labelMaterials": {
+                "Cu_standard": "standard",
+                "Cu_metal": "metal",
+                "Cu_rubber": "rubber",
+            },
+        })
+        page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            app.state.labelOrder = ['Cu_standard', 'Cu_metal', 'Cu_rubber'];
+            app.renderAppearanceRows();
+        }""")
+        configure_inspector(page, "structure", ["appearance"], width=560)
+        scene_center = np.mean(atoms.positions, axis=0)
+        target = scene_center + np.array([3.8, 0.0, 0.0])
+        settle_view(
+            page,
+            target=target.tolist(),
+            position=(target + np.array([0.0, -24.0, 10.0])).tolist(),
+            fov=34,
+        )
+        set_atomic_scale(page, 41.0)
+        set_readme_lighting(
+            page,
+            scene_center.tolist(),
+            intensity=3.15,
+            position_offset=(-11.0, -14.0, 18.0),
+        )
+        page.screenshot(path=ASSET_DIR / "readme_materials.png")
+    finally:
+        page.close()
+        editor.close()
+
+
+def capture_ai_edit_media(browser) -> None:
+    source, expected_final, metadata = make_ai_pyridinic_graphene_scene()
+    editor, page = open_scene(browser, source, show_bonds=True)
+    try:
+        page.wait_for_function("window.v_aseAI")
+        set_display(page, {
+            "atomRadiusScale": 0.58,
+            "bondThickness": 0.18,
+            "showBonds": True,
+            "showCell": True,
+            "showAxes": False,
+            "showGrid": False,
+            "viewportBackground": "white",
+            "labelColors": {
+                "C": "#686d73",
+                "N_pyridinic": "#3157d5",
+            },
+            "labelMaterials": {
+                "C": "standard",
+                "N_pyridinic": "metal",
+            },
+        })
+        configure_inspector(page, "structure", ["appearance"], width=500)
+        target = np.mean(source.positions, axis=0)
+        set_camera(
+            page,
+            target=target.tolist(),
+            position=(target + np.array([0.0, 0.0, 28.0])).tolist(),
+            up=(0, 1, 0),
+            fov=34,
+        )
+        set_atomic_scale(page, 72.0)
+        set_readme_lighting(
+            page,
+            target.tolist(),
+            intensity=3.05,
+            position_offset=(-10.0, -12.0, 18.0),
+        )
+
+        frames: list[Image.Image] = []
+
+        def hold(count: int) -> None:
+            page.wait_for_timeout(50)
+            frame = screenshot_frame(page)
+            frames.extend(frame.copy() for _ in range(count))
+
+        hold(6)
+        set_selection(page, [metadata["vacancy_index"]])
+        hold(5)
+        page.evaluate(
+            """async (index) => {
+                await window.v_aseAI.apply({
+                    mode: 'edit',
+                    selection: {clear: true, indices: [index]},
+                    operation: {name: 'delete-selection', indices: [index]}
+                });
+            }""",
+            metadata["vacancy_index"],
+        )
+        page.wait_for_function(
+            "window.__V_ASE_APP__.state.atoms.positions.length === 71"
+        )
+        hold(7)
+        set_selection(page, metadata["neighbors_after"])
+        hold(5)
+        page.evaluate(
+            """async (indices) => {
+                await window.v_aseAI.apply({
+                    selection: {clear: true, indices},
+                    operation: {
+                        name: 'set-identity',
+                        indices,
+                        label: 'N_pyridinic',
+                        element: 'N'
+                    }
+                });
+            }""",
+            metadata["neighbors_after"],
+        )
+        page.wait_for_function(
+            "window.__V_ASE_APP__.state.atoms.symbols.filter(label => label === 'N_pyridinic').length === 3"
+        )
+        set_display(page, {
+            "labelColors": {
+                "C": "#686d73",
+                "N_pyridinic": "#3157d5",
+            },
+            "labelMaterials": {
+                "C": "standard",
+                "N_pyridinic": "metal",
+            },
+        })
+        set_selection(page, metadata["neighbors_after"])
+        hold(9)
+        set_selection(page, [])
+        hold(8)
+
+        final_state = page.evaluate("""() => {
+            const atoms = window.__V_ASE_APP__.state.atoms;
+            return {
+                positions: atoms.positions,
+                chemicalSymbols: atoms.chemical_symbols,
+                labels: atoms.symbols
+            };
+        }""")
+        if not np.allclose(final_state["positions"], expected_final.positions):
+            raise AssertionError("AI README edit did not reproduce the generated final coordinates.")
+        if final_state["chemicalSymbols"] != expected_final.get_chemical_symbols():
+            raise AssertionError("AI README edit did not reproduce the generated final elements.")
+
+        save_gif(frames, ASSET_DIR / "readme_ai_edit.gif", duration=110)
+        frames[-1].save(ASSET_DIR / "readme_ai_edit.png", optimize=True)
+    finally:
+        page.close()
+        editor.close()
+
+
 def capture_constraint_media(browser) -> None:
     fixedline_atoms, line_idx = make_cnt_fixedline_scene()
     editor, page = open_scene(browser, fixedline_atoms, show_bonds=True)
     try:
-        set_display(page, {"atomRadiusScale": 0.54, "showBonds": True, "showGrid": True})
+        set_display(page, {
+            "atomRadiusScale": 0.62,
+            "showBonds": True,
+            "showGrid": False,
+            "showCell": False,
+            "showAxes": False,
+            "viewportBackground": "white",
+        })
         set_selection(page, [line_idx["ion"]])
         configure_inspector(page, "structure", ["constraints", "transform"])
-        target = [7.0, 7.0, line_idx["z_length"] * 0.52]
-        settle_view(page, target=target, position=[16.5, -6.2, line_idx["z_length"] * 0.72], fov=38)
-        set_readme_lighting(page, target, intensity=2.8)
+        target = np.asarray(fixedline_atoms.positions[line_idx["ion"]], dtype=float)
+        settle_view(
+            page,
+            target=target.tolist(),
+            position=(target + np.array([6.2, -8.4, 4.8])).tolist(),
+            fov=34,
+        )
+        set_atomic_scale(page, 118.0)
+        set_readme_lighting(
+            page,
+            target.tolist(),
+            intensity=2.9,
+            position_offset=(-7.0, -10.0, 12.0),
+        )
         page.screenshot(path=ASSET_DIR / "readme_constraints.png")
         enter_mode(page, "MOVE", "Z")
         capture_animation(
@@ -1123,6 +1304,8 @@ def main() -> int:
             "ferrocene",
             "commensurate",
             "bonds",
+            "materials",
+            "ai",
             "constraints",
             "measurement",
             "relaxation",
@@ -1149,6 +1332,8 @@ def main() -> int:
                 "ferrocene": capture_ferrocene_media,
                 "commensurate": capture_commensurate_media,
                 "bonds": capture_bond_media,
+                "materials": capture_material_media,
+                "ai": capture_ai_edit_media,
                 "constraints": capture_constraint_media,
                 "measurement": capture_measurement_media,
                 "relaxation": capture_relaxation_media,

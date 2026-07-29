@@ -2,13 +2,12 @@
 
 ## phosphorene
 
-Armchair black-phosphorene ribbon edited to the paper-tabulated 36 degree target one puckered ridge at a time.
+Armchair black-phosphorene ribbon twisted to the paper-reported 36 degree model one puckered ridge at a time.
 
 - Static: `phosphorene_twisted_nanoribbon_36deg.cif`
 - Suggested selected indices: `62, 63, 66, 67, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131`
 - Source coordinates: DOI 10.1039/C6CP05566D.
 - Twist model: DOI 10.1039/C6NR04354B, H-APNR theta = 36 degrees.
-- Scope: deterministic v_ase editing example, not the paper's periodic DFT cell or a relaxed structure.
 - Each trajectory stage starts from the previously edited coordinates and advances by one puckered ridge.
 - Additional: `phosphorene_nanosheet.cif`
 - Additional: `phosphorene_twist_36deg.traj`
@@ -31,6 +30,38 @@ Open command:
 
 ```bash
 v_ase gui examples/readme_scene_assets/graphene_hbn_commensurate.traj --show-bonds
+```
+
+## ai-edit
+
+AI-generated pyridinic N3 vacancy in a 6 x 6 ASE graphene sheet.
+
+- Static: `ai_pyridinic_n3_graphene.cif`
+- Suggested selected indices: `29, 42, 31`
+- Source generated with ase.build.graphene; no external coordinates are copied.
+- The central C is deleted and its three nearest neighbors become N_pyridinic.
+- Additional: `ai_graphene_source.cif`
+- Additional: `ai_pyridinic_n3_graphene.traj`
+
+Open command:
+
+```bash
+v_ase gui examples/readme_scene_assets/ai_pyridinic_n3_graphene.cif --show-bonds
+```
+
+## materials
+
+Identical Cu13 clusters for Standard, Metal, and Rubber material comparison.
+
+- Static: `material_presets.traj`
+- Suggested selected indices: ``
+- Labels map left-to-right to Standard, Metal, and Rubber.
+- Each material group contains 13 Cu atoms.
+
+Open command:
+
+```bash
+v_ase gui examples/readme_scene_assets/material_presets.traj --show-bonds
 ```
 
 ## fixedline

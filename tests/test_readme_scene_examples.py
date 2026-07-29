@@ -10,8 +10,10 @@ from PIL import Image
 
 from examples.readme_scenes import (
     SCENE_NAMES,
+    make_ai_pyridinic_graphene_scene,
     make_black_phosphorene_unit_cell,
     make_crowded_c60_relaxation_scene,
+    make_material_preset_scene,
     make_phosphorene_twist_scene,
     write_scene_assets,
 )
@@ -27,6 +29,8 @@ def test_readme_scene_assets_write_reopenable_traj_files(tmp_path):
     assert set(SCENE_NAMES) == {
         "phosphorene",
         "commensurate",
+        "ai-edit",
+        "materials",
         "fixedline",
         "fixedplane",
         "hookean",
@@ -49,6 +53,10 @@ def test_readme_scene_assets_write_reopenable_traj_files(tmp_path):
     assert "crowded_c60_relaxed.cif" in written_names
     assert "crowded_c60_relaxation.traj" in written_names
     assert "ethane_measurement.cif" in written_names
+    assert "ai_graphene_source.cif" in written_names
+    assert "ai_pyridinic_n3_graphene.cif" in written_names
+    assert "ai_pyridinic_n3_graphene.traj" in written_names
+    assert "material_presets.traj" in written_names
     assert not any(path.name.endswith("_motion.traj") for path in written)
 
     fixedline = read(tmp_path / "fixedline.traj")
@@ -165,6 +173,36 @@ def test_relaxation_scene_is_an_actual_fire_trajectory_with_lower_repulsion():
     assert not np.allclose(initial.positions, relaxed.positions)
 
 
+def test_ai_graphene_scene_is_generated_and_matches_the_n3_vacancy_edit():
+    source, final, metadata = make_ai_pyridinic_graphene_scene()
+
+    assert len(source) == 72
+    assert len(final) == 71
+    assert source.get_chemical_formula() == "C72"
+    assert final.get_chemical_symbols().count("N") == 3
+    assert atom_labels(final).count("N_pyridinic") == 3
+    assert len(metadata["neighbors_before"]) == 3
+    assert len(metadata["neighbors_after"]) == 3
+    assert all(
+        source.get_distance(
+            metadata["vacancy_index"],
+            index,
+            mic=True,
+        ) == pytest.approx(1.42028166, abs=1e-6)
+        for index in metadata["neighbors_before"]
+    )
+
+
+def test_material_scene_keeps_elements_equal_while_labels_separate_presets():
+    atoms, groups = make_material_preset_scene()
+
+    assert len(atoms) == 39
+    assert set(atoms.get_chemical_symbols()) == {"Cu"}
+    assert list(groups) == ["Cu_standard", "Cu_metal", "Cu_rubber"]
+    assert all(len(indices) == 13 for indices in groups.values())
+    assert set(atom_labels(atoms)) == set(groups)
+
+
 def test_brand_logo_is_native_high_resolution_transparent_png():
     docs_logo = ROOT / "docs" / "assets" / "v_ase-logo.png"
     static_logo = ROOT / "v_ase" / "static" / "v_ase-logo.png"
@@ -191,6 +229,7 @@ def test_brand_logo_generation_uses_approved_palette_and_separated_letter_atoms(
 
 def test_readme_presents_real_manipulation_and_analysis_workflows():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    ai = readme.index("## Ask An AI To Edit A Structure")
     structure = readme.index("## Structure Manipulation")
     select = readme.index("### Select", structure)
     move = readme.index("### Move", select)
@@ -200,7 +239,15 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     commensurate = readme.index("#### Graphene/hBN: Find A Commensurate Rotation", phosphorene)
     measurement = readme.index("## Measurement And Analysis", commensurate)
 
-    assert structure < select < move < rotate < ferrocene < phosphorene < commensurate < measurement
+    assert ai < structure < select < move < rotate < ferrocene < phosphorene < commensurate < measurement
+    assert "remove the carbon nearest the cell center" in readme
+    assert "`N_pyridinic` labels" in readme
+    assert "three" in readme[ai:structure]
+    assert "No screenshot OCR or coordinate guessing is required." in readme
+    assert "Standard Metal and Rubber atom materials" in readme
+    assert "Materials affect rendering only." in readme
+    assert "reaches 100% once" in readme
+    assert "appearance, bond, and rendering changes" in readme
     assert "Try the exact assets" not in readme
     assert "playback of a finished model" in readme
     assert "one half-cell ridge per step" in readme
@@ -214,6 +261,8 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
         "readme_phosphorene_twist.gif",
         "readme_ferrocene_pivot.gif",
         "readme_commensurate.gif",
+        "readme_ai_edit.gif",
+        "readme_materials.png",
         "readme_measurement.gif",
         "readme_displacement.png",
     ):

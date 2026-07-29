@@ -883,21 +883,80 @@ export class ASEApi {
         );
     }
 
-    async encodeImage(image, format = 'png') {
-        if (this.mock) return image;
+    async encodeImage(image, format = 'png', onProgress = null) {
+        if (this.mock) {
+            onProgress?.({ phase: 'complete', ratio: 1 });
+            return image;
+        }
         const requested = String(format).trim().toLowerCase();
         const normalized = ['png', 'jpg', 'jpeg', 'pdf', 'webp'].includes(requested)
             ? requested
             : 'png';
-        return await this.request(
-            `/api/export/image/{session_id}?format=${normalized}`,
-            {
-                method: 'POST',
-                headers: {'Content-Type': 'image/png'},
-                body: image
-            },
-            { expect: 'blob' }
-        );
+        if (typeof onProgress !== 'function') {
+            return await this.request(
+                `/api/export/image/{session_id}?format=${normalized}`,
+                {
+                    method: 'POST',
+                    headers: {'Content-Type': 'image/png'},
+                    body: image
+                },
+                { expect: 'blob' }
+            );
+        }
+
+        const path = this.sessionPath(`/api/export/image/{session_id}?format=${normalized}`);
+        const url = new URL(path, this.baseUrl);
+        return await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', url);
+            xhr.responseType = 'blob';
+            xhr.setRequestHeader('Content-Type', 'image/png');
+            xhr.upload.addEventListener('progress', event => {
+                onProgress({
+                    phase: 'upload',
+                    ratio: event.lengthComputable && event.total > 0
+                        ? event.loaded / event.total
+                        : 0
+                });
+            });
+            xhr.upload.addEventListener('loadend', () => {
+                onProgress({ phase: 'encoding', ratio: 0 });
+            });
+            xhr.addEventListener('progress', event => {
+                onProgress({
+                    phase: 'download',
+                    ratio: event.lengthComputable && event.total > 0
+                        ? event.loaded / event.total
+                        : 0
+                });
+            });
+            xhr.addEventListener('error', () => {
+                reject(new Error(`Cannot reach v_ase server at ${this.baseUrl}. Restart the viewer session and reload this page.`));
+            });
+            xhr.addEventListener('abort', () => {
+                reject(new Error('Image encoding was canceled.'));
+            });
+            xhr.addEventListener('load', async () => {
+                if (xhr.status < 200 || xhr.status >= 300) {
+                    let message = '';
+                    try {
+                        message = await xhr.response?.text();
+                        if ((xhr.getResponseHeader('content-type') || '').includes('application/json')) {
+                            const data = JSON.parse(message);
+                            message = data.detail || data.message || message;
+                        }
+                    } catch {
+                        message = '';
+                    }
+                    reject(new Error(message || `v_ase request failed (${xhr.status})`));
+                    return;
+                }
+                onProgress({ phase: 'complete', ratio: 1 });
+                resolve(xhr.response);
+            });
+            onProgress({ phase: 'upload', ratio: 0 });
+            xhr.send(image);
+        });
     }
 
     async saveVisualSettings(settings) {
