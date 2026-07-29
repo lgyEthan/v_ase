@@ -145,11 +145,14 @@ Run all scenarios, not only static document checks:
     - verify the phosphorene media starts from a flat sheet and records the
       production left-drag marquee selecting ridge 2 through the tail;
     - verify the Transform panel visibly contains Selection COM, X,
-      `2.4`, and **Rotate Selection**, then repeats with the box boundary
+      `1.538889`, and **Rotate Selection**, then repeats with the box boundary
       advanced to ridge 3;
     - verify every actual browser selection matches the intended atom indices,
-      reduces the active tail by one 8-atom puckered ridge, keeps the first
-      ridge fixed, and accumulates exactly 36 degrees after 15 backend commits;
+      reduces the active tail by one 12-atom puckered ridge, keeps the first
+      ridge fixed, and accumulates exactly 13.85 degrees after 9 backend
+      commits;
+    - verify the final phosphorene frames orbit the camera from above the
+      edited ribbon to below it without changing atom coordinates;
     - verify the phosphorene upper/lower ridge labels remain ASE phosphorus and
       render in the documented green/purple sublayer colors;
     - verify the ferrocene media keeps Fe outside the selected ring and places
@@ -168,6 +171,10 @@ Run all scenarios, not only static document checks:
     - compare three identical Cu13 clusters and verify Standard, Metal, and
       Rubber remain visibly distinct without changing ASE element, radius, or
       color;
+    - inspect the Cu2O(111)/Cu(111) bonding scene from strict +Z and verify the
+      complete 6 x 6 primitive oxide / 7 x 7 Cu coincidence cell remains in
+      frame, one interfacial O is top-registered, and only the documented
+      oxide/interface Cu-O label pairs are enabled;
     - play the compressed-C60 FIRE trajectory and verify energy and fmax
       decrease before publishing its relaxation example.
 

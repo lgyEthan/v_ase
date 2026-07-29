@@ -230,19 +230,21 @@ and documentation use `view()`.
     tail, the exact-rotation panel's Selection COM/X/angle controls, and the
     repeated marquee advanced to ridge 3. Successively shorter tail selections
     remain separated by one physical puckered sublayer ridge. The first ridge
-    stays fixed and 15 constraint-aware backend commits on a compact 8 x 4
-    ribbon accumulate the
-    paper-tabulated 36-degree H-APNR target at the final ridge. Upper/lower
-    ridges use green/purple visual labels while both remain ASE phosphorus.
+    stays fixed and 9 constraint-aware backend commits on a short, wide 5 x 6
+    ribbon accumulate the paper-tabulated 13.85-degree H-APNR target at the
+    final ridge. A final camera-only orbit moves from above the edited ribbon
+    to below it. Upper/lower ridges use green/purple visual labels while both
+    remain ASE phosphorus.
     Ferrocene demonstrates both an external Origin/Z orbit and a
     Selection-COM/X ring fold. Graphene/hBN shows
     start/current/commensurate references with world axes hidden, ordered
     ethane selection shows distance/angle/torsion in a viewport-only crop, and
     a separate trajectory scene shows displacement analysis. The bonding scene
-    is a coherent 3 x 3 Cu2O(111) film on 7 x 7 Cu(111), with oxide and
-    interface Cu-O pairs enabled and every Cu-Cu/O-O pair disabled. Tests
-    validate scene construction and live View toggles before media are
-    published.
+    is a top-view, top-registered 6 x 6 primitive Cu2O(111) mesh on 7 x 7
+    Cu(111), with oxide and interface Cu-O pairs enabled and every Cu-Cu/O-O
+    pair disabled. Tests validate the -1.22% coincidence strain, explicit
+    interfacial O/Cu top anchor, all nine coincidence phases, scene
+    construction, and live View toggles before media are published.
 52. Export dialogs use a fixed action footer and independently scrollable body.
     Cancel and Export therefore remain visible at short desktop viewport
     heights while all render controls remain reachable.

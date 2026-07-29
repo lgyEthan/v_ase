@@ -478,7 +478,7 @@ def set_atom_rotation_angle(page, angle_degrees: float, status: str = ""):
     )
 
 
-def set_camera(page, *, target, position, up=(0, 0, 1), fov=38):
+def set_camera(page, *, target, position, up=(0, 0, 1), fov=38, wait_ms=250):
     page.evaluate(
         """({ target, position, up, fov }) => {
             const app = window.__V_ASE_APP__;
@@ -498,7 +498,38 @@ def set_camera(page, *, target, position, up=(0, 0, 1), fov=38):
         }""",
         {"target": target, "position": position, "up": up, "fov": fov},
     )
-    page.wait_for_timeout(250)
+    page.wait_for_timeout(max(0, int(wait_ms)))
+
+
+def append_camera_x_orbit(
+    frames: list[Image.Image],
+    page,
+    *,
+    target: np.ndarray,
+    radius: float,
+    start_degrees: float,
+    end_degrees: float,
+    count: int,
+    fov: float,
+) -> None:
+    """Record an above-to-below camera orbit around the scene X axis."""
+
+    for angle_degrees in np.linspace(start_degrees, end_degrees, max(2, count)):
+        angle = math.radians(float(angle_degrees))
+        offset = np.array([
+            0.0,
+            -radius * math.cos(angle),
+            radius * math.sin(angle),
+        ])
+        set_camera(
+            page,
+            target=target.tolist(),
+            position=(target + offset).tolist(),
+            up=(0, 0, 1),
+            fov=fov,
+            wait_ms=45,
+        )
+        frames.append(screenshot_frame(page))
 
 
 def set_atomic_scale(page, pixels_per_angstrom: float):
@@ -663,6 +694,20 @@ def open_transform_panel_for_capture(page, output_frames: list[Image.Image], *, 
         append_hold(output_frames, page, 1)
     page.click('[data-inspector-group="structure"]')
     page.select_option("#structure-section-select", "transform")
+    page.evaluate("""() => {
+        const panel = document.querySelector('[data-panel="transform"]');
+        const content = document.getElementById('inspector-content');
+        const select = document.getElementById('structure-section-select');
+        if (!panel || !content || !select) return;
+        panel.open = true;
+        const contentTop = content.getBoundingClientRect().top;
+        const top = Math.max(
+            0,
+            content.scrollTop + panel.getBoundingClientRect().top - contentTop
+        );
+        content.scrollTo({top, behavior: 'instant'});
+        select.value = 'transform';
+    }""")
     page.wait_for_function(
         """() => {
             const panel = document.querySelector('[data-panel="transform"]');
@@ -857,10 +902,10 @@ def capture_phosphorene_media(browser) -> None:
         settle_view(
             page,
             target=center.tolist(),
-            position=(center + np.array([0.0, -36.0, 26.0])).tolist(),
+            position=(center + np.array([0.0, -28.0, 26.0])).tolist(),
             fov=34,
         )
-        set_atomic_scale(page, 34.0)
+        set_atomic_scale(page, 42.0)
         set_readme_lighting(
             page,
             center.tolist(),
@@ -901,10 +946,22 @@ def capture_phosphorene_media(browser) -> None:
         if not np.allclose(actual_positions, twisted.positions, atol=2e-5, rtol=0):
             max_error = float(np.max(np.abs(actual_positions - twisted.positions)))
             raise AssertionError(
-                f"Recorded browser edits missed the 36-degree target by {max_error:.3e} A."
+                "Recorded browser edits missed the literature-angle target "
+                f"by {max_error:.3e} A."
             )
         set_selection(page, [])
-        append_hold(rendered_frames, page, 8)
+        append_hold(rendered_frames, page, 4)
+        append_camera_x_orbit(
+            rendered_frames,
+            page,
+            target=center,
+            radius=38.0,
+            start_degrees=43.0,
+            end_degrees=-43.0,
+            count=24,
+            fov=34,
+        )
+        append_hold(rendered_frames, page, 6)
         save_gif(
             rendered_frames,
             ASSET_DIR / "readme_phosphorene_twist.gif",
@@ -1076,7 +1133,12 @@ def capture_bond_media(browser) -> None:
     editor, page = open_scene(browser, atoms, show_bonds=True)
     try:
         set_display(page, {
-            "atomRadiusScale": 0.50,
+            "atomRadiusScale": 0.42,
+            "labelRadii": {
+                "Cu_substrate": 1.18,
+                "Cu_oxide": 1.12,
+                "O_oxide": 0.72,
+            },
             "bondMode": "pairwise",
             "showBonds": True,
             "pairwiseBondRanges": {
@@ -1114,13 +1176,22 @@ def capture_bond_media(browser) -> None:
         })
         configure_inspector(page, "structure", ["bonding"], width=560)
         center = np.mean(atoms.positions, axis=0)
+        center[:2] = 0.5 * (atoms.cell[0, :2] + atoms.cell[1, :2])
+        camera_target = center + np.array([4.8, 0.0, 0.0])
         settle_view(
             page,
-            target=center.tolist(),
-            position=(center + np.array([12.0, -16.0, 11.5])).tolist(),
+            target=camera_target.tolist(),
+            position=(camera_target + np.array([0.0, 0.0, 32.0])).tolist(),
             fov=34,
         )
-        set_atomic_scale(page, 54.0)
+        set_camera(
+            page,
+            target=camera_target.tolist(),
+            position=(camera_target + np.array([0.0, 0.0, 32.0])).tolist(),
+            up=(0, 1, 0),
+            fov=34,
+        )
+        set_atomic_scale(page, 42.0)
         set_readme_lighting(
             page,
             center.tolist(),

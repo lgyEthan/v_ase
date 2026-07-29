@@ -2,20 +2,20 @@
 
 ## phosphorene
 
-Compact 8 x 4 armchair black-phosphorene ribbon twisted to the paper-reported 36 degree model in 15 ridge edits.
+Short, wide 5 x 6 armchair black-phosphorene ribbon twisted to the paper-reported 13.85 degree model in 9 ridge edits.
 
-- Static: `phosphorene_twisted_nanoribbon_36deg.cif`
-- Suggested selected indices: `64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127`
+- Static: `phosphorene_twisted_nanoribbon_13p85deg.cif`
+- Suggested selected indices: `50, 51, 54, 55, 58, 59, 62, 63, 66, 67, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119`
 - Source coordinates: DOI 10.1039/C6CP05566D.
-- Twist model: DOI 10.1039/C6NR04354B, H-APNR theta = 36 degrees.
-- Each of the 15 trajectory edits starts from the previously committed coordinates and advances by one puckered ridge.
+- Twist model: DOI 10.1039/C6NR04354B, H-APNR theta = 13.85 degrees.
+- Each of the 9 trajectory edits starts from the previously committed coordinates and advances by one puckered ridge.
 - Additional: `phosphorene_nanosheet.cif`
-- Additional: `phosphorene_twist_36deg.traj`
+- Additional: `phosphorene_twist_13p85deg.traj`
 
 Open command:
 
 ```bash
-v_ase gui examples/readme_scene_assets/phosphorene_twisted_nanoribbon_36deg.cif --show-bonds
+v_ase gui examples/readme_scene_assets/phosphorene_twisted_nanoribbon_13p85deg.cif --show-bonds
 ```
 
 ## commensurate
@@ -56,7 +56,8 @@ Coherent Cu2O(111)/Cu(111) interface used to demonstrate label-pair bond control
 
 - Static: `cu2o111_on_cu111_pairwise_bonds.traj`
 - Suggested selected indices: ``
-- The 3x3 Cu2O(111) film is matched to 7x7 Cu(111) with about 1.22 percent in-plane compression.
+- A 3x3 ASE conventional surface repeat gives a 6x6 primitive Cu2O(111) mesh matched to 7x7 Cu(111) with about 1.22 percent in-plane compression.
+- One interfacial O is registered directly above a top-layer substrate Cu atom before relaxation.
 - Cu_oxide-O_oxide and Cu_substrate-O_oxide are enabled; Cu-Cu and O-O pairs are disabled.
 - The scene contains 196 substrate Cu, 72 oxide Cu, and 36 oxide O atoms.
 

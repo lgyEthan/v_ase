@@ -210,14 +210,16 @@ For a human-assisted edit, open Edit mode and keep the first puckered ridge
 fixed. Use a visible left-drag box to select the second ridge through the end
 of the ribbon. In **Structure > Transform > Exact selection rotation**, set
 the pivot to Selection COM, axis to X, angle to
-`36 / 15 = 2.4` degrees, and click **Rotate Selection**. Close the panel,
+`13.85 / 9 = 1.538889` degrees, and click **Rotate Selection**. Close the panel,
 left-drag from the third ridge through the end, and repeat from the committed
 coordinates. A ridge is one phosphorus sublayer in a half armchair cell, not
 the two-ridge crystallographic cell. The final ridge must accumulate exactly
-36 degrees, matching the largest H-APNR angle tabulated by Jang et al.
+13.85 degrees, matching an H-APNR angle tabulated by Jang et al.
 (DOI 10.1039/C6NR04354B). This is a deterministic editing workflow that
 borrows the literature angle; do not describe it as the paper's periodic DFT
-cell or as an energy-minimized structure.
+cell or as an energy-minimized structure. The canonical README capture uses a
+short, wide 5 x 6 repeat, nine physical ridge edits, and a camera-only
+above-to-below orbit after the final coordinate commit.
 
 For deterministic semantic editing:
 
@@ -228,15 +230,15 @@ const x = initial.positions.map(position => position[0]);
 const xPlanes = [...new Set(x.map(value => value.toFixed(6)))]
   .map(Number)
   .sort((a, b) => a - b);
-if (xPlanes.length !== 32) {
-  throw new Error(`Expected 32 phosphorene x planes, found ${xPlanes.length}.`);
+if (xPlanes.length !== 20) {
+  throw new Error(`Expected 20 phosphorene x planes, found ${xPlanes.length}.`);
 }
 const planeByX = new Map(xPlanes.map((value, index) => [value.toFixed(6), index]));
 const ridgeIds = x.map(value =>
   Math.floor(planeByX.get(value.toFixed(6)) / 2)
 );
-const ridgeCount = 16;
-const targetTwistDeg = 36;
+const ridgeCount = 10;
+const targetTwistDeg = 13.85;
 const incrementDeg = targetTwistDeg / (ridgeCount - 1);
 
 for (let ridgeStart = 1; ridgeStart < ridgeCount; ridgeStart += 1) {

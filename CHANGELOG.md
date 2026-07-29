@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.0.113
+
+- Reworked the README phosphorene manipulation into a shorter, wider `5 x 6`
+  ribbon with nine real marquee-selection/Selection-COM edits at the
+  paper-tabulated `13.85` degree H-APNR target.
+- Added a camera-only above-to-below orbit after the final phosphorene edit so
+  the complete three-dimensional deformation remains visible.
+- Made the Cu2O(111)/Cu(111) scene's top-site interface registry explicit,
+  documented its `6 x 6` primitive oxide mesh on `7 x 7 Cu(111)`, and added
+  the DFT top/bridge/hollow interface reference.
+- Re-recorded the Cu2O/Cu bond example from a strict top view with the complete
+  coincidence cell and pairwise controls in frame.
+- Updated README assets, generated examples, scientific regressions, internal
+  progress notes, and the vendor-neutral agent skill.
+
 ## 0.0.112
 
 - Replaced the simple oxygen-on-Cu bond demo with a generated coherent

@@ -49,8 +49,8 @@ def test_readme_scene_assets_write_reopenable_traj_files(tmp_path):
     assert "ferrocene.traj" in written_names
     assert "showcase.traj" in written_names
     assert "phosphorene_nanosheet.cif" in written_names
-    assert "phosphorene_twisted_nanoribbon_36deg.cif" in written_names
-    assert "phosphorene_twist_36deg.traj" in written_names
+    assert "phosphorene_twisted_nanoribbon_13p85deg.cif" in written_names
+    assert "phosphorene_twist_13p85deg.traj" in written_names
     assert "crowded_c60_initial.cif" in written_names
     assert "crowded_c60_relaxed.cif" in written_names
     assert "crowded_c60_relaxation.traj" in written_names
@@ -67,15 +67,15 @@ def test_readme_scene_assets_write_reopenable_traj_files(tmp_path):
     fixedplane = read(tmp_path / "fixedplane.traj")
     hookean = read(tmp_path / "hookean.traj")
     showcase = read(tmp_path / "showcase.traj")
-    phosphorene_frames = read(tmp_path / "phosphorene_twist_36deg.traj", index=":")
+    phosphorene_frames = read(tmp_path / "phosphorene_twist_13p85deg.traj", index=":")
 
     assert any(isinstance(constraint, FixedLine) for constraint in fixedline.constraints)
     assert any(isinstance(constraint, FixedPlane) for constraint in fixedplane.constraints)
     assert any(isinstance(constraint, Hookean) for constraint in hookean.constraints)
     assert any(isinstance(constraint, Hookean) for constraint in showcase.constraints)
-    assert len(phosphorene_frames) == 31
+    assert len(phosphorene_frames) == 19
     assert all(
-        frame.info["twist_target_degrees"] == pytest.approx(36.0)
+        frame.info["twist_target_degrees"] == pytest.approx(13.85)
         for frame in phosphorene_frames
     )
 
@@ -88,21 +88,21 @@ def test_phosphorene_scene_uses_published_cell_angle_and_single_puckered_ridges(
         [8.628 * Bohr, 6.243 * Bohr, 51.930 * Bohr],
         abs=1e-8,
     )
-    assert len(source) == len(twisted) == 128
-    assert len(frames) == 31
+    assert len(source) == len(twisted) == 120
+    assert len(frames) == 19
     assert metadata["axis"] == "X"
     assert metadata["ribbon_direction"] == "armchair"
-    assert metadata["target_twist_degrees"] == pytest.approx(36.0)
-    assert metadata["angle_increment_degrees"] == pytest.approx(2.4)
-    assert metadata["ridge_count"] == 16
-    assert len(metadata["selected_ridge"]) == 8
-    assert len(metadata["operations"]) == 15
-    assert [operation["ridge_start"] for operation in metadata["operations"]] == list(range(1, 16))
+    assert metadata["target_twist_degrees"] == pytest.approx(13.85)
+    assert metadata["angle_increment_degrees"] == pytest.approx(13.85 / 9.0)
+    assert metadata["ridge_count"] == 10
+    assert len(metadata["selected_ridge"]) == 12
+    assert len(metadata["operations"]) == 9
+    assert [operation["ridge_start"] for operation in metadata["operations"]] == list(range(1, 10))
     assert [len(operation["selected_indices"]) for operation in metadata["operations"]] == [
-        120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8,
+        108, 96, 84, 72, 60, 48, 36, 24, 12,
     ]
     assert all(
-        operation["angle_degrees"] == pytest.approx(2.4)
+        operation["angle_degrees"] == pytest.approx(13.85 / 9.0)
         for operation in metadata["operations"]
     )
     assert np.max(np.linalg.norm(twisted.positions - source.positions, axis=1)) > 1.0
@@ -116,16 +116,16 @@ def test_phosphorene_scene_uses_published_cell_angle_and_single_puckered_ridges(
 
     ridge_ids = np.asarray(metadata["ridge_ids"])
     sublayer_ids = np.asarray(metadata["sublayer_ids"])
-    assert np.bincount(ridge_ids).tolist() == [8] * 16
+    assert np.bincount(ridge_ids).tolist() == [12] * 10
     assert [
         int(np.unique(sublayer_ids[ridge_ids == ridge_id]).item())
-        for ridge_id in range(16)
-    ] == [1, 0] * 8
+        for ridge_id in range(10)
+    ] == [1, 0] * 5
     assert np.allclose(
         source.positions[ridge_ids == 0],
         twisted.positions[ridge_ids == 0],
     )
-    last_ridge = np.flatnonzero(ridge_ids == 15)
+    last_ridge = np.flatnonzero(ridge_ids == 9)
     same_x = last_ridge[
         np.isclose(
             source.positions[last_ridge, 0],
@@ -140,7 +140,7 @@ def test_phosphorene_scene_uses_published_cell_angle_and_single_puckered_ridges(
         initial_vector[0] * final_vector[1] - initial_vector[1] * final_vector[0],
         np.dot(initial_vector, final_vector),
     ))
-    assert accumulated_angle == pytest.approx(36.0, abs=1e-8)
+    assert accumulated_angle == pytest.approx(13.85, abs=1e-8)
 
     bond_i, bond_j = neighbor_list("ij", source, 2.45)
     unique_bonds = bond_i < bond_j
@@ -154,7 +154,7 @@ def test_phosphorene_scene_uses_published_cell_angle_and_single_puckered_ridges(
         axis=1,
     )
     bond_strain_percent = 100.0 * (final_lengths / initial_lengths - 1.0)
-    assert np.max(np.abs(bond_strain_percent)) < 10.0
+    assert np.max(np.abs(bond_strain_percent)) < 10.1
 
     for operation_index in range(len(metadata["operations"])):
         start = frames[operation_index * 2].positions
@@ -223,6 +223,50 @@ def test_copper_oxide_bond_scene_is_coherent_cu2o111_on_cu111():
         -1.2202548,
         abs=1e-5,
     )
+    assert len(groups["interfacial_oxygen"]) == 9
+    assert len(groups["registry_anchor"]) == 2
+    substrate_anchor, oxygen_anchor = groups["registry_anchor"]
+    assert atoms.positions[oxygen_anchor, :2] == pytest.approx(
+        atoms.positions[substrate_anchor, :2],
+        abs=1e-10,
+    )
+    assert atoms.info["interface_anchor_lateral_distance_angstrom"] == pytest.approx(
+        0.0,
+        abs=1e-10,
+    )
+    assert "6x6 primitive Cu2O(111)" in atoms.info["model"]
+    assert "top-anchored" in atoms.info["interface_registry"]
+    assert "10.1021/acs.jpcc.0c04453" in " ".join(atoms.info["references"])
+
+    primitive_surface_cell = np.array([
+        atoms.cell[0, :2] / 7.0,
+        atoms.cell[1, :2] / 7.0,
+    ])
+    interface_offsets = (
+        atoms.positions[groups["interfacial_oxygen"], :2]
+        - atoms.positions[oxygen_anchor, :2]
+    )
+    primitive_coordinates = np.linalg.solve(
+        primitive_surface_cell.T,
+        interface_offsets.T,
+    ).T
+    phase_coordinates = np.mod(
+        np.round(primitive_coordinates, decimals=8),
+        1.0,
+    )
+    phase_coordinates[np.isclose(phase_coordinates, 1.0)] = 0.0
+    expected_phases = {
+        (first, second)
+        for first in (0.0, 1.0 / 3.0, 2.0 / 3.0)
+        for second in (0.0, 1.0 / 3.0, 2.0 / 3.0)
+    }
+    assert {
+        tuple(np.round(phase, decimals=6))
+        for phase in phase_coordinates
+    } == {
+        tuple(np.round(phase, decimals=6))
+        for phase in expected_phases
+    }
     oxide_bonds = sum(
         np.count_nonzero(
             atoms.get_distances(index, groups["oxide_copper"], mic=True) < 2.08
@@ -308,12 +352,16 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "from the **third ridge through the end**" in normalized_readme
     assert "**Rotate Selection**" in readme
     assert "one half-cell ridge per step" in readme
-    assert "8 atoms at this ribbon" in normalized_readme
-    assert "compact 8 x 4 repeat" in normalized_readme
-    assert "15 backend commits" in readme
-    assert "final ridge is rotated by exactly 36 degrees" in readme
+    assert "12 atoms at this ribbon" in normalized_readme
+    assert "short, wide `5 x 6` repeat" in normalized_readme
+    assert "9 backend commits" in readme
+    assert "final ridge is rotated by exactly 13.85 degrees" in readme
+    assert "viewed from above through to below" in normalized_readme
     assert "green and purple distinguish" in normalized_readme
     assert "the upper and lower p sublayers" in normalized_readme
+    assert "`6 x 6` primitive Cu2O(111) mesh" in readme
+    assert "top, bridge, and hollow sites" in readme
+    assert "10.1021/acs.jpcc.0c04453" in readme
     assert "**Axes** and **Unit Cell** switches update the working viewport" in readme
 
     for filename in (

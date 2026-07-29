@@ -38,7 +38,8 @@ PHOSPHORENE_TWIST_ESI = "https://www.rsc.org/suppdata/c6/nr/c6nr04354b/c6nr04354
 PHOSPHORENE_COLOR_REFERENCE = "https://doi.org/10.1038/srep13927"
 CU2O_111_REFERENCE = "https://doi.org/10.1039/C8CP06023A"
 CU2O_CU_EPITAXY_REFERENCE = "https://doi.org/10.1016/0022-0248(78)90299-3"
-PHOSPHORENE_TWIST_DEGREES = 36.0
+CU2O_CU_INTERFACE_REFERENCE = "https://doi.org/10.1021/acs.jpcc.0c04453"
+PHOSPHORENE_TWIST_DEGREES = 13.85
 PHOSPHORENE_SUBLAYER_COLORS = {
     "P_upper": "#6faf68",
     "P_lower": "#8064a2",
@@ -243,7 +244,13 @@ def make_ai_pyridinic_graphene_scene() -> tuple[Atoms, Atoms, dict[str, object]]
 
 
 def make_copper_oxide_bond_scene() -> tuple[Atoms, dict[str, list[int]]]:
-    """Return a coherent Cu2O(111)/Cu(111) interface model for pairwise bonds."""
+    """Return a top-registered Cu2O(111)/Cu(111) coincidence interface.
+
+    ASE's Cu2O(111) surface cell spans two primitive surface translations.
+    Repeating it 3 x 3 therefore produces the 6 x 6 primitive oxide mesh used
+    with 7 x 7 Cu(111). The unrelaxed lateral origin is fixed by placing one
+    interfacial oxygen directly above a top-layer substrate copper atom.
+    """
 
     copper_lattice = 3.615
     cuprite_lattice = 4.2696
@@ -284,6 +291,39 @@ def make_copper_oxide_bond_scene() -> tuple[Atoms, dict[str, list[int]]]:
         float(np.linalg.norm(oxide.cell[0])) / unstrained_length - 1.0
     )
 
+    substrate_top = np.flatnonzero(
+        np.isclose(
+            substrate.positions[:, 2],
+            np.max(substrate.positions[:, 2]),
+            atol=1e-8,
+        )
+    )
+    oxide_oxygen = np.flatnonzero(
+        np.asarray(oxide.get_chemical_symbols()) == "O"
+    )
+    interfacial_oxygen = oxide_oxygen[
+        np.isclose(
+            oxide.positions[oxide_oxygen, 2],
+            np.min(oxide.positions[oxide_oxygen, 2]),
+            atol=1e-8,
+        )
+    ]
+    substrate_anchor = int(
+        substrate_top[
+            np.argmin(np.linalg.norm(substrate.positions[substrate_top, :2], axis=1))
+        ]
+    )
+    oxide_anchor = int(
+        interfacial_oxygen[
+            np.argmin(np.linalg.norm(oxide.positions[interfacial_oxygen, :2], axis=1))
+        ]
+    )
+    registry_shift = (
+        substrate.positions[substrate_anchor, :2]
+        - oxide.positions[oxide_anchor, :2]
+    )
+    oxide.positions[:, :2] += registry_shift
+
     interface_gap = 1.85
     oxide.positions[:, 2] += (
         float(np.max(substrate.positions[:, 2]))
@@ -306,9 +346,28 @@ def make_copper_oxide_bond_scene() -> tuple[Atoms, dict[str, list[int]]]:
     set_atom_labels(atoms, labels)
     atoms.info.update({
         "readme_scene": "cu2o111_on_cu111_pairwise_bonds",
-        "model": "unrelaxed coherent 3x3 Cu2O(111) on 7x7 Cu(111)",
+        "model": (
+            "unrelaxed top-registered 6x6 primitive Cu2O(111) mesh "
+            "on 7x7 Cu(111)"
+        ),
+        "ase_surface_repeat": [3, 3, 1],
+        "interface_registry": "interfacial O top-anchored coincidence origin",
+        "interface_site_context": (
+            "DFT relaxation reports unsaturated interfacial O bonded to "
+            "substrate Cu at top, bridge, and hollow sites"
+        ),
+        "interface_anchor_lateral_distance_angstrom": float(
+            np.linalg.norm(
+                atoms.positions[substrate_count + oxide_anchor, :2]
+                - atoms.positions[substrate_anchor, :2]
+            )
+        ),
         "in_plane_oxide_strain_percent": 100.0 * in_plane_strain,
-        "references": [CU2O_111_REFERENCE, CU2O_CU_EPITAXY_REFERENCE],
+        "references": [
+            CU2O_111_REFERENCE,
+            CU2O_CU_EPITAXY_REFERENCE,
+            CU2O_CU_INTERFACE_REFERENCE,
+        ],
         "bond_display": (
             "Cu_oxide-O_oxide and Cu_substrate-O_oxide enabled; "
             "all Cu-Cu and O-O pairs disabled"
@@ -326,6 +385,14 @@ def make_copper_oxide_bond_scene() -> tuple[Atoms, dict[str, list[int]]]:
         "oxide_oxygen": [
             index for index, label in enumerate(labels)
             if label == "O_oxide"
+        ],
+        "interfacial_oxygen": [
+            substrate_count + int(index)
+            for index in interfacial_oxygen
+        ],
+        "registry_anchor": [
+            substrate_anchor,
+            substrate_count + oxide_anchor,
         ],
     }
 
@@ -491,9 +558,9 @@ def _cumulative_phosphorene_twist(
 
 
 def make_phosphorene_twist_scene(
-    repeat: tuple[int, int, int] = (8, 4, 1),
+    repeat: tuple[int, int, int] = (5, 6, 1),
     target_twist_degrees: float = PHOSPHORENE_TWIST_DEGREES,
-    frame_count: int = 31,
+    frame_count: int = 19,
 ) -> tuple[Atoms, Atoms, list[Atoms], dict[str, object]]:
     """Build a compact literature-angle model one puckered ridge at a time."""
 
@@ -738,7 +805,8 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
             static_file="cu2o111_on_cu111_pairwise_bonds.traj",
             selected_indices=(),
             notes=(
-                "The 3x3 Cu2O(111) film is matched to 7x7 Cu(111) with about 1.22 percent in-plane compression.",
+                "A 3x3 ASE conventional surface repeat gives a 6x6 primitive Cu2O(111) mesh matched to 7x7 Cu(111) with about 1.22 percent in-plane compression.",
+                "One interfacial O is registered directly above a top-layer substrate Cu atom before relaxation.",
                 "Cu_oxide-O_oxide and Cu_substrate-O_oxide are enabled; Cu-Cu and O-O pairs are disabled.",
                 f"The scene contains {len(groups['substrate_copper'])} substrate Cu, "
                 f"{len(groups['oxide_copper'])} oxide Cu, and "
@@ -763,12 +831,12 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
         _, atoms, _, idx = make_phosphorene_twist_scene()
         info = SceneInfo(
             name=name,
-            description="Compact 8 x 4 armchair black-phosphorene ribbon twisted to the paper-reported 36 degree model in 15 ridge edits.",
-            static_file="phosphorene_twisted_nanoribbon_36deg.cif",
+            description="Short, wide 5 x 6 armchair black-phosphorene ribbon twisted to the paper-reported 13.85 degree model in 9 ridge edits.",
+            static_file="phosphorene_twisted_nanoribbon_13p85deg.cif",
             selected_indices=tuple(idx["selected_range"]),
             notes=(
                 "The relaxed cell and coordinates come from Villegas et al. (DOI 10.1039/C6CP05566D).",
-                "The 36 degree H-APNR target comes from Jang et al. (DOI 10.1039/C6NR04354B).",
+                "The 13.85 degree H-APNR target comes from Jang et al. (DOI 10.1039/C6NR04354B).",
                 "Each selected row is one puckered sublayer ridge, not a full two-ridge unit cell.",
             ),
         )
@@ -822,6 +890,8 @@ STALE_MOTION_FILES = (
     "showcase_first_frame.traj",
     "phosphorene_twisted_nanoribbon_15deg.cif",
     "phosphorene_twist_15deg.traj",
+    "phosphorene_twisted_nanoribbon_36deg.cif",
+    "phosphorene_twist_36deg.traj",
     "ai_pyridinic_n3_graphene.traj",
     "cu111_oxygen_pairwise_bonds.traj",
 )
@@ -849,18 +919,18 @@ def write_scene_assets(out_dir: Path, scene_names: tuple[str, ...] = SCENE_NAMES
             source, static_atoms, frames, idx = make_phosphorene_twist_scene()
             info = SceneInfo(
                 name=name,
-                description="Compact 8 x 4 armchair black-phosphorene ribbon twisted to the paper-reported 36 degree model in 15 ridge edits.",
-                static_file="phosphorene_twisted_nanoribbon_36deg.cif",
+                description="Short, wide 5 x 6 armchair black-phosphorene ribbon twisted to the paper-reported 13.85 degree model in 9 ridge edits.",
+                static_file="phosphorene_twisted_nanoribbon_13p85deg.cif",
                 selected_indices=tuple(idx["selected_range"]),
                 notes=(
                     "Source coordinates: DOI 10.1039/C6CP05566D.",
-                    "Twist model: DOI 10.1039/C6NR04354B, H-APNR theta = 36 degrees.",
-                    "Each of the 15 trajectory edits starts from the previously committed coordinates and advances by one puckered ridge.",
+                    "Twist model: DOI 10.1039/C6NR04354B, H-APNR theta = 13.85 degrees.",
+                    "Each of the 9 trajectory edits starts from the previously committed coordinates and advances by one puckered ridge.",
                 ),
             )
             extra_assets = [
                 ("phosphorene_nanosheet.cif", source),
-                ("phosphorene_twist_36deg.traj", frames),
+                ("phosphorene_twist_13p85deg.traj", frames),
             ]
         elif name == "relaxation":
             initial, static_atoms, frames, metrics = make_crowded_c60_relaxation_scene()
@@ -938,7 +1008,7 @@ def print_written_assets(paths: list[Path], out_dir: Path = DEFAULT_OUT_DIR) -> 
         print(f"  {path}")
     print()
     print("Open them with normal user-facing v_ase commands:")
-    print(f"  v_ase gui {display_path(out_dir / 'phosphorene_twisted_nanoribbon_36deg.cif')} --show-bonds")
+    print(f"  v_ase gui {display_path(out_dir / 'phosphorene_twisted_nanoribbon_13p85deg.cif')} --show-bonds")
     print(f"  v_ase gui {display_path(out_dir / 'crowded_c60_relaxation.traj')} --show-bonds")
     print(f"  v_ase gui {display_path(out_dir / 'graphene_hbn_commensurate.traj')} --show-bonds")
     print(f"  v_ase gui {display_path(out_dir / 'fixedline.traj')} --show-bonds")
