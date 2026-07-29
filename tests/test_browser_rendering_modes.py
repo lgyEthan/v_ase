@@ -52,6 +52,77 @@ def _select_structure_section(page, section):
     )
 
 
+def test_exact_selection_rotation_panel_commits_and_undoes_backend_coordinates():
+    atoms = Atoms(
+        "P3",
+        positions=[
+            [1.0, 0.0, 0.0],
+            [3.0, 0.0, 0.0],
+            [0.0, 5.0, 0.0],
+        ],
+        cell=[10.0, 10.0, 10.0],
+        pbc=False,
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection();
+                app.addSelectionReference(0);
+                app.addSelectionReference(1);
+                app.updateSelectionVisuals();
+                app.updateUI();
+            }""")
+
+            _expand_inspector(page)
+            _select_structure_section(page, "transform")
+            page.select_option("#rotate-pivot", "selection")
+            page.select_option("#selection-rotate-axis", "Z")
+            page.fill("#selection-rotate-angle", "90")
+            page.click("#btn-rotate-selection-exact")
+            page.wait_for_function("""() => {
+                const positions = window.__ASE_APP__.state.atoms.positions;
+                return Math.abs(positions[0][0] - 2) < 1e-6
+                    && Math.abs(positions[0][1] + 1) < 1e-6
+                    && Math.abs(positions[1][0] - 2) < 1e-6
+                    && Math.abs(positions[1][1] - 1) < 1e-6;
+            }""")
+            rotated = page.evaluate("window.__ASE_APP__.state.atoms.positions")
+            assert np.asarray(rotated) == pytest.approx(
+                np.asarray([[2.0, -1.0, 0.0], [2.0, 1.0, 0.0], [0.0, 5.0, 0.0]]),
+                abs=1e-6,
+            )
+
+            page.locator("#app-viewport canvas").focus()
+            page.keyboard.press("Control+z")
+            page.wait_for_function("""() => {
+                const positions = window.__ASE_APP__.state.atoms.positions;
+                return Math.abs(positions[0][0] - 1) < 1e-6
+                    && Math.abs(positions[0][1]) < 1e-6
+                    && Math.abs(positions[1][0] - 3) < 1e-6
+                    && Math.abs(positions[1][1]) < 1e-6;
+            }""")
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_fixed_plane_move_restores_per_atom_motion_plane_guide():
     atoms = Atoms(
         "LiOH",

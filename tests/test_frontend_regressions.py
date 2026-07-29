@@ -1610,3 +1610,16 @@ def test_displacement_analysis_uses_instancing_and_frame_scoped_requests():
     assert "displacementCameraSignature" in renderer_js
     assert "this.supercellTranslations(cell, repetitions)" in renderer_js
     assert "const visibleStart = this.atomMeshByIndex.get(index)?.position" in renderer_js
+
+
+def test_transform_panel_can_apply_an_exact_selection_rotation():
+    index_html = (ROOT / "v_ase" / "static" / "index.html").read_text()
+    main_js = (ROOT / "v_ase" / "static" / "main.js").read_text()
+
+    assert 'id="selection-rotate-axis"' in index_html
+    assert 'id="selection-rotate-angle"' in index_html
+    assert 'id="btn-rotate-selection-exact"' in index_html
+    assert "async rotateSelectionFromPanel()" in main_js
+    assert "this.enterTransformMode('ROTATE')" in main_js
+    assert "this.transform.buffer = String(angleDegrees)" in main_js
+    assert "await this.commitTransform()" in main_js

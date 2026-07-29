@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.109&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.109&rev=1';
-import { ASESelection } from './selection.js?v=0.0.109&rev=1';
-import { ASETransform } from './transform.js?v=0.0.109&rev=1';
+import { ASEApi } from './api.js?v=0.0.110&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.110&rev=1';
+import { ASESelection } from './selection.js?v=0.0.110&rev=1';
+import { ASETransform } from './transform.js?v=0.0.110&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.109&rev=1';
+} from './trajectory.js?v=0.0.110&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -2161,6 +2161,45 @@ class VAseApp {
         const rotateIncrementDeg = Number(document.getElementById('rotate-increment')?.value || 0);
         this.state.moveIncrement = Number.isFinite(moveIncrement) && moveIncrement > 0 ? moveIncrement : 0;
         this.state.rotateIncrementDeg = Number.isFinite(rotateIncrementDeg) && rotateIncrementDeg > 0 ? rotateIncrementDeg : 0;
+    }
+
+    async rotateSelectionFromPanel() {
+        if (!this.canEditAtoms()) {
+            this.editOnlyToast();
+            return;
+        }
+        const editableSelection = [...this.state.selected].filter(index => this.isEditableIndex(index));
+        if (editableSelection.length === 0) {
+            this.toast('Select at least one editable atom before rotating.', 'warning');
+            return;
+        }
+        const axis = document.getElementById('selection-rotate-axis')?.value || 'Z';
+        const angleInput = document.getElementById('selection-rotate-angle');
+        const angleDegrees = Number(angleInput?.value);
+        if (!['X', 'Y', 'Z'].includes(axis) || !Number.isFinite(angleDegrees)) {
+            this.toast('Rotation axis and angle must be valid.', 'error');
+            angleInput?.focus();
+            return;
+        }
+        if (Math.abs(angleDegrees) <= 1e-12) {
+            this.toast('Rotation angle is zero; coordinates were not changed.', 'warning');
+            return;
+        }
+        if (this.transform.mode !== 'IDLE') this.cancelTransform();
+        this.enterTransformMode('ROTATE');
+        if (this.transform.mode !== 'ROTATE') return;
+        this.transform.setAxis(axis, this.renderer.camera);
+        this.configureRotationReference(editableSelection);
+        await this.prepareCommensurateRotation(editableSelection);
+        this.transform.buffer = String(angleDegrees);
+        this.applyTransformPreview();
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        await this.commitTransform();
+        this.toast(
+            `Rotated ${editableSelection.length} atom${editableSelection.length === 1 ? '' : 's'} `
+            + `${angleDegrees.toFixed(3)} deg around ${axis}.`,
+            'success'
+        );
     }
 
     snapScalar(value, increment) {
@@ -9733,6 +9772,10 @@ class VAseApp {
         document.getElementById('rotate-pivot')?.addEventListener('change', () => {
             this.safeApplyDisplayOptions();
             if (this.transform.mode === 'ROTATE') this.toast('Rotate pivot changes apply to the next rotate operation.', 'warning');
+        });
+        document.getElementById('btn-rotate-selection-exact')?.addEventListener('click', () => {
+            this.rotateSelectionFromPanel()
+                .catch(err => this.toast(`Rotation failed: ${err.message}`, 'error'));
         });
         const refreshCommensurateSearch = () => {
             this.applyDisplayOptions();

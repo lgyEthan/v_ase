@@ -1057,6 +1057,40 @@ body.dragging-inspector #inspector-resizer::before {
     transition: transform 120ms ease, top 120ms ease;
 }
 
+.selection-rotation-command {
+    display: grid;
+    gap: 9px;
+    margin: 12px 0 15px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface-faint);
+}
+
+.selection-rotation-command .panel-subhead {
+    margin: 0;
+}
+
+.selection-rotation-fields {
+    display: grid;
+    grid-template-columns: minmax(44px, 0.55fr) minmax(72px, 0.8fr);
+    gap: 7px 10px;
+    align-items: center;
+}
+
+.selection-rotation-fields label {
+    min-width: 0;
+    color: var(--muted);
+    font-size: 0.67rem;
+    font-weight: 650;
+}
+
+.selection-rotation-fields input,
+.selection-rotation-fields select {
+    width: 100%;
+    min-width: 0;
+}
+
 #inspector details:not([open]) > summary.section-header::after {
     top: 9px;
     transform: rotate(-45deg);
@@ -2795,9 +2829,11 @@ body.resizing-pairwise-column * {
 #marquee {
     position: fixed;
     z-index: 500;
-    border: 1px solid var(--amber-border-strong);
+    border: 2px solid var(--amber);
     background: var(--amber-active);
-    box-shadow: inset 0 0 0 1px var(--overlay);
+    box-shadow:
+        inset 0 0 0 1px var(--viewport-light-border),
+        0 0 0 1px var(--overlay);
     pointer-events: none;
 }
 

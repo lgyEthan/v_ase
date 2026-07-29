@@ -225,12 +225,15 @@ and documentation use `view()`.
     start reference.
 51. README scientific scenes are generated from canonical Python constructors
     and captured from the real browser UI. The phosphorene hero records
-    successively shorter tail selections separated by one physical puckered
-    sublayer ridge. The first ridge stays fixed and 21 Selection-COM
-    increments accumulate the paper-tabulated 36-degree H-APNR target at the
-    final ridge. Upper/lower ridges use green/purple visual labels while both
-    remain ASE phosphorus. Ferrocene demonstrates both an external Origin/Z
-    orbit and a Selection-COM/X ring fold. Graphene/hBN shows
+    actual pointer-down/move/up marquee selection from ridge 2 through the
+    tail, the exact-rotation panel's Selection COM/X/angle controls, and the
+    repeated marquee advanced to ridge 3. Successively shorter tail selections
+    remain separated by one physical puckered sublayer ridge. The first ridge
+    stays fixed and 21 constraint-aware backend commits accumulate the
+    paper-tabulated 36-degree H-APNR target at the final ridge. Upper/lower
+    ridges use green/purple visual labels while both remain ASE phosphorus.
+    Ferrocene demonstrates both an external Origin/Z orbit and a
+    Selection-COM/X ring fold. Graphene/hBN shows
     start/current/commensurate references with world axes hidden, ordered
     ethane selection shows distance/angle/torsion in a viewport-only crop, and
     a separate trajectory scene shows displacement analysis. The bonding scene

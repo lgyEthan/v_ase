@@ -553,6 +553,190 @@ def screenshot_frame(page) -> Image.Image:
     return image
 
 
+def append_hold(frames: list[Image.Image], page, count: int) -> None:
+    frame = screenshot_frame(page)
+    frames.extend(frame.copy() for _ in range(max(1, int(count))))
+
+
+def projected_atom_points(page) -> list[dict[str, float | int]]:
+    return page.evaluate(
+        """() => {
+            const app = window.__V_ASE_APP__;
+            const camera = app.renderer.camera;
+            camera.updateMatrixWorld(true);
+            const points = [];
+            app.renderer.forEachAtomProxy((mesh, index) => {
+                if (mesh.visible === false || !app.renderer.atomLabelVisible(index)) return;
+                const point = mesh.position.clone().project(camera);
+                if (![point.x, point.y, point.z].every(Number.isFinite)
+                    || point.z < -1 || point.z > 1) return;
+                points.push({
+                    index,
+                    x: (point.x + 1) * window.innerWidth / 2,
+                    y: (-point.y + 1) * window.innerHeight / 2
+                });
+            });
+            return points;
+        }"""
+    )
+
+
+def tail_selection_rectangle(page, indices: list[int]) -> dict[str, float]:
+    points = projected_atom_points(page)
+    selected_set = {int(index) for index in indices}
+    selected = [point for point in points if int(point["index"]) in selected_set]
+    excluded = [point for point in points if int(point["index"]) not in selected_set]
+    if len(selected) != len(selected_set):
+        raise AssertionError(
+            f"Only {len(selected)} of {len(selected_set)} target atoms project into the viewport."
+        )
+    if not excluded:
+        raise AssertionError("Tail selection needs at least one fixed reference ridge.")
+
+    target_mean = float(np.mean([point["x"] for point in selected]))
+    excluded_mean = float(np.mean([point["x"] for point in excluded]))
+    width, height = MEDIA_SIZE
+    vertical_margin = 28.0
+    if target_mean > excluded_mean:
+        boundary = 0.5 * (
+            min(float(point["x"]) for point in selected)
+            + max(float(point["x"]) for point in excluded)
+        )
+        left = boundary
+        right = min(width - 8.0, max(float(point["x"]) for point in selected) + 34.0)
+    else:
+        boundary = 0.5 * (
+            max(float(point["x"]) for point in selected)
+            + min(float(point["x"]) for point in excluded)
+        )
+        left = max(8.0, min(float(point["x"]) for point in selected) - 34.0)
+        right = boundary
+    top = max(72.0, min(float(point["y"]) for point in selected) - vertical_margin)
+    bottom = min(height - 22.0, max(float(point["y"]) for point in selected) + vertical_margin)
+    return {"left": left, "right": right, "top": top, "bottom": bottom}
+
+
+def drag_select_tail(
+    page,
+    indices: list[int],
+    output_frames: list[Image.Image],
+    *,
+    marquee_frames: int = 3,
+) -> None:
+    rectangle = tail_selection_rectangle(page, indices)
+    start = (rectangle["right"], rectangle["bottom"])
+    end = (rectangle["left"], rectangle["top"])
+    page.mouse.move(*start)
+    page.mouse.down(button="left")
+    for step in range(1, max(2, marquee_frames) + 1):
+        fraction = step / max(2, marquee_frames)
+        page.mouse.move(
+            start[0] + (end[0] - start[0]) * fraction,
+            start[1] + (end[1] - start[1]) * fraction,
+        )
+        page.wait_for_timeout(55)
+        output_frames.append(screenshot_frame(page))
+    page.mouse.up(button="left")
+    page.wait_for_timeout(90)
+    selected = page.evaluate(
+        """() => [...window.__V_ASE_APP__.state.selected]
+            .filter(reference => Number.isInteger(reference))
+            .sort((a, b) => a - b)"""
+    )
+    expected = sorted(int(index) for index in indices)
+    if selected != expected:
+        missing = sorted(set(expected) - set(selected))
+        unexpected = sorted(set(selected) - set(expected))
+        raise AssertionError(
+            f"Actual box selection returned {len(selected)} atoms; expected {len(expected)}. "
+            f"Missing {missing[:12]}; unexpected {unexpected[:12]}."
+        )
+    append_hold(output_frames, page, 2)
+
+
+def open_transform_panel_for_capture(page, output_frames: list[Image.Image], *, detailed: bool) -> None:
+    page.keyboard.press("Tab")
+    page.wait_for_function(
+        "() => !document.body.classList.contains('inspector-collapsed')"
+    )
+    if detailed:
+        append_hold(output_frames, page, 1)
+    page.click('[data-inspector-group="structure"]')
+    page.select_option("#structure-section-select", "transform")
+    page.wait_for_function(
+        """() => {
+            const panel = document.querySelector('[data-panel="transform"]');
+            const content = document.getElementById('inspector-content');
+            const select = document.getElementById('structure-section-select');
+            if (!panel || !content || !select) return false;
+            const panelRect = panel.getBoundingClientRect();
+            const contentRect = content.getBoundingClientRect();
+            return select.value === 'transform'
+                && panelRect.top >= contentRect.top - 3
+                && panelRect.top <= contentRect.top + 36;
+        }"""
+    )
+    page.wait_for_timeout(120)
+    append_hold(output_frames, page, 2 if detailed else 1)
+
+
+def apply_exact_panel_rotation(
+    page,
+    angle_degrees: float,
+    output_frames: list[Image.Image],
+    *,
+    detailed: bool,
+) -> None:
+    before_positions = np.asarray(
+        page.evaluate("window.__V_ASE_APP__.state.atoms.positions"),
+        dtype=float,
+    )
+    page.select_option("#rotate-pivot", "selection")
+    page.select_option("#selection-rotate-axis", "X")
+    angle_input = page.locator("#selection-rotate-angle")
+    angle_input.click()
+    angle_input.press("ControlOrMeta+A")
+    angle_input.type(f"{angle_degrees:.6f}")
+    if detailed:
+        append_hold(output_frames, page, 2)
+
+    button = page.locator("#btn-rotate-selection-exact")
+    box = button.bounding_box()
+    if not box:
+        raise AssertionError("Exact rotation button is not visible in the Transform panel.")
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    if detailed:
+        output_frames.append(screenshot_frame(page))
+    button.click()
+    page.wait_for_function(
+        """(before) => window.__V_ASE_APP__.state.atoms.positions.some(
+            (position, index) => position.some(
+                (value, axis) => Math.abs(value - before[index][axis]) > 1e-8
+            )
+        )""",
+        arg=before_positions.tolist(),
+    )
+    page.wait_for_function("() => window.__V_ASE_APP__.transform.mode === 'IDLE'")
+    page.evaluate("async () => await window.__V_ASE_APP__.pendingApply")
+    page.wait_for_timeout(90)
+    after_positions = np.asarray(
+        page.evaluate("window.__V_ASE_APP__.state.atoms.positions"),
+        dtype=float,
+    )
+    displacement = float(np.max(np.abs(after_positions - before_positions)))
+    if displacement <= 1e-8:
+        raise AssertionError(
+            "The exact-rotation panel button completed without changing selected coordinates."
+        )
+    append_hold(output_frames, page, 2 if detailed else 1)
+    page.keyboard.press("Escape")
+    page.wait_for_function(
+        "() => document.body.classList.contains('inspector-collapsed')"
+    )
+    if detailed:
+        append_hold(output_frames, page, 1)
+
+
 def save_gif(frames: list[Image.Image], path: Path, duration=85):
     frames[0].save(
         path,
@@ -646,7 +830,7 @@ def hookean_group_frames(base: np.ndarray, indices: list[int], delta: np.ndarray
 
 
 def capture_phosphorene_media(browser) -> None:
-    source, _, frames, metadata = make_phosphorene_twist_scene()
+    source, twisted, _, metadata = make_phosphorene_twist_scene()
     editor, page = open_scene(browser, source, show_bonds=True)
     try:
         set_display(page, {
@@ -673,10 +857,10 @@ def capture_phosphorene_media(browser) -> None:
         settle_view(
             page,
             target=center.tolist(),
-            position=(center + np.array([14.0, -39.0, 23.0])).tolist(),
+            position=(center + np.array([0.0, -39.0, 23.0])).tolist(),
             fov=34,
         )
-        set_atomic_scale(page, 35.0)
+        set_atomic_scale(page, 26.0)
         set_readme_lighting(
             page,
             center.tolist(),
@@ -686,37 +870,45 @@ def capture_phosphorene_media(browser) -> None:
         rendered_frames: list[Image.Image] = []
         set_selection(page, [])
         page.wait_for_timeout(120)
-        overview = screenshot_frame(page)
-        rendered_frames.extend(overview.copy() for _ in range(8))
-        active_operation = None
-        operation_frames = metadata["frame_operations"]
-        for frame, operation in zip(frames, operation_frames):
-            operation_index = int(operation["operation_index"])
-            if operation_index != active_operation:
-                update_positions(page, frame.positions)
-                start_atom_rotation(
-                    page,
-                    operation["selected_indices"],
-                    axis=metadata["axis"],
-                    pivot_mode="selection",
-                )
-                set_view_toggles(page, grid=False, axes=False, cell=False)
-                active_operation = operation_index
-            set_atom_rotation_angle(
+        append_hold(rendered_frames, page, 7)
+
+        operations = metadata["operations"]
+        angle_increment = float(metadata["angle_increment_degrees"])
+        for operation_index, operation in enumerate(operations):
+            detailed = operation_index < 3
+            drag_select_tail(
                 page,
-                operation["angle_degrees"],
-                (
-                    f"ridge {operation_index + 1}/{operation['operation_count']} | "
-                    f"local {operation['angle_increment_degrees']:.2f} deg | "
-                    f"target {operation['target_twist_degrees']:.0f} deg"
-                ),
+                operation["selected_indices"],
+                rendered_frames,
+                marquee_frames=4 if detailed else 2,
             )
-            page.wait_for_timeout(35)
-            rendered_frames.append(screenshot_frame(page))
+            open_transform_panel_for_capture(
+                page,
+                rendered_frames,
+                detailed=detailed,
+            )
+            apply_exact_panel_rotation(
+                page,
+                angle_increment,
+                rendered_frames,
+                detailed=detailed,
+            )
+
+        actual_positions = np.asarray(
+            page.evaluate("window.__V_ASE_APP__.state.atoms.positions"),
+            dtype=float,
+        )
+        if not np.allclose(actual_positions, twisted.positions, atol=2e-5, rtol=0):
+            max_error = float(np.max(np.abs(actual_positions - twisted.positions)))
+            raise AssertionError(
+                f"Recorded browser edits missed the 36-degree target by {max_error:.3e} A."
+            )
+        set_selection(page, [])
+        append_hold(rendered_frames, page, 8)
         save_gif(
             rendered_frames,
             ASSET_DIR / "readme_phosphorene_twist.gif",
-            duration=105,
+            duration=115,
         )
         rendered_frames[-1].save(ASSET_DIR / "readme_overview.png", optimize=True)
     finally:

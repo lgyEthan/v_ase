@@ -1,3 +1,3 @@
 """Single source of truth for the v_ase application version."""
 
-__version__ = "0.0.109"
+__version__ = "0.0.110"

@@ -286,6 +286,10 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "appearance, bond, and rendering changes" in readme
     assert "Try the exact assets" not in readme
     assert "playback of a finished model" in readme
+    assert "visible amber box" in readme
+    assert "from the **second ridge through the end**" in normalized_readme
+    assert "from the **third ridge through the end**" in normalized_readme
+    assert "**Rotate Selection**" in readme
     assert "one half-cell ridge per step" in readme
     assert "6 atoms at this ribbon" in readme
     assert "final ridge is rotated by exactly 36 degrees" in readme
@@ -304,3 +308,16 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     ):
         assert (ROOT / "docs" / "assets" / filename).is_file()
         assert (ROOT / "docs" / "assets" / "github" / filename).is_file()
+
+
+def test_phosphorene_capture_drives_the_production_selection_and_rotation_ui():
+    source = (ROOT / "scripts" / "capture_readme_screenshots.py").read_text()
+
+    assert "page.mouse.down(button=\"left\")" in source
+    assert "page.mouse.move(" in source
+    assert "page.mouse.up(button=\"left\")" in source
+    assert "selected != expected" in source
+    assert 'page.select_option("#selection-rotate-axis", "X")' in source
+    assert 'page.locator("#selection-rotate-angle")' in source
+    assert 'page.locator("#btn-rotate-selection-exact")' in source
+    assert "np.allclose(actual_positions, twisted.positions" in source

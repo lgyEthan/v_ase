@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.0.110
+
+- Added **Exact selection rotation** controls to Structure > Transform so a
+  selected set can be rotated around X, Y, or Z by a typed angle using the
+  existing pivot, ASE constraints, backend commit, and undo history.
+- Increased the live left-drag marquee contrast on light and dark viewport
+  backgrounds.
+- Re-recorded the phosphorene hero through production pointer and form events:
+  the visible box selects ridge 2 through the tail, the Transform panel applies
+  the exact Selection-COM/X angle, and the boundary advances to ridge 3 before
+  continuing through all 21 verified edits.
+- Added browser validation for panel-driven rotation commit/undo and capture
+  validation for exact selected indices and the final 36-degree target.
+
 ## 0.0.109
 
 - Added **Export HTML View**, which creates one offline, view-only 3D document

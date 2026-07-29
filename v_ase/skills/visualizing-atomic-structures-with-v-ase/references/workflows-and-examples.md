@@ -207,15 +207,17 @@ intermediate, and expected final structures are generated from
 Input: `examples/readme_scene_assets/phosphorene_nanosheet.cif`.
 
 For a human-assisted edit, open Edit mode and keep the first puckered ridge
-fixed. Select the second ridge through the end of the ribbon, set the pivot to
-Selection COM, then use `R`, `X`, and an exact `36 / 21 = 1.7142857` degree
-increment. Confirm the edit, advance the selection boundary by one ridge, and
-repeat from the edited coordinates. A ridge is one phosphorus sublayer in a
-half armchair cell, not the two-ridge crystallographic cell. The final ridge
-must accumulate exactly 36 degrees, matching the largest H-APNR angle
-tabulated by Jang et al. (DOI 10.1039/C6NR04354B). This is a deterministic
-editing workflow that borrows the literature angle; do not describe it as the
-paper's periodic DFT cell or as an energy-minimized structure.
+fixed. Use a visible left-drag box to select the second ridge through the end
+of the ribbon. In **Structure > Transform > Exact selection rotation**, set
+the pivot to Selection COM, axis to X, angle to
+`36 / 21 = 1.7142857` degrees, and click **Rotate Selection**. Close the panel,
+left-drag from the third ridge through the end, and repeat from the committed
+coordinates. A ridge is one phosphorus sublayer in a half armchair cell, not
+the two-ridge crystallographic cell. The final ridge must accumulate exactly
+36 degrees, matching the largest H-APNR angle tabulated by Jang et al.
+(DOI 10.1039/C6NR04354B). This is a deterministic editing workflow that
+borrows the literature angle; do not describe it as the paper's periodic DFT
+cell or as an energy-minimized structure.
 
 For deterministic semantic editing:
 
