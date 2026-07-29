@@ -5442,19 +5442,28 @@ export class ASERenderer {
         ], 'lineGuideCenter', metrics.tubeRadius);
         group.add(center);
 
-        const collarOuter = metrics.atomRadius * 1.16;
-        const collar = new THREE.Mesh(
-            new THREE.RingGeometry(
-                Math.max(metrics.atomRadius * 1.04, collarOuter - metrics.strokeWidth),
-                collarOuter,
-                48
-            ),
-            this.constraintMaterials.line
+        const railOffset = metrics.atomRadius * 1.16;
+        const railHalfLength = THREE.MathUtils.clamp(
+            metrics.atomRadius * 0.42,
+            0.12,
+            0.72
         );
-        collar.rotation.x = Math.PI * 0.5;
-        collar.userData = { sharedMaterial: true, fixedLineCollar: true };
-        collar.renderOrder = 20;
-        group.add(collar);
+        [-1, 1].forEach((side, railIndex) => {
+            const rail = new THREE.Mesh(
+                new THREE.BufferGeometry(),
+                this.constraintMaterials.line
+            );
+            rail.userData = {
+                sharedMaterial: true,
+                fixedLineRail: true
+            };
+            this.setLinePoints(rail, [
+                new THREE.Vector3(side * railOffset, -railHalfLength, 0),
+                new THREE.Vector3(side * railOffset, railHalfLength, 0)
+            ], `fixedLineRail${railIndex}`, metrics.tubeRadius * 0.78);
+            rail.renderOrder = 20;
+            group.add(rail);
+        });
 
         group.position.copy(atom.position);
         this.orientYAxis(group, direction);
@@ -6144,21 +6153,6 @@ export class ASERenderer {
             outline.userData = { outlineFor: idx };
             outline.renderOrder = 10;
             this.selectionOutlines.add(outline);
-
-            const haloGeo = new THREE.RingGeometry(radius * 1.28, radius * 1.36, 48);
-            const haloMat = new THREE.MeshBasicMaterial({
-                color: 0xffd84d,
-                side: THREE.DoubleSide,
-                transparent: true,
-                opacity: 0.85,
-                depthWrite: false
-            });
-            const halo = new THREE.Mesh(haloGeo, haloMat);
-            halo.position.copy(mesh.position);
-            halo.lookAt(this.camera.position);
-            halo.userData = { outlineFor: idx, billboard: true };
-            halo.renderOrder = 11;
-            this.selectionOutlines.add(halo);
         });
         this.rebuildConstraintGuides(selected);
         this.applyOverlayVisibility();
@@ -6240,9 +6234,6 @@ export class ASERenderer {
             }
             outline.visible = true;
             outline.position.copy(mesh.position);
-            if (outline.userData.billboard) {
-                outline.lookAt(this.camera.position);
-            }
         });
         this.syncReplicaSelectionOutlines();
         this.syncConstraintGuides();

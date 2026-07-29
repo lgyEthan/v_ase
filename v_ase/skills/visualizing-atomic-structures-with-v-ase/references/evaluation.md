@@ -155,8 +155,9 @@ Run all scenarios, not only static document checks:
     - inspect the separate displacement image for nonzero vectors and readable
       frame/reference statistics;
     - play the semantic graphene edit and verify one center vacancy, three
-      `N_pyridinic` neighbors, the documented source/final CIF files, and a
-      nonblank top-view render;
+      `N_pyridinic` neighbors, one `Li_site` 2.15 A above the vacancy, the
+      documented source/intermediate/final CIF files, and a nonblank oblique
+      render;
     - compare three identical Cu13 clusters and verify Standard, Metal, and
       Rubber remain visibly distinct without changing ASE element, radius, or
       color;
@@ -175,6 +176,9 @@ Every browser render test must check:
 - visible constraints have nonzero pixel coverage;
 - FixedPlane motion planes have a visible surface, perimeter, and two in-plane
   axes without replacing the compact persistent per-atom marker;
+- FixedLine and line-like FixScaled guides contain no ring geometry, while
+  FixedPlane and plane-like FixScaled guides retain one local ring;
+- selected atoms use a yellow sphere outline with no billboard RingGeometry;
 - rotation axis, fixed start, moving current, and commensurate candidate guides
   remain visually distinguishable;
 - live View checkboxes hide and restore world axes and the unit cell without

@@ -67,7 +67,7 @@ def test_skill_metadata_follows_discovery_contract():
 def test_skill_uses_one_level_progressive_references():
     text = SKILL.read_text(encoding="utf-8")
     linked = re.findall(r"\]\((references/[^)]+\.md)\)", text)
-    assert len(linked) == 5
+    assert len(linked) == 6
     assert len(linked) == len(set(linked))
 
     for relative in linked:
@@ -105,6 +105,27 @@ def test_skill_version_install_and_environment_contract_are_current():
         "rhino3dm",
     ):
         assert required in skill_text + cli_text
+
+
+def test_skill_explains_vendor_neutral_agent_handoff():
+    setup = (REFERENCES / "agent-setup.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    compatibility = (ROOT / "v_ase" / "skills_v_ase.md").read_text(encoding="utf-8")
+
+    for required in (
+        "Codex",
+        "Claude Code",
+        "ChatGPT desktop agents",
+        "Gemini-based agents",
+        "SKILL.md",
+        "agent-setup.md",
+        "semantic-api.md",
+        "v_ase gui STRUCTURE --for-ai",
+        "first stdout line as JSON",
+        "window.v_aseAI",
+        "human_url",
+    ):
+        assert required in setup + readme + compatibility
 
 
 def test_skill_trigger_evaluation_has_positive_and_negative_boundaries():

@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from ase import Atoms
 from ase.build import molecule
-from ase.constraints import FixAtoms, FixedPlane
+from ase.constraints import FixAtoms, FixedLine, FixedPlane, FixScaled
 from ase.io import write
 from PIL import Image
 from playwright._impl._errors import Error as PlaywrightError
@@ -130,6 +130,82 @@ def test_fixed_plane_move_restores_per_atom_motion_plane_guide():
             assert page.evaluate(
                 "window.__ASE_APP__.renderer.constraintMotionGuideGroup.children.length"
             ) == 0
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_line_constraints_use_linear_rails_while_only_planes_use_rings():
+    atoms = Atoms(
+        "Li4",
+        positions=[
+            [0.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [4.0, 0.0, 0.0],
+            [6.0, 0.0, 0.0],
+        ],
+        cell=[[8.0, 0.0, 0.0], [0.8, 7.0, 0.0], [0.4, 0.6, 6.0]],
+        pbc=True,
+    )
+    atoms.set_constraint([
+        FixedLine(0, [0, 0, 1]),
+        FixedPlane(1, [0, 0, 1]),
+        FixScaled(2, [True, True, False]),
+        FixScaled(3, [True, False, False]),
+    ])
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.renderer?.constraintGuideGroup?.children?.length === 4"
+            )
+
+            guides = page.evaluate("""() => (
+                window.__ASE_APP__.renderer.constraintGuideGroup.children
+                    .map(group => ({
+                        index: group.userData.constraintGuideFor,
+                        kind: group.userData.kind,
+                        rings: group.children.filter(
+                            child => child.geometry?.type === 'RingGeometry'
+                        ).length,
+                        rails: group.children.filter(
+                            child => child.userData?.fixedLineRail
+                        ).length
+                    }))
+                    .sort((left, right) => left.index - right.index)
+            )""")
+            assert guides == [
+                {"index": 0, "kind": "fixed_line", "rings": 0, "rails": 2},
+                {"index": 1, "kind": "fixed_plane", "rings": 1, "rails": 0},
+                {"index": 2, "kind": "fixed_line", "rings": 0, "rails": 2},
+                {"index": 3, "kind": "fixed_plane", "rings": 1, "rails": 0},
+            ]
+
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.state.selected = new Set([0]);
+                app.updateSelectionVisuals();
+            }""")
+            selection_geometry = page.evaluate("""() => (
+                window.__ASE_APP__.renderer.selectionOutlines.children.map(
+                    child => child.geometry?.type || ''
+                )
+            )""")
+            assert selection_geometry == ["SphereGeometry"]
             browser.close()
     finally:
         editor.close()
@@ -260,7 +336,7 @@ def test_ai_semantic_graphene_defect_edit_matches_documented_cif():
             page.wait_for_function("window.v_aseAI")
 
             final = page.evaluate(
-                """async ({vacancy, neighbors}) => {
+                """async ({vacancy, neighbors, liPosition}) => {
                     const ai = window.v_aseAI;
                     await ai.ready();
                     await ai.apply({
@@ -281,6 +357,14 @@ def test_ai_semantic_graphene_defect_edit_matches_documented_cif():
                         }
                     });
                     await ai.apply({
+                        operation: {
+                            name: 'add-atom',
+                            label: 'Li_site',
+                            element: 'Li',
+                            position: liPosition
+                        }
+                    });
+                    await ai.apply({
                         display: {
                             showBonds: true,
                             showGrid: false,
@@ -289,11 +373,13 @@ def test_ai_semantic_graphene_defect_edit_matches_documented_cif():
                             lightingMode: 'studio-shadow',
                             labelColors: {
                                 C: '#686d73',
-                                N_pyridinic: '#3157d5'
+                                N_pyridinic: '#3157d5',
+                                Li_site: '#8f4fd6'
                             },
                             labelMaterials: {
                                 C: 'standard',
-                                N_pyridinic: 'metal'
+                                N_pyridinic: 'metal',
+                                Li_site: 'metal'
                             }
                         },
                         quality: {
@@ -307,9 +393,10 @@ def test_ai_semantic_graphene_defect_edit_matches_documented_cif():
                 {
                     "vacancy": metadata["vacancy_index"],
                     "neighbors": metadata["neighbors_after"],
+                    "liPosition": metadata["li_position"],
                 },
             )
-            assert final["atomCount"] == len(expected) == 71
+            assert final["atomCount"] == len(expected) == 72
             assert np.allclose(
                 np.asarray(final["positions"], dtype=float),
                 expected.positions,
@@ -318,7 +405,9 @@ def test_ai_semantic_graphene_defect_edit_matches_documented_cif():
             )
             assert final["chemicalSymbols"] == expected.get_chemical_symbols()
             assert final["labels"].count("N_pyridinic") == 3
+            assert final["labels"].count("Li_site") == 1
             assert final["chemicalSymbols"].count("N") == 3
+            assert final["chemicalSymbols"].count("Li") == 1
             assert [item["index"] for item in final["selection"]] == metadata[
                 "neighbors_after"
             ]

@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.107"
+python -m pip install "v_ase-gui==0.0.108"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.0.107"
+python -m pip install "v_ase-gui[rhino]==0.0.108"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, imageio-ffmpeg, and
@@ -158,8 +158,10 @@ to an untrusted network.
 
 ## Runtime Constraints
 
-- Claude Code, Codex, and desktop browser agents can launch the local CLI and
-  control the live browser API.
+- Codex, Claude Code, ChatGPT desktop agents, Gemini-based agents, agentic
+  IDEs, and other local models can control the same live browser API when they
+  have local shell and browser access. Follow `agent-setup.md`; do not assume a
+  vendor-specific skill directory when one is not documented.
 - A hosted chat environment without shell or browser access can read this skill
   but cannot operate v_ase directly.
 - A sandbox without package installation must already contain v_ase and its

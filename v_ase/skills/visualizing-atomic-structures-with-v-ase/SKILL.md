@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.107"
+python -m pip install "v_ase-gui==0.0.108"
 ```
 
 Start an agent-ready live session:
@@ -184,6 +184,7 @@ For any nontrivial task, verify all applicable items:
   reference, and separate commensurate candidates when a human is editing;
 - constraints: persistent per-atom FixedLine/FixedPlane markers and one
   original-position FixedPlane motion guide per selected atom during `G`;
+  FixedLine uses only linear rails, while rings and discs are plane-only;
 - render: exact dimensions, format, options, nonblank decoded pixels;
 - export: MIME type, filename, byte count, and reopenability where supported;
 - video: exact decoded frame count and `frames / FPS` duration, with visible
@@ -197,6 +198,9 @@ work around a stale skill silently.
 
 Read only the references needed for the current task:
 
+- [Agent setup](references/agent-setup.md): exact files to give Codex, Claude
+  Code, ChatGPT desktop agents, Gemini-based agents, agentic IDEs, and clients
+  without native skill loaders.
 - [CLI and environments](references/cli-and-environments.md): installation,
   input formats, local/remote/server use, dependencies, and process lifecycle.
 - [Semantic API](references/semantic-api.md): complete state, command, display,

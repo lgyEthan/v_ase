@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.0.108
+
+- Replaced the FixedLine collar/ring marker with a straight axis and two
+  compact linear rails. FixedLine and line-like FixScaled now contain no ring
+  geometry, while FixedPlane and plane-like FixScaled retain their local ring,
+  crosshair, and normal marker.
+- Removed the separate billboard selection halo while retaining the yellow
+  back-face sphere outline, so selection cannot be confused with FixedPlane.
+- Rebuilt the ferrocene manipulation animation to demonstrate both an
+  Origin/Z orbit and a Selection-COM/X ring fold in one reproducible workflow.
+- Reframed the phosphorene and ordered-measurement media around the complete
+  structure and the active geometry, without spending the frame on the control
+  panel.
+- Replaced the generic bond example with an oxygen-covered Cu(111) slab whose
+  label-pair rules explicitly disable Cu-Cu and O-O while enabling Cu-O.
+- Extended the natural-language graphene edit through atom creation: the
+  verified result now contains a pyridinic N3 vacancy and a `Li_site` atom
+  exactly 2.15 A above it.
+- Added a vendor-neutral agent setup reference covering Codex, Claude Code,
+  ChatGPT desktop agents, Gemini-based agents, agentic IDEs, generic local
+  agents, live startup JSON, semantic control, and human handoff.
+- Expanded scene, browser, README, and agent-contract regressions for the
+  updated scientific workflows and constraint geometry.
+
 ## 0.0.107
 
 - Added debounced visual-state history so Ctrl+Z/Ctrl+Shift+Z restores atom

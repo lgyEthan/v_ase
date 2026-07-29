@@ -114,7 +114,8 @@ Constraint rendering:
 
 - `FixAtoms`: element color is retained with a distinct fixed material surface.
 - `FixedLine`: each constrained atom receives a short, radius-scaled axis and
-  compact perpendicular collar that remain visible without selection.
+  two compact parallel rails that remain visible without selection. It never
+  uses a ring or plane disc.
 - `FixedPlane`: each atom receives its own radius-scaled ring, crosshair, and
   normal marker that remain visible without selection; multiple constraints
   are never collapsed to a selection center. During `G`, every selected
@@ -132,6 +133,10 @@ Persistent directional guides use shared materials, remain local to their
 owning atom, and are depth-tested so they do not read as selection outlines
 through unrelated geometry. The larger FixedPlane motion surface exists only
 during `G`, uses low opacity, and clears on commit or cancel.
+
+Selection uses a yellow back-face sphere outline without a billboard ring.
+This keeps Blender-style selection feedback distinct from the geometric ring
+reserved for FixedPlane and plane-like FixScaled constraints.
 
 Every selected-atom rotation displays a finite axis through the active pivot,
 a neutral start reference, and an amber current reference. The current

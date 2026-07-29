@@ -9,10 +9,10 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 `v_ase` brings ASE's convenient terminal and Python workflow together with
-direct, Blender-style 3D structure editing and a semantic interface for AI
-agents. Open a structure or trajectory with one command, inspect and measure
-it in a local browser, edit it manually or by natural-language instruction,
-and export publication- or CAD-ready results.
+direct, Blender-style 3D structure editing. Open a structure or trajectory
+with one command, inspect and measure it in a local browser, edit it manually
+or ask an AI agent to perform verified multi-step changes from natural
+language, then export publication- or CAD-ready results.
 
 ![Phosphorene nanoribbon manipulation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_phosphorene_twist.gif)
 
@@ -96,24 +96,29 @@ browser document releases the blocking terminal process.
 Give an AI the bundled [v_ase agent skill](#ai-and-agent-use), then describe
 the scientific result rather than a sequence of mouse actions:
 
-> From this 6 x 6 graphene sheet, remove the carbon nearest the cell center,
-> convert its three nearest neighbors to pyridinic nitrogen, preserve PBC and
-> bonds, use a clean +Z studio-shadow view, and render a 4K image.
+> From this pristine 6 x 6 graphene sheet, remove the carbon nearest the cell
+> center, convert its three nearest neighbors to pyridinic nitrogen, add a
+> `Li_site` atom 2.15 A above the vacancy, preserve PBC and bonds, use a clean
+> oblique studio-shadow view, and render a 4K image.
 
 ![Natural-language pyridinic N3 graphene edit](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_edit.gif)
 
 The agent reads atom identities, coordinates, cell, PBC, selection, and camera
-directly from v_ase's semantic state. It resolves the target indices, performs
-the edit, verifies the resulting 71-atom structure and three
-`N_pyridinic` labels, then renders the same document a human can continue
-editing. No screenshot OCR or coordinate guessing is required.
+directly from v_ase's semantic state. It finds the central site, resolves and
+remaps neighbor indices after deletion, changes three ASE elements and labels,
+creates Li at a measured height, verifies the 72-atom result, and renders the
+same document a human can continue editing. This combines geometry search,
+topology editing, atom creation, styling, and export in one request. No
+screenshot OCR or coordinate guessing is required. The final validation checks
+three `N_pyridinic` labels and one `Li_site` label against ASE elements.
 
 This example is generated entirely from `ase.build.graphene`, so it contains
 no copied structure or private data:
 
 - [source graphene CIF](examples/readme_scene_assets/ai_graphene_source.cif)
-- [edited pyridinic N3 CIF](examples/readme_scene_assets/ai_pyridinic_n3_graphene.cif)
-- [ASE trajectory preserving labels](examples/readme_scene_assets/ai_pyridinic_n3_graphene.traj)
+- [intermediate pyridinic N3 CIF](examples/readme_scene_assets/ai_pyridinic_n3_graphene.cif)
+- [final N3/Li-site CIF](examples/readme_scene_assets/ai_pyridinic_n3_li_graphene.cif)
+- [ASE trajectory preserving labels](examples/readme_scene_assets/ai_pyridinic_n3_li_graphene.traj)
 
 ## Structure Manipulation
 
@@ -150,10 +155,15 @@ angle. Every active rotation shows:
 
 ![Ferrocene pivot rotation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ferrocene_pivot.gif)
 
-The upper cyclopentadienyl ring is selected while the Fe atom remains
-unselected. **Rotate pivot = Origin** places the rotation axis through Fe, so
-the animated ring rotates around a chemically meaningful external center
-rather than around its own center of mass.
+The GIF contains both operations needed to understand the pivot:
+
+1. **Rotate pivot = Origin**, then `R`, `Z`: the selected upper
+   cyclopentadienyl ring rotates around an axis through Fe.
+2. **Rotate pivot = Selection COM**, then `R`, `X`: the same ring folds about
+   its own center instead of orbiting the external Fe pivot.
+
+The selected ring is unchanged between the two passes, so the different motion
+comes only from the pivot and axis settings.
 
 #### Phosphorene: Build The Twist One Edit At A Time
 
@@ -170,6 +180,9 @@ The animation records a sequence of normal v_ase edits:
 The yellow outline always identifies the atoms affected by the current step.
 Bonds update while the selected tail moves, so the accumulating deformation is
 visible rather than replaced by playback of a prebuilt final structure.
+The inspector is hidden and the full source ribbon remains inside the frame,
+making the fixed end, active selection boundary, and final twisted shape
+readable at the same scale.
 
 Black phosphorene has two puckered sublayers in one armchair unit cell. The
 example therefore uses one half-cell ridge per step (6 atoms at this ribbon
@@ -205,8 +218,10 @@ frame. Its equations and assumptions are documented in
 
 ![Ordered distance angle and torsion measurement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_measurement.gif)
 
-The numbered `a1` to `a4` markers record selection order; they are deliberately
-different from atom indices.
+The close viewport crop keeps the molecule, numbered geometry guides, and
+value badge readable without spending space on the control panel. The numbered
+`a1` to `a4` markers record selection order; they are deliberately different
+from atom indices.
 
 | Ordered selection | Reported result |
 | --- | --- |
@@ -235,9 +250,10 @@ visualization is local to each atom rather than merged at a group center.
 
 ### FixedLine
 
-A compact cyan collar and local axis remain visible without selection. The
-close crop below keeps the constrained ion and its channel context readable.
-During `G`, ASE restricts the atom to that line.
+A straight cyan axis and two short parallel rail marks remain visible without
+selection. FixedLine never uses a ring or plane disc; those shapes are reserved
+for plane constraints. The close crop below keeps the constrained ion and its
+channel context readable. During `G`, ASE restricts the atom to that line.
 
 ![FixedLine movement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedline.gif)
 
@@ -350,7 +366,7 @@ and radius, so only the optical material changes:
 Materials affect rendering only. ASE elements, coordinates, calculators, and
 constraints are unchanged.
 
-![Pairwise bond settings](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_bonds.png)
+![Cu O pairwise bond settings on oxygen-covered Cu111](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_bonds.png)
 
 **Structure > Bonding** provides automatic inference, explicit label-pair
 cutoffs, and manual index pairs. A pair cutoff of zero disables that pair.
@@ -361,6 +377,15 @@ Changes apply immediately. Bonds support:
 - custom color or two half-bonds using the atom colors;
 - configurable diameter;
 - live formation and breaking during Edit transforms.
+
+The example uses an oxygen-covered Cu(111) slab and label-specific pairs:
+`Cu_surface-Cu_surface` and `O_ads-O_ads` are disabled, while
+`Cu_surface-O_ads` is enabled. The structure remains chemically Cu/O; the
+labels only let the visualization apply different pair rules.
+
+```bash
+v_ase gui examples/readme_scene_assets/cu111_oxygen_pairwise_bonds.traj
+```
 
 **View** controls projection, atomic scale, anti-aliasing, sphere smoothness,
 background, 2D/3D display, grid, axes, unit cell, overlays, and cell material.
@@ -435,11 +460,51 @@ location. A user can take over the same document in the normal GUI at any time.
 
 Use the complete
 [v_ase agent skill](https://github.com/lgyEthan/v_ase/tree/main/v_ase/skills/visualizing-atomic-structures-with-v-ase).
-The compatibility link
-[skills_v_ase.md](https://github.com/lgyEthan/v_ase/blob/main/v_ase/skills_v_ase.md)
-resolves to the same canonical instructions. The skill folder includes the
-semantic API, verified workflows, safety rules, troubleshooting, and
-end-to-end evaluation cases.
+It is vendor-neutral and can be used by Codex, Claude Code, ChatGPT desktop
+agents, Gemini-based agents, agentic IDEs, or another model that can run local
+commands or control a browser. The
+[agent setup reference](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/agent-setup.md)
+explains each integration path.
+
+### What To Give The AI
+
+Prefer the complete skill directory. If the client accepts only individual
+files, provide the following:
+
+| Always provide | Add when the task needs it |
+| --- | --- |
+| [`SKILL.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md) | [`semantic-api.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/semantic-api.md) for live state, edits, camera, render, or export |
+| [`agent-setup.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/agent-setup.md) | [`workflows-and-examples.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/workflows-and-examples.md) for multi-step scientific workflows |
+|  | [`cli-and-environments.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/cli-and-environments.md) for installation, server, WSL, or process handling |
+|  | [`safety-and-errors.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/safety-and-errors.md) before destructive edits, relaxation, or file output |
+|  | [`evaluation.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/evaluation.md) when changing or releasing v_ase itself |
+
+Then launch the document:
+
+```bash
+v_ase gui STRUCTURE --for-ai
+```
+
+Give the AI the first JSON line printed by the command. It contains the live
+GUI URL, semantic state URL, command schema URL, browser API name, and installed
+skill path. Do not paste screenshots or manually transcribe coordinates when
+the semantic state is available.
+
+This bootstrap instruction works for clients without a native skill loader:
+
+```text
+Read SKILL.md and agent-setup.md first. Load only the reference files needed
+for this task. Start v_ase with --for-ai, inspect capabilities() and describe()
+before editing, execute semantic operations one at a time, verify state after
+each physical change, inspect the decoded final render, and give me human_url
+for manual takeover.
+```
+
+The compatibility document
+[`skills_v_ase.md`](v_ase/skills_v_ase.md) points existing integrations to the
+same canonical skill and reference set.
+
+### Installing The Skill
 
 Clients with skill-folder support should install the complete directory:
 
@@ -452,8 +517,10 @@ mkdir -p .claude/skills
 cp -R v_ase/skills/visualizing-atomic-structures-with-v-ase .claude/skills/
 ```
 
-For clients without a skill loader, provide `SKILL.md` and the relevant
-one-level `references/` files as context. The contract is vendor-neutral.
+For another AI, use its documented local skill directory if it supports the
+same `SKILL.md` convention. Otherwise attach the files listed above or make
+them readable in the project and include the bootstrap instruction. The live
+semantic protocol is the same regardless of model vendor.
 
 ## Documents And File Opening
 

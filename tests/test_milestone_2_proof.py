@@ -93,7 +93,7 @@ def test_milestone_2_proof():
         # Check if selected count becomes 1
         # It might take a moment
         page.wait_for_selector("#prop-selected:has-text('1')")
-        page.wait_for_function("window.__ASE_APP__.renderer.selectionOutlines.children.length >= 2")
+        page.wait_for_function("window.__ASE_APP__.renderer.selectionOutlines.children.length === 1")
         print("Oxygen atom selected.")
         
         # 2. Press G

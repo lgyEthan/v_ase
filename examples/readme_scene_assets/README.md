@@ -34,19 +34,36 @@ v_ase gui examples/readme_scene_assets/graphene_hbn_commensurate.traj --show-bon
 
 ## ai-edit
 
-AI-generated pyridinic N3 vacancy in a 6 x 6 ASE graphene sheet.
+AI-generated Li site over a pyridinic N3 vacancy in a 6 x 6 ASE graphene sheet.
 
-- Static: `ai_pyridinic_n3_graphene.cif`
-- Suggested selected indices: `29, 42, 31`
+- Static: `ai_pyridinic_n3_li_graphene.cif`
+- Suggested selected indices: `29, 42, 31, 71`
 - Source generated with ase.build.graphene; no external coordinates are copied.
-- The central C is deleted and its three nearest neighbors become N_pyridinic.
+- The central C is deleted, its three nearest neighbors become N_pyridinic, and Li is added above the vacancy.
 - Additional: `ai_graphene_source.cif`
-- Additional: `ai_pyridinic_n3_graphene.traj`
+- Additional: `ai_pyridinic_n3_graphene.cif`
+- Additional: `ai_pyridinic_n3_li_graphene.traj`
 
 Open command:
 
 ```bash
-v_ase gui examples/readme_scene_assets/ai_pyridinic_n3_graphene.cif --show-bonds
+v_ase gui examples/readme_scene_assets/ai_pyridinic_n3_li_graphene.cif --show-bonds
+```
+
+## bonding
+
+Oxygen-covered Cu(111) used to demonstrate label-pair bond control.
+
+- Static: `cu111_oxygen_pairwise_bonds.traj`
+- Suggested selected indices: ``
+- Cu_surface-Cu_surface and O_ads-O_ads are disabled.
+- Only Cu_surface-O_ads bonds are displayed.
+- The scene contains 48 Cu and 4 O atoms.
+
+Open command:
+
+```bash
+v_ase gui examples/readme_scene_assets/cu111_oxygen_pairwise_bonds.traj --show-bonds
 ```
 
 ## materials

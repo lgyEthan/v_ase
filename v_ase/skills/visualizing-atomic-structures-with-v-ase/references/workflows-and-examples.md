@@ -78,8 +78,9 @@ Input: `examples/readme_scene_assets/ai_graphene_source.cif`.
 Example user intent:
 
 > Remove the carbon nearest the cell center, convert its three nearest
-> neighbors to pyridinic nitrogen, preserve PBC and bonds, use a clean +Z
-> studio-shadow view, and render a 4K image.
+> neighbors to pyridinic nitrogen, add a Li_site atom 2.15 A above the vacancy,
+> preserve PBC and bonds, use a clean oblique studio-shadow view, and render a
+> 4K image.
 
 This request explicitly authorizes deletion and element changes. Resolve the
 indices from semantic state, never from pixel coordinates:
@@ -114,6 +115,7 @@ const neighborsBefore = before.positions
   .sort((left, right) => left.distance - right.distance)
   .slice(0, 3)
   .map(entry => entry.index);
+const vacancyPosition = [...before.positions[vacancy]];
 
 await ai.apply({
   selection: {clear: true, indices: [vacancy]},
@@ -131,6 +133,19 @@ await ai.apply({
     element: "N"
   }
 });
+const liPosition = [
+  vacancyPosition[0],
+  vacancyPosition[1],
+  vacancyPosition[2] + 2.15
+];
+await ai.apply({
+  operation: {
+    name: "add-atom",
+    label: "Li_site",
+    element: "Li",
+    position: liPosition
+  }
+});
 await ai.apply({
   display: {
     showBonds: true,
@@ -138,27 +153,53 @@ await ai.apply({
     showAxes: false,
     viewportBackground: "white",
     lightingMode: "studio-shadow",
-    labelColors: {C: "#686d73", N_pyridinic: "#3157d5"},
-    labelMaterials: {C: "standard", N_pyridinic: "metal"}
+    labelColors: {
+      C: "#686d73",
+      N_pyridinic: "#3157d5",
+      Li_site: "#8f4fd6"
+    },
+    labelMaterials: {
+      C: "standard",
+      N_pyridinic: "metal",
+      Li_site: "metal"
+    }
   },
   quality: {antiAliasing: true, sphereQuality: "ultra"},
-  camera: {axis: "+Z", fit: "structure"}
+  camera: {
+    projection: "orthographic",
+    position: [center[0] + 9, center[1] - 12, center[2] + 23],
+    target: center,
+    up: [0, 0, 1],
+    fit: "structure"
+  }
 });
 
 const final = await ai.describe({includePositions: true});
 if (
-  final.atomCount !== 71
+  final.atomCount !== 72
   || final.chemicalSymbols.filter(symbol => symbol === "N").length !== 3
   || final.labels.filter(label => label === "N_pyridinic").length !== 3
+  || final.chemicalSymbols.filter(symbol => symbol === "Li").length !== 1
+  || final.labels.filter(label => label === "Li_site").length !== 1
 ) {
-  throw new Error("The pyridinic N3 edit failed semantic verification.");
+  throw new Error("The pyridinic N3/Li-site edit failed semantic verification.");
+}
+const liIndex = final.labels.indexOf("Li_site");
+if (Math.abs(final.positions[liIndex][2] - liPosition[2]) > 1e-8) {
+  throw new Error("Li adsorption height failed semantic verification.");
 }
 ```
 
 Render with the Publication Image request above and verify exact dimensions,
-nonblank decoded pixels, and the three blue nitrogen atoms around one vacancy.
-Save to a new filename. The README source and expected result are generated
-from `ase.build.graphene`; no external coordinates or private data are used.
+nonblank decoded pixels, three blue nitrogen atoms around one vacancy, and the
+purple Li site above the plane. Save to a new filename. The README source,
+intermediate, and expected final structures are generated from
+`ase.build.graphene`; no external coordinates or private data are used:
+
+- `examples/readme_scene_assets/ai_graphene_source.cif`;
+- `examples/readme_scene_assets/ai_pyridinic_n3_graphene.cif`;
+- `examples/readme_scene_assets/ai_pyridinic_n3_li_graphene.cif`;
+- `examples/readme_scene_assets/ai_pyridinic_n3_li_graphene.traj`.
 
 ## Phosphorene Cumulative Tail Rotation
 

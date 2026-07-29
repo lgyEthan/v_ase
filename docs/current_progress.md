@@ -167,10 +167,13 @@ and documentation use `view()`.
 37. `FixedLine` and `FixedPlane` guides are persistent per-atom overlays. They
     remain visible without selection, stay local to each constrained atom, are
     depth-tested against the structure, and scale from the displayed atom
-    radius instead of viewport size. During `G`, each selected FixedPlane atom
-    additionally gets its own low-opacity guide surface, perimeter, and
-    crosshair anchored at the atom's original position. This motion guide is
-    never collapsed to a selection COM and clears on commit or cancel.
+    radius instead of viewport size. FixedLine uses a straight axis and two
+    parallel rails without any ring; FixedPlane uses a local ring, crosshair,
+    and normal. Line-like and plane-like FixScaled constraints inherit those
+    respective designs. During `G`, each selected FixedPlane atom additionally
+    gets its own low-opacity guide surface, perimeter, and crosshair anchored
+    at the atom's original position. This motion guide is never collapsed to a
+    selection COM and clears on commit or cancel.
 38. Unit-cell edges use one instanced cylinder primitive in the viewport and
     expose color, Angstrom thickness, and material controls. Supercell previews
     reuse the same style and deduplicate shared edges so repeated cells do not
@@ -224,11 +227,14 @@ and documentation use `view()`.
     sublayer ridge. The first ridge stays fixed and 21 Selection-COM
     increments accumulate the paper-tabulated 36-degree H-APNR target at the
     final ridge. Upper/lower ridges use green/purple visual labels while both
-    remain ASE phosphorus. Ferrocene demonstrates an external pivot,
-    graphene/hBN shows start/current/commensurate references with world axes
-    hidden, ordered ethane selection shows distance/angle/torsion, and a
-    separate trajectory scene shows displacement analysis. Tests validate
-    scene construction and live View toggles before media are published.
+    remain ASE phosphorus. Ferrocene demonstrates both an external Origin/Z
+    orbit and a Selection-COM/X ring fold. Graphene/hBN shows
+    start/current/commensurate references with world axes hidden, ordered
+    ethane selection shows distance/angle/torsion in a viewport-only crop, and
+    a separate trajectory scene shows displacement analysis. The bonding scene
+    is an oxygen-covered Cu(111) slab with Cu-Cu and O-O disabled and Cu-O
+    enabled. Tests validate scene construction and live View toggles before
+    media are published.
 52. Export dialogs use a fixed action footer and independently scrollable body.
     Cancel and Export therefore remain visible at short desktop viewport
     heights while all render controls remain reachable.
@@ -242,6 +248,14 @@ and documentation use `view()`.
     recomputed before every captured real or interpolated frame.
 55. File Open directly replaces an empty document. Replace/Add/New Tab choices
     appear only when the active document already contains atoms.
+56. The bundled agent skill is vendor-neutral. Codex, Claude Code, ChatGPT
+    desktop agents, Gemini-based agents, agentic IDEs, and other local agents
+    receive the same canonical `SKILL.md`, agent setup reference, task-specific
+    references, and `--for-ai` startup JSON. Documentation never relies on a
+    vendor-specific directory unless that client explicitly supports one.
+57. Selection keeps the required yellow sphere outline but has no separate
+    billboard halo ring. FixedPlane and plane-like FixScaled are the only
+    directional constraints that use local ring geometry.
 
 ## Canonical Names And Compatibility
 

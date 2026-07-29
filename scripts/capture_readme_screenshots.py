@@ -24,6 +24,7 @@ if str(ROOT) not in sys.path:
 from tests.manual_showcase import make_frames
 from v_ase import view
 from examples.readme_scenes import (
+    make_copper_oxide_bond_scene,
     make_crowded_c60_relaxation_scene,
     make_ethane_measurement_scene,
     make_ferrocene_scene,
@@ -211,6 +212,18 @@ def configure_inspector(page, group: str, panels, width=416):
             }""",
             selected_section,
         )
+
+
+def collapse_inspector(page):
+    page.evaluate("""() => {
+        const app = window.__V_ASE_APP__;
+        app.setInspectorCollapsed(true, false);
+        app.renderer.renderNow();
+    }""")
+    page.wait_for_function(
+        "document.body.classList.contains('inspector-collapsed')"
+    )
+    page.wait_for_timeout(100)
 
 
 def set_display(page, options):
@@ -652,15 +665,18 @@ def capture_phosphorene_media(browser) -> None:
                 "P_lower": "standard",
             },
         })
-        configure_inspector(page, "structure", ["transform"], width=430)
-        center = np.mean(source.positions, axis=0)
+        collapse_inspector(page)
+        center = 0.5 * (
+            np.min(source.positions, axis=0)
+            + np.max(source.positions, axis=0)
+        )
         settle_view(
             page,
             target=center.tolist(),
-            position=(center + np.array([18.0, -31.0, 17.0])).tolist(),
-            fov=32,
+            position=(center + np.array([14.0, -39.0, 23.0])).tolist(),
+            fov=34,
         )
-        set_atomic_scale(page, 27.0)
+        set_atomic_scale(page, 35.0)
         set_readme_lighting(
             page,
             center.tolist(),
@@ -668,6 +684,10 @@ def capture_phosphorene_media(browser) -> None:
             position_offset=(-18.0, -24.0, 30.0),
         )
         rendered_frames: list[Image.Image] = []
+        set_selection(page, [])
+        page.wait_for_timeout(120)
+        overview = screenshot_frame(page)
+        rendered_frames.extend(overview.copy() for _ in range(8))
         active_operation = None
         operation_frames = metadata["frame_operations"]
         for frame, operation in zip(frames, operation_frames):
@@ -734,6 +754,7 @@ def capture_ferrocene_media(browser) -> None:
             intensity=3.05,
             position_offset=(-6.0, -8.0, 10.0),
         )
+        rendered_frames: list[Image.Image] = []
         start_atom_rotation(
             page,
             indices["top_ring"],
@@ -741,12 +762,34 @@ def capture_ferrocene_media(browser) -> None:
             pivot_mode="origin",
         )
         set_view_toggles(page, grid=False, axes=False, cell=False)
-        rendered_frames: list[Image.Image] = []
-        count = 36
+        count = 30
         for frame_index in range(count):
-            phase = 0.5 - 0.5 * math.cos(2 * math.pi * frame_index / (count - 1))
+            phase = math.sin(math.pi * frame_index / (count - 1))
             angle = 72.0 * phase
-            set_atom_rotation_angle(page, angle, "pivot: origin (Fe)")
+            set_atom_rotation_angle(
+                page,
+                angle,
+                "1/2 | pivot: origin (Fe) | R Z",
+            )
+            page.wait_for_timeout(35)
+            rendered_frames.append(screenshot_frame(page))
+
+        update_positions(page, atoms.positions)
+        start_atom_rotation(
+            page,
+            indices["top_ring"],
+            axis="X",
+            pivot_mode="selection",
+        )
+        set_view_toggles(page, grid=False, axes=False, cell=False)
+        for frame_index in range(count):
+            phase = math.sin(math.pi * frame_index / (count - 1))
+            angle = 38.0 * phase
+            set_atom_rotation_angle(
+                page,
+                angle,
+                "2/2 | pivot: selection COM | R X ring fold",
+            )
             page.wait_for_timeout(35)
             rendered_frames.append(screenshot_frame(page))
         save_gif(
@@ -754,7 +797,7 @@ def capture_ferrocene_media(browser) -> None:
             ASSET_DIR / "readme_ferrocene_pivot.gif",
             duration=90,
         )
-        rendered_frames[count // 2].save(
+        rendered_frames[count + count // 2].save(
             ASSET_DIR / "readme_rotate.png",
             optimize=True,
         )
@@ -837,25 +880,83 @@ def capture_commensurate_media(browser) -> None:
 
 
 def capture_bond_media(browser) -> None:
-    atoms = make_frames()[-1]
+    atoms, groups = make_copper_oxide_bond_scene()
     editor, page = open_scene(browser, atoms, show_bonds=True)
     try:
         set_display(page, {
-            "atomRadiusScale": 0.58,
+            "atomRadiusScale": 0.56,
             "bondMode": "pairwise",
             "showBonds": True,
             "pairwiseBondRanges": {
-                "Na-Na": {"enabled": False, "max": 3.15},
-                "Cl-Na": {"enabled": True, "max": 3.10},
-                "Cl-Cl": {"enabled": False, "max": 3.55},
+                "Cu_surface-Cu_surface": {"enabled": False, "max": 2.85},
+                "Cu_surface-O_ads": {"enabled": True, "max": 2.25},
+                "O_ads-O_ads": {"enabled": False, "max": 3.00},
             },
-            "showGrid": True,
+            "pairwiseBondCutoffs": {
+                "Cu_surface-Cu_surface": 0.0,
+                "Cu_surface-O_ads": 2.25,
+                "O_ads-O_ads": 0.0,
+            },
+            "bondThickness": 0.22,
+            "bondColorMode": "split",
+            "showGrid": False,
+            "showAxes": False,
+            "showCell": True,
             "viewportBackground": "white",
+            "labelColors": {
+                "Cu_surface": "#c77f3f",
+                "O_ads": "#e62d2d",
+            },
         })
-        configure_inspector(page, "structure", ["bonding"], width=520)
+        configure_inspector(page, "structure", ["bonding"], width=560)
         center = np.mean(atoms.positions, axis=0)
-        settle_view(page, target=center.tolist(), position=(center + np.array([12, -16, 11])).tolist(), fov=37)
-        set_readme_lighting(page, center.tolist(), intensity=2.8)
+        settle_view(
+            page,
+            target=center.tolist(),
+            position=(center + np.array([10.0, -14.0, 10.5])).tolist(),
+            fov=35,
+        )
+        set_atomic_scale(page, 63.0)
+        set_readme_lighting(
+            page,
+            center.tolist(),
+            intensity=3.0,
+            position_offset=(-10.0, -13.0, 17.0),
+        )
+        page.wait_for_function(
+            "window.__V_ASE_APP__.renderer.bondPairs.length > 0"
+        )
+        pair_state = page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            const labels = app.state.atoms.symbols;
+            return app.renderer.bondPairs.map(([i, j]) =>
+                [labels[i], labels[j]].sort().join('-')
+            );
+        }""")
+        if not pair_state or set(pair_state) != {"Cu_surface-O_ads"}:
+            raise AssertionError(
+                "README bonding scene must display only Cu_surface-O_ads pairs."
+            )
+        control_state = page.evaluate("""() => Object.fromEntries(
+            [...document.querySelectorAll('.pairwise-bond-row')].map(row => [
+                row.dataset.pairKey,
+                {
+                    enabled: row.querySelector('.pairwise-bond-enabled').checked,
+                    max: Number(row.querySelector('.pairwise-bond-max').value)
+                }
+            ])
+        )""")
+        expected_controls = {
+            "Cu_surface-Cu_surface": {"enabled": False, "max": 2.85},
+            "Cu_surface-O_ads": {"enabled": True, "max": 2.25},
+            "O_ads-O_ads": {"enabled": False, "max": 3.0},
+        }
+        if control_state != expected_controls:
+            raise AssertionError(
+                f"README bonding controls differ from the documented settings: {control_state}"
+            )
+        if len(groups["oxygen"]) < 4:
+            raise AssertionError("README bonding scene requires multiple surface oxygen atoms.")
         page.screenshot(path=ASSET_DIR / "readme_bonds.png")
     finally:
         page.close()
@@ -922,22 +1023,24 @@ def capture_ai_edit_media(browser) -> None:
             "labelColors": {
                 "C": "#686d73",
                 "N_pyridinic": "#3157d5",
+                "Li_site": "#8f4fd6",
             },
             "labelMaterials": {
                 "C": "standard",
                 "N_pyridinic": "metal",
+                "Li_site": "metal",
             },
         })
-        configure_inspector(page, "structure", ["appearance"], width=500)
+        collapse_inspector(page)
         target = np.mean(source.positions, axis=0)
         set_camera(
             page,
             target=target.tolist(),
-            position=(target + np.array([0.0, 0.0, 28.0])).tolist(),
-            up=(0, 1, 0),
+            position=(target + np.array([9.0, -12.0, 23.0])).tolist(),
+            up=(0, 0, 1),
             fov=34,
         )
-        set_atomic_scale(page, 72.0)
+        set_atomic_scale(page, 70.0)
         set_readme_lighting(
             page,
             target.tolist(),
@@ -992,14 +1095,46 @@ def capture_ai_edit_media(browser) -> None:
             "labelColors": {
                 "C": "#686d73",
                 "N_pyridinic": "#3157d5",
+                "Li_site": "#8f4fd6",
             },
             "labelMaterials": {
                 "C": "standard",
                 "N_pyridinic": "metal",
+                "Li_site": "metal",
             },
         })
         set_selection(page, metadata["neighbors_after"])
-        hold(9)
+        hold(7)
+        page.evaluate(
+            """async ({position}) => {
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'add-atom',
+                        label: 'Li_site',
+                        element: 'Li',
+                        position
+                    }
+                });
+            }""",
+            {"position": metadata["li_position"]},
+        )
+        page.wait_for_function(
+            "window.__V_ASE_APP__.state.atoms.positions.length === 72"
+        )
+        set_display(page, {
+            "labelColors": {
+                "C": "#686d73",
+                "N_pyridinic": "#3157d5",
+                "Li_site": "#8f4fd6",
+            },
+            "labelMaterials": {
+                "C": "standard",
+                "N_pyridinic": "metal",
+                "Li_site": "metal",
+            },
+        })
+        set_selection(page, [*metadata["neighbors_after"], metadata["li_index"]])
+        hold(10)
         set_selection(page, [])
         hold(8)
 
@@ -1041,16 +1176,17 @@ def capture_constraint_media(browser) -> None:
         settle_view(
             page,
             target=target.tolist(),
-            position=(target + np.array([6.2, -8.4, 4.8])).tolist(),
+            position=(target + np.array([5.2, -7.0, 4.0])).tolist(),
             fov=34,
         )
-        set_atomic_scale(page, 118.0)
+        set_atomic_scale(page, 142.0)
         set_readme_lighting(
             page,
             target.tolist(),
             intensity=2.9,
             position_offset=(-7.0, -10.0, 12.0),
         )
+        collapse_inspector(page)
         page.screenshot(path=ASSET_DIR / "readme_constraints.png")
         enter_mode(page, "MOVE", "Z")
         capture_animation(
@@ -1165,15 +1301,15 @@ def capture_measurement_media(browser) -> None:
             "showAxes": False,
             "viewportBackground": "white",
         })
-        configure_inspector(page, "inspect", ["selection"], width=500)
+        collapse_inspector(page)
         center = np.mean(atoms.positions, axis=0)
         settle_view(
             page,
             target=center.tolist(),
-            position=(center + np.array([4.8, -6.4, 4.0])).tolist(),
+            position=(center + np.array([4.2, -5.6, 3.5])).tolist(),
             fov=31,
         )
-        set_atomic_scale(page, 178.0)
+        set_atomic_scale(page, 226.0)
         set_readme_lighting(page, center.tolist(), intensity=2.85, position_offset=(-6.0, -8.0, 10.0))
         rendered_frames: list[Image.Image] = []
         ordered = indices["ordered_selection"]
