@@ -20,7 +20,7 @@ verify sequence even when parameters change.
 Input: an ASE-readable structure and a request for a clean 4K top view.
 
 ```bash
-v_ase gui structure.vasp --for-ai
+v_ase gui structure.vasp --cli
 ```
 
 ```javascript

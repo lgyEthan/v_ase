@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.0.115
+
+- Aligned rotation start/current guides to the selected structure's dominant
+  in-plane direction, with a unit-cell direction fallback instead of a
+  corner-derived diagonal.
+- Removed orbit, pan, zoom, axis alignment, and toolbar camera motion from
+  `Ctrl+Z`/`Ctrl+Shift+Z`; structure and visualization-setting history remains
+  chronological and undoable.
+- Renamed the machine-readable automation switch to `--cli` and clarified that
+  an external agent launches this local API mode itself; v_ase does not bundle
+  an LLM.
+- Fixed standalone HTML startup sizing, added a rendered HTML-save preview,
+  and validated offline `file://` display, trajectory state, and pointer orbit.
+- Updated the Cu2O(111)/Cu(111) bonding example so the Cu(111) substrate uses
+  a nearest-neighbor touching-sphere radius.
+- Synchronized README, user/developer documentation, and the installed
+  vendor-neutral agent skill with the revised behavior.
+
 ## 0.0.114
 
 - Replaced the persistent FixedLine dual rails with one radius-scaled center

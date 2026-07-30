@@ -3139,6 +3139,60 @@ body.resizing-pairwise-column * {
     line-height: 1.5;
 }
 
+.modal.html-export-modal {
+    width: min(680px, calc(100vw - 32px));
+}
+
+.html-view-preview {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 100%;
+    min-height: 180px;
+    max-height: 360px;
+    margin: 0 0 14px;
+    overflow: hidden;
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    background: var(--viewport-light-bg);
+}
+
+.html-view-preview img {
+    display: block;
+    width: 100%;
+    max-height: 360px;
+    object-fit: contain;
+}
+
+.html-view-preview figcaption {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    padding: 4px 7px;
+    border: 1px solid var(--line-strong);
+    border-radius: 4px;
+    background: var(--export-preview-caption);
+    color: var(--neutral-100);
+    font-size: 0.66rem;
+    font-weight: 700;
+}
+
+.html-view-preview.unavailable {
+    min-height: 80px;
+    background: var(--surface-subtle);
+}
+
+.html-view-preview.unavailable::after {
+    content: "Preview unavailable";
+    color: var(--text-soft);
+    font-size: 0.74rem;
+}
+
+.html-view-preview.unavailable img,
+.html-view-preview.unavailable figcaption {
+    display: none;
+}
+
 .html-project-option {
     display: grid;
     grid-template-columns: 18px minmax(0, 1fr);

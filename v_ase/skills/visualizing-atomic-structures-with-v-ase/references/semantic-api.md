@@ -81,7 +81,8 @@ await ai.apply({
 ```
 
 Directions are `left`, `right`, `up`, `down`, `roll-cw`, and `roll-ccw`.
-Camera operations enter history and can be undone.
+Camera navigation does not enter undo history. `undo` and `redo` are reserved
+for structure mutations and visualization settings.
 
 ## Selection And Measurement
 
@@ -131,7 +132,7 @@ Pass `operation` as a name string or object:
 | `set-constraints` | selection/`indices`, constraint fields | Edit supported constraints |
 | `move-selection` | `vector` | Translate selected atoms |
 | `rotate-selection` | `axis`, `angleDeg`, optional `pivot` | Rotate selected atoms |
-| `undo` / `redo` | none | Traverse structure or camera history |
+| `undo` / `redo` | none | Traverse structure or visualization-setting history |
 | `reset-coordinates` | none | Restore loaded coordinates and original cell |
 | `start-relaxation` | `fmax`, `steps`, optional `calculator` | Start optimization |
 | `stop-relaxation` | none | Request optimizer stop |

@@ -1,6 +1,6 @@
 ---
 name: visualizing-atomic-structures-with-v-ase
-description: Controls v_ase to inspect, edit, analyze, style, animate, and export ASE-compatible atomic structures and trajectories through its CLI and semantic browser API. Use when a user needs atomistic visualization, structure measurement, periodic-cell operations, constraints, trajectory movies, publication rendering, scientific or CAD export, or a human-editable GUI, even when v_ase is not explicitly named.
+description: Controls v_ase to inspect, edit, analyze, style, animate, and export ASE-compatible atomic structures and trajectories through its CLI and semantic browser API. Use when a user needs atomistic visualization, structure measurement, periodic-cell operations, constraints, trajectory movies, publication rendering, reusable 3D export, or a human-editable GUI, even when v_ase is not explicitly named.
 ---
 
 # Visualizing Atomic Structures With v_ase
@@ -15,13 +15,13 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.114"
+python -m pip install "v_ase-gui==0.0.115"
 ```
 
-Start an agent-ready live session:
+Start the terminal-oriented API session yourself:
 
 ```bash
-v_ase gui STRUCTURE --for-ai
+v_ase gui STRUCTURE --cli
 ```
 
 Read the first stdout line as JSON. Keep the process running. The handshake
@@ -153,7 +153,7 @@ if (preview.width !== 3840 || preview.height !== 2160 || preview.bytes <= 0) {
 }
 ```
 
-For physical editing, trajectory analysis, video, CAD export, and failure
+For physical editing, trajectory analysis, video, 3D scene export, and failure
 handling, use the references below rather than improvising field names.
 
 ## Safety Boundaries

@@ -1066,7 +1066,7 @@ def _scene_cell_edges(cell, repetitions):
 
 
 def _cad_scene_data(session, payload: Dict[str, Any]):
-    """Normalize the current viewport into editable CAD/mesh primitives."""
+    """Normalize the current viewport into editable 3D geometry primitives."""
     payload = payload or {}
     atoms = _apply_payload_positions(session, payload)
     if getattr(session, "trajectory_frames", None):
@@ -1079,7 +1079,7 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
     total_atoms = len(data.get("positions") or []) * len(offsets)
     if total_atoms > 1_000_000:
         raise ValueError(
-            f"CAD export would create {total_atoms:,} atom objects; reduce the supercell below 1,000,000 atoms."
+            f"3D export would create {total_atoms:,} atom objects; reduce the supercell below 1,000,000 atoms."
         )
 
     labels = list(data.get("symbols") or [])

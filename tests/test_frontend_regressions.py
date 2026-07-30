@@ -804,7 +804,7 @@ def test_new_scientific_defaults_and_ai_control_contract_are_wired():
     assert "kindSelect.dataset.draftKind" in main_js
     assert "window.v_aseAI" in main_js
     assert "window.v_aseAI" in workspace_js
-    assert "--for-ai" in cli_py
+    assert "--cli" in cli_py
     assert '@app.get("/api/ai/state/{session_id}")' in server_py
     assert "ai.render" in skill
     for operation in (

@@ -67,13 +67,13 @@ models can use the same contract without native skill installation:
 1. attach or expose `SKILL.md` and the relevant references;
 2. ensure the agent can run a local command or control the local browser;
 3. give it the bootstrap instruction below;
-4. give it the startup JSON from `--for-ai`.
+4. let the agent start and parse the CLI/API session itself.
 
 Bootstrap instruction:
 
 ```text
 Read SKILL.md and agent-setup.md first. Load only the reference files needed
-for this task. Start v_ase with --for-ai. Inspect capabilities() and
+for this task. Start v_ase with --cli. Inspect capabilities() and
 describe() before editing. Apply semantic changes one at a time, verify state
 after every physical change, inspect the decoded final render, and return
 human_url for manual takeover. Never infer coordinates from screenshots when
@@ -86,14 +86,20 @@ plan, but a local agent must execute it.
 
 ## Starting A Live Session
 
-Install and launch:
+The user installs v_ase once:
 
 ```bash
 python -m pip install v_ase-gui
-v_ase gui STRUCTURE --for-ai
 ```
 
-Read the first stdout line as JSON. It includes:
+The agent then launches the machine-readable session itself:
+
+```bash
+v_ase gui STRUCTURE --cli
+```
+
+`--cli` is a terminal-oriented API mode. It does not contain an LLM. Read the
+first stdout line as JSON; it includes:
 
 - `human_url`: normal interactive GUI;
 - `state_url`: read-only semantic state;
@@ -102,8 +108,8 @@ Read the first stdout line as JSON. It includes:
 - `skill_path`: local canonical `SKILL.md`;
 - `browser_api`: `window.v_aseAI`.
 
-Keep the CLI process running while the agent works. Parse the JSON instead of
-copying individual URL fragments by hand.
+Keep the CLI process running while working. Parse the JSON directly instead of
+asking the user to copy individual URL fragments by hand.
 
 ## Browser And HTTP Access
 

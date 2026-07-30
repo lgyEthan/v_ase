@@ -113,21 +113,21 @@ and documentation use `view()`.
 24. Physical Cartesian or fractional `translate-all` applies to every
     trajectory frame and never changes the unit cell. Fractional vectors use
     the complete, potentially non-orthogonal cell matrix.
-25. Browser history interleaves structural mutations, camera changes, and
-    visual settings.
+25. Browser history interleaves structural mutations and visual settings.
     `Ctrl+Z` and `Ctrl+Shift+Z` restore the most recent action in chronological
-    order, including orbit, pan, zoom, projection, axis alignment, toolbar
-    rotation, atomic-scale camera changes, appearance, bonds, lighting, and
-    view styling. Continuous visual inputs are debounced into one action and
-    snapshot only after the edit settles, avoiding per-event copies of large
-    atom-material maps.
+    order, including projection, atomic scale, appearance, bonds, lighting,
+    and view styling. Orbit, pan, zoom, axis alignment, and toolbar camera
+    rotation are deliberately excluded, so geometry undo is never buried
+    behind navigation steps. Continuous visual inputs are debounced into one
+    action and snapshot only after the edit settles, avoiding per-event copies
+    of large atom-material maps.
 26. Native save destinations are selected before export generation begins.
     Canceling the picker must not call structure generation, image rendering,
-    video capture/transcoding, or CAD/Blender scene construction. Browsers
+    video capture/transcoding, or Blender/3D scene construction. Browsers
     without the File System Access API retain the download fallback. Image
     export uses one monotonic render/capture/encode/write progress sequence,
     reports ETA, and emits 100% only after the selected file is complete.
-27. Every browser mutation and structure/CAD export carries the displayed
+27. Every browser mutation and structure/3D-scene export carries the displayed
     `frame_index`. The backend synchronizes that frame before consuming
     coordinates, constraints, labels, calculator state, or export payloads.
 28. Trajectory-wide physical operations validate and transform every frame
@@ -195,10 +195,11 @@ and documentation use `view()`.
 43. Commensurate candidates are deterministic cell-boundary matches. The guide
     is enabled by default, magnetic snapping is disabled by default, and neither
     feature depends on the current bond list.
-44. `--for-ai` emits one JSON handshake and keeps the same live document
-    available for human takeover. Agents obtain semantic structure state over
-    HTTP and use `window.v_aseAI` to set frame, display, selection, and camera
-    before rendering through the exact Export Image capture path.
+44. `--cli` is a terminal-oriented API mode, not an embedded AI model. An
+    agent invokes it itself, parses one JSON handshake, and keeps the same live
+    document available for human takeover. Agents obtain semantic structure
+    state over HTTP and use `window.v_aseAI` to set frame, display, selection,
+    and camera before rendering through the exact Export Image capture path.
 45. Image storage optimization is post-render only. Lossless WebP and optimized
     PNG preserve the requested dimensions and exact RGBA pixels; PNG keeps the
     browser source when recompression is not smaller.
@@ -261,7 +262,7 @@ and documentation use `view()`.
 56. The bundled agent skill is vendor-neutral. Codex, Claude Code, ChatGPT
     desktop agents, Gemini-based agents, agentic IDEs, and other local agents
     receive the same canonical `SKILL.md`, agent setup reference, task-specific
-    references, and `--for-ai` startup JSON. Documentation never relies on a
+    references, and `--cli` startup JSON. Documentation never relies on a
     vendor-specific directory unless that client explicitly supports one.
 57. Selection keeps the required yellow sphere outline but has no separate
     billboard halo ring. FixedPlane and plane-like FixScaled are the only

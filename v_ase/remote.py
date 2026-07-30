@@ -88,8 +88,8 @@ def build_remote_gui_command(
         command.append("--hide-axes")
     if args.interactive:
         command.append("--interactive")
-    if args.for_ai:
-        command.append("--for-ai")
+    if args.cli_mode:
+        command.append("--cli")
     command.extend(["--", target.path])
     return shlex.join(command)
 
@@ -274,7 +274,7 @@ def launch_remote_gui(args: argparse.Namespace, target: RemoteTarget) -> int:
         )
         drain_thread.start()
 
-        if args.for_ai:
+        if args.cli_mode:
             from .ai import ai_handshake
 
             print(json.dumps(ai_handshake(local_url), separators=(",", ":")), flush=True)

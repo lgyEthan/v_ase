@@ -875,11 +875,11 @@ def test_ai_bridge_screen_relative_camera_and_constraint_vector_workflow():
                 camera.lookAt(target);
                 app.rotateCameraView('roll-cw', 31);
                 app.completeCameraViewChange('arbitrary-screen-basis');
-                return app.cameraHistorySnapshot();
+                return app.cameraSettingsSnapshot();
             }""")
             editor_page.evaluate("window.__ASE_APP__.rotateCameraView('up', 23)")
             editor_page.evaluate("window.__ASE_APP__.rotateCameraView('down', 23)")
-            restored = editor_page.evaluate("window.__ASE_APP__.cameraHistorySnapshot()")
+            restored = editor_page.evaluate("window.__ASE_APP__.cameraSettingsSnapshot()")
             assert restored["position"] == pytest.approx(baseline["position"], abs=1e-7)
             assert restored["up"] == pytest.approx(baseline["up"], abs=1e-7)
             assert restored["target"] == pytest.approx(baseline["target"], abs=1e-7)
@@ -1585,6 +1585,25 @@ def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
             page.keyboard.press('Escape')
             page.wait_for_function("document.body.classList.contains('inspector-collapsed')")
             assert page.evaluate("document.activeElement?.tagName") == 'CANVAS'
+            aligned_reference = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const savedPositions = app.state.originalPositions;
+                const savedPivot = app.transform.pivot.clone();
+                app.state.originalPositions = [
+                    [-4, -1, 0], [-4, 1, 0], [4, -1, 0], [4, 1, 0]
+                ];
+                app.transform.pivot.set(0, 0, 0);
+                const result = app.rotationReferenceForSelection(
+                    [0, 1, 2, 3],
+                    new app.transform.pivot.constructor(0, 0, 1)
+                );
+                app.state.originalPositions = savedPositions;
+                app.transform.pivot.copy(savedPivot);
+                return result.reference.toArray();
+            }""")
+            assert abs(aligned_reference[0]) == pytest.approx(1.0, abs=1e-7)
+            assert aligned_reference[1] == pytest.approx(0.0, abs=1e-7)
+            assert aligned_reference[2] == pytest.approx(0.0, abs=1e-7)
             page.keyboard.press('r')
             assert page.evaluate("window.__ASE_APP__.transform.mode") == 'ROTATE'
             rotation_guide = page.evaluate("""() => {
@@ -5238,48 +5257,18 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                 app.completeCameraViewChange('test-undo-baseline');
                 app.resetHistoryTimeline();
                 document.querySelector('#app-viewport canvas').focus();
-                return app.cameraHistorySnapshot();
+                return app.cameraSettingsSnapshot();
             }""")
             page.click('[data-view-rotate="up"]')
             undo_moved = page.evaluate("""() => ({
-                camera: window.__ASE_APP__.cameraHistorySnapshot(),
+                camera: window.__ASE_APP__.cameraSettingsSnapshot(),
                 undoKinds: window.__ASE_APP__.undoTimeline.map(action => action.kind),
                 redoCount: window.__ASE_APP__.redoTimeline.length
             })""")
-            assert undo_moved["undoKinds"] == ["camera"]
+            assert undo_moved["undoKinds"] == []
             assert undo_moved["redoCount"] == 0
             assert undo_moved["camera"]["position"] != pytest.approx(
                 undo_baseline["position"], abs=1e-8
-            )
-
-            page.evaluate("document.querySelector('#app-viewport canvas').focus()")
-            page.keyboard.press("Control+z")
-            page.wait_for_function(
-                "window.__ASE_APP__.undoTimeline.length === 0"
-                " && window.__ASE_APP__.redoTimeline.length === 1"
-            )
-            undo_restored = page.evaluate("window.__ASE_APP__.cameraHistorySnapshot()")
-            assert undo_restored["position"] == pytest.approx(
-                undo_baseline["position"], abs=1e-8
-            )
-            assert undo_restored["target"] == pytest.approx(
-                undo_baseline["target"], abs=1e-8
-            )
-            assert undo_restored["up"] == pytest.approx(
-                undo_baseline["up"], abs=1e-8
-            )
-
-            page.keyboard.press("Control+Shift+z")
-            page.wait_for_function(
-                "window.__ASE_APP__.undoTimeline.length === 1"
-                " && window.__ASE_APP__.redoTimeline.length === 0"
-            )
-            redo_restored = page.evaluate("window.__ASE_APP__.cameraHistorySnapshot()")
-            assert redo_restored["position"] == pytest.approx(
-                undo_moved["camera"]["position"], abs=1e-8
-            )
-            assert redo_restored["up"] == pytest.approx(
-                undo_moved["camera"]["up"], abs=1e-8
             )
 
             visual_baseline = page.evaluate("""() => {
@@ -5312,9 +5301,17 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             )
             visual_undone = page.evaluate("""() => ({
                 color: window.__ASE_APP__.state.display.labelColors.O || null,
-                rendered: window.__ASE_APP__.labelVisualColor('O')
+                rendered: window.__ASE_APP__.labelVisualColor('O'),
+                camera: window.__ASE_APP__.cameraSettingsSnapshot()
             })""")
-            assert visual_undone == visual_baseline
+            assert visual_undone["color"] == visual_baseline["color"]
+            assert visual_undone["rendered"] == visual_baseline["rendered"]
+            assert visual_undone["camera"]["position"] == pytest.approx(
+                undo_moved["camera"]["position"], abs=1e-8
+            )
+            assert visual_undone["camera"]["up"] == pytest.approx(
+                undo_moved["camera"]["up"], abs=1e-8
+            )
 
             page.keyboard.press("Control+Shift+z")
             page.wait_for_function(
@@ -5384,7 +5381,7 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                 camera.up.set(0, 1, 0);
                 app.completeCameraViewChange('test-orbit-undo-baseline');
                 app.resetHistoryTimeline();
-                return app.cameraHistorySnapshot();
+                return app.cameraSettingsSnapshot();
             }""")
             canvas_box = page.locator("#app-viewport canvas").bounding_box()
             assert canvas_box is not None
@@ -5394,30 +5391,12 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             page.mouse.down(button="middle")
             page.mouse.move(orbit_x + 90, orbit_y + 55, steps=8)
             page.mouse.up(button="middle")
-            page.wait_for_function(
-                "window.__ASE_APP__.undoTimeline.length === 1"
-                " && window.__ASE_APP__.undoTimeline[0].kind === 'camera'"
-            )
-            orbit_moved = page.evaluate("window.__ASE_APP__.cameraHistorySnapshot()")
+            page.wait_for_timeout(120)
+            orbit_moved = page.evaluate("window.__ASE_APP__.cameraSettingsSnapshot()")
             assert orbit_moved["position"] != pytest.approx(
                 orbit_baseline["position"], abs=1e-8
             )
-            page.locator("#app-viewport canvas").focus()
-            page.keyboard.press("Control+z")
-            page.wait_for_function(
-                "window.__ASE_APP__.undoTimeline.length === 0"
-                " && window.__ASE_APP__.redoTimeline.length === 1"
-            )
-            orbit_undone = page.evaluate("window.__ASE_APP__.cameraHistorySnapshot()")
-            assert orbit_undone["position"] == pytest.approx(
-                orbit_baseline["position"], abs=1e-8
-            )
-            assert orbit_undone["target"] == pytest.approx(
-                orbit_baseline["target"], abs=1e-8
-            )
-            assert orbit_undone["up"] == pytest.approx(
-                orbit_baseline["up"], abs=1e-8
-            )
+            assert page.evaluate("window.__ASE_APP__.undoTimeline.length") == 0
 
             translation_baseline = page.evaluate("""() => {
                 const app = window.__ASE_APP__;

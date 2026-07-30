@@ -106,11 +106,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     gui.add_argument(
-        "--for-ai",
+        "--cli",
+        dest="cli_mode",
         action="store_true",
         help=(
-            "start a machine-readable agent session, print a JSON handshake, "
-            "and leave the same URL available for normal human use"
+            "start a terminal-oriented machine-readable session, print a JSON "
+            "API handshake, and suppress automatic browser launch"
         ),
     )
     gui.set_defaults(func=run_gui, show_bonds=True)
@@ -192,7 +193,7 @@ def run_gui(args: argparse.Namespace) -> int:
     if not frames:
         raise SystemExit(f"v_ase: no frames found in {path}")
 
-    keep_alive = bool(args.no_block or args.for_ai)
+    keep_alive = bool(args.no_block or args.cli_mode)
     result = view(
         frames,
         block=not keep_alive,
@@ -205,18 +206,18 @@ def run_gui(args: argparse.Namespace) -> int:
         initial_frame=initial_frame,
         initial_design_settings=initial_design_settings,
         document_name=path.name if path is not None else "Untitled",
-        open_browser=not args.no_browser and not args.for_ai,
+        open_browser=not args.no_browser and not args.cli_mode,
         stream_trajectory=args.stream_frames,
     )
 
     if keep_alive:
-        if args.for_ai:
+        if args.cli_mode:
             from v_ase.ai import ai_handshake
 
             print(json.dumps(ai_handshake(result.url), separators=(",", ":")), flush=True)
             print(
-                "v_ase AI session is running. Open the reported human_url for "
-                "the normal GUI; press Ctrl+C here to stop it.",
+                "v_ase CLI API session is running. Open the reported human_url "
+                "for the normal GUI; press Ctrl+C here to stop it.",
                 file=sys.stderr,
                 flush=True,
             )

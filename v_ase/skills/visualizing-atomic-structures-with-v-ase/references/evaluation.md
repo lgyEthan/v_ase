@@ -42,7 +42,7 @@ Review both lists whenever the skill description changes.
 
 Before every release:
 
-1. start `v_ase gui EXAMPLE --for-ai`;
+1. start `v_ase gui EXAMPLE --cli`;
 2. call `capabilities()`;
 3. compare every reported state field, apply key, operation, and export with
    `references/semantic-api.md`;
@@ -68,12 +68,12 @@ Run all scenarios, not only static document checks:
 1. **Launch and discovery**
    - install the built wheel in a clean environment;
    - verify `v_ase --version` and `from v_ase.visualize import view`;
-   - launch `--for-ai`, parse handshake, fetch skill/schema/state.
+   - launch `--cli`, parse handshake, fetch skill/schema/state.
 2. **Structure and camera**
    - describe a periodic structure;
    - align `+X`, `-Y`, and `+Z`;
    - orbit left/right/up/down and roll both directions;
-   - verify camera changes and undo.
+   - verify camera changes do not enter undo history.
 3. **Selection and measurement**
    - select one through four ordered atoms;
    - verify atom summary, direct/MIC distance, angle, and torsion;

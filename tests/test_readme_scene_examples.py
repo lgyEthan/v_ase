@@ -344,7 +344,8 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "Cu_oxide-O_oxide" in readme
     assert "Materials affect rendering only." in readme
     assert "reaches 100% once" in readme
-    assert "appearance, bond, and rendering changes" in readme
+    assert "structure and visualization-setting changes" in readme
+    assert "camera navigation is excluded" in readme
     assert "Try the exact assets" not in readme
     assert "playback of a finished model" not in readme
     assert "long sequence of repetitive steps" not in readme

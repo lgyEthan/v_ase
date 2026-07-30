@@ -16,14 +16,15 @@ desktop agents, Gemini-based agents, agentic IDEs, and other local models can
 attach `SKILL.md`, `agent-setup.md`, and the task-specific references, then
 control the same vendor-neutral `window.v_aseAI` semantic API.
 
-Launch with:
+The controlling agent launches:
 
 ```bash
-v_ase gui STRUCTURE --for-ai
+v_ase gui STRUCTURE --cli
 ```
 
-Give the AI the first JSON line printed by the command. It identifies the
-human GUI, state, schema, skill, and browser API for the same live document.
+`--cli` is a terminal-oriented API mode, not an embedded LLM. The agent parses
+the first JSON line itself; it identifies the human GUI, state, schema, skill,
+and browser API for the same live document.
 The canonical skill also documents standalone `html` export in lightweight
 view-only and project-embedded modes. Embedded HTML can be reopened with
 `v_ase gui FILE.html`; lightweight HTML cannot restore editable state. This

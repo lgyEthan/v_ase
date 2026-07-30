@@ -235,6 +235,7 @@ def test_exported_html_opens_offline_as_view_only_interactive_trajectory(tmp_pat
         assert page.locator("#download-project").is_visible()
         assert page.evaluate("window.v_aseStandalone.hasEmbeddedProject") is True
         assert page.evaluate("window.v_aseStandalone.scene.frames.length") == 2
+        assert page.locator("html").get_attribute("data-v-ase-atom-count") == "2"
         assert page.evaluate(
             "window.v_aseStandalone.scene.settings.display.labelMaterials.Cu_surface"
         ) == "metal"
@@ -265,6 +266,40 @@ def test_exported_html_opens_offline_as_view_only_interactive_trajectory(tmp_pat
         with Image.open(screenshot) as image:
             colors = image.convert("RGB").resize((160, 90)).getcolors(maxcolors=160 * 90)
             assert colors is not None and len(colors) > 20
+        rendered_atoms = page.evaluate("""() => {
+            const standalone = window.v_aseStandalone;
+            const renderer = standalone.renderer;
+            const rect = renderer.domElement.getBoundingClientRect();
+            renderer.camera.updateMatrixWorld(true);
+            const samples = [...renderer.atomMeshByIndex.keys()].map(index => {
+                const projected = renderer.getAtomPosition(index)
+                    .clone()
+                    .project(renderer.camera);
+                return {
+                    index,
+                    ndc: projected.toArray(),
+                    pixel: [
+                        (projected.x * 0.5 + 0.5) * rect.width,
+                        (-projected.y * 0.5 + 0.5) * rect.height
+                    ]
+                };
+            });
+            return {
+                width: rect.width,
+                height: rect.height,
+                samples,
+                renderCount: Number(renderer.domElement.dataset.renderCount || 0)
+            };
+        }""")
+        assert rendered_atoms["width"] > 500
+        assert rendered_atoms["height"] > 250
+        assert rendered_atoms["renderCount"] > 0
+        assert len(rendered_atoms["samples"]) == 2
+        for sample in rendered_atoms["samples"]:
+            assert -1 < sample["ndc"][0] < 1
+            assert -1 < sample["ndc"][1] < 1
+            assert 0 < sample["pixel"][0] < rendered_atoms["width"]
+            assert 0 < sample["pixel"][1] < rendered_atoms["height"]
 
         assert not [
             url for url in network_requests
@@ -355,6 +390,18 @@ def test_html_export_button_downloads_an_offline_document_that_reopens(tmp_path)
             )
             page.click("#btn-export-html")
             page.locator("#html-export-confirm").wait_for(state="visible")
+            preview_source = page.locator("#html-export-preview").get_attribute("src")
+            assert preview_source and preview_source.startswith("data:image/png;base64,")
+            preview_bytes = base64.b64decode(preview_source.split(",", 1)[1])
+            preview_path = tmp_path / "html_modal_preview.png"
+            preview_path.write_bytes(preview_bytes)
+            with Image.open(preview_path) as preview_image:
+                assert preview_image.width >= 640
+                assert preview_image.height >= 300
+                colors = preview_image.convert("RGB").resize((160, 90)).getcolors(
+                    maxcolors=160 * 90
+                )
+                assert colors is not None and len(colors) > 20
             assert page.locator("#html-embed-project").is_checked()
             page.uncheck("#html-embed-project")
             assert "Smaller view-only HTML" in page.locator(
@@ -372,8 +419,29 @@ def test_html_export_button_downloads_an_offline_document_that_reopens(tmp_path)
             offline.goto(exported.as_uri(), wait_until="load")
             offline.locator("html[data-v-ase-ready='true']").wait_for(state="attached")
             assert offline.locator(".view-only-badge").inner_text() == "VIEW ONLY"
+            assert offline.locator("html").get_attribute("data-v-ase-atom-count") == "2"
             assert offline.evaluate("window.v_aseStandalone.scene.frames.length") == 2
             assert offline.locator("#timeline").is_visible()
+            before_rotation = offline.evaluate(
+                "window.v_aseStandalone.renderer.camera.quaternion.toArray()"
+            )
+            offline_canvas = offline.locator("#viewer-frame canvas").bounding_box()
+            assert offline_canvas
+            offline.mouse.move(
+                offline_canvas["x"] + offline_canvas["width"] * 0.5,
+                offline_canvas["y"] + offline_canvas["height"] * 0.5,
+            )
+            offline.mouse.down(button="left")
+            offline.mouse.move(
+                offline_canvas["x"] + offline_canvas["width"] * 0.64,
+                offline_canvas["y"] + offline_canvas["height"] * 0.58,
+                steps=6,
+            )
+            offline.mouse.up(button="left")
+            after_rotation = offline.evaluate(
+                "window.v_aseStandalone.renderer.camera.quaternion.toArray()"
+            )
+            assert after_rotation != pytest.approx(before_rotation)
 
             page.set_input_files("#project-file", exported)
             page.wait_for_function(

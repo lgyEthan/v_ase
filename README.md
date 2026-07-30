@@ -12,7 +12,7 @@
 direct, Blender-style 3D structure editing. Open a structure or trajectory
 with one command, inspect and measure it in a local browser, edit it manually
 or ask an AI agent to perform verified multi-step changes from natural
-language, then export publication- or CAD-ready results.
+language, then export publication images, videos, and reusable 3D scenes.
 
 ![Phosphorene nanoribbon manipulation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_phosphorene_twist.gif)
 
@@ -86,7 +86,7 @@ browser document releases the blocking terminal process.
 | Save the whole session | Use **Export > v_ase Project** and choose compact `.vase` or browser-ready HTML |
 | Reuse only the visual style | Use **Export > Save Settings** |
 | Share an offline 3D view | Use **Export HTML View**, then choose whether to embed the editable `.vase` |
-| Hand the scene to an AI | Launch with `--for-ai` and provide the bundled agent skill |
+| Hand the scene to an AI | Provide the bundled agent skill; the agent starts the CLI/API session itself |
 
 > **Viewport tip:** after selecting atoms, press `Esc` to close the control
 > panel before using `G` or `R`. The selection is preserved and keyboard focus
@@ -384,6 +384,7 @@ Changes apply immediately. Bonds support:
 
 The top view shows a `6 x 6 Cu2O(111)` film on `7 x 7 Cu(111)`, with one
 interfacial oxygen positioned over a substrate Cu top site.
+The Cu(111) substrate uses a nearest-neighbor touching-sphere radius.
 `Cu_oxide-O_oxide` and `Cu_substrate-O_oxide` bonds are enabled, while
 `Cu_substrate-Cu_substrate`, `Cu_oxide-Cu_oxide`, cross-region Cu-Cu, and
 O-O pairs are disabled. Separate oxide and substrate labels let each
@@ -449,7 +450,8 @@ original input file.
 
 Use **Save HTML** or **Export HTML View** when the result should open directly
 in a browser. Before saving, choose whether to enable **Embed editable .vase
-project**. Every generated HTML:
+project**. The save dialog previews the rendered structure that will initialize
+the standalone viewer. Every generated HTML:
 
 - opens offline without v_ase, Python, a server, or a CDN;
 - restores the saved camera, viewport styling, bonds, constraint overlays,
@@ -487,18 +489,20 @@ OBJ export has no optional Python dependency.
 
 ## AI And Agent Use
 
-`--for-ai` exposes the same document through a semantic state and command API,
-so an agent can inspect coordinates, cell, constraints, trajectory frames,
-selection, measurements, camera, materials, lighting, and export state without
-repeatedly interpreting screenshots.
+Install v_ase normally and give the AI the bundled skill. The AI starts the
+machine-readable session itself when the task requires it; a person does not
+need to launch a separate AI mode.
 
 ```bash
-v_ase gui STRUCTURE --for-ai
+v_ase gui STRUCTURE --cli
 ```
 
-The startup handshake reports the human GUI URL, state and command-schema
-URLs, the live `window.v_aseAI` browser API, and the installed agent-skill
-location. A user can take over the same document in the normal GUI at any time.
+`--cli` does not bundle an LLM or make v_ase an AI model. It is a
+terminal-oriented local API mode that suppresses automatic browser launch and
+prints a JSON handshake. The agent uses that handshake to inspect coordinates,
+cell, constraints, trajectory frames, selection, measurements, camera,
+materials, lighting, and export state without interpreting screenshots. Its
+`human_url` opens the same document whenever a person wants to take over.
 
 Use the complete
 [v_ase agent skill](https://github.com/lgyEthan/v_ase/tree/main/v_ase/skills/visualizing-atomic-structures-with-v-ase).
@@ -521,22 +525,21 @@ files, provide the following:
 |  | [`safety-and-errors.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/safety-and-errors.md) before destructive edits, relaxation, or file output |
 |  | [`evaluation.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/evaluation.md) when changing or releasing v_ase itself |
 
-Then launch the document:
+The agent launches the document and parses the first JSON line itself:
 
 ```bash
-v_ase gui STRUCTURE --for-ai
+v_ase gui STRUCTURE --cli
 ```
 
-Give the AI the first JSON line printed by the command. It contains the live
-GUI URL, semantic state URL, command schema URL, browser API name, and installed
-skill path. Do not paste screenshots or manually transcribe coordinates when
-the semantic state is available.
+That line contains the live GUI URL, semantic state URL, command schema URL,
+browser API name, and installed skill path. Do not paste screenshots or
+manually transcribe coordinates when the semantic state is available.
 
 This bootstrap instruction works for clients without a native skill loader:
 
 ```text
 Read SKILL.md and agent-setup.md first. Load only the reference files needed
-for this task. Start v_ase with --for-ai, inspect capabilities() and describe()
+for this task. Start v_ase with --cli, inspect capabilities() and describe()
 before editing, execute semantic operations one at a time, verify state after
 each physical change, inspect the decoded final render, and give me human_url
 for manual takeover.
@@ -643,7 +646,7 @@ oxygen atoms remain ASE element `O`.
 | `Enter` or left click | Confirm transform |
 | `Esc` or right click | Cancel transform |
 | `Ctrl+C`, `Ctrl+V` | Copy and paste atoms |
-| `Ctrl+Z`, `Ctrl+Shift+Z` | Undo and redo structure, camera, appearance, bond, and rendering changes |
+| `Ctrl+Z`, `Ctrl+Shift+Z` | Undo and redo structure and visualization-setting changes; camera navigation is excluded |
 | `Delete` / `Backspace` | Delete selected atoms |
 | `Space` | Play or pause the active timeline |
 | Left / Right Arrow | Previous / next frame in the active timeline |
@@ -749,7 +752,7 @@ only after encoding and the destination write both finish.
 <summary>Chrome says this site can view changes made to the saved file</summary>
 
 This is a Chrome security notice for the File System Access API. v_ase opens
-the system save picker before a costly image, video, Blender, or CAD export so
+the system save picker before a costly image, video, Blender, or 3D scene export so
 canceling does not waste time. It receives write access only to the file you
 choose. Chrome does not allow a page to suppress this notice; using an ordinary
 browser download would remove advance destination selection.

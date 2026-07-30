@@ -66,10 +66,10 @@ function applyCamera(renderer, settings) {
     renderer.requestRender();
 }
 
-function fitViewerFrame(renderer, savedAspect) {
+function sizeViewerFrame(savedAspect) {
     const stage = document.querySelector('.viewer-stage');
     const frame = document.getElementById('viewer-frame');
-    if (!stage || !frame) return;
+    if (!stage || !frame) return { width: 1, height: 1 };
     const stageRect = stage.getBoundingClientRect();
     const stageWidth = Math.max(1, stageRect.width);
     const stageHeight = Math.max(1, stageRect.height);
@@ -84,6 +84,11 @@ function fitViewerFrame(renderer, savedAspect) {
     }
     frame.style.width = `${Math.max(1, Math.floor(width))}px`;
     frame.style.height = `${Math.max(1, Math.floor(height))}px`;
+    return { width, height };
+}
+
+function fitViewerFrame(renderer, savedAspect) {
+    const { width, height } = sizeViewerFrame(savedAspect);
     renderer.renderer.setSize(Math.max(1, width), Math.max(1, height), false);
     renderer.updateCameraProjection(width / Math.max(1, height));
     renderer.requestRender();
@@ -150,7 +155,9 @@ export function startStandaloneViewer(scene, projectBase64) {
     const savedCamera = settings.camera || scene.camera || null;
     const savedAspect = Number(savedCamera?.aspect) || 16 / 9;
     const viewerFrame = document.getElementById('viewer-frame');
+    sizeViewerFrame(savedAspect);
     const renderer = new ASERenderer(viewerFrame);
+    fitViewerFrame(renderer, savedAspect);
     renderer.needsInitialCameraFit = !savedCamera;
     renderer.setDisplayOptions(display, { rebuild: false });
     installViewOnlyPointerControls(renderer);
@@ -185,6 +192,7 @@ export function startStandaloneViewer(scene, projectBase64) {
         renderer.setSelection(scene.selection || []);
         renderMetadata(scene, frame);
         updateFrameControls();
+        document.documentElement.dataset.vAseAtomCount = String(frame.positions?.length || 0);
         renderer.renderNow();
     };
 
@@ -268,14 +276,15 @@ export function startStandaloneViewer(scene, projectBase64) {
 
     const resize = () => {
         fitViewerFrame(renderer, savedAspect);
-        if (savedCamera) applyCamera(renderer, { camera: savedCamera });
+        renderer.renderNow();
     };
     window.addEventListener('resize', resize);
     document.getElementById('document-title').textContent = scene.documentName || 'v_ase view';
     document.title = `${scene.documentName || 'v_ase view'} - v_ase`;
     renderFrame(frameIndex);
-    resize();
     if (savedCamera) applyCamera(renderer, { camera: savedCamera });
+    else renderer.fitCameraToStructure();
+    renderer.renderNow();
 
     window.v_aseStandalone = {
         protocol: 'v_ase.html-view.v1',

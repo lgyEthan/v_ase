@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.114"
+python -m pip install "v_ase-gui==0.0.115"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.0.114"
+python -m pip install "v_ase-gui[rhino]==0.0.115"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, imageio-ffmpeg, and
@@ -50,10 +50,10 @@ Open a structure or all trajectory frames:
 v_ase gui STRUCTURE
 ```
 
-Agent mode:
+Terminal-oriented API session for an automation agent to launch itself:
 
 ```bash
-v_ase gui STRUCTURE --for-ai
+v_ase gui STRUCTURE --cli
 ```
 
 Interactive atom editing:
@@ -75,8 +75,9 @@ Useful options:
 | `--show-bonds` / `--hide-bonds` | Override startup bond visibility |
 | `--hide-cell` / `--hide-axes` | Hide viewport guides at startup |
 
-`--for-ai` implies a nonblocking, no-browser session and prints one JSON
-handshake. Keep the process alive until work is complete.
+`--cli` is not an embedded AI model. It implies a nonblocking, no-browser
+session and prints one JSON handshake for the controlling agent. Keep the
+process alive until work is complete.
 
 Python API:
 
@@ -134,7 +135,7 @@ adds a Base64 copy of the archive and allows `v_ase gui FILE.html`. Disable it
 for a smaller view-only file.
 
 The terminal remains occupied while the browser document is active unless
-`--no-block` or `--for-ai` is used. Close the document or stop the process after
+`--no-block` or `--cli` is used. Close the document or stop the process after
 the export has been verified.
 
 ## Local, WSL, And Remote Use

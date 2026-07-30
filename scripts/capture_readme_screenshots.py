@@ -1130,12 +1130,24 @@ def capture_commensurate_media(browser) -> None:
 
 def capture_bond_media(browser) -> None:
     atoms, groups = make_copper_oxide_bond_scene()
+    atom_radius_scale = 0.42
+    substrate_anchor = groups["substrate_copper"][0]
+    substrate_neighbors = [
+        index for index in groups["substrate_copper"]
+        if index != substrate_anchor
+    ]
+    substrate_nearest_neighbor = float(np.min(
+        atoms.get_distances(substrate_anchor, substrate_neighbors, mic=True)
+    ))
+    substrate_touching_source_radius = (
+        0.5 * substrate_nearest_neighbor / atom_radius_scale
+    )
     editor, page = open_scene(browser, atoms, show_bonds=True)
     try:
         set_display(page, {
-            "atomRadiusScale": 0.42,
+            "atomRadiusScale": atom_radius_scale,
             "labelRadii": {
-                "Cu_substrate": 1.18,
+                "Cu_substrate": substrate_touching_source_radius,
                 "Cu_oxide": 1.12,
                 "O_oxide": 0.72,
             },
@@ -1239,6 +1251,19 @@ def capture_bond_media(browser) -> None:
             )
         if len(groups["oxide_oxygen"]) < 30:
             raise AssertionError("README bonding scene requires a resolved Cu2O film.")
+        rendered_substrate_radius = page.evaluate(
+            "index => window.__V_ASE_APP__.renderer.atomVisualRadius(index)",
+            substrate_anchor,
+        )
+        if not math.isclose(
+            2.0 * rendered_substrate_radius,
+            substrate_nearest_neighbor,
+            rel_tol=1e-6,
+            abs_tol=1e-6,
+        ):
+            raise AssertionError(
+                "README Cu(111) substrate must use touching-sphere radii."
+            )
         page.screenshot(path=ASSET_DIR / "readme_bonds.png")
     finally:
         page.close()

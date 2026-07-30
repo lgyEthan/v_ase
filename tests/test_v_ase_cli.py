@@ -43,7 +43,7 @@ def test_v_ase_gui_parser_accepts_an_empty_workspace():
     assert args.no_browser is False
     assert args.port is None
     assert args.show_bonds is True
-    assert args.for_ai is False
+    assert args.cli_mode is False
 
 
 def test_v_ase_gui_parser_accepts_headless_server_mode():
@@ -52,6 +52,15 @@ def test_v_ase_gui_parser_accepts_headless_server_mode():
 
     assert args.no_browser is True
     assert args.port == 58039
+
+
+def test_v_ase_gui_parser_uses_cli_for_machine_readable_sessions():
+    parser = build_parser()
+    args = parser.parse_args(["gui", "movie.extxyz", "--cli"])
+
+    assert args.cli_mode is True
+    with pytest.raises(SystemExit):
+        parser.parse_args(["gui", "movie.extxyz", "--for-ai"])
 
 
 def test_scp_style_remote_target_is_detected_without_a_port_argument():
@@ -93,6 +102,7 @@ def test_remote_gui_command_preserves_user_options_and_quotes_the_path():
             "extxyz",
             "--show-bonds",
             "--interactive",
+            "--cli",
             "--port",
             "49152",
         ]
@@ -111,6 +121,7 @@ def test_remote_gui_command_preserves_user_options_and_quotes_the_path():
         "--format",
         "extxyz",
         "--interactive",
+        "--cli",
         "--",
         "/data/final structure.extxyz",
     ]
@@ -128,12 +139,12 @@ def test_remote_url_is_rewritten_to_the_automatically_selected_local_endpoint():
     )
 
 
-def test_for_ai_prints_one_machine_readable_handshake_and_keeps_session_alive(
+def test_cli_mode_prints_one_machine_readable_handshake_and_keeps_session_alive(
     monkeypatch,
     capsys,
 ):
     parser = build_parser()
-    args = parser.parse_args(["gui", "--for-ai"])
+    args = parser.parse_args(["gui", "--cli"])
     captured = {}
 
     class FakeEditor:
@@ -365,8 +376,8 @@ def test_v_ase_gui_parser_defaults_to_visualization_mode_and_accepts_interactive
     hidden = parser.parse_args(["gui", "movie.extxyz", "--hide-bonds"])
     assert hidden.show_bonds is False
 
-    agent = parser.parse_args(["gui", "movie.extxyz", "--for-ai"])
-    assert agent.for_ai is True
+    agent = parser.parse_args(["gui", "movie.extxyz", "--cli"])
+    assert agent.cli_mode is True
 
 
 def test_v_ase_visualize_import_path_exposes_view():

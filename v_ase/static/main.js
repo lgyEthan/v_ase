@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.114&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.114&rev=1';
-import { ASESelection } from './selection.js?v=0.0.114&rev=1';
-import { ASETransform } from './transform.js?v=0.0.114&rev=1';
+import { ASEApi } from './api.js?v=0.0.115&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.115&rev=1';
+import { ASESelection } from './selection.js?v=0.0.115&rev=1';
+import { ASETransform } from './transform.js?v=0.0.115&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.114&rev=1';
+} from './trajectory.js?v=0.0.115&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -44,7 +44,6 @@ class VAseApp {
         this.workspaceRequestSequence = 0;
         this.undoTimeline = [];
         this.redoTimeline = [];
-        this.cameraGestureStart = null;
         this.historyReplay = false;
         this.visualHistoryBaseline = null;
         this.visualHistoryPending = null;
@@ -70,11 +69,10 @@ class VAseApp {
         this.renderer.onCameraChange = event => this.syncAtomicScaleFromCamera({
             forceInput: event?.source !== 'scale-input'
         });
-        this.renderer.controls.onGestureStart = event => {
-            this.beginCameraHistoryGesture(event?.source || 'controls');
-        };
-        this.renderer.controls.onGestureEnd = event => {
-            this.commitCameraHistoryGesture(event?.source || 'controls');
+        this.renderer.controls.onGestureStart = () => this.flushVisualHistoryCommit();
+        this.renderer.controls.onGestureEnd = () => {
+            this.syncAtomicScaleFromCamera({ forceInput: true });
+            this.adoptCameraViewWithoutHistory();
         };
         
         this.state = {
@@ -1402,10 +1400,11 @@ class VAseApp {
         this.transform.updateGuides(camera);
         this.renderer.onCameraChange?.({ source });
         this.updateOrientationWidget();
+        this.adoptCameraViewWithoutHistory();
         this.renderer.requestRender();
     }
 
-    cameraHistorySnapshot() {
+    cameraSettingsSnapshot() {
         const camera = this.currentCameraForExport();
         return {
             position: [...camera.position],
@@ -1418,28 +1417,6 @@ class VAseApp {
             near: camera.near,
             far: camera.far
         };
-    }
-
-    cameraHistorySnapshotsEqual(first, second) {
-        if (!first || !second || first.projection !== second.projection) return false;
-        const numbers = value => [
-            ...(value.position || []),
-            ...(value.target || []),
-            ...(value.up || []),
-            value.fov,
-            value.zoom,
-            value.ortho_scale,
-            value.near,
-            value.far
-        ].map(item => item === null ? null : Number(item));
-        const a = numbers(first);
-        const b = numbers(second);
-        return a.length === b.length && a.every((value, index) => {
-            if (value === null || b[index] === null) return value === b[index];
-            return Number.isFinite(value)
-                && Number.isFinite(b[index])
-                && Math.abs(value - b[index]) <= 1e-9;
-        });
     }
 
     recordHistoryAction(action) {
@@ -1462,7 +1439,6 @@ class VAseApp {
     resetHistoryTimeline() {
         this.undoTimeline = [];
         this.redoTimeline = [];
-        this.cameraGestureStart = null;
         this.resetVisualHistoryBaseline();
     }
 
@@ -1545,41 +1521,15 @@ class VAseApp {
         }
     }
 
-    beginCameraHistoryGesture(source = 'camera') {
-        if (this.historyReplay || this.cameraGestureStart) return;
-        this.cameraGestureStart = {
-            source,
-            before: this.cameraHistorySnapshot()
-        };
-    }
-
-    commitCameraHistoryGesture(source = 'camera') {
-        if (this.historyReplay || !this.cameraGestureStart) return;
-        const pending = this.cameraGestureStart;
-        this.cameraGestureStart = null;
-        const after = this.cameraHistorySnapshot();
-        if (this.cameraHistorySnapshotsEqual(pending.before, after)) return;
-        this.recordHistoryAction({
-            kind: 'camera',
-            source: pending.source || source,
-            before: pending.before,
-            after
-        });
-    }
-
-    applyCameraHistorySnapshot(snapshot) {
-        if (!snapshot) return;
-        this.historyReplay = true;
-        this.cameraGestureStart = null;
-        try {
-            this.applyCameraSettings(snapshot);
-            this.renderer.syncSelectionOutlines();
-            this.transform.updateGuides(this.renderer.camera);
-            this.updateOrientationWidget();
-            this.renderer.requestRender();
-        } finally {
-            this.historyReplay = false;
+    adoptCameraViewWithoutHistory() {
+        if (
+            this.historyReplay
+            || !this.visualHistoryReady
+            || this.visualHistoryPending
+        ) {
+            return;
         }
+        this.visualHistoryBaseline = this.visualHistorySnapshot();
     }
 
     async performUndo() {
@@ -1596,10 +1546,7 @@ class VAseApp {
             return;
         }
         try {
-            if (action.kind === 'camera') {
-                this.applyCameraHistorySnapshot(action.before);
-                this.toast('View change undone.', 'success');
-            } else if (action.kind === 'visual') {
+            if (action.kind === 'visual') {
                 this.applyVisualHistorySnapshot(action.before);
                 this.toast('Visual setting undone.', 'success');
             } else {
@@ -1642,10 +1589,7 @@ class VAseApp {
             return;
         }
         try {
-            if (action.kind === 'camera') {
-                this.applyCameraHistorySnapshot(action.after);
-                this.toast('View change redone.', 'success');
-            } else if (action.kind === 'visual') {
+            if (action.kind === 'visual') {
                 this.applyVisualHistorySnapshot(action.after);
                 this.toast('Visual setting redone.', 'success');
             } else {
@@ -1696,7 +1640,6 @@ class VAseApp {
         };
         const rotation = directions[direction];
         if (!rotation) return;
-        this.beginCameraHistoryGesture('view-toolbar');
         const viewRotation = new THREE.Quaternion().setFromAxisAngle(
             rotation.axis,
             rotation.sign * THREE.MathUtils.degToRad(degrees)
@@ -1706,7 +1649,6 @@ class VAseApp {
         camera.position.copy(basis.target).add(offset);
         camera.up.copy(basis.up).applyQuaternion(viewRotation).normalize();
         this.completeCameraViewChange('view-rotate');
-        this.commitCameraHistoryGesture('view-toolbar');
     }
 
     setupViewControls() {
@@ -3668,7 +3610,6 @@ class VAseApp {
         };
         const baseDir = axisVectors[axis];
         if (!baseDir) return 1;
-        this.beginCameraHistoryGesture('axis-align');
         const camera = this.renderer.camera;
         const controls = this.renderer.controls;
         const target = controls.target.clone();
@@ -3692,8 +3633,8 @@ class VAseApp {
         this.renderer.syncSelectionOutlines();
         this.transform.updateGuides(camera);
         this.updateOrientationWidget();
+        this.adoptCameraViewWithoutHistory();
         this.renderer.requestRender();
-        this.commitCameraHistoryGesture('axis-align');
         return sign;
     }
 
@@ -5709,7 +5650,7 @@ class VAseApp {
             selection: this.aiSelectionSnapshot(),
             measurement: this.getSelectionMeasureText(),
             display: this.clonePlain(this.state.display),
-            camera: this.cameraHistorySnapshot(),
+            camera: this.cameraSettingsSnapshot(),
             imageExport: this.clonePlain(this.currentImageExportProfile())
         };
         if (includePositions) result.positions = positions;
@@ -6058,11 +5999,13 @@ class VAseApp {
             if (!cameraCommand || typeof cameraCommand !== 'object' || Array.isArray(cameraCommand)) {
                 throw new Error('camera must be an object.');
             }
-            this.beginCameraHistoryGesture('ai-camera');
             if (cameraCommand.projection) {
                 const projection = cameraCommand.projection === 'perspective'
                     ? 'perspective'
                     : 'orthographic';
+                if (projection !== this.state.display.projectionMode) {
+                    this.scheduleVisualHistoryCommit('ai-projection');
+                }
                 this.state.display.projectionMode = projection;
                 this.renderer.setProjectionMode(projection);
             }
@@ -6073,7 +6016,7 @@ class VAseApp {
                 || cameraCommand.up !== undefined
             ) {
                 this.applyCameraSettings({
-                    ...this.cameraHistorySnapshot(),
+                    ...this.cameraSettingsSnapshot(),
                     ...this.clonePlain(cameraCommand)
                 });
             }
@@ -6090,7 +6033,7 @@ class VAseApp {
                     cameraCommand.orbit.degrees ?? this.state.display.viewRotationStepDeg
                 );
             }
-            this.commitCameraHistoryGesture('ai-camera');
+            this.adoptCameraViewWithoutHistory();
         }
         if (command.selection !== undefined) {
             const selection = command.selection;
@@ -6140,7 +6083,7 @@ class VAseApp {
             width,
             height,
             dataUrl,
-            camera: this.cameraHistorySnapshot(),
+            camera: this.cameraSettingsSnapshot(),
             options
         };
     }
@@ -7244,28 +7187,98 @@ class VAseApp {
             : new THREE.Vector3(0, 0, -1);
     }
 
-    rotationReferenceForSelection(editableSelection, axis) {
-        let reference = null;
+    rotationPlaneDirection(vector, axis) {
+        const direction = vector?.isVector3
+            ? vector.clone()
+            : new THREE.Vector3(...(vector || []));
+        direction.addScaledVector(axis, -direction.dot(axis));
+        return direction.lengthSq() > 1e-12 ? direction.normalize() : null;
+    }
+
+    rotationCellReference(axis) {
+        const cell = this.state.atoms?.cell || [];
+        for (const vector of cell) {
+            const projected = this.rotationPlaneDirection(vector, axis);
+            if (projected) return projected;
+        }
+        return null;
+    }
+
+    selectionPrincipalRotationReference(editableSelection, axis) {
+        const cellReference = this.rotationCellReference(axis);
+        const basisU = cellReference || (() => {
+            const candidates = [
+                new THREE.Vector3(1, 0, 0),
+                new THREE.Vector3(0, 1, 0),
+                new THREE.Vector3(0, 0, 1)
+            ].sort((left, right) => Math.abs(left.dot(axis)) - Math.abs(right.dot(axis)));
+            return this.rotationPlaneDirection(candidates[0], axis);
+        })();
+        if (!basisU) return null;
+        const basisV = axis.clone().cross(basisU).normalize();
+        const points = [];
         let maxLength = 0;
         editableSelection.forEach(index => {
             const position = this.state.originalPositions[index];
             if (!position) return;
             const offset = new THREE.Vector3(...position).sub(this.transform.pivot);
             offset.addScaledVector(axis, -offset.dot(axis));
-            const length = offset.length();
-            if (length > maxLength) {
-                maxLength = length;
-                reference = offset.normalize();
-            }
+            maxLength = Math.max(maxLength, offset.length());
+            points.push([
+                offset.dot(basisU),
+                offset.dot(basisV)
+            ]);
         });
+        if (points.length < 2) return { reference: null, maxLength, anisotropy: 0 };
+
+        const mean = points.reduce(
+            (sum, point) => [sum[0] + point[0], sum[1] + point[1]],
+            [0, 0]
+        ).map(value => value / points.length);
+        let xx = 0;
+        let xy = 0;
+        let yy = 0;
+        points.forEach(point => {
+            const x = point[0] - mean[0];
+            const y = point[1] - mean[1];
+            xx += x * x;
+            xy += x * y;
+            yy += y * y;
+        });
+        const trace = xx + yy;
+        if (trace <= 1e-12) return { reference: null, maxLength, anisotropy: 0 };
+        const separation = Math.hypot(xx - yy, 2 * xy);
+        const angle = 0.5 * Math.atan2(2 * xy, xx - yy);
+        const reference = basisU.clone()
+            .multiplyScalar(Math.cos(angle))
+            .addScaledVector(basisV, Math.sin(angle))
+            .normalize();
+        const preferred = cellReference || basisU;
+        if (reference.dot(preferred) < 0) reference.multiplyScalar(-1);
+        return {
+            reference,
+            maxLength,
+            anisotropy: separation / trace
+        };
+    }
+
+    rotationReferenceForSelection(editableSelection, axis) {
+        const principal = this.selectionPrincipalRotationReference(editableSelection, axis);
+        const cellReference = this.rotationCellReference(axis);
+        const maxLength = principal?.maxLength || 0;
+        let reference = (
+            principal?.reference && principal.anisotropy >= 0.08
+                ? principal.reference
+                : cellReference || principal?.reference
+        );
         if (!reference || maxLength < 1e-5) {
             this.renderer.camera.updateMatrixWorld();
             reference = new THREE.Vector3().setFromMatrixColumn(
                 this.renderer.camera.matrixWorld,
                 0
             );
-            reference.addScaledVector(axis, -reference.dot(axis));
-            if (reference.lengthSq() <= 1e-12) {
+            reference = this.rotationPlaneDirection(reference, axis);
+            if (!reference) {
                 reference = Math.abs(axis.z) < 0.9
                     ? new THREE.Vector3(0, 0, 1).cross(axis)
                     : new THREE.Vector3(1, 0, 0);
@@ -7705,11 +7718,37 @@ class VAseApp {
         const content = document.getElementById('modal-content');
         const actions = document.querySelector('#modal-container .modal-actions');
         if (!container || !content || !actions) return;
-        container.querySelector('.modal')?.classList.remove('export-image-modal');
+        container.querySelector('.modal')?.classList.remove(
+            'export-image-modal',
+            'html-export-modal'
+        );
         content.innerHTML = contentHtml;
         actions.innerHTML = actionsHtml;
         container.classList.remove('hidden');
         actions.querySelector('#modal-close')?.addEventListener('click', () => this.closeModal());
+    }
+
+    htmlViewPreviewDataUrl() {
+        const source = this.renderer?.domElement;
+        if (!source || source.width < 2 || source.height < 2) return null;
+        try {
+            this.renderer.renderNow();
+            const maximumWidth = 720;
+            const scale = Math.min(1, maximumWidth / source.width);
+            const preview = document.createElement('canvas');
+            preview.width = Math.max(1, Math.round(source.width * scale));
+            preview.height = Math.max(1, Math.round(source.height * scale));
+            const context = preview.getContext('2d', { alpha: false });
+            if (!context) return null;
+            context.drawImage(source, 0, 0, preview.width, preview.height);
+            return {
+                url: preview.toDataURL('image/png'),
+                aspect: source.width / source.height
+            };
+        } catch (error) {
+            console.warn('Could not prepare the HTML view preview.', error);
+            return null;
+        }
     }
 
     showHtmlExportModal({ projectSave = false } = {}) {
@@ -7717,9 +7756,14 @@ class VAseApp {
         const intro = projectSave
             ? 'Save the current scene as an offline browser document. Embed the editable project when this HTML must reopen with the complete v_ase state.'
             : 'Create an offline, view-only 3D document with the current camera, trajectory, styling, bonds, constraints, and analysis overlays.';
+        const previewSnapshot = this.htmlViewPreviewDataUrl();
         this.showModal(`
             <h2>${title}</h2>
             <p class="modal-intro">${intro}</p>
+            <figure class="html-view-preview">
+                <img id="html-export-preview" alt="Current rendered structure preview">
+                <figcaption>Current saved view</figcaption>
+            </figure>
             <label class="html-project-option" for="html-embed-project">
                 <input id="html-embed-project" type="checkbox" checked>
                 <span>
@@ -7735,6 +7779,14 @@ class VAseApp {
             <button id="html-export-cancel" class="btn">Cancel</button>
             <button id="html-export-confirm" class="btn primary">Save HTML</button>
         `);
+        document.querySelector('#modal-container .modal')?.classList.add('html-export-modal');
+        const previewImage = document.getElementById('html-export-preview');
+        if (previewImage && previewSnapshot?.url) {
+            previewImage.src = previewSnapshot.url;
+            previewImage.style.aspectRatio = `${previewSnapshot.aspect}`;
+        } else {
+            previewImage?.closest('.html-view-preview')?.classList.add('unavailable');
+        }
 
         const embed = document.getElementById('html-embed-project');
         const detail = document.getElementById('html-embed-project-detail');
@@ -8059,7 +8111,7 @@ class VAseApp {
                 <span>X / Y / Z</span><label>Lock transform axis in G/R mode</label>
                 <span>Enter</span><label>Confirm transform</label>
                 <span>Esc</span><label>Cancel a transform, close a modal, or close the open control panel and return focus to the viewport</label>
-                <span>Ctrl+C / V / Z</span><label>Copy, paste, undo an edit or view change</label>
+                <span>Ctrl+C / V / Z</span><label>Copy, paste, undo an edit or visual setting</label>
                 <span>Delete</span><label>Delete selected atoms</label>
             </div>
             <h3 class="help-section-title">Opening Files</h3>
@@ -9695,21 +9747,18 @@ class VAseApp {
         document.getElementById('chk-axes').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('chk-grid').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('chk-overlays').onchange = () => this.safeApplyDisplayOptions();
-        document.getElementById('projection-mode').onchange = () => {
-            this.beginCameraHistoryGesture('projection');
-            this.safeApplyDisplayOptions();
-            requestAnimationFrame(() => requestAnimationFrame(() => {
-                this.commitCameraHistoryGesture('projection');
-            }));
-        };
+        document.getElementById('projection-mode').onchange = () => this.safeApplyDisplayOptions();
         const atomicScale = document.getElementById('atomic-scale');
-        atomicScale.addEventListener('focus', () => this.beginCameraHistoryGesture('atomic-scale'));
-        atomicScale.oninput = () => this.applyAtomicScaleFromControl();
+        atomicScale.addEventListener('focus', () => this.flushVisualHistoryCommit());
+        atomicScale.oninput = () => {
+            this.applyAtomicScaleFromControl();
+            this.scheduleVisualHistoryCommit('atomic-scale');
+        };
         atomicScale.onchange = () => {
             this.applyAtomicScaleFromControl({ normalize: true });
-            this.commitCameraHistoryGesture('atomic-scale');
+            this.scheduleVisualHistoryCommit('atomic-scale');
         };
-        atomicScale.addEventListener('blur', () => this.commitCameraHistoryGesture('atomic-scale'));
+        atomicScale.addEventListener('blur', () => this.flushVisualHistoryCommit());
         document.getElementById('chk-antialias').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('sphere-quality').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('atom-radius-scale').oninput = () => this.safeApplyDisplayOptions();

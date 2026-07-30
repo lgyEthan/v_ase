@@ -109,7 +109,7 @@ v_ase gui
 v_ase gui FILE
 v_ase gui HOST:/REMOTE/FILE
 v_ase gui FILE --interactive
-v_ase gui FILE --for-ai
+v_ase gui FILE --cli
 v_ase gui AMBIGUOUS --format FORMAT
 v_ase gui FILE --no-browser
 ```
@@ -135,10 +135,11 @@ applies the same per-frame transfer policy to a local trajectory. `--port`
 remains an advanced override for a predetermined local integration endpoint;
 neither option is required for `HOST:/REMOTE/FILE`.
 
-`--for-ai` suppresses automatic browser launch, prints one JSON handshake, and
-keeps the session alive. Its semantic state and browser control schema avoid
-pixel-based structure inspection; the reported `human_url` opens the same live
-document for normal use.
+`--cli` is a terminal-oriented local API mode, not an embedded AI model. An
+automation agent invokes it itself. It suppresses automatic browser launch,
+prints one JSON handshake, and keeps the session alive. Its semantic state and
+browser control schema avoid pixel-based structure inspection; the reported
+`human_url` opens the same live document for normal use.
 
 The browser **Open** dialog can replace the active document, append selected
 frames to its trajectory, or open an independent workspace tab. `.vase`
@@ -269,7 +270,7 @@ Endpoint groups:
 - binary current-frame and full-trajectory coordinate transfer.
 - semantic AI schema, skill guide, and current-frame state.
 
-Mutable structure requests and structure/CAD exports carry `frame_index`. The
+Mutable structure requests and structure/3D-scene exports carry `frame_index`. The
 server switches to that frame before applying browser coordinates or producing
 output, preventing a fast scrub from leaking the previous frame's cell,
 constraints, or coordinates into the operation.

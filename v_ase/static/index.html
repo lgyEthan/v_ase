@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.114&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.115&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.114';
+            : '/static/vendor/three.module.js?v=0.0.115';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -68,7 +68,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.114</span>
+            <span class="version">0.0.115</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -971,7 +971,7 @@
                     <span>X / Y / Z</span><label>Lock transform axis in G/R mode</label>
                     <span>Enter</span><label>Confirm transform</label>
                     <span>Esc</span><label>Cancel a transform, close a modal, or close the open control panel and return focus to the viewport</label>
-                    <span>Ctrl+C / V / Z</span><label>Copy, paste, undo an edit or view change</label>
+                    <span>Ctrl+C / V / Z</span><label>Copy, paste, undo an edit or visual setting</label>
                     <span>Delete</span><label>Delete selected atoms</label>
                 </div>
                 <h3 class="help-section-title">Opening Files</h3>
@@ -1011,7 +1011,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.114&rev=1';
+            : './static/main.js?v=0.0.115&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

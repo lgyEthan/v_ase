@@ -97,7 +97,7 @@ def test_skill_version_install_and_environment_contract_are_current():
     assert f'v_ase-gui=={__version__}' in skill_text
     assert f'v_ase-gui=={__version__}' in cli_text
     for required in (
-        "v_ase gui STRUCTURE --for-ai",
+        "v_ase gui STRUCTURE --cli",
         "from v_ase.visualize import view",
         "No API key",
         "HOST:/",
@@ -120,13 +120,17 @@ def test_skill_explains_vendor_neutral_agent_handoff():
         "SKILL.md",
         "agent-setup.md",
         "semantic-api.md",
-        "v_ase gui STRUCTURE --for-ai",
+        "v_ase gui STRUCTURE --cli",
         "first stdout line as JSON",
         "window.v_aseAI",
         "human_url",
         "standalone `html` export",
     ):
         assert required in setup + readme + compatibility
+    assert "CAD-ready" not in readme
+    assert "--for-ai" not in setup + readme + compatibility
+    assert "does not bundle an LLM" in readme
+    assert "agent launches" in readme.lower()
 
 
 def test_skill_documents_offline_html_handoff_contract():

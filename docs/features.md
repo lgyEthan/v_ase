@@ -121,7 +121,7 @@ Constraint rendering:
   normal marker that remain visible without selection; multiple constraints
   are never collapsed to a selection center. During `G`, every selected
   FixedPlane atom also receives a larger translucent plane, perimeter, and
-  crosshair anchored at its original position. This motion-only CAD overlay is
+  crosshair anchored at its original position. This motion-only geometric overlay is
   rendered above the atom scene so the allowed plane remains readable while
   the constrained atom moves.
 - `FixScaled`: allowed fractional directions are converted through the current
