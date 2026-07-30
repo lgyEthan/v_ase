@@ -40,8 +40,11 @@ The canonical skill also documents standalone `html` export in lightweight
 view-only and project-embedded modes. Lightweight view-only is the ordinary
 export default; the human HTML Project action embeds `.vase` by default.
 Embedded HTML can be reopened with `v_ase gui FILE.html`; lightweight HTML
-cannot restore editable state. It also documents automatic Jupyter
-Notebook/Lab inline viewing and ordinary-Python browser behavior. This release
+cannot restore editable state. Both begin with the exact Preview Area frame
+without application chrome and cross-fade to an adaptive live WebGL canvas
+without changing frame bounds. It also documents `%v_ase inline`,
+`%v_ase browser`, and `%v_ase auto` for Jupyter Notebook/Lab, plus per-call
+`notebook=` overrides and ordinary-Python browser behavior. This release
 documents specific-atom rotation through the human
 **Active atom (last selected)** pivot and semantic `pivot: "active"` mode.
 The compatibility file remains available so existing links do not fail.

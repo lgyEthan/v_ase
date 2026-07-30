@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.119"
+python -m pip install "v_ase-gui==0.0.120"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.0.119"
+python -m pip install "v_ase-gui[rhino]==0.0.120"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, imageio-ffmpeg, and
@@ -118,9 +118,24 @@ print(editor.url)
 In Jupyter Notebook or JupyterLab, use `view(atoms_or_frames)` as the cell's
 final expression. It detects the active kernel and renders one view-only
 interactive model below the cell without launching an external browser. When
-retaining the handle, call `display(editor)` explicitly. Use `notebook=False`
-to force the ordinary browser workflow or `notebook=True` to force inline
-output in a compatible kernel.
+retaining the handle, call `display(editor)` explicitly.
+
+Switch the process-local display target without restarting the kernel:
+
+```python
+%v_ase inline
+view(atoms_or_frames)
+
+%v_ase browser
+editor = view(atoms_or_frames, block=False)
+
+%v_ase auto
+```
+
+The magic is registered when `v_ase` or `v_ase.visualize` is imported. Use
+`%load_ext v_ase.notebook` to register it explicitly. Per-call
+`notebook=True` / `"inline"` or `notebook=False` / `"browser"` overrides the
+current magic preference.
 
 ## Input Formats
 

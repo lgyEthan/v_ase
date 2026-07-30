@@ -33,10 +33,14 @@ Accepted input:
 
 Important options:
 
-- `notebook=None` detects an active Jupyter kernel. Use `view(atoms)` as the
-  final Notebook/Lab expression to display one view-only iframe below the
-  cell; call `display(editor)` explicitly after assignment. Ordinary Python
-  opens the external browser. Pass `True` or `False` to override detection.
+- `notebook=None` follows the process-local `%v_ase` display preference, then
+  detects an active Jupyter kernel when that preference is `auto`. Use
+  `%v_ase inline`, `%v_ase browser`, or `%v_ase auto` to switch subsequent
+  `view()` calls without restarting the kernel. Pass `True` / `"inline"` or
+  `False` / `"browser"` to override the preference for one call. Inline mode
+  returns a view-only iframe below the cell; browser mode opens the complete
+  external interface. Call `display(editor)` explicitly after assigning an
+  inline handle.
 - `viz_only=True` uses the lightweight viewer and does not attach the fallback
   calculator.
 - `viz_only=False` enables atom editing, constraints editing, history,
@@ -270,9 +274,15 @@ camera navigation and trajectory playback. `embed_project` defaults to
 **HTML Project** action enables project embedding by default.
 
 HTML, image, and video share the same Preview Area camera crop and aspect
-ratio. HTML defaults to grid off, axes on, and unit cell on. A static copy of
-the exact rendered frame is embedded so macOS Finder/Quick Look can display
-the structure without executing JavaScript.
+ratio. HTML dimensions are inherited from Preview Area and are not exposed as
+a second independent resolution control. HTML defaults to grid off, axes on,
+and unit cell on. An optimized high-resolution copy of the exact rendered
+frame is embedded so macOS Finder/Quick Look can display only the structure
+frame without executing JavaScript. In a browser, the full-frame poster and
+the adaptive device-pixel-ratio WebGL canvas occupy the same integer-sized
+rectangle; the first completed live frame automatically cross-fades over the
+poster before camera input begins, without moving or resizing the scene.
+View-only controls appear after activity and do not occupy layout space.
 
 The generated project tag uses bounded Base64 decoding and the extracted ZIP
 passes the same path, schema, size, and integrity checks as a direct `.vase`

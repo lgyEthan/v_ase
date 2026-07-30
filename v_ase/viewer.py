@@ -33,6 +33,8 @@ class _LocalServer:
 
 _local_servers: dict[int, _LocalServer] = {}
 _local_servers_lock = threading.RLock()
+_notebook_display_mode = "auto"
+_notebook_display_mode_lock = threading.RLock()
 
 
 def _running_under_wsl() -> bool:
@@ -117,6 +119,44 @@ def running_in_notebook() -> bool:
         return bool(config and config.get("IPKernelApp"))
     except (AttributeError, TypeError):
         return False
+
+
+def set_notebook_display_mode(mode: str) -> str:
+    """Set the default Jupyter display target and return the normalized mode."""
+    normalized = str(mode or "").strip().lower()
+    if normalized not in {"auto", "inline", "browser"}:
+        raise ValueError("Notebook display mode must be auto, inline, or browser")
+    global _notebook_display_mode
+    with _notebook_display_mode_lock:
+        _notebook_display_mode = normalized
+    return normalized
+
+
+def get_notebook_display_mode() -> str:
+    """Return the process-local Jupyter display preference."""
+    with _notebook_display_mode_lock:
+        return _notebook_display_mode
+
+
+def resolve_notebook_display(notebook: Optional[bool | str]) -> bool:
+    """Resolve an explicit value, Jupyter magic preference, or kernel detection."""
+    if isinstance(notebook, str):
+        normalized = notebook.strip().lower()
+        if normalized == "auto":
+            return running_in_notebook()
+        if normalized == "inline":
+            return True
+        if normalized == "browser":
+            return False
+        raise ValueError("notebook must be True, False, auto, inline, or browser")
+    if notebook is not None:
+        return bool(notebook)
+    mode = get_notebook_display_mode()
+    if mode == "inline":
+        return True
+    if mode == "browser":
+        return False
+    return running_in_notebook()
 
 
 def wait_for_local_server(port: int, timeout: float = 5.0) -> None:
@@ -321,7 +361,7 @@ class ASEEditor:
 def view(
     atoms: Atoms | Sequence[Atoms] | str | os.PathLike,
     *,
-    notebook: Optional[bool] = None,
+    notebook: Optional[bool | str] = None,
     block: bool = True,
     port: Optional[int] = None,
     show_cell: bool = True,
@@ -347,15 +387,16 @@ def view(
     -----------
     atoms : ase.Atoms, sequence of ase.Atoms, or path
         The structure or trajectory to visualize/edit.
-    notebook : bool or None
-        Render inside a Jupyter IFrame when True. The default, None, detects an
-        active notebook kernel automatically; ordinary Python opens a browser.
+    notebook : bool, str, or None
+        Render inside a Jupyter IFrame when True or ``"inline"``. Use False or
+        ``"browser"`` for an external browser. The default, None, follows the
+        ``%v_ase`` Jupyter preference and otherwise detects the active kernel.
     block : bool
         If True, block execution until the browser document is closed or the
         session is finalized through the local API.
     ...
     """
-    notebook = running_in_notebook() if notebook is None else bool(notebook)
+    notebook = resolve_notebook_display(notebook)
     launch_directory = os.path.abspath(os.getcwd())
     source_path = os.fspath(atoms) if isinstance(atoms, (str, os.PathLike)) else None
     if document_name is None:
@@ -517,7 +558,7 @@ def view(
 def view_edit(
     atoms: Atoms | Sequence[Atoms] | str | os.PathLike,
     *,
-    notebook: Optional[bool] = None,
+    notebook: Optional[bool | str] = None,
     block: bool = True,
     port: Optional[int] = None,
     show_cell: bool = True,

@@ -5,7 +5,13 @@ import pytest
 from ase import Atoms
 from playwright.sync_api import sync_playwright
 
-from v_ase.viewer import find_free_port, view
+from v_ase.viewer import (
+    find_free_port,
+    get_notebook_display_mode,
+    resolve_notebook_display,
+    set_notebook_display_mode,
+    view,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,6 +19,21 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_view_uses_automatic_notebook_detection_by_default():
     assert inspect.signature(view).parameters["notebook"].default is None
+
+
+def test_notebook_display_mode_supports_magic_targets_and_explicit_overrides():
+    previous = get_notebook_display_mode()
+    try:
+        assert set_notebook_display_mode("inline") == "inline"
+        assert resolve_notebook_display(None) is True
+        assert resolve_notebook_display("browser") is False
+        assert resolve_notebook_display(False) is False
+        assert set_notebook_display_mode("browser") == "browser"
+        assert resolve_notebook_display(None) is False
+        with pytest.raises(ValueError, match="auto, inline, or browser"):
+            set_notebook_display_mode("popup")
+    finally:
+        set_notebook_display_mode(previous)
 
 
 def test_jupyter_kernel_renders_view_inline_without_browser_workspace():
@@ -25,6 +46,12 @@ def test_jupyter_kernel_renders_view_inline_without_browser_workspace():
                 "\n".join([
                     "from ase import Atoms",
                     "from v_ase.visualize import view",
+                    "from v_ase.viewer import get_notebook_display_mode",
+                ])
+            ),
+            nbformat.v4.new_code_cell(
+                "\n".join([
+                    "%v_ase inline",
                     "editor = view(",
                     "    Atoms('CO', positions=[[0, 0, 0], [1.15, 0, 0]]),",
                     "    block=False,",
@@ -34,7 +61,25 @@ def test_jupyter_kernel_renders_view_inline_without_browser_workspace():
                     "editor",
                 ])
             ),
-            nbformat.v4.new_code_cell("editor.close()"),
+            nbformat.v4.new_code_cell(
+                "\n".join([
+                    "%v_ase browser",
+                    "browser_editor = view(",
+                    "    Atoms('H', positions=[[0, 0, 0]]),",
+                    "    block=False,",
+                    "    open_browser=False,",
+                    "    close_on_disconnect=False,",
+                    ")",
+                    "print('BROWSER_EDITOR', '/workspace' in browser_editor.url, get_notebook_display_mode())",
+                ])
+            ),
+            nbformat.v4.new_code_cell(
+                "\n".join([
+                    "editor.close()",
+                    "browser_editor.close()",
+                    "%v_ase auto",
+                ])
+            ),
         ],
         metadata={
             "kernelspec": {
@@ -51,7 +96,7 @@ def test_jupyter_kernel_renders_view_inline_without_browser_workspace():
         resources={"metadata": {"path": str(ROOT)}},
     )
     executed = client.execute(cwd=str(ROOT))
-    outputs = executed.cells[0].outputs
+    outputs = executed.cells[1].outputs
     html_outputs = [
         output.get("data", {}).get("text/html", "")
         for output in outputs
@@ -71,6 +116,12 @@ def test_jupyter_kernel_renders_view_inline_without_browser_workspace():
         for html in html_outputs
     )
     assert any("INLINE_EDITOR ASEEditor True" in text for text in text_outputs)
+    browser_text = [
+        output.get("text", "")
+        for output in executed.cells[2].outputs
+        if output.output_type == "stream"
+    ]
+    assert any("BROWSER_EDITOR True browser" in text for text in browser_text)
 
 
 def test_notebook_view_endpoint_is_rendered_and_orbits_in_place():

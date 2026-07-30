@@ -440,9 +440,12 @@ Decode the data URL, open it from `file://`, wait for
 embedded mode, also verify `window.v_aseStandalone.hasEmbeddedProject` and
 reopen the written file with `v_ase gui FILE.html`.
 The document also carries the exact rendered frame as a static poster, so
-macOS Finder/Quick Look can preview it without executing JavaScript. In a
-browser the first pointer, wheel, or keyboard interaction reveals the live
-WebGL viewer.
+macOS Finder/Quick Look can preview it without executing JavaScript. The poster
+contains only the Preview Area frame: no v_ase logo, header, page margin, or
+decorative border. Its optimized high-resolution raster and the adaptive
+device-pixel-ratio WebGL canvas share one integer-sized viewport. In a browser
+the first completed live frame automatically cross-fades over the poster
+before camera input begins, without moving or resizing the structure.
 
 Video:
 

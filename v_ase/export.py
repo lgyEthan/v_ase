@@ -758,14 +758,20 @@ def export_html_response(session, payload: Dict[str, Any]):
     export_width = int(export_profile["width"])
     export_height = int(export_profile["height"])
     export_aspect = export_width / max(1, export_height)
+    export_background = str(
+        export_profile.get("options", {}).get("backgroundColor") or "#ffffff"
+    ).strip()
+    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", export_background):
+        export_background = "#ffffff"
     replacements = {
         "{{V_ASE_VERSION}}": html.escape(__version__, quote=True),
         "{{DOCUMENT_TITLE}}": html.escape(document_name, quote=True),
         "{{STANDALONE_CSS}}": (static_dir / "standalone.css").read_text(encoding="utf-8"),
         "{{VIEWER_FRAME_STYLE}}": (
             f"aspect-ratio:{export_width}/{export_height};"
-            f"width:min(100%,calc((100vh - 60px)*{export_aspect:.10f}));"
+            f"width:min(100vw,calc(100vh*{export_aspect:.10f}));"
         ),
+        "{{EXPORT_BACKGROUND}}": export_background,
         "{{SCENE_DATA_BASE64}}": _base64_text(
             json.dumps(
                 scene,

@@ -143,8 +143,9 @@ def test_skill_explains_vendor_neutral_agent_handoff():
     assert "--for-ai" not in setup + readme + compatibility
     assert "does not accept natural language itself" in readme
     assert "external agent launches" in readme.lower()
-    assert "does not read natural-language or structured commands from stdin" in readme
-    assert "structured HTTP JSON commands" in readme
+    assert "structured CLI" in readme
+    assert "same live v_ase GUI" in readme
+    assert "There is no natural-language endpoint and no command loop on stdin." in setup
     assert "can reduce token use" in readme
 
 

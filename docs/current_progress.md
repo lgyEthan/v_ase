@@ -338,9 +338,15 @@ same implementation for compatibility.
 - Standalone HTML export embeds browser-ready scene data and all runtime assets.
   Lightweight HTML omits `.vase` by default; **HTML Project** embeds the
   validated archive by default. Both use the exact image/video Preview Area
-  camera crop, include a static Finder/Quick Look poster, open from `file://`,
-  provide view navigation and trajectory playback only, and make no network
-  request.
+  camera crop, include an optimized high-resolution Finder/Quick Look poster,
+  open from `file://`, provide view navigation and trajectory playback only,
+  and make no network request. The poster is the complete initial preview
+  surface with no application chrome; it shares one fixed rectangle with the
+  live device-resolution canvas and cross-fades automatically after the first
+  live frame, before camera input, without a layout change.
+- Jupyter display is process-local and switchable with `%v_ase inline`,
+  `%v_ase browser`, and `%v_ase auto`. Per-call `notebook="inline"` /
+  `"browser"` values override the current preference.
 - Browser Open keeps visual state for ordinary structures and trajectories.
   Opening `.vase` restores the project state instead.
 - Browser Open uses the native operating system picker and streams the selected

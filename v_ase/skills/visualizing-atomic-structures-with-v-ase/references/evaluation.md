@@ -133,6 +133,13 @@ Run all scenarios, not only static document checks:
    - open standalone HTML from `file://`, verify saved camera and trajectory,
      orbit the canvas, confirm view-only controls, extract its embedded
      `.vase`, and fail on any HTTP/HTTPS request;
+   - reopen standalone HTML with JavaScript disabled and require the poster to
+     fill the exact export rectangle with no logo, header, border, or page
+     margin; compare it to the first WebGL frame and reject any frame-bound
+     movement during the cross-fade;
+   - execute a real notebook using `%v_ase inline`, `%v_ase browser`, and
+     `%v_ase auto`; confirm inline produces one iframe while browser mode
+     creates the ordinary external workspace session;
    - syntax-check Blender output and inspect camera, bonds, cell, and light;
    - probe MOV/AVI dimensions, FPS, and frame count.
    - verify image progress is monotonic, reports an ETA, emits 100 exactly
