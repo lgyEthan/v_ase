@@ -9,5 +9,6 @@ uvicorn[standard]>=0.29
 numpy>=1.24
 imageio-ffmpeg>=0.5
 Pillow>=10
+requests>=2.31
 setuptools>=77
 wheel>=0.40

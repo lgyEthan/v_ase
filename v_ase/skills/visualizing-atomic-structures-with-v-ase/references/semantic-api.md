@@ -17,10 +17,11 @@
 
 ## Transport And Connection
 
-`v_ase gui STRUCTURE --cli` launches the application and prints one JSON
-handshake to stdout. It does not read commands from stdin and does not accept
-natural language. An external agent opens `human_url` and evaluates structured
-commands against the reported `window.v_aseAI` browser object.
+`v_ase gui STRUCTURE --cli` launches the application. The first stdout line is
+the JSON handshake; later stdout lines are revisioned collaboration events.
+It does not read commands from stdin and does not accept natural language. An
+external agent opens `human_url` and evaluates structured commands against the
+reported `window.v_aseAI` browser object.
 
 ```javascript
 const ai = window.v_aseAI;
@@ -28,9 +29,14 @@ await ai.ready();
 const capabilities = await ai.capabilities();
 ```
 
-`ready()` returns protocol, readiness, session ID, and document name.
+`ready()` returns protocol, readiness, session ID, document name, and current
+collaboration revision.
 `capabilities()` returns supported state fields, command groups, operations,
 and exports.
+
+Read [Live Human-Agent Collaboration](collaboration.md) before sharing control
+with a human. It defines the NDJSON event fields, multi-tab routing, and
+revision conflict behavior.
 
 ## State
 
@@ -41,7 +47,8 @@ const state = await ai.describe({includePositions: true});
 `describe()` returns document name, View/Edit mode, frame and frame count, atom
 count, labels, ASE elements, atomic numbers, positions, cell, PBC, constraints,
 forces, charges, tags, magnetic moments, selection references, measurements,
-display settings, camera, and image export profile.
+display settings, camera, image export profile, and
+`collaboration.revision`.
 
 Use `includePositions: false` for metadata-only inspection of a very large
 frame. Re-enable positions before coordinate-dependent work.
@@ -56,6 +63,7 @@ count, and render dimensions where applicable.
 
 | Key | Purpose |
 | --- | --- |
+| `expectedRevision` | Reject a stale mutation instead of overwriting a newer human edit |
 | `frame` | Load a zero-based trajectory frame |
 | `mode` | `"view"` or `"edit"` |
 | `display` | Merge visual settings |
@@ -66,7 +74,19 @@ count, and render dimensions where applicable.
 | `operation` | One semantic structure or analysis operation |
 
 Do not send unknown keys. Use `capabilities()` and `schema_url` as the current
-authority.
+authority. Read `collaboration.revision` immediately before a mutation and pass
+it as `expectedRevision`:
+
+```javascript
+const before = await ai.describe({includePositions: true});
+const after = await ai.apply({
+  expectedRevision: before.collaboration.revision,
+  selection: {clear: true, indices: [0, 4, 9]}
+});
+```
+
+If the revision changed, call `describe()` and review the newer human edit
+before constructing another command.
 
 ## Camera
 

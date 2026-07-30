@@ -137,16 +137,19 @@ neither option is required for `HOST:/REMOTE/FILE`.
 
 `--cli` is a terminal-oriented local API mode, not an embedded AI model. An
 automation agent invokes it itself. It suppresses automatic browser launch,
-prints one JSON handshake, and keeps the session alive. Its semantic state and
-browser control schema avoid pixel-based structure inspection; the reported
-`human_url` opens the same live document for normal use.
+prints one JSON handshake as the first stdout line, then streams committed
+workspace changes as NDJSON. Its semantic state and browser control schema
+avoid pixel-based structure inspection; the reported `human_url` opens the
+same live document for normal use and human refinement.
 
 The CLI does not accept natural language or commands from stdin. Its first
-stdout line is discovery metadata; status is written to stderr. The controlling
-external agent opens `human_url` and uses structured JavaScript calls through
-`window.v_aseAI`. The handshake explicitly reports
+stdout line is discovery metadata, later stdout lines are
+`v_ase.collaboration.v1` events, and status is written to stderr. The
+controlling external agent opens `human_url` and uses structured JavaScript
+calls through `window.v_aseAI`. The handshake explicitly reports
 `command_transport="browser-javascript"`, `accepts_natural_language=false`, and
-`stdin_commands=false`.
+`stdin_commands=false`, plus `events_url`, `event_protocol`,
+`event_delivery`, and `event_scope`.
 
 The browser **Open** dialog can replace the active document, append selected
 frames to its trajectory, or open an independent workspace tab. `.vase`
@@ -320,7 +323,16 @@ Agent discovery and semantic state are available through:
 GET /api/ai/schema
 GET /api/ai/skill
 GET /api/ai/state/{session_id}
+POST /api/ai/events/{session_id}
+GET /api/ai/events/{session_id}?after={revision}&timeout={seconds}
+GET /api/ai/workspace-events/{workspace_id}?after={revision}&timeout={seconds}
 ```
+
+Browser-originated events are compact notifications, not state patches. They
+contain source, categories, changed paths, document/frame context, and a
+monotonic revision. Workspace events also contain the affected `session_id`
+and `document_revision`. Position arrays are intentionally omitted; agents
+must activate the affected document and call `describe()`.
 
 Image encoding is available through:
 
@@ -343,13 +355,16 @@ remaining time is derived from completed pipeline work; 100% is emitted once,
 after the output file is complete.
 
 The live browser exposes `window.v_aseAI.ready()`, `capabilities()`,
-`describe()`, `apply()`, `render()`, and `export()`. `apply()` covers frame and
-mode changes, quality, display and camera state, selection, constrained
-transforms, identity and constraint edits, wrapping, physical translation, atom
-creation/deletion, supercells, history, reset, relaxation, and displacement
-analysis. Visual translation and display supercells are ordinary `display`
-settings available in View and Edit. `rotate-selection` accepts
-`pivot: "active"`; the last explicit atom index is the fixed rotation pivot.
+`describe()`, `apply()`, `render()`, and `export()`. `describe()` reports the
+document collaboration revision. `apply()` accepts `expectedRevision` as an
+optimistic-concurrency guard and rejects stale commands before they can
+overwrite a newer human GUI edit. It covers frame and mode changes, quality,
+display and camera state, selection, constrained transforms, identity and
+constraint edits, wrapping, physical translation, atom creation/deletion,
+supercells, history, reset, relaxation, and displacement analysis. Visual
+translation and display supercells are ordinary `display` settings available
+in View and Edit. `rotate-selection` accepts `pivot: "active"`; the last
+explicit atom index is the fixed rotation pivot.
 `export()` covers image, video, POSCAR,
 ASE Pickle, Blender, Rhino 3DM, OBJ, standalone HTML, `.vase`, and visual
 settings. Rendering and image export use the same capture path as the human
@@ -358,9 +373,11 @@ Export workspace.
 `describe()` is the primary machine-readable output and includes document,
 mode, frame, atom identity, positions when requested, cell/PBC, constraints,
 properties, selection, measurement, display, camera, and image-export state.
-`apply()` returns the updated semantic state. `render()` and `export()` return
-data URLs plus filename, MIME type, byte count, format, and dimensions where
-applicable.
+`apply()` returns the updated semantic state and revision. Human and agent
+mutations are classified separately, coalesced after committed UI changes,
+published to the document and workspace streams, and retained in bounded
+history. `render()` and `export()` return data URLs plus filename, MIME type,
+byte count, format, and dimensions where applicable.
 
 WebSockets stream relaxation updates and own browser-document/workspace
 lifetime. Closing the last connected browser document finalizes blocking calls

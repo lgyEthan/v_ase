@@ -20,6 +20,27 @@ Inactive document iframes suspend rendering and movie playback. Backend
 calculations may continue, but all documents share physical CPU/GPU resources
 through the process and operating system.
 
+## Human-Agent Collaboration
+
+`v_ase gui FILE --cli` controls the same workspace a researcher opens through
+`human_url`. The first stdout line is the `v_ase.ai.v1` discovery handshake;
+later lines are compact `v_ase.collaboration.v1` NDJSON events. Commands are
+still structured calls to `window.v_aseAI`, not stdin messages.
+
+Each `EditorSession` owns a bounded document event queue and monotonic
+collaboration revision. `EditorWorkspace` merges events from all tabs into a
+separate ordered stream while preserving each event's `session_id` and
+`document_revision`. Browser input classifies committed mutations as human,
+agent, or system and coalesces high-frequency camera, selection, and control
+changes before publishing. Events contain changed semantic paths and compact
+context, never complete coordinates.
+
+`describe()` returns the active document revision. `apply()` accepts
+`expectedRevision`; a mismatch fails before mutation so a stale agent command
+cannot overwrite a newer human GUI edit. On any human event, the agent
+activates the affected tab, re-reads semantic state, updates its plan, and
+continues from the new revision.
+
 ## Input Pipeline
 
 `v_ase.io.read_structure_frames()` is the canonical structure reader used by

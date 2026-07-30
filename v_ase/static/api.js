@@ -7,7 +7,9 @@ export class ASEApi {
         this.mock = Boolean(window.__V_ASE_MOCK__);
         this.mockState = this.mock ? this.createMockState() : null;
         this.onUndoableMutation = null;
+        this.onCollaborationMutation = null;
         this.currentFrameProvider = null;
+        this.mockCollaborationRevision = 0;
     }
 
     mockElementVisual(symbol) {
@@ -145,10 +147,27 @@ export class ASEApi {
         return path.replace('{session_id}', encodeURIComponent(this.sessionId));
     }
 
+    async publishCollaborationEvent(payload) {
+        if (this.mock) {
+            this.mockCollaborationRevision += 1;
+            return {
+                protocol: 'v_ase.collaboration.v1',
+                ...this.clone(payload),
+                revision: this.mockCollaborationRevision,
+                session_id: 'mock-session'
+            };
+        }
+        return await this.request('/api/ai/events/{session_id}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+    }
+
     async request(path, options = {}, { expect = 'json', needsSession = true } = {}) {
         if (this.mock) {
             const result = await this.handleMockRequest(path, options, { expect, needsSession });
-            if (this.isUndoableMutation(path, options)) this.onUndoableMutation?.({ path });
+            this.emitMutationCallbacks(path, options);
             return result;
         }
         if (window.location.protocol === 'file:') {
@@ -184,8 +203,18 @@ export class ASEApi {
         if (expect === 'blob') result = await res.blob();
         else if (expect === 'text') result = await res.text();
         else result = await res.json();
-        if (this.isUndoableMutation(path, options)) this.onUndoableMutation?.({ path });
+        this.emitMutationCallbacks(path, options);
         return result;
+    }
+
+    emitMutationCallbacks(path, options = {}) {
+        if (this.isUndoableMutation(path, options)) {
+            this.onUndoableMutation?.({ path });
+            return;
+        }
+        if (this.isCollaborationMutation(path, options)) {
+            this.onCollaborationMutation?.({ path });
+        }
     }
 
     isUndoableMutation(path, options = {}) {
@@ -202,6 +231,21 @@ export class ASEApi {
             '/api/supercell/apply/',
             '/api/supercell/matrix/',
             '/api/translate/'
+        ].some(prefix => path.includes(prefix));
+    }
+
+    isCollaborationMutation(path, options = {}) {
+        if (String(options.method || 'GET').toUpperCase() !== 'POST') return false;
+        return [
+            '/api/file/load/',
+            '/api/file/load-path/',
+            '/api/file/append/',
+            '/api/file/append-path/',
+            '/api/project/load/',
+            '/api/settings/load/',
+            '/api/calculator/',
+            '/api/relax/start/',
+            '/api/relax/stop/'
         ].some(prefix => path.includes(prefix));
     }
 

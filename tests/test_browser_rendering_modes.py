@@ -2,8 +2,13 @@ import base64
 import io
 import math
 import hashlib
+import json
+import queue
 import subprocess
+import sys
+import threading
 import time
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -567,6 +572,209 @@ def test_ai_semantic_graphene_defect_edit_matches_documented_cif():
             browser.close()
     finally:
         editor.close()
+
+
+def test_human_gui_changes_stream_to_agent_and_revision_guard_prevents_overwrite():
+    atoms = Atoms(
+        "H2",
+        positions=[[0, 0, 0], [0.74, 0, 0]],
+        cell=[8, 8, 8],
+        pbc=True,
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=False,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+        open_browser=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(editor.url)
+            page.wait_for_function("window.v_aseAI")
+            initial = page.evaluate(
+                "async () => { await window.v_aseAI.ready(); return await window.v_aseAI.describe(); }"
+            )
+            initial_revision = initial["collaboration"]["revision"]
+            assert initial_revision >= 1
+
+            agent_state = page.evaluate(
+                """async revision => await window.v_aseAI.apply({
+                    expectedRevision: revision,
+                    selection: {clear: true, indices: [0]},
+                    display: {showGrid: false}
+                })""",
+                initial_revision,
+            )
+            agent_revision = agent_state["collaboration"]["revision"]
+            assert agent_revision > initial_revision
+
+            editor_page = next(
+                frame for frame in page.frames
+                if "workspace_child=1" in frame.url
+            )
+            editor_page.evaluate("""() => {
+                const input = document.getElementById('viewport-background');
+                input.value = 'dark';
+                input.dispatchEvent(new Event('change', {bubbles: true}));
+            }""")
+            editor_page.wait_for_function(
+                "revision => window.__ASE_APP__.collaborationRevision > revision",
+                arg=agent_revision,
+            )
+            human_revision = editor_page.evaluate(
+                "() => window.__ASE_APP__.collaborationRevision"
+            )
+            events = page.evaluate(
+                """async ({sessionId, after}) => {
+                    const response = await fetch(
+                        `/api/ai/events/${encodeURIComponent(sessionId)}?after=${after}&timeout=0`
+                    );
+                    return await response.json();
+                }""",
+                {"sessionId": editor.session_id, "after": agent_revision},
+            )
+            human_events = [
+                event for event in events["events"]
+                if event["source"] == "human"
+            ]
+            assert human_events
+            assert human_events[-1]["revision"] == human_revision
+            assert "display" in human_events[-1]["categories"]
+            assert "display.viewportBackground" in human_events[-1]["changed_paths"]
+
+            conflict = page.evaluate(
+                """async revision => {
+                    try {
+                        await window.v_aseAI.apply({
+                            expectedRevision: revision,
+                            camera: {axis: '+Z'}
+                        });
+                        return null;
+                    } catch (error) {
+                        return error.message;
+                    }
+                }""",
+                agent_revision,
+            )
+            assert "Collaboration revision conflict" in conflict
+
+            latest = page.evaluate(
+                "async () => await window.v_aseAI.describe({includePositions: false})"
+            )
+            recovered = page.evaluate(
+                """async revision => await window.v_aseAI.apply({
+                    expectedRevision: revision,
+                    camera: {axis: '+Z'}
+                })""",
+                latest["collaboration"]["revision"],
+            )
+            assert recovered["collaboration"]["revision"] > human_revision
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_real_cli_stdout_stream_reports_human_gui_change(tmp_path):
+    structure = tmp_path / "collaboration.xyz"
+    write(
+        structure,
+        Atoms(
+            "H2",
+            positions=[[0, 0, 0], [0.74, 0, 0]],
+            cell=[8, 8, 8],
+            pbc=True,
+        ),
+    )
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-u",
+            "-m",
+            "v_ase.cli",
+            "gui",
+            str(structure),
+            "--cli",
+            "--interactive",
+        ],
+        cwd=str(Path(__file__).resolve().parents[1]),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+    stdout_lines: queue.Queue[str] = queue.Queue()
+
+    def read_stdout():
+        assert process.stdout is not None
+        for line in process.stdout:
+            stdout_lines.put(line)
+
+    reader = threading.Thread(target=read_stdout, daemon=True)
+    reader.start()
+
+    try:
+        handshake = json.loads(stdout_lines.get(timeout=20))
+        assert handshake["protocol"] == "v_ase.ai.v1"
+        assert handshake["event_delivery"] == "ndjson-after-handshake"
+
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(handshake["human_url"])
+            page.wait_for_function("window.v_aseAI")
+            page.evaluate("async () => await window.v_aseAI.ready()")
+            editor_page = next(
+                frame for frame in page.frames
+                if "workspace_child=1" in frame.url
+            )
+            editor_page.evaluate("""() => {
+                const input = document.getElementById('viewport-background');
+                input.value = 'dark';
+                input.dispatchEvent(new Event('change', {bubbles: true}));
+            }""")
+
+            human_event = None
+            seen_events = []
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
+                try:
+                    event = json.loads(
+                        stdout_lines.get(timeout=max(0.1, deadline - time.monotonic()))
+                    )
+                except queue.Empty:
+                    break
+                seen_events.append(event)
+                if event.get("source") == "human" and "display" in event.get("categories", []):
+                    human_event = event
+                    break
+            browser.close()
+
+        assert human_event is not None, seen_events
+        assert human_event["protocol"] == "v_ase.collaboration.v1"
+        assert human_event["session_id"] == handshake["session_id"]
+        assert "display.viewportBackground" in human_event["changed_paths"]
+        assert human_event["state_url"].endswith(
+            f"/api/ai/state/{handshake['session_id']}"
+        )
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
 
 
 def test_ai_bridge_screen_relative_camera_and_constraint_vector_workflow():

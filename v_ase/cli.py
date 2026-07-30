@@ -111,8 +111,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "start a terminal-oriented machine-readable session, print a JSON "
-            "API handshake, and suppress automatic browser launch; this mode "
-            "does not accept natural language or commands from stdin"
+            "API handshake followed by revisioned change events, and suppress "
+            "automatic browser launch; this mode does not accept natural "
+            "language or commands from stdin"
         ),
     )
     gui.set_defaults(func=run_gui, show_bonds=True)
@@ -212,13 +213,17 @@ def run_gui(args: argparse.Namespace) -> int:
     )
 
     if keep_alive:
+        event_stream = None
         if args.cli_mode:
-            from v_ase.ai import ai_handshake
+            from v_ase.ai import ai_handshake, start_collaboration_event_stream
 
-            print(json.dumps(ai_handshake(result.url), separators=(",", ":")), flush=True)
+            handshake = ai_handshake(result.url)
+            print(json.dumps(handshake, separators=(",", ":")), flush=True)
+            event_stream = start_collaboration_event_stream(handshake)
             print(
-                "v_ase CLI API session is running. Open the reported human_url "
-                "for the normal GUI; press Ctrl+C here to stop it.",
+                "v_ase CLI API session is running. Open human_url to watch or "
+                "edit the same live document. Committed GUI and agent changes "
+                "are emitted as NDJSON; press Ctrl+C here to stop it.",
                 file=sys.stderr,
                 flush=True,
             )
@@ -229,7 +234,16 @@ def run_gui(args: argparse.Namespace) -> int:
             while True:
                 time.sleep(3600)
         except KeyboardInterrupt:
+            if event_stream is not None:
+                stop_event, thread = event_stream
+                stop_event.set()
+                thread.join(timeout=1.5)
             result.close()
+        finally:
+            if event_stream is not None:
+                stop_event, thread = event_stream
+                stop_event.set()
+                thread.join(timeout=0.3)
         return 0
 
     if args.output and result is not None:

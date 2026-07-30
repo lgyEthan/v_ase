@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import json
 import math
 import os
 import shutil
@@ -1485,6 +1486,205 @@ def capture_ai_edit_media(browser) -> None:
         editor.close()
 
 
+def capture_ai_collaboration_figure(browser) -> None:
+    """Create a figure from a real agent edit followed by a real GUI edit."""
+    source, expected_final, metadata = make_ai_pyridinic_graphene_scene()
+    editor = view(
+        source,
+        block=False,
+        viz_only=False,
+        show_cell=True,
+        show_axes=False,
+        show_bonds=True,
+        respect_constraints=True,
+        allow_relax=False,
+        open_browser=False,
+        close_on_disconnect=False,
+    )
+    page = browser.new_page(
+        viewport={"width": MEDIA_SIZE[0], "height": MEDIA_SIZE[1]},
+        device_scale_factor=1,
+    )
+    try:
+        page.goto(editor.url)
+        page.wait_for_function("window.v_aseAI")
+        initial = page.evaluate(
+            "async () => { await window.v_aseAI.ready(); return await window.v_aseAI.describe(); }"
+        )
+
+        async_commands = [
+            {
+                "selection": {"clear": True, "indices": [metadata["vacancy_index"]]},
+                "operation": {
+                    "name": "delete-selection",
+                    "indices": [metadata["vacancy_index"]],
+                },
+            },
+            {
+                "selection": {"clear": True, "indices": metadata["neighbors_after"]},
+                "operation": {
+                    "name": "set-identity",
+                    "indices": metadata["neighbors_after"],
+                    "label": "N_pyridinic",
+                    "element": "N",
+                },
+            },
+            {
+                "operation": {
+                    "name": "add-atom",
+                    "label": "Li_site",
+                    "element": "Li",
+                    "position": metadata["li_position"],
+                },
+            },
+            {
+                "display": {
+                    "atomRadiusScale": 0.58,
+                    "bondThickness": 0.18,
+                    "showBonds": True,
+                    "showCell": True,
+                    "showAxes": False,
+                    "showGrid": False,
+                    "viewportBackground": "white",
+                    "lightingMode": "studio-shadow",
+                    "sunIntensity": 3.05,
+                    "labelColors": {
+                        "C": "#686d73",
+                        "N_pyridinic": "#3157d5",
+                        "Li_site": "#8f4fd6",
+                    },
+                    "labelMaterials": {
+                        "C": "standard",
+                        "N_pyridinic": "metal",
+                        "Li_site": "metal",
+                    },
+                },
+                "quality": {
+                    "antiAliasing": True,
+                    "sphereQuality": "ultra",
+                },
+                "camera": {"axis": "+Z", "fit": "structure"},
+                "selection": {
+                    "clear": True,
+                    "indices": [],
+                },
+            },
+        ]
+        state = initial
+        for command in async_commands:
+            command["expectedRevision"] = state["collaboration"]["revision"]
+            state = page.evaluate(
+                "async command => await window.v_aseAI.apply(command)",
+                command,
+            )
+
+        child = next(
+            frame for frame in page.frames
+            if "workspace_child=1" in frame.url
+        )
+        collapse_inspector(child)
+        agent_revision = state["collaboration"]["revision"]
+
+        # This is deliberately a GUI-originated edit, not an AI bridge call.
+        child.evaluate("""() => {
+            const app = window.__ASE_APP__;
+            app.renderer.setPixelsPerAngstrom(82);
+            app.syncAtomicScaleFromCamera?.({forceInput: true});
+            const radius = document.getElementById('atom-radius-scale');
+            radius.value = '0.68';
+            radius.dispatchEvent(new Event('input', {bubbles: true}));
+            radius.dispatchEvent(new Event('change', {bubbles: true}));
+            document.querySelector('[data-view-rotate="right"]').click();
+        }""")
+        child.wait_for_function(
+            "revision => window.__ASE_APP__.collaborationRevision > revision",
+            arg=agent_revision,
+        )
+        page.wait_for_timeout(450)
+
+        stream = page.evaluate(
+            """async ({workspaceId, after}) => {
+                const response = await fetch(
+                    `/api/ai/workspace-events/${encodeURIComponent(workspaceId)}`
+                    + `?after=${after}&timeout=0`
+                );
+                return await response.json();
+            }""",
+            {"workspaceId": editor.workspace_id, "after": agent_revision},
+        )
+        human_events = [
+            event for event in stream["events"]
+            if event.get("source") == "human"
+        ]
+        if not human_events:
+            raise AssertionError("The collaboration demo did not emit a human GUI event.")
+        required_categories = {"camera", "display"}
+        observed_categories = {
+            category
+            for event in human_events
+            for category in event.get("categories", [])
+        }
+        if not required_categories.issubset(observed_categories):
+            raise AssertionError(
+                f"Expected human camera/display events, received {human_events!r}"
+            )
+
+        final_state = page.evaluate(
+            "async () => await window.v_aseAI.describe({includePositions: true})"
+        )
+        if not np.allclose(final_state["positions"], expected_final.positions):
+            raise AssertionError("Collaboration example changed the verified coordinates.")
+        if final_state["chemicalSymbols"] != expected_final.get_chemical_symbols():
+            raise AssertionError("Collaboration example changed the verified elements.")
+
+        live_path = ASSET_DIR / "readme_ai_collaboration_live.png"
+        live_image = Image.open(BytesIO(page.screenshot(type="png"))).convert("RGB")
+        live_image.save(live_path, optimize=True, compress_level=9)
+
+        event_lines = []
+        for human_event in human_events[-2:]:
+            event_for_figure = {
+                key: human_event[key]
+                for key in (
+                    "protocol",
+                    "revision",
+                    "document_revision",
+                    "source",
+                    "categories",
+                    "changed_paths",
+                )
+                if key in human_event
+            }
+            event_lines.append(json.dumps(event_for_figure, separators=(",", ":")))
+        figure_page = browser.new_page(
+            viewport={"width": 2400, "height": 1350},
+            device_scale_factor=1,
+        )
+        try:
+            figure_page.goto((ROOT / "docs/design/ai_collaboration_figure.html").as_uri())
+            figure_page.locator(".event-json").evaluate(
+                "(element, value) => { element.textContent = value; }",
+                "\n".join(event_lines),
+            )
+            figure_page.screenshot(
+                path=ASSET_DIR / "readme_ai_collaboration.png",
+                type="png",
+            )
+        finally:
+            figure_page.close()
+
+        github_dir = ASSET_DIR / "github"
+        github_dir.mkdir(parents=True, exist_ok=True)
+        for name in (
+            "readme_ai_collaboration_live.png",
+            "readme_ai_collaboration.png",
+        ):
+            shutil.copy2(ASSET_DIR / name, github_dir / name)
+    finally:
+        page.close()
+        editor.close()
+
+
 def capture_constraint_media(browser) -> None:
     fixedline_atoms, line_idx = make_cnt_fixedline_scene()
     editor, page = open_scene(browser, fixedline_atoms, show_bonds=True)
@@ -1778,6 +1978,7 @@ def main() -> int:
             "bonds",
             "materials",
             "ai",
+            "collaboration",
             "constraints",
             "measurement",
             "relaxation",
@@ -1806,6 +2007,7 @@ def main() -> int:
                 "bonds": capture_bond_media,
                 "materials": capture_material_media,
                 "ai": capture_ai_edit_media,
+                "collaboration": capture_ai_collaboration_figure,
                 "constraints": capture_constraint_media,
                 "measurement": capture_measurement_media,
                 "relaxation": capture_relaxation_media,

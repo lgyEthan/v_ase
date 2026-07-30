@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Human and AI collaboration in v_ase</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    width: 2400px;
+    height: 1350px;
+    overflow: hidden;
+    background: #f4f7f7;
+    color: #172024;
+    font-family: Inter, "SF Pro Display", "Segoe UI", Arial, sans-serif;
+    letter-spacing: 0;
+  }
+  body { padding: 74px 82px 64px; }
+  .eyebrow {
+    color: #168b7b;
+    font-size: 24px;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+  h1 {
+    margin: 12px 0 8px;
+    font-size: 58px;
+    line-height: 1.08;
+    font-weight: 780;
+  }
+  .subtitle {
+    margin: 0;
+    color: #526066;
+    font-size: 27px;
+    line-height: 1.4;
+  }
+  .live-badge {
+    position: absolute;
+    top: 80px;
+    right: 82px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 13px 18px;
+    border: 1px solid #9bcfc7;
+    border-radius: 6px;
+    color: #116f63;
+    background: #e8f6f3;
+    font-size: 21px;
+    font-weight: 750;
+  }
+  .live-dot {
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: #25ad99;
+    box-shadow: 0 0 0 5px rgba(37, 173, 153, 0.15);
+  }
+  .flow {
+    display: grid;
+    grid-template-columns: 470px 525px minmax(0, 1fr);
+    gap: 58px;
+    align-items: stretch;
+    margin-top: 48px;
+    height: 650px;
+  }
+  .panel {
+    position: relative;
+    min-width: 0;
+    border: 1px solid #cbd4d6;
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: 0 12px 34px rgba(27, 43, 48, 0.08);
+  }
+  .panel::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: -44px;
+    width: 30px;
+    height: 2px;
+    background: #7a8a8f;
+  }
+  .panel::before {
+    content: "";
+    position: absolute;
+    z-index: 2;
+    top: calc(50% - 6px);
+    right: -46px;
+    width: 10px;
+    height: 10px;
+    border-top: 2px solid #7a8a8f;
+    border-right: 2px solid #7a8a8f;
+    transform: rotate(45deg);
+  }
+  .panel:last-child::after,
+  .panel:last-child::before { display: none; }
+  .human {
+    padding: 34px;
+    border-top: 6px solid #e3aa3d;
+  }
+  .agent {
+    padding: 34px;
+    color: #e9f0f1;
+    background: #172024;
+    border-color: #172024;
+    border-top: 6px solid #4ed0bd;
+  }
+  .panel-label {
+    margin-bottom: 25px;
+    color: #65747a;
+    font-size: 20px;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+  .agent .panel-label { color: #87ded1; }
+  .actor-title {
+    margin: 0;
+    font-size: 34px;
+    line-height: 1.2;
+  }
+  .agent-command {
+    margin: 18px 0 4px;
+    padding: 11px 13px;
+    border: 1px solid #3a4b4f;
+    border-radius: 5px;
+    background: #101719;
+    color: #8ce2d5;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: 17px;
+    line-height: 1.35;
+  }
+  .request {
+    margin-top: 34px;
+    padding: 25px 26px;
+    border-left: 5px solid #e3aa3d;
+    background: #fff9eb;
+    color: #293338;
+    font-size: 24px;
+    line-height: 1.5;
+  }
+  .human-note {
+    margin-top: 28px;
+    color: #5b696e;
+    font-size: 21px;
+    line-height: 1.45;
+  }
+  .agent-step {
+    display: grid;
+    grid-template-columns: 42px 1fr;
+    gap: 14px;
+    margin-top: 27px;
+    align-items: start;
+  }
+  .step-number {
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border: 1px solid #3dbdac;
+    border-radius: 50%;
+    color: #70e0d1;
+    font-weight: 800;
+    font-size: 18px;
+  }
+  .step-copy strong {
+    display: block;
+    font-size: 23px;
+    line-height: 1.25;
+  }
+  .step-copy span {
+    display: block;
+    margin-top: 5px;
+    color: #aab7ba;
+    font-size: 19px;
+    line-height: 1.4;
+  }
+  code {
+    color: inherit;
+    font-family: "SFMono-Regular", Consolas, monospace;
+  }
+  .gui {
+    overflow: hidden;
+    background: #111719;
+  }
+  .gui-bar {
+    height: 52px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 17px;
+    border-bottom: 1px solid #394347;
+    background: #151b1d;
+    color: #dce7e8;
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .window-dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: #e0645d;
+  }
+  .window-dot.amber { background: #dba83c; }
+  .window-dot.green { background: #45aa72; }
+  .gui-title { margin-left: 8px; }
+  .same-document {
+    margin-left: auto;
+    padding: 6px 10px;
+    border: 1px solid #437a73;
+    border-radius: 4px;
+    color: #78dacb;
+    font-size: 15px;
+    text-transform: uppercase;
+  }
+  .gui img {
+    display: block;
+    width: 100%;
+    height: 598px;
+    object-fit: cover;
+    object-position: center;
+  }
+  .feedback {
+    position: relative;
+    display: grid;
+    grid-template-columns: 430px 1fr 430px;
+    gap: 26px;
+    align-items: center;
+    min-height: 230px;
+    margin-top: 38px;
+    padding: 30px 34px;
+    border: 1px solid #adc4c0;
+    border-radius: 8px;
+    background: #eaf3f1;
+  }
+  .feedback-title {
+    color: #174f48;
+    font-size: 28px;
+    line-height: 1.32;
+    font-weight: 780;
+  }
+  .feedback-title span {
+    display: block;
+    margin-top: 10px;
+    color: #53736e;
+    font-size: 19px;
+    line-height: 1.45;
+    font-weight: 520;
+  }
+  .terminal {
+    min-width: 0;
+    padding: 19px 22px;
+    border-radius: 6px;
+    background: #111719;
+    color: #dce7e8;
+    box-shadow: 0 8px 24px rgba(17, 23, 25, 0.16);
+  }
+  .terminal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 13px;
+    color: #7bdccb;
+    font-size: 16px;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+  .event-json {
+    margin: 0;
+    overflow: hidden;
+    color: #e8eeee;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: 17px;
+    line-height: 1.48;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .resume {
+    padding-left: 12px;
+    color: #263338;
+    font-size: 20px;
+    line-height: 1.43;
+  }
+  .resume strong {
+    display: block;
+    margin-bottom: 8px;
+    color: #147a6d;
+    font-size: 24px;
+  }
+  .loop-arrow {
+    position: absolute;
+    left: 388px;
+    top: -20px;
+    color: #168b7b;
+    font-size: 28px;
+    font-weight: 900;
+  }
+</style>
+</head>
+<body>
+  <div class="eyebrow">Human + external AI agent + v_ase</div>
+  <h1>One live document, with a visible feedback loop</h1>
+  <p class="subtitle">The agent applies semantic commands while the researcher watches and refines the same GUI.</p>
+  <div class="live-badge"><span class="live-dot"></span>Shared live state</div>
+
+  <main class="flow">
+    <section class="panel human">
+      <div class="panel-label">1 / Natural language</div>
+      <h2 class="actor-title">Researcher instructs the AI Agent</h2>
+      <div class="request">
+        "Create a pyridinic N3 vacancy, place Li 2.15 A above the site,
+        preserve PBC, and prepare a clear rendered view."
+      </div>
+      <p class="human-note">The researcher can open <code>human_url</code> immediately. No separate copy is created.</p>
+    </section>
+
+    <section class="panel agent">
+      <div class="panel-label">2 / Structured control</div>
+      <h2 class="actor-title">External AI Agent uses the v_ase Skill</h2>
+      <div class="agent-command">v_ase gui STRUCTURE --cli</div>
+      <div class="agent-step">
+        <div class="step-number">1</div>
+        <div class="step-copy"><strong>Inspect</strong><span><code>capabilities()</code> and <code>describe()</code></span></div>
+      </div>
+      <div class="agent-step">
+        <div class="step-number">2</div>
+        <div class="step-copy"><strong>Apply</strong><span>Typed operations with <code>expectedRevision</code></span></div>
+      </div>
+      <div class="agent-step">
+        <div class="step-number">3</div>
+        <div class="step-copy"><strong>Verify</strong><span>Atom identity, coordinates, cell, camera, and render</span></div>
+      </div>
+    </section>
+
+    <section class="panel gui">
+      <div class="gui-bar">
+        <span class="window-dot"></span><span class="window-dot amber"></span><span class="window-dot green"></span>
+        <span class="gui-title">Live v_ase GUI</span>
+        <span class="same-document">same document</span>
+      </div>
+      <img src="../assets/readme_ai_collaboration_live.png" alt="Live v_ase GUI showing the edited graphene structure">
+    </section>
+  </main>
+
+  <section class="feedback">
+    <div class="loop-arrow">&larr; human edits remain authoritative</div>
+    <div class="feedback-title">
+      Researcher refines the GUI
+      <span>For example: orbit the camera, change atom radius, adjust bonds, or select atoms.</span>
+    </div>
+    <div class="terminal">
+      <div class="terminal-head"><span>CLI NDJSON event</span><span>source: human</span></div>
+      <pre class="event-json">{"protocol":"v_ase.collaboration.v1","revision":8,"document_revision":8,"source":"human","categories":["camera","display"],"changed_paths":["camera","display.atomRadiusScale"]}</pre>
+    </div>
+    <div class="resume">
+      <strong>Agent re-synchronizes</strong>
+      Read the event, call <code>describe()</code>, respect the new revision, and continue without guessing from pixels.
+    </div>
+  </section>
+</body>
+</html>

@@ -121,7 +121,7 @@ def test_remote_gui_command_preserves_user_options_and_quotes_the_path():
         "--format",
         "extxyz",
         "--interactive",
-        "--cli",
+        "--no-block",
         "--",
         "/data/final structure.extxyz",
     ]
@@ -164,6 +164,23 @@ def test_cli_mode_prints_one_machine_readable_handshake_and_keeps_session_alive(
     monkeypatch.setattr("v_ase.cli.view", fake_view)
     monkeypatch.setattr("v_ase.cli.time.sleep", lambda _seconds: (_ for _ in ()).throw(KeyboardInterrupt()))
 
+    class FakeStop:
+        def set(self):
+            captured["event_stream_stopped"] = True
+
+    class FakeThread:
+        def join(self, timeout=None):
+            captured["event_stream_join_timeout"] = timeout
+
+    def fake_start_event_stream(handshake):
+        captured["stream_handshake"] = handshake
+        return FakeStop(), FakeThread()
+
+    monkeypatch.setattr(
+        "v_ase.ai.start_collaboration_event_stream",
+        fake_start_event_stream,
+    )
+
     assert run_gui(args) == 0
     stdout = capsys.readouterr().out.strip()
     handshake = json.loads(stdout)
@@ -175,6 +192,10 @@ def test_cli_mode_prints_one_machine_readable_handshake_and_keeps_session_alive(
     assert handshake["accepts_natural_language"] is False
     assert handshake["stdin_commands"] is False
     assert handshake["state_url"].endswith("/api/ai/state/session")
+    assert handshake["events_url"].endswith("/api/ai/workspace-events/workspace")
+    assert handshake["event_protocol"] == "v_ase.collaboration.v1"
+    assert handshake["event_delivery"] == "ndjson-after-handshake"
+    assert handshake["event_scope"] == "workspace"
     assert handshake["skill_path"].endswith(
         "/skills/visualizing-atomic-structures-with-v-ase/SKILL.md"
     )
@@ -182,6 +203,9 @@ def test_cli_mode_prints_one_machine_readable_handshake_and_keeps_session_alive(
     assert captured["kwargs"]["open_browser"] is False
     assert captured["kwargs"]["show_bonds"] is True
     assert captured["closed"] is True
+    assert captured["stream_handshake"] == handshake
+    assert captured["event_stream_stopped"] is True
+    assert captured["event_stream_join_timeout"] == pytest.approx(0.3)
 
 
 def test_run_gui_delegates_remote_targets_before_local_file_validation(monkeypatch):

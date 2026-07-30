@@ -67,7 +67,7 @@ def test_skill_metadata_follows_discovery_contract():
 def test_skill_uses_one_level_progressive_references():
     text = SKILL.read_text(encoding="utf-8")
     linked = re.findall(r"\]\((references/[^)]+\.md)\)", text)
-    assert len(linked) == 6
+    assert len(linked) == 7
     assert len(linked) == len(set(linked))
 
     for relative in linked:
@@ -124,9 +124,13 @@ def test_skill_explains_vendor_neutral_agent_handoff():
         "first stdout line as JSON",
         "window.v_aseAI",
         "human_url",
+        "events_url",
+        "event_protocol",
+        "event_delivery",
         "command_transport",
         "accepts_natural_language",
         "stdin_commands",
+        "expectedRevision",
         "standalone `html` export",
     ):
         assert required in setup + readme + compatibility
@@ -137,6 +141,31 @@ def test_skill_explains_vendor_neutral_agent_handoff():
     assert "does not read natural-language or structured commands from stdin" in readme
     assert "structured `window.v_aseAI` commands" in readme
     assert "can reduce token use" in readme
+
+
+def test_skill_documents_bidirectional_same_document_collaboration():
+    collaboration = (REFERENCES / "collaboration.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    evaluation = (REFERENCES / "evaluation.md").read_text(encoding="utf-8")
+
+    for required in (
+        "same live document",
+        "v_ase.collaboration.v1",
+        "ndjson-after-handshake",
+        "source",
+        "changed_paths",
+        "document_revision",
+        "expectedRevision",
+        "state.resync-required",
+        "human_url",
+        "activate(session_id)",
+        "Human and external AI agent working in one live v_ase document",
+        "readme_ai_collaboration.png",
+        "stale-revision",
+    ):
+        assert required.lower() in (
+            collaboration + readme + evaluation
+        ).lower(), required
 
 
 def test_skill_documents_offline_html_handoff_contract():
@@ -168,7 +197,7 @@ def test_skill_trigger_evaluation_has_positive_and_negative_boundaries():
         "Constraints rendering",
         "Trajectory",
         "Exports",
-        "Human takeover and documents",
+        "Live collaboration and documents",
     ):
         assert required in evaluation
 
@@ -218,6 +247,12 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
     assert schema["command_transport"] == "browser-javascript"
     assert schema["accepts_natural_language"] is False
     assert schema["stdin_commands"] is False
+    assert schema["collaboration"]["protocol"] == "v_ase.collaboration.v1"
+    assert schema["collaboration"]["delivery"] == "ndjson-after-handshake"
+    assert (
+        schema["control_schema"]["properties"]["expectedRevision"]["minimum"]
+        == 0
+    )
 
 
 def test_legacy_guide_is_a_resolving_compatibility_link():

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "v_ase-gui"
-version = "0.0.117"
+version = "0.0.118"
 description = "A local 3D viewer and editor for atomic structures and trajectories."
 readme = "README.md"
 license = "MIT"
@@ -32,6 +32,7 @@ dependencies = [
   "numpy>=1.24",
   "imageio-ffmpeg>=0.5",
   "Pillow>=10",
+  "requests>=2.31",
 ]
 
 [project.urls]

@@ -343,6 +343,9 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "v_ase does not contain an llm" in normalized_readme
     assert "does not accept natural language itself" in normalized_readme
     assert "window.v_aseai" in normalized_readme
+    assert "same live document" in normalized_readme
+    assert "every later stdout line is one compact ndjson event" in normalized_readme
+    assert "`expectedrevision`" in normalized_readme
     assert "Standard Metal and Rubber atom materials" in readme
     assert "Cu_substrate-Cu_substrate" in readme
     assert "Cu_oxide-O_oxide" in readme
@@ -378,12 +381,17 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
         "readme_ferrocene_pivot.gif",
         "readme_commensurate.gif",
         "readme_ai_edit.gif",
+        "readme_ai_collaboration.png",
+        "readme_ai_collaboration_live.png",
         "readme_materials.png",
         "readme_measurement.gif",
         "readme_displacement.png",
     ):
         assert (ROOT / "docs" / "assets" / filename).is_file()
         assert (ROOT / "docs" / "assets" / "github" / filename).is_file()
+
+    with Image.open(ROOT / "docs" / "assets" / "readme_ai_collaboration.png") as figure:
+        assert figure.size == (2400, 1350)
 
 
 def test_phosphorene_capture_drives_the_production_selection_and_rotation_ui():

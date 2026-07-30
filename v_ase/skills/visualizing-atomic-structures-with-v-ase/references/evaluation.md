@@ -43,11 +43,13 @@ Review both lists whenever the skill description changes.
 Before every release:
 
 1. start `v_ase gui EXAMPLE --cli`;
-2. call `capabilities()`;
-3. compare every reported state field, apply key, operation, and export with
+2. parse the first-line handshake and verify later stdout remains valid NDJSON;
+3. call `capabilities()`;
+4. compare every reported state field, apply key, operation, and export with
    `references/semantic-api.md`;
-4. compare the JSON Schema at `schema_url`;
-5. fail if code has an undocumented capability or the skill documents a
+5. compare the JSON Schema at `schema_url`;
+6. verify `events_url`, collaboration protocol, and `expectedRevision`;
+7. fail if code has an undocumented capability or the skill documents a
    nonexistent capability.
 
 Current operation coverage:
@@ -131,10 +133,17 @@ Run all scenarios, not only static document checks:
    - probe MOV/AVI dimensions, FPS, and frame count.
    - verify image progress is monotonic, reports an ETA, emits 100 exactly
      once, and reaches it only after the destination write.
-10. **Human takeover and documents**
+10. **Live collaboration and documents**
     - create and switch independent documents;
     - verify state isolation and distinct `.vase` output;
-    - open `human_url` and confirm it shows the AI-modified state.
+    - open `human_url` and confirm it shows the AI-modified state;
+    - change camera, selection, and appearance in the GUI and verify compact
+      `source: human` NDJSON events reach the CLI;
+    - verify a child-tab event includes its `session_id` and
+      `document_revision`;
+    - send an agent command with the prior `expectedRevision` and require a
+      conflict, then re-describe and retry with the current revision;
+    - verify agent-originated mutations are reported as `source: agent`.
 11. **Settings and resets**
     - save and reload display supercell and visual translation;
     - verify Reset Coordinates preserves both;
@@ -169,6 +178,9 @@ Run all scenarios, not only static document checks:
       `N_pyridinic` neighbors, one `Li_site` 2.15 A above the vacancy, the
       documented source/intermediate/final CIF files, and a nonblank oblique
       render;
+    - inspect the collaboration figure and verify it contains the actual live
+      N3/Li GUI, a human natural-language request, structured agent steps, two
+      real GUI-originated NDJSON events, and the re-synchronization rule;
     - compare three identical Cu13 clusters and verify Standard, Metal, and
       Rubber remain visibly distinct without changing ASE element, radius, or
       color;

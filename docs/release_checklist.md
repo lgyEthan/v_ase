@@ -21,7 +21,8 @@ and rendered examples in sync.
    geometry, camera, lighting, clipping, and visibility.
 6. Run the complete browser AI workflows listed in the skill evaluation
    reference. Verify state, selection, edits, constraints, trajectory, camera
-   directions, nonblank exact-size renders, exports, and human takeover.
+   directions, nonblank exact-size renders, exports, GUI-to-CLI collaboration
+   events, multi-tab routing, and stale-revision rejection.
    For standalone HTML, reopen the GUI-downloaded file from `file://`, verify
    view-only navigation and playback at desktop/mobile sizes, extract its
    `.vase`, and assert that it makes no HTTP/HTTPS request.

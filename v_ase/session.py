@@ -1,7 +1,10 @@
 import os
 import threading
+import time
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 
 from ase import Atoms
@@ -51,6 +54,15 @@ class EditorSession:
         default_factory=threading.RLock,
         repr=False,
     )
+    collaboration_revision: int = 0
+    collaboration_events: deque = field(
+        default_factory=lambda: deque(maxlen=512),
+        repr=False,
+    )
+    collaboration_condition: threading.Condition = field(
+        default_factory=threading.Condition,
+        repr=False,
+    )
     _trajectory_layout_compatible: Optional[bool] = field(
         default=None,
         repr=False,
@@ -82,6 +94,75 @@ class EditorSession:
             for frame in self.trajectory_frames:
                 self._ensure_session_calculator(frame)
         self.refresh_trajectory_identity()
+
+    def publish_collaboration_event(
+        self,
+        payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Append one compact GUI/agent change event and wake CLI listeners."""
+        with self.collaboration_condition:
+            self.collaboration_revision += 1
+            event = {
+                "protocol": "v_ase.collaboration.v1",
+                "type": str(payload.get("type") or "state.changed"),
+                "revision": self.collaboration_revision,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "source": str(payload.get("source") or "human"),
+                "categories": list(payload.get("categories") or []),
+                "changed_paths": list(payload.get("changed_paths") or []),
+                "summary": str(payload.get("summary") or "Session state changed."),
+                "session_id": self.session_id,
+                "document": str(
+                    payload.get("document")
+                    or (self.config or {}).get("document_name")
+                    or "Untitled"
+                ),
+                "frame": int(payload.get("frame") or 0),
+                "atom_count": int(payload.get("atom_count") or 0),
+                "selection_count": int(payload.get("selection_count") or 0),
+                "state_path": f"/api/ai/state/{self.session_id}",
+            }
+            self.collaboration_events.append(event)
+            self.collaboration_condition.notify_all()
+            return dict(event)
+
+    def collaboration_events_after(
+        self,
+        after_revision: int,
+        *,
+        timeout: float = 20.0,
+    ) -> Dict[str, Any]:
+        """Long-poll compact collaboration events newer than a revision."""
+        after = max(0, int(after_revision))
+        wait_seconds = max(0.0, min(float(timeout), 30.0))
+        deadline = time.monotonic() + wait_seconds
+        with self.collaboration_condition:
+            while (
+                self.collaboration_revision <= after
+                and wait_seconds > 0
+            ):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self.collaboration_condition.wait(timeout=remaining)
+
+            events = [
+                dict(event)
+                for event in self.collaboration_events
+                if int(event["revision"]) > after
+            ]
+            earliest_revision = (
+                int(self.collaboration_events[0]["revision"])
+                if self.collaboration_events
+                else self.collaboration_revision + 1
+            )
+            return {
+                "protocol": "v_ase.collaboration.v1",
+                "session_id": self.session_id,
+                "revision": self.collaboration_revision,
+                "events": events,
+                "gap": bool(after < earliest_revision - 1),
+            }
 
     def _history_state(
         self,
@@ -280,10 +361,73 @@ class EditorWorkspace:
     session_ids: List[str] = field(default_factory=list)
     closed: bool = False
     lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
+    collaboration_revision: int = 0
+    collaboration_events: deque = field(
+        default_factory=lambda: deque(maxlen=1024),
+        repr=False,
+    )
+    collaboration_condition: threading.Condition = field(
+        default_factory=threading.Condition,
+        repr=False,
+    )
 
     @property
     def host_session_id(self) -> str:
         return self.host_session.session_id
+
+    def publish_collaboration_event(
+        self,
+        document_event: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Append one document event to the workspace-wide CLI stream."""
+        with self.collaboration_condition:
+            self.collaboration_revision += 1
+            event = {
+                **dict(document_event),
+                "revision": self.collaboration_revision,
+                "document_revision": int(document_event["revision"]),
+                "workspace_id": self.workspace_id,
+            }
+            self.collaboration_events.append(event)
+            self.collaboration_condition.notify_all()
+            return dict(event)
+
+    def collaboration_events_after(
+        self,
+        after_revision: int,
+        *,
+        timeout: float = 20.0,
+    ) -> Dict[str, Any]:
+        """Long-poll all document changes in this workspace."""
+        after = max(0, int(after_revision))
+        wait_seconds = max(0.0, min(float(timeout), 30.0))
+        deadline = time.monotonic() + wait_seconds
+        with self.collaboration_condition:
+            while (
+                self.collaboration_revision <= after
+                and wait_seconds > 0
+            ):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self.collaboration_condition.wait(timeout=remaining)
+            events = [
+                dict(event)
+                for event in self.collaboration_events
+                if int(event["revision"]) > after
+            ]
+            earliest_revision = (
+                int(self.collaboration_events[0]["revision"])
+                if self.collaboration_events
+                else self.collaboration_revision + 1
+            )
+            return {
+                "protocol": "v_ase.collaboration.v1",
+                "workspace_id": self.workspace_id,
+                "revision": self.collaboration_revision,
+                "events": events,
+                "gap": bool(after < earliest_revision - 1),
+            }
 
 
 workspaces: Dict[str, EditorWorkspace] = {}

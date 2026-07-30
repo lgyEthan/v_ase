@@ -89,7 +89,9 @@ def build_remote_gui_command(
     if args.interactive:
         command.append("--interactive")
     if args.cli_mode:
-        command.append("--cli")
+        # The local process owns the machine-readable handshake/event stream.
+        # The remote process only needs to keep the tunneled server alive.
+        command.append("--no-block")
     command.extend(["--", target.path])
     return shlex.join(command)
 
@@ -235,6 +237,7 @@ def launch_remote_gui(args: argparse.Namespace, target: RemoteTarget) -> int:
     remote_process: subprocess.Popen[str] | None = None
     tunnel_process: subprocess.Popen[str] | None = None
     drain_thread: threading.Thread | None = None
+    event_stream = None
     print(
         f"Opening {target.host}:{target.path}...",
         file=sys.stderr,
@@ -275,12 +278,15 @@ def launch_remote_gui(args: argparse.Namespace, target: RemoteTarget) -> int:
         drain_thread.start()
 
         if args.cli_mode:
-            from .ai import ai_handshake
+            from .ai import ai_handshake, start_collaboration_event_stream
 
-            print(json.dumps(ai_handshake(local_url), separators=(",", ":")), flush=True)
+            handshake = ai_handshake(local_url)
+            print(json.dumps(handshake, separators=(",", ":")), flush=True)
+            event_stream = start_collaboration_event_stream(handshake)
             print(
                 "The structure remains on the remote host. Open the reported "
-                "human_url for the normal GUI.",
+                "human_url for the normal GUI. Committed GUI and agent changes "
+                "are emitted here as NDJSON.",
                 file=sys.stderr,
                 flush=True,
             )
@@ -318,6 +324,10 @@ def launch_remote_gui(args: argparse.Namespace, target: RemoteTarget) -> int:
     except KeyboardInterrupt:
         return 130
     finally:
+        if event_stream is not None:
+            stop_event, event_thread = event_stream
+            stop_event.set()
+            event_thread.join(timeout=1.5)
         _terminate_process(tunnel_process)
         _terminate_process(remote_process)
         if drain_thread is not None:

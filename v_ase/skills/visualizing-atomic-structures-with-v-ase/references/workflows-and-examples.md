@@ -9,11 +9,24 @@
 5. Ordered Measurement
 6. Trajectory Analysis And Video
 7. Periodic Supercell Measurement
-8. Multi-Document Human Handoff
+8. Multi-Document Live Collaboration
 9. Offline View-Only Handoff
 
 These templates are starting points. Preserve the plan, validate, execute, and
 verify sequence even when parameters change.
+
+Every snippet uses this revision-safe helper after connecting to
+`window.v_aseAI`:
+
+```javascript
+async function applyCurrent(command) {
+  const state = await ai.describe({includePositions: false});
+  return await ai.apply({
+    expectedRevision: state.collaboration.revision,
+    ...command
+  });
+}
+```
 
 ## Publication Image
 
@@ -29,7 +42,7 @@ await ai.ready();
 const before = await ai.describe({includePositions: false});
 if (!before.atomCount) throw new Error("The structure is empty.");
 
-await ai.apply({
+await applyCurrent({
   display: {
     viewportBackground: "white",
     showBonds: true,
@@ -46,7 +59,7 @@ await ai.apply({
 
 const configured = await ai.describe({includePositions: false});
 if (configured.camera.projection !== "orthographic") {
-  await ai.apply({camera: {projection: "orthographic", fit: "structure"}});
+  await applyCurrent({camera: {projection: "orthographic", fit: "structure"}});
 }
 
 const image = await ai.render({
@@ -87,7 +100,7 @@ This request explicitly authorizes deletion and element changes. Resolve the
 indices from semantic state, never from pixel coordinates:
 
 ```javascript
-await ai.apply({mode: "edit", applyConstraints: true});
+await applyCurrent({mode: "edit", applyConstraints: true});
 const before = await ai.describe({includePositions: true});
 if (before.atomCount !== 72 || before.chemicalSymbols.some(symbol => symbol !== "C")) {
   throw new Error("Expected the generated 72-atom graphene source.");
@@ -118,14 +131,14 @@ const neighborsBefore = before.positions
   .map(entry => entry.index);
 const vacancyPosition = [...before.positions[vacancy]];
 
-await ai.apply({
+await applyCurrent({
   selection: {clear: true, indices: [vacancy]},
   operation: {name: "delete-selection", indices: [vacancy]}
 });
 const neighborsAfter = neighborsBefore.map(
   index => index - (index > vacancy ? 1 : 0)
 );
-await ai.apply({
+await applyCurrent({
   selection: {clear: true, indices: neighborsAfter},
   operation: {
     name: "set-identity",
@@ -139,7 +152,7 @@ const liPosition = [
   vacancyPosition[1],
   vacancyPosition[2] + 2.15
 ];
-await ai.apply({
+await applyCurrent({
   operation: {
     name: "add-atom",
     label: "Li_site",
@@ -147,7 +160,7 @@ await ai.apply({
     position: liPosition
   }
 });
-await ai.apply({
+await applyCurrent({
   display: {
     showBonds: true,
     showGrid: false,
@@ -231,7 +244,7 @@ For semantic editing, preserve the intended order in `indices` and use
 `pivot: "active"`:
 
 ```javascript
-await ai.apply({
+await applyCurrent({
   mode: "edit",
   operation: {
     name: "rotate-selection",
@@ -248,7 +261,7 @@ Here atom `0` is the pivot because it is the last explicit index.
 For deterministic semantic editing:
 
 ```javascript
-await ai.apply({mode: "edit", applyConstraints: true});
+await applyCurrent({mode: "edit", applyConstraints: true});
 const initial = await ai.describe({includePositions: true});
 const x = initial.positions.map(position => position[0]);
 const xPlanes = [...new Set(x.map(value => value.toFixed(6)))]
@@ -269,7 +282,7 @@ for (let ridgeStart = 1; ridgeStart < ridgeCount; ridgeStart += 1) {
   const tail = ridgeIds
     .map((ridgeId, index) => ridgeId >= ridgeStart ? index : -1)
     .filter(index => index >= 0);
-  await ai.apply({
+  await applyCurrent({
     selection: {clear: true, indices: tail},
     operation: {
       name: "rotate-selection",
@@ -330,10 +343,10 @@ Input: move selected atoms while honoring FixedLine, FixedPlane, FixAtoms, or
 FixScaled constraints.
 
 ```javascript
-await ai.apply({mode: "edit", applyConstraints: true});
+await applyCurrent({mode: "edit", applyConstraints: true});
 const before = await ai.describe({includePositions: true});
 
-await ai.apply({
+await applyCurrent({
   selection: {clear: true, indices: [3]},
   operation: {
     name: "move-selection",
@@ -350,7 +363,7 @@ if (!after.constraints) {
   throw new Error("Constraint state was not returned.");
 }
 
-await ai.apply({operation: "undo"});
+await applyCurrent({operation: "undo"});
 const restored = await ai.describe({includePositions: true});
 ```
 
@@ -366,7 +379,7 @@ atom's original position. A group COM plane is an implementation error.
 Input: `examples/readme_scene_assets/ethane_measurement.cif`.
 
 ```javascript
-await ai.apply({
+await applyCurrent({
   selection: {clear: true, indices: [3, 0, 1, 6]}
 });
 const measured = await ai.describe({includePositions: true});
@@ -386,7 +399,7 @@ Input: a trajectory with stable topology.
 const initial = await ai.describe({includePositions: false});
 if (initial.frameCount < 2) throw new Error("A movie requires multiple frames.");
 
-await ai.apply({
+await applyCurrent({
   frame: initial.frameCount - 1,
   selection: {clear: true, indices: [0, 1]},
   operation: {
@@ -438,7 +451,7 @@ above one.
 Use View mode when the user only needs displayed replicas:
 
 ```javascript
-await ai.apply({
+await applyCurrent({
   mode: "view",
   display: {
     supercell: [2, 2, 1],
@@ -464,11 +477,11 @@ Use `set-supercell` only when the user explicitly wants new atoms and a
 materialized larger cell. It changes topology in every frame and requires Edit
 mode.
 
-## Multi-Document Human Handoff
+## Multi-Document Live Collaboration
 
 ```javascript
-const docs = await ai.documents();
-const active = docs.find(document => document.active);
+const workspace = await ai.documents();
+const active = workspace.documents.find(document => document.active);
 await ai.newDocument();
 const updated = await ai.documents();
 ```
@@ -478,11 +491,16 @@ Every document is independent. Before modifying a document:
 1. call `documents()`;
 2. activate its `sessionId`;
 3. call `describe()` again;
-4. apply and verify changes;
-5. save a distinct `.vase` project.
+4. apply with that document's current `collaboration.revision` as
+   `expectedRevision`;
+5. consume later CLI NDJSON events and re-describe after a human edit;
+6. apply and verify changes;
+7. save a distinct `.vase` project.
 
-Give the handshake's `human_url` to the user for manual pointer edits. The user
-and AI operate the same state, not copies.
+Give the handshake's `human_url` to the user immediately. The user and agent
+operate the same state, not copies. A workspace event identifies the edited tab
+with `session_id` and its `document_revision`; activate it before reviewing the
+new semantic state.
 
 ## Offline View-Only Handoff
 

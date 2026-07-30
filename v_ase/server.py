@@ -31,7 +31,7 @@ from .repulsion import (
     repulsion_metadata,
 )
 from .commensurate import find_commensurate_angles
-from .ai import AI_PROTOCOL, ai_skill_path
+from .ai import AI_PROTOCOL, COLLABORATION_PROTOCOL, ai_skill_path
 from .project import (
     PROJECT_MIME,
     SETTINGS_SCHEMA,
@@ -142,6 +142,20 @@ MAX_UPLOADED_STRUCTURE_BYTES = 64 * 1024 * 1024 * 1024
 MAX_UPLOADED_IMAGE_BYTES = 512 * 1024 * 1024
 MAX_UPLOADED_VIDEO_BYTES = 2 * 1024 * 1024 * 1024
 MAX_LAUNCH_DIRECTORY_ENTRIES = 5000
+COLLABORATION_EVENT_CATEGORIES = frozenset({
+    "analysis",
+    "camera",
+    "constraints",
+    "display",
+    "document",
+    "export",
+    "frame",
+    "mode",
+    "selection",
+    "state",
+    "structure",
+    "trajectory",
+})
 
 AI_CONTROL_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -157,6 +171,14 @@ AI_CONTROL_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
+        "expectedRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "description": (
+                "Optional optimistic-concurrency guard. Reject the command "
+                "when the live collaboration revision has changed."
+            ),
+        },
         "frame": {"type": "integer", "minimum": 0},
         "mode": {"enum": ["view", "edit"]},
         "applyConstraints": {"type": "boolean"},
@@ -1390,6 +1412,17 @@ async def ai_control_schema():
         "command_transport": "browser-javascript",
         "accepts_natural_language": False,
         "stdin_commands": False,
+        "collaboration": {
+            "protocol": COLLABORATION_PROTOCOL,
+            "delivery": "ndjson-after-handshake",
+            "event_endpoint": "/api/ai/events/{session_id}",
+            "workspace_event_endpoint": "/api/ai/workspace-events/{workspace_id}",
+            "authoritative_state": (
+                "Call window.v_aseAI.describe() after each event. "
+                "Use expectedRevision on apply() to avoid overwriting a "
+                "newer human edit."
+            ),
+        },
         "control_schema": AI_CONTROL_SCHEMA,
         "browser_api": {
             "object": "window.v_aseAI",
@@ -1420,6 +1453,13 @@ async def ai_skill():
 @app.get("/api/ai/state/{session_id}")
 async def ai_semantic_state(session_id: str):
     session = get_session(session_id)
+    workspace_revision = None
+    workspace_id = str((session.config or {}).get("workspace_id") or "").strip()
+    if workspace_id:
+        try:
+            workspace_revision = get_workspace(workspace_id).collaboration_revision
+        except ValueError:
+            workspace_revision = None
     data = session_update_to_json(session)
     labels = [str(value) for value in data.get("labels", data.get("symbols", []))]
     elements = [str(value) for value in data.get("chemical_symbols", [])]
@@ -1433,8 +1473,141 @@ async def ai_semantic_state(session_id: str):
         "label_counts": dict(Counter(labels)),
         "element_counts": dict(Counter(elements)),
         "browser_control": "window.v_aseAI",
+        "collaboration_revision": int(session.collaboration_revision),
+        "workspace_collaboration_revision": workspace_revision,
     }
     return data
+
+
+def normalize_collaboration_event(
+    session: EditorSession,
+    payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Validate a compact browser-originated collaboration notification."""
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Collaboration event must be an object.")
+
+    source = str(payload.get("source") or "human").strip().lower()
+    if source not in {"human", "agent", "system"}:
+        raise HTTPException(status_code=400, detail="Event source must be human, agent, or system.")
+    event_type = str(payload.get("type") or "state.changed").strip()
+    if event_type not in {"state.changed", "session.ready"}:
+        raise HTTPException(status_code=400, detail="Unsupported collaboration event type.")
+
+    raw_categories = payload.get("categories") or []
+    if not isinstance(raw_categories, list):
+        raise HTTPException(status_code=400, detail="Event categories must be an array.")
+    categories = []
+    for value in raw_categories[:16]:
+        category = str(value).strip().lower()
+        if category not in COLLABORATION_EVENT_CATEGORIES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported collaboration category: {category}",
+            )
+        if category not in categories:
+            categories.append(category)
+    if not categories:
+        categories = ["state"]
+
+    raw_paths = payload.get("changed_paths") or payload.get("changedPaths") or []
+    if not isinstance(raw_paths, list):
+        raise HTTPException(status_code=400, detail="changed_paths must be an array.")
+    changed_paths = []
+    for value in raw_paths[:64]:
+        path = str(value).strip()[:160]
+        if path and path not in changed_paths:
+            changed_paths.append(path)
+
+    summary = str(payload.get("summary") or "Session state changed.").strip()
+    summary = summary[:320] or "Session state changed."
+
+    def bounded_int(key: str, fallback: int = 0) -> int:
+        try:
+            return max(0, int(payload.get(key, fallback)))
+        except (TypeError, ValueError):
+            return fallback
+
+    return {
+        "type": event_type,
+        "source": source,
+        "categories": categories,
+        "changed_paths": changed_paths,
+        "summary": summary,
+        "document": str(
+            payload.get("document")
+            or (session.config or {}).get("document_name")
+            or "Untitled"
+        )[:240],
+        "frame": bounded_int("frame", session.current_frame),
+        "atom_count": bounded_int("atom_count", len(session.working_atoms)),
+        "selection_count": bounded_int("selection_count"),
+    }
+
+
+@app.post("/api/ai/events/{session_id}")
+async def publish_ai_collaboration_event(
+    session_id: str,
+    payload: Dict[str, Any],
+):
+    session = get_session(session_id)
+    event = normalize_collaboration_event(session, payload)
+    document_event = session.publish_collaboration_event(event)
+    workspace_id = str((session.config or {}).get("workspace_id") or "").strip()
+    if workspace_id:
+        try:
+            get_workspace(workspace_id).publish_collaboration_event(document_event)
+        except ValueError:
+            pass
+    return document_event
+
+
+@app.get("/api/ai/events/{session_id}")
+async def poll_ai_collaboration_events(
+    session_id: str,
+    after: int = 0,
+    timeout: float = 20.0,
+):
+    session = get_session(session_id)
+    normalized_after = max(0, int(after))
+    normalized_timeout = max(0.0, min(float(timeout), 30.0))
+    return await poll_collaboration_source(
+        session,
+        normalized_after,
+        normalized_timeout,
+    )
+
+
+async def poll_collaboration_source(
+    source: Any,
+    after_revision: int,
+    timeout: float,
+) -> Dict[str, Any]:
+    """Wait without leaving a blocking worker behind during server shutdown."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while source.collaboration_revision <= after_revision:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            break
+        await asyncio.sleep(min(0.1, remaining))
+    return source.collaboration_events_after(after_revision, timeout=0)
+
+
+@app.get("/api/ai/workspace-events/{workspace_id}")
+async def poll_ai_workspace_collaboration_events(
+    workspace_id: str,
+    after: int = 0,
+    timeout: float = 20.0,
+):
+    workspace = get_workspace(workspace_id)
+    normalized_after = max(0, int(after))
+    normalized_timeout = max(0.0, min(float(timeout), 30.0))
+    return await poll_collaboration_source(
+        workspace,
+        normalized_after,
+        normalized_timeout,
+    )
 
 
 @app.post("/api/mode/{session_id}")

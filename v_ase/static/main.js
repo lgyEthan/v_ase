@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.117&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.117&rev=1';
-import { ASESelection } from './selection.js?v=0.0.117&rev=1';
-import { ASETransform } from './transform.js?v=0.0.117&rev=1';
+import { ASEApi } from './api.js?v=0.0.118&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.118&rev=1';
+import { ASESelection } from './selection.js?v=0.0.118&rev=1';
+import { ASETransform } from './transform.js?v=0.0.118&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.117&rev=1';
+} from './trajectory.js?v=0.0.118&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -49,8 +49,29 @@ class VAseApp {
         this.visualHistoryPending = null;
         this.visualHistoryTimer = null;
         this.visualHistoryReady = false;
+        this.collaborationReady = false;
+        this.collaborationRevision = 0;
+        this.collaborationActorDepth = 0;
+        this.collaborationPending = new Map();
+        this.collaborationSelectionSignature = null;
+        this.collaborationCameraSignature = null;
+        this.collaborationFrame = null;
         this.api = new ASEApi(this.sessionId);
-        this.api.onUndoableMutation = () => this.recordStructureHistoryAction();
+        this.api.onUndoableMutation = ({ path } = {}) => {
+            this.recordStructureHistoryAction();
+            const details = this.collaborationMutationDetails(path);
+            this.scheduleCollaborationEvent({
+                ...details,
+                source: this.currentCollaborationActor(path)
+            });
+        };
+        this.api.onCollaborationMutation = ({ path } = {}) => {
+            const details = this.collaborationMutationDetails(path);
+            this.scheduleCollaborationEvent({
+                ...details,
+                source: this.currentCollaborationActor(path)
+            });
+        };
         this.pendingApply = Promise.resolve();
         
         this.renderer = new ASERenderer(document.getElementById('app-viewport'));
@@ -66,9 +87,12 @@ class VAseApp {
             this.updateOrientationWidget();
             this.updateSelectionMeasurementOverlay();
         };
-        this.renderer.onCameraChange = event => this.syncAtomicScaleFromCamera({
-            forceInput: event?.source !== 'scale-input'
-        });
+        this.renderer.onCameraChange = event => {
+            this.syncAtomicScaleFromCamera({
+                forceInput: event?.source !== 'scale-input'
+            });
+            this.observeCollaborationCamera(event?.source || 'camera');
+        };
         this.renderer.controls.onGestureStart = () => this.flushVisualHistoryCommit();
         this.renderer.controls.onGestureEnd = () => {
             this.syncAtomicScaleFromCamera({ forceInput: true });
@@ -244,6 +268,17 @@ class VAseApp {
             this.setupInputCommitBehavior();
             this.setupNumberInputHoldGuards();
             await this.refresh();
+            this.collaborationReady = true;
+            this.collaborationSelectionSignature = this.collaborationSelectionKey();
+            this.collaborationCameraSignature = this.collaborationCameraKey();
+            this.collaborationFrame = Number(this.state.atoms?.metadata?.current_frame || 0);
+            await this.publishCollaborationEvent({
+                type: 'session.ready',
+                source: 'system',
+                categories: ['state'],
+                changedPaths: [],
+                summary: 'The live v_ase document is ready for human and agent collaboration.'
+            });
             this.notifyWorkspaceDocument('v_ase:document-ready');
         } catch (err) {
             console.error("v_ase initialization failed:", err);
@@ -609,6 +644,12 @@ class VAseApp {
                     : 'Edit mode enabled. ASE-backed atom editing is ready.',
                 'success'
             );
+            this.scheduleCollaborationEvent({
+                source: this.currentCollaborationActor(),
+                categories: ['mode'],
+                changedPaths: ['mode'],
+                summary: `The live document switched to ${vizOnly ? 'View' : 'Edit'} mode.`
+            });
         } catch (err) {
             this.toast(`Mode change failed: ${err.message}`, 'error');
         } finally {
@@ -1482,6 +1523,10 @@ class VAseApp {
         this.visualHistoryPending = {
             kind: 'visual',
             source: this.visualHistoryPending?.source || source,
+            collaborationSource: (
+                this.visualHistoryPending?.collaborationSource
+                || this.currentCollaborationActor(source)
+            ),
             before
         };
         if (this.visualHistoryTimer !== null) clearTimeout(this.visualHistoryTimer);
@@ -1506,6 +1551,23 @@ class VAseApp {
         if (!action || this.visualHistorySnapshotsEqual(action.before, action.after)) return;
         this.visualHistoryBaseline = this.clonePlain(action.after);
         this.recordHistoryAction(action);
+        const changedPaths = this.collaborationChangedPaths(
+            action.before,
+            action.after
+        );
+        const categories = new Set(['display']);
+        if (changedPaths.some(path => path.startsWith('applyConstraints'))) {
+            categories.add('constraints');
+        }
+        if (changedPaths.some(path => path.startsWith('imageExportProfile'))) {
+            categories.add('export');
+        }
+        this.scheduleCollaborationEvent({
+            source: action.collaborationSource || this.currentCollaborationActor(action.source),
+            categories: [...categories],
+            changedPaths,
+            summary: 'Visual settings changed.'
+        });
     }
 
     applyVisualHistorySnapshot(snapshot) {
@@ -1542,6 +1604,12 @@ class VAseApp {
             }
             const data = await this.api.undo();
             this.setAtomsData(data);
+            this.scheduleCollaborationEvent({
+                source: this.currentCollaborationActor(),
+                categories: ['structure'],
+                changedPaths: ['structure'],
+                summary: 'The last structure change was undone.'
+            });
             this.toast('Undo.', 'success');
             return;
         }
@@ -1567,6 +1635,12 @@ class VAseApp {
                 this.toast('Undo.', 'success');
             }
             this.redoTimeline.push(action);
+            this.scheduleCollaborationEvent({
+                source: this.currentCollaborationActor(),
+                categories: action.kind === 'visual' ? ['display'] : ['structure'],
+                changedPaths: [action.kind === 'visual' ? 'display' : 'structure'],
+                summary: `The last ${action.kind} change was undone.`
+            });
         } catch (err) {
             this.undoTimeline.push(action);
             throw err;
@@ -1585,6 +1659,12 @@ class VAseApp {
             }
             const data = await this.api.redo();
             this.setAtomsData(data);
+            this.scheduleCollaborationEvent({
+                source: this.currentCollaborationActor(),
+                categories: ['structure'],
+                changedPaths: ['structure'],
+                summary: 'The last structure change was redone.'
+            });
             this.toast('Redo.', 'success');
             return;
         }
@@ -1607,6 +1687,12 @@ class VAseApp {
                 this.toast('Redo.', 'success');
             }
             this.undoTimeline.push(action);
+            this.scheduleCollaborationEvent({
+                source: this.currentCollaborationActor(),
+                categories: action.kind === 'visual' ? ['display'] : ['structure'],
+                changedPaths: [action.kind === 'visual' ? 'display' : 'structure'],
+                summary: `The last ${action.kind} change was redone.`
+            });
         } catch (err) {
             this.redoTimeline.push(action);
             throw err;
@@ -2280,6 +2366,7 @@ class VAseApp {
         this.updateUI();
         this.updateDocumentAvailability();
         this.scheduleDisplacementAnalysisRefresh();
+        this.observeCollaborationFrame();
     }
 
     hasLoadedAtoms() {
@@ -2712,6 +2799,7 @@ class VAseApp {
         this.renderer.setSelection(this.state.selected);
         this.renderer.setReplicaSelection(this.state.vizOnly ? this.state.replicaSelected.values() : []);
         this.updateSelectionMeasurementOverlay();
+        this.observeCollaborationSelection();
     }
 
     getFixedIndices() {
@@ -5590,6 +5678,289 @@ class VAseApp {
         return JSON.parse(JSON.stringify(value));
     }
 
+    currentCollaborationActor(sourceHint = '') {
+        const hint = String(sourceHint || '').toLowerCase();
+        if (this.collaborationActorDepth > 0 || hint.startsWith('ai-')) return 'agent';
+        if (hint === 'system') return 'system';
+        return 'human';
+    }
+
+    collaborationContext() {
+        return {
+            document: this.workspaceDocumentTitle(),
+            frame: Number(this.state.atoms?.metadata?.current_frame || 0),
+            atom_count: Number(
+                this.state.atoms?.metadata?.natoms
+                || this.state.atoms?.positions?.length
+                || 0
+            ),
+            selection_count: this.selectionCount()
+        };
+    }
+
+    collaborationSelectionKey() {
+        return JSON.stringify(this.selectionEntries().map(reference => {
+            const normalized = this.normalizeSelectionReference(reference);
+            return normalized?.key || null;
+        }).filter(Boolean));
+    }
+
+    collaborationCameraKey() {
+        if (!this.renderer?.camera) return null;
+        return JSON.stringify(this.cameraSettingsSnapshot());
+    }
+
+    collaborationChangedPaths(before, after, prefix = '', output = []) {
+        if (output.length >= 64) return output;
+        if (before === after) return output;
+        const beforeObject = before && typeof before === 'object' && !Array.isArray(before);
+        const afterObject = after && typeof after === 'object' && !Array.isArray(after);
+        if (beforeObject && afterObject) {
+            const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+            for (const key of keys) {
+                this.collaborationChangedPaths(
+                    before[key],
+                    after[key],
+                    prefix ? `${prefix}.${key}` : key,
+                    output
+                );
+                if (output.length >= 64) break;
+            }
+            return output;
+        }
+        if (JSON.stringify(before) !== JSON.stringify(after)) {
+            output.push(prefix || 'state');
+        }
+        return output;
+    }
+
+    collaborationMutationDetails(path = '') {
+        const endpoint = String(path || '');
+        const table = [
+            ['/api/file/append', ['document', 'trajectory'], ['trajectory.frames'], 'Structures were appended to the trajectory.'],
+            ['/api/file/load', ['document', 'structure', 'trajectory'], ['document', 'structure', 'trajectory'], 'A structure or trajectory replaced the live document.'],
+            ['/api/project/load/', ['document', 'structure', 'display'], ['document', 'structure', 'display'], 'A v_ase project replaced the live document.'],
+            ['/api/settings/load/', ['display'], ['display'], 'Reusable visual settings were loaded.'],
+            ['/api/calculator/', ['structure'], ['calculator'], 'The ASE calculator configuration changed.'],
+            ['/api/relax/start/', ['structure', 'trajectory'], ['relaxation.status'], 'Structure relaxation started.'],
+            ['/api/relax/stop/', ['structure', 'trajectory'], ['relaxation.status'], 'Structure relaxation stopped.'],
+            ['/api/atom-identity/', ['structure'], ['structure.identity'], 'Atom identity changed.'],
+            ['/api/constraints/', ['constraints'], ['constraints'], 'ASE constraints changed.'],
+            ['/api/supercell/', ['structure'], ['structure.cell', 'structure.positions'], 'The working supercell changed.'],
+            ['/api/translate/', ['structure'], ['structure.positions'], 'Atom coordinates were translated.'],
+            ['/api/add/', ['structure'], ['structure.topology'], 'An atom was added.'],
+            ['/api/delete/', ['structure'], ['structure.topology'], 'Selected atoms were deleted.'],
+            ['/api/wrap/', ['structure'], ['structure.positions'], 'Atoms were wrapped into the cell.'],
+            ['/api/reset-coordinates/', ['structure'], ['structure.positions'], 'Atom coordinates were reset.'],
+            ['/api/reset/', ['structure', 'display'], ['structure', 'display'], 'The document was reset.'],
+            ['/api/apply/', ['structure'], ['structure.positions'], 'Atom coordinates changed.']
+        ];
+        const match = table.find(([prefix]) => endpoint.includes(prefix));
+        if (match) {
+            return {
+                categories: match[1],
+                changedPaths: match[2],
+                summary: match[3]
+            };
+        }
+        return {
+            categories: ['structure'],
+            changedPaths: ['structure'],
+            summary: 'The atomic structure changed.'
+        };
+    }
+
+    collaborationSummary(source, categories, summaries = []) {
+        const unique = [...new Set(
+            summaries.map(value => String(value || '').trim()).filter(Boolean)
+        )];
+        if (unique.length) return unique.slice(0, 3).join(' ');
+        const actor = source === 'agent' ? 'Agent' : source === 'system' ? 'System' : 'Human';
+        return `${actor} changed ${categories.join(', ')}.`;
+    }
+
+    scheduleCollaborationEvent({
+        type = 'state.changed',
+        source = this.currentCollaborationActor(),
+        categories = ['state'],
+        changedPaths = [],
+        summary = '',
+        delay = 160
+    } = {}) {
+        if (!this.collaborationReady) return;
+        const actor = ['human', 'agent', 'system'].includes(source) ? source : 'human';
+        const pending = this.collaborationPending.get(actor) || {
+            type,
+            source: actor,
+            categories: new Set(),
+            changedPaths: new Set(),
+            summaries: [],
+            timer: null
+        };
+        categories.forEach(category => pending.categories.add(category));
+        changedPaths.forEach(path => pending.changedPaths.add(path));
+        if (summary) pending.summaries.push(summary);
+        if (pending.timer !== null) clearTimeout(pending.timer);
+        pending.timer = window.setTimeout(
+            () => void this.flushCollaborationEvents(actor),
+            Math.max(0, delay)
+        );
+        this.collaborationPending.set(actor, pending);
+    }
+
+    async publishCollaborationEvent({
+        type = 'state.changed',
+        source = 'human',
+        categories = ['state'],
+        changedPaths = [],
+        summary = 'Session state changed.'
+    } = {}) {
+        if (!this.sessionId) return null;
+        try {
+            const event = await this.api.publishCollaborationEvent({
+                type,
+                source,
+                categories: [...new Set(categories)],
+                changed_paths: [...new Set(changedPaths)].slice(0, 64),
+                summary,
+                ...this.collaborationContext()
+            });
+            this.collaborationRevision = Math.max(
+                this.collaborationRevision,
+                Number(event?.revision) || 0
+            );
+            return event;
+        } catch (err) {
+            console.warn('Collaboration event publish failed:', err);
+            return null;
+        }
+    }
+
+    async flushCollaborationEvents(source = null) {
+        const actors = source
+            ? [source]
+            : [...this.collaborationPending.keys()];
+        for (const actor of actors) {
+            const pending = this.collaborationPending.get(actor);
+            if (!pending) continue;
+            if (pending.timer !== null) clearTimeout(pending.timer);
+            this.collaborationPending.delete(actor);
+            const categories = [...pending.categories];
+            await this.publishCollaborationEvent({
+                type: pending.type,
+                source: pending.source,
+                categories,
+                changedPaths: [...pending.changedPaths],
+                summary: this.collaborationSummary(
+                    pending.source,
+                    categories,
+                    pending.summaries
+                )
+            });
+        }
+        return this.collaborationRevision;
+    }
+
+    observeCollaborationCamera(source = 'camera') {
+        const signature = this.collaborationCameraKey();
+        if (signature === null) return;
+        if (this.collaborationCameraSignature === null) {
+            this.collaborationCameraSignature = signature;
+            return;
+        }
+        if (signature === this.collaborationCameraSignature) return;
+        this.collaborationCameraSignature = signature;
+        this.scheduleCollaborationEvent({
+            source: this.currentCollaborationActor(source),
+            categories: ['camera'],
+            changedPaths: ['camera'],
+            summary: 'The viewport camera changed.'
+        });
+    }
+
+    observeCollaborationSelection() {
+        const signature = this.collaborationSelectionKey();
+        if (this.collaborationSelectionSignature === null) {
+            this.collaborationSelectionSignature = signature;
+            return;
+        }
+        if (signature === this.collaborationSelectionSignature) return;
+        this.collaborationSelectionSignature = signature;
+        this.scheduleCollaborationEvent({
+            source: this.currentCollaborationActor(),
+            categories: ['selection'],
+            changedPaths: ['selection.references'],
+            summary: `${this.selectionCount()} atom selection reference(s) are active.`
+        });
+    }
+
+    observeCollaborationFrame() {
+        const frame = Number(this.state.atoms?.metadata?.current_frame || 0);
+        if (this.collaborationFrame === null) {
+            this.collaborationFrame = frame;
+            return;
+        }
+        if (frame === this.collaborationFrame) return;
+        this.collaborationFrame = frame;
+        this.scheduleCollaborationEvent({
+            source: this.currentCollaborationActor(),
+            categories: ['frame', 'trajectory'],
+            changedPaths: ['trajectory.frame'],
+            summary: `The active trajectory frame changed to ${frame}.`
+        });
+    }
+
+    collaborationCommandDetails(command = {}) {
+        const categories = new Set();
+        const changedPaths = new Set();
+        if (command.frame !== undefined) {
+            categories.add('frame');
+            categories.add('trajectory');
+            changedPaths.add('trajectory.frame');
+        }
+        if (command.mode !== undefined) {
+            categories.add('mode');
+            changedPaths.add('mode');
+        }
+        if (command.display !== undefined || command.quality !== undefined) {
+            categories.add('display');
+            changedPaths.add('display');
+        }
+        if (command.applyConstraints !== undefined) {
+            categories.add('constraints');
+            changedPaths.add('applyConstraints');
+        }
+        if (command.camera !== undefined) {
+            categories.add('camera');
+            changedPaths.add('camera');
+        }
+        if (command.selection !== undefined) {
+            categories.add('selection');
+            changedPaths.add('selection.references');
+        }
+        if (command.operation !== undefined) {
+            const operation = typeof command.operation === 'string'
+                ? command.operation
+                : command.operation?.name;
+            if (operation === 'set-constraints') categories.add('constraints');
+            else if (operation === 'refresh-displacements') categories.add('analysis');
+            else if (['start-relaxation', 'stop-relaxation'].includes(operation)) {
+                categories.add('trajectory');
+                categories.add('structure');
+            } else {
+                categories.add('structure');
+            }
+            changedPaths.add(`operation.${operation || 'unknown'}`);
+        }
+        if (!categories.size) categories.add('state');
+        return {
+            source: 'agent',
+            categories: [...categories],
+            changedPaths: [...changedPaths],
+            summary: 'Agent applied a structured v_ase command.'
+        };
+    }
+
     aiSelectionSnapshot() {
         return this.selectionEntries().map(reference => {
             const normalized = this.normalizeSelectionReference(reference);
@@ -5651,7 +6022,12 @@ class VAseApp {
             measurement: this.getSelectionMeasureText(),
             display: this.clonePlain(this.state.display),
             camera: this.cameraSettingsSnapshot(),
-            imageExport: this.clonePlain(this.currentImageExportProfile())
+            imageExport: this.clonePlain(this.currentImageExportProfile()),
+            collaboration: {
+                protocol: 'v_ase.collaboration.v1',
+                revision: this.collaborationRevision,
+                eventStream: true
+            }
         };
         if (includePositions) result.positions = positions;
         return result;
@@ -5685,7 +6061,8 @@ class VAseApp {
             state: [
                 'atoms', 'labels', 'elements', 'positions', 'cell', 'pbc',
                 'constraints', 'forces', 'charges', 'tags', 'magnetic-moments',
-                'selection', 'measurement', 'trajectory', 'camera', 'display'
+                'selection', 'measurement', 'trajectory', 'camera', 'display',
+                'collaboration'
             ],
             apply: [
                 'frame', 'mode', 'display', 'quality', 'applyConstraints',
@@ -5945,6 +6322,19 @@ class VAseApp {
     async aiApply(command = {}) {
         if (!command || typeof command !== 'object' || Array.isArray(command)) {
             throw new Error('AI control command must be an object.');
+        }
+        if (command.expectedRevision !== undefined) {
+            const expected = Number(command.expectedRevision);
+            if (!Number.isInteger(expected) || expected < 0) {
+                throw new Error('expectedRevision must be a non-negative integer.');
+            }
+            if (expected !== this.collaborationRevision) {
+                throw new Error(
+                    `Collaboration revision conflict: expected ${expected}, `
+                    + `current ${this.collaborationRevision}. Call describe() `
+                    + 'and review the human change before retrying.'
+                );
+            }
         }
         if (command.frame !== undefined) {
             const frame = Number(command.frame);
@@ -6237,6 +6627,23 @@ class VAseApp {
         return await this.api.encodeImage(source, format, onProgress);
     }
 
+    async aiApplyCollaboratively(command = {}) {
+        this.flushVisualHistoryCommit();
+        await this.flushCollaborationEvents();
+        this.collaborationActorDepth += 1;
+        let completed = false;
+        try {
+            await this.aiApply(command);
+            completed = true;
+            this.scheduleCollaborationEvent(this.collaborationCommandDetails(command));
+        } finally {
+            this.flushVisualHistoryCommit();
+            await this.flushCollaborationEvents('agent');
+            this.collaborationActorDepth = Math.max(0, this.collaborationActorDepth - 1);
+        }
+        return completed ? this.aiDescribe() : null;
+    }
+
     createAIBridge() {
         const app = this;
         return Object.freeze({
@@ -6247,7 +6654,8 @@ class VAseApp {
                     protocol: 'v_ase.ai.v1',
                     ready: true,
                     sessionId: app.sessionId,
-                    document: app.workspaceDocumentTitle()
+                    document: app.workspaceDocumentTitle(),
+                    collaborationRevision: app.collaborationRevision
                 };
             },
             describe: async options => {
@@ -6260,7 +6668,7 @@ class VAseApp {
             },
             apply: async command => {
                 await app.ready;
-                return await app.aiApply(command);
+                return await app.aiApplyCollaboratively(command);
             },
             render: async request => {
                 await app.ready;
@@ -7610,6 +8018,12 @@ class VAseApp {
                     this.appendRelaxFrame(this.state.atoms.positions, { force: this.relaxFrameCount() <= 1 });
                 }
                 this.state.relaxTrajectory.finished = true;
+                this.scheduleCollaborationEvent({
+                    source: 'system',
+                    categories: ['structure', 'trajectory'],
+                    changedPaths: ['structure.positions', 'relaxation.status'],
+                    summary: `Structure relaxation ${msg.status}.`
+                });
                 this.toast(`Relax ${msg.status}.`, msg.status === 'error' ? 'error' : 'success');
                 this.updateUI();
                 if (!this.workspaceActive) {
@@ -9178,6 +9592,7 @@ class VAseApp {
     completeTrajectoryFrameUpdate() {
         this.pruneSelection();
         this.updateSelectionVisuals();
+        this.observeCollaborationFrame();
         if (this.state.display.showDisplacements) {
             this.renderer.clearDisplacementVectors();
         }

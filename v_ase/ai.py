@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import json
+import sys
+import threading
 from importlib.resources import files
-from urllib.parse import parse_qs, urlsplit
+from typing import IO, Any
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 
 AI_PROTOCOL = "v_ase.ai.v1"
+COLLABORATION_PROTOCOL = "v_ase.collaboration.v1"
+COLLABORATION_POLL_SECONDS = 1.0
 AI_SKILL_RELATIVE_PATH = (
     "skills",
     "visualizing-atomic-structures-with-v-ase",
@@ -40,15 +46,143 @@ def ai_handshake(url: str) -> dict[str, object]:
             if session_id
             else None
         ),
+        "events_url": (
+            f"{base_url}/api/ai/workspace-events/{workspace_id}"
+            if workspace_id
+            else (
+                f"{base_url}/api/ai/events/{session_id}"
+                if session_id
+                else None
+            )
+        ),
+        "event_protocol": COLLABORATION_PROTOCOL,
+        "event_delivery": "ndjson-after-handshake",
+        "event_scope": "workspace" if workspace_id else "document",
         "browser_api": "window.v_aseAI",
         "command_transport": "browser-javascript",
         "accepts_natural_language": False,
         "stdin_commands": False,
         "skill_path": ai_skill_path(),
         "note": (
-            "This CLI process only launches the session and prints this "
-            "handshake. An external agent controls the same live document "
-            "through window.v_aseAI; v_ase does not parse natural language "
-            "or command messages from stdin. Open human_url for the normal GUI."
+            "This CLI process launches the session, prints this handshake, "
+            "and then emits committed changes as NDJSON. An external agent "
+            "controls the same live document through window.v_aseAI; v_ase "
+            "does not parse natural language or command messages from stdin. "
+            "Open human_url for the normal GUI and call describe() after each "
+            "event for authoritative live state."
         ),
     }
+
+
+def stream_collaboration_events(
+    handshake: dict[str, Any],
+    stop_event: threading.Event,
+    *,
+    output: IO[str] | None = None,
+    error: IO[str] | None = None,
+) -> None:
+    """Long-poll one session and write compact collaboration events as NDJSON."""
+    output = output or sys.stdout
+    error = error or sys.stderr
+    events_url = handshake.get("events_url")
+    state_url = handshake.get("state_url")
+    if not events_url:
+        return
+
+    import requests
+
+    after_revision = 0
+    consecutive_errors = 0
+    while not stop_event.is_set():
+        try:
+            response = requests.get(
+                str(events_url),
+                params={
+                    "after": after_revision,
+                    "timeout": COLLABORATION_POLL_SECONDS,
+                },
+                timeout=COLLABORATION_POLL_SECONDS + 2,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            consecutive_errors = 0
+            if payload.get("gap"):
+                gap_event = {
+                    "protocol": COLLABORATION_PROTOCOL,
+                    "type": "state.resync-required",
+                    "revision": int(payload.get("revision") or after_revision),
+                    "source": "system",
+                    "categories": ["state"],
+                    "changed_paths": [],
+                    "session_id": handshake.get("session_id"),
+                    "workspace_id": handshake.get("workspace_id"),
+                    "event_scope": handshake.get("event_scope"),
+                    "summary": (
+                        "Older collaboration events expired; read state_url "
+                        "or call window.v_aseAI.describe() before continuing."
+                    ),
+                    "state_url": state_url,
+                }
+                print(
+                    json.dumps(gap_event, separators=(",", ":")),
+                    file=output,
+                    flush=True,
+                )
+            for raw_event in payload.get("events") or []:
+                event = dict(raw_event)
+                state_path = event.get("state_path")
+                event["state_url"] = (
+                    urljoin(str(events_url), str(state_path))
+                    if state_path
+                    else state_url
+                )
+                print(
+                    json.dumps(event, separators=(",", ":")),
+                    file=output,
+                    flush=True,
+                )
+                after_revision = max(
+                    after_revision,
+                    int(event.get("revision") or 0),
+                )
+            after_revision = max(
+                after_revision,
+                int(payload.get("revision") or 0),
+            )
+        except requests.RequestException as exc:
+            if stop_event.is_set():
+                break
+            consecutive_errors += 1
+            if consecutive_errors == 1:
+                print(
+                    f"v_ase collaboration event stream is reconnecting: {exc}",
+                    file=error,
+                    flush=True,
+                )
+            stop_event.wait(min(2.0, 0.25 * consecutive_errors))
+        except (TypeError, ValueError, KeyError) as exc:
+            print(
+                f"v_ase ignored an invalid collaboration event response: {exc}",
+                file=error,
+                flush=True,
+            )
+            stop_event.wait(0.5)
+
+
+def start_collaboration_event_stream(
+    handshake: dict[str, Any],
+    *,
+    output: IO[str] | None = None,
+    error: IO[str] | None = None,
+) -> tuple[threading.Event, threading.Thread]:
+    """Start a daemon that emits GUI/agent changes after the CLI handshake."""
+    stop_event = threading.Event()
+    thread = threading.Thread(
+        target=stream_collaboration_events,
+        args=(handshake, stop_event),
+        kwargs={"output": output, "error": error},
+        daemon=True,
+        name="v_ase-collaboration-events",
+    )
+    thread.start()
+    return stop_event, thread

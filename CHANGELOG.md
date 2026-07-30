@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.0.118
+
+- Added revisioned same-document human-Agent collaboration. `--cli` now prints
+  its discovery handshake first and then streams compact committed GUI and
+  agent changes as `v_ase.collaboration.v1` NDJSON.
+- Added document and workspace event streams, multi-tab event routing,
+  semantic collaboration revisions, and `expectedRevision` conflict checks so
+  stale agent commands cannot overwrite newer human GUI edits.
+- Added a browser end-to-end collaboration workflow, a real generated
+  researcher/Agent/GUI feedback-loop figure, and synchronized README,
+  installed Skill, API documentation, and release gates.
+- Added the event-stream HTTP client to both installation manifests and made
+  expired event history trigger an explicit full-state resynchronization,
+  including for newly attached listeners.
+- Made CLI event polling cancel cleanly before local or tunneled servers close,
+  avoiding shutdown tracebacks while preserving immediate event delivery.
+
 ## 0.0.117
 
 - Reworked the Cu2O(111)/Cu(111) bonding example so substrate Cu, oxide Cu,

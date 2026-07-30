@@ -7,7 +7,7 @@
 3. Any Other AI Agent
 4. Starting A Live Session
 5. Browser And HTTP Access
-6. Human Handoff
+6. Live Human Collaboration
 7. Privacy And Failure Boundaries
 
 ## Required Context
@@ -27,6 +27,8 @@ Choose task references as follows:
 
 - live state, selection, edits, camera, materials, render, or export:
   `references/semantic-api.md`;
+- a human watching or modifying the same GUI while the agent works:
+  `references/collaboration.md`;
 - tested multi-step scientific operations:
   `references/workflows-and-examples.md`;
 - installation, CLI, WSL, remote servers, or lifecycle:
@@ -73,11 +75,13 @@ Bootstrap instruction:
 
 ```text
 Read SKILL.md and agent-setup.md first. Load only the reference files needed
-for this task. Start v_ase with --cli. Inspect capabilities() and
-describe() before editing. Apply semantic changes one at a time, verify state
-after every physical change, inspect the decoded final render, and return
-human_url for manual takeover. Never infer coordinates from screenshots when
-semantic state is available.
+for this task, including collaboration.md when the user may refine the GUI.
+Start v_ase with --cli. Parse the first JSON line and keep consuming later
+NDJSON events. Inspect capabilities() and describe() before editing. Apply
+semantic changes one at a time with expectedRevision, re-synchronize after
+human events, verify state after every physical change, inspect the decoded
+final render, and return human_url. Never infer coordinates from screenshots
+when semantic state is available.
 ```
 
 A hosted model with neither local shell access nor local browser control
@@ -103,6 +107,10 @@ first stdout line as JSON; it includes:
 
 - `human_url`: normal interactive GUI;
 - `state_url`: read-only semantic state;
+- `events_url`: collaboration event stream;
+- `event_protocol`: `v_ase.collaboration.v1`;
+- `event_delivery`: `ndjson-after-handshake`;
+- `event_scope`: workspace or document;
 - `schema_url`: current command schema;
 - `skill_url`: canonical installed skill;
 - `skill_path`: local canonical `SKILL.md`;
@@ -114,10 +122,11 @@ first stdout line as JSON; it includes:
 Keep the CLI process running while working. Parse the JSON directly instead of
 asking the user to copy individual URL fragments by hand.
 
-There is no natural-language endpoint and no JSON-lines command loop on stdin.
-The user speaks to the external agent. The Skill tells that agent how to turn
-the request into structured semantic commands after it opens `human_url`.
-v_ase writes the handshake to stdout and lifecycle status to stderr.
+There is no natural-language endpoint and no command loop on stdin. The user
+speaks to the external agent. The Skill tells that agent how to turn the
+request into structured semantic commands after it opens `human_url`. v_ase
+writes the handshake as the first stdout line, committed workspace changes as
+later NDJSON lines, and lifecycle status to stderr.
 
 ## Browser And HTTP Access
 
@@ -127,7 +136,11 @@ An agent with browser automation should open `human_url` and use:
 const ai = window.v_aseAI;
 await ai.ready();
 await ai.capabilities();
-await ai.describe({includePositions: true});
+const state = await ai.describe({includePositions: true});
+await ai.apply({
+  expectedRevision: state.collaboration.revision,
+  camera: {axis: "+Z", fit: "structure"}
+});
 ```
 
 Use `apply()`, `render()`, and `export()` only after reading the semantic API
@@ -146,23 +159,34 @@ For a remote server, keep the structure and v_ase process on the server. Use
 the automatic SSH tunnel command documented in `cli-and-environments.md`; the
 browser receives rendered/session data, not the original structure file.
 
-## Human Handoff
+## Live Human Collaboration
 
-After semantic and rendered verification:
+Return `human_url` as soon as the document is ready. The user can watch every
+agent operation and edit the same GUI without waiting for a final handoff.
 
-1. report the final atom count, labels/elements, cell/PBC, camera, and output;
-2. return `human_url`;
-3. leave the process running if the user wants manual refinement;
-4. close the session when the user is done.
+Keep reading stdout after the handshake. Each later line is a compact
+`v_ase.collaboration.v1` event. When `source` is `human`:
 
-The user can continue in the same document. Do not create a second copy unless
-the requested workflow requires one.
+1. pause new mutations;
+2. activate the event's `session_id` when it is in another tab;
+3. call `describe()` for authoritative current state;
+4. review `categories` and `changed_paths`;
+5. continue using the new document `collaboration.revision`.
+
+Always send that revision as `expectedRevision`. A stale command must fail
+rather than overwrite a human's newer edit. See `references/collaboration.md`
+for event fields, workspace revisions, examples, and recovery.
+
+After semantic and rendered verification, report the final atom count,
+labels/elements, cell/PBC, camera, and output. Leave the process running while
+the user wants to continue refining the document.
 
 ## Privacy And Failure Boundaries
 
 - Treat local paths, session identifiers, and `human_url` as private.
 - Do not paste private structures into a hosted model unless the user approves.
 - Never claim a successful edit from a screenshot alone.
+- Never ignore a human event or bypass an `expectedRevision` conflict.
 - Never reuse atom indices after deletion, insertion, frame changes, or
   materialized supercells without calling `describe()` again.
 - Do not silently replace unavailable semantic operations with mouse clicks.

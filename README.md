@@ -97,26 +97,47 @@ browser document releases the blocking terminal process.
 
 v_ase does not contain an LLM and does not accept natural language itself.
 Give an external AI agent the bundled [v_ase agent skill](#ai-and-agent-use),
-then describe the scientific result to that agent rather than a sequence of
-mouse actions:
+then describe the scientific result to that agent. The agent starts v_ase,
+applies verified semantic commands, and returns `human_url`. Opening that URL
+shows the exact same live document, not a copy.
+
+![Human and external AI agent working in one live v_ase document](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.png)
+
+The workflow remains bidirectional:
+
+1. The researcher gives a natural-language request to the external agent.
+2. The agent reads semantic structure state and edits the live v_ase document.
+3. The researcher watches the result update in the normal GUI and can refine
+   the camera, selection, appearance, structure, or trajectory at any time.
+4. Every committed GUI change is emitted to the agent's CLI as a compact
+   revisioned event. The agent re-reads semantic state before continuing, so a
+   newer human edit is not silently overwritten.
+
+For live collaboration, the agent automates the visible `human_url` page
+itself; the researcher can use that page between agent commands. A separate
+hidden rendering copy is neither required nor used.
+
+For example:
 
 > From this pristine 6 x 6 graphene sheet, remove the carbon nearest the cell
 > center, convert its three nearest neighbors to pyridinic nitrogen, add a
 > `Li_site` atom 2.15 A above the vacancy, preserve PBC and bonds, use a clean
 > oblique studio-shadow view, and render a 4K image.
 
+The agent preserves the three substituted sites as distinct `N_pyridinic` labels
+and reports every committed edit to the same GUI session.
+
 ![Natural-language pyridinic N3 graphene edit](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_edit.gif)
 
 The external agent starts `v_ase gui STRUCTURE --cli`, parses the JSON
 handshake printed by v_ase, and controls the live document with structured
-`window.v_aseAI` commands. It reads atom identities, coordinates, cell, PBC,
-selection, constraints, and camera directly from semantic state. In this
-example it finds the central site, remaps neighbor indices after deletion,
-changes three ASE elements and labels, creates Li at a measured height,
-verifies the 72-atom result, and renders the same document a human can continue
-editing. No screenshot OCR or coordinate guessing is required. Final
-validation confirms three `N_pyridinic` labels and one `Li_site` label against
-the corresponding ASE elements.
+`window.v_aseAI` commands while listening for GUI-originated NDJSON events. It
+reads atom identities, coordinates, cell, PBC, selection, constraints, camera,
+and collaboration revision directly from semantic state. In this example it
+finds the central site, remaps neighbor indices after deletion, changes three
+ASE elements and labels, creates Li at a measured height, verifies the 72-atom
+result, and renders the same document a human can continue editing. No
+screenshot OCR or coordinate guessing is required.
 
 This example is generated entirely from `ase.build.graphene`, so it contains
 no copied structure or private data:
@@ -505,10 +526,10 @@ The complete path is:
 ```text
 natural-language request
   -> external AI agent + v_ase Skill
-  -> v_ase CLI startup and JSON handshake
-  -> structured window.v_aseAI commands
+  -> v_ase CLI handshake + continuous change events
+  -> structured window.v_aseAI commands on the live GUI
   -> ASE-backed state, render, and export results
-  -> agent verification or human takeover
+  -> human GUI refinement -> CLI event -> agent re-synchronization
 ```
 
 Install v_ase normally and give the external agent the bundled skill. The
@@ -522,7 +543,8 @@ v_ase gui STRUCTURE --cli
 
 `--cli` is a launcher and discovery mode. It suppresses automatic browser
 launch, starts the same local FastAPI/browser application used by the GUI,
-prints one compact JSON handshake to stdout, and keeps the process alive.
+prints one compact JSON handshake as the first stdout line, and keeps the
+process alive.
 It does not read natural-language or structured commands from stdin, call
 an AI service, or provide an embedded model.
 
@@ -536,6 +558,10 @@ The first stdout line has this form:
   "state_url": "http://127.0.0.1:xxxxx/api/ai/state/xxxx",
   "schema_url": "http://127.0.0.1:xxxxx/api/ai/schema",
   "skill_url": "http://127.0.0.1:xxxxx/api/ai/skill",
+  "events_url": "http://127.0.0.1:xxxxx/api/ai/workspace-events/xxxx",
+  "event_protocol": "v_ase.collaboration.v1",
+  "event_delivery": "ndjson-after-handshake",
+  "event_scope": "workspace",
   "browser_api": "window.v_aseAI",
   "command_transport": "browser-javascript",
   "accepts_natural_language": false,
@@ -543,8 +569,10 @@ The first stdout line has this form:
 }
 ```
 
-Status text is written to stderr. The process remains alive until the agent or
-user stops it. `human_url` opens the same live document for manual takeover.
+Status text is written to stderr. Every later stdout line is one compact
+NDJSON event for a committed human, agent, or system change. `human_url` opens
+the same live document, so the researcher can watch or edit while the agent is
+working.
 
 ### Structured Input And Output
 
@@ -558,6 +586,7 @@ const capabilities = await ai.capabilities();
 const state = await ai.describe({includePositions: true});
 
 const updated = await ai.apply({
+  expectedRevision: state.collaboration.revision,
   mode: "edit",
   selection: {clear: true, indices: [0, 4, 9]},
   operation: {
@@ -569,13 +598,26 @@ const updated = await ai.apply({
 });
 ```
 
+When the human changes the GUI, the CLI receives an event such as:
+
+```json
+{"protocol":"v_ase.collaboration.v1","revision":7,"document_revision":7,"source":"human","categories":["display"],"changed_paths":["display.atomRadiusScale"],"summary":"Human changed atom radius.","session_id":"...","state_url":"http://127.0.0.1:xxxxx/api/ai/state/..."}
+```
+
+The event is intentionally compact and does not duplicate coordinates. The
+agent activates `session_id` when needed, calls `describe()` for authoritative
+state, reviews the change, and sends the new
+`collaboration.revision` as `expectedRevision`. A stale command fails with a
+revision conflict instead of overwriting a newer human edit.
+
 | Interface | Input | Output |
 | --- | --- | --- |
-| CLI startup | File path and CLI options | One JSON handshake on stdout; lifecycle status on stderr |
+| CLI startup | File path and CLI options | First stdout line: JSON handshake; stderr: lifecycle status |
+| CLI event stream | No command input | Later stdout lines: revisioned NDJSON changes from the shared workspace |
 | `state_url` | HTTP GET | Read-only JSON structure/session state |
 | `capabilities()` | No payload | Supported state fields, operations, and exports |
 | `describe()` | Optional detail flags | Labels, ASE elements, positions, cell, PBC, constraints, trajectory, selection, measurements, display, camera, and export profile |
-| `apply(command)` | Structured object for frame, mode, display, camera, selection, or operation | Updated semantic state after the change |
+| `apply(command)` | Structured object plus the latest `expectedRevision` | Updated semantic state and revision after the change |
 | `render(request)` | Dimensions, format, and exact render options | Image data URL plus dimensions, MIME type, filename, and byte count |
 | `export(request)` | Export format and options | Export data URL plus filename, MIME type, and byte count |
 
@@ -592,7 +634,10 @@ It is vendor-neutral and can be used by Codex, Claude Code, ChatGPT desktop
 agents, Gemini-based agents, agentic IDEs, or another model that can run local
 commands or control a browser. The
 [agent setup reference](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/agent-setup.md)
-explains each integration path.
+explains each integration path. The
+[live collaboration reference](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/collaboration.md)
+defines event fields, revision handling, multi-tab behavior, and the exact
+human-Agent feedback loop.
 
 ### What To Give The AI
 
@@ -602,7 +647,8 @@ files, provide the following:
 | Always provide | Add when the task needs it |
 | --- | --- |
 | [`SKILL.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md) | [`semantic-api.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/semantic-api.md) for live state, edits, camera, render, or export |
-| [`agent-setup.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/agent-setup.md) | [`workflows-and-examples.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/workflows-and-examples.md) for multi-step scientific workflows |
+| [`agent-setup.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/agent-setup.md) | [`collaboration.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/collaboration.md) while a human and agent share the live GUI |
+|  | [`workflows-and-examples.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/workflows-and-examples.md) for multi-step scientific workflows |
 |  | [`cli-and-environments.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/cli-and-environments.md) for installation, server, WSL, or process handling |
 |  | [`safety-and-errors.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/safety-and-errors.md) before destructive edits, relaxation, or file output |
 |  | [`evaluation.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/evaluation.md) when changing or releasing v_ase itself |
@@ -614,7 +660,8 @@ v_ase gui STRUCTURE --cli
 ```
 
 That line discovers the live GUI, read-only state, current command schema,
-browser control object, and installed Skill. It is not a prompt endpoint.
+browser control object, installed Skill, and collaboration event stream. It is
+not a prompt endpoint.
 Do not paste screenshots or manually transcribe coordinates when semantic
 state is available.
 
@@ -622,10 +669,12 @@ This bootstrap instruction works for clients without a native skill loader:
 
 ```text
 Read SKILL.md and agent-setup.md first. Load only the reference files needed
-for this task. Start v_ase with --cli, inspect capabilities() and describe()
-before editing, execute semantic operations one at a time, verify state after
-each physical change, inspect the decoded final render, and give me human_url
-for manual takeover.
+for this task. Read collaboration.md when I may refine the GUI. Start v_ase
+with --cli, parse the first JSON line, keep consuming later NDJSON events,
+inspect capabilities() and describe() before editing, pass expectedRevision
+with every change, verify state after each physical edit, inspect the decoded
+final render, and give me human_url so I can watch and refine the same live
+document.
 ```
 
 The compatibility document

@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.117"
+python -m pip install "v_ase-gui==0.0.118"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.0.117"
+python -m pip install "v_ase-gui[rhino]==0.0.118"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, imageio-ffmpeg, and
@@ -76,15 +76,17 @@ Useful options:
 | `--hide-cell` / `--hide-axes` | Hide viewport guides at startup |
 
 `--cli` is not an embedded AI model. It implies a nonblocking, no-browser
-session and prints one JSON handshake for the controlling agent. Keep the
-process alive until work is complete.
+session and prints one JSON handshake as the first stdout line. Later stdout
+lines are compact revisioned NDJSON events from the live GUI. Keep the process
+alive until work is complete.
 
 `--cli` does not consume natural language or structured commands from stdin.
-The first stdout line is the startup handshake; status goes to stderr. After
-parsing the handshake, an external agent opens `human_url` and sends structured
-JavaScript objects through `window.v_aseAI`. The user may speak natural
-language to that external agent, but v_ase itself receives file/CLI arguments
-and semantic API objects only.
+The first stdout line is the startup handshake, later stdout lines are
+`v_ase.collaboration.v1` events, and status goes to stderr. After parsing the
+handshake, an external agent opens `human_url` and sends structured JavaScript
+objects through `window.v_aseAI`. The user may speak natural language to that
+external agent and refine the same GUI; v_ase itself receives file/CLI
+arguments and semantic API objects only.
 
 Python API:
 

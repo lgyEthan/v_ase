@@ -196,13 +196,14 @@ and documentation use `view()`.
     is enabled by default, magnetic snapping is disabled by default, and neither
     feature depends on the current bond list.
 44. `--cli` is a terminal-oriented API mode, not an embedded AI model. An
-    agent invokes it itself, parses one JSON handshake, and keeps the same live
-    document available for human takeover. Agents obtain semantic structure
-    state over HTTP and use `window.v_aseAI` to set frame, display, selection,
-    and camera before rendering through the exact Export Image capture path.
-    v_ase does not parse natural language or stdin commands; the external agent
-    translates the user's request into structured browser-API calls. The
-    handshake exposes that transport contract explicitly.
+    agent invokes it itself, parses the first-line JSON handshake, and consumes
+    later revisioned NDJSON events. Agents obtain semantic structure state over
+    HTTP and use `window.v_aseAI` to set frame, display, selection, and camera
+    before rendering through the exact Export Image capture path. `human_url`
+    is the same live document, so human GUI refinements are emitted back to the
+    CLI rather than requiring a separate takeover copy. v_ase does not parse
+    natural language or stdin commands; the external agent translates the
+    user's request into structured browser-API calls.
 45. Image storage optimization is post-render only. Lossless WebP and optimized
     PNG preserve the requested dimensions and exact RGBA pixels; PNG keeps the
     browser source when recompression is not smaller.
@@ -272,6 +273,13 @@ and documentation use `view()`.
 57. Selection keeps the required yellow sphere outline but has no separate
     billboard halo ring. FixedPlane and plane-like FixScaled are the only
     directional constraints that use local ring geometry.
+58. Collaboration uses `v_ase.collaboration.v1`. Each document has a bounded
+    revisioned event history; each workspace merges all tab events while
+    retaining `session_id` and `document_revision`. Browser-originated human,
+    agent, and system changes are coalesced after commit and contain compact
+    categories/paths rather than coordinates. `describe()` reports the current
+    document revision, and `apply(expectedRevision=...)` rejects stale agent
+    commands before they can overwrite a newer human edit.
 
 ## Canonical Names And Compatibility
 
@@ -340,7 +348,9 @@ same implementation for compatibility.
   Pickle, and the source trajectory.
 - The AI state endpoint is read-only and current-frame scoped. Browser-side AI
   mutations use the same validated UI/backend paths as human actions and never
-  create a second hidden structure state.
+  create a second hidden structure state. The CLI's post-handshake NDJSON stream
+  reports committed GUI/agent changes and requires semantic re-synchronization;
+  it is not a command channel.
 
 ## Performance Contract
 
@@ -389,9 +399,10 @@ Current benchmark method and results are in [performance.md](performance.md).
 10. Headless Linux installation and real browser rendering through the managed
     one-command SSH workflow, including per-frame trajectory transfer and CLI
     release after the browser tab closes.
-11. AI handshake, semantic state, deterministic browser control, exact
-    lossless WebP/PNG rendering, semantic export, and immediate human takeover
-    of the same workspace.
+11. AI handshake, workspace NDJSON collaboration events, stale-revision
+    rejection, semantic state, deterministic browser control, exact lossless
+    WebP/PNG rendering, semantic export, and concurrent human refinement of the
+    same workspace.
 
 Run installed-wheel verification from outside the repository checkout. The
 checkout contains build metadata, so invoking pip from its root can make pip

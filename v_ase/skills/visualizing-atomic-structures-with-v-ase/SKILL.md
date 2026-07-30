@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.117"
+python -m pip install "v_ase-gui==0.0.118"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -29,11 +29,15 @@ v_ase. `--cli` does not contain an LLM, parse natural language, or accept
 commands from stdin. It launches the normal local v_ase application without
 opening a browser and exposes a structured browser API.
 
-Read the first stdout line as JSON. Keep the process running. The handshake
-contains:
+Read the first stdout line as JSON. Keep the process running and continue
+reading stdout as NDJSON. The handshake contains:
 
-- `human_url`: the regular GUI for browser control or human takeover;
+- `human_url`: the same regular GUI for human watching and refinement;
 - `state_url`: read-only current semantic state;
+- `events_url`: long-polled human/agent change stream;
+- `event_protocol`: `v_ase.collaboration.v1`;
+- `event_delivery`: `ndjson-after-handshake`;
+- `event_scope`: `workspace` or `document`;
 - `schema_url`: JSON Schema for `apply()`;
 - `skill_url`: this canonical skill;
 - `browser_api`: `window.v_aseAI`;
@@ -57,8 +61,9 @@ identifier; do not publish it while a private structure is open.
 The control path is:
 
 ```text
-user request -> external agent + this Skill -> CLI handshake
--> window.v_aseAI structured commands -> semantic state/render/export
+user request -> external agent + this Skill -> CLI handshake/event stream
+-> window.v_aseAI structured commands -> same live human GUI
+-> human GUI edit -> NDJSON event -> agent re-describes and continues
 ```
 
 Use `describe({includePositions: false})` for compact metadata inspection and
@@ -70,17 +75,23 @@ use. Rendered pixels remain the final authority for visual-quality checks.
 
 Use this sequence for every task:
 
-1. **Plan**: inspect `capabilities()` and `describe()`; identify the document,
+1. **Connect**: parse the handshake, keep consuming later NDJSON events, and
+   open `human_url` so the human and agent share one live document.
+2. **Plan**: inspect `capabilities()` and `describe()`; identify the document,
    frame, atom indices, labels, elements, cell, PBC, constraints, and camera.
-2. **Validate**: confirm atom count and topology before reusing indices. Confirm
+3. **Validate**: confirm atom count and topology before reusing indices. Confirm
    Edit mode before physical changes.
-3. **Execute**: apply one semantic change at a time.
-4. **Verify**: call `describe()` after every structure, trajectory, constraint,
+4. **Execute**: apply one semantic change at a time with the latest
+   `collaboration.revision` as `expectedRevision`.
+5. **Synchronize**: on a human event, pause mutations, activate its document,
+   call `describe()`, and preserve the newer human change.
+6. **Verify**: call `describe()` after every structure, trajectory, constraint,
    selection, or camera change.
-5. **Render**: call `render()` at the requested dimensions. Inspect the returned
+7. **Render**: call `render()` at the requested dimensions. Inspect the returned
    dimensions, options, byte count, and decoded image.
-6. **Export**: call `export()` only after state and camera verification.
-7. **Handoff**: provide `human_url` when the user wants manual refinement.
+8. **Export**: call `export()` only after state and camera verification.
+9. **Collaborate**: keep `human_url` and the event stream active while the user
+   wants to watch or refine the result.
 
 Do not report completion when only an HTTP response succeeded. Verify the
 resulting semantic state and rendered output.
@@ -136,6 +147,7 @@ const state = await ai.describe({includePositions: true});
 if (state.atomCount < 2) throw new Error("At least two atoms are required.");
 
 await ai.apply({
+  expectedRevision: state.collaboration.revision,
   display: {
     viewportBackground: "white",
     showBonds: true,
@@ -193,6 +205,8 @@ handling, use the references below rather than improvising field names.
   required when an existing path may be replaced.
 - Do not expose local paths, session URLs, tokens, or private structure data in
   public output.
+- Treat a newer human collaboration revision as authoritative. Never remove
+  `expectedRevision` merely to force a stale command through.
 
 ## Validation Before Completion
 
@@ -227,6 +241,9 @@ Read only the references needed for the current task:
 - [Agent setup](references/agent-setup.md): exact files to give Codex, Claude
   Code, ChatGPT desktop agents, Gemini-based agents, agentic IDEs, and clients
   without native skill loaders.
+- [Live collaboration](references/collaboration.md): same-document human/agent
+  workflow, NDJSON events, optimistic revisions, multi-tab routing, and
+  recovery.
 - [CLI and environments](references/cli-and-environments.md): installation,
   input formats, local/remote/server use, dependencies, and process lifecycle.
 - [Semantic API](references/semantic-api.md): complete state, command, display,

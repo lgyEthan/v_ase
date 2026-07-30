@@ -5,6 +5,8 @@
 - [README](../README.md): installation, commands, controls, workflows, and exports.
 - [Agent skill](../v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md):
   installable vendor-neutral semantic control and export contract.
+- [Live collaboration](../v_ase/skills/visualizing-atomic-structures-with-v-ase/references/collaboration.md):
+  shared GUI, CLI change events, document revisions, and multi-tab routing.
 - [Release checklist](release_checklist.md): mandatory documentation, media, test, GitHub, and PyPI steps.
 - [Shortcuts](shortcuts.md): complete mouse and keyboard reference.
 - [Commensurate Rotation](unit_cell_aware_rotate.md): cell-boundary matching,

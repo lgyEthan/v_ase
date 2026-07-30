@@ -13,8 +13,9 @@ rendered examples synchronized in every release.
   user request because the skill was ambiguous or stale.
 - Run the documented AI end-to-end scenarios, including semantic state,
   physical edits, constraints, trajectories, camera directions, exact image
-  rendering, exports, and human takeover. Inspect rendered output visually;
-  an HTTP success response is not sufficient.
+  rendering, exports, same-document human refinement, CLI collaboration events,
+  and stale-revision rejection. Inspect rendered output visually; an HTTP
+  success response is not sufficient.
 - When rendering or constraint visuals change, regenerate every README image
   and animation with `scripts/capture_readme_screenshots.py`, then synchronize
   `docs/assets/` and `docs/assets/github/`.
