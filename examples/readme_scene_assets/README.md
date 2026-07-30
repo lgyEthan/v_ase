@@ -158,11 +158,11 @@ v_ase gui examples/readme_scene_assets/ethane_measurement.cif --show-bonds
 
 ## ferrocene
 
-Idealized ferrocene scene used for X-axis rotate demonstrations.
+Idealized ferrocene scene for rotations around an active Fe atom pivot.
 
 - Static: `ferrocene.traj`
-- Suggested selected indices: `1, 2, 3, 4, 5, 6, 7, 8, 9, 10`
-- Select the top ring and use R X to recreate the rotate interaction.
+- Suggested selected indices: `1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0`
+- Select the top ring, Shift-select Fe last, choose Active atom, and use R Z or R X.
 
 Open command:
 

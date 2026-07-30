@@ -236,14 +236,15 @@ and documentation use `view()`.
     final ridge. A final camera-only orbit moves from above the edited ribbon
     to below it. Upper/lower ridges use green/purple visual labels while both
     remain ASE phosphorus.
-    Ferrocene demonstrates both an external Origin/Z orbit and a
-    Selection-COM/X ring fold. Graphene/hBN shows
+    Ferrocene demonstrates Z and X rotations around a central Fe selected as
+    the active last-selected atom. Graphene/hBN shows
     start/current/commensurate references with world axes hidden, ordered
     ethane selection shows distance/angle/torsion in a viewport-only crop, and
     a separate trajectory scene shows displacement analysis. The bonding scene
     is a top-view, top-registered 6 x 6 primitive Cu2O(111) mesh on 7 x 7
-    Cu(111), with oxide and interface Cu-O pairs enabled and every Cu-Cu/O-O
-    pair disabled. Tests validate the -1.22% coincidence strain, explicit
+    Cu(111), with thick high-contrast oxide/interface Cu-O bonds enabled and
+    every Cu-Cu/O-O pair disabled. Tests validate the -1.22% coincidence
+    strain, explicit
     interfacial O/Cu top anchor, all nine coincidence phases, scene
     construction, and live View toggles before media are published.
 52. Export dialogs use a fixed action footer and independently scrollable body.

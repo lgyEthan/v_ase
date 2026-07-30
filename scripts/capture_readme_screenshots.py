@@ -430,9 +430,16 @@ def enter_mode(page, mode, axis=None):
     )
 
 
-def start_atom_rotation(page, indices, *, axis: str, pivot_mode: str):
+def start_atom_rotation(
+    page,
+    indices,
+    *,
+    axis: str,
+    pivot_mode: str,
+    pivot_index: int | None = None,
+):
     page.evaluate(
-        """async ({ indices, axis, pivotMode }) => {
+        """async ({ indices, axis, pivotMode, pivotIndex }) => {
             const app = window.__V_ASE_APP__;
             if (app.transform.mode !== 'IDLE') {
                 app.transform.exit();
@@ -442,9 +449,14 @@ def start_atom_rotation(page, indices, *, axis: str, pivot_mode: str):
             }
             app.clearAtomSelection();
             indices.forEach(index => app.addSelectionReference(index));
+            if (Number.isInteger(pivotIndex) && !indices.includes(pivotIndex)) {
+                app.addSelectionReference(pivotIndex);
+            }
             app.state.display.rotatePivot = pivotMode;
             const pivotInput = document.getElementById('rotate-pivot');
             if (pivotInput) pivotInput.value = pivotMode;
+            const exactAxisInput = document.getElementById('selection-rotate-axis');
+            if (exactAxisInput) exactAxisInput.value = axis;
             app.updateSelectionVisuals();
             app.enterTransformMode('ROTATE');
             app.transform.setAxis(axis, app.renderer.camera);
@@ -457,6 +469,7 @@ def start_atom_rotation(page, indices, *, axis: str, pivot_mode: str):
             "indices": [int(index) for index in indices],
             "axis": axis,
             "pivotMode": pivot_mode,
+            "pivotIndex": None if pivot_index is None else int(pivot_index),
         },
     )
 
@@ -1008,7 +1021,8 @@ def capture_ferrocene_media(browser) -> None:
             page,
             indices["top_ring"],
             axis="Z",
-            pivot_mode="origin",
+            pivot_mode="active",
+            pivot_index=indices["iron"][0],
         )
         set_view_toggles(page, grid=False, axes=False, cell=False)
         count = 30
@@ -1018,7 +1032,7 @@ def capture_ferrocene_media(browser) -> None:
             set_atom_rotation_angle(
                 page,
                 angle,
-                "1/2 | pivot: origin (Fe) | R Z",
+                "1/2 | active pivot: Fe #0 | R Z",
             )
             page.wait_for_timeout(35)
             rendered_frames.append(screenshot_frame(page))
@@ -1028,7 +1042,8 @@ def capture_ferrocene_media(browser) -> None:
             page,
             indices["top_ring"],
             axis="X",
-            pivot_mode="selection",
+            pivot_mode="active",
+            pivot_index=indices["iron"][0],
         )
         set_view_toggles(page, grid=False, axes=False, cell=False)
         for frame_index in range(count):
@@ -1037,7 +1052,7 @@ def capture_ferrocene_media(browser) -> None:
             set_atom_rotation_angle(
                 page,
                 angle,
-                "2/2 | pivot: selection COM | R X ring fold",
+                "2/2 | active pivot: Fe #0 | R X ring fold",
             )
             page.wait_for_timeout(35)
             rendered_frames.append(screenshot_frame(page))
@@ -1169,8 +1184,9 @@ def capture_bond_media(browser) -> None:
                 "Cu_substrate-O_oxide": 2.08,
                 "O_oxide-O_oxide": 0.0,
             },
-            "bondThickness": 0.19,
-            "bondColorMode": "split",
+            "bondThickness": 0.30,
+            "bondColorMode": "custom",
+            "bondCustomColor": "#176f8c",
             "showGrid": False,
             "showAxes": False,
             "showCell": True,
@@ -1264,6 +1280,11 @@ def capture_bond_media(browser) -> None:
             raise AssertionError(
                 "README Cu(111) substrate must use touching-sphere radii."
             )
+        page.evaluate("""() => {
+            const selector = document.getElementById('structure-section-select');
+            if (selector) selector.value = 'bonding';
+            window.__V_ASE_APP__.renderer.renderNow();
+        }""")
         page.screenshot(path=ASSET_DIR / "readme_bonds.png")
     finally:
         page.close()

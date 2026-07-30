@@ -1542,6 +1542,7 @@ def test_rotate_pivot_and_commensurate_cell_matching_are_wired():
     docs = (ROOT / "docs/unit_cell_aware_rotate.md").read_text()
 
     assert "rotate-pivot" in index_html
+    assert "Active atom (last selected)" in index_html
     assert "Global origin" in index_html
     assert "Unit-cell center" in index_html
     assert "chk-commensurate-guide" in index_html
@@ -1555,6 +1556,8 @@ def test_rotate_pivot_and_commensurate_cell_matching_are_wired():
     assert "parseSupercellMatrix" in main_js
     assert "applySupercellMatrix" in api_js
     assert "rotationPivotPosition" in main_js
+    assert "activeRotationPivotIndex" in main_js
+    assert "operation.pivot === 'active'" in main_js
     assert "prepareCommensurateRotation" in main_js
     assert "nearestCommensurateCandidate" in main_js
     assert "snapCommensurateAngle" in main_js

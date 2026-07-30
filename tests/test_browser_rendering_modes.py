@@ -118,6 +118,33 @@ def test_exact_selection_rotation_panel_commits_and_undoes_backend_coordinates()
                     && Math.abs(positions[1][0] - 3) < 1e-6
                     && Math.abs(positions[1][1]) < 1e-6;
             }""")
+
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection();
+                app.addSelectionReference(0);
+                app.addSelectionReference(1);
+                app.addSelectionReference(2);
+                app.updateSelectionVisuals();
+                app.updateUI();
+            }""")
+            page.select_option("#rotate-pivot", "active")
+            pivot = page.evaluate(
+                "window.__ASE_APP__.rotationPivotPosition([0, 1, 2]).toArray()"
+            )
+            assert pivot == pytest.approx([0.0, 5.0, 0.0])
+
+            page.fill("#selection-rotate-angle", "90")
+            page.click("#btn-rotate-selection-exact")
+            page.wait_for_function("""() => {
+                const positions = window.__ASE_APP__.state.atoms.positions;
+                return Math.abs(positions[0][0] - 5) < 1e-6
+                    && Math.abs(positions[0][1] - 6) < 1e-6
+                    && Math.abs(positions[1][0] - 5) < 1e-6
+                    && Math.abs(positions[1][1] - 8) < 1e-6
+                    && Math.abs(positions[2][0]) < 1e-6
+                    && Math.abs(positions[2][1] - 5) < 1e-6;
+            }""")
             browser.close()
     finally:
         editor.close()
@@ -792,6 +819,27 @@ def test_ai_bridge_screen_relative_camera_and_constraint_vector_workflow():
                 "async () => (await window.v_aseAI.describe()).positions[1]"
             )
             assert restored_position == pytest.approx(atoms.positions[1].tolist(), abs=1e-8)
+
+            active_rotated = page.evaluate("""async () => {
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'rotate-selection',
+                        indices: [1, 0],
+                        axis: [0, 0, 1],
+                        angleDeg: 90,
+                        pivot: 'active',
+                        applyConstraints: true
+                    }
+                });
+                return await window.v_aseAI.describe({includePositions: true});
+            }""")
+            pivot = atoms.positions[0]
+            relative = atoms.positions[1] - pivot
+            expected_active = pivot + np.array([-relative[1], relative[0], relative[2]])
+            assert active_rotated["positions"][0] == pytest.approx(pivot.tolist(), abs=1e-8)
+            assert active_rotated["positions"][1] == pytest.approx(expected_active.tolist(), abs=1e-8)
+            page.evaluate("async () => await window.v_aseAI.apply({operation: 'undo'})")
+
             page.evaluate(
                 "async () => await window.v_aseAI.apply({selection: {clear: true, indices: [0]}})"
             )

@@ -14,6 +14,7 @@ from examples.readme_scenes import (
     make_black_phosphorene_unit_cell,
     make_copper_oxide_bond_scene,
     make_crowded_c60_relaxation_scene,
+    make_ferrocene_scene,
     make_material_preset_scene,
     make_phosphorene_twist_scene,
     write_scene_assets,
@@ -324,7 +325,7 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     select = readme.index("### Select", structure)
     move = readme.index("### Move", select)
     rotate = readme.index("### Rotate", move)
-    ferrocene = readme.index("#### Ferrocene: Choose The Pivot", rotate)
+    ferrocene = readme.index("#### Ferrocene: Use Fe As The Active Pivot", rotate)
     phosphorene = readme.index("#### Phosphorene: Build The Twist One Edit At A Time", ferrocene)
     commensurate = readme.index("#### Graphene/hBN: Find A Commensurate Rotation", phosphorene)
     measurement = readme.index("## Measurement And Analysis", commensurate)
@@ -354,6 +355,8 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "from the **second ridge through the end**" in normalized_readme
     assert "from the **third ridge through the end**" in normalized_readme
     assert "**Rotate Selection**" in readme
+    assert "**Active atom (last selected)**" in readme
+    assert "Shift-select Fe last" in readme
     assert "`5 x 6` model contains 10 puckered ridges" in readme
     assert "12 atoms per ridge" in normalized_readme
     assert "backend commits" not in readme
@@ -392,3 +395,29 @@ def test_phosphorene_capture_drives_the_production_selection_and_rotation_ui():
     assert 'page.locator("#btn-rotate-selection-exact")' in source
     assert "detailed = operation_index < 2" in source
     assert "np.allclose(actual_positions, twisted.positions" in source
+
+
+def test_readme_ferrocene_and_copper_bond_media_use_documented_visual_controls():
+    source = (ROOT / "scripts" / "capture_readme_screenshots.py").read_text()
+    _, ferrocene_groups = make_ferrocene_scene()
+
+    assert ferrocene_groups["iron"] == [0]
+    assert 'pivot_mode="active"' in source
+    assert 'pivot_index=indices["iron"][0]' in source
+    assert '"1/2 | active pivot: Fe #0 | R Z"' in source
+    assert '"2/2 | active pivot: Fe #0 | R X ring fold"' in source
+    assert '"bondThickness": 0.30' in source
+    assert '"bondColorMode": "custom"' in source
+    assert '"bondCustomColor": "#176f8c"' in source
+
+    image = np.asarray(
+        Image.open(ROOT / "docs" / "assets" / "readme_bonds.png").convert("RGB")
+    )[60:, :1360]
+    high_contrast_bonds = (
+        (image[:, :, 0] < 70)
+        & (image[:, :, 1] > 70)
+        & (image[:, :, 1] < 170)
+        & (image[:, :, 2] > 90)
+        & (image[:, :, 2] < 200)
+    )
+    assert int(high_contrast_bonds.sum()) > 10_000

@@ -28,4 +28,6 @@ and browser API for the same live document.
 The canonical skill also documents standalone `html` export in lightweight
 view-only and project-embedded modes. Embedded HTML can be reopened with
 `v_ase gui FILE.html`; lightweight HTML cannot restore editable state. This
-compatibility file remains available so existing links do not fail.
+release also documents specific-atom rotation through the human
+**Active atom (last selected)** pivot and semantic `pivot: "active"` mode.
+The compatibility file remains available so existing links do not fail.

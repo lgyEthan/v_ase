@@ -172,7 +172,9 @@ supercell repetition, moves atoms/bonds/constraints/analysis overlays together,
 and does not alter ASE coordinates or the unit cell. Setting it to `[0,0,0]`
 removes the offset.
 
-`pivot` is `"selection"`, `"origin"`, `"cell"`, or an explicit three-vector.
+`pivot` is `"selection"`, `"active"`, `"origin"`, `"cell"`, or an explicit
+three-vector. For `"active"`, the last entry in the explicit `indices` array is
+the pivot atom and remains fixed.
 
 Constraint edit:
 
@@ -246,7 +248,7 @@ Transform and commensurate settings:
 
 | Setting | Values |
 | --- | --- |
-| `rotatePivot` | `"selection"`, `"origin"`, or `"cell"` |
+| `rotatePivot` | `"selection"`, `"active"`, `"origin"`, or `"cell"` |
 | `commensurateGuide` | show periodic 2D match candidates |
 | `commensurateSnap` | snap to a candidate |
 | `commensurateStrainTolerance` | fractional boundary strain |

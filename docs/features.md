@@ -79,7 +79,8 @@ coordinates only.
 Edit additionally enables:
 
 - modal `G` move and `R` rotate;
-- numeric input, axis locking, pivot and increment controls;
+- numeric input, axis locking, Selection COM, active-atom, origin, cell-center
+  pivot, and increment controls;
 - add, delete, copy, paste, undo, and redo;
 - constraints editing and calculator-backed relaxation.
 

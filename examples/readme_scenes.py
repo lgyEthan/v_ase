@@ -159,6 +159,7 @@ def make_ferrocene_scene() -> tuple[Atoms, dict[str, list[int]]]:
     atoms = Atoms(symbols=symbols, positions=positions, cell=[7.0, 7.0, 7.0], pbc=False)
     atoms.info["readme_scene"] = "idealized_ferrocene"
     return atoms, {
+        "iron": [0],
         "top_ring": top_c + top_h,
         "bottom_ring": bottom_c + bottom_h,
     }
@@ -761,10 +762,12 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
         atoms, idx = make_ferrocene_scene()
         info = SceneInfo(
             name=name,
-            description="Idealized ferrocene scene used for X-axis rotate demonstrations.",
+            description="Idealized ferrocene scene for rotations around an active Fe atom pivot.",
             static_file="ferrocene.traj",
-            selected_indices=tuple(idx["top_ring"]),
-            notes=("Select the top ring and use R X to recreate the rotate interaction.",),
+            selected_indices=tuple(idx["top_ring"] + idx["iron"]),
+            notes=(
+                "Select the top ring, Shift-select Fe last, choose Active atom, and use R Z or R X.",
+            ),
         )
         return atoms, info
     if name == "showcase":

@@ -155,8 +155,9 @@ Run all scenarios, not only static document checks:
       edited ribbon to below it without changing atom coordinates;
     - verify the phosphorene upper/lower ridge labels remain ASE phosphorus and
       render in the documented green/purple sublayer colors;
-    - verify the ferrocene media keeps Fe outside the selected ring and places
-      the active axis through the Origin pivot;
+    - verify the ferrocene media Shift-selects Fe last, uses the Active atom
+      pivot for both Z and X rotations, keeps Fe fixed, and places the active
+      axis through Fe;
     - inspect graphene/hBN from top view with world axes hidden and confirm the
       neutral start, amber current, and cyan commensurate candidates remain
       distinguishable;
@@ -173,8 +174,9 @@ Run all scenarios, not only static document checks:
       color;
     - inspect the Cu2O(111)/Cu(111) bonding scene from strict +Z and verify the
       complete 6 x 6 primitive oxide / 7 x 7 Cu coincidence cell remains in
-      frame, one interfacial O is top-registered, and only the documented
-      oxide/interface Cu-O label pairs are enabled;
+      frame, one interfacial O is top-registered, only the documented
+      oxide/interface Cu-O label pairs are enabled, and the thick custom bond
+      color remains distinguishable over the touching-sphere substrate;
     - play the compressed-C60 FIRE trajectory and verify energy and fmax
       decrease before publishing its relaxation example.
 

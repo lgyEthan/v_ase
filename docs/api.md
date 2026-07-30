@@ -341,7 +341,9 @@ mode changes, quality, display and camera state, selection, constrained
 transforms, identity and constraint edits, wrapping, physical translation, atom
 creation/deletion, supercells, history, reset, relaxation, and displacement
 analysis. Visual translation and display supercells are ordinary `display`
-settings available in View and Edit. `export()` covers image, video, POSCAR,
+settings available in View and Edit. `rotate-selection` accepts
+`pivot: "active"`; the last explicit atom index is the fixed rotation pivot.
+`export()` covers image, video, POSCAR,
 ASE Pickle, Blender, Rhino 3DM, OBJ, standalone HTML, `.vase`, and visual
 settings. Rendering and image export use the same capture path as the human
 Export workspace.

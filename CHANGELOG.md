@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.0.116
+
+- Added an **Active atom (last selected)** rotation pivot so a selected atom
+  can serve as the exact center for mouse and numeric rotations.
+- Added `pivot: "active"` to semantic rotation operations, using the last
+  explicit atom index as the pivot.
+- Re-recorded the Ferrocene workflow with Fe as the active pivot for both Z
+  rotation and X-axis ring folding.
+- Increased Cu-O bond thickness and applied a high-contrast custom color in
+  the Cu2O(111)/Cu(111) README scene while retaining the touching-sphere
+  metallic Cu substrate.
+- Synchronized README, internal documentation, and the installed agent skill.
+
 ## 0.0.115
 
 - Aligned rotation start/current guides to the selected structure's dominant

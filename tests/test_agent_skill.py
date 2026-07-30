@@ -182,6 +182,8 @@ def test_skill_has_explicit_safety_and_verify_loops():
         "do not report completion",
     ):
         assert required.lower() in documented.lower()
+    assert 'pivot: "active"' in documented
+    assert "last explicit index" in documented
 
 
 def test_runtime_and_distribution_point_to_canonical_skill():

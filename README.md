@@ -143,31 +143,32 @@ enabled.
 
 ### Rotate
 
-Press `R` after selecting atoms. Choose **Selection COM**, **Origin**, or
-**Unit-cell center** as the pivot, lock an axis if needed, and enter an exact
-angle. For a panel-driven edit, use **Structure > Transform > Exact selection
-rotation** to choose the axis and angle, then click **Rotate Selection**. Both
-methods honor the current constraint and undo settings. Every active rotation
-shows:
+Press `R` after selecting atoms. Choose **Selection COM**, **Active atom (last
+selected)**, **Origin**, or **Unit-cell center** as the pivot, lock an axis if
+needed, and enter an exact angle. To rotate around a particular atom, select
+the moving atoms first and Shift-select the pivot atom last. For a panel-driven
+edit, use **Structure > Transform > Exact selection rotation** to choose the
+axis and angle, then click **Rotate Selection**. Both methods honor the current
+constraint and undo settings. Every active rotation shows:
 
 - the rotation axis through the chosen pivot;
 - a neutral line fixed at the direction where the operation started;
 - an amber line that follows the current structure;
 - cyan candidate lines only when the commensurate guide is enabled.
 
-#### Ferrocene: Choose The Pivot
+#### Ferrocene: Use Fe As The Active Pivot
 
 ![Ferrocene pivot rotation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ferrocene_pivot.gif)
 
-The GIF contains both operations needed to understand the pivot:
+Select the upper cyclopentadienyl ring first, then Shift-select Fe last. With
+**Active atom (last selected)** enabled, Fe remains fixed at the exact rotation
+pivot:
 
-1. **Rotate pivot = Origin**, then `R`, `Z`: the selected upper
-   cyclopentadienyl ring rotates around an axis through Fe.
-2. **Rotate pivot = Selection COM**, then `R`, `X`: the same ring folds about
-   its own center instead of orbiting the external Fe pivot.
+1. `R`, `Z` rotates the ring around the axis through Fe.
+2. `R`, `X` folds the same ring around an X axis through Fe.
 
-The selected ring is unchanged between the two passes, so the different motion
-comes only from the pivot and axis settings.
+The active atom can be any selected atom; it does not need to coincide with the
+global origin or the selection center.
 
 #### Phosphorene: Build The Twist One Edit At A Time
 
@@ -387,8 +388,10 @@ interfacial oxygen positioned over a substrate Cu top site.
 The Cu(111) substrate uses a nearest-neighbor touching-sphere radius.
 `Cu_oxide-O_oxide` and `Cu_substrate-O_oxide` bonds are enabled, while
 `Cu_substrate-Cu_substrate`, `Cu_oxide-Cu_oxide`, cross-region Cu-Cu, and
-O-O pairs are disabled. Separate oxide and substrate labels let each
-interaction be enabled or assigned its own cutoff independently.
+O-O pairs are disabled. A thicker high-contrast bond color keeps Cu-O
+connectivity legible over the metallic touching-sphere substrate. Separate
+oxide and substrate labels let each interaction be enabled or assigned its own
+cutoff independently.
 
 ```bash
 v_ase gui examples/readme_scene_assets/cu2o111_on_cu111_pairwise_bonds.traj

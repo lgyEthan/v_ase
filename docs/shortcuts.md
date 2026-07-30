@@ -82,6 +82,11 @@ During every atom rotation, the viewport shows the active pivot axis, a fixed
 neutral start reference, and an amber reference that follows the current
 rotation. Commensurate or magnetic candidates use separate cyan guides.
 
+For a specific-atom pivot, select the moving atoms first, Shift-select the
+pivot atom last, and choose **Active atom (last selected)** under
+**Structure > Transform**. The active atom remains at the pivot while the
+selected geometry rotates around it.
+
 ## Saving
 
 The Export workspace keeps structure-independent settings separate from project

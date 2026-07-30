@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.115&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.115&rev=1';
-import { ASESelection } from './selection.js?v=0.0.115&rev=1';
-import { ASETransform } from './transform.js?v=0.0.115&rev=1';
+import { ASEApi } from './api.js?v=0.0.116&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.116&rev=1';
+import { ASESelection } from './selection.js?v=0.0.116&rev=1';
+import { ASETransform } from './transform.js?v=0.0.116&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.115&rev=1';
+} from './trajectory.js?v=0.0.116&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -5866,6 +5866,8 @@ class VAseApp {
             let pivot;
             if (Array.isArray(operation.pivot)) {
                 pivot = new THREE.Vector3(...this.aiFiniteVector(operation.pivot, 'pivot'));
+            } else if (operation.pivot === 'active') {
+                pivot = new THREE.Vector3(...next[indices[indices.length - 1]]);
             } else if (operation.pivot === 'origin') {
                 pivot = new THREE.Vector3(0, 0, 0);
             } else if (operation.pivot === 'cell') {
@@ -7120,9 +7122,29 @@ class VAseApp {
             .multiplyScalar(0.5);
     }
 
+    activeRotationPivotIndex(editableSelection) {
+        const editable = new Set(editableSelection);
+        for (let orderIndex = this.state.selectionOrder.length - 1; orderIndex >= 0; orderIndex--) {
+            const key = this.state.selectionOrder[orderIndex];
+            if (!key?.startsWith?.('atom:')) continue;
+            const index = Number(key.slice('atom:'.length));
+            if (Number.isInteger(index) && editable.has(index)) return index;
+        }
+        for (let index = editableSelection.length - 1; index >= 0; index--) {
+            if (Number.isInteger(editableSelection[index])) return editableSelection[index];
+        }
+        return null;
+    }
+
     rotationPivotPosition(editableSelection) {
         const mode = this.state.display.rotatePivot || 'selection';
         if (mode === 'origin') return new THREE.Vector3(0, 0, 0);
+        if (mode === 'active') {
+            const index = this.activeRotationPivotIndex(editableSelection);
+            const position = index === null ? null : this.currentAtomPosition(index);
+            if (position) return new THREE.Vector3(...position);
+            this.toast('Active-atom pivot requires a selected atom. Using selection COM.', 'warning');
+        }
         if (mode === 'cell') {
             if (!this.hasUsableCell()) {
                 this.toast('Unit-cell center pivot requires a defined unit cell. Using selection COM.', 'warning');
@@ -9889,7 +9911,8 @@ class VAseApp {
                 this.updateUI();
             });
         });
-        document.getElementById('rotate-pivot')?.addEventListener('change', () => {
+        document.getElementById('rotate-pivot')?.addEventListener('change', event => {
+            this.state.display.rotatePivot = event.currentTarget.value || 'selection';
             this.safeApplyDisplayOptions();
             if (this.transform.mode === 'ROTATE') this.toast('Rotate pivot changes apply to the next rotate operation.', 'warning');
         });

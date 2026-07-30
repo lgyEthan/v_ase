@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.115"
+python -m pip install "v_ase-gui==0.0.116"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -101,6 +101,8 @@ await ai.newDocument();
 `apply()` accepts `frame`, `mode`, `display`, `quality`, `applyConstraints`,
 `camera`, `selection`, and `operation`. Query `capabilities()` instead of
 assuming that a command exists.
+For a rotation around one atom, pass that atom last in the explicit `indices`
+array and set `pivot: "active"`; verify that its coordinate is unchanged.
 
 ## Minimal End-To-End Example
 

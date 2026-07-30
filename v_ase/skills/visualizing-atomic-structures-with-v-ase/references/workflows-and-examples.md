@@ -221,6 +221,30 @@ cell or as an energy-minimized structure. The canonical README capture uses a
 short, wide 5 x 6 repeat, nine physical ridge edits, and a camera-only
 above-to-below orbit after the final coordinate commit.
 
+## Rotate Around A Specific Atom
+
+For a human edit, select the moving atoms first, Shift-select the desired pivot
+atom last, and choose **Active atom (last selected)** under
+**Structure > Transform**. The pivot atom remains selected but does not move.
+
+For semantic editing, preserve the intended order in `indices` and use
+`pivot: "active"`:
+
+```javascript
+await ai.apply({
+  mode: "edit",
+  operation: {
+    name: "rotate-selection",
+    indices: [1, 2, 3, 0],
+    axis: [1, 0, 0],
+    angleDeg: 30,
+    pivot: "active"
+  }
+});
+```
+
+Here atom `0` is the pivot because it is the last explicit index.
+
 For deterministic semantic editing:
 
 ```javascript

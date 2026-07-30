@@ -7,6 +7,11 @@ different periodic meanings:
 2. `Cell Transform` constructs a new periodic cell with an integer matrix and
    ASE `make_supercell`.
 
+The selected-coordinate operation supports Selection COM, the last selected
+active atom, the global origin, the unit-cell center, or an explicit vector
+through the semantic API. An active atom remains unchanged because its
+coordinate is the rotation pivot.
+
 The commensurate guide connects these operations. During an axis-locked `R`, it
 searches integer combinations of the current 2D periodic cell boundaries,
 shows low-strain angular matches in the viewport, and can magnetically snap the
