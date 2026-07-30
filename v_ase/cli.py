@@ -111,7 +111,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "start a terminal-oriented machine-readable session, print a JSON "
-            "API handshake, and suppress automatic browser launch"
+            "API handshake, and suppress automatic browser launch; this mode "
+            "does not accept natural language or commands from stdin"
         ),
     )
     gui.set_defaults(func=run_gui, show_bonds=True)

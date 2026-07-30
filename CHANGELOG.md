@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.0.117
+
+- Reworked the Cu2O(111)/Cu(111) bonding example so substrate Cu, oxide Cu,
+  and oxide O are separated by atom color and material instead of relying on
+  an unrelated custom bond color; bonds now use the two endpoint colors.
+- Made the CLI automation contract self-describing: the startup handshake now
+  states that v_ase does not accept natural language or stdin commands and
+  that structured control uses the browser JavaScript API.
+- Rewrote the README and installed agent skill around the exact external-agent
+  flow, semantic state, structured command input, verified output, and human
+  handoff.
+
 ## 0.0.116
 
 - Added an **Active atom (last selected)** rotation pivot so a selected atom

@@ -41,9 +41,14 @@ def ai_handshake(url: str) -> dict[str, object]:
             else None
         ),
         "browser_api": "window.v_aseAI",
+        "command_transport": "browser-javascript",
+        "accepts_natural_language": False,
+        "stdin_commands": False,
         "skill_path": ai_skill_path(),
         "note": (
-            "Open human_url for the normal GUI. The same live session is used "
-            "by both the semantic AI bridge and the human interface."
+            "This CLI process only launches the session and prints this "
+            "handshake. An external agent controls the same live document "
+            "through window.v_aseAI; v_ase does not parse natural language "
+            "or command messages from stdin. Open human_url for the normal GUI."
         ),
     }

@@ -141,6 +141,13 @@ prints one JSON handshake, and keeps the session alive. Its semantic state and
 browser control schema avoid pixel-based structure inspection; the reported
 `human_url` opens the same live document for normal use.
 
+The CLI does not accept natural language or commands from stdin. Its first
+stdout line is discovery metadata; status is written to stderr. The controlling
+external agent opens `human_url` and uses structured JavaScript calls through
+`window.v_aseAI`. The handshake explicitly reports
+`command_transport="browser-javascript"`, `accepts_natural_language=false`, and
+`stdin_commands=false`.
+
 The browser **Open** dialog can replace the active document, append selected
 frames to its trajectory, or open an independent workspace tab. `.vase`
 settings are restored for replace/new-tab operations and intentionally ignored
@@ -347,6 +354,13 @@ settings available in View and Edit. `rotate-selection` accepts
 ASE Pickle, Blender, Rhino 3DM, OBJ, standalone HTML, `.vase`, and visual
 settings. Rendering and image export use the same capture path as the human
 Export workspace.
+
+`describe()` is the primary machine-readable output and includes document,
+mode, frame, atom identity, positions when requested, cell/PBC, constraints,
+properties, selection, measurement, display, camera, and image-export state.
+`apply()` returns the updated semantic state. `render()` and `export()` return
+data URLs plus filename, MIME type, byte count, format, and dimensions where
+applicable.
 
 WebSockets stream relaxation updates and own browser-document/workspace
 lifetime. Closing the last connected browser document finalizes blocking calls

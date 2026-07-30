@@ -124,13 +124,19 @@ def test_skill_explains_vendor_neutral_agent_handoff():
         "first stdout line as JSON",
         "window.v_aseAI",
         "human_url",
+        "command_transport",
+        "accepts_natural_language",
+        "stdin_commands",
         "standalone `html` export",
     ):
         assert required in setup + readme + compatibility
     assert "CAD-ready" not in readme
     assert "--for-ai" not in setup + readme + compatibility
-    assert "does not bundle an LLM" in readme
-    assert "agent launches" in readme.lower()
+    assert "does not accept natural language itself" in readme
+    assert "external agent launches" in readme.lower()
+    assert "does not read natural-language or structured commands from stdin" in readme
+    assert "structured `window.v_aseAI` commands" in readme
+    assert "can reduce token use" in readme
 
 
 def test_skill_documents_offline_html_handoff_contract():
@@ -209,6 +215,9 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         "/skills/visualizing-atomic-structures-with-v-ase/SKILL.md"
     )
     assert schema["protocol"] == "v_ase.ai.v1"
+    assert schema["command_transport"] == "browser-javascript"
+    assert schema["accepts_natural_language"] is False
+    assert schema["stdin_commands"] is False
 
 
 def test_legacy_guide_is_a_resolving_compatibility_link():

@@ -2,24 +2,39 @@
 
 ## Contents
 
-1. Connection And State
-2. Apply Command
-3. Camera
-4. Selection And Measurement
-5. Structure Operations
-6. Appearance And Bonds
-7. Cell, View, Lighting, And Constraints
-8. Trajectory Analysis
-9. Rendering
-10. Export
-11. Multi-Document Control
+1. Transport And Connection
+2. State
+3. Apply Command
+4. Camera
+5. Selection And Measurement
+6. Structure Operations
+7. Appearance And Bonds
+8. Cell, View, Lighting, And Constraints
+9. Trajectory Analysis
+10. Rendering
+11. Export
+12. Multi-Document Control
 
-## Connection And State
+## Transport And Connection
+
+`v_ase gui STRUCTURE --cli` launches the application and prints one JSON
+handshake to stdout. It does not read commands from stdin and does not accept
+natural language. An external agent opens `human_url` and evaluates structured
+commands against the reported `window.v_aseAI` browser object.
 
 ```javascript
 const ai = window.v_aseAI;
 await ai.ready();
 const capabilities = await ai.capabilities();
+```
+
+`ready()` returns protocol, readiness, session ID, and document name.
+`capabilities()` returns supported state fields, command groups, operations,
+and exports.
+
+## State
+
+```javascript
 const state = await ai.describe({includePositions: true});
 ```
 
@@ -30,6 +45,10 @@ display settings, camera, and image export profile.
 
 Use `includePositions: false` for metadata-only inspection of a very large
 frame. Re-enable positions before coordinate-dependent work.
+
+Mutation methods return semantic state after the requested change. `render()`
+and `export()` instead return a data URL with format, MIME type, filename, byte
+count, and render dimensions where applicable.
 
 ## Apply Command
 

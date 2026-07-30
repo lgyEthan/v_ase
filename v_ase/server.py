@@ -1387,6 +1387,9 @@ async def get_atoms(session_id: str):
 async def ai_control_schema():
     return {
         "protocol": AI_PROTOCOL,
+        "command_transport": "browser-javascript",
+        "accepts_natural_language": False,
+        "stdin_commands": False,
         "control_schema": AI_CONTROL_SCHEMA,
         "browser_api": {
             "object": "window.v_aseAI",

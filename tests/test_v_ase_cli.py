@@ -171,6 +171,9 @@ def test_cli_mode_prints_one_machine_readable_handshake_and_keeps_session_alive(
     assert handshake["status"] == "ready"
     assert handshake["session_id"] == "session"
     assert handshake["browser_api"] == "window.v_aseAI"
+    assert handshake["command_transport"] == "browser-javascript"
+    assert handshake["accepts_natural_language"] is False
+    assert handshake["stdin_commands"] is False
     assert handshake["state_url"].endswith("/api/ai/state/session")
     assert handshake["skill_path"].endswith(
         "/skills/visualizing-atomic-structures-with-v-ase/SKILL.md"

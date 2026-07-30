@@ -106,10 +106,18 @@ first stdout line as JSON; it includes:
 - `schema_url`: current command schema;
 - `skill_url`: canonical installed skill;
 - `skill_path`: local canonical `SKILL.md`;
-- `browser_api`: `window.v_aseAI`.
+- `browser_api`: `window.v_aseAI`;
+- `command_transport`: `browser-javascript`;
+- `accepts_natural_language`: `false`;
+- `stdin_commands`: `false`.
 
 Keep the CLI process running while working. Parse the JSON directly instead of
 asking the user to copy individual URL fragments by hand.
+
+There is no natural-language endpoint and no JSON-lines command loop on stdin.
+The user speaks to the external agent. The Skill tells that agent how to turn
+the request into structured semantic commands after it opens `human_url`.
+v_ase writes the handshake to stdout and lifecycle status to stderr.
 
 ## Browser And HTTP Access
 
@@ -126,6 +134,13 @@ Use `apply()`, `render()`, and `export()` only after reading the semantic API
 reference. The state and schema URLs are useful for read-only inspection and
 capability discovery. Physical edits use the live browser API so that the AI
 and human operate the same document.
+
+`describe()` returns compact semantic JSON. Prefer
+`describe({includePositions: false})` for initial metadata inspection of large
+structures, then request positions only for coordinate-dependent work. This
+usually uses less model context than repeated full-resolution screenshots.
+Always decode and inspect the final render when visual quality is part of the
+request.
 
 For a remote server, keep the structure and v_ase process on the server. Use
 the automatic SSH tunnel command documented in `cli-and-environments.md`; the

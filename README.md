@@ -11,8 +11,9 @@
 `v_ase` brings ASE's convenient terminal and Python workflow together with
 direct, Blender-style 3D structure editing. Open a structure or trajectory
 with one command, inspect and measure it in a local browser, edit it manually
-or ask an AI agent to perform verified multi-step changes from natural
-language, then export publication images, videos, and reusable 3D scenes.
+or let an external AI agent translate a natural-language request into verified
+structure operations, then export publication images, videos, and reusable 3D
+scenes.
 
 ![Phosphorene nanoribbon manipulation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_phosphorene_twist.gif)
 
@@ -92,10 +93,12 @@ browser document releases the blocking terminal process.
 > panel before using `G` or `R`. The selection is preserved and keyboard focus
 > returns to the 3D viewport.
 
-## Ask An AI To Edit A Structure
+## Use v_ase Through An External AI Agent
 
-Give an AI the bundled [v_ase agent skill](#ai-and-agent-use), then describe
-the scientific result rather than a sequence of mouse actions:
+v_ase does not contain an LLM and does not accept natural language itself.
+Give an external AI agent the bundled [v_ase agent skill](#ai-and-agent-use),
+then describe the scientific result to that agent rather than a sequence of
+mouse actions:
 
 > From this pristine 6 x 6 graphene sheet, remove the carbon nearest the cell
 > center, convert its three nearest neighbors to pyridinic nitrogen, add a
@@ -104,14 +107,16 @@ the scientific result rather than a sequence of mouse actions:
 
 ![Natural-language pyridinic N3 graphene edit](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_edit.gif)
 
-The agent reads atom identities, coordinates, cell, PBC, selection, and camera
-directly from v_ase's semantic state. It finds the central site, resolves and
-remaps neighbor indices after deletion, changes three ASE elements and labels,
-creates Li at a measured height, verifies the 72-atom result, and renders the
-same document a human can continue editing. This combines geometry search,
-topology editing, atom creation, styling, and export in one request. No
-screenshot OCR or coordinate guessing is required. The final validation checks
-three `N_pyridinic` labels and one `Li_site` label against ASE elements.
+The external agent starts `v_ase gui STRUCTURE --cli`, parses the JSON
+handshake printed by v_ase, and controls the live document with structured
+`window.v_aseAI` commands. It reads atom identities, coordinates, cell, PBC,
+selection, constraints, and camera directly from semantic state. In this
+example it finds the central site, remaps neighbor indices after deletion,
+changes three ASE elements and labels, creates Li at a measured height,
+verifies the 72-atom result, and renders the same document a human can continue
+editing. No screenshot OCR or coordinate guessing is required. Final
+validation confirms three `N_pyridinic` labels and one `Li_site` label against
+the corresponding ASE elements.
 
 This example is generated entirely from `ase.build.graphene`, so it contains
 no copied structure or private data:
@@ -388,10 +393,12 @@ interfacial oxygen positioned over a substrate Cu top site.
 The Cu(111) substrate uses a nearest-neighbor touching-sphere radius.
 `Cu_oxide-O_oxide` and `Cu_substrate-O_oxide` bonds are enabled, while
 `Cu_substrate-Cu_substrate`, `Cu_oxide-Cu_oxide`, cross-region Cu-Cu, and
-O-O pairs are disabled. A thicker high-contrast bond color keeps Cu-O
-connectivity legible over the metallic touching-sphere substrate. Separate
-oxide and substrate labels let each interaction be enabled or assigned its own
-cutoff independently.
+O-O pairs are disabled. Dark metallic substrate Cu, bright standard-material
+oxide Cu, and matte red oxide O separate the phases without changing ASE
+elements. Each bond is split into the colors of its two endpoint atoms, so the
+Cu-O connectivity remains readable without an unrelated custom bond color.
+Separate oxide and substrate labels let each interaction be enabled or
+assigned its own cutoff independently.
 
 ```bash
 v_ase gui examples/readme_scene_assets/cu2o111_on_cu111_pairwise_bonds.traj
@@ -492,20 +499,92 @@ OBJ export has no optional Python dependency.
 
 ## AI And Agent Use
 
-Install v_ase normally and give the AI the bundled skill. The AI starts the
-machine-readable session itself when the task requires it; a person does not
-need to launch a separate AI mode.
+The natural-language interface belongs to an external AI agent, not to v_ase.
+The complete path is:
+
+```text
+natural-language request
+  -> external AI agent + v_ase Skill
+  -> v_ase CLI startup and JSON handshake
+  -> structured window.v_aseAI commands
+  -> ASE-backed state, render, and export results
+  -> agent verification or human takeover
+```
+
+Install v_ase normally and give the external agent the bundled skill. The
+agent starts the machine-readable session itself when the task requires it:
 
 ```bash
 v_ase gui STRUCTURE --cli
 ```
 
-`--cli` does not bundle an LLM or make v_ase an AI model. It is a
-terminal-oriented local API mode that suppresses automatic browser launch and
-prints a JSON handshake. The agent uses that handshake to inspect coordinates,
-cell, constraints, trajectory frames, selection, measurements, camera,
-materials, lighting, and export state without interpreting screenshots. Its
-`human_url` opens the same document whenever a person wants to take over.
+### What `--cli` Actually Does
+
+`--cli` is a launcher and discovery mode. It suppresses automatic browser
+launch, starts the same local FastAPI/browser application used by the GUI,
+prints one compact JSON handshake to stdout, and keeps the process alive.
+It does not read natural-language or structured commands from stdin, call
+an AI service, or provide an embedded model.
+
+The first stdout line has this form:
+
+```json
+{
+  "protocol": "v_ase.ai.v1",
+  "status": "ready",
+  "human_url": "http://127.0.0.1:xxxxx/workspace?...",
+  "state_url": "http://127.0.0.1:xxxxx/api/ai/state/xxxx",
+  "schema_url": "http://127.0.0.1:xxxxx/api/ai/schema",
+  "skill_url": "http://127.0.0.1:xxxxx/api/ai/skill",
+  "browser_api": "window.v_aseAI",
+  "command_transport": "browser-javascript",
+  "accepts_natural_language": false,
+  "stdin_commands": false
+}
+```
+
+Status text is written to stderr. The process remains alive until the agent or
+user stops it. `human_url` opens the same live document for manual takeover.
+
+### Structured Input And Output
+
+After opening `human_url`, the external agent uses the browser API. These are
+structured `window.v_aseAI` commands, not natural-language prompts.
+
+```javascript
+const ai = window.v_aseAI;
+await ai.ready();
+const capabilities = await ai.capabilities();
+const state = await ai.describe({includePositions: true});
+
+const updated = await ai.apply({
+  mode: "edit",
+  selection: {clear: true, indices: [0, 4, 9]},
+  operation: {
+    name: "rotate-selection",
+    axis: [0, 0, 1],
+    angleDeg: 30,
+    pivot: "active"
+  }
+});
+```
+
+| Interface | Input | Output |
+| --- | --- | --- |
+| CLI startup | File path and CLI options | One JSON handshake on stdout; lifecycle status on stderr |
+| `state_url` | HTTP GET | Read-only JSON structure/session state |
+| `capabilities()` | No payload | Supported state fields, operations, and exports |
+| `describe()` | Optional detail flags | Labels, ASE elements, positions, cell, PBC, constraints, trajectory, selection, measurements, display, camera, and export profile |
+| `apply(command)` | Structured object for frame, mode, display, camera, selection, or operation | Updated semantic state after the change |
+| `render(request)` | Dimensions, format, and exact render options | Image data URL plus dimensions, MIME type, filename, and byte count |
+| `export(request)` | Export format and options | Export data URL plus filename, MIME type, and byte count |
+
+The Skill teaches the external agent which fields and operations are valid,
+how to preserve ASE semantics, when confirmation is required, and how to
+verify each result. It is documentation and an operating contract, not an AI
+runtime. Reading compact semantic state instead of repeatedly analyzing full
+screenshots can reduce token use; final rendered images are still inspected
+when visual quality matters.
 
 Use the complete
 [v_ase agent skill](https://github.com/lgyEthan/v_ase/tree/main/v_ase/skills/visualizing-atomic-structures-with-v-ase).
@@ -528,15 +607,16 @@ files, provide the following:
 |  | [`safety-and-errors.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/safety-and-errors.md) before destructive edits, relaxation, or file output |
 |  | [`evaluation.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/evaluation.md) when changing or releasing v_ase itself |
 
-The agent launches the document and parses the first JSON line itself:
+The external agent launches the document and parses the first JSON line itself:
 
 ```bash
 v_ase gui STRUCTURE --cli
 ```
 
-That line contains the live GUI URL, semantic state URL, command schema URL,
-browser API name, and installed skill path. Do not paste screenshots or
-manually transcribe coordinates when the semantic state is available.
+That line discovers the live GUI, read-only state, current command schema,
+browser control object, and installed Skill. It is not a prompt endpoint.
+Do not paste screenshots or manually transcribe coordinates when semantic
+state is available.
 
 This bootstrap instruction works for clients without a native skill loader:
 

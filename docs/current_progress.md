@@ -200,6 +200,9 @@ and documentation use `view()`.
     document available for human takeover. Agents obtain semantic structure
     state over HTTP and use `window.v_aseAI` to set frame, display, selection,
     and camera before rendering through the exact Export Image capture path.
+    v_ase does not parse natural language or stdin commands; the external agent
+    translates the user's request into structured browser-API calls. The
+    handshake exposes that transport contract explicitly.
 45. Image storage optimization is post-render only. Lossless WebP and optimized
     PNG preserve the requested dimensions and exact RGBA pixels; PNG keeps the
     browser source when recompression is not smaller.
@@ -242,8 +245,9 @@ and documentation use `view()`.
     ethane selection shows distance/angle/torsion in a viewport-only crop, and
     a separate trajectory scene shows displacement analysis. The bonding scene
     is a top-view, top-registered 6 x 6 primitive Cu2O(111) mesh on 7 x 7
-    Cu(111), with thick high-contrast oxide/interface Cu-O bonds enabled and
-    every Cu-Cu/O-O pair disabled. Tests validate the -1.22% coincidence
+    Cu(111). Dark metallic substrate Cu, bright standard oxide Cu, and matte
+    red O separate the phases; Cu-O bonds use split endpoint colors while
+    every Cu-Cu/O-O pair remains disabled. Tests validate the -1.22% coincidence
     strain, explicit
     interfacial O/Cu top anchor, all nine coincidence phases, scene
     construction, and live View toggles before media are published.

@@ -320,7 +320,7 @@ def test_brand_logo_generation_uses_approved_palette_and_separated_letter_atoms(
 
 def test_readme_presents_real_manipulation_and_analysis_workflows():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    ai = readme.index("## Ask An AI To Edit A Structure")
+    ai = readme.index("## Use v_ase Through An External AI Agent")
     structure = readme.index("## Structure Manipulation")
     select = readme.index("### Select", structure)
     move = readme.index("### Move", select)
@@ -340,6 +340,9 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "2.15 A above the vacancy" in readme
     assert "three" in readme[ai:structure]
     assert "no screenshot ocr or coordinate guessing is required." in normalized_readme
+    assert "v_ase does not contain an llm" in normalized_readme
+    assert "does not accept natural language itself" in normalized_readme
+    assert "window.v_aseai" in normalized_readme
     assert "Standard Metal and Rubber atom materials" in readme
     assert "Cu_substrate-Cu_substrate" in readme
     assert "Cu_oxide-O_oxide" in readme
@@ -407,17 +410,36 @@ def test_readme_ferrocene_and_copper_bond_media_use_documented_visual_controls()
     assert '"1/2 | active pivot: Fe #0 | R Z"' in source
     assert '"2/2 | active pivot: Fe #0 | R X ring fold"' in source
     assert '"bondThickness": 0.30' in source
-    assert '"bondColorMode": "custom"' in source
-    assert '"bondCustomColor": "#176f8c"' in source
+    assert '"bondColorMode": "split"' in source
+    assert '"Cu_substrate": "#744637"' in source
+    assert '"Cu_oxide": "#efb34f"' in source
+    assert '"O_oxide": "#df2935"' in source
+    assert '"Cu_substrate": "metal"' in source
+    assert '"Cu_oxide": "standard"' in source
+    assert '"O_oxide": "rubber"' in source
+    assert "#176f8c" not in source
 
     image = np.asarray(
         Image.open(ROOT / "docs" / "assets" / "readme_bonds.png").convert("RGB")
     )[60:, :1360]
-    high_contrast_bonds = (
-        (image[:, :, 0] < 70)
-        & (image[:, :, 1] > 70)
-        & (image[:, :, 1] < 170)
-        & (image[:, :, 2] > 90)
-        & (image[:, :, 2] < 200)
+    oxide_red = (
+        (image[:, :, 0] > 150)
+        & (image[:, :, 1] < 100)
+        & (image[:, :, 2] < 110)
     )
-    assert int(high_contrast_bonds.sum()) > 10_000
+    warm_oxide_copper = (
+        (image[:, :, 0] > 170)
+        & (image[:, :, 1] > 95)
+        & (image[:, :, 1] < 190)
+        & (image[:, :, 2] < 100)
+    )
+    dark_metallic_copper = (
+        (image[:, :, 0] > 55)
+        & (image[:, :, 0] < 155)
+        & (image[:, :, 1] > 25)
+        & (image[:, :, 1] < 105)
+        & (image[:, :, 2] < 90)
+    )
+    assert int(oxide_red.sum()) > 1_500
+    assert int(warm_oxide_copper.sum()) > 7_500
+    assert int(dark_metallic_copper.sum()) > 30_000

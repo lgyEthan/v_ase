@@ -24,7 +24,10 @@ v_ase gui STRUCTURE --cli
 
 `--cli` is a terminal-oriented API mode, not an embedded LLM. The agent parses
 the first JSON line itself; it identifies the human GUI, state, schema, skill,
-and browser API for the same live document.
+and browser API for the same live document. v_ase does not accept natural
+language or command messages from stdin. A user gives natural language to the
+external agent, which translates it into structured `window.v_aseAI` calls and
+verifies the returned semantic state and rendered output.
 The canonical skill also documents standalone `html` export in lightweight
 view-only and project-embedded modes. Embedded HTML can be reopened with
 `v_ase gui FILE.html`; lightweight HTML cannot restore editable state. This

@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.116"
+python -m pip install "v_ase-gui==0.0.117"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -23,6 +23,11 @@ Start the terminal-oriented API session yourself:
 ```bash
 v_ase gui STRUCTURE --cli
 ```
+
+The user gives natural-language instructions to the external agent, not to
+v_ase. `--cli` does not contain an LLM, parse natural language, or accept
+commands from stdin. It launches the normal local v_ase application without
+opening a browser and exposes a structured browser API.
 
 Read the first stdout line as JSON. Keep the process running. The handshake
 contains:
@@ -32,6 +37,9 @@ contains:
 - `schema_url`: JSON Schema for `apply()`;
 - `skill_url`: this canonical skill;
 - `browser_api`: `window.v_aseAI`;
+- `command_transport`: `browser-javascript`;
+- `accepts_natural_language`: `false`;
+- `stdin_commands`: `false`;
 - `skill_path`: the installed canonical `SKILL.md`.
 
 Open `human_url`, then connect:
@@ -45,6 +53,18 @@ const before = await ai.describe({includePositions: true});
 
 No API key or external service is required. The loopback URL contains a session
 identifier; do not publish it while a private structure is open.
+
+The control path is:
+
+```text
+user request -> external agent + this Skill -> CLI handshake
+-> window.v_aseAI structured commands -> semantic state/render/export
+```
+
+Use `describe({includePositions: false})` for compact metadata inspection and
+request full positions only when coordinate-dependent work requires them.
+This avoids repeated screenshot interpretation and can reduce context/token
+use. Rendered pixels remain the final authority for visual-quality checks.
 
 ## Required Workflow
 

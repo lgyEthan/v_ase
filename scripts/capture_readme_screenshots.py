@@ -1185,21 +1185,20 @@ def capture_bond_media(browser) -> None:
                 "O_oxide-O_oxide": 0.0,
             },
             "bondThickness": 0.30,
-            "bondColorMode": "custom",
-            "bondCustomColor": "#176f8c",
+            "bondColorMode": "split",
             "showGrid": False,
             "showAxes": False,
             "showCell": True,
             "viewportBackground": "white",
             "labelColors": {
-                "Cu_substrate": "#bb7540",
-                "Cu_oxide": "#dea05d",
-                "O_oxide": "#e32d32",
+                "Cu_substrate": "#744637",
+                "Cu_oxide": "#efb34f",
+                "O_oxide": "#df2935",
             },
             "labelMaterials": {
                 "Cu_substrate": "metal",
                 "Cu_oxide": "standard",
-                "O_oxide": "standard",
+                "O_oxide": "rubber",
             },
         })
         configure_inspector(page, "structure", ["bonding"], width=560)
