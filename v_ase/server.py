@@ -1,6 +1,7 @@
 import os
 import threading
 import asyncio
+import uuid
 from contextlib import asynccontextmanager, suppress
 import pickle
 import io
@@ -103,6 +104,10 @@ async def app_lifespan(_app):
     try:
         yield
     finally:
+        for waiter in list(_ai_command_waiters.values()):
+            if not waiter.done():
+                waiter.cancel()
+        _ai_command_waiters.clear()
         broadcaster.cancel()
         with suppress(asyncio.CancelledError):
             await broadcaster
@@ -115,6 +120,22 @@ _session_autoclose_lock = threading.Lock()
 _workspace_autoclose_timers: Dict[str, threading.Timer] = {}
 _workspace_autoclose_lock = threading.Lock()
 _workspace_closing_clients: Dict[str, set[str]] = {}
+_AI_COMMAND_METHODS = frozenset({
+    "ready",
+    "schema",
+    "describe",
+    "capabilities",
+    "documents",
+    "activate",
+    "newDocument",
+    "apply",
+    "render",
+    "export",
+})
+_AI_COMMAND_DEFAULT_TIMEOUT_SECONDS = 300.0
+_AI_COMMAND_MAX_TIMEOUT_SECONDS = 1800.0
+_AI_COMMAND_CONNECT_TIMEOUT_SECONDS = 15.0
+_ai_command_waiters: Dict[str, asyncio.Future] = {}
 
 
 def _remove_temporary_file(path: str) -> None:
@@ -163,10 +184,11 @@ AI_CONTROL_SCHEMA = {
         "https://github.com/lgyEthan/v_ase/blob/main/v_ase/skills/"
         "visualizing-atomic-structures-with-v-ase/SKILL.md"
     ),
-    "title": "v_ase semantic browser control",
+    "title": "v_ase live semantic control",
     "description": (
-        "Commands accepted by window.v_aseAI.apply(). They control the same "
-        "live document that a human sees in the v_ase GUI."
+        "Commands accepted by the HTTP JSON bridge and optional "
+        "window.v_aseAI.apply() mirror. They control the same live document "
+        "that a human sees in the v_ase GUI."
     ),
     "type": "object",
     "additionalProperties": False,
@@ -326,6 +348,167 @@ AI_CONTROL_SCHEMA = {
         },
     },
 }
+
+AI_OPERATION_PARAMETERS = {
+    "wrap": {
+        "mode": "view-or-edit",
+        "required": [],
+        "optional": ["applyConstraints"],
+    },
+    "translate-all": {
+        "mode": "edit",
+        "required": ["vector"],
+        "optional": ["coordinateMode", "applyConstraints"],
+        "notes": "coordinateMode is cartesian or fractional.",
+    },
+    "set-supercell": {
+        "mode": "edit",
+        "required": ["reps"],
+        "optional": ["applyConstraints"],
+        "notes": "reps contains three integers from 1 through 64.",
+    },
+    "make-supercell": {
+        "mode": "edit",
+        "required": ["matrix"],
+        "optional": ["applyConstraints"],
+        "notes": "matrix is a 3 x 3 integer transformation matrix.",
+    },
+    "add-atom": {
+        "mode": "edit",
+        "required": ["position", "label-or-element"],
+        "optional": ["label", "element"],
+    },
+    "delete-selection": {
+        "mode": "edit",
+        "required": ["selection-or-indices"],
+        "optional": ["indices"],
+    },
+    "set-identity": {
+        "mode": "edit",
+        "required": ["label", "selection-or-indices"],
+        "optional": ["indices", "element", "applyConstraints"],
+    },
+    "set-constraints": {
+        "mode": "edit",
+        "required": ["selection-or-indices"],
+        "optional": [
+            "indices", "fixAtoms", "kind", "vector",
+            "clearDirectional", "applyConstraints",
+        ],
+        "notes": "kind is fixed_line or fixed_plane; vector has three components.",
+    },
+    "move-selection": {
+        "mode": "edit",
+        "required": ["vector", "selection-or-indices"],
+        "optional": ["indices", "applyConstraints"],
+    },
+    "rotate-selection": {
+        "mode": "edit",
+        "required": ["angleDeg", "selection-or-indices"],
+        "optional": ["indices", "axis", "pivot", "applyConstraints"],
+        "notes": (
+            "axis defaults to [0,0,1]. pivot is com, active, origin, cell, "
+            "or an explicit three-number position."
+        ),
+    },
+    "undo": {"mode": "view-or-edit", "required": [], "optional": []},
+    "redo": {"mode": "view-or-edit", "required": [], "optional": []},
+    "reset-coordinates": {
+        "mode": "edit",
+        "required": [],
+        "optional": [],
+    },
+    "start-relaxation": {
+        "mode": "edit",
+        "required": ["attached-calculator"],
+        "optional": ["fmax", "steps", "calculator", "applyConstraints"],
+    },
+    "stop-relaxation": {
+        "mode": "edit",
+        "required": [],
+        "optional": [],
+    },
+    "refresh-displacements": {
+        "mode": "view-or-edit",
+        "required": [],
+        "optional": ["display"],
+    },
+}
+
+AI_EXPORT_PARAMETERS = {
+    "image": {
+        "optional": ["imageFormat", "width", "height", "options"],
+        "notes": "imageFormat is png, jpeg, webp, or pdf.",
+    },
+    "video": {
+        "optional": [
+            "container", "width", "height", "fps",
+            "interpolationMultiplier", "interpolationMic", "options",
+        ],
+        "notes": "container is mov or avi and requires a trajectory.",
+    },
+    "poscar": {"optional": []},
+    "pickle": {"optional": []},
+    "blender": {"optional": ["includeCell"]},
+    "3dm": {
+        "optional": ["includeCell"],
+        "notes": "Requires the optional rhino3dm dependency.",
+    },
+    "obj": {"optional": ["includeCell"]},
+    "html": {
+        "optional": ["width", "height", "options", "embedProject"],
+        "notes": "embedProject defaults to false for a lightweight view-only file.",
+    },
+    "project": {"optional": []},
+    "settings": {"optional": []},
+}
+
+
+def ai_schema_payload() -> Dict[str, Any]:
+    """Return the complete live discovery contract for external agents."""
+    return {
+        "protocol": AI_PROTOCOL,
+        "command_transport": "http-json-bridge",
+        "accepts_natural_language": False,
+        "stdin_commands": False,
+        "collaboration": {
+            "protocol": COLLABORATION_PROTOCOL,
+            "delivery": "ndjson-after-handshake",
+            "event_endpoint": "/api/ai/events/{session_id}",
+            "workspace_event_endpoint": "/api/ai/workspace-events/{workspace_id}",
+            "authoritative_state": (
+                "POST method describe to command_endpoint after each event. "
+                "Use expectedRevision in apply params to avoid overwriting a newer human edit."
+            ),
+        },
+        "command_endpoint": {
+            "workspace": "/api/ai/command/workspace/{workspace_id}",
+            "document": "/api/ai/command/session/{session_id}",
+            "request": {
+                "method": "describe",
+                "params": {"includePositions": True},
+                "timeout_seconds": _AI_COMMAND_DEFAULT_TIMEOUT_SECONDS,
+            },
+            "methods": sorted(_AI_COMMAND_METHODS),
+        },
+        "control_schema": AI_CONTROL_SCHEMA,
+        "operation_parameters": AI_OPERATION_PARAMETERS,
+        "export_parameters": AI_EXPORT_PARAMETERS,
+        "browser_api": {
+            "object": "window.v_aseAI",
+            "methods": [
+                "ready()",
+                "describe()",
+                "capabilities()",
+                "documents() [workspace page]",
+                "activate(sessionId) [workspace page]",
+                "newDocument() [workspace page]",
+                "apply(command)",
+                "render({width, height, options})",
+                "export({format, ...options})",
+            ],
+        },
+    }
 
 
 def trajectory_layout_compatible(session: EditorSession) -> bool:
@@ -1405,40 +1588,171 @@ async def get_atoms(session_id: str):
     return session_atoms_to_json(session)
 
 
-@app.get("/api/ai/schema")
-async def ai_control_schema():
+def normalize_ai_command(payload: Dict[str, Any]) -> tuple[str, Any, float]:
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="AI command must be a JSON object.")
+    method = str(payload.get("method") or "").strip()
+    if method not in _AI_COMMAND_METHODS:
+        supported = ", ".join(sorted(_AI_COMMAND_METHODS))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported AI command method '{method}'. Supported methods: {supported}.",
+        )
+    params = payload.get("params", {})
+    try:
+        timeout = float(
+            payload.get("timeout_seconds", _AI_COMMAND_DEFAULT_TIMEOUT_SECONDS)
+        )
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=400,
+            detail="timeout_seconds must be a finite positive number.",
+        )
+    if not np.isfinite(timeout) or timeout <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="timeout_seconds must be a finite positive number.",
+        )
+    return method, params, min(timeout, _AI_COMMAND_MAX_TIMEOUT_SECONDS)
+
+
+async def wait_for_ai_browser_connection(
+    *,
+    session_id: str | None = None,
+    session_prefix: str | None = None,
+) -> None:
+    deadline = asyncio.get_running_loop().time() + _AI_COMMAND_CONNECT_TIMEOUT_SECONDS
+    while True:
+        connected = (
+            ws_manager.has_session_connection(session_id)
+            if session_id is not None
+            else ws_manager.has_connection_prefix(str(session_prefix))
+        )
+        if connected:
+            return
+        if asyncio.get_running_loop().time() >= deadline:
+            scope = session_id or session_prefix or "requested session"
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"No live v_ase browser is connected for {scope}. "
+                    "Open human_url and wait for the viewport to load before sending commands."
+                ),
+            )
+        await asyncio.sleep(0.05)
+
+
+async def dispatch_ai_browser_command(
+    payload: Dict[str, Any],
+    *,
+    session_id: str | None = None,
+    session_prefix: str | None = None,
+) -> Dict[str, Any]:
+    method, params, timeout = normalize_ai_command(payload)
+    if method == "schema":
+        return {
+            "protocol": AI_PROTOCOL,
+            "method": method,
+            "result": ai_schema_payload(),
+        }
+    await wait_for_ai_browser_connection(
+        session_id=session_id,
+        session_prefix=session_prefix,
+    )
+    command_id = str(uuid.uuid4())
+    loop = asyncio.get_running_loop()
+    waiter = loop.create_future()
+    _ai_command_waiters[command_id] = waiter
+    result_url = f"/api/ai/command-result/{command_id}"
+    ws_manager.broadcast_sync(
+        {
+            "type": "ai_command",
+            "protocol": AI_PROTOCOL,
+            "command_id": command_id,
+            "method": method,
+            "params": params,
+            "result_url": result_url,
+        },
+        session_id=session_id,
+        session_prefix=session_prefix,
+    )
+    try:
+        browser_result = await asyncio.wait_for(waiter, timeout=timeout)
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                f"The live browser did not complete AI method '{method}' "
+                f"within {timeout:g} seconds."
+            ),
+        )
+    finally:
+        _ai_command_waiters.pop(command_id, None)
+
+    if not isinstance(browser_result, dict):
+        raise HTTPException(status_code=502, detail="The browser returned an invalid command result.")
+    if not browser_result.get("ok"):
+        error = browser_result.get("error") or {}
+        message = str(
+            error.get("message")
+            if isinstance(error, dict)
+            else error
+        ).strip() or f"AI method '{method}' failed in the live browser."
+        raise HTTPException(status_code=422, detail=message)
     return {
         "protocol": AI_PROTOCOL,
-        "command_transport": "browser-javascript",
-        "accepts_natural_language": False,
-        "stdin_commands": False,
-        "collaboration": {
-            "protocol": COLLABORATION_PROTOCOL,
-            "delivery": "ndjson-after-handshake",
-            "event_endpoint": "/api/ai/events/{session_id}",
-            "workspace_event_endpoint": "/api/ai/workspace-events/{workspace_id}",
-            "authoritative_state": (
-                "Call window.v_aseAI.describe() after each event. "
-                "Use expectedRevision on apply() to avoid overwriting a "
-                "newer human edit."
-            ),
-        },
-        "control_schema": AI_CONTROL_SCHEMA,
-        "browser_api": {
-            "object": "window.v_aseAI",
-            "methods": [
-                "ready()",
-                "describe()",
-                "capabilities()",
-                "documents() [workspace page]",
-                "activate(sessionId) [workspace page]",
-                "newDocument() [workspace page]",
-                "apply(command)",
-                "render({width, height, options})",
-                "export({format, ...options})",
-            ],
-        },
+        "command_id": command_id,
+        "method": method,
+        "result": browser_result.get("result"),
     }
+
+
+@app.get("/api/ai/schema")
+async def ai_control_schema():
+    return ai_schema_payload()
+
+
+@app.post("/api/ai/command/session/{session_id}")
+async def command_ai_document(
+    session_id: str,
+    payload: Dict[str, Any],
+):
+    get_session(session_id)
+    return await dispatch_ai_browser_command(payload, session_id=session_id)
+
+
+@app.post("/api/ai/command/workspace/{workspace_id}")
+async def command_ai_workspace(
+    workspace_id: str,
+    payload: Dict[str, Any],
+):
+    get_workspace(workspace_id)
+    return await dispatch_ai_browser_command(
+        payload,
+        session_prefix=f"workspace:{workspace_id}",
+    )
+
+
+@app.post("/api/ai/command-result/{command_id}")
+async def complete_ai_browser_command(
+    command_id: str,
+    payload: Dict[str, Any],
+):
+    waiter = _ai_command_waiters.get(str(command_id))
+    if waiter is None:
+        raise HTTPException(
+            status_code=404,
+            detail="This AI command is unknown or no longer waiting for a result.",
+        )
+    if waiter.done():
+        raise HTTPException(status_code=409, detail="This AI command already has a result.")
+    if not isinstance(payload, dict) or not isinstance(payload.get("ok"), bool):
+        raise HTTPException(
+            status_code=400,
+            detail="AI command result must contain a boolean ok field.",
+        )
+    waiter.set_result(payload)
+    return {"status": "accepted", "command_id": command_id}
 
 
 @app.get("/api/ai/skill")
@@ -2853,6 +3167,55 @@ if FASTAPI_AVAILABLE:
         encode_export_image,
         transcode_video_file,
     )
+
+    @app.get("/api/notebook/view/{session_id}")
+    async def api_notebook_view(session_id: str):
+        """Return a standalone view-only document for an inline notebook frame."""
+        session = get_session(session_id)
+        config = session.config or {}
+        settings = config.get("initial_design_settings") or {
+            "schema": "v_ase.visual_settings.v3",
+            "display": {
+                "showBonds": config.get("show_bonds", True) is not False,
+                "showCell": config.get("show_cell", True) is not False,
+                "showAxes": config.get("show_axes", True) is not False,
+                "showGrid": False,
+                "showOverlays": True,
+                "projectionMode": "orthographic",
+                "viewportBackground": "white",
+                "atomRadiusScale": 0.6,
+                "bondThickness": 0.25,
+            },
+            "applyConstraints": config.get("apply_constraint", True) is not False,
+            "antiAliasing": True,
+            "sphereQuality": "auto",
+        }
+        response = await asyncio.to_thread(
+            export_html_response,
+            session,
+            {
+                "positions": None,
+                "settings": settings,
+                "selection": [],
+                "document_name": config.get("document_name") or "v_ase notebook view",
+                "embed_project": False,
+                "export_profile": {
+                    "kind": "html",
+                    "width": 1280,
+                    "height": 720,
+                    "options": {
+                        "includeGrid": False,
+                        "includeAxes": config.get("show_axes", True) is not False,
+                        "includeCell": config.get("show_cell", True) is not False,
+                        "transparentBackground": False,
+                        "backgroundColor": "#ffffff",
+                    },
+                },
+            },
+        )
+        response.headers["Content-Disposition"] = 'inline; filename="v_ase-notebook-view.html"'
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.post("/api/export/poscar/{session_id}")
     async def api_export_poscar(session_id: str, payload: Dict[str, Any]):

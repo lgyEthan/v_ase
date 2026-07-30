@@ -43,7 +43,12 @@
             </div>
         </header>
         <section class="viewer-stage">
-            <div id="viewer-frame"></div>
+            <div id="viewer-frame" style="{{VIEWER_FRAME_STYLE}}">
+                <img id="standalone-poster"
+                     src="{{POSTER_DATA_URL}}"
+                     alt="Saved v_ase structure view"
+                     {{POSTER_HIDDEN}}>
+            </div>
             <aside id="metadata-popover" class="metadata-popover" hidden>
                 <h2>Embedded document</h2>
                 <dl class="metadata-grid"></dl>

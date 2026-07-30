@@ -44,7 +44,8 @@ Before every release:
 
 1. start `v_ase gui EXAMPLE --cli`;
 2. parse the first-line handshake and verify later stdout remains valid NDJSON;
-3. call `capabilities()`;
+3. open `human_url`, then call `capabilities` through
+   `v_ase api "$COMMAND_URL"`;
 4. compare every reported state field, apply key, operation, and export with
    `references/semantic-api.md`;
 5. compare the JSON Schema at `schema_url`;
@@ -70,7 +71,10 @@ Run all scenarios, not only static document checks:
 1. **Launch and discovery**
    - install the built wheel in a clean environment;
    - verify `v_ase --version` and `from v_ase.visualize import view`;
-   - launch `--cli`, parse handshake, fetch skill/schema/state.
+   - launch `--cli`, parse handshake, fetch skill/schema/state;
+   - verify `command_transport` is `http-json-bridge`;
+   - use a separate `v_ase api` process for ready/describe/apply/render/export
+     without evaluating page-main-world JavaScript.
 2. **Structure and camera**
    - describe a periodic structure;
    - align `+X`, `-Y`, and `+Z`;
@@ -144,6 +148,10 @@ Run all scenarios, not only static document checks:
     - send an agent command with the prior `expectedRevision` and require a
       conflict, then re-describe and retry with the current revision;
     - verify agent-originated mutations are reported as `source: agent`.
+    - run a fresh zero-context agent with only canonical `SKILL.md`; require it
+      to launch the CLI, open `human_url`, use `command_url`, exercise every
+      advertised operation/export or report an intentional optional-dependency
+      failure, and verify semantic plus rendered results.
 11. **Settings and resets**
     - save and reload display supercell and visual translation;
     - verify Reset Coordinates preserves both;

@@ -1122,6 +1122,35 @@ body.dragging-inspector #inspector-resizer::before {
     font-size: 0.96em;
 }
 
+#inspector .export-group {
+    display: grid;
+    gap: 8px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+}
+
+#inspector .export-group:first-of-type {
+    margin-top: 4px;
+    padding-top: 0;
+    border-top: 0;
+}
+
+#inspector .export-group .panel-subhead {
+    margin: 0 0 2px;
+    color: var(--text);
+    font-size: 0.72rem;
+    font-weight: 760;
+}
+
+#inspector .export-group .panel-note {
+    margin: 0 0 4px;
+}
+
+#inspector .export-dimensions {
+    margin: 2px 0 0;
+}
+
 #inspector .save-format-guide {
     display: grid;
     gap: 11px;
@@ -3140,7 +3169,14 @@ body.resizing-pairwise-column * {
 }
 
 .modal.html-export-modal {
-    width: min(680px, calc(100vw - 32px));
+    width: min(860px, calc(100vw - 32px));
+}
+
+.html-export-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(220px, 0.65fr);
+    gap: 18px;
+    align-items: start;
 }
 
 .html-view-preview {
@@ -3150,11 +3186,26 @@ body.resizing-pairwise-column * {
     width: 100%;
     min-height: 180px;
     max-height: 360px;
-    margin: 0 0 14px;
+    margin: 0;
     overflow: hidden;
     border: 1px solid var(--line-strong);
     border-radius: 6px;
     background: var(--viewport-light-bg);
+}
+
+.html-view-preview.loading::after {
+    content: "Rendering exact composition...";
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: var(--surface-subtle);
+    color: var(--text-soft);
+    font-size: 0.74rem;
+}
+
+.html-view-preview.loading img {
+    opacity: 0;
 }
 
 .html-view-preview img {
@@ -3162,6 +3213,26 @@ body.resizing-pairwise-column * {
     width: 100%;
     max-height: 360px;
     object-fit: contain;
+}
+
+.html-export-controls {
+    min-width: 0;
+    display: grid;
+    gap: 9px;
+}
+
+.html-export-controls .export-grid {
+    grid-template-columns: minmax(76px, 0.7fr) minmax(118px, 1fr);
+}
+
+.html-composition-note {
+    margin: 0 0 4px;
+    padding: 9px 10px;
+    border-left: 2px solid var(--teal);
+    background: var(--surface-subtle);
+    color: var(--text-soft);
+    font-size: 0.68rem;
+    line-height: 1.45;
 }
 
 .html-view-preview figcaption {
@@ -3215,6 +3286,16 @@ body.resizing-pairwise-column * {
     min-width: 0;
     display: grid;
     gap: 5px;
+}
+
+@media (max-width: 720px) {
+    .html-export-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .html-view-preview {
+        min-height: 150px;
+    }
 }
 
 .html-project-option strong,

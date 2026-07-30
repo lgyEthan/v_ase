@@ -198,12 +198,16 @@ and documentation use `view()`.
 44. `--cli` is a terminal-oriented API mode, not an embedded AI model. An
     agent invokes it itself, parses the first-line JSON handshake, and consumes
     later revisioned NDJSON events. Agents obtain semantic structure state over
-    HTTP and use `window.v_aseAI` to set frame, display, selection, and camera
-    before rendering through the exact Export Image capture path. `human_url`
-    is the same live document, so human GUI refinements are emitted back to the
-    CLI rather than requiring a separate takeover copy. v_ase does not parse
-    natural language or stdin commands; the external agent translates the
-    user's request into structured browser-API calls.
+    the loopback HTTP JSON bridge and use `v_ase api` with `command_url` to set
+    frame, display, selection, structure, and camera before rendering through
+    the exact Export Image capture path. `human_url` is the same live document,
+    so human GUI refinements are emitted back to the CLI rather than requiring
+    a separate takeover copy. Page-main-world JavaScript access is optional.
+    v_ase does not parse natural language or stdin commands; the external agent
+    translates the user's request into structured semantic calls.
+    `v_ase api ... schema` exposes the live apply schema plus operation/export
+    parameter maps without a browser round trip; `describe` reports whether a
+    calculator is attached and identifies it.
 45. Image storage optimization is post-render only. Lossless WebP and optimized
     PNG preserve the requested dimensions and exact RGBA pixels; PNG keeps the
     browser source when recompression is not smaller.
@@ -331,10 +335,12 @@ same implementation for compatibility.
   frame, edits, cells/PBC, constraints, labels, safe arrays and metadata,
   cached standard results, supported built-in calculator configuration, and
   visual settings. It does not reference the source file.
-- Standalone HTML export first creates that validated `.vase`, embeds it as
-  Base64, and also embeds browser-ready scene data and all runtime assets. It
-  opens directly from `file://`, provides view navigation and trajectory
-  playback only, and makes no network request.
+- Standalone HTML export embeds browser-ready scene data and all runtime assets.
+  Lightweight HTML omits `.vase` by default; **HTML Project** embeds the
+  validated archive by default. Both use the exact image/video Preview Area
+  camera crop, include a static Finder/Quick Look poster, open from `file://`,
+  provide view navigation and trajectory playback only, and make no network
+  request.
 - Browser Open keeps visual state for ordinary structures and trajectories.
   Opening `.vase` restores the project state instead.
 - Browser Open uses the native operating system picker and streams the selected
@@ -350,7 +356,9 @@ same implementation for compatibility.
   mutations use the same validated UI/backend paths as human actions and never
   create a second hidden structure state. The CLI's post-handshake NDJSON stream
   reports committed GUI/agent changes and requires semantic re-synchronization;
-  it is not a command channel.
+  it is not a command channel. Commands use the separate loopback
+  `command_url`; `v_ase api` sends JSON through WebSocket to the live browser
+  and returns the browser result over HTTP.
 
 ## Performance Contract
 
@@ -399,10 +407,11 @@ Current benchmark method and results are in [performance.md](performance.md).
 10. Headless Linux installation and real browser rendering through the managed
     one-command SSH workflow, including per-frame trajectory transfer and CLI
     release after the browser tab closes.
-11. AI handshake, workspace NDJSON collaboration events, stale-revision
-    rejection, semantic state, deterministic browser control, exact lossless
-    WebP/PNG rendering, semantic export, and concurrent human refinement of the
-    same workspace.
+11. AI handshake, a separate `v_ase api` subprocess, workspace NDJSON
+    collaboration events, stale-revision rejection, semantic state,
+    deterministic browser control without main-world evaluation, exact
+    lossless WebP/PNG rendering, semantic export, and concurrent human
+    refinement of the same workspace.
 
 Run installed-wheel verification from outside the repository checkout. The
 checkout contains build metadata, so invoking pip from its root can make pip

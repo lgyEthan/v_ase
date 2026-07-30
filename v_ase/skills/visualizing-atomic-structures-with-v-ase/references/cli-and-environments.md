@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.118"
+python -m pip install "v_ase-gui==0.0.119"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.0.118"
+python -m pip install "v_ase-gui[rhino]==0.0.119"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, imageio-ffmpeg, and
@@ -80,22 +80,47 @@ session and prints one JSON handshake as the first stdout line. Later stdout
 lines are compact revisioned NDJSON events from the live GUI. Keep the process
 alive until work is complete.
 
+From an agent shell, launch `v_ase gui ... --cli` as a persistent process.
+When the command runner yields output or returns a session/process handle,
+parse the first stdout line and move on immediately; never wait for this
+server command to finish before calling `v_ase api`. Retain the handle to poll
+later NDJSON events and stop it at the end. Use the runner's native
+long-running-process mechanism rather than a platform-specific shell trick
+when one is available.
+
 `--cli` does not consume natural language or structured commands from stdin.
 The first stdout line is the startup handshake, later stdout lines are
 `v_ase.collaboration.v1` events, and status goes to stderr. After parsing the
-handshake, an external agent opens `human_url` and sends structured JavaScript
-objects through `window.v_aseAI`. The user may speak natural language to that
-external agent and refine the same GUI; v_ase itself receives file/CLI
-arguments and semantic API objects only.
+handshake, an external agent opens `human_url` and sends structured HTTP JSON
+through the handshake's `command_url`:
+
+```bash
+v_ase api "$COMMAND_URL" describe \
+  --params '{"includePositions":false}'
+v_ase api "$COMMAND_URL" apply --params-file command.json
+v_ase api "$COMMAND_URL" render --params-file render.json --save preview.png
+```
+
+Use `--save` for render/export data URLs. It refuses to replace an existing
+file unless `--force` is explicitly passed. The user may speak natural
+language to the external agent and refine the same GUI; v_ase itself receives
+file/CLI arguments and semantic API objects only.
 
 Python API:
 
 ```python
 from v_ase.visualize import view
 
-editor = view(atoms_or_frames, notebook=False, block=False)
+editor = view(atoms_or_frames, block=False)
 print(editor.url)
 ```
+
+In Jupyter Notebook or JupyterLab, use `view(atoms_or_frames)` as the cell's
+final expression. It detects the active kernel and renders one view-only
+interactive model below the cell without launching an external browser. When
+retaining the handle, call `display(editor)` explicitly. Use `notebook=False`
+to force the ordinary browser workflow or `notebook=True` to force inline
+output in a compatible kernel.
 
 ## Input Formats
 
@@ -124,7 +149,7 @@ remain `O`.
 
 The human GUI uses the operating-system save picker before expensive encoding.
 The semantic API returns binary exports as data URLs with filename, MIME type,
-and byte count.
+and byte count. `v_ase api ... --save OUTPUT` decodes them directly.
 
 Main outputs:
 

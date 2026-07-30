@@ -8,7 +8,7 @@ from ase.io import write
 import pytest
 
 import v_ase.remote as remote
-from v_ase.cli import build_parser, normalize_argv, run_gui
+from v_ase.cli import build_parser, normalize_argv, run_api_command, run_gui
 from v_ase.export import export_html_response
 from v_ase.io import read_structure_frames, resolve_input_format
 from v_ase.io import atom_labels
@@ -61,6 +61,74 @@ def test_v_ase_gui_parser_uses_cli_for_machine_readable_sessions():
     assert args.cli_mode is True
     with pytest.raises(SystemExit):
         parser.parse_args(["gui", "movie.extxyz", "--for-ai"])
+
+
+def test_v_ase_api_parser_accepts_structured_live_commands(tmp_path):
+    parser = build_parser()
+    params = tmp_path / "params.json"
+    params.write_text('{"includePositions":false}', encoding="utf-8")
+    args = parser.parse_args([
+        "api",
+        "http://127.0.0.1:49152/api/ai/command/workspace/workspace",
+        "describe",
+        "--params-file",
+        str(params),
+    ])
+
+    assert args.command == "api"
+    assert args.method == "describe"
+    assert args.params_file == params
+    assert normalize_argv(["api", "http://127.0.0.1/x", "ready"])[0] == "api"
+
+    schema_args = parser.parse_args([
+        "api",
+        "http://127.0.0.1:49152/api/ai/command/workspace/workspace",
+        "schema",
+    ])
+    assert schema_args.method == "schema"
+
+
+def test_v_ase_api_saves_binary_data_urls(monkeypatch, tmp_path, capsys):
+    parser = build_parser()
+    output = tmp_path / "render.png"
+    args = parser.parse_args([
+        "api",
+        "http://127.0.0.1:49152/api/ai/command/session/session",
+        "render",
+        "--params",
+        '{"width":64,"height":64}',
+        "--save",
+        str(output),
+    ])
+    captured = {}
+
+    class Response:
+        ok = True
+
+        @staticmethod
+        def json():
+            return {
+                "protocol": "v_ase.ai.v1",
+                "result": {
+                    "filename": "render.png",
+                    "dataUrl": "data:image/png;base64,iVBORw0KGgo=",
+                },
+            }
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setattr("requests.post", fake_post)
+
+    assert run_api_command(args) == 0
+    assert output.read_bytes() == b"\x89PNG\r\n\x1a\n"
+    result = json.loads(capsys.readouterr().out)["result"]
+    assert "dataUrl" not in result
+    assert result["saved_to"] == str(output.resolve())
+    assert captured["json"]["method"] == "render"
+    assert captured["json"]["params"] == {"width": 64, "height": 64}
 
 
 def test_scp_style_remote_target_is_detected_without_a_port_argument():
@@ -188,7 +256,11 @@ def test_cli_mode_prints_one_machine_readable_handshake_and_keeps_session_alive(
     assert handshake["status"] == "ready"
     assert handshake["session_id"] == "session"
     assert handshake["browser_api"] == "window.v_aseAI"
-    assert handshake["command_transport"] == "browser-javascript"
+    assert handshake["command_transport"] == "http-json-bridge"
+    assert handshake["command_url"].endswith("/api/ai/command/workspace/workspace")
+    assert {"schema", "describe", "apply", "render", "export"}.issubset(
+        handshake["command_methods"]
+    )
     assert handshake["accepts_natural_language"] is False
     assert handshake["stdin_commands"] is False
     assert handshake["state_url"].endswith("/api/ai/state/session")

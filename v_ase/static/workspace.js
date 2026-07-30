@@ -87,6 +87,17 @@ class VAseWorkspace {
         const url = `${protocol}//${window.location.host}/ws/workspace/`
             + `${encodeURIComponent(this.workspaceId)}?${query.toString()}`;
         this.socket = new WebSocket(url);
+        this.socket.onmessage = event => {
+            let message;
+            try {
+                message = JSON.parse(event.data);
+            } catch {
+                return;
+            }
+            if (message.type === 'ai_command') {
+                void this.handleAICommandMessage(message);
+            }
+        };
         this.socket.onclose = () => {
             if (this.closing || this.reconnectTimer !== null) return;
             this.reconnectTimer = window.setTimeout(() => {
@@ -459,6 +470,79 @@ class VAseWorkspace {
                 return await (await workspace.waitForActiveAIBridge()).export(request);
             }
         });
+    }
+
+    async postAICommandResult(message, payload) {
+        const target = new URL(String(message.result_url || ''), window.location.origin);
+        if (target.origin !== window.location.origin) {
+            throw new Error('AI command result URL must use the current v_ase origin.');
+        }
+        const response = await fetch(target.href, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+            let detail = `${response.status} ${response.statusText}`;
+            try {
+                const data = await response.json();
+                detail = data.detail || detail;
+            } catch {
+                // Keep the HTTP status when the server returned no JSON detail.
+            }
+            throw new Error(`Could not return AI command result: ${detail}`);
+        }
+    }
+
+    async handleAICommandMessage(message) {
+        if (
+            message?.type !== 'ai_command'
+            || !message.command_id
+            || !message.method
+            || !message.result_url
+        ) {
+            return false;
+        }
+        let payload;
+        try {
+            await this.ready;
+            const bridge = window.v_aseAI || this.createAIBridge();
+            const method = String(message.method);
+            if (typeof bridge[method] !== 'function') {
+                throw new Error(`AI method '${method}' is not available on this workspace.`);
+            }
+            const noArgumentMethods = new Set([
+                'ready', 'capabilities', 'documents', 'newDocument'
+            ]);
+            let result;
+            if (noArgumentMethods.has(method)) {
+                result = await bridge[method]();
+            } else if (method === 'activate') {
+                const sessionId = (
+                    message.params && typeof message.params === 'object'
+                    ? message.params.sessionId
+                    : message.params
+                );
+                result = await bridge.activate(sessionId);
+            } else {
+                result = await bridge[method](message.params ?? {});
+            }
+            payload = { ok: true, result };
+        } catch (error) {
+            payload = {
+                ok: false,
+                error: {
+                    name: String(error?.name || 'Error'),
+                    message: String(error?.message || error || 'AI command failed.')
+                }
+            };
+        }
+        try {
+            await this.postAICommandResult(message, payload);
+        } catch (error) {
+            console.error(error);
+        }
+        return true;
     }
 }
 

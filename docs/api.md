@@ -10,7 +10,7 @@ from v_ase.visualize import view
 viewer_result = view(
     atoms_or_frames,
     *,
-    notebook=False,
+    notebook=None,
     block=True,
     port=None,
     show_cell=True,
@@ -33,6 +33,10 @@ Accepted input:
 
 Important options:
 
+- `notebook=None` detects an active Jupyter kernel. Use `view(atoms)` as the
+  final Notebook/Lab expression to display one view-only iframe below the
+  cell; call `display(editor)` explicitly after assignment. Ordinary Python
+  opens the external browser. Pass `True` or `False` to override detection.
 - `viz_only=True` uses the lightweight viewer and does not attach the fallback
   calculator.
 - `viz_only=False` enables atom editing, constraints editing, history,
@@ -145,11 +149,17 @@ same live document for normal use and human refinement.
 The CLI does not accept natural language or commands from stdin. Its first
 stdout line is discovery metadata, later stdout lines are
 `v_ase.collaboration.v1` events, and status is written to stderr. The
-controlling external agent opens `human_url` and uses structured JavaScript
-calls through `window.v_aseAI`. The handshake explicitly reports
-`command_transport="browser-javascript"`, `accepts_natural_language=false`, and
-`stdin_commands=false`, plus `events_url`, `event_protocol`,
-`event_delivery`, and `event_scope`.
+controlling external agent opens `human_url` and sends structured HTTP JSON
+through `command_url`, normally with `v_ase api`. The handshake explicitly
+reports `command_transport="http-json-bridge"`,
+`accepts_natural_language=false`, and `stdin_commands=false`, plus
+`events_url`, `event_protocol`, `event_delivery`, and `event_scope`.
+
+```bash
+v_ase api "$COMMAND_URL" describe --params '{"includePositions":false}'
+v_ase api "$COMMAND_URL" apply --params-file command.json
+v_ase api "$COMMAND_URL" render --params-file render.json --save figure.png
+```
 
 The browser **Open** dialog can replace the active document, append selected
 frames to its trajectory, or open an independent workspace tab. `.vase`
@@ -254,10 +264,15 @@ One view-only browser document containing:
 - optionally, the complete validated `.vase` archive as Base64 metadata.
 
 It opens from `file://` without a server or network request and supports only
-camera navigation and trajectory playback. Set `embed_project` to `true`
-(the default) for a downloadable `.vase` and lossless reopening through
-`v_ase gui FILE.html`. Set it to `false` for a smaller view-only handoff that
-cannot be restored as an editable project.
+camera navigation and trajectory playback. `embed_project` defaults to
+`false` for a smaller view-only handoff. Set it to `true` for a downloadable
+`.vase` and lossless reopening through `v_ase gui FILE.html`. The human
+**HTML Project** action enables project embedding by default.
+
+HTML, image, and video share the same Preview Area camera crop and aspect
+ratio. HTML defaults to grid off, axes on, and unit cell on. A static copy of
+the exact rendered frame is embedded so macOS Finder/Quick Look can display
+the structure without executing JavaScript.
 
 The generated project tag uses bounded Base64 decoding and the extracted ZIP
 passes the same path, schema, size, and integrity checks as a direct `.vase`
@@ -278,7 +293,8 @@ Endpoint groups:
   Blender, 3DM, OBJ, and standalone HTML export;
 - visual-settings and `.vase` save/load;
 - binary current-frame and full-trajectory coordinate transfer.
-- semantic AI schema, skill guide, and current-frame state.
+- semantic AI schema, operation/export parameter discovery, skill guide, and
+  current-frame state.
 
 Mutable structure requests and structure/3D-scene exports carry `frame_index`. The
 server switches to that frame before applying browser coordinates or producing
@@ -354,8 +370,10 @@ upload, server encoding, response download, and destination write. Estimated
 remaining time is derived from completed pipeline work; 100% is emitted once,
 after the output file is complete.
 
-The live browser exposes `window.v_aseAI.ready()`, `capabilities()`,
-`describe()`, `apply()`, `render()`, and `export()`. `describe()` reports the
+The live HTTP bridge exposes `ready`, `capabilities`, `describe`, `apply`,
+`render`, and `export`; workspace scope also exposes `documents`, `activate`,
+and `newDocument`. The optional `window.v_aseAI` object mirrors these methods
+for page-main-world controllers. `describe()` reports the
 document collaboration revision. `apply()` accepts `expectedRevision` as an
 optimistic-concurrency guard and rejects stale commands before they can
 overwrite a newer human GUI edit. It covers frame and mode changes, quality,

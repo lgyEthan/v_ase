@@ -67,7 +67,7 @@ ChatGPT desktop agents, Gemini-based agents, agentic IDEs, and other local
 models can use the same contract without native skill installation:
 
 1. attach or expose `SKILL.md` and the relevant references;
-2. ensure the agent can run a local command or control the local browser;
+2. ensure the agent can run local shell commands and can open a loopback URL;
 3. give it the bootstrap instruction below;
 4. let the agent start and parse the CLI/API session itself.
 
@@ -77,7 +77,8 @@ Bootstrap instruction:
 Read SKILL.md and agent-setup.md first. Load only the reference files needed
 for this task, including collaboration.md when the user may refine the GUI.
 Start v_ase with --cli. Parse the first JSON line and keep consuming later
-NDJSON events. Inspect capabilities() and describe() before editing. Apply
+NDJSON events. Open human_url and wait for the viewport. Use `v_ase api`
+with command_url to call capabilities and describe before editing. Apply
 semantic changes one at a time with expectedRevision, re-synchronize after
 human events, verify state after every physical change, inspect the decoded
 final render, and return human_url. Never infer coordinates from screenshots
@@ -114,13 +115,19 @@ first stdout line as JSON; it includes:
 - `schema_url`: current command schema;
 - `skill_url`: canonical installed skill;
 - `skill_path`: local canonical `SKILL.md`;
-- `browser_api`: `window.v_aseAI`;
-- `command_transport`: `browser-javascript`;
+- `command_url`: live HTTP JSON command endpoint;
+- `command_methods`: supported semantic methods;
+- `command_transport`: `http-json-bridge`;
+- `browser_api`: optional in-page fallback, `window.v_aseAI`;
 - `accepts_natural_language`: `false`;
 - `stdin_commands`: `false`.
 
-Keep the CLI process running while working. Parse the JSON directly instead of
-asking the user to copy individual URL fragments by hand.
+`v_ase gui ... --cli` is intentionally long-running. Start it through the
+agent runtime's persistent-process facility, read its first stdout line as
+soon as the runner yields, then issue `v_ase api` calls from separate commands.
+Do not wait for the launcher to exit. Keep its process/session handle for
+polling later events and stop it only after final verification. Parse the JSON
+directly instead of asking the user to copy individual URL fragments by hand.
 
 There is no natural-language endpoint and no command loop on stdin. The user
 speaks to the external agent. The Skill tells that agent how to turn the
@@ -130,30 +137,42 @@ later NDJSON lines, and lifecycle status to stderr.
 
 ## Browser And HTTP Access
 
-An agent with browser automation should open `human_url` and use:
+Open `human_url` first. The visible browser owns the WebGL renderer and executes
+commands against the exact document the human sees. The agent itself does not
+need page-main-world JavaScript access. Use the separate terminal client:
 
-```javascript
-const ai = window.v_aseAI;
-await ai.ready();
-await ai.capabilities();
-const state = await ai.describe({includePositions: true});
-await ai.apply({
-  expectedRevision: state.collaboration.revision,
-  camera: {axis: "+Z", fit: "structure"}
-});
+```bash
+v_ase api "$COMMAND_URL" ready
+v_ase api "$COMMAND_URL" schema
+v_ase api "$COMMAND_URL" capabilities
+v_ase api "$COMMAND_URL" describe \
+  --params '{"includePositions":true}'
+v_ase api "$COMMAND_URL" apply --params '{
+  "expectedRevision":CURRENT_REVISION,
+  "camera":{"axis":"+Z","fit":"structure"}
+}'
 ```
 
-Use `apply()`, `render()`, and `export()` only after reading the semantic API
-reference. The state and schema URLs are useful for read-only inspection and
-capability discovery. Physical edits use the live browser API so that the AI
-and human operate the same document.
+`COMMAND_URL` is the literal `command_url` value from the handshake. Quote it.
+The command returns one JSON object. Its semantic value is under `result`.
+Call `schema` before planning a broad workflow; it exposes exact operation and
+export parameter maps as `operation_parameters` and `export_parameters`, even
+before a document command is sent to the browser.
+For a complex request, write the parameters to a JSON file and use
+`--params-file`. For render/export results, use `--save OUTPUT`; this decodes
+the returned data URL without printing it. Existing files are protected unless
+the agent uses `--force` after explicit approval.
 
-`describe()` returns compact semantic JSON. Prefer
-`describe({includePositions: false})` for initial metadata inspection of large
-structures, then request positions only for coordinate-dependent work. This
-usually uses less model context than repeated full-resolution screenshots.
-Always decode and inspect the final render when visual quality is part of the
-request.
+Use `apply`, `render`, and `export` only after reading the semantic API
+reference. `state_url` is backend/bootstrap state, not a complete snapshot of
+the live camera and visual settings. The `describe` command is authoritative.
+Prefer `{"includePositions":false}` for initial metadata inspection of large
+structures, then request positions only for coordinate-dependent work.
+
+If no live browser is connected, commands fail with HTTP 409 and tell the
+agent to open `human_url`. If the browser controller cannot evaluate
+`window.v_aseAI`, do not treat that as a blocker; `v_ase api` is the
+vendor-neutral control path.
 
 For a remote server, keep the structure and v_ase process on the server. Use
 the automatic SSH tunnel command documented in `cli-and-environments.md`; the

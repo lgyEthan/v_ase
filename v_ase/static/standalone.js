@@ -147,13 +147,45 @@ export function startStandaloneViewer(scene, projectBase64) {
     if (!frames.length) throw new Error('The exported HTML contains no structure frames.');
 
     const settings = scene.settings?.settings || scene.settings || {};
+    const exportProfile = scene.exportProfile || {};
+    const composition = exportProfile.composition || {};
+    const exportOptions = exportProfile.options || {};
     const display = {
         ...(settings.display || {}),
         vizOnly: true,
-        sunGizmo: false
+        sunGizmo: false,
+        showGrid: exportOptions.includeGrid === true,
+        showAxes: exportOptions.includeAxes !== false,
+        showCell: exportOptions.includeCell !== false,
+        lightingMode: exportOptions.renderMode || settings.display?.lightingMode || 'modeling',
+        sunIntensity: Number.isFinite(Number(exportOptions.sunIntensity))
+            ? Number(exportOptions.sunIntensity)
+            : settings.display?.sunIntensity,
+        sunPosition: finiteVector(
+            exportOptions.sunPosition,
+            settings.display?.sunPosition || [8, -10, 14]
+        ),
+        sunTarget: finiteVector(
+            exportOptions.sunTarget,
+            settings.display?.sunTarget || [0, 0, 0]
+        ),
+        viewportBackground: String(exportOptions.backgroundColor || '').toLowerCase() === '#ffffff'
+            ? 'white'
+            : (settings.display?.viewportBackground || 'white')
     };
-    const savedCamera = settings.camera || scene.camera || null;
-    const savedAspect = Number(savedCamera?.aspect) || 16 / 9;
+    if (
+        exportOptions.sphereQuality
+        && exportOptions.sphereQuality !== 'viewport'
+    ) {
+        display.sphereQuality = exportOptions.sphereQuality;
+    }
+    const savedCamera = composition.camera || settings.camera || scene.camera || null;
+    const savedAspect = (
+        Number(composition.aspect)
+        || Number(exportProfile.aspect)
+        || Number(savedCamera?.aspect)
+        || 16 / 9
+    );
     const viewerFrame = document.getElementById('viewer-frame');
     sizeViewerFrame(savedAspect);
     const renderer = new ASERenderer(viewerFrame);
@@ -285,6 +317,25 @@ export function startStandaloneViewer(scene, projectBase64) {
     if (savedCamera) applyCamera(renderer, { camera: savedCamera });
     else renderer.fitCameraToStructure();
     renderer.renderNow();
+    const poster = document.getElementById('standalone-poster');
+    if (poster && !poster.hidden) {
+        const revealInteractiveCanvas = () => {
+            poster.hidden = true;
+            document.documentElement.dataset.vAsePoster = 'replaced';
+        };
+        document.addEventListener('pointerdown', revealInteractiveCanvas, {
+            capture: true,
+            once: true,
+        });
+        document.addEventListener('wheel', revealInteractiveCanvas, {
+            capture: true,
+            once: true,
+        });
+        document.addEventListener('keydown', revealInteractiveCanvas, {
+            capture: true,
+            once: true,
+        });
+    }
 
     window.v_aseStandalone = {
         protocol: 'v_ase.html-view.v1',

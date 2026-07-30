@@ -101,6 +101,24 @@ def find_free_port() -> int:
         return s.getsockname()[1]
 
 
+def running_in_notebook() -> bool:
+    """Return True only for an active IPython kernel, not a terminal shell."""
+    try:
+        from IPython import get_ipython
+    except ModuleNotFoundError:
+        return False
+    shell = get_ipython()
+    if shell is None:
+        return False
+    if shell.__class__.__name__ == "ZMQInteractiveShell":
+        return True
+    config = getattr(shell, "config", None)
+    try:
+        return bool(config and config.get("IPKernelApp"))
+    except (AttributeError, TypeError):
+        return False
+
+
 def wait_for_local_server(port: int, timeout: float = 5.0) -> None:
     """Wait until the local HTTP server accepts connections."""
     deadline = time.monotonic() + timeout
@@ -234,6 +252,10 @@ class ASEEditor:
             )
         return f"http://127.0.0.1:{self.port}/?session_id={self.session_id}"
 
+    @property
+    def notebook_url(self) -> str:
+        return f"http://127.0.0.1:{self.port}/api/notebook/view/{self.session_id}"
+
     def get_atoms(self) -> Optional[Atoms]:
         if self.session_id in sessions:
             session = sessions[self.session_id]
@@ -291,14 +313,15 @@ class ASEEditor:
 
     def _repr_html_(self):
         return (
-            f'<iframe src="http://127.0.0.1:{self.port}/?session_id={self.session_id}" '
-            'width="100%" height="700" style="border:0"></iframe>'
+            f'<iframe src="{self.notebook_url}" title="v_ase interactive structure view" '
+            'width="100%" height="700" style="border:0;background:#fff" '
+            'loading="lazy" allow="fullscreen"></iframe>'
         )
 
 def view(
     atoms: Atoms | Sequence[Atoms] | str | os.PathLike,
     *,
-    notebook: bool = False,
+    notebook: Optional[bool] = None,
     block: bool = True,
     port: Optional[int] = None,
     show_cell: bool = True,
@@ -324,13 +347,15 @@ def view(
     -----------
     atoms : ase.Atoms, sequence of ase.Atoms, or path
         The structure or trajectory to visualize/edit.
-    notebook : bool
-        If True, render inside a Jupyter IFrame.
+    notebook : bool or None
+        Render inside a Jupyter IFrame when True. The default, None, detects an
+        active notebook kernel automatically; ordinary Python opens a browser.
     block : bool
         If True, block execution until the browser document is closed or the
         session is finalized through the local API.
     ...
     """
+    notebook = running_in_notebook() if notebook is None else bool(notebook)
     launch_directory = os.path.abspath(os.getcwd())
     source_path = os.fspath(atoms) if isinstance(atoms, (str, os.PathLike)) else None
     if document_name is None:
@@ -429,11 +454,6 @@ def view(
         url = f"http://127.0.0.1:{port}/?session_id={session_id}"
     
     if notebook:
-        try:
-            from IPython.display import IFrame, display
-            display(IFrame(src=url, width="100%", height="700px"))
-        except ModuleNotFoundError:
-            pass
         return ASEEditor(session_id, port, server_handle=server_handle)
     else:
         if server_enabled:
@@ -497,7 +517,7 @@ def view(
 def view_edit(
     atoms: Atoms | Sequence[Atoms] | str | os.PathLike,
     *,
-    notebook: bool = False,
+    notebook: Optional[bool] = None,
     block: bool = True,
     port: Optional[int] = None,
     show_cell: bool = True,

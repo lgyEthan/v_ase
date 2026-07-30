@@ -509,7 +509,13 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "htmlViewFilename" in main_js
     assert "showHtmlExportModal" in main_js
     assert "Embed editable .vase project" in main_js
-    assert "Lightweight view-only HTML saved without project recovery." in main_js
+    assert "Interactive view-only HTML saved without project data." in main_js
+    assert "renderHtmlCompositionPreview" in main_js
+    assert "exportCompositionSnapshot" in renderer_js
+    assert 'id="html-include-grid"' in main_js
+    assert 'id="html-include-axes"' in main_js
+    assert 'id="html-include-cell"' in main_js
+    assert "embedProject === true" in main_js
     assert "btn-save-project-html" in index_html
     assert 'data-inspector-group="export"' in index_html
     assert "renderer.supercellBridgeBondRecords" in main_js

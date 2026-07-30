@@ -15,7 +15,7 @@ Start with:
 Codex and Claude Code can install the directory as a native skill. ChatGPT
 desktop agents, Gemini-based agents, agentic IDEs, and other local models can
 attach `SKILL.md`, `agent-setup.md`, and the task-specific references, then
-control the same vendor-neutral `window.v_aseAI` semantic API.
+control the same vendor-neutral HTTP JSON semantic API.
 
 The controlling agent launches:
 
@@ -29,12 +29,19 @@ browser API, and collaboration event stream for the same live document. Later
 stdout lines report committed human/agent changes as revisioned NDJSON. v_ase
 does not accept natural language or command messages from stdin. A user gives
 natural language to the external agent, which translates it into structured
-`window.v_aseAI` calls, listens for human GUI refinements, and verifies the
-returned semantic state and rendered output without maintaining a separate
-copy.
+`v_ase api "$COMMAND_URL" ...` calls, listens for human GUI refinements, and
+verifies the returned semantic state and rendered output without maintaining
+a separate copy. The browser must have `human_url` open, but the agent does not
+need page-main-world JavaScript access.
+The agent calls `v_ase api "$COMMAND_URL" schema` before a broad workflow to
+discover exact operation and export parameters, then uses `capabilities` and
+`describe` for the live document and attached calculator state.
 The canonical skill also documents standalone `html` export in lightweight
-view-only and project-embedded modes. Embedded HTML can be reopened with
-`v_ase gui FILE.html`; lightweight HTML cannot restore editable state. This
-release also documents specific-atom rotation through the human
+view-only and project-embedded modes. Lightweight view-only is the ordinary
+export default; the human HTML Project action embeds `.vase` by default.
+Embedded HTML can be reopened with `v_ase gui FILE.html`; lightweight HTML
+cannot restore editable state. It also documents automatic Jupyter
+Notebook/Lab inline viewing and ordinary-Python browser behavior. This release
+documents specific-atom rotation through the human
 **Active atom (last selected)** pivot and semantic `pivot: "active"` mode.
 The compatibility file remains available so existing links do not fail.

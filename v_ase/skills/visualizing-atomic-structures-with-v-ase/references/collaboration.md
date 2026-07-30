@@ -22,8 +22,8 @@ researcher GUI edit -> CLI NDJSON event -> agent re-reads semantic state
 ```
 
 `human_url` is not a rendered copy or separate editor. It opens the same
-workspace controlled through `window.v_aseAI`. Human GUI edits are
-authoritative and must be reviewed before the agent continues.
+workspace controlled through the handshake's `command_url`. Human GUI edits
+are authoritative and must be reviewed before the agent continues.
 
 When live human collaboration is requested, automate the visible `human_url`
 page itself so the researcher observes and edits that browser view between
@@ -54,17 +54,19 @@ Relevant handshake fields:
 ```json
 {
   "human_url": "http://127.0.0.1:50000/workspace?...",
+  "command_url": "http://127.0.0.1:50000/api/ai/command/workspace/...",
   "state_url": "http://127.0.0.1:50000/api/ai/state/...",
   "events_url": "http://127.0.0.1:50000/api/ai/workspace-events/...",
   "event_protocol": "v_ase.collaboration.v1",
   "event_delivery": "ndjson-after-handshake",
   "event_scope": "workspace",
-  "browser_api": "window.v_aseAI"
+  "command_transport": "http-json-bridge"
 }
 ```
 
 The CLI performs long polling and reconnects automatically. It accepts no
-commands on stdin. Commands remain structured browser-JavaScript calls.
+commands on stdin. Send structured commands with
+`v_ase api "$COMMAND_URL" METHOD`.
 
 ## Event Fields
 
@@ -102,39 +104,36 @@ A typical workspace event is:
 - `changed_paths` identifies likely semantic fields but is not a state patch.
 - `state_url` points to current backend state for the affected document.
 
-Events deliberately omit positions and other large arrays. Use `describe()` as
-the authoritative browser state after receiving an event.
+Events deliberately omit positions and other large arrays. Use the `describe`
+method as the authoritative live state after receiving an event.
 
 ## Required Agent Loop
 
 1. Parse the first stdout line and open `human_url`.
-2. Call `ready()`, `capabilities()`, and `describe()`.
+2. Call `ready`, `capabilities`, and `describe` through `v_ase api`.
 3. Record `state.collaboration.revision`.
-4. Send that value as `expectedRevision` with every `apply()` call.
+4. Send that value as `expectedRevision` with every `apply` call.
 5. Keep reading later stdout lines while working.
 6. On a human event, stop issuing mutations.
-7. If its `session_id` is not active, call `documents()` and
-   `activate(session_id)`.
-8. Call `describe()` and inspect the changed semantic fields.
+7. If its `session_id` is not active, call `documents` and `activate`.
+8. Call `describe` and inspect the changed semantic fields.
 9. Update the plan, use the new document revision, and continue only if the
    user's request still applies.
 10. Verify final semantic state and rendered pixels before completion.
 
 Do not acknowledge an event by guessing from `summary`. The summary is for
-orientation; `describe()` is authoritative.
+orientation; `describe` is authoritative.
 
 ## Revision Safety
 
 Use optimistic concurrency and treat stale-revision rejection as a required
 safety boundary:
 
-```javascript
-const before = await ai.describe({includePositions: true});
-
-const after = await ai.apply({
-  expectedRevision: before.collaboration.revision,
-  display: {atomRadiusScale: 0.72}
-});
+```bash
+v_ase api "$COMMAND_URL" describe \
+  --params '{"includePositions":true}'
+v_ase api "$COMMAND_URL" apply --params \
+  '{"expectedRevision":CURRENT_REVISION,"display":{"atomRadiusScale":0.72}}'
 ```
 
 If the human changes the GUI between `describe()` and `apply()`, v_ase rejects
@@ -153,12 +152,12 @@ review the human change, then construct a new command from the new revision.
 A workspace-scoped stream reports changes from every v_ase tab. Use the event's
 `session_id` and `document_revision`, not only the active tab:
 
-```javascript
-const documents = await ai.documents();
-if (documents.activeSessionId !== event.session_id) {
-  await ai.activate(event.session_id);
-}
-const current = await ai.describe({includePositions: true});
+```bash
+v_ase api "$COMMAND_URL" documents
+v_ase api "$COMMAND_URL" activate \
+  --params '{"sessionId":"EVENT_SESSION_ID"}'
+v_ase api "$COMMAND_URL" describe \
+  --params '{"includePositions":true}'
 ```
 
 Each tab keeps independent structure, trajectory, camera, selection, history,
@@ -202,5 +201,6 @@ commands and exports.
   not recreate it without user intent.
 - event summary and semantic state disagree: trust semantic state and report
   the discrepancy.
-- browser control is unavailable: keep the CLI alive and reconnect to
-  `human_url`; do not substitute screenshot-derived coordinates.
+- HTTP 409 or browser disconnected: keep the CLI alive, open or reconnect
+  `human_url`, wait for the viewport, then retry. Do not substitute
+  screenshot-derived coordinates.

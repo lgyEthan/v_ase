@@ -20,19 +20,31 @@
 `v_ase gui STRUCTURE --cli` launches the application. The first stdout line is
 the JSON handshake; later stdout lines are revisioned collaboration events.
 It does not read commands from stdin and does not accept natural language. An
-external agent opens `human_url` and evaluates structured commands against the
-reported `window.v_aseAI` browser object.
+external agent opens `human_url`, then POSTs commands through `command_url`.
+The supported terminal client is:
 
-```javascript
-const ai = window.v_aseAI;
-await ai.ready();
-const capabilities = await ai.capabilities();
+```bash
+v_ase api "$COMMAND_URL" ready
+v_ase api "$COMMAND_URL" schema
+v_ase api "$COMMAND_URL" capabilities
+v_ase api "$COMMAND_URL" describe --params '{"includePositions":false}'
 ```
+
+Every request sends `{"method":METHOD,"params":VALUE}` and returns one envelope
+whose semantic value is under `result`. Use `--params-file` for complex JSON
+and `--save OUTPUT` for render/export data URLs. The optional
+`window.v_aseAI` object exposes the same method names for controllers that can
+reliably evaluate page-main-world JavaScript. Do not require that access.
+
+The examples below use `ai.method(...)` as concise method-and-parameter
+notation. A vendor-neutral agent must send the same method and parameter object
+with `v_ase api`.
 
 `ready()` returns protocol, readiness, session ID, document name, and current
 collaboration revision.
-`capabilities()` returns supported state fields, command groups, operations,
-and exports.
+`schema` returns the live `apply` JSON Schema plus `operation_parameters` and
+`export_parameters`. `capabilities()` returns supported state fields, command
+groups, operations, exports, `schemaUrl`, and the same parameter maps.
 
 Read [Live Human-Agent Collaboration](collaboration.md) before sharing control
 with a human. It defines the NDJSON event fields, multi-tab routing, and
@@ -40,14 +52,15 @@ revision conflict behavior.
 
 ## State
 
-```javascript
-const state = await ai.describe({includePositions: true});
+```bash
+v_ase api "$COMMAND_URL" describe \
+  --params '{"includePositions":true}'
 ```
 
 `describe()` returns document name, View/Edit mode, frame and frame count, atom
 count, labels, ASE elements, atomic numbers, positions, cell, PBC, constraints,
-forces, charges, tags, magnetic moments, selection references, measurements,
-display settings, camera, image export profile, and
+forces, calculator attachment/name/details, charges, tags, magnetic moments,
+selection references, measurements, display settings, camera, image export profile, and
 `collaboration.revision`.
 
 Use `includePositions: false` for metadata-only inspection of a very large
@@ -73,8 +86,8 @@ count, and render dimensions where applicable.
 | `selection` | Replace or extend atom/replica selection |
 | `operation` | One semantic structure or analysis operation |
 
-Do not send unknown keys. Use `capabilities()` and `schema_url` as the current
-authority. Read `collaboration.revision` immediately before a mutation and pass
+Do not send unknown keys. Use `schema`, `capabilities()`, and `schema_url` as
+the current authority. Read `collaboration.revision` immediately before a mutation and pass
 it as `expectedRevision`:
 
 ```javascript
@@ -168,7 +181,7 @@ Pass `operation` as a name string or object:
 | `add-atom` | `label`/`element`, `position` | Add one atom |
 | `delete-selection` | selection or `indices` | Delete and remap constraints |
 | `set-identity` | selection/`indices`, `label`, optional `element` | Set visual label and optional ASE element |
-| `set-constraints` | selection/`indices`, constraint fields | Edit supported constraints |
+| `set-constraints` | selection/`indices`; `fixAtoms`; `kind` = `fixed_line`/`fixed_plane`; `vector`; `clearDirectional` | Edit supported constraints |
 | `move-selection` | `vector` | Translate selected atoms |
 | `rotate-selection` | `axis`, `angleDeg`, optional `pivot` | Rotate selected atoms |
 | `undo` / `redo` | none | Traverse structure or visualization-setting history |
@@ -345,26 +358,26 @@ moves both endpoints.
 
 `render()` uses the exact image-export camera and aspect ratio:
 
-```javascript
-const image = await ai.render({
-  format: "webp",
-  width: 3840,
-  height: 2160,
-  options: {
-    transparentBackground: false,
-    backgroundColor: "#ffffff",
-    includeGrid: false,
-    includeAxes: false,
-    includeCell: true,
-    scaleMode: "viewport",
-    sphereQuality: "ultra",
-    sphereQualityScale: 1.25,
-    renderMode: "studio-shadow",
-    sunIntensity: 2.4,
-    sunPosition: [8, -10, 14],
-    sunTarget: [0, 0, 0]
+```bash
+v_ase api "$COMMAND_URL" render --save figure.webp --params '{
+  "format":"webp",
+  "width":3840,
+  "height":2160,
+  "options":{
+    "transparentBackground":false,
+    "backgroundColor":"#ffffff",
+    "includeGrid":false,
+    "includeAxes":false,
+    "includeCell":true,
+    "scaleMode":"viewport",
+    "sphereQuality":"ultra",
+    "sphereQualityScale":1.25,
+    "renderMode":"studio-shadow",
+    "sunIntensity":2.4,
+    "sunPosition":[8,-10,14],
+    "sunTarget":[0,0,0]
   }
-});
+}'
 ```
 
 PNG is the default. Use WebP for compact lossless output, JPEG for compact
@@ -378,8 +391,9 @@ effective options. Decode and inspect it; do not crop a page screenshot.
 
 ## Export
 
-```javascript
-const result = await ai.export({format: "poscar"});
+```bash
+v_ase api "$COMMAND_URL" export --params '{"format":"poscar"}' \
+  --save POSCAR
 ```
 
 Supported formats:
@@ -399,49 +413,56 @@ Supported formats:
 
 Standalone HTML:
 
-```javascript
-const sharedView = await ai.export({
-  format: "html",
-  embedProject: true
-});
-if (
-  sharedView.mimeType !== "text/html"
-  || !sharedView.filename.endsWith(".html")
-  || sharedView.bytes <= 0
-) {
-  throw new Error("Standalone HTML export failed validation.");
-}
+```bash
+v_ase api "$COMMAND_URL" export --save shared-view.html --params '{
+  "format":"html",
+  "width":1920,
+  "height":1080,
+  "embedProject":false,
+  "options":{
+    "includeGrid":false,
+    "includeAxes":true,
+    "includeCell":true
+  }
+}'
 ```
 
 The returned data URL is one offline document with no CDN dependency. It
 allows camera navigation and trajectory playback but exposes no editing or
-settings controls. `embedProject` defaults to `true`; keep it enabled for
-lossless `.vase` recovery or set it to `false` for a smaller view-only file.
+settings controls. HTML uses the same export-camera composition as image and
+video. Grid defaults off; axes and unit cell default on. `embedProject`
+defaults to `false` for a smaller view-only file. Set it to `true` only when
+lossless `.vase` recovery is required; the human **HTML Project** action uses
+that embedded mode by default.
 Decode the data URL, open it from `file://`, wait for
 `window.v_aseStandalone.ready`, verify `document.body.dataset.viewOnly` is
 `"true"`, and reject any HTTP/HTTPS request before reporting success. For
 embedded mode, also verify `window.v_aseStandalone.hasEmbeddedProject` and
 reopen the written file with `v_ase gui FILE.html`.
+The document also carries the exact rendered frame as a static poster, so
+macOS Finder/Quick Look can preview it without executing JavaScript. In a
+browser the first pointer, wheel, or keyboard interaction reveals the live
+WebGL viewer.
 
 Video:
 
-```javascript
-const movie = await ai.export({
-  format: "video",
-  container: "mov",
-  width: 1920,
-  height: 1080,
-  fps: 30,
-  interpolationMultiplier: 2,
-  interpolationMic: true,
-  options: {
-    includeGrid: false,
-    includeAxes: false,
-    includeCell: true,
-    renderMode: "studio-shadow",
-    sphereQuality: "high"
+```bash
+v_ase api "$COMMAND_URL" export --save trajectory.mov --timeout 1800 --params '{
+  "format":"video",
+  "container":"mov",
+  "width":1920,
+  "height":1080,
+  "fps":30,
+  "interpolationMultiplier":2,
+  "interpolationMic":true,
+  "options":{
+    "includeGrid":false,
+    "includeAxes":false,
+    "includeCell":true,
+    "renderMode":"studio-shadow",
+    "sphereQuality":"high"
   }
-});
+}'
 ```
 
 For `N` source frames and multiplier `m`, output contains
@@ -452,10 +473,10 @@ elements, and labels.
 
 On the workspace page:
 
-```javascript
-const docs = await ai.documents();
-await ai.activate(docs[0].sessionId);
-await ai.newDocument();
+```bash
+v_ase api "$COMMAND_URL" documents
+v_ase api "$COMMAND_URL" activate --params '{"sessionId":"SESSION_ID"}'
+v_ase api "$COMMAND_URL" newDocument
 ```
 
 Each document has independent structure, trajectory, display, camera, history,

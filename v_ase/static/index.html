@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.118&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.119&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.118';
+            : '/static/vendor/three.module.js?v=0.0.119';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -68,7 +68,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.118</span>
+            <span class="version">0.0.119</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -809,56 +809,70 @@
 
         <section class="panel-section export-section" data-panel="export" data-panel-group="export">
             <div class="section-header static-header">Export</div>
-            <button id="btn-export-poscar" class="btn-block" data-requires-atoms>Export POSCAR</button>
-            <button id="btn-export-pickle" class="btn-block" data-requires-atoms>Export ASE Pickle</button>
-            <div class="prop-row">
-                <label for="blender-export-mode">Blender atoms</label>
-                <select id="blender-export-mode">
-                    <option value="instanced" selected>Optimized instances</option>
-                    <option value="objects">Individual objects</option>
-                </select>
+            <div class="export-group">
+                <div class="panel-subhead">Structure data</div>
+                <div class="btn-stack-row two">
+                    <button id="btn-export-poscar" data-requires-atoms>POSCAR</button>
+                    <button id="btn-export-pickle" data-requires-atoms>ASE Pickle</button>
+                </div>
             </div>
-            <label class="check-row" for="export-include-cell">
-                <span>Include unit cell</span>
-                <input type="checkbox" id="export-include-cell" checked>
-            </label>
-            <button id="btn-export-blender" class="btn-block" data-requires-atoms>Export Blender</button>
-            <div class="btn-stack-row two">
-                <button id="btn-export-3dm" data-requires-atoms title="Editable Rhino 3DM scene; requires the optional rhino3dm package">Export 3DM</button>
-                <button id="btn-export-obj" data-requires-atoms title="Dependency-free OBJ, MTL, and camera/metadata bundle">Export OBJ</button>
+
+            <div class="export-group">
+                <div class="panel-subhead">3D scene</div>
+                <div class="prop-row">
+                    <label for="blender-export-mode">Blender atoms</label>
+                    <select id="blender-export-mode">
+                        <option value="instanced" selected>Optimized instances</option>
+                        <option value="objects">Individual objects</option>
+                    </select>
+                </div>
+                <label class="check-row" for="export-include-cell">
+                    <span>Include unit cell</span>
+                    <input type="checkbox" id="export-include-cell" checked>
+                </label>
+                <button id="btn-export-blender" class="btn-block" data-requires-atoms>Blender Script</button>
+                <div class="btn-stack-row two">
+                    <button id="btn-export-3dm" data-requires-atoms title="Editable Rhino 3DM scene; requires the optional rhino3dm package">Rhino 3DM</button>
+                    <button id="btn-export-obj" data-requires-atoms title="Dependency-free OBJ, MTL, and camera/metadata bundle">OBJ Bundle</button>
+                </div>
             </div>
-            <button id="btn-export-html" class="btn-block" data-requires-atoms
-                    title="Self-contained offline 3D view with optional editable project recovery">
-                Export HTML View
-            </button>
-            <p class="panel-note cad-export-note">
-                The unit-cell option applies to Blender, 3DM, OBJ, image, and video output. HTML View preserves the live viewport and trajectory in an offline, view-only page; project recovery is optional.
-            </p>
-            <div class="relax-grid">
-                <label>image W</label>
-                <input type="number" id="image-width" value="1920" step="128" min="256">
-                <label>image H</label>
-                <input type="number" id="image-height" value="1080" step="128" min="256">
-            </div>
-            <div class="btn-stack-row two export-image-actions">
-                <button id="btn-preview-image" class="export-preview-toggle" type="button" aria-pressed="false" data-requires-atoms>
+
+            <div class="export-group rendered-output-group">
+                <div class="panel-subhead">Rendered media</div>
+                <p class="panel-note">
+                    Image, video, and HTML use one shared camera crop. Preview Area is the exact composition for all three.
+                </p>
+                <div class="relax-grid export-dimensions">
+                    <label for="image-width">Width</label>
+                    <input type="number" id="image-width" value="1920" step="128" min="256" max="8192">
+                    <label for="image-height">Height</label>
+                    <input type="number" id="image-height" value="1080" step="128" min="256" max="8192">
+                </div>
+                <button id="btn-preview-image" class="btn-block export-preview-toggle" type="button"
+                        aria-pressed="false" data-requires-atoms>
                     <svg viewBox="0 0 20 16" aria-hidden="true">
                         <path d="M2.5 2.5h15v11h-15z"></path>
                         <path d="M5 2.5v2M15 2.5v2M5 11.5v2M15 11.5v2"></path>
                     </svg>
                     <span>Preview Area</span>
                 </button>
-                <button id="btn-export-image" data-requires-atoms>Export Image</button>
+                <div class="btn-stack-row two export-image-actions">
+                    <button id="btn-export-image" data-requires-atoms>Image</button>
+                    <button id="btn-export-video" data-requires-atoms disabled>Video</button>
+                </div>
+                <button id="btn-export-html" class="btn-block" data-requires-atoms
+                        title="Self-contained offline 3D view with optional editable project recovery">
+                    HTML View
+                </button>
             </div>
-            <button id="btn-export-video" class="btn-block" data-requires-atoms disabled>Export Video</button>
         </section>
 
         <section class="panel-section utility-section" data-panel="project" data-panel-group="export">
             <div class="section-header static-header">v_ase Project</div>
-            <p class="panel-note">Save the complete working structure, trajectory, cell, constraints, labels, and visual setup as a compact .vase project or a browser-ready HTML project.</p>
+            <p class="panel-note">Save the complete editable structure, trajectory, constraints, labels, camera, and visual setup.</p>
             <div class="btn-stack-row two">
                 <button id="btn-save-project" data-requires-atoms>Save .vase</button>
-                <button id="btn-save-project-html" data-requires-atoms>Save HTML</button>
+                <button id="btn-save-project-html" data-requires-atoms>HTML Project</button>
             </div>
             <button id="btn-load-project" class="btn-block">Open Project</button>
             <input type="file" id="project-file" class="hidden" accept=".vase,.html,.htm,application/vnd.v-ase.project+zip,text/html">
@@ -888,7 +902,7 @@
             </div>
             <div>
                 <strong>HTML View</strong>
-                <span>A self-contained offline 3D viewer. Choose a smaller view-only file or embed the complete .vase project for lossless recovery.</span>
+                <span>A self-contained offline 3D viewer using the exact Preview Area crop. Lightweight view-only is the default; complete .vase recovery is optional.</span>
             </div>
             <div>
                 <strong>ASE Pickle</strong>
@@ -896,7 +910,7 @@
             </div>
             <div>
                 <strong>v_ase Project</strong>
-                <span>Save the complete working state as compact .vase, or as HTML with optional embedded .vase recovery.</span>
+                <span>Save the complete working state as compact .vase, or as an HTML Project with embedded .vase recovery enabled by default.</span>
             </div>
             <div>
                 <strong>Visual Settings</strong>
@@ -992,6 +1006,8 @@
                     <span>Reusable display preset: bonds, appearance, camera, lighting, quality, and supercell preview. Atomic coordinates are not included.</span>
                     <strong>v_ase Project (.vase)</strong>
                     <span>Complete working state: structures or trajectory, current frame, coordinates, cell, constraints, labels, cached results, and visual setup.</span>
+                    <strong>HTML View / HTML Project</strong>
+                    <span>Both use the image/video Preview Area crop. HTML View is lightweight by default; HTML Project embeds complete .vase recovery by default.</span>
                 </div>
             </div>
             <div class="modal-actions">
@@ -1012,7 +1028,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.118&rev=1';
+            : './static/main.js?v=0.0.119&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

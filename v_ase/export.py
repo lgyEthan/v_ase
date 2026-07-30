@@ -4,6 +4,7 @@ from ase.io import write
 from ase.calculators.singlepoint import SinglePointCalculator
 from ase.geometry import find_mic
 import base64
+import binascii
 import copy
 import html
 import io
@@ -611,6 +612,71 @@ def _base64_text(source: bytes | str) -> str:
     return base64.b64encode(source).decode("ascii")
 
 
+def _validated_html_poster(value: Any) -> str:
+    source = str(value or "").strip()
+    match = re.fullmatch(
+        r"data:image/(png|webp|jpeg);base64,([A-Za-z0-9+/=\s]+)",
+        source,
+        flags=re.I,
+    )
+    if not match:
+        return ""
+    encoded = re.sub(r"\s+", "", match.group(2))
+    try:
+        decoded = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error):
+        return ""
+    if not decoded or len(decoded) > 24 * 1024 * 1024:
+        return ""
+    subtype = match.group(1).lower()
+    return f"data:image/{subtype};base64,{encoded}"
+
+
+def _html_export_profile(value: Any, settings: Dict[str, Any]) -> Dict[str, Any]:
+    source = value if isinstance(value, dict) else {}
+    def dimension(name: str, fallback: int) -> int:
+        try:
+            parsed = int(source.get(name) or fallback)
+        except (TypeError, ValueError):
+            parsed = fallback
+        return max(256, min(8192, parsed))
+
+    width = dimension("width", 1920)
+    height = dimension("height", 1080)
+    options = source.get("options") if isinstance(source.get("options"), dict) else {}
+    normalized_options = dict(options)
+    normalized_options.update({
+        "includeGrid": options.get("includeGrid") is True,
+        "includeAxes": options.get("includeAxes") is not False,
+        "includeCell": options.get("includeCell") is not False,
+        "transparentBackground": False,
+    })
+    composition = (
+        source.get("composition")
+        if isinstance(source.get("composition"), dict)
+        else {}
+    )
+    if not isinstance(composition.get("camera"), dict):
+        camera = settings.get("camera") if isinstance(settings, dict) else None
+        if isinstance(camera, dict):
+            composition = {
+                "schema": "v_ase.export-composition.v1",
+                "width": width,
+                "height": height,
+                "aspect": width / height,
+                "options": normalized_options,
+                "camera": camera,
+            }
+    return {
+        "kind": "html",
+        "width": width,
+        "height": height,
+        "aspect": width / height,
+        "options": normalized_options,
+        "composition": composition,
+    }
+
+
 def _safe_export_stem(value: Any, fallback: str = "v_ase_view") -> str:
     source = Path(str(value or "")).name
     source = re.sub(r"\.(?:vase|vasp|poscar|contcar|cif|xyz|extxyz|traj|html?)$", "", source, flags=re.I)
@@ -620,37 +686,53 @@ def _safe_export_stem(value: Any, fallback: str = "v_ase_view") -> str:
 
 def export_html_response(session, payload: Dict[str, Any]):
     """Build one offline, view-only HTML document with optional project recovery."""
-    from .project import PROJECT_SCHEMA, read_project_archive, write_project_archive
+    from .project import (
+        PROJECT_SCHEMA,
+        normalize_visual_settings,
+        session_project_frames,
+        write_project_archive,
+    )
 
-    settings = payload.get("settings") or {}
+    settings = normalize_visual_settings(payload.get("settings") or {})
     document_name = Path(str(payload.get("document_name") or "v_ase view")).name
-    embed_project = payload.get("embed_project", True) is not False
-    project_file = tempfile.NamedTemporaryFile(delete=False, suffix=".vase")
-    project_file.close()
-    try:
-        write_project_archive(
-            project_file.name,
-            session,
-            settings,
-            current_positions=payload.get("positions"),
-        )
-        project_bytes = Path(project_file.name).read_bytes()
-        project = read_project_archive(project_file.name)
-    finally:
+    embed_project = payload.get("embed_project") is True
+    frame_objects = session_project_frames(
+        session,
+        current_positions=payload.get("positions"),
+    )
+    current_frame = max(
+        0,
+        min(int(getattr(session, "current_frame", 0)), len(frame_objects) - 1),
+    )
+    project_bytes = b""
+    if embed_project:
+        project_file = tempfile.NamedTemporaryFile(delete=False, suffix=".vase")
+        project_file.close()
         try:
-            os.unlink(project_file.name)
-        except OSError:
-            pass
+            write_project_archive(
+                project_file.name,
+                session,
+                settings,
+                current_positions=payload.get("positions"),
+            )
+            project_bytes = Path(project_file.name).read_bytes()
+        finally:
+            try:
+                os.unlink(project_file.name)
+            except OSError:
+                pass
 
-    frames = [atoms_to_json(frame) for frame in project.frames]
+    frames = [atoms_to_json(frame) for frame in frame_objects]
     selection = []
     for value in payload.get("selection") or []:
         try:
             index = int(value)
         except (TypeError, ValueError):
             continue
-        if 0 <= index < len(project.frames[project.current_frame]):
+        if 0 <= index < len(frame_objects[current_frame]):
             selection.append(index)
+    export_profile = _html_export_profile(payload.get("export_profile"), settings)
+    poster_data_url = _validated_html_poster(payload.get("poster_data_url"))
     scene = {
         "schema": HTML_VIEW_SCHEMA,
         "createdWith": {"application": "v_ase", "version": __version__},
@@ -662,19 +744,28 @@ def export_html_response(session, payload: Dict[str, Any]):
             else ""
         ),
         "projectSchema": PROJECT_SCHEMA if embed_project else None,
-        "currentFrame": project.current_frame,
-        "settings": project.settings,
+        "currentFrame": current_frame,
+        "settings": settings,
+        "exportProfile": export_profile,
+        "hasPoster": bool(poster_data_url),
         "selection": sorted(set(selection)),
         "frames": frames,
-        "displacements": _html_view_displacements(project.frames, project.settings),
+        "displacements": _html_view_displacements(frame_objects, settings),
     }
 
     static_dir = Path(__file__).with_name("static")
     template = (static_dir / "standalone.html").read_text(encoding="utf-8")
+    export_width = int(export_profile["width"])
+    export_height = int(export_profile["height"])
+    export_aspect = export_width / max(1, export_height)
     replacements = {
         "{{V_ASE_VERSION}}": html.escape(__version__, quote=True),
         "{{DOCUMENT_TITLE}}": html.escape(document_name, quote=True),
         "{{STANDALONE_CSS}}": (static_dir / "standalone.css").read_text(encoding="utf-8"),
+        "{{VIEWER_FRAME_STYLE}}": (
+            f"aspect-ratio:{export_width}/{export_height};"
+            f"width:min(100%,calc((100vh - 60px)*{export_aspect:.10f}));"
+        ),
         "{{SCENE_DATA_BASE64}}": _base64_text(
             json.dumps(
                 scene,
@@ -684,6 +775,8 @@ def export_html_response(session, payload: Dict[str, Any]):
             )
         ),
         "{{PROJECT_DATA_BASE64}}": _base64_text(project_bytes) if embed_project else "",
+        "{{POSTER_DATA_URL}}": poster_data_url,
+        "{{POSTER_HIDDEN}}": "" if poster_data_url else "hidden",
         "{{THREE_SOURCE_BASE64}}": _base64_text(
             (static_dir / "vendor" / "three.module.js").read_bytes()
         ),

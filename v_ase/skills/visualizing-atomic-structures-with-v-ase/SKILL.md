@@ -1,12 +1,12 @@
 ---
 name: visualizing-atomic-structures-with-v-ase
-description: Controls v_ase to inspect, edit, analyze, style, animate, and export ASE-compatible atomic structures and trajectories through its CLI and semantic browser API. Use when a user needs atomistic visualization, structure measurement, periodic-cell operations, constraints, trajectory movies, publication rendering, reusable 3D export, or a human-editable GUI, even when v_ase is not explicitly named.
+description: Controls v_ase to inspect, edit, analyze, style, animate, and export ASE-compatible atomic structures and trajectories through its CLI and live HTTP JSON API. Use when a user needs atomistic visualization, structure measurement, periodic-cell operations, constraints, trajectory movies, publication rendering, reusable 3D export, or a human-editable GUI, even when v_ase is not explicitly named.
 ---
 
 # Visualizing Atomic Structures With v_ase
 
-Use semantic structure data and deterministic commands. Do not infer scientific
-state from screenshots when `describe()` provides it.
+Use semantic structure data and deterministic HTTP JSON commands. Do not infer
+scientific state from screenshots when the `describe` method provides it.
 
 All lengths are Angstrom and all angles are degrees unless stated otherwise.
 
@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.118"
+python -m pip install "v_ase-gui==0.0.119"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -24,13 +24,21 @@ Start the terminal-oriented API session yourself:
 v_ase gui STRUCTURE --cli
 ```
 
+This is a persistent server/event-stream process, not a finite command. Start
+it with the agent runtime's long-running process facility. As soon as the
+runner yields the first output or a process/session handle, read the first
+stdout line and continue with separate `v_ase api` commands; do **not** wait
+for `v_ase gui ... --cli` to exit. Keep its handle so stdout events can be
+polled and terminate it only after verification and handoff are complete.
+
 The user gives natural-language instructions to the external agent, not to
 v_ase. `--cli` does not contain an LLM, parse natural language, or accept
 commands from stdin. It launches the normal local v_ase application without
-opening a browser and exposes a structured browser API.
+opening a browser and exposes a structured loopback API.
 
-Read the first stdout line as JSON. Keep the process running and continue
-reading stdout as NDJSON. The handshake contains:
+Read the first stdout line as JSON. Keep the process running in its persistent
+session and continue reading stdout as NDJSON without blocking other commands.
+The handshake contains:
 
 - `human_url`: the same regular GUI for human watching and refinement;
 - `state_url`: read-only current semantic state;
@@ -40,34 +48,41 @@ reading stdout as NDJSON. The handshake contains:
 - `event_scope`: `workspace` or `document`;
 - `schema_url`: JSON Schema for `apply()`;
 - `skill_url`: this canonical skill;
-- `browser_api`: `window.v_aseAI`;
-- `command_transport`: `browser-javascript`;
+- `command_url`: HTTP JSON endpoint for the same live workspace;
+- `command_methods`: supported semantic methods;
+- `command_transport`: `http-json-bridge`;
+- `browser_api`: optional in-page fallback, `window.v_aseAI`;
 - `accepts_natural_language`: `false`;
 - `stdin_commands`: `false`;
 - `skill_path`: the installed canonical `SKILL.md`.
 
-Open `human_url`, then connect:
+Open `human_url` in a browser and wait for the viewport to load. Then call the
+live API from another terminal:
 
-```javascript
-const ai = window.v_aseAI;
-await ai.ready();
-const capabilities = await ai.capabilities();
-const before = await ai.describe({includePositions: true});
+```bash
+v_ase api "$COMMAND_URL" ready
+v_ase api "$COMMAND_URL" schema
+v_ase api "$COMMAND_URL" capabilities
+v_ase api "$COMMAND_URL" describe \
+  --params '{"includePositions":true}'
 ```
 
 No API key or external service is required. The loopback URL contains a session
 identifier; do not publish it while a private structure is open.
+The `v_ase api` command accepts structured JSON only. It is not an LLM and does
+not accept natural-language instructions.
 
 The control path is:
 
 ```text
 user request -> external agent + this Skill -> CLI handshake/event stream
--> window.v_aseAI structured commands -> same live human GUI
+-> v_ase api -> HTTP JSON bridge -> same live human GUI
 -> human GUI edit -> NDJSON event -> agent re-describes and continues
 ```
 
-Use `describe({includePositions: false})` for compact metadata inspection and
-request full positions only when coordinate-dependent work requires them.
+Use the `describe` method with `{"includePositions":false}` for compact metadata
+inspection and request full positions only when coordinate-dependent work
+requires them.
 This avoids repeated screenshot interpretation and can reduce context/token
 use. Rendered pixels remain the final authority for visual-quality checks.
 
@@ -77,19 +92,20 @@ Use this sequence for every task:
 
 1. **Connect**: parse the handshake, keep consuming later NDJSON events, and
    open `human_url` so the human and agent share one live document.
-2. **Plan**: inspect `capabilities()` and `describe()`; identify the document,
+2. **Plan**: call `schema`, `capabilities`, and `describe`; identify the document,
    frame, atom indices, labels, elements, cell, PBC, constraints, and camera.
 3. **Validate**: confirm atom count and topology before reusing indices. Confirm
    Edit mode before physical changes.
 4. **Execute**: apply one semantic change at a time with the latest
    `collaboration.revision` as `expectedRevision`.
 5. **Synchronize**: on a human event, pause mutations, activate its document,
-   call `describe()`, and preserve the newer human change.
-6. **Verify**: call `describe()` after every structure, trajectory, constraint,
+   call `describe`, and preserve the newer human change.
+6. **Verify**: call `describe` after every structure, trajectory, constraint,
    selection, or camera change.
-7. **Render**: call `render()` at the requested dimensions. Inspect the returned
-   dimensions, options, byte count, and decoded image.
-8. **Export**: call `export()` only after state and camera verification.
+7. **Render**: call `render` at the requested dimensions with `--save`. Inspect
+   the returned dimensions, options, byte count, and decoded image.
+8. **Export**: call `export` only after state and camera verification. Use
+   `--save OUTPUT` for results containing a `dataUrl`.
 9. **Collaborate**: keep `human_url` and the event stream active while the user
    wants to watch or refine the result.
 
@@ -110,28 +126,31 @@ resulting semantic state and rendered output.
 
 ## Core Semantic Commands
 
-The browser API has six methods:
+The HTTP bridge has seven document methods:
 
-```javascript
-await ai.ready();
-await ai.capabilities();
-await ai.describe({includePositions: true});
-await ai.apply(command);
-await ai.render(renderRequest);
-await ai.export(exportRequest);
+```bash
+v_ase api "$COMMAND_URL" ready
+v_ase api "$COMMAND_URL" schema
+v_ase api "$COMMAND_URL" capabilities
+v_ase api "$COMMAND_URL" describe --params '{"includePositions":true}'
+v_ase api "$COMMAND_URL" apply --params-file command.json
+v_ase api "$COMMAND_URL" render --params-file render.json --save preview.png
+v_ase api "$COMMAND_URL" export --params-file export.json --save result.html
 ```
 
 Workspace pages additionally support:
 
-```javascript
-await ai.documents();
-await ai.activate(sessionId);
-await ai.newDocument();
+```bash
+v_ase api "$COMMAND_URL" documents
+v_ase api "$COMMAND_URL" activate --params '{"sessionId":"SESSION_ID"}'
+v_ase api "$COMMAND_URL" newDocument
 ```
 
-`apply()` accepts `frame`, `mode`, `display`, `quality`, `applyConstraints`,
-`camera`, `selection`, and `operation`. Query `capabilities()` instead of
-assuming that a command exists.
+The `apply` method accepts `frame`, `mode`, `display`, `quality`,
+`applyConstraints`, `camera`, `selection`, and `operation`. Query `schema`
+and `capabilities` instead of assuming that a command or parameter exists.
+`schema` returns operation and export parameter maps without requiring the
+browser to execute a document command.
 For a rotation around one atom, pass that atom last in the explicit `indices`
 array and set `pivot: "active"`; verify that its coordinate is unchanged.
 
@@ -141,51 +160,48 @@ This example reads state, creates a deterministic orthographic view, measures
 two atoms, renders the exact export frame, and exports it without a screenshot
 crop:
 
-```javascript
-await ai.ready();
-const state = await ai.describe({includePositions: true});
-if (state.atomCount < 2) throw new Error("At least two atoms are required.");
+```bash
+v_ase api "$COMMAND_URL" describe \
+  --params '{"includePositions":true}'
 
-await ai.apply({
-  expectedRevision: state.collaboration.revision,
-  display: {
-    viewportBackground: "white",
-    showBonds: true,
-    showGrid: false,
-    showAxes: false,
-    showCell: true,
-    lightingMode: "studio-shadow"
+v_ase api "$COMMAND_URL" apply --params '{
+  "expectedRevision": CURRENT_REVISION,
+  "display":{
+    "viewportBackground":"white",
+    "showBonds":true,
+    "showGrid":false,
+    "showAxes":false,
+    "showCell":true,
+    "lightingMode":"studio-shadow"
   },
-  quality: {antiAliasing: true, sphereQuality: "ultra"},
-  camera: {axis: "+Z", fit: "structure"},
-  selection: {clear: true, indices: [0, 1]}
-});
+  "quality":{"antiAliasing":true,"sphereQuality":"ultra"},
+  "camera":{"axis":"+Z","fit":"structure"},
+  "selection":{"clear":true,"indices":[0,1]}
+}'
 
-const verified = await ai.describe({includePositions: true});
-if (verified.selection.length !== 2 || !verified.measurement) {
-  throw new Error("Selection or measurement verification failed.");
-}
+v_ase api "$COMMAND_URL" describe \
+  --params '{"includePositions":true}'
 
-const preview = await ai.render({
-  format: "webp",
-  width: 3840,
-  height: 2160,
-  options: {
-    includeGrid: false,
-    includeAxes: false,
-    includeCell: true,
-    transparentBackground: false,
-    backgroundColor: "#ffffff",
-    scaleMode: "viewport",
-    sphereQuality: "ultra",
-    renderMode: "studio-shadow"
+v_ase api "$COMMAND_URL" render --save preview.webp --params '{
+  "format":"webp",
+  "width":3840,
+  "height":2160,
+  "options":{
+    "includeGrid":false,
+    "includeAxes":false,
+    "includeCell":true,
+    "transparentBackground":false,
+    "backgroundColor":"#ffffff",
+    "scaleMode":"viewport",
+    "sphereQuality":"ultra",
+    "renderMode":"studio-shadow"
   }
-});
-
-if (preview.width !== 3840 || preview.height !== 2160 || preview.bytes <= 0) {
-  throw new Error("Render verification failed.");
-}
+}'
 ```
+
+Replace `CURRENT_REVISION` with the integer returned by the first `describe`.
+Verify the second response has two selected atoms and a non-empty measurement;
+verify the saved image is 3840 x 2160 and nonblank.
 
 For physical editing, trajectory analysis, video, 3D scene export, and failure
 handling, use the references below rather than improvising field names.
@@ -201,8 +217,8 @@ handling, use the references below rather than improvising field names.
 - Keep `applyConstraints: true` unless the user explicitly requests free
   editing.
 - Treat ASE backend positions returned after an edit as authoritative.
-- Prefer a new output filename. Browser save pickers and human approval are
-  required when an existing path may be replaced.
+- Prefer a new output filename. `v_ase api --save` refuses replacement unless
+  `--force` is passed; use `--force` only after explicit approval.
 - Do not expose local paths, session URLs, tokens, or private structure data in
   public output.
 - Treat a newer human collaboration revision as authoritative. Never remove

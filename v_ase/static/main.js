@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.118&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.118&rev=1';
-import { ASESelection } from './selection.js?v=0.0.118&rev=1';
-import { ASETransform } from './transform.js?v=0.0.118&rev=1';
+import { ASEApi } from './api.js?v=0.0.119&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.119&rev=1';
+import { ASESelection } from './selection.js?v=0.0.119&rev=1';
+import { ASETransform } from './transform.js?v=0.0.119&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.118&rev=1';
+} from './trajectory.js?v=0.0.119&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -6018,6 +6018,11 @@ class VAseApp {
             charges: [...(atoms.charges || [])],
             magneticMoments: [...(atoms.magmoms || [])],
             forces: this.clonePlain(atoms.forces || []),
+            calculator: {
+                attached: Boolean(atoms.metadata?.has_calculator),
+                name: atoms.metadata?.calculator || null,
+                details: this.clonePlain(atoms.metadata?.calculator_details || {})
+            },
             selection: this.aiSelectionSnapshot(),
             measurement: this.getSelectionMeasureText(),
             display: this.clonePlain(this.state.display),
@@ -6055,9 +6060,20 @@ class VAseApp {
         this.completeCameraViewChange('ai-axis-view');
     }
 
-    aiCapabilities() {
+    async aiCapabilities() {
+        const schemaUrl = new URL('/api/ai/schema', window.location.origin).href;
+        let discovery = {};
+        try {
+            const response = await fetch(schemaUrl);
+            if (response.ok) discovery = await response.json();
+        } catch {
+            // The static capability lists below remain usable offline.
+        }
         return {
             protocol: 'v_ase.ai.v1',
+            schemaUrl,
+            operationParameters: this.clonePlain(discovery.operation_parameters || {}),
+            exportParameters: this.clonePlain(discovery.export_parameters || {}),
             state: [
                 'atoms', 'labels', 'elements', 'positions', 'cell', 'pbc',
                 'constraints', 'forces', 'charges', 'tags', 'magnetic-moments',
@@ -6568,13 +6584,27 @@ class VAseApp {
             filename = 'v_ase_obj_scene.zip';
             mimeType = 'application/zip';
         } else if (format === 'html') {
+            const currentProfile = this.currentImageExportProfile();
+            const profile = this.htmlExportProfile({
+                ...currentProfile,
+                width: request.width || currentProfile.width,
+                height: request.height || currentProfile.height,
+                options: {
+                    ...currentProfile.options,
+                    ...this.clonePlain(request.options || {}),
+                    transparentBackground: false
+                }
+            });
+            const rendered = await this.renderHtmlCompositionPreview(profile);
             blob = await this.api.exportHtml(
                 positions,
                 this.designSettingsSnapshot(),
                 this.state.applyConstraints,
                 [...this.state.selected],
                 this.workspaceDocumentTitle(),
-                request.embedProject !== false
+                request.embedProject === true,
+                rendered.contract,
+                rendered.url
             );
             filename = this.htmlViewFilename();
             mimeType = 'text/html';
@@ -6664,7 +6694,7 @@ class VAseApp {
             },
             capabilities: async () => {
                 await app.ready;
-                return app.aiCapabilities();
+                return await app.aiCapabilities();
             },
             apply: async command => {
                 await app.ready;
@@ -6679,6 +6709,67 @@ class VAseApp {
                 return await app.aiExport(request);
             }
         });
+    }
+
+    async postAICommandResult(message, payload) {
+        const target = new URL(String(message.result_url || ''), window.location.origin);
+        if (target.origin !== window.location.origin) {
+            throw new Error('AI command result URL must use the current v_ase origin.');
+        }
+        const response = await fetch(target.href, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+            let detail = `${response.status} ${response.statusText}`;
+            try {
+                const data = await response.json();
+                detail = data.detail || detail;
+            } catch {
+                // Keep the HTTP status when the server returned no JSON detail.
+            }
+            throw new Error(`Could not return AI command result: ${detail}`);
+        }
+    }
+
+    async handleAICommandMessage(message) {
+        if (
+            message?.type !== 'ai_command'
+            || !message.command_id
+            || !message.method
+            || !message.result_url
+        ) {
+            return false;
+        }
+        let payload;
+        try {
+            await this.ready;
+            const bridge = window.v_aseAI || this.createAIBridge();
+            const method = String(message.method);
+            if (typeof bridge[method] !== 'function') {
+                throw new Error(`AI method '${method}' is not available on a document session.`);
+            }
+            const noArgumentMethods = new Set(['ready', 'capabilities']);
+            const result = noArgumentMethods.has(method)
+                ? await bridge[method]()
+                : await bridge[method](message.params ?? {});
+            payload = { ok: true, result };
+        } catch (error) {
+            payload = {
+                ok: false,
+                error: {
+                    name: String(error?.name || 'Error'),
+                    message: String(error?.message || error || 'AI command failed.')
+                }
+            };
+        }
+        try {
+            await this.postAICommandResult(message, payload);
+        } catch (error) {
+            console.error(error);
+        }
+        return true;
     }
 
     designSettingsSnapshot({ includeAtomOverrides = true } = {}) {
@@ -7974,7 +8065,16 @@ class VAseApp {
         window.addEventListener('pagehide', closeSocket, { once: true });
         window.addEventListener('beforeunload', closeSocket, { once: true });
         ws.onmessage = (event) => {
-            const msg = JSON.parse(event.data);
+            let msg;
+            try {
+                msg = JSON.parse(event.data);
+            } catch {
+                return;
+            }
+            if (msg.type === 'ai_command') {
+                void this.handleAICommandMessage(msg);
+                return;
+            }
             if (
                 msg.type === 'video_export_progress'
                 && msg.export_id
@@ -8164,52 +8264,113 @@ class VAseApp {
         actions.querySelector('#modal-close')?.addEventListener('click', () => this.closeModal());
     }
 
-    htmlViewPreviewDataUrl() {
-        const source = this.renderer?.domElement;
-        if (!source || source.width < 2 || source.height < 2) return null;
-        try {
-            this.renderer.renderNow();
-            const maximumWidth = 720;
-            const scale = Math.min(1, maximumWidth / source.width);
-            const preview = document.createElement('canvas');
-            preview.width = Math.max(1, Math.round(source.width * scale));
-            preview.height = Math.max(1, Math.round(source.height * scale));
-            const context = preview.getContext('2d', { alpha: false });
-            if (!context) return null;
-            context.drawImage(source, 0, 0, preview.width, preview.height);
-            return {
-                url: preview.toDataURL('image/png'),
-                aspect: source.width / source.height
-            };
-        } catch (error) {
-            console.warn('Could not prepare the HTML view preview.', error);
-            return null;
+    htmlExportProfile(profile = null) {
+        const source = profile || this.currentImageExportProfile();
+        const normalized = this.normalizedImageExportProfile({
+            ...source,
+            options: {
+                ...source.options,
+                transparentBackground: false,
+                backgroundColor: source.options?.backgroundColor || '#ffffff'
+            }
+        });
+        return {...normalized, kind: 'html'};
+    }
+
+    htmlExportContract(profile = null) {
+        const normalized = this.htmlExportProfile(profile);
+        return {
+            ...normalized,
+            composition: this.renderer.exportCompositionSnapshot(
+                normalized.width,
+                normalized.height,
+                normalized.options
+            )
+        };
+    }
+
+    async renderHtmlCompositionPreview(profile = null) {
+        const contract = this.htmlExportContract(profile);
+        const maximumDimension = 960;
+        const scale = Math.min(
+            1,
+            maximumDimension / Math.max(contract.width, contract.height)
+        );
+        const width = Math.max(1, Math.round(contract.width * scale));
+        const height = Math.max(1, Math.round(contract.height * scale));
+        const options = {...contract.options};
+        if (options.scaleMode === 'physical') {
+            options.pixelsPerAngstrom = Math.max(
+                0.1,
+                Number(options.pixelsPerAngstrom || 100) * scale
+            );
         }
+        const blob = await this.renderer.exportPNGBlob(width, height, options);
+        return {
+            url: await this.blobToDataUrl(blob),
+            aspect: contract.width / Math.max(1, contract.height),
+            width,
+            height,
+            contract
+        };
     }
 
     showHtmlExportModal({ projectSave = false } = {}) {
         const title = projectSave ? 'Save HTML Project' : 'Export HTML View';
         const intro = projectSave
-            ? 'Save the current scene as an offline browser document. Embed the editable project when this HTML must reopen with the complete v_ase state.'
-            : 'Create an offline, view-only 3D document with the current camera, trajectory, styling, bonds, constraints, and analysis overlays.';
-        const previewSnapshot = this.htmlViewPreviewDataUrl();
+            ? 'Save an interactive browser document and, by default, embed the complete editable v_ase project.'
+            : 'Export a lightweight, offline 3D view. It uses the same composition as Preview Area and remains orbitable after opening.';
+        const initialProfile = this.htmlExportProfile();
         this.showModal(`
             <h2>${title}</h2>
             <p class="modal-intro">${intro}</p>
-            <figure class="html-view-preview">
-                <img id="html-export-preview" alt="Current rendered structure preview">
-                <figcaption>Current saved view</figcaption>
-            </figure>
+            <div class="html-export-layout">
+                <figure class="html-view-preview loading">
+                    <img id="html-export-preview" alt="Exact exported HTML structure frame">
+                    <figcaption id="html-export-preview-caption">Shared export frame</figcaption>
+                </figure>
+                <div class="html-export-controls">
+                    <div class="export-section-title">Composition</div>
+                    <div class="export-grid">
+                        <label for="html-export-width">Width</label>
+                        <input id="html-export-width" type="number" min="256" max="8192" step="128"
+                               value="${initialProfile.width}">
+                        <label for="html-export-height">Height</label>
+                        <input id="html-export-height" type="number" min="256" max="8192" step="128"
+                               value="${initialProfile.height}">
+                    </div>
+                    <p class="html-composition-note">
+                        Image, video, and HTML share this camera crop. Preview Area shows the same frame in the viewport.
+                    </p>
+                    <div class="export-section-title">Scene overlays</div>
+                    <label class="check-row" for="html-include-grid">
+                        <span>Include grid</span>
+                        <input id="html-include-grid" type="checkbox"
+                               ${initialProfile.options.includeGrid ? 'checked' : ''}>
+                    </label>
+                    <label class="check-row" for="html-include-axes">
+                        <span>Include axes</span>
+                        <input id="html-include-axes" type="checkbox"
+                               ${initialProfile.options.includeAxes ? 'checked' : ''}>
+                    </label>
+                    <label class="check-row" for="html-include-cell">
+                        <span>Include unit cell</span>
+                        <input id="html-include-cell" type="checkbox"
+                               ${initialProfile.options.includeCell ? 'checked' : ''}>
+                    </label>
+                </div>
+            </div>
             <label class="html-project-option" for="html-embed-project">
-                <input id="html-embed-project" type="checkbox" checked>
+                <input id="html-embed-project" type="checkbox"
+                       ${projectSave ? 'checked' : ''}>
                 <span>
                     <strong>Embed editable .vase project</strong>
-                    <small id="html-embed-project-detail">Lossless reopening in v_ase. The HTML is larger because it also contains the complete project archive.</small>
+                    <small id="html-embed-project-detail"></small>
                 </span>
             </label>
             <div class="html-export-summary" id="html-export-summary">
-                <strong>View + project</strong>
-                <span>Opens directly in a browser and restores like a .vase file when opened in v_ase.</span>
+                <strong></strong>
+                <span></span>
             </div>
         `, `
             <button id="html-export-cancel" class="btn">Cancel</button>
@@ -8217,50 +8378,118 @@ class VAseApp {
         `);
         document.querySelector('#modal-container .modal')?.classList.add('html-export-modal');
         const previewImage = document.getElementById('html-export-preview');
-        if (previewImage && previewSnapshot?.url) {
-            previewImage.src = previewSnapshot.url;
-            previewImage.style.aspectRatio = `${previewSnapshot.aspect}`;
-        } else {
-            previewImage?.closest('.html-view-preview')?.classList.add('unavailable');
-        }
-
+        const previewFigure = previewImage?.closest('.html-view-preview');
+        const previewCaption = document.getElementById('html-export-preview-caption');
         const embed = document.getElementById('html-embed-project');
         const detail = document.getElementById('html-embed-project-detail');
         const summary = document.getElementById('html-export-summary');
-        const syncOption = () => {
-            const enabled = embed?.checked !== false;
+        let previewGeneration = 0;
+        let previewTimer = null;
+
+        const readProfile = () => {
+            const current = this.currentImageExportProfile();
+            return this.htmlExportProfile({
+                ...current,
+                width: Math.max(
+                    256,
+                    Math.min(8192, Number(document.getElementById('html-export-width')?.value) || 1920)
+                ),
+                height: Math.max(
+                    256,
+                    Math.min(8192, Number(document.getElementById('html-export-height')?.value) || 1080)
+                ),
+                options: {
+                    ...current.options,
+                    includeGrid: Boolean(document.getElementById('html-include-grid')?.checked),
+                    includeAxes: Boolean(document.getElementById('html-include-axes')?.checked),
+                    includeCell: Boolean(document.getElementById('html-include-cell')?.checked),
+                    transparentBackground: false
+                }
+            });
+        };
+
+        const syncProjectOption = () => {
+            const enabled = embed?.checked === true;
             if (detail) {
                 detail.textContent = enabled
-                    ? 'Lossless reopening in v_ase. The HTML is larger because it also contains the complete project archive.'
-                    : 'Smaller view-only HTML. It cannot restore editable project state in v_ase.';
+                    ? 'Lossless reopening in v_ase. The file is larger because it also contains the complete project archive.'
+                    : 'Smaller view-only HTML with no editable project archive.';
             }
             if (summary) {
                 summary.innerHTML = enabled
-                    ? '<strong>View + project</strong><span>Opens directly in a browser and restores like a .vase file when opened in v_ase.</span>'
-                    : '<strong>View only</strong><span>Opens directly in a browser, but contains no recoverable .vase project.</span>';
+                    ? '<strong>Interactive view + complete project</strong><span>Opens in a browser and restores all editable state when loaded in v_ase.</span>'
+                    : '<strong>Interactive view only</strong><span>Opens offline in a browser or notebook without recoverable .vase project data.</span>';
             }
         };
-        embed?.addEventListener('change', syncOption);
-        syncOption();
+
+        const refreshPreview = async () => {
+            const generation = ++previewGeneration;
+            const profile = this.setImageExportProfile(readProfile());
+            if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+            previewFigure?.classList.add('loading');
+            previewFigure?.classList.remove('unavailable');
+            if (previewCaption) {
+                previewCaption.textContent = `Shared export frame  ${profile.width} x ${profile.height}`;
+            }
+            try {
+                const rendered = await this.renderHtmlCompositionPreview(profile);
+                if (generation !== previewGeneration || !document.getElementById('html-export-preview')) return;
+                previewImage.src = rendered.url;
+                previewImage.style.aspectRatio = `${rendered.aspect}`;
+                previewFigure?.classList.remove('loading');
+            } catch (error) {
+                if (generation !== previewGeneration) return;
+                console.warn('Could not prepare the exact HTML composition preview.', error);
+                previewFigure?.classList.remove('loading');
+                previewFigure?.classList.add('unavailable');
+            }
+        };
+
+        const schedulePreview = () => {
+            if (previewTimer !== null) window.clearTimeout(previewTimer);
+            previewTimer = window.setTimeout(refreshPreview, 120);
+        };
+        embed?.addEventListener('change', syncProjectOption);
+        ['html-export-width', 'html-export-height'].forEach(id => {
+            document.getElementById(id)?.addEventListener('input', schedulePreview);
+        });
+        ['html-include-grid', 'html-include-axes', 'html-include-cell'].forEach(id => {
+            document.getElementById(id)?.addEventListener('change', schedulePreview);
+        });
+        syncProjectOption();
+        refreshPreview();
+
         document.getElementById('html-export-cancel')?.addEventListener(
             'click',
-            () => this.closeModal(),
+            () => {
+                previewGeneration += 1;
+                if (previewTimer !== null) window.clearTimeout(previewTimer);
+                this.closeModal();
+            },
             { once: true }
         );
         document.getElementById('html-export-confirm')?.addEventListener('click', async () => {
-            const embedProject = embed?.checked !== false;
+            const embedProject = embed?.checked === true;
+            const profile = this.setImageExportProfile(readProfile());
+            previewGeneration += 1;
+            if (previewTimer !== null) window.clearTimeout(previewTimer);
             this.closeModal();
             try {
                 this.applyDisplayOptions();
                 const saved = await this.saveBlobFromAction(
-                    () => this.api.exportHtml(
-                        this.backendPositionsPayload(),
-                        this.designSettingsSnapshot(),
-                        this.state.applyConstraints,
-                        [...this.state.selected],
-                        this.workspaceDocumentTitle(),
-                        embedProject
-                    ),
+                    async () => {
+                        const rendered = await this.renderHtmlCompositionPreview(profile);
+                        return await this.api.exportHtml(
+                            this.backendPositionsPayload(),
+                            this.designSettingsSnapshot(),
+                            this.state.applyConstraints,
+                            [...this.state.selected],
+                            this.workspaceDocumentTitle(),
+                            embedProject,
+                            rendered.contract,
+                            rendered.url
+                        );
+                    },
                     projectSave ? this.htmlProjectFilename() : this.htmlViewFilename(),
                     'text/html',
                     embedProject
@@ -8270,8 +8499,8 @@ class VAseApp {
                 if (saved) {
                     this.toast(
                         embedProject
-                            ? 'HTML saved with its embedded .vase project.'
-                            : 'Lightweight view-only HTML saved without project recovery.',
+                            ? 'HTML saved with its complete embedded .vase project.'
+                            : 'Interactive view-only HTML saved without project data.',
                         'success'
                     );
                 }
@@ -8614,9 +8843,9 @@ class VAseApp {
         return {
             transparentBackground: false,
             backgroundColor: '#ffffff',
-            includeGrid: display.showGrid !== false,
-            includeAxes: display.showAxes !== false,
-            includeCell: display.exportIncludeCell !== false,
+            includeGrid: false,
+            includeAxes: true,
+            includeCell: true,
             scaleMode: display.imageFramingMode === 'physical' ? 'physical' : 'viewport',
             pixelsPerAngstrom,
             sphereQuality: display.imageSphereQuality || 'viewport',

@@ -25,7 +25,12 @@ through the process and operating system.
 `v_ase gui FILE --cli` controls the same workspace a researcher opens through
 `human_url`. The first stdout line is the `v_ase.ai.v1` discovery handshake;
 later lines are compact `v_ase.collaboration.v1` NDJSON events. Commands are
-still structured calls to `window.v_aseAI`, not stdin messages.
+structured HTTP JSON requests to the handshake's `command_url`, not stdin
+messages. `v_ase api` is the supported terminal client; the visible browser
+executes commands against the same live document.
+`v_ase api ... schema` exposes operation and export parameter maps, while
+`capabilities` and `describe` report live features, calculator state, visual
+state, and scientific state.
 
 Each `EditorSession` owns a bounded document event queue and monotonic
 collaboration revision. `EditorWorkspace` merges events from all tabs into a
@@ -405,10 +410,13 @@ the View/Edit visual translation saved in display settings.
 - `.vase`: complete validated project archive.
 - Standalone HTML View: a single offline, view-only document containing
   inlined Three.js/runtime assets plus browser-ready scene and trajectory
-  data. A save-time option embeds the complete validated `.vase` archive for
-  lossless reopening; disabling it produces a smaller view-only file.
+  data. It shares the image/video Preview Area crop, defaults to grid off with
+  axes and unit cell on, and embeds a static Finder/Quick Look poster. The
+  default output is lightweight; a save-time option embeds the complete
+  validated `.vase` archive for lossless reopening.
 - Project save: **Save .vase** writes the compact canonical project, while
-  **Save HTML** opens the same embed-project choice for a browser-ready copy.
+  **HTML Project** defaults to embedding the complete project in a
+  browser-ready copy.
 - Blender: optimized label-group point meshes, Geometry Nodes spheres,
   trajectory shape keys, bonds, optional cell, camera, and Sun.
 - Rhino 3DM: block-instanced atoms/bonds with metadata and saved views; optional

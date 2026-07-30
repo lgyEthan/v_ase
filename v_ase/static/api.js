@@ -900,7 +900,9 @@ export class ASEApi {
         applyConstraint = true,
         selection = [],
         documentName = 'v_ase view',
-        embedProject = true
+        embedProject = false,
+        exportProfile = null,
+        posterDataUrl = null
     ) {
         const body = this.framePayload({
             positions,
@@ -908,8 +910,10 @@ export class ASEApi {
             apply_constraint: applyConstraint,
             selection,
             document_name: documentName,
-            embed_project: embedProject !== false
+            embed_project: embedProject === true
         });
+        if (exportProfile) body.export_profile = exportProfile;
+        if (posterDataUrl) body.poster_data_url = posterDataUrl;
         return await this.request(`/api/export/html/{session_id}`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},

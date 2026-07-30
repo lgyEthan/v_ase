@@ -15,8 +15,10 @@
 These templates are starting points. Preserve the plan, validate, execute, and
 verify sequence even when parameters change.
 
-Every snippet uses this revision-safe helper after connecting to
-`window.v_aseAI`:
+Every JavaScript snippet uses concise method notation. A vendor-neutral agent
+must send the same method and parameter object through `v_ase api`; direct
+`window.v_aseAI` access is only an optional browser-controller shortcut. The
+revision-safe logic is:
 
 ```javascript
 async function applyCurrent(command) {
@@ -37,8 +39,6 @@ v_ase gui structure.vasp --cli
 ```
 
 ```javascript
-const ai = window.v_aseAI;
-await ai.ready();
 const before = await ai.describe({includePositions: false});
 if (!before.atomCount) throw new Error("The structure is empty.");
 
@@ -83,7 +83,9 @@ if (image.width !== 3840 || image.height !== 2160 || image.bytes <= 0) {
 }
 ```
 
-Output: a lossless WebP data URL and the same live view at `human_url`.
+Output: save the lossless WebP with
+`v_ase api "$COMMAND_URL" render ... --save figure.webp`; the same live view
+remains visible at `human_url`.
 
 ## Natural-Language Defect Edit
 

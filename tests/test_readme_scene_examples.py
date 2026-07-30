@@ -342,7 +342,9 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "no screenshot ocr or coordinate guessing is required." in normalized_readme
     assert "v_ase does not contain an llm" in normalized_readme
     assert "does not accept natural language itself" in normalized_readme
-    assert "window.v_aseai" in normalized_readme
+    assert "structured http json commands" in normalized_readme
+    assert "v_ase api" in normalized_readme
+    assert "command_url" in normalized_readme
     assert "same live document" in normalized_readme
     assert "every later stdout line is one compact ndjson event" in normalized_readme
     assert "`expectedrevision`" in normalized_readme

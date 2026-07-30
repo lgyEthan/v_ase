@@ -32,6 +32,15 @@ def ai_handshake(url: str) -> dict[str, object]:
     query = parse_qs(parsed.query)
     session_id = (query.get("session_id") or [None])[0]
     workspace_id = (query.get("workspace_id") or [None])[0]
+    command_url = (
+        f"{base_url}/api/ai/command/workspace/{workspace_id}"
+        if workspace_id
+        else (
+            f"{base_url}/api/ai/command/session/{session_id}"
+            if session_id
+            else None
+        )
+    )
     return {
         "protocol": AI_PROTOCOL,
         "status": "ready",
@@ -55,21 +64,36 @@ def ai_handshake(url: str) -> dict[str, object]:
                 else None
             )
         ),
+        "command_url": command_url,
+        "command_methods": [
+            "ready",
+            "schema",
+            "describe",
+            "capabilities",
+            "documents",
+            "activate",
+            "newDocument",
+            "apply",
+            "render",
+            "export",
+        ],
         "event_protocol": COLLABORATION_PROTOCOL,
         "event_delivery": "ndjson-after-handshake",
         "event_scope": "workspace" if workspace_id else "document",
         "browser_api": "window.v_aseAI",
-        "command_transport": "browser-javascript",
+        "command_transport": "http-json-bridge",
         "accepts_natural_language": False,
         "stdin_commands": False,
         "skill_path": ai_skill_path(),
         "note": (
             "This CLI process launches the session, prints this handshake, "
             "and then emits committed changes as NDJSON. An external agent "
-            "controls the same live document through window.v_aseAI; v_ase "
-            "does not parse natural language or command messages from stdin. "
-            "Open human_url for the normal GUI and call describe() after each "
-            "event for authoritative live state."
+            "opens human_url and controls that same live document by POSTing "
+            "{\"method\": ..., \"params\": ...} to command_url. v_ase does "
+            "not parse natural language or command messages from stdin. "
+            "After each event, POST method describe for authoritative live "
+            "state. state_url contains backend bootstrap data, not every live "
+            "camera or visual setting."
         ),
     }
 
@@ -118,10 +142,11 @@ def stream_collaboration_events(
                     "workspace_id": handshake.get("workspace_id"),
                     "event_scope": handshake.get("event_scope"),
                     "summary": (
-                        "Older collaboration events expired; read state_url "
-                        "or call window.v_aseAI.describe() before continuing."
+                        "Older collaboration events expired; POST method "
+                        "describe to command_url before continuing."
                     ),
                     "state_url": state_url,
+                    "command_url": handshake.get("command_url"),
                 }
                 print(
                     json.dumps(gap_event, separators=(",", ":")),

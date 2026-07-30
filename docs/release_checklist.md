@@ -11,9 +11,10 @@ and rendered examples in sync.
    one-level references for every semantic API, workflow, display, analysis,
    export, dependency, safety rule, or error-handling change.
 4. Validate skill frontmatter, trigger/no-trigger cases, reference links, and
-   capability parity against `window.v_aseAI.capabilities()` and the live
-   schema. If an AI failed because the skill was incomplete, update both the
-   skill and a regression test before release.
+   capability parity against `v_ase api "$COMMAND_URL" capabilities`, the
+   optional `window.v_aseAI.capabilities()` mirror, and the live schema. If an
+   AI failed because the skill was incomplete, update both the skill and a
+   regression test before release.
 5. When rendering or constraint visuals change, run
    `scripts/capture_readme_screenshots.py` and replace every README image and
    animation in both `docs/assets/` and `docs/assets/github/`.
@@ -26,6 +27,10 @@ and rendered examples in sync.
    For standalone HTML, reopen the GUI-downloaded file from `file://`, verify
    view-only navigation and playback at desktop/mobile sizes, extract its
    `.vase`, and assert that it makes no HTTP/HTTPS request.
+   Run a fresh zero-context agent with only the canonical Skill and require it
+   to use the HTTP JSON bridge rather than page-main-world evaluation. Require
+   it to call `schema`, inspect calculator state, exercise every operation and
+   export, verify output contents, and run alone in its own document session.
 7. Run the complete test suite, build wheel and source distribution, and run
    `twine check`.
 8. Push the release commit to GitHub and upload the same version to PyPI.

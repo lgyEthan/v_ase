@@ -2519,6 +2519,34 @@ export class ASERenderer {
         };
     }
 
+    exportCompositionSnapshot(width, height, options = {}) {
+        const exportView = this.exportCameraSetup(width, height, options);
+        const camera = exportView.camera;
+        const projection = camera.isPerspectiveCamera ? 'perspective' : 'orthographic';
+        const orthoScale = camera.isOrthographicCamera
+            ? Math.abs(camera.top - camera.bottom) / Math.max(camera.zoom || 1, 1e-9)
+            : null;
+        return {
+            schema: 'v_ase.export-composition.v1',
+            width: exportView.outputWidth,
+            height: exportView.outputHeight,
+            aspect: exportView.outputWidth / Math.max(1, exportView.outputHeight),
+            options: JSON.parse(JSON.stringify(options || {})),
+            camera: {
+                position: camera.position.toArray(),
+                target: exportView.target.toArray(),
+                up: camera.up.toArray(),
+                projection,
+                fov: camera.fov || 50,
+                zoom: camera.isPerspectiveCamera ? (camera.zoom || 1) : 1,
+                ortho_scale: orthoScale,
+                near: camera.near,
+                far: camera.far,
+                aspect: exportView.outputWidth / Math.max(1, exportView.outputHeight)
+            }
+        };
+    }
+
     setExportPreview(config = {}) {
         const width = Math.max(1, Math.round(Number(config.width) || 1920));
         const height = Math.max(1, Math.round(Number(config.height) || 1080));

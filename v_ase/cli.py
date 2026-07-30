@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import sys
 import time
 from pathlib import Path
+from urllib.parse import unquote_to_bytes, urlsplit
 
 from ase import Atoms
 from ase.io import write
@@ -118,14 +120,158 @@ def build_parser() -> argparse.ArgumentParser:
     )
     gui.set_defaults(func=run_gui, show_bonds=True)
 
+    api = subparsers.add_parser(
+        "api",
+        help="send one structured command to a live v_ase CLI session",
+        description=(
+            "Send a JSON command to command_url from the first line printed by "
+            "`v_ase gui STRUCTURE --cli`. This interface is intended for "
+            "external AI agents and automation; it does not parse natural language."
+        ),
+    )
+    api.add_argument("command_url", help="loopback command_url from the CLI handshake")
+    api.add_argument(
+        "method",
+        choices=[
+            "ready",
+            "schema",
+            "describe",
+            "capabilities",
+            "documents",
+            "activate",
+            "newDocument",
+            "apply",
+            "render",
+            "export",
+        ],
+        help="semantic API method",
+    )
+    params = api.add_mutually_exclusive_group()
+    params.add_argument(
+        "--params",
+        default="{}",
+        help="JSON object/value passed to the method (default: {})",
+    )
+    params.add_argument(
+        "--params-file",
+        type=Path,
+        help="read method parameters from a UTF-8 JSON file",
+    )
+    api.add_argument(
+        "--timeout",
+        type=float,
+        default=300.0,
+        help="browser command timeout in seconds (default: 300; maximum: 1800)",
+    )
+    api.add_argument(
+        "--save",
+        type=Path,
+        help="decode a render/export dataUrl directly to this output file",
+    )
+    api.add_argument(
+        "--force",
+        action="store_true",
+        help="allow --save to replace an existing file",
+    )
+    api.set_defaults(func=run_api_command)
+
     return parser
 
 
 def normalize_argv(argv: list[str] | None) -> list[str]:
     args = list(sys.argv[1:] if argv is None else argv)
-    if args and args[0] not in {"gui", "-h", "--help", "--version"} and not args[0].startswith("-"):
+    if args and args[0] not in {"gui", "api", "-h", "--help", "--version"} and not args[0].startswith("-"):
         return ["gui", *args]
     return args
+
+
+def _load_api_params(args: argparse.Namespace):
+    source = (
+        args.params_file.read_text(encoding="utf-8")
+        if args.params_file is not None
+        else args.params
+    )
+    try:
+        return json.loads(source)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(
+            f"v_ase api: invalid JSON parameters at line {exc.lineno}, "
+            f"column {exc.colno}: {exc.msg}"
+        ) from exc
+
+
+def _decode_data_url(data_url: str) -> bytes:
+    if not isinstance(data_url, str) or not data_url.startswith("data:"):
+        raise ValueError("The command result does not contain a valid data URL.")
+    header, separator, payload = data_url.partition(",")
+    if not separator:
+        raise ValueError("The command result contains a malformed data URL.")
+    if header.endswith(";base64"):
+        return base64.b64decode(payload, validate=True)
+    return unquote_to_bytes(payload)
+
+
+def run_api_command(args: argparse.Namespace) -> int:
+    parsed = urlsplit(args.command_url)
+    if parsed.scheme not in {"http", "https"} or parsed.hostname not in {
+        "127.0.0.1",
+        "localhost",
+        "::1",
+    }:
+        raise SystemExit(
+            "v_ase api: command_url must be a loopback HTTP(S) URL from a "
+            "live v_ase CLI handshake."
+        )
+    if not args.timeout or args.timeout <= 0:
+        raise SystemExit("v_ase api: --timeout must be a positive number.")
+    output_path = args.save.expanduser() if args.save is not None else None
+    if output_path is not None and output_path.exists() and not args.force:
+        raise SystemExit(
+            f"v_ase api: refusing to replace existing file: {output_path}. "
+            "Choose another path or pass --force after explicit approval."
+        )
+
+    import requests
+
+    try:
+        response = requests.post(
+            args.command_url,
+            json={
+                "method": args.method,
+                "params": _load_api_params(args),
+                "timeout_seconds": min(float(args.timeout), 1800.0),
+            },
+            timeout=min(float(args.timeout), 1800.0) + 5.0,
+        )
+    except requests.RequestException as exc:
+        raise SystemExit(f"v_ase api: command request failed: {exc}") from exc
+    if not response.ok:
+        try:
+            detail = response.json().get("detail")
+        except (ValueError, AttributeError):
+            detail = None
+        raise SystemExit(
+            f"v_ase api: command failed ({response.status_code}): "
+            f"{detail or response.text or response.reason}"
+        )
+    payload = response.json()
+    result = payload.get("result")
+    if output_path is not None:
+        if not isinstance(result, dict):
+            raise SystemExit("v_ase api: this command result cannot be saved as a file.")
+        try:
+            encoded = _decode_data_url(result.get("dataUrl"))
+        except (ValueError, TypeError, base64.binascii.Error) as exc:
+            raise SystemExit(f"v_ase api: could not decode command output: {exc}") from exc
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(encoded)
+        result = dict(result)
+        result.pop("dataUrl", None)
+        result["saved_to"] = str(output_path.resolve())
+        result["saved_bytes"] = len(encoded)
+        payload["result"] = result
+    print(json.dumps(payload, separators=(",", ":")), flush=True)
+    return 0
 
 
 def run_gui(args: argparse.Namespace) -> int:

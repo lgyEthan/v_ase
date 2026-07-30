@@ -318,18 +318,18 @@
     <section class="panel agent">
       <div class="panel-label">2 / Structured control</div>
       <h2 class="actor-title">External AI Agent uses the v_ase Skill</h2>
-      <div class="agent-command">v_ase gui STRUCTURE --cli</div>
+      <div class="agent-command">v_ase gui STRUCTURE --cli<br>v_ase api "$command_url" METHOD</div>
       <div class="agent-step">
         <div class="step-number">1</div>
-        <div class="step-copy"><strong>Inspect</strong><span><code>capabilities()</code> and <code>describe()</code></span></div>
+        <div class="step-copy"><strong>Inspect</strong><span>HTTP JSON <code>capabilities</code> and <code>describe</code></span></div>
       </div>
       <div class="agent-step">
         <div class="step-number">2</div>
-        <div class="step-copy"><strong>Apply</strong><span>Typed operations with <code>expectedRevision</code></span></div>
+        <div class="step-copy"><strong>Apply</strong><span>Typed HTTP operations with <code>expectedRevision</code></span></div>
       </div>
       <div class="agent-step">
         <div class="step-number">3</div>
-        <div class="step-copy"><strong>Verify</strong><span>Atom identity, coordinates, cell, camera, and render</span></div>
+        <div class="step-copy"><strong>Verify</strong><span>Semantic state, saved output, and the same live GUI</span></div>
       </div>
     </section>
 
@@ -355,7 +355,7 @@
     </div>
     <div class="resume">
       <strong>Agent re-synchronizes</strong>
-      Read the event, call <code>describe()</code>, respect the new revision, and continue without guessing from pixels.
+      Read the event, call HTTP <code>describe</code>, respect the new revision, and continue without guessing from pixels.
     </div>
   </section>
 </body>

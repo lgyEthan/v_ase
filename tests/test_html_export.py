@@ -1,4 +1,5 @@
 import base64
+import io
 import json
 from pathlib import Path
 import re
@@ -122,6 +123,16 @@ def _html_export_fixture(*, embed_project=True):
         "antiAliasing": True,
         "sphereQuality": "high",
     }
+    poster_buffer = io.BytesIO()
+    Image.new("RGB", (640, 360), (242, 246, 244)).save(
+        poster_buffer,
+        format="PNG",
+        optimize=True,
+    )
+    poster_data_url = (
+        "data:image/png;base64,"
+        + base64.b64encode(poster_buffer.getvalue()).decode("ascii")
+    )
     response = export_html_response(
         session,
         {
@@ -130,6 +141,31 @@ def _html_export_fixture(*, embed_project=True):
             "selection": [1],
             "document_name": "CuO trajectory.extxyz",
             "embed_project": embed_project,
+            "poster_data_url": poster_data_url,
+            "export_profile": {
+                "kind": "html",
+                "width": 1920,
+                "height": 1080,
+                "options": {
+                    "includeGrid": False,
+                    "includeAxes": True,
+                    "includeCell": True,
+                    "transparentBackground": False,
+                    "backgroundColor": "#ffffff",
+                },
+                "composition": {
+                    "schema": "v_ase.export-composition.v1",
+                    "width": 1920,
+                    "height": 1080,
+                    "aspect": 16 / 9,
+                    "options": {
+                        "includeGrid": False,
+                        "includeAxes": True,
+                        "includeCell": True,
+                    },
+                    "camera": settings["camera"],
+                },
+            },
         },
     )
     return response, second, settings
@@ -149,6 +185,9 @@ def test_html_export_is_self_contained_and_embeds_lossless_vase(tmp_path):
     assert "<link rel=\"stylesheet\"" not in html
     assert "connect-src 'none'" in html
     assert "{{" not in html and "}}" not in html
+    assert 'id="standalone-poster"' in html
+    assert 'src="data:image/png;base64,' in html
+    assert "aspect-ratio:1920/1080" in html
 
     scene = json.loads(base64.b64decode(
         _embedded_base64(html, "v-ase-scene-data")
@@ -160,6 +199,12 @@ def test_html_export_is_self_contained_and_embeds_lossless_vase(tmp_path):
     assert len(scene["frames"]) == 2
     assert scene["settings"]["display"]["labelMaterials"]["Cu_surface"] == "metal"
     assert scene["settings"]["camera"]["position"] == settings["camera"]["position"]
+    assert scene["hasPoster"] is True
+    assert scene["exportProfile"]["width"] == 1920
+    assert scene["exportProfile"]["height"] == 1080
+    assert scene["exportProfile"]["options"]["includeGrid"] is False
+    assert scene["exportProfile"]["options"]["includeAxes"] is True
+    assert scene["exportProfile"]["options"]["includeCell"] is True
     assert scene["displacements"][0] is None
     assert scene["displacements"][1]["status"] == "ok"
     np.testing.assert_allclose(scene["displacements"][1]["vectors"][1], [0.25, 0.25, 0.0])
@@ -388,25 +433,45 @@ def test_html_export_button_downloads_an_offline_document_that_reopens(tmp_path)
             page.wait_for_function(
                 "document.querySelector('#btn-export-html')?.getBoundingClientRect().height > 0"
             )
+            page.fill("#image-width", "900")
+            page.fill("#image-height", "900")
+            page.click("#btn-preview-image")
+            page.wait_for_function(
+                "!document.querySelector('#export-preview-frame')?.classList.contains('hidden')"
+            )
+            preview_frame_box = page.locator("#export-preview-frame").bounding_box()
+            assert preview_frame_box
+            assert preview_frame_box["width"] / preview_frame_box["height"] == pytest.approx(
+                1.0,
+                abs=0.01,
+            )
             page.click("#btn-export-html")
             page.locator("#html-export-confirm").wait_for(state="visible")
+            assert page.locator("#html-embed-project").is_checked() is False
+            assert page.locator("#html-include-grid").is_checked() is False
+            assert page.locator("#html-include-axes").is_checked() is True
+            assert page.locator("#html-include-cell").is_checked() is True
+            assert page.locator("#html-export-width").input_value() == "900"
+            assert page.locator("#html-export-height").input_value() == "900"
+            page.wait_for_function("""() => {
+                const figure = document.querySelector('.html-view-preview');
+                const image = document.getElementById('html-export-preview');
+                return figure && !figure.classList.contains('loading')
+                    && image?.src?.startsWith('data:image/png;base64,')
+                    && document.getElementById('html-export-preview-caption')
+                        ?.textContent.includes('900 x 900');
+            }""")
             preview_source = page.locator("#html-export-preview").get_attribute("src")
             assert preview_source and preview_source.startswith("data:image/png;base64,")
             preview_bytes = base64.b64decode(preview_source.split(",", 1)[1])
             preview_path = tmp_path / "html_modal_preview.png"
             preview_path.write_bytes(preview_bytes)
             with Image.open(preview_path) as preview_image:
-                assert preview_image.width >= 640
-                assert preview_image.height >= 300
+                assert preview_image.size == (900, 900)
                 colors = preview_image.convert("RGB").resize((160, 90)).getcolors(
                     maxcolors=160 * 90
                 )
                 assert colors is not None and len(colors) > 20
-            assert page.locator("#html-embed-project").is_checked()
-            page.uncheck("#html-embed-project")
-            assert "Smaller view-only HTML" in page.locator(
-                "#html-embed-project-detail"
-            ).inner_text()
             page.check("#html-embed-project")
             with page.expect_download() as download_info:
                 page.click("#html-export-confirm")
@@ -418,10 +483,39 @@ def test_html_export_button_downloads_an_offline_document_that_reopens(tmp_path)
             offline = browser.new_page(viewport={"width": 1280, "height": 800})
             offline.goto(exported.as_uri(), wait_until="load")
             offline.locator("html[data-v-ase-ready='true']").wait_for(state="attached")
+            offline.locator("#standalone-poster:not([hidden])").wait_for(
+                state="visible"
+            )
             assert offline.locator(".view-only-badge").inner_text() == "VIEW ONLY"
             assert offline.locator("html").get_attribute("data-v-ase-atom-count") == "2"
             assert offline.evaluate("window.v_aseStandalone.scene.frames.length") == 2
+            assert offline.evaluate("window.v_aseStandalone.scene.exportProfile.width") == 900
+            assert offline.evaluate("window.v_aseStandalone.scene.exportProfile.height") == 900
+            assert offline.evaluate(
+                "window.v_aseStandalone.scene.exportProfile.options.includeGrid"
+            ) is False
+            assert offline.evaluate(
+                "window.v_aseStandalone.scene.exportProfile.options.includeAxes"
+            ) is True
+            assert offline.evaluate(
+                "window.v_aseStandalone.scene.exportProfile.options.includeCell"
+            ) is True
             assert offline.locator("#timeline").is_visible()
+            frame_box = offline.locator("#viewer-frame").bounding_box()
+            assert frame_box
+            assert frame_box["width"] / frame_box["height"] == pytest.approx(1.0, abs=0.01)
+            offline_frame = tmp_path / "offline_exact_frame.png"
+            offline.locator("#viewer-frame").screenshot(path=str(offline_frame))
+            with Image.open(preview_path) as expected, Image.open(offline_frame) as actual:
+                expected_pixels = np.asarray(
+                    expected.convert("RGB").resize((256, 256)),
+                    dtype=np.int16,
+                )
+                actual_pixels = np.asarray(
+                    actual.convert("RGB").resize((256, 256)),
+                    dtype=np.int16,
+                )
+            assert np.abs(expected_pixels - actual_pixels).mean() < 18
             before_rotation = offline.evaluate(
                 "window.v_aseStandalone.renderer.camera.quaternion.toArray()"
             )
@@ -432,6 +526,7 @@ def test_html_export_button_downloads_an_offline_document_that_reopens(tmp_path)
                 offline_canvas["y"] + offline_canvas["height"] * 0.5,
             )
             offline.mouse.down(button="left")
+            offline.locator("#standalone-poster[hidden]").wait_for(state="attached")
             offline.mouse.move(
                 offline_canvas["x"] + offline_canvas["width"] * 0.64,
                 offline_canvas["y"] + offline_canvas["height"] * 0.58,

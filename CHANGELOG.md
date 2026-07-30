@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.0.119
+
+- Added a vendor-neutral HTTP JSON command bridge and `v_ase api` client so
+  external agents can control the exact live human GUI without page-main-world
+  JavaScript access. Commands include workspace tabs, semantic edits, render,
+  export, revision conflicts, and protected binary output through `--save`.
+- Added `v_ase api ... schema`, live operation/export parameter discovery, and
+  explicit calculator state in semantic descriptions so a zero-context agent
+  can plan commands without guessing.
+- Reworked standalone HTML export around one shared Preview Area composition.
+  HTML View defaults to a lightweight view-only file with grid off, axes and
+  unit cell on; HTML Project embeds complete `.vase` recovery by default.
+- Added an exact static structure poster to standalone HTML for Finder and
+  Quick Look while retaining offline interactive orbit, pan, zoom, and
+  trajectory playback in a browser.
+- Added automatic Jupyter Notebook/Lab detection to `view()`, rendering the
+  view-only interactive scene inline while ordinary Python continues to open
+  the external GUI.
+- Updated the README, canonical vendor-neutral Skill, compatibility guide,
+  API/features/progress documentation, and release gates for the new CLI,
+  HTML, and notebook contracts.
+
 ## 0.0.118
 
 - Added revisioned same-document human-Agent collaboration. `--cli` now prints

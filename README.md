@@ -86,7 +86,7 @@ browser document releases the blocking terminal process.
 | Repeat or wrap a cell | Use **Structure > Cell & Replication** |
 | Save the whole session | Use **Export > v_ase Project** and choose compact `.vase` or browser-ready HTML |
 | Reuse only the visual style | Use **Export > Save Settings** |
-| Share an offline 3D view | Use **Export HTML View**, then choose whether to embed the editable `.vase` |
+| Share an offline 3D view | Use **Export > Rendered media > HTML View**; the lightweight view-only file is the default |
 | Hand the scene to an AI | Provide the bundled agent skill; the agent starts the CLI/API session itself |
 
 > **Viewport tip:** after selecting atoms, press `Esc` to close the control
@@ -113,9 +113,11 @@ The workflow remains bidirectional:
    revisioned event. The agent re-reads semantic state before continuing, so a
    newer human edit is not silently overwritten.
 
-For live collaboration, the agent automates the visible `human_url` page
-itself; the researcher can use that page between agent commands. A separate
-hidden rendering copy is neither required nor used.
+For live collaboration, the agent sends structured HTTP JSON commands to the
+`command_url` discovered in the CLI handshake. The researcher uses
+`human_url` normally between agent commands; both interfaces address the same
+document. A separate hidden rendering copy and browser-script injection are
+neither required nor used.
 
 For example:
 
@@ -130,8 +132,9 @@ and reports every committed edit to the same GUI session.
 ![Natural-language pyridinic N3 graphene edit](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_edit.gif)
 
 The external agent starts `v_ase gui STRUCTURE --cli`, parses the JSON
-handshake printed by v_ase, and controls the live document with structured
-`window.v_aseAI` commands while listening for GUI-originated NDJSON events. It
+handshake printed by v_ase, opens `human_url`, and controls the live document
+with structured HTTP JSON commands through `v_ase api` while listening for
+GUI-originated NDJSON events. It
 reads atom identities, coordinates, cell, PBC, selection, constraints, camera,
 and collaboration revision directly from semantic state. In this example it
 finds the central site, remaps neighbor indices after deletion, changes three
@@ -447,14 +450,15 @@ the viewport and carried into Blender export.
 | Export Blender | Optimized scene script with atoms, bonds, cell, camera, and Sun |
 | Export 3DM | Instanced Rhino geometry, metadata, and saved camera views |
 | Export OBJ | OBJ/MTL, camera, and metadata in a ZIP |
-| Export HTML View | Offline, view-only 3D document; optionally embed `.vase` recovery |
+| Export HTML View | Offline, view-only 3D document; lightweight by default, with optional `.vase` recovery |
 | Save `.vase` | Compact project with structure/trajectory and complete visual state |
-| Save HTML | Browser-ready project with optional embedded `.vase` recovery |
+| HTML Project | Browser-ready project with complete embedded `.vase` recovery by default |
 | Save Settings | Reusable visual settings without coordinates |
 
-The **Preview Area** is the authoritative image/video frame. Its aspect ratio,
-camera, crop, lighting, atom scale, and included overlays match the export.
-Cell, grid, axes, and background can be included or excluded independently.
+Image, video, and HTML use one shared **Preview Area** composition. Its aspect
+ratio, camera, crop, lighting, atom scale, and included overlays match the
+saved output. HTML View defaults to grid off, axes on, and unit cell on; all
+three overlays can be changed before saving.
 
 The system save picker is opened before expensive rendering or scene
 generation when the browser supports it. Canceling the picker cancels the
@@ -479,10 +483,9 @@ constraints, safe calculator results, camera, appearance, bonds, lighting,
 analysis, and export settings. It is self-contained and never references the
 original input file.
 
-Use **Save HTML** or **Export HTML View** when the result should open directly
-in a browser. Before saving, choose whether to enable **Embed editable .vase
-project**. The save dialog previews the rendered structure that will initialize
-the standalone viewer. Every generated HTML:
+Use **HTML Project** or **HTML View** when the result should open directly in a
+browser. The save dialog shows the exact shared Preview Area crop and lets you
+choose grid, axes, and unit-cell visibility. Every generated HTML:
 
 - opens offline without v_ase, Python, a server, or a CDN;
 - restores the saved camera, viewport styling, bonds, constraint overlays,
@@ -490,9 +493,10 @@ the standalone viewer. Every generated HTML:
 - allows orbit, pan, zoom, frame stepping, and movie playback;
 - exposes no atom, structure, appearance, or project editing controls.
 
-With project embedding enabled, the HTML also includes the complete `.vase`.
-The viewer exposes **Download .vase**, and either command restores the full
-editable project:
+**HTML View** leaves **Embed editable .vase project** off by default and creates
+the smaller view-only handoff. **HTML Project** enables it by default and stores
+the complete `.vase` inside the same HTML. Embedded documents expose
+**Download .vase**, and either command restores the full editable project:
 
 ```bash
 v_ase gui project.vase
@@ -502,6 +506,12 @@ v_ase gui project.html
 With project embedding disabled, the file is smaller and remains a portable
 view-only document. It cannot be restored as an editable v_ase project. v_ase
 reports this explicitly if that lightweight HTML is opened as input.
+
+The exported frame is stored as a static poster as well as an interactive 3D
+scene. macOS Finder/Quick Look therefore shows the structure immediately even
+though Quick Look does not execute the embedded WebGL viewer. Opening the file
+in a browser replaces that poster with orbit, pan, zoom, and trajectory
+controls on the first interaction.
 
 HTML is larger than `.vase` because it contains the browser renderer and
 immediately readable scene data. Embedding adds a Base64 copy of `.vase` on
@@ -527,7 +537,7 @@ The complete path is:
 natural-language request
   -> external AI agent + v_ase Skill
   -> v_ase CLI handshake + continuous change events
-  -> structured window.v_aseAI commands on the live GUI
+  -> structured HTTP JSON commands on the live GUI
   -> ASE-backed state, render, and export results
   -> human GUI refinement -> CLI event -> agent re-synchronization
 ```
@@ -548,6 +558,11 @@ process alive.
 It does not read natural-language or structured commands from stdin, call
 an AI service, or provide an embedded model.
 
+An agent must run this as a persistent process: read the first stdout line as
+soon as its command runner yields, retain the process handle for later events,
+and send `v_ase api` commands separately. Waiting for the launcher to exit
+would wait for the entire collaboration session to end.
+
 The first stdout line has this form:
 
 ```json
@@ -555,6 +570,7 @@ The first stdout line has this form:
   "protocol": "v_ase.ai.v1",
   "status": "ready",
   "human_url": "http://127.0.0.1:xxxxx/workspace?...",
+  "command_url": "http://127.0.0.1:xxxxx/api/ai/command/workspace/xxxx",
   "state_url": "http://127.0.0.1:xxxxx/api/ai/state/xxxx",
   "schema_url": "http://127.0.0.1:xxxxx/api/ai/schema",
   "skill_url": "http://127.0.0.1:xxxxx/api/ai/skill",
@@ -562,8 +578,7 @@ The first stdout line has this form:
   "event_protocol": "v_ase.collaboration.v1",
   "event_delivery": "ndjson-after-handshake",
   "event_scope": "workspace",
-  "browser_api": "window.v_aseAI",
-  "command_transport": "browser-javascript",
+  "command_transport": "http-json-bridge",
   "accepts_natural_language": false,
   "stdin_commands": false
 }
@@ -576,27 +591,37 @@ working.
 
 ### Structured Input And Output
 
-After opening `human_url`, the external agent uses the browser API. These are
-structured `window.v_aseAI` commands, not natural-language prompts.
+After opening `human_url` and waiting for the viewport, the external agent
+uses `command_url`. No browser-script injection is required. These are
+structured HTTP JSON commands, not natural-language prompts:
 
-```javascript
-const ai = window.v_aseAI;
-await ai.ready();
-const capabilities = await ai.capabilities();
-const state = await ai.describe({includePositions: true});
+```bash
+v_ase api "$COMMAND_URL" ready
+v_ase api "$COMMAND_URL" schema
+v_ase api "$COMMAND_URL" capabilities
+v_ase api "$COMMAND_URL" describe \
+  --params '{"includePositions":true}'
 
-const updated = await ai.apply({
-  expectedRevision: state.collaboration.revision,
-  mode: "edit",
-  selection: {clear: true, indices: [0, 4, 9]},
-  operation: {
-    name: "rotate-selection",
-    axis: [0, 0, 1],
-    angleDeg: 30,
-    pivot: "active"
+v_ase api "$COMMAND_URL" apply --params '{
+  "expectedRevision":CURRENT_REVISION,
+  "mode":"edit",
+  "selection":{"clear":true,"indices":[0,4,9]},
+  "operation":{
+    "name":"rotate-selection",
+    "axis":[0,0,1],
+    "angleDeg":30,
+    "pivot":"active"
   }
-});
+}'
+
+v_ase api "$COMMAND_URL" render --params-file render.json \
+  --save preview.png
 ```
+
+`COMMAND_URL` and `CURRENT_REVISION` come from the handshake and the latest
+`describe` response. `--params-file` is available for longer JSON. `--save`
+decodes render/export output directly and refuses to replace an existing file
+unless `--force` is explicitly approved.
 
 When the human changes the GUI, the CLI receives an event such as:
 
@@ -614,12 +639,13 @@ revision conflict instead of overwriting a newer human edit.
 | --- | --- | --- |
 | CLI startup | File path and CLI options | First stdout line: JSON handshake; stderr: lifecycle status |
 | CLI event stream | No command input | Later stdout lines: revisioned NDJSON changes from the shared workspace |
-| `state_url` | HTTP GET | Read-only JSON structure/session state |
-| `capabilities()` | No payload | Supported state fields, operations, and exports |
-| `describe()` | Optional detail flags | Labels, ASE elements, positions, cell, PBC, constraints, trajectory, selection, measurements, display, camera, and export profile |
-| `apply(command)` | Structured object plus the latest `expectedRevision` | Updated semantic state and revision after the change |
-| `render(request)` | Dimensions, format, and exact render options | Image data URL plus dimensions, MIME type, filename, and byte count |
-| `export(request)` | Export format and options | Export data URL plus filename, MIME type, and byte count |
+| `state_url` | HTTP GET | Backend/bootstrap structure state |
+| `v_ase api ... schema` | No payload | Live apply schema plus operation and export parameter maps |
+| `v_ase api ... capabilities` | No payload | Supported state fields, operations, and exports |
+| `v_ase api ... describe` | Optional detail flags | Authoritative live labels, elements, positions, cell, constraints, calculator, trajectory, display, camera, and selection |
+| `v_ase api ... apply` | Structured object plus latest `expectedRevision` | Updated semantic state and revision |
+| `v_ase api ... render` | Dimensions, format, exact render options | Saved image plus JSON metadata |
+| `v_ase api ... export` | Export format and options | Saved export plus JSON metadata |
 
 The Skill teaches the external agent which fields and operations are valid,
 how to preserve ASE semantics, when confirmation is required, and how to
@@ -660,7 +686,7 @@ v_ase gui STRUCTURE --cli
 ```
 
 That line discovers the live GUI, read-only state, current command schema,
-browser control object, installed Skill, and collaboration event stream. It is
+HTTP command endpoint, installed Skill, and collaboration event stream. It is
 not a prompt endpoint.
 Do not paste screenshots or manually transcribe coordinates when semantic
 state is available.
@@ -670,11 +696,11 @@ This bootstrap instruction works for clients without a native skill loader:
 ```text
 Read SKILL.md and agent-setup.md first. Load only the reference files needed
 for this task. Read collaboration.md when I may refine the GUI. Start v_ase
-with --cli, parse the first JSON line, keep consuming later NDJSON events,
-inspect capabilities() and describe() before editing, pass expectedRevision
-with every change, verify state after each physical edit, inspect the decoded
-final render, and give me human_url so I can watch and refine the same live
-document.
+with --cli, parse the first JSON line, open human_url, keep consuming later
+NDJSON events, use `v_ase api` with command_url to inspect schema, capabilities,
+and describe before editing, pass expectedRevision with every change, verify state
+after each physical edit, inspect the saved final render, and give me human_url
+so I can watch and refine the same live document.
 ```
 
 The compatibility document
@@ -728,6 +754,26 @@ from v_ase.visualize import view
 
 atoms = molecule("H2O")
 view(atoms)  # View mode
+```
+
+Inside Jupyter Notebook or JupyterLab, the same call automatically displays a
+view-only interactive model directly below the cell and does not open a
+separate browser window:
+
+```python
+view(atoms)
+```
+
+The notebook output supports orbit, pan, zoom, and trajectory playback. Pass
+`notebook=False` to force the ordinary external-browser workflow, or
+`notebook=True` to force inline output in a compatible kernel. When retaining
+the handle, display it explicitly:
+
+```python
+from IPython.display import display
+
+editor = view(atoms)
+display(editor)
 ```
 
 Return an edited ASE object:

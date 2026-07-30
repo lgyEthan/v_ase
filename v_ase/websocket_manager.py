@@ -26,18 +26,41 @@ class WebSocketManager:
     def has_session_connection(self, session_id: str) -> bool:
         return any(connection_session == session_id for connection_session in self.active_connections.values())
 
-    def broadcast_sync(self, message: dict, session_id: Optional[str] = None):
+    def has_connection_prefix(self, session_prefix: str) -> bool:
+        return any(
+            isinstance(connection_session, str)
+            and connection_session.startswith(session_prefix)
+            for connection_session in self.active_connections.values()
+        )
+
+    def broadcast_sync(
+        self,
+        message: dict,
+        session_id: Optional[str] = None,
+        session_prefix: Optional[str] = None,
+    ):
         """Thread-safe method to queue a message for broadcasting."""
-        self.message_queue.put((session_id, json.dumps(message)))
+        self.message_queue.put((session_id, session_prefix, json.dumps(message)))
 
     async def broadcaster_task(self):
         """Asynchronous task to consume the queue and send messages to all clients."""
         while not self._stop_broadcaster.is_set():
             try:
                 # Use a small timeout to allow checking the stop event
-                session_id, msg = await asyncio.to_thread(self.message_queue.get, timeout=0.1)
+                session_id, session_prefix, msg = await asyncio.to_thread(
+                    self.message_queue.get,
+                    timeout=0.1,
+                )
                 for connection, connection_session in list(self.active_connections.items()):
                     if session_id is not None and connection_session != session_id:
+                        continue
+                    if (
+                        session_prefix is not None
+                        and (
+                            not isinstance(connection_session, str)
+                            or not connection_session.startswith(session_prefix)
+                        )
+                    ):
                         continue
                     try:
                         await connection.send_text(msg)

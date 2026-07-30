@@ -3061,7 +3061,7 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             page.click('[data-inspector-group="export"]')
             assert page.locator('[data-panel="project"]').is_visible()
             assert page.locator('[data-panel="settings"]').is_visible()
-            assert 'complete working structure' in page.locator('[data-panel="project"] .panel-note').inner_text()
+            assert 'complete editable structure' in page.locator('[data-panel="project"] .panel-note').inner_text()
             assert 'coordinates' in page.locator('[data-panel="settings"] .panel-note').inner_text()
             page.click('[data-inspector-group="view"]')
             page.locator('#app-viewport canvas').focus()

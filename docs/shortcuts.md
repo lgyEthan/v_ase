@@ -102,11 +102,11 @@ state:
   edited coordinates, cell/PBC, constraints, labels, cached standard calculator
   results, and visual setup. Reopen it with `v_ase gui FILE.vase`.
 - **Export HTML View** writes one offline view-only browser document with the
-  saved camera, scene, and trajectory controls. The save dialog can embed the
-  complete `.vase` for lossless reopening or omit it for a smaller view-only
-  handoff.
-- **Save .vase** writes the compact canonical project. **Save HTML** writes a
-  browser-ready project and exposes the same `.vase` embedding choice.
+  exact Preview Area camera crop, scene, and trajectory controls. Grid
+  defaults off; axes and unit cell default on. The default file is a smaller
+  view-only handoff, with optional complete `.vase` embedding.
+- **Save .vase** writes the compact canonical project. **HTML Project** writes
+  a browser-ready project and enables complete `.vase` embedding by default.
 
 Start with `v_ase gui` to open an empty workspace, then use the top-bar **Open**
 command to launch the operating system file picker and load a structure,

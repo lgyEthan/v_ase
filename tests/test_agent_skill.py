@@ -98,6 +98,8 @@ def test_skill_version_install_and_environment_contract_are_current():
     assert f'v_ase-gui=={__version__}' in cli_text
     for required in (
         "v_ase gui STRUCTURE --cli",
+        "persistent process",
+        "do **not** wait",
         "from v_ase.visualize import view",
         "No API key",
         "HOST:/",
@@ -123,6 +125,9 @@ def test_skill_explains_vendor_neutral_agent_handoff():
         "v_ase gui STRUCTURE --cli",
         "first stdout line as JSON",
         "window.v_aseAI",
+        "command_url",
+        "schema",
+        "operation_parameters",
         "human_url",
         "events_url",
         "event_protocol",
@@ -139,7 +144,7 @@ def test_skill_explains_vendor_neutral_agent_handoff():
     assert "does not accept natural language itself" in readme
     assert "external agent launches" in readme.lower()
     assert "does not read natural-language or structured commands from stdin" in readme
-    assert "structured `window.v_aseAI` commands" in readme
+    assert "structured HTTP JSON commands" in readme
     assert "can reduce token use" in readme
 
 
@@ -158,7 +163,7 @@ def test_skill_documents_bidirectional_same_document_collaboration():
         "expectedRevision",
         "state.resync-required",
         "human_url",
-        "activate(session_id)",
+        '"sessionId":"EVENT_SESSION_ID"',
         "Human and external AI agent working in one live v_ase document",
         "readme_ai_collaboration.png",
         "stale-revision",
@@ -244,7 +249,15 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         "/skills/visualizing-atomic-structures-with-v-ase/SKILL.md"
     )
     assert schema["protocol"] == "v_ase.ai.v1"
-    assert schema["command_transport"] == "browser-javascript"
+    assert schema["command_transport"] == "http-json-bridge"
+    assert schema["command_endpoint"]["workspace"].endswith("/{workspace_id}")
+    assert schema["command_endpoint"]["document"].endswith("/{session_id}")
+    assert "schema" in schema["command_endpoint"]["methods"]
+    assert "vector" in schema["operation_parameters"]["move-selection"]["required"]
+    assert schema["operation_parameters"]["set-constraints"]["notes"].startswith(
+        "kind is fixed_line or fixed_plane"
+    )
+    assert "embedProject" in schema["export_parameters"]["html"]["optional"]
     assert schema["accepts_natural_language"] is False
     assert schema["stdin_commands"] is False
     assert schema["collaboration"]["protocol"] == "v_ase.collaboration.v1"
