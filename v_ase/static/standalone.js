@@ -82,9 +82,11 @@ function sizeViewerFrame(savedAspect) {
         height = stageHeight;
         width = height * aspect;
     }
-    frame.style.width = `${Math.max(1, Math.floor(width))}px`;
-    frame.style.height = `${Math.max(1, Math.floor(height))}px`;
-    return { width, height };
+    const fittedWidth = Math.max(1, Math.floor(width));
+    const fittedHeight = Math.max(1, Math.floor(height));
+    frame.style.width = `${fittedWidth}px`;
+    frame.style.height = `${fittedHeight}px`;
+    return { width: fittedWidth, height: fittedHeight };
 }
 
 function fitViewerFrame(renderer, savedAspect) {
@@ -318,22 +320,37 @@ export function startStandaloneViewer(scene, projectBase64) {
     else renderer.fitCameraToStructure();
     renderer.renderNow();
     const poster = document.getElementById('standalone-poster');
+    const revealUi = () => {
+        document.documentElement.dataset.vAseUi = 'visible';
+    };
+    document.addEventListener('pointermove', revealUi, { capture: true, once: true });
+    document.addEventListener('focusin', revealUi, { capture: true, once: true });
+    document.addEventListener('keydown', revealUi, { capture: true, once: true });
+    let revealInteractiveCanvas = () => {};
     if (poster && !poster.hidden) {
-        const revealInteractiveCanvas = () => {
-            poster.hidden = true;
-            document.documentElement.dataset.vAsePoster = 'replaced';
+        let releaseFinished = false;
+        revealInteractiveCanvas = ({ showControls = true } = {}) => {
+            if (poster.hidden || poster.classList.contains('is-releasing')) return;
+            if (showControls) revealUi();
+            poster.classList.add('is-releasing');
+            document.documentElement.dataset.vAsePoster = 'releasing';
+            const finish = () => {
+                if (releaseFinished) return;
+                releaseFinished = true;
+                poster.hidden = true;
+                poster.classList.remove('is-releasing');
+                document.documentElement.dataset.vAsePoster = 'replaced';
+            };
+            poster.addEventListener('transitionend', finish, { once: true });
+            window.setTimeout(finish, 180);
         };
-        document.addEventListener('pointerdown', revealInteractiveCanvas, {
-            capture: true,
-            once: true,
-        });
-        document.addEventListener('wheel', revealInteractiveCanvas, {
-            capture: true,
-            once: true,
-        });
-        document.addEventListener('keydown', revealInteractiveCanvas, {
-            capture: true,
-            once: true,
+        document.documentElement.dataset.vAsePoster = 'ready';
+        window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+                window.setTimeout(() => {
+                    revealInteractiveCanvas({ showControls: false });
+                }, 32);
+            });
         });
     }
 
@@ -346,6 +363,7 @@ export function startStandaloneViewer(scene, projectBase64) {
         },
         setFrame: renderFrame,
         resetCamera,
+        revealInteractiveCanvas,
         hasEmbeddedProject,
         projectBytes: () => (
             hasEmbeddedProject ? bytesFromBase64(projectBase64) : new Uint8Array()

@@ -26,7 +26,12 @@ and rendered examples in sync.
    events, multi-tab routing, and stale-revision rejection.
    For standalone HTML, reopen the GUI-downloaded file from `file://`, verify
    view-only navigation and playback at desktop/mobile sizes, extract its
-   `.vase`, and assert that it makes no HTTP/HTTPS request.
+   `.vase`, and assert that it makes no HTTP/HTTPS request. Also reopen it with
+   JavaScript disabled and verify that the poster alone fills the exact export
+   frame with no logo, header, border, or margin. Compare that poster to the
+   first WebGL frame, trigger the cross-fade, and assert that frame bounds do
+   not move. Exercise `%v_ase inline`, `%v_ase browser`, and `%v_ase auto` in a
+   real notebook kernel.
    Run a fresh zero-context agent with only the canonical Skill and require it
    to use the HTTP JSON bridge rather than page-main-world evaluation. Require
    it to call `schema`, inspect calculator state, exercise every operation and

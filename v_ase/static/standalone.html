@@ -13,14 +13,17 @@
     <style>{{STANDALONE_CSS}}</style>
 </head>
 <body>
-    <main id="standalone-app">
-        <header class="viewer-header">
-            <div class="document-identity">
-                <span class="wordmark">V_ASE</span>
+    <main id="standalone-app" style="--v-ase-export-bg:{{EXPORT_BACKGROUND}}">
+        <section class="viewer-stage">
+            <div id="viewer-frame" style="{{VIEWER_FRAME_STYLE}}">
+                <img id="standalone-poster"
+                     src="{{POSTER_DATA_URL}}"
+                     alt="Saved v_ase structure view"
+                     {{POSTER_HIDDEN}}>
+            </div>
+            <nav class="viewer-toolbar" aria-label="View-only controls">
                 <span id="document-title" class="document-title">{{DOCUMENT_TITLE}}</span>
                 <span class="view-only-badge">VIEW ONLY</span>
-            </div>
-            <div class="header-actions">
                 <button id="reset-view" class="icon-button" type="button" title="Reset saved view" aria-label="Reset saved view">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M4 12a8 8 0 1 0 2.35-5.65L4 8.7"></path>
@@ -40,15 +43,7 @@
                     </svg>
                     <span id="download-project-label">Download .vase</span>
                 </button>
-            </div>
-        </header>
-        <section class="viewer-stage">
-            <div id="viewer-frame" style="{{VIEWER_FRAME_STYLE}}">
-                <img id="standalone-poster"
-                     src="{{POSTER_DATA_URL}}"
-                     alt="Saved v_ase structure view"
-                     {{POSTER_HIDDEN}}>
-            </div>
+            </nav>
             <aside id="metadata-popover" class="metadata-popover" hidden>
                 <h2>Embedded document</h2>
                 <dl class="metadata-grid"></dl>

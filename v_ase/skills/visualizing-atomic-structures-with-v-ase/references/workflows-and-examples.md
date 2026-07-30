@@ -512,7 +512,7 @@ Use this only after the scene, trajectory, camera, and overlays are verified:
 const before = await ai.describe({includePositions: false});
 if (!before.atomCount) throw new Error("The document is empty.");
 
-const shared = await ai.export({format: "html"});
+const shared = await ai.export({format: "html", embedProject: false});
 if (shared.mimeType !== "text/html" || shared.bytes <= 0) {
   throw new Error("HTML export did not produce a document.");
 }
@@ -526,7 +526,11 @@ network access disabled and verify:
 3. orbit, pan, zoom, and trajectory controls work;
 4. no structure, appearance, settings, or export editor is present;
 5. no HTTP/HTTPS request occurs;
-6. the embedded `.vase` download has a nonzero byte count.
+6. `hasEmbeddedProject` is false and no `.vase` download control is present.
 
 HTML is a shareable view, not the editable source of truth. Keep or deliver
-the `.vase` project whenever subsequent v_ase editing is expected.
+the `.vase` project whenever subsequent v_ase editing is expected. If one
+self-contained HTML handoff must also preserve editable recovery, export a
+second document with `embedProject: true`, then require
+`hasEmbeddedProject === true`, a nonzero `.vase` download, and successful
+reopening through `v_ase gui FILE.html`.

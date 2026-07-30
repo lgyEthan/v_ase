@@ -411,9 +411,13 @@ the View/Edit visual translation saved in display settings.
 - Standalone HTML View: a single offline, view-only document containing
   inlined Three.js/runtime assets plus browser-ready scene and trajectory
   data. It shares the image/video Preview Area crop, defaults to grid off with
-  axes and unit cell on, and embeds a static Finder/Quick Look poster. The
-  default output is lightweight; a save-time option embeds the complete
-  validated `.vase` archive for lossless reopening.
+  axes and unit cell on, and embeds an optimized high-resolution Finder/Quick
+  Look poster containing only that frame. The poster and adaptive live WebGL
+  canvas use one integer-sized viewport and cross-fade automatically after the
+  first live frame is ready, before camera input begins, so no header, logo,
+  margin, border, or layout jump appears. The default output is lightweight; a
+  save-time option embeds the complete validated `.vase` archive for lossless
+  reopening.
 - Project save: **Save .vase** writes the compact canonical project, while
   **HTML Project** defaults to embedding the complete project in a
   browser-ready copy.

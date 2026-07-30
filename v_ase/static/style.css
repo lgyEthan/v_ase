@@ -3225,6 +3225,27 @@ body.resizing-pairwise-column * {
     grid-template-columns: minmax(76px, 0.7fr) minmax(118px, 1fr);
 }
 
+.html-composition-readout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    min-height: 38px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--surface-subtle);
+    color: var(--text-soft);
+    font-size: 0.7rem;
+}
+
+.html-composition-readout strong {
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    white-space: nowrap;
+}
+
 .html-composition-note {
     margin: 0 0 4px;
     padding: 9px 10px;

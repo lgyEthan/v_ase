@@ -274,6 +274,14 @@ def test_exported_html_opens_offline_as_view_only_interactive_trajectory(tmp_pat
 
         assert page.locator("#boot-error").is_hidden()
         assert page.locator(".view-only-badge").inner_text() == "VIEW ONLY"
+        assert page.locator(".wordmark").count() == 0
+        assert page.evaluate(
+            "getComputedStyle(document.querySelector('.viewer-toolbar')).opacity"
+        ) == "0"
+        page.locator("html[data-v-ase-poster='replaced']").wait_for(state="attached")
+        assert page.evaluate(
+            "getComputedStyle(document.querySelector('.viewer-toolbar')).opacity"
+        ) == "0"
         assert page.locator("#inspector").count() == 0
         assert page.locator("#timeline").is_visible()
         assert page.locator("#frame-label").inner_text() == "2 / 2"
@@ -288,6 +296,8 @@ def test_exported_html_opens_offline_as_view_only_interactive_trajectory(tmp_pat
             "window.v_aseStandalone.renderer.displacementData?.status"
         ) == "ok"
 
+        page.mouse.move(40, 40)
+        page.locator("html[data-v-ase-ui='visible']").wait_for(state="attached")
         page.click("#previous-frame")
         assert page.locator("#frame-label").inner_text() == "1 / 2"
         assert page.evaluate("window.v_aseStandalone.frameIndex") == 0
@@ -354,19 +364,19 @@ def test_exported_html_opens_offline_as_view_only_interactive_trajectory(tmp_pat
         page.set_viewport_size({"width": 390, "height": 844})
         page.wait_for_timeout(100)
         mobile_layout = page.evaluate("""() => {
-            const header = document.querySelector('.viewer-header').getBoundingClientRect();
+            const toolbar = document.querySelector('.viewer-toolbar').getBoundingClientRect();
             const frame = document.querySelector('#viewer-frame').getBoundingClientRect();
             const timeline = document.querySelector('#timeline').getBoundingClientRect();
             return {
                 scrollWidth: document.documentElement.scrollWidth,
                 width: window.innerWidth,
-                header: [header.left, header.right, header.top, header.bottom],
+                toolbar: [toolbar.left, toolbar.right, toolbar.top, toolbar.bottom],
                 frame: [frame.left, frame.right, frame.top, frame.bottom],
                 timeline: [timeline.left, timeline.right, timeline.top, timeline.bottom]
             };
         }""")
         assert mobile_layout["scrollWidth"] <= mobile_layout["width"]
-        for box in ("header", "frame", "timeline"):
+        for box in ("toolbar", "frame", "timeline"):
             left, right, top, bottom = mobile_layout[box]
             assert left >= -1 and right <= mobile_layout["width"] + 1
             assert top >= -1 and bottom <= 844 + 1
@@ -451,8 +461,9 @@ def test_html_export_button_downloads_an_offline_document_that_reopens(tmp_path)
             assert page.locator("#html-include-grid").is_checked() is False
             assert page.locator("#html-include-axes").is_checked() is True
             assert page.locator("#html-include-cell").is_checked() is True
-            assert page.locator("#html-export-width").input_value() == "900"
-            assert page.locator("#html-export-height").input_value() == "900"
+            assert page.locator("#html-export-width").count() == 0
+            assert page.locator("#html-export-height").count() == 0
+            assert page.locator(".html-composition-readout strong").inner_text() == "900 x 900"
             page.wait_for_function("""() => {
                 const figure = document.querySelector('.html-view-preview');
                 const image = document.getElementById('html-export-preview');
@@ -483,10 +494,25 @@ def test_html_export_button_downloads_an_offline_document_that_reopens(tmp_path)
             offline = browser.new_page(viewport={"width": 1280, "height": 800})
             offline.goto(exported.as_uri(), wait_until="load")
             offline.locator("html[data-v-ase-ready='true']").wait_for(state="attached")
-            offline.locator("#standalone-poster:not([hidden])").wait_for(
-                state="visible"
-            )
             assert offline.locator(".view-only-badge").inner_text() == "VIEW ONLY"
+            assert offline.locator(".wordmark").count() == 0
+            assert offline.evaluate(
+                "getComputedStyle(document.querySelector('.viewer-toolbar')).opacity"
+            ) == "0"
+            before_box = offline.locator("#viewer-frame").bounding_box()
+            assert before_box
+            poster_source = offline.locator("#standalone-poster").get_attribute("src")
+            assert poster_source and poster_source.startswith("data:image/png;base64,")
+            embedded_poster = tmp_path / "offline_embedded_poster.png"
+            embedded_poster.write_bytes(base64.b64decode(poster_source.split(",", 1)[1]))
+            offline.locator("html[data-v-ase-poster='replaced']").wait_for(
+                state="attached"
+            )
+            after_box = offline.locator("#viewer-frame").bounding_box()
+            assert after_box == pytest.approx(before_box)
+            assert offline.evaluate(
+                "getComputedStyle(document.querySelector('.viewer-toolbar')).opacity"
+            ) == "0"
             assert offline.locator("html").get_attribute("data-v-ase-atom-count") == "2"
             assert offline.evaluate("window.v_aseStandalone.scene.frames.length") == 2
             assert offline.evaluate("window.v_aseStandalone.scene.exportProfile.width") == 900
@@ -504,9 +530,19 @@ def test_html_export_button_downloads_an_offline_document_that_reopens(tmp_path)
             frame_box = offline.locator("#viewer-frame").bounding_box()
             assert frame_box
             assert frame_box["width"] / frame_box["height"] == pytest.approx(1.0, abs=0.01)
-            offline_frame = tmp_path / "offline_exact_frame.png"
-            offline.locator("#viewer-frame").screenshot(path=str(offline_frame))
-            with Image.open(preview_path) as expected, Image.open(offline_frame) as actual:
+            with Image.open(preview_path) as expected, Image.open(embedded_poster) as actual:
+                expected_pixels = np.asarray(
+                    expected.convert("RGB").resize((256, 256)),
+                    dtype=np.int16,
+                )
+                actual_pixels = np.asarray(
+                    actual.convert("RGB").resize((256, 256)),
+                    dtype=np.int16,
+                )
+            assert np.abs(expected_pixels - actual_pixels).mean() < 18
+            interactive_frame = tmp_path / "offline_interactive_frame.png"
+            offline.locator("#viewer-frame").screenshot(path=str(interactive_frame))
+            with Image.open(embedded_poster) as expected, Image.open(interactive_frame) as actual:
                 expected_pixels = np.asarray(
                     expected.convert("RGB").resize((256, 256)),
                     dtype=np.int16,
@@ -526,7 +562,6 @@ def test_html_export_button_downloads_an_offline_document_that_reopens(tmp_path)
                 offline_canvas["y"] + offline_canvas["height"] * 0.5,
             )
             offline.mouse.down(button="left")
-            offline.locator("#standalone-poster[hidden]").wait_for(state="attached")
             offline.mouse.move(
                 offline_canvas["x"] + offline_canvas["width"] * 0.64,
                 offline_canvas["y"] + offline_canvas["height"] * 0.58,
@@ -553,3 +588,36 @@ def test_html_export_button_downloads_an_offline_document_that_reopens(tmp_path)
             browser.close()
     finally:
         editor.close()
+
+
+def test_static_html_poster_is_the_only_visible_preview_surface_without_javascript(tmp_path):
+    response, _, _ = _html_export_fixture(embed_project=False)
+    document = tmp_path / "static_preview.html"
+    document.write_bytes(response.body)
+
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch(headless=True)
+        except PlaywrightError as exc:
+            pytest.skip(f"Playwright Chromium is not installed: {exc}")
+        context = browser.new_context(
+            viewport={"width": 1280, "height": 720},
+            java_script_enabled=False,
+        )
+        page = context.new_page()
+        page.goto(document.as_uri(), wait_until="load")
+        frame = page.locator("#viewer-frame").bounding_box()
+        assert frame == pytest.approx({"x": 0, "y": 0, "width": 1280, "height": 720})
+        assert page.locator("#standalone-poster").is_visible()
+        assert page.locator(".wordmark").count() == 0
+        assert page.evaluate(
+            "getComputedStyle(document.querySelector('.viewer-toolbar')).opacity"
+        ) == "0"
+        screenshot = tmp_path / "static_preview.png"
+        page.screenshot(path=str(screenshot))
+        with Image.open(screenshot) as image:
+            assert image.size == (1280, 720)
+            border = np.asarray(image.convert("RGB"))
+            assert np.array_equal(border[0, 0], border[360, 640])
+        context.close()
+        browser.close()

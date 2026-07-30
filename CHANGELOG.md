@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.0.120
+
+- Removed persistent application chrome from standalone HTML previews. The
+  static poster now fills the exact Preview Area frame and automatically
+  cross-fades to the same unmoving live WebGL crop before camera input begins.
+- Made standalone HTML poster resolution automatic and independent from live
+  browser resolution, retaining a high-quality Finder/Quick Look preview while
+  the interactive canvas adapts to browser size and display pixel density.
+- Added `%v_ase inline`, `%v_ase browser`, and `%v_ase auto` for switching
+  Jupyter display behavior without restarting the kernel, plus equivalent
+  per-call `notebook=` string overrides.
+- Agent capability discovery now exposes the `expectedRevision` concurrency
+  guard, and the canonical Skill distinguishes lightweight HTML handoff from
+  project-embedded HTML recovery.
+- Reworked the README's external-agent introduction into a direct
+  researcher-to-agent-to-live-GUI workflow and regenerated its synchronized
+  collaboration figure.
+- Expanded browser, JavaScript-disabled preview, real-kernel Jupyter, Skill,
+  and documentation regressions for the revised contracts.
+
 ## 0.0.119
 
 - Added a vendor-neutral HTTP JSON command bridge and `v_ase api` client so

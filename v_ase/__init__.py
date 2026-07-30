@@ -2,7 +2,10 @@
 
 from v_ase._version import __version__
 from v_ase.calculators import Conditioner, DefaultRepulsionCalculator, RepulsionCalculator
+from v_ase.notebook import register_notebook_magic
 from v_ase.viewer import ASEEditor, view, view_edit, view_file
+
+register_notebook_magic()
 
 __all__ = [
     "ASEEditor",

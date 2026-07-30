@@ -1641,32 +1641,19 @@ def capture_ai_collaboration_figure(browser) -> None:
         live_image = Image.open(BytesIO(page.screenshot(type="png"))).convert("RGB")
         live_image.save(live_path, optimize=True, compress_level=9)
 
-        event_lines = []
-        for human_event in human_events[-2:]:
-            event_for_figure = {
-                key: human_event[key]
-                for key in (
-                    "protocol",
-                    "revision",
-                    "document_revision",
-                    "source",
-                    "categories",
-                    "changed_paths",
-                )
-                if key in human_event
-            }
-            event_lines.append(json.dumps(event_for_figure, separators=(",", ":")))
         figure_page = browser.new_page(
-            viewport={"width": 2400, "height": 1350},
+            viewport={"width": 2400, "height": 1200},
             device_scale_factor=1,
         )
         try:
             figure_page.goto((ROOT / "docs/design/ai_collaboration_figure.html").as_uri())
-            figure_page.locator(".event-json").evaluate(
-                "(element, value) => { element.textContent = value; }",
-                "\n".join(event_lines),
+            figure_page.wait_for_function(
+                """() => {
+                    const image = document.querySelector('.gui img');
+                    return image?.complete && image.naturalWidth > 0;
+                }"""
             )
-            figure_page.screenshot(
+            figure_page.locator("body").screenshot(
                 path=ASSET_DIR / "readme_ai_collaboration.png",
                 type="png",
             )

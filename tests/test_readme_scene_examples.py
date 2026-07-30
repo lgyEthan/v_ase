@@ -320,7 +320,7 @@ def test_brand_logo_generation_uses_approved_palette_and_separated_letter_atoms(
 
 def test_readme_presents_real_manipulation_and_analysis_workflows():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    ai = readme.index("## Use v_ase Through An External AI Agent")
+    ai = readme.index("## AI-Assisted Workflow")
     structure = readme.index("## Structure Manipulation")
     select = readme.index("### Select", structure)
     move = readme.index("### Move", select)
@@ -342,12 +342,10 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "no screenshot ocr or coordinate guessing is required." in normalized_readme
     assert "v_ase does not contain an llm" in normalized_readme
     assert "does not accept natural language itself" in normalized_readme
-    assert "structured http json commands" in normalized_readme
-    assert "v_ase api" in normalized_readme
-    assert "command_url" in normalized_readme
+    assert "structured cli" in normalized_readme
     assert "same live document" in normalized_readme
-    assert "every later stdout line is one compact ndjson event" in normalized_readme
-    assert "`expectedrevision`" in normalized_readme
+    assert "newer work is not overwritten" in normalized_readme
+    assert "can reduce token use" in normalized_readme
     assert "Standard Metal and Rubber atom materials" in readme
     assert "Cu_substrate-Cu_substrate" in readme
     assert "Cu_oxide-O_oxide" in readme
@@ -393,7 +391,7 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
         assert (ROOT / "docs" / "assets" / "github" / filename).is_file()
 
     with Image.open(ROOT / "docs" / "assets" / "readme_ai_collaboration.png") as figure:
-        assert figure.size == (2400, 1350)
+        assert figure.size == (2400, 1200)
 
 
 def test_phosphorene_capture_drives_the_production_selection_and_rotation_ui():

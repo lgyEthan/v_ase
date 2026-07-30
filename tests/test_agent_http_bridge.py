@@ -84,6 +84,7 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(tm
 
             capabilities = _post_command(command_url, "capabilities")["result"]
             assert capabilities["schemaUrl"].endswith("/api/ai/schema")
+            assert "expectedRevision" in capabilities["apply"]
             assert "vector" in capabilities["operationParameters"]["move-selection"]["required"]
             assert "embedProject" in capabilities["exportParameters"]["html"]["optional"]
             assert {

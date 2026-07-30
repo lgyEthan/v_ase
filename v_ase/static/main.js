@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.119&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.119&rev=1';
-import { ASESelection } from './selection.js?v=0.0.119&rev=1';
-import { ASETransform } from './transform.js?v=0.0.119&rev=1';
+import { ASEApi } from './api.js?v=0.0.120&rev=1';
+import { ASERenderer } from './renderer.js?v=0.0.120&rev=1';
+import { ASESelection } from './selection.js?v=0.0.120&rev=1';
+import { ASETransform } from './transform.js?v=0.0.120&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.119&rev=1';
+} from './trajectory.js?v=0.0.120&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -6081,8 +6081,8 @@ class VAseApp {
                 'collaboration'
             ],
             apply: [
-                'frame', 'mode', 'display', 'quality', 'applyConstraints',
-                'camera', 'selection', 'operation'
+                'expectedRevision', 'frame', 'mode', 'display', 'quality',
+                'applyConstraints', 'camera', 'selection', 'operation'
             ],
             operations: [
                 'wrap', 'translate-all', 'set-supercell', 'make-supercell',
@@ -8289,13 +8289,13 @@ class VAseApp {
         };
     }
 
-    async renderHtmlCompositionPreview(profile = null) {
+    async renderHtmlCompositionPreview(profile = null, { poster = false } = {}) {
         const contract = this.htmlExportContract(profile);
-        const maximumDimension = 960;
-        const scale = Math.min(
-            1,
-            maximumDimension / Math.max(contract.width, contract.height)
-        );
+        const sourceLongEdge = Math.max(contract.width, contract.height);
+        const targetLongEdge = poster
+            ? Math.min(2560, Math.max(1920, sourceLongEdge))
+            : Math.min(960, sourceLongEdge);
+        const scale = targetLongEdge / sourceLongEdge;
         const width = Math.max(1, Math.round(contract.width * scale));
         const height = Math.max(1, Math.round(contract.height * scale));
         const options = {...contract.options};
@@ -8330,17 +8330,15 @@ class VAseApp {
                     <figcaption id="html-export-preview-caption">Shared export frame</figcaption>
                 </figure>
                 <div class="html-export-controls">
-                    <div class="export-section-title">Composition</div>
-                    <div class="export-grid">
-                        <label for="html-export-width">Width</label>
-                        <input id="html-export-width" type="number" min="256" max="8192" step="128"
-                               value="${initialProfile.width}">
-                        <label for="html-export-height">Height</label>
-                        <input id="html-export-height" type="number" min="256" max="8192" step="128"
-                               value="${initialProfile.height}">
+                    <div class="export-section-title">Framing</div>
+                    <div class="html-composition-readout">
+                        <span>Preview Area crop</span>
+                        <strong>${initialProfile.width} x ${initialProfile.height}</strong>
                     </div>
                     <p class="html-composition-note">
-                        Image, video, and HTML share this camera crop. Preview Area shows the same frame in the viewport.
+                        HTML uses the exact Preview Area camera and aspect ratio. Its live
+                        WebGL resolution adapts to the browser display; v_ase embeds an
+                        optimized high-resolution poster automatically.
                     </p>
                     <div class="export-section-title">Scene overlays</div>
                     <label class="check-row" for="html-include-grid">
@@ -8390,14 +8388,6 @@ class VAseApp {
             const current = this.currentImageExportProfile();
             return this.htmlExportProfile({
                 ...current,
-                width: Math.max(
-                    256,
-                    Math.min(8192, Number(document.getElementById('html-export-width')?.value) || 1920)
-                ),
-                height: Math.max(
-                    256,
-                    Math.min(8192, Number(document.getElementById('html-export-height')?.value) || 1080)
-                ),
                 options: {
                     ...current.options,
                     includeGrid: Boolean(document.getElementById('html-include-grid')?.checked),
@@ -8450,9 +8440,6 @@ class VAseApp {
             previewTimer = window.setTimeout(refreshPreview, 120);
         };
         embed?.addEventListener('change', syncProjectOption);
-        ['html-export-width', 'html-export-height'].forEach(id => {
-            document.getElementById(id)?.addEventListener('input', schedulePreview);
-        });
         ['html-include-grid', 'html-include-axes', 'html-include-cell'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', schedulePreview);
         });
@@ -8478,7 +8465,10 @@ class VAseApp {
                 this.applyDisplayOptions();
                 const saved = await this.saveBlobFromAction(
                     async () => {
-                        const rendered = await this.renderHtmlCompositionPreview(profile);
+                        const rendered = await this.renderHtmlCompositionPreview(
+                            profile,
+                            { poster: true }
+                        );
                         return await this.api.exportHtml(
                             this.backendPositionsPayload(),
                             this.designSettingsSnapshot(),

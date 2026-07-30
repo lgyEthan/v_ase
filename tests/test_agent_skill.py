@@ -143,8 +143,9 @@ def test_skill_explains_vendor_neutral_agent_handoff():
     assert "--for-ai" not in setup + readme + compatibility
     assert "does not accept natural language itself" in readme
     assert "external agent launches" in readme.lower()
-    assert "does not read natural-language or structured commands from stdin" in readme
-    assert "structured HTTP JSON commands" in readme
+    assert "structured CLI" in readme
+    assert "same live v_ase GUI" in readme
+    assert "There is no natural-language endpoint and no command loop on stdin." in setup
     assert "can reduce token use" in readme
 
 
@@ -186,8 +187,22 @@ def test_skill_documents_offline_html_handoff_contract():
         "v_ase gui FILE.html",
     ):
         assert required in documented
+    workflows = (REFERENCES / "workflows-and-examples.md").read_text(encoding="utf-8")
+    assert 'embedProject: false' in workflows
+    assert "`hasEmbeddedProject` is false" in workflows
+    assert 'embedProject: true' in workflows
+    assert "a nonzero `.vase` download" in workflows
     assert "Export HTML View" in readme
     assert "without v_ase, Python, a server, or a CDN" in readme
+
+
+def test_skill_defines_auto_notebook_mode_and_revision_discovery():
+    skill = SKILL.read_text(encoding="utf-8")
+    environments = (REFERENCES / "cli-and-environments.md").read_text(encoding="utf-8")
+    assert "%v_ase auto" in skill
+    assert "restores automatic active-kernel" in (skill + environments)
+    source = (ROOT / "v_ase" / "static" / "main.js").read_text(encoding="utf-8")
+    assert "'expectedRevision', 'frame'" in source
 
 
 def test_skill_trigger_evaluation_has_positive_and_negative_boundaries():
