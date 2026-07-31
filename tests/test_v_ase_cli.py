@@ -438,6 +438,35 @@ def test_v_ase_gui_opens_volumetric_input_with_grid_attached(tmp_path, monkeypat
     assert captured["kwargs"]["initial_design_settings"]["display"][
         "volumetricPrecision"
     ] == "float64"
+    display = captured["kwargs"]["initial_design_settings"]["display"]
+    assert display["showVolumetric"] is True
+    assert display["volumetricDatasetId"] == datasets[0].dataset_id
+    assert display["volumetricLevel"] > 0
+    assert display["volumetricSurfaceMode"] == "signed"
+
+
+def test_v_ase_gui_keeps_constant_volumetric_input_hidden(tmp_path, monkeypatch):
+    atoms = molecule("H2")
+    atoms.set_cell([6.0, 6.0, 6.0])
+    atoms.center()
+    atoms.pbc = True
+    values = np.full((8, 8, 8), 0.25, dtype=np.float32)
+    cube_path = tmp_path / "constant.cube"
+    write(cube_path, atoms, data=values, format="cube")
+    captured = {}
+
+    def fake_view(frames, **kwargs):
+        captured["kwargs"] = kwargs
+        return frames[0]
+
+    monkeypatch.setattr("v_ase.cli.view", fake_view)
+    args = build_parser().parse_args(["gui", str(cube_path)])
+
+    assert run_gui(args) == 0
+    display = captured["kwargs"]["initial_design_settings"]["display"]
+    assert display["showVolumetric"] is False
+    assert display["volumetricLevel"] is None
+    assert display["volumetricSurfaceMode"] == "single"
 
 
 def test_v_ase_gui_reopens_project_embedded_html(tmp_path, monkeypatch):

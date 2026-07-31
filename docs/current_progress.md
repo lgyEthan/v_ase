@@ -296,6 +296,8 @@ and documentation use `view()`.
     component, and units. VASP
     CHGCAR/CHG, LOCPOT, PARCHG, and ELFCAR plus Cube and XSF are accepted only
     after bounded shape, size, finiteness, and nondegenerate-cell validation.
+    The first/newest imported grid is shown immediately at a valid default
+    level; color and opacity edits update the existing browser mesh live.
 60. Volumetric combinations require identical dimensions, cell, origin, PBC,
     endpoint convention, and scalar units. Display repetition and visual
     translation transform the extracted mesh with atoms. A physical diagonal
@@ -307,7 +309,9 @@ and documentation use `view()`.
     inside the requested sphere instead of assuming a fixed `2 x 2 x 2`
     repetition. Total and concentration-weighted visual-label partial curves
     share one ASE periodic neighbor search and reconstruct the total through
-    the standard concentration-weighted relation.
+    the standard concentration-weighted relation. The Plotly view includes a
+    `g(r) = 1` bulk-limit reference and the generated amorphous regression
+    reaches a statistically flat long-range plateau.
 62. `describe().analysis` and live capability discovery are authoritative for
     volumetric dataset IDs, RDF cutoffs/warnings, and partial curve names.
     Agents never receive the complete scalar grid or infer analysis from

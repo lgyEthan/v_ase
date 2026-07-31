@@ -133,6 +133,8 @@ Run all scenarios, not only static document checks:
      with the source fixture;
    - create single and signed isosurfaces, verify nonblank triangles, colors,
      opacity, and step-size behavior;
+   - verify the first loaded grid is visible at a valid default level and
+     changing opacity restyles the existing mesh without regenerating it;
    - display-repeat and visually translate atoms and meshes together;
    - physically materialize a supercell, verify atom and grid dimensions in
      every affected state, then undo both;
@@ -144,7 +146,8 @@ Run all scenarios, not only static document checks:
      volume and visualization settings;
    - calculate total RDF at several cutoffs for a homogeneous periodic system,
      including a radius that needs images beyond a fixed `2 x 2 x 2`
-     repetition, and verify its non-edge plateau approaches one;
+     repetition, and verify its non-edge plateau approaches one and aligns
+     with the plotted `g(r) = 1` reference;
    - calculate active, all, and no-partial modes; verify the
      concentration-weighted partial RDF relation reconstructs the total;
    - reject partial PBC, retain an explicit long triclinic cutoff, verify the
@@ -260,12 +263,14 @@ Every browser render test must check:
 - Hookean spring has X and Z span around its axis and wire radius smaller than
   its coil radius;
 - signed volumetric surfaces have distinct positive/negative coverage, repeat
-  with the displayed supercell, and move by the same visual translation as
-  atoms;
+  with the displayed supercell, move by the same visual translation as atoms,
+  appear automatically for a newly loaded grid, and update opacity live;
 - FP64 volumetric import remains FP64 through combination and `.vase`
   round-trip while the browser receives only compact mesh geometry;
 - the RDF drawer is nonblank, labeled in Angstrom and `g(r)`, and exposes the
-  retained cutoff and required periodic-image span without clipping;
+  retained cutoff, `g(r) = 1` bulk reference, and required periodic-image span
+  without clipping; the amorphous regression reaches a flat long-range
+  plateau;
 - preview and exported image decode to the same composition;
 - README assets are inspected after regeneration, not merely written.
 

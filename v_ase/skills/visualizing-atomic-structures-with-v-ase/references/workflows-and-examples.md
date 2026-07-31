@@ -468,6 +468,8 @@ for (const path of [
   });
 }
 
+// Each load displays its newest grid at a valid default level. The exact
+// signed difference surface is set explicitly below after combination.
 const loaded = await ai.describe({includePositions: false});
 const grids = loaded.analysis.volumetricDatasets.slice(-3);
 if (grids.length !== 3 || grids.some(grid => !grid.id)) {
@@ -515,9 +517,11 @@ Validation:
 2. Every source and the difference report `precision: "float64"` and the
    expected `memory_bytes`.
 3. The signed surface has both positive and negative mesh groups.
-4. The mesh repeats exactly with the displayed `2 x 2 x 1` supercell.
-5. Both mesh and atoms use the same fractional visual translation.
-6. Repeating the source grids physically is done only after explicit
+4. Changing opacity restyles the current mesh immediately without changing
+   the mesh count.
+5. The mesh repeats exactly with the displayed `2 x 2 x 1` supercell.
+6. Both mesh and atoms use the same fractional visual translation.
+7. Repeating the source grids physically is done only after explicit
    `set-supercell`; undo restores atom count, cell, and grid dimensions.
 
 Do not combine grids with different dimensions, cell, origin, PBC, or units.
@@ -552,6 +556,10 @@ if (Math.abs(rdf.cutoff - 8.0) > 1e-12 || rdf.periodicImageSpan.length !== 3) {
   throw new Error("RDF did not retain the requested cutoff and image span.");
 }
 ```
+
+For an amorphous bulk model, also inspect the total curve beyond its
+short-range peaks. It should fluctuate around the plotted `g(r) = 1` reference;
+a systematic decline indicates an invalid finite-cell normalization.
 
 Export the exact numeric result:
 

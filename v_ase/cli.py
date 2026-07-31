@@ -359,13 +359,30 @@ def run_gui(args: argparse.Namespace) -> int:
                     f"v_ase: could not open volumetric data: {exc}"
                 ) from exc
             frames = [volumetric_structure(volumetric_datasets)]
+            first_dataset = volumetric_datasets[0]
+            minimum = float(first_dataset.minimum)
+            maximum = float(first_dataset.maximum)
+            has_surface_range = maximum > minimum
+            if has_surface_range and minimum < 0.0 < maximum:
+                volumetric_level = max(abs(minimum), abs(maximum)) * 0.18
+                volumetric_surface_mode = "signed"
+            elif has_surface_range:
+                volumetric_level = minimum + (maximum - minimum) * 0.22
+                volumetric_surface_mode = "single"
+            else:
+                volumetric_level = None
+                volumetric_surface_mode = "single"
             initial_design_settings = {
                 "display": {
+                    "showVolumetric": has_surface_range,
                     "volumetricPrecision": (
                         "float64"
                         if args.volumetric_precision == "fp64"
                         else "float32"
-                    )
+                    ),
+                    "volumetricDatasetId": first_dataset.dataset_id,
+                    "volumetricLevel": volumetric_level,
+                    "volumetricSurfaceMode": volumetric_surface_mode,
                 }
             }
         elif viz_only and is_lammps_dump:

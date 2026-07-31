@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 from ase import Atoms
-from ase.build import bulk, fcc111
+from ase.build import fcc111
 from ase.io.cube import write_cube
 from PIL import Image
 from playwright.sync_api import sync_playwright
@@ -33,6 +33,8 @@ from examples.readme_scenes import (
     make_graphene_hbn_commensurate_scene,
     make_hookean_surface_scene,
     make_ai_pyridinic_graphene_scene,
+    make_amorphous_cuzr_rdf_scene,
+    make_benzene_pi_volumetric_scene,
     make_material_preset_scene,
     make_phosphorene_twist_scene,
     make_surface_fixedplane_scene,
@@ -156,24 +158,6 @@ def make_logo_scene() -> Atoms:
     atoms.positions -= center
     atoms.info["readme_scene"] = "v_ase_atomistic_logo"
     return atoms
-
-
-def make_volumetric_analysis_scene() -> tuple[Atoms, np.ndarray]:
-    atoms = bulk("NaCl", "rocksalt", a=5.64, cubic=True).repeat((2, 2, 2))
-    shape = (40, 40, 40)
-    axes = [np.arange(size, dtype=float) / size for size in shape]
-    fractional = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1)
-    values = np.zeros(shape, dtype=np.float32)
-    scaled = atoms.get_scaled_positions(wrap=True)
-    for position, symbol in zip(scaled, atoms.get_chemical_symbols()):
-        delta = fractional - position
-        delta -= np.rint(delta)
-        cartesian = np.einsum("...i,ij->...j", delta, atoms.cell.array)
-        radius_squared = np.einsum("...i,...i->...", cartesian, cartesian)
-        sign = 1.0 if symbol == "Na" else -1.0
-        values += sign * np.exp(-radius_squared / (2.0 * 0.58**2))
-    atoms.info["readme_scene"] = "volumetric_rdf_analysis"
-    return atoms, values
 
 
 def open_panels(page, panels):
@@ -1963,25 +1947,33 @@ def capture_relaxation_media(browser) -> None:
         editor.close()
 
 
-def capture_analysis_media(browser) -> None:
-    atoms, values = make_volumetric_analysis_scene()
-    cube_path = ROOT / ".v_ase-readme-analysis.cube"
+def capture_volumetric_media(browser) -> None:
+    atoms, values = make_benzene_pi_volumetric_scene()
+    cube_path = ROOT / ".v_ase-readme-benzene-pi.cube"
     with cube_path.open("w", encoding="utf-8") as handle:
         write_cube(handle, atoms, data=values)
 
-    editor, page = open_scene(browser, atoms, show_bonds=False)
+    editor, page = open_scene(browser, atoms, show_bonds=True)
     try:
         set_display(page, {
-            "atomRadiusScale": 0.44,
-            "showBonds": False,
+            "atomRadiusScale": 0.54,
+            "showBonds": True,
+            "bondThickness": 0.18,
             "showGrid": False,
-            "showCell": True,
+            "showCell": False,
             "showAxes": False,
             "viewportBackground": "white",
             "lightingMode": "studio-shadow",
-            "labelMaterials": {"Na": "metal", "Cl": "standard"},
+            "labelColors": {
+                "C_pi": "#31373a",
+                "H": "#e4e7e9",
+            },
+            "labelMaterials": {
+                "C_pi": "standard",
+                "H": "standard",
+            },
         })
-        configure_inspector(page, "analysis", ["volumetric", "rdf"], width=470)
+        configure_inspector(page, "analysis", ["volumetric"], width=470)
         result = page.evaluate(
             """async ({ path, level }) => {
                 const ai = window.v_aseAI;
@@ -1997,57 +1989,161 @@ def capture_analysis_media(browser) -> None:
                         level,
                         surfaceMode: 'signed',
                         stepSize: 1,
-                        opacity: 0.44,
-                        positiveColor: '#168a8a',
-                        negativeColor: '#cf4b5c'
-                    }
-                });
-                await ai.apply({
-                    operation: {
-                        name: 'calculate-rdf',
-                        cutoff: 5.2,
-                        bins: 180,
-                        pairMode: 'all'
+                        opacity: 0.56,
+                        positiveColor: '#258fbd',
+                        negativeColor: '#dc5976'
                     }
                 });
                 return await ai.describe({includePositions: false});
             }""",
             {
                 "path": cube_path.relative_to(ROOT).as_posix(),
-                "level": float(np.max(np.abs(values)) * 0.32),
+                "level": float(np.max(np.abs(values)) * 0.22),
             },
         )
-        if not result["analysis"]["rdf"]:
-            raise AssertionError("README RDF scene did not produce an analysis result.")
+        if not result["analysis"]["volumetricDatasets"]:
+            raise AssertionError("README volumetric scene did not load its scalar field.")
         page.wait_for_function(
             """() => Number(
                 window.__V_ASE_APP__.renderer.domElement.dataset.volumetricSurfaceCount || 0
             ) >= 2"""
         )
-        page.wait_for_selector("#rdf-plot .plotly", state="attached")
         center = np.mean(atoms.positions, axis=0)
         settle_view(
             page,
             target=center.tolist(),
-            position=(center + np.array([13.0, -15.0, 11.0])).tolist(),
-            fov=34,
+            position=(center + np.array([8.8, -10.5, 6.8])).tolist(),
+            fov=33,
         )
-        set_atomic_scale(page, 58.0)
+        set_atomic_scale(page, 86.0)
         set_readme_lighting(
             page,
             center.tolist(),
-            intensity=2.8,
-            position_offset=(-9.0, -11.0, 15.0),
+            intensity=3.0,
+            position_offset=(-7.0, -9.0, 12.0),
         )
+        opacity_state = page.evaluate(
+            """() => {
+                const app = window.__V_ASE_APP__;
+                return {
+                    value: document.getElementById('volume-opacity-value')?.textContent,
+                    materials: app.renderer.volumetricSurfaces.map(surface => ({
+                        opacity: surface.material.opacity,
+                        transparent: surface.material.transparent
+                    }))
+                };
+            }"""
+        )
+        if opacity_state["value"] != "0.56":
+            raise AssertionError("README volumetric opacity readout is not synchronized.")
+        if not all(
+            abs(material["opacity"] - 0.56) < 1e-6 and material["transparent"]
+            for material in opacity_state["materials"]
+        ):
+            raise AssertionError("README isosurface opacity was not applied to its materials.")
         page.wait_for_timeout(300)
         screenshot_frame(page).save(
-            ASSET_DIR / "readme_volumetric_rdf.png",
+            ASSET_DIR / "readme_volumetric.png",
             optimize=True,
         )
     finally:
         page.close()
         editor.close()
         cube_path.unlink(missing_ok=True)
+
+
+def capture_rdf_media(browser) -> None:
+    atoms = make_amorphous_cuzr_rdf_scene()
+    editor, page = open_scene(browser, atoms, show_bonds=False)
+    try:
+        set_display(page, {
+            "atomRadiusScale": 0.34,
+            "showBonds": False,
+            "showGrid": False,
+            "showCell": True,
+            "showAxes": False,
+            "viewportBackground": "white",
+            "lightingMode": "studio-shadow",
+            "labelColors": {
+                "Cu_glass": "#b66b36",
+                "Zr_glass": "#63a5b5",
+            },
+            "labelMaterials": {
+                "Cu_glass": "metal",
+                "Zr_glass": "standard",
+            },
+        })
+        configure_inspector(page, "analysis", ["rdf"], width=450)
+        result = page.evaluate(
+            """async () => {
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'calculate-rdf',
+                        cutoff: 11.0,
+                        bins: 180,
+                        pairMode: 'none'
+                    }
+                });
+                const rdf = window.__V_ASE_APP__.state.rdfResult;
+                const tail = rdf.radius
+                    .map((radius, index) => [radius, rdf.total[index]])
+                    .filter(([radius]) => radius > 7.0)
+                    .map(([, value]) => value);
+                const mean = tail.reduce((sum, value) => sum + value, 0) / tail.length;
+                const variance = tail.reduce(
+                    (sum, value) => sum + (value - mean) ** 2,
+                    0
+                ) / tail.length;
+                return {
+                    mean,
+                    standardDeviation: Math.sqrt(variance),
+                    tailCount: tail.length
+                };
+            }"""
+        )
+        if abs(result["mean"] - 1.0) > 0.05 or result["standardDeviation"] > 0.08:
+            raise AssertionError(
+                "README amorphous RDF does not reach a flat bulk plateau."
+            )
+        page.wait_for_selector("#rdf-plot .plotly", state="attached")
+        page.wait_for_selector(
+            "#rdf-plot .annotation-text",
+            state="attached",
+        )
+        page.evaluate(
+            """() => {
+                const drawer = document.getElementById('analysis-drawer');
+                drawer.style.height = '390px';
+                window.Plotly?.Plots?.resize?.(document.getElementById('rdf-plot'));
+            }"""
+        )
+        center = np.mean(atoms.positions, axis=0)
+        settle_view(
+            page,
+            target=center.tolist(),
+            position=(center + np.array([37.0, -42.0, 34.0])).tolist(),
+            fov=34,
+        )
+        set_atomic_scale(page, 23.0)
+        set_readme_lighting(
+            page,
+            center.tolist(),
+            intensity=2.9,
+            position_offset=(-22.0, -25.0, 34.0),
+        )
+        page.wait_for_timeout(350)
+        screenshot_frame(page).save(
+            ASSET_DIR / "readme_rdf.png",
+            optimize=True,
+        )
+    finally:
+        page.close()
+        editor.close()
+
+
+def capture_analysis_media(browser) -> None:
+    capture_volumetric_media(browser)
+    capture_rdf_media(browser)
 
 
 def main() -> int:

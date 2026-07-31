@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.1.3&rev=1';
-import { ASERenderer } from './renderer.js?v=0.1.3&rev=1';
-import { ASESelection } from './selection.js?v=0.1.3&rev=1';
-import { ASETransform } from './transform.js?v=0.1.3&rev=1';
+import { ASEApi } from './api.js?v=0.1.4&rev=1';
+import { ASERenderer } from './renderer.js?v=0.1.4&rev=1';
+import { ASESelection } from './selection.js?v=0.1.4&rev=1';
+import { ASETransform } from './transform.js?v=0.1.4&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.1.3&rev=1';
+} from './trajectory.js?v=0.1.4&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -1425,6 +1425,20 @@ class VAseApp {
         return datasets.find(dataset => dataset.id === selectedId) || datasets[0] || null;
     }
 
+    activateNewestVolumetricDataset({ show = true } = {}) {
+        const dataset = this.volumetricDatasets().at(-1) || null;
+        if (!dataset) return null;
+        this.state.display.volumetricDatasetId = dataset.id;
+        const level = this.defaultVolumetricLevel(dataset);
+        this.state.display.volumetricLevel = level;
+        this.state.display.volumetricSurfaceMode = (
+            Number(dataset.minimum) < 0 && Number(dataset.maximum) > 0
+        ) ? 'signed' : 'single';
+        if (show) this.state.display.showVolumetric = Number.isFinite(level);
+        this.renderVolumetricControls();
+        return dataset;
+    }
+
     defaultVolumetricLevel(dataset) {
         if (!dataset) return null;
         const minimum = Number(dataset.minimum);
@@ -1686,7 +1700,8 @@ class VAseApp {
             preserveDisplay: true,
             preserveRdf: true
         });
-        this.renderVolumetricControls();
+        this.activateNewestVolumetricDataset();
+        await this.updateVolumetricSurface();
         this.toast(
             `Added ${Number(data.loaded_file?.appended_volumetric_datasets) || 0} scalar field`
             + `${Number(data.loaded_file?.appended_volumetric_datasets) === 1 ? '' : 's'}.`,
@@ -1935,6 +1950,27 @@ class VAseApp {
                 zerolinecolor: lineColor,
                 color: mutedColor
             },
+            shapes: [{
+                type: 'line',
+                xref: 'paper',
+                x0: 0,
+                x1: 1,
+                yref: 'y',
+                y0: 1,
+                y1: 1,
+                line: { color: mutedColor, width: 1.2, dash: 'dot' }
+            }],
+            annotations: [{
+                xref: 'paper',
+                x: 1,
+                xanchor: 'right',
+                yref: 'y',
+                y: 1,
+                yshift: 10,
+                text: 'bulk limit  g(r) = 1',
+                showarrow: false,
+                font: { color: mutedColor, size: 10 }
+            }],
             legend: {
                 orientation: 'h',
                 x: 0,
@@ -7108,7 +7144,8 @@ class VAseApp {
                 preserveDisplay: true,
                 preserveRdf: true
             });
-            this.renderVolumetricControls();
+            this.activateNewestVolumetricDataset();
+            await this.updateVolumetricSurface();
             return;
         }
         if (name === 'show-volumetric') {
@@ -9604,6 +9641,11 @@ class VAseApp {
             } else {
                 this.initialDesignSettings = this.designSettingsSnapshot();
             }
+            if (!isProject && data.loaded_file?.source_kind === 'volumetric') {
+                this.activateNewestVolumetricDataset();
+                await this.updateVolumetricSurface();
+                this.initialDesignSettings = this.designSettingsSnapshot();
+            }
             this.resetVisualHistoryBaseline();
             const frameCount = data.metadata?.frame_count || 1;
             this.toast(
@@ -9656,7 +9698,8 @@ class VAseApp {
             this.resetVisualHistoryBaseline();
             if (data.loaded_file?.source_kind === 'volumetric') {
                 const addedVolumes = Number(data.loaded_file?.appended_volumetric_datasets) || 0;
-                this.renderVolumetricControls();
+                this.activateNewestVolumetricDataset();
+                await this.updateVolumetricSurface();
                 this.toast(
                     `Added ${addedVolumes} scalar field${addedVolumes === 1 ? '' : 's'} `
                     + `from ${data.loaded_file?.filename || file.name}.`,

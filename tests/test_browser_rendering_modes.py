@@ -242,6 +242,17 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                 assert datasets[0]["precision"] == "float64"
                 assert datasets[0]["memory_bytes"] == int(values.size * 8)
                 dataset_id = datasets[0]["id"]
+                page.wait_for_function(
+                    """() => Number(
+                        window.__ASE_APP__.renderer.domElement.dataset
+                            .volumetricSurfaceCount || 0
+                    ) >= 2"""
+                )
+                assert page.locator("#chk-volume-visible").is_checked()
+                assert (
+                    page.locator('label[for="volume-opacity"]').inner_text()
+                    == "Isosurface opacity"
+                )
 
                 active_pairs = page.evaluate(
                     """() => {
@@ -319,6 +330,41 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                 assert page.locator("#rdf-plot .scatterlayer path").count() >= 2
                 assert not page.locator("#analysis-drawer").evaluate(
                     "element => element.classList.contains('hidden')"
+                )
+                assert page.locator("#rdf-plot .shapelayer path").count() >= 1
+                assert "bulk limit" in (
+                    page.locator("#rdf-plot .annotation-text").text_content() or ""
+                )
+
+                opacity_state = page.evaluate(
+                    """() => {
+                        const input = document.getElementById('volume-opacity');
+                        input.value = '0.31';
+                        input.dispatchEvent(new Event('input', {bubbles: true}));
+                        const app = window.__ASE_APP__;
+                        return {
+                            readout: document.getElementById(
+                                'volume-opacity-value'
+                            ).textContent,
+                            state: app.state.display.volumetricOpacity,
+                            materials: app.renderer.volumetricSurfaces.map(
+                                surface => ({
+                                    opacity: surface.material.opacity,
+                                    transparent: surface.material.transparent,
+                                    depthWrite: surface.material.depthWrite
+                                })
+                            )
+                        };
+                    }"""
+                )
+                assert opacity_state["readout"] == "0.31"
+                assert opacity_state["state"] == pytest.approx(0.31)
+                assert opacity_state["materials"]
+                assert all(
+                    material["opacity"] == pytest.approx(0.31)
+                    and material["transparent"] is True
+                    and material["depthWrite"] is False
+                    for material in opacity_state["materials"]
                 )
 
                 csv_result = page.evaluate(

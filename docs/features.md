@@ -341,9 +341,12 @@ descriptors and extracted indexed isosurface meshes.
 
 Supported operations:
 
-- load one VASP, Cube, or XSF grid;
+- load one VASP, Cube, or XSF grid and immediately show a valid default
+  isosurface for the newest dataset;
 - form an arbitrary finite linear combination of compatible grids;
 - extract one positive surface or paired positive/negative surfaces;
+- restyle positive/negative colors and opacity live without rerunning marching
+  cubes;
 - remove a dataset;
 - repeat meshes for a display supercell and move them with visual translation;
 - repeat the underlying grid when a physical diagonal supercell is
@@ -380,8 +383,10 @@ can follow enabled bond labels, include all label pairs, or be disabled.
 
 The Analysis drawer uses the locally installed Plotly bundle and remains
 resizable below the viewport. RDF computation stays in the backend; the
-browser receives numeric arrays for plotting and CSV export. Hidden RDF and
-volumetric surfaces incur no per-frame render work.
+browser receives numeric arrays for plotting and CSV export. A dotted
+`g(r) = 1` reference identifies the homogeneous bulk limit so a valid
+long-range amorphous plateau is visually explicit. Hidden RDF and volumetric
+surfaces incur no per-frame render work.
 
 ## Rendering
 

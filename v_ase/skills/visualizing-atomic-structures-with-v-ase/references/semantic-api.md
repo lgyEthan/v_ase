@@ -388,6 +388,10 @@ const state = await ai.describe({includePositions: false});
 const densityId = state.analysis.volumetricDatasets.at(-1).id;
 ```
 
+`load-volumetric` immediately displays the newest dataset at an in-range
+default isovalue. Use `show-volumetric` to replace that default with an exact
+scientific level, signed/single mode, colors, mesh detail, and opacity.
+
 Use explicit `format` only when the filename is ambiguous. Accepted aliases
 include `"chgcar"`, `"locpot"`, `"parchg"`, `"elfcar"`, `"cube"`,
 `"qe-cube"`, `"xsf"`, and `"qe-xsf"`. Precision is `"fp32"`/`"float32"`
@@ -415,8 +419,11 @@ await ai.apply({
 ```
 
 `surfaceMode` is `"single"` or `"signed"` and `stepSize` is `1`, `2`, or
-`4`. A smaller step preserves more grid detail and takes more time. Isosurfaces
-repeat with `display.supercell` and move with visual translation. A physical
+`4`. A smaller step preserves more grid detail and takes more time. GUI
+opacity/color input and repeated `show-volumetric` commands restyle the
+existing mesh immediately; marching cubes is rerun only when the dataset,
+isovalue, sign mode, or detail changes. Isosurfaces repeat with
+`display.supercell` and move with visual translation. A physical
 `set-supercell` operation repeats the stored volumetric grid as well as every
 trajectory frame.
 `reset-coordinates` restores the originally loaded atom frames, cell, and
@@ -472,6 +479,10 @@ always present. Partial curves follow the conventional concentration relation:
 for a binary system,
 `g = c_a^2 g_aa + 2 c_a c_b g_ab + c_b^2 g_bb`.
 `bins` must be between 8 and 5000.
+The GUI adds a dotted `g(r) = 1` reference for the homogeneous bulk limit.
+For a sufficiently large amorphous periodic model, verify that the
+long-distance total curve fluctuates around one rather than decaying with
+radius.
 
 Export the calculated values without reading Plotly pixels:
 

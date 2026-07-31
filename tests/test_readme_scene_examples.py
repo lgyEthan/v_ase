@@ -11,6 +11,8 @@ from PIL import Image
 from examples.readme_scenes import (
     SCENE_NAMES,
     make_ai_pyridinic_graphene_scene,
+    make_amorphous_cuzr_rdf_scene,
+    make_benzene_pi_volumetric_scene,
     make_black_phosphorene_unit_cell,
     make_copper_oxide_bond_scene,
     make_crowded_c60_relaxation_scene,
@@ -20,6 +22,7 @@ from examples.readme_scenes import (
     write_scene_assets,
 )
 from v_ase.io import atom_labels
+from v_ase.analysis import calculate_rdf
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -294,6 +297,30 @@ def test_material_scene_keeps_elements_equal_while_labels_separate_presets():
     assert set(atom_labels(atoms)) == set(groups)
 
 
+def test_analysis_examples_show_signed_isosurfaces_and_a_flat_amorphous_rdf_tail():
+    molecule, values = make_benzene_pi_volumetric_scene()
+    assert molecule.get_chemical_formula() == "C6H6"
+    assert values.dtype == np.float32
+    assert values.shape == (56, 56, 56)
+    assert float(values.min()) < 0 < float(values.max())
+    assert float(values.max()) == pytest.approx(-float(values.min()), rel=1e-6)
+
+    amorphous = make_amorphous_cuzr_rdf_scene()
+    assert len(amorphous) == 900
+    assert np.all(amorphous.pbc)
+    assert set(atom_labels(amorphous)) == {"Cu_glass", "Zr_glass"}
+    result = calculate_rdf(
+        amorphous,
+        cutoff=11.0,
+        bins=180,
+        pair_mode="none",
+    )
+    tail = result.total[result.radius > 7.0]
+    assert np.mean(tail) == pytest.approx(1.0, abs=0.05)
+    assert np.std(tail) < 0.08
+    assert result.total.max() > 1.4
+
+
 def test_brand_logo_is_native_high_resolution_transparent_png():
     docs_logo = ROOT / "docs" / "assets" / "v_ase-logo.png"
     static_logo = ROOT / "v_ase" / "static" / "v_ase-logo.png"
@@ -386,6 +413,8 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
         "readme_materials.png",
         "readme_measurement.gif",
         "readme_displacement.png",
+        "readme_volumetric.png",
+        "readme_rdf.png",
     ):
         assert (ROOT / "docs" / "assets" / filename).is_file()
         assert (ROOT / "docs" / "assets" / "github" / filename).is_file()

@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.1.3"
+python -m pip install "v_ase-gui==0.1.4"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -236,11 +236,12 @@ For any nontrivial task, verify all applicable items:
 - structure: count, labels, elements, positions, cell, PBC, constraints;
 - trajectory: frame count, active frame, stable selection, analysis reference;
 - volumetric: dataset ID, grid dimensions, cell, origin, PBC, units,
-  component, FP32/FP64 precision, memory size, requested isovalue, mesh count,
-  and supercell/translation alignment;
+  component, FP32/FP64 precision, memory size, visible default/custom
+  isovalue, mesh count, live color/opacity state, and
+  supercell/translation alignment;
 - RDF: current frame, 3D PBC, requested/effective cutoff, unique-MIC reference,
-  required periodic-image span, bins, pair mode, plotted curves, warnings, and
-  exported CSV columns;
+  required periodic-image span, bins, pair mode, plotted curves, `g(r) = 1`
+  bulk reference, long-range behavior, warnings, and exported CSV columns;
 - appearance: visibility, radii, colors, materials, bonds, cell, background;
 - camera: projection, position, target, up vector, framing, expected direction;
 - manipulation overlays: rotation axis, fixed start reference, moving current

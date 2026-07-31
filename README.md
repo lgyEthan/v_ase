@@ -276,10 +276,15 @@ v_ase gui charge-density.xsf
 ```
 
 **Analysis > Volumetric Data** controls the dataset, isovalue, signed
-positive/negative surfaces, mesh detail, colors, and opacity. Multiple
-compatible datasets can be combined with coefficients such as `+1, -1, -1`
-for a charge-density difference. Grid values stay in the local v_ase backend;
-the browser receives only the generated surface mesh.
+positive/negative surfaces, mesh detail, colors, and isosurface opacity.
+Opening a volumetric file, or adding the first scalar field, immediately shows
+an isosurface at a valid default level. Drag **Isosurface opacity** to update
+the current surface live without regenerating its mesh. Multiple compatible
+datasets can be combined with coefficients such as `+1, -1, -1` for a
+charge-density difference. Grid values stay in the local v_ase backend; the
+browser receives only the generated surface mesh.
+
+![Signed benzene pi-field isosurfaces with live opacity control](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric.png)
 
 Choose the import precision before opening or adding a scalar field. **FP32**
 is the lower-memory default; **FP64** preserves double-precision grid values
@@ -323,10 +328,11 @@ span used. Bulk normalization is reported only for cells periodic in all three
 directions; partial-PBC and finite systems require a separate boundary
 correction and are rejected instead of returning a misleading bulk `g(r)`.
 
-![Signed volumetric isosurface and RDF analysis](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric_rdf.png)
+The dotted `g(r) = 1` reference makes the bulk limit explicit. In the
+amorphous Cu-Zr example below, the broad short-range peak decays into a flat
+long-range plateau rather than falling with the finite display cell.
 
-The same Analysis workspace keeps the 3D scalar field, structure, total RDF,
-and selected label-pair curves synchronized to the current frame.
+![Amorphous Cu-Zr structure and RDF approaching the bulk limit](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_rdf.png)
 
 ## Constraints
 

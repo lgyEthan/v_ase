@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.4
+
+- Made newly opened or added volumetric datasets immediately visible at an
+  in-range default isovalue, while retaining exact user control over signed
+  mode, mesh detail, colors, and live isosurface opacity.
+- Added a dotted `g(r) = 1` bulk-limit reference to the RDF plot and replaced
+  the crystalline README analysis example with separate benzene pi-field
+  isosurface and periodic amorphous Cu-Zr RDF scenes.
+- Added browser and numerical regressions for automatic isosurface creation,
+  live opacity material updates, and a statistically flat amorphous
+  long-range RDF plateau.
+
 ## 0.1.3
 
 - Rebuilt the external-AI-agent figure as a compact cycle centered on v_ase:

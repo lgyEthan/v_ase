@@ -244,6 +244,119 @@ def make_ai_pyridinic_graphene_scene() -> tuple[Atoms, Atoms, dict[str, object]]
     }
 
 
+def make_benzene_pi_volumetric_scene(
+    shape: tuple[int, int, int] = (56, 56, 56),
+) -> tuple[Atoms, np.ndarray]:
+    """Return benzene and a signed, orbital-like pi scalar field.
+
+    The field is generated analytically from carbon-centered pz Gaussians. It
+    is a deterministic visualization example rather than a DFT wavefunction.
+    """
+
+    atoms = molecule("C6H6")
+    cell = np.diag([14.0, 14.0, 14.0])
+    center = np.array([7.0, 7.0, 7.0])
+    atoms.positions += center - np.mean(atoms.positions, axis=0)
+    atoms.set_cell(cell)
+    atoms.pbc = True
+    set_atom_labels(
+        atoms,
+        ["C_pi" if symbol == "C" else "H" for symbol in atoms.get_chemical_symbols()],
+    )
+
+    axes = [np.arange(size, dtype=float) / size for size in shape]
+    fractional = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1)
+    values = np.zeros(shape, dtype=np.float32)
+    for position, symbol in zip(
+        atoms.get_scaled_positions(wrap=True),
+        atoms.get_chemical_symbols(),
+    ):
+        if symbol != "C":
+            continue
+        delta = fractional - position
+        delta -= np.rint(delta)
+        cartesian = np.einsum("...i,ij->...j", delta, cell)
+        radius_squared = np.einsum(
+            "...i,...i->...",
+            cartesian,
+            cartesian,
+        )
+        values += (
+            cartesian[..., 2]
+            * np.exp(-radius_squared / (2.0 * 0.72**2))
+        ).astype(np.float32)
+
+    atoms.info.update({
+        "readme_scene": "benzene_signed_pi_isosurface",
+        "volumetric_model": "carbon-centered analytic pz Gaussian field",
+    })
+    return atoms, values
+
+
+def make_amorphous_cuzr_rdf_scene(
+    *,
+    seed: int = 20260731,
+    count: int = 900,
+    cell_length: float = 28.0,
+) -> Atoms:
+    """Return a deterministic periodic Cu-Zr hard-core amorphous model.
+
+    Random sequential insertion enforces species-dependent short-range
+    exclusion while leaving long-range correlations uniform. The resulting
+    RDF has a broad first-neighbor peak and approaches the bulk limit g(r)=1.
+    """
+
+    rng = np.random.default_rng(seed)
+    positions: list[np.ndarray] = []
+    symbols: list[str] = []
+    minimum_distance = {
+        ("Cu", "Cu"): 2.15,
+        ("Cu", "Zr"): 2.30,
+        ("Zr", "Cu"): 2.30,
+        ("Zr", "Zr"): 2.45,
+    }
+    maximum_trials = max(100_000, count * 5_000)
+    trials = 0
+    while len(positions) < count and trials < maximum_trials:
+        trials += 1
+        symbol = "Cu" if rng.random() < 0.64 else "Zr"
+        candidate = rng.random(3) * cell_length
+        if positions:
+            delta = np.asarray(positions) - candidate
+            delta -= cell_length * np.rint(delta / cell_length)
+            distances = np.linalg.norm(delta, axis=1)
+            cutoffs = np.asarray([
+                minimum_distance[(symbol, other)]
+                for other in symbols
+            ])
+            if np.any(distances < cutoffs):
+                continue
+        positions.append(candidate)
+        symbols.append(symbol)
+
+    if len(positions) != count:
+        raise RuntimeError(
+            f"Could not place {count} amorphous atoms after {maximum_trials} trials."
+        )
+
+    atoms = Atoms(
+        symbols,
+        positions=positions,
+        cell=[cell_length] * 3,
+        pbc=True,
+    )
+    set_atom_labels(
+        atoms,
+        ["Cu_glass" if symbol == "Cu" else "Zr_glass" for symbol in symbols],
+    )
+    atoms.info.update({
+        "readme_scene": "amorphous_cuzr_rdf_plateau",
+        "model": "deterministic periodic binary hard-core amorphous configuration",
+        "random_seed": seed,
+    })
+    return atoms
+
+
 def make_copper_oxide_bond_scene() -> tuple[Atoms, dict[str, list[int]]]:
     """Return a top-registered Cu2O(111)/Cu(111) coincidence interface.
 

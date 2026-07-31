@@ -348,7 +348,10 @@ pipeline. VASP scalar grids, Cube, and XSF are detected before ASE structure
 dispatch. Browser file/path endpoints accept `volumetric_precision` as
 `float32` or `float64`; the semantic `load-volumetric` operation accepts
 `precision` as FP32/FP64 aliases. Dataset descriptors report precision and
-backend memory bytes. The current document then exposes:
+backend memory bytes. The newest nonconstant grid is selected and displayed at
+an in-range default isovalue immediately. Surface color and opacity changes
+restyle the current browser mesh without requesting marching cubes again. The
+current document then exposes:
 
 `view("CHGCAR", volumetric_precision="fp64")` applies the same selection to
 Python path-based loading and records it as the next-import precision in the
@@ -378,7 +381,9 @@ Payload fields are `cutoff`, `bins`, `pairMode`, and `activePairs`. Full 3D
 PBC is required. The response includes the retained requested/effective
 cutoff, unique-MIC reference, actual periodic-image extent/span, warnings,
 total `g(r)`, and concentration-weighted partial curves. CSV uses the same
-calculation path.
+calculation path. The Plotly drawer adds a `g(r) = 1` bulk-limit reference;
+the periodic amorphous regression checks that the long-range curve remains
+flat around that reference.
 
 Agent discovery and semantic state are available through:
 
