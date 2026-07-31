@@ -18,6 +18,7 @@ from v_ase.volumetric import (
     _max_grid_points,
     combine_volumetric_datasets,
     generate_isosurface,
+    normalize_volumetric_precision,
     read_volumetric_file,
     resolve_volumetric_format,
 )
@@ -35,6 +36,7 @@ from v_ase.server import (
     volumetric_isosurface,
 )
 from v_ase.session import EditorSession, sessions
+from v_ase.viewer import view
 
 
 def test_volumetric_format_detection_covers_vasp_and_qe_exchange_formats(tmp_path):
@@ -53,6 +55,23 @@ def test_documented_volumetric_grid_limit_environment_variable_is_authoritative(
     monkeypatch.setenv("V_ASE_MAX_VOLUME_POINTS", "1100000")
     monkeypatch.setenv("V_ASE_MAX_VOLUMETRIC_POINTS", "1250000")
     assert _max_grid_points() == 1_250_000
+
+
+def test_volumetric_precision_is_explicit_and_preserves_fp64_values():
+    cell = np.eye(3) * 4.0
+    base = np.ones((3, 3, 3), dtype=np.float64)
+    base[1, 1, 1] += 2.0 ** -30
+
+    fp32 = VolumetricData("fp32", base, cell, precision="fp32")
+    fp64 = VolumetricData("fp64", base, cell, precision="fp64")
+
+    assert normalize_volumetric_precision("double") == "float64"
+    assert fp32.values.dtype == np.float32
+    assert fp64.values.dtype == np.float64
+    assert fp32.values[1, 1, 1] == np.float32(1.0)
+    assert fp64.values[1, 1, 1] == pytest.approx(1.0 + 2.0 ** -30)
+    assert fp64.summary()["precision"] == "float64"
+    assert fp64.summary()["memory_bytes"] == fp64.values.nbytes
 
 
 def test_cube_reader_preserves_grid_cell_origin_and_atoms(tmp_path):
@@ -77,6 +96,48 @@ def test_cube_reader_preserves_grid_cell_origin_and_atoms(tmp_path):
     assert dataset.atoms is not None
     assert dataset.atoms.get_chemical_symbols() == ["H", "O"]
     assert dataset.source_format == "cube"
+
+    fp64_dataset = read_volumetric_file(path, precision="fp64")[0]
+    assert fp64_dataset.values.dtype == np.float64
+    assert fp64_dataset.precision == "float64"
+
+
+def test_python_view_path_forwards_fp64_precision_to_dataset_and_gui(
+    tmp_path,
+    monkeypatch,
+):
+    atoms = Atoms("He", positions=[[0.4, 0.5, 0.6]], cell=[3, 4, 5], pbc=True)
+    values = np.ones((3, 4, 5), dtype=np.float64)
+    values[1, 2, 3] += 2.0 ** -30
+    path = tmp_path / "density.cube"
+    with path.open("w", encoding="utf-8") as handle:
+        write_cube(handle, atoms, data=values)
+
+    monkeypatch.setattr("v_ase.viewer.find_free_port", lambda: 54321)
+    monkeypatch.setattr(
+        "v_ase.viewer.acquire_local_server",
+        lambda _app, _port: object(),
+    )
+    monkeypatch.setattr(
+        "v_ase.viewer.release_local_server",
+        lambda *_args, **_kwargs: None,
+    )
+    editor = view(
+        path,
+        block=False,
+        open_browser=False,
+        volumetric_precision="fp64",
+    )
+    try:
+        session = sessions[editor.session_id]
+        dataset = session.volumetric_datasets[0]
+        assert dataset.precision == "float64"
+        assert dataset.values.dtype == np.float64
+        assert session.config["initial_design_settings"]["display"][
+            "volumetricPrecision"
+        ] == "float64"
+    finally:
+        editor.close()
 
 
 def test_vasp_reader_preserves_density_axis_order_and_locpot_native_values(tmp_path):
@@ -185,6 +246,34 @@ def test_charge_density_difference_requires_matching_physical_grids():
             [first, VolumetricData("bad", np.zeros((7, 9, 10)), cell)],
             [1.0, -1.0],
         )
+
+
+def test_volumetric_combination_promotes_to_highest_input_precision():
+    cell = np.eye(3) * 5.0
+    first = VolumetricData(
+        "fp32",
+        np.ones((4, 4, 4)),
+        cell,
+        precision="fp32",
+    )
+    second = VolumetricData(
+        "fp64",
+        np.full((4, 4, 4), 2.0 ** -30),
+        cell,
+        precision="fp64",
+    )
+
+    promoted = combine_volumetric_datasets([first, second], [1.0, 1.0])
+    forced = combine_volumetric_datasets(
+        [first, second],
+        [1.0, 1.0],
+        precision="fp32",
+    )
+
+    assert promoted.values.dtype == np.float64
+    assert promoted.precision == "float64"
+    assert forced.values.dtype == np.float32
+    assert forced.precision == "float32"
 
 
 def test_volumetric_supercell_preserves_endpoint_conventions_and_integral():
@@ -367,6 +456,34 @@ def test_vase_project_roundtrips_volumetric_data_without_pickle(tmp_path):
     np.testing.assert_allclose(loaded.cell, atoms.cell.array)
     assert restored.settings["display"]["supercell"] == [2, 1, 1]
     assert restored.settings["display"]["translation"] == [0.2, 0.3, 0.4]
+
+
+def test_vase_project_roundtrips_fp64_volumetric_data(tmp_path):
+    atoms = Atoms("He", positions=[[0.2, 0.3, 0.4]], cell=[3, 4, 5], pbc=True)
+    values = np.ones((5, 6, 7), dtype=np.float64)
+    values[2, 3, 4] += 2.0 ** -35
+    dataset = VolumetricData(
+        "double precision",
+        values,
+        atoms.cell.array,
+        precision="fp64",
+        atoms=atoms,
+    )
+    session = EditorSession(
+        "volumetric-project-fp64",
+        atoms.copy(),
+        atoms.copy(),
+        volumetric_datasets=[dataset],
+    )
+    destination = tmp_path / "volumetric-fp64.vase"
+
+    write_project_archive(destination, session, {})
+    restored = read_project_archive(destination)
+    loaded = restored.volumetric_datasets[0]
+
+    assert loaded.precision == "float64"
+    assert loaded.values.dtype == np.float64
+    np.testing.assert_array_equal(loaded.values, values)
 
 
 def test_vase_project_rejects_unexpected_nested_volumetric_arrays(tmp_path):

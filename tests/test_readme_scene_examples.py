@@ -320,7 +320,7 @@ def test_brand_logo_generation_uses_approved_palette_and_separated_letter_atoms(
 
 def test_readme_presents_real_manipulation_and_analysis_workflows():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    ai = readme.index("## AI-Assisted Workflow")
+    ai = readme.index("## Work With An AI Agent")
     structure = readme.index("## Structure Manipulation")
     select = readme.index("### Select", structure)
     move = readme.index("### Move", select)
@@ -339,12 +339,12 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "`Li_site`" in readme
     assert "2.15 A above the vacancy" in readme
     assert "three" in readme[ai:structure]
-    assert "no screenshot ocr or coordinate guessing is required." in normalized_readme
-    assert "v_ase does not contain an llm" in normalized_readme
-    assert "does not accept natural language itself" in normalized_readme
-    assert "structured cli" in normalized_readme
-    assert "same live document" in normalized_readme
-    assert "newer work is not overwritten" in normalized_readme
+    assert "external ai agent" in normalized_readme
+    assert "v_ase itself is not an ai" in normalized_readme
+    assert "does not interpret that request" in normalized_readme
+    assert "structured cli/api operations" in normalized_readme
+    assert "same document stays open" in normalized_readme
+    assert "rather than overwriting it" in normalized_readme
     assert "can reduce token use" in normalized_readme
     assert "Standard Metal and Rubber atom materials" in readme
     assert "Cu_substrate-Cu_substrate" in readme

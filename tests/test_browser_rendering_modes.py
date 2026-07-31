@@ -220,6 +220,13 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                 )
                 loaded = page.evaluate(
                     """async path => {
+                        const precision = document.getElementById(
+                            'volume-import-precision'
+                        );
+                        precision.value = 'float64';
+                        precision.dispatchEvent(new Event('change', {
+                            bubbles: true
+                        }));
                         await window.v_aseAI.apply({
                             operation: {name: 'load-volumetric', path}
                         });
@@ -232,6 +239,8 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                 datasets = loaded["analysis"]["volumetricDatasets"]
                 assert len(datasets) == 1
                 assert datasets[0]["shape"] == list(shape)
+                assert datasets[0]["precision"] == "float64"
+                assert datasets[0]["memory_bytes"] == int(values.size * 8)
                 dataset_id = datasets[0]["id"]
 
                 active_pairs = page.evaluate(
@@ -291,6 +300,10 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                     },
                 )
                 assert analyzed["analysis"]["rdf"]["bins"] == 64
+                assert analyzed["analysis"]["rdf"]["uniqueMicCutoff"] == pytest.approx(
+                    4.5
+                )
+                assert analyzed["analysis"]["rdf"]["periodicImageSpan"] == [3, 3, 3]
                 assert set(analyzed["analysis"]["rdf"]["partialCurves"]) == {
                     "C_bulk|C_bulk",
                     "C_bulk|O_bulk",

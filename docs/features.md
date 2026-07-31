@@ -89,9 +89,11 @@ compatibility. New code accesses it through `atom_labels()` and
 `v_ase.volumetric` is the canonical scalar-grid pipeline. It reads VASP
 CHGCAR/CHG, LOCPOT, PARCHG, and ELFCAR plus Gaussian Cube and XSF. Quantum
 ESPRESSO data uses its official Cube/XSF output rather than a second private
-grid dialect. Every dataset owns one float32 3D grid, cell, origin, PBC,
-endpoint convention, quantity, units, component, and stable ID. Grid size,
-shape, finiteness, and cell volume are validated before a session accepts it.
+grid dialect. Every dataset owns one explicitly selected float32 or float64 3D
+grid, cell, origin, PBC, endpoint convention, quantity, units, component, and
+stable ID. Grid size, shape, finiteness, dtype, and cell volume are validated
+before a session accepts it. FP32 is the lower-memory default; FP64 preserves
+double-precision input values and uses twice the scalar-grid memory.
 
 ## View And Edit Modes
 
@@ -344,6 +346,10 @@ Supported operations:
 - repeat the underlying grid when a physical diagonal supercell is
   materialized.
 
+Import precision is chosen before parsing. FP32 and FP64 remain distinct
+through linear combinations and `.vase` save/load. A combination promotes to
+FP64 when any source is FP64 unless an explicit output precision is supplied.
+
 Linear combinations require identical shape, cell, origin, PBC, endpoint
 convention, and scalar units. There is no implicit resampling. A materialized
 non-diagonal cell transform is rejected while volumetric data is present
@@ -359,11 +365,13 @@ Extracted meshes use indexed float32 geometry and are cached by dataset,
 isovalue, sign mode, step size, and styling inputs.
 
 Bulk radial distribution functions use an ASE periodic directed-neighbor
-search and shell-volume normalization. The largest admissible radius is half
-the shortest triclinic face height, ensuring each pair has a unique MIC image.
-Partial or finite PBC is rejected rather than shown with an invalid bulk
-normalization. The total curve is always returned. Optional visual-label pair
-curves use the conventional OVITO relation
+search and exact spherical shell-volume normalization. The default radius is
+the unique-MIC reference, but an explicit larger cutoff is retained: every
+periodic cell shift contributing a pair inside the requested sphere is
+enumerated, including shifts beyond a fixed `2 x 2 x 2` repetition. Partial
+or finite PBC is rejected rather than shown with an invalid bulk normalization.
+The total curve is always returned. Optional visual-label pair curves use the
+conventional OVITO relation
 `g = sum(c_a c_b g_ab)`, with a factor of two for mixed pairs. Pair selection
 can follow enabled bond labels, include all label pairs, or be disabled.
 

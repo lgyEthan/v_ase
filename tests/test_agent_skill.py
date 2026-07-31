@@ -143,12 +143,13 @@ def test_skill_explains_vendor_neutral_agent_handoff():
         "standalone `html` export",
     ):
         assert required in setup + readme + compatibility
+    readable_readme = " ".join(readme.split())
     assert "CAD-ready" not in readme
     assert "--for-ai" not in setup + readme + compatibility
-    assert "does not accept natural language itself" in readme
-    assert "external agent launches" in readme.lower()
-    assert "structured CLI" in readme
-    assert "same live v_ase GUI" in readme
+    assert "v_ase itself is not an AI" in readable_readme
+    assert "The agent operates v_ase" in readable_readme
+    assert "structured CLI/API operations" in readable_readme
+    assert "The same document stays open in the normal GUI" in readable_readme
     assert "There is no natural-language endpoint and no command loop on stdin." in setup
     assert "can reduce token use" in readme
 
@@ -279,6 +280,7 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
     )
     assert "embedProject" in schema["export_parameters"]["html"]["optional"]
     assert schema["operation_parameters"]["load-volumetric"]["required"] == ["path"]
+    assert "precision" in schema["operation_parameters"]["load-volumetric"]["optional"]
     assert schema["operation_parameters"]["show-volumetric"]["required"] == [
         "datasetId",
         "level",
@@ -287,6 +289,7 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         "datasetIds",
         "coefficients",
     ]
+    assert "precision" in schema["operation_parameters"]["combine-volumetric"]["optional"]
     assert {
         "cutoff",
         "bins",
@@ -320,7 +323,10 @@ def test_skill_documents_volumetric_and_rdf_end_to_end_contracts():
         "`rdf-csv`",
         "analysis.volumetricDatasets",
         "identical dimensions, cell, origin, PBC",
-        "half the shortest triclinic face height",
+        "`periodicImageSpan`",
+        "fixed `2 x 2 x 2`",
+        "FP32",
+        "FP64",
         "concentration-weighted",
         "fully periodic 3D",
         "V_ASE_MAX_VOLUMETRIC_POINTS",

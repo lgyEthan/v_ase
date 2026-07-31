@@ -229,10 +229,17 @@ class VAseWorkspace {
         }
     }
 
-    async uploadFileToSession(sessionId, file, inputFormat = '', index = ':') {
+    async uploadFileToSession(
+        sessionId,
+        file,
+        inputFormat = '',
+        index = ':',
+        volumetricPrecision = 'float32'
+    ) {
         const params = new URLSearchParams({
             filename: file?.name || 'structure',
             index: index || ':',
+            volumetric_precision: volumetricPrecision || 'float32',
         });
         if (inputFormat) params.set('input_format', inputFormat);
         return await this.request(
@@ -245,7 +252,13 @@ class VAseWorkspace {
         );
     }
 
-    async loadPathToSession(sessionId, path, inputFormat = '', index = ':') {
+    async loadPathToSession(
+        sessionId,
+        path,
+        inputFormat = '',
+        index = ':',
+        volumetricPrecision = 'float32'
+    ) {
         return await this.request(
             `/api/file/load-path/${encodeURIComponent(sessionId)}`,
             {
@@ -255,6 +268,7 @@ class VAseWorkspace {
                     path,
                     input_format: inputFormat || '',
                     index: index || ':',
+                    volumetric_precision: volumetricPrecision || 'float32',
                 }),
             }
         );
@@ -288,13 +302,15 @@ class VAseWorkspace {
                     documentState.session_id,
                     message.serverPath,
                     message.inputFormat || '',
-                    message.index || ':'
+                    message.index || ':',
+                    message.volumetricPrecision || 'float32'
                 )
                 : await this.uploadFileToSession(
                     documentState.session_id,
                     message.file,
                     message.inputFormat || '',
-                    message.index || ':'
+                    message.index || ':',
+                    message.volumetricPrecision || 'float32'
                 );
             documentState.title = data.loaded_file?.filename || message.fileName || message.file?.name || 'Untitled';
             documentState.empty = false;

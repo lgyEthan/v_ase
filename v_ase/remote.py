@@ -76,6 +76,11 @@ def build_remote_gui_command(
     ]
     if args.format:
         command.extend(["--format", str(args.format)])
+    if getattr(args, "volumetric_precision", "fp32") != "fp32":
+        command.extend([
+            "--volumetric-precision",
+            str(args.volumetric_precision),
+        ])
     if args.output:
         command.extend(["--output", str(args.output)])
     if args.output_format:

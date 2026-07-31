@@ -345,7 +345,14 @@ translation equally to both endpoints.
 
 Volumetric data is loaded through the ordinary file/path open or append
 pipeline. VASP scalar grids, Cube, and XSF are detected before ASE structure
-dispatch. The current document then exposes:
+dispatch. Browser file/path endpoints accept `volumetric_precision` as
+`float32` or `float64`; the semantic `load-volumetric` operation accepts
+`precision` as FP32/FP64 aliases. Dataset descriptors report precision and
+backend memory bytes. The current document then exposes:
+
+`view("CHGCAR", volumetric_precision="fp64")` applies the same selection to
+Python path-based loading and records it as the next-import precision in the
+live GUI.
 
 ```text
 POST /api/volumetric/difference/{session_id}
@@ -368,9 +375,10 @@ POST /api/analysis/rdf-csv/{session_id}
 ```
 
 Payload fields are `cutoff`, `bins`, `pairMode`, and `activePairs`. Full 3D
-PBC is required. The response includes requested, effective, and safe
-triclinic-MIC cutoff, warnings, total `g(r)`, and concentration-weighted
-partial curves. CSV uses the same calculation path.
+PBC is required. The response includes the retained requested/effective
+cutoff, unique-MIC reference, actual periodic-image extent/span, warnings,
+total `g(r)`, and concentration-weighted partial curves. CSV uses the same
+calculation path.
 
 Agent discovery and semantic state are available through:
 

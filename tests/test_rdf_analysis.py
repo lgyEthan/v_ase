@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from itertools import product
 
 import numpy as np
 import pytest
@@ -37,13 +38,131 @@ def test_rdf_is_flat_for_uniform_periodic_structure_across_multiple_cutoffs():
         assert np.std(middle) < 0.18
 
 
-def test_rdf_clamps_cutoff_before_triclinic_mic_shells_become_ambiguous():
+def test_rdf_keeps_requested_cutoff_beyond_unique_mic_radius():
     atoms = _random_periodic_atoms(count=400)
     safe = safe_rdf_cutoff(atoms)
-    result = calculate_rdf(atoms, cutoff=safe * 2.0, bins=32, pair_mode="none")
-    assert result.cutoff < safe
-    assert result.requested_cutoff == pytest.approx(safe * 2.0)
-    assert result.warnings
+    requested = safe * 1.35
+    result = calculate_rdf(atoms, cutoff=requested, bins=32, pair_mode="none")
+    assert result.cutoff == pytest.approx(requested)
+    assert result.requested_cutoff == pytest.approx(requested)
+    assert result.warnings == ()
+    assert max(result.periodic_image_extent) >= 1
+
+
+def test_rdf_automatically_counts_images_beyond_a_two_by_two_by_two_cell():
+    primitive = Atoms(
+        "H",
+        positions=[[0.0, 0.0, 0.0]],
+        cell=np.eye(3) * 2.0,
+        pbc=True,
+    )
+    cutoff = 5.01
+    primitive_result = calculate_rdf(
+        primitive,
+        cutoff=cutoff,
+        bins=101,
+        pair_mode="none",
+    )
+
+    # The requested sphere reaches shifts +/-2 in every direction. A fixed
+    # 2x2x2 construction cannot contain those images, whereas ASE's periodic
+    # neighbor search enumerates them directly.
+    assert primitive_result.periodic_image_extent == (2, 2, 2)
+    assert primitive_result.periodic_image_span == (5, 5, 5)
+    assert primitive_result.cutoff == pytest.approx(cutoff)
+    assert primitive_result.payload()["unique_mic_cutoff"] == pytest.approx(1.0)
+
+    repeated = primitive.repeat((2, 2, 2))
+    repeated_result = calculate_rdf(
+        repeated,
+        cutoff=cutoff,
+        bins=101,
+        pair_mode="none",
+    )
+    np.testing.assert_allclose(
+        repeated_result.total,
+        primitive_result.total,
+        rtol=0,
+        atol=1e-12,
+    )
+
+
+def test_rdf_includes_nonzero_shift_copies_of_a_single_basis_atom():
+    atoms = Atoms(
+        "He",
+        positions=[[0.0, 0.0, 0.0]],
+        cell=np.eye(3) * 2.0,
+        pbc=True,
+    )
+    result = calculate_rdf(atoms, cutoff=2.05, bins=82, pair_mode="all")
+    shell_index = int(np.searchsorted(
+        np.linspace(0.0, result.cutoff, result.bins + 1),
+        2.0,
+        side="right",
+    ) - 1)
+    edges = np.linspace(0.0, result.cutoff, result.bins + 1)
+    shell_volume = (4.0 * np.pi / 3.0) * (
+        edges[shell_index + 1] ** 3 - edges[shell_index] ** 3
+    )
+    expected = 6.0 / ((1.0 / atoms.get_volume()) * shell_volume)
+
+    assert result.total[shell_index] == pytest.approx(expected)
+    assert result.partial["He|He"][shell_index] == pytest.approx(expected)
+
+
+def test_long_cutoff_triclinic_rdf_matches_independent_periodic_enumeration():
+    cell = np.array([
+        [2.0, 0.0, 0.0],
+        [0.7, 2.3, 0.0],
+        [0.4, 0.3, 1.9],
+    ])
+    positions = np.array([
+        [0.1, 0.2, 0.3],
+        [1.4, 1.0, 1.2],
+        [0.7, 1.8, 0.5],
+    ])
+    atoms = Atoms("HHeLi", positions=positions, cell=cell, pbc=True)
+    cutoff = 5.5
+    bins = 110
+
+    result = calculate_rdf(atoms, cutoff=cutoff, bins=bins, pair_mode="none")
+
+    brute_distances = []
+    brute_shifts = []
+    for atom_i in range(len(atoms)):
+        for atom_j in range(len(atoms)):
+            for shift in product(range(-5, 6), repeat=3):
+                if atom_i == atom_j and shift == (0, 0, 0):
+                    continue
+                displacement = (
+                    positions[atom_j]
+                    - positions[atom_i]
+                    + np.asarray(shift, dtype=float) @ cell
+                )
+                distance = float(np.linalg.norm(displacement))
+                if distance < cutoff:
+                    brute_distances.append(distance)
+                    brute_shifts.append(shift)
+
+    edges = np.linspace(0.0, cutoff, bins + 1)
+    shell_volume = (4.0 * np.pi / 3.0) * (
+        edges[1:] ** 3 - edges[:-1] ** 3
+    )
+    histogram = np.histogram(brute_distances, bins=edges)[0]
+    normalization = (
+        len(atoms) ** 2
+        / atoms.get_volume()
+        * shell_volume
+    )
+    expected = histogram / normalization
+    expected_extent = tuple(
+        int(value)
+        for value in np.max(np.abs(np.asarray(brute_shifts)), axis=0)
+    )
+
+    np.testing.assert_allclose(result.total, expected, rtol=0, atol=1e-12)
+    assert result.periodic_image_extent == expected_extent == (3, 3, 3)
+    assert result.periodic_image_span == (7, 7, 7)
 
 
 def test_pairwise_rdf_uses_labels_and_active_pair_selection():
@@ -128,6 +247,8 @@ def test_rdf_http_contract_returns_plot_payload_and_matching_csv():
 
     assert result["schema"] == "v_ase.rdf.v1"
     assert len(result["radius"]) == 36
+    assert result["unique_mic_cutoff"] == pytest.approx(result["safe_cutoff"])
+    assert result["periodic_image_span"] == [3, 3, 3]
     assert list(result["partial"]) == ["Cu_surface|O_ads"]
     assert response.media_type == "text/csv"
     header = response.body.decode("utf-8").splitlines()[0]

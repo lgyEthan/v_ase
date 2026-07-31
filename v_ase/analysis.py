@@ -30,6 +30,8 @@ class RdfResult:
     bins: int
     pair_mode: str
     warnings: tuple[str, ...]
+    periodic_image_extent: tuple[int, int, int]
+    periodic_image_span: tuple[int, int, int]
     frame_index: int = 0
 
     def payload(self) -> dict[str, Any]:
@@ -43,10 +45,14 @@ class RdfResult:
             },
             "requested_cutoff": self.requested_cutoff,
             "cutoff": self.cutoff,
+            "unique_mic_cutoff": self.safe_cutoff,
+            # Retained for v_ase.rdf.v1 clients released before 0.1.2.
             "safe_cutoff": self.safe_cutoff,
             "bins": self.bins,
             "pair_mode": self.pair_mode,
             "warnings": list(self.warnings),
+            "periodic_image_extent": list(self.periodic_image_extent),
+            "periodic_image_span": list(self.periodic_image_span),
             "frame_index": self.frame_index,
         }
 
@@ -64,10 +70,15 @@ def _cell_face_heights(cell: np.ndarray) -> np.ndarray:
 
 
 def safe_rdf_cutoff(atoms: Atoms) -> float:
-    """Return a conservative unique-MIC radius for an arbitrary triclinic cell."""
+    """Return the unique-MIC reference radius for an arbitrary triclinic cell.
 
-    if len(atoms) < 2:
-        raise ValueError("RDF requires at least two atoms.")
+    This remains the automatic cutoff when none is supplied. Explicit larger
+    cutoffs are valid: :func:`calculate_rdf` counts every required periodic
+    image instead of reducing the requested radius.
+    """
+
+    if len(atoms) < 1:
+        raise ValueError("RDF requires at least one atom.")
     if not np.all(np.asarray(atoms.pbc, dtype=bool)):
         raise ValueError(
             "RDF normalization currently requires periodic boundaries in x, y, and z. "
@@ -128,18 +139,26 @@ def calculate_rdf(
         raise ValueError(f"RDF bins must be between 8 and {MAX_RDF_BINS}.")
 
     warnings: list[str] = []
-    effective = min(requested, safe_cutoff * (1.0 - 1e-10))
-    if requested > safe_cutoff:
-        warnings.append(
-            f"Cutoff was limited to {safe_cutoff:.6g} A, half the smallest "
-            "triclinic cell face spacing, to preserve unique MIC shells."
-        )
+    effective = requested
 
-    indices_i, indices_j, distances = neighbor_list(
-        "ijd",
+    # ASE enumerates all periodic cell shifts required by the scalar cutoff.
+    # With self_interaction=False it removes only the zero-shift i == j pair,
+    # while retaining physically distinct copies of the same basis atom.
+    indices_i, indices_j, shifts, distances = neighbor_list(
+        "ijSd",
         atoms,
         effective,
         self_interaction=False,
+    )
+    if len(shifts):
+        periodic_image_extent_array = np.max(np.abs(shifts), axis=0).astype(int)
+    else:
+        periodic_image_extent_array = np.zeros(3, dtype=int)
+    periodic_image_extent = tuple(
+        int(value) for value in periodic_image_extent_array
+    )
+    periodic_image_span = tuple(
+        2 * int(value) + 1 for value in periodic_image_extent_array
     )
     edges = np.linspace(0.0, effective, clean_bins + 1, dtype=float)
     radius = 0.5 * (edges[:-1] + edges[1:])
@@ -210,6 +229,8 @@ def calculate_rdf(
         bins=clean_bins,
         pair_mode=mode,
         warnings=tuple(warnings),
+        periodic_image_extent=periodic_image_extent,
+        periodic_image_span=periodic_image_span,
         frame_index=int(frame_index),
     )
 

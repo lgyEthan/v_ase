@@ -46,9 +46,15 @@ test edit and a new filename for output.
 - VASP scalar-grid quantities and units differ by file type. Preserve the
   parser-reported quantity and units when interpreting CHGCAR, LOCPOT, PARCHG,
   or ELFCAR.
-- Bulk RDF requires full 3D PBC and a finite non-degenerate cell. Its effective
-  cutoff must not exceed half the shortest triclinic face height. Do not
-  present an uncorrected finite or partial-PBC histogram as bulk `g(r)`.
+- Choose volumetric precision before loading. FP32 is the bounded lower-memory
+  default. Use FP64 when the user requires double-precision scalar values and
+  verify the returned dataset precision and memory size; FP64 uses twice the
+  grid memory.
+- Bulk RDF requires full 3D PBC and a finite non-degenerate cell. A cutoff
+  beyond the unique-MIC radius is valid because v_ase enumerates every
+  periodic image inside the requested sphere. Do not replace that search with
+  a fixed `2 x 2 x 2` supercell or present an uncorrected finite/partial-PBC
+  histogram as bulk `g(r)`.
 - Partial RDF curves follow the OVITO concentration relation. Reconstruct the
   total with `c_a^2 g_aa`, `2 c_a c_b g_ab`, and `c_b^2 g_bb`; do not sum the
   unweighted curves directly.
@@ -78,7 +84,7 @@ test edit and a new filename for output.
 | charge-density difference grids must match | Grid shape, cell, origin, PBC, endpoint convention, or units differ | Regenerate all component grids with the same calculation grid; do not force a combination |
 | requested isosurface is outside the scalar range | Absolute level has no crossing | Inspect dataset minimum/maximum and choose an in-range nonzero level |
 | RDF requires full 3D periodicity | PBC is partial/false or the cell is degenerate | Stop; use a boundary-corrected finite-system method outside v_ase |
-| RDF cutoff was reduced | Requested radius exceeded the unique-MIC radius | Report and use the returned effective cutoff or enlarge the physical cell |
+| RDF periodic image span is large | The requested radius reaches several copies of the primitive cell | Confirm the requested cutoff, allow the complete search to finish, and report `periodicImageSpan`; do not silently truncate it |
 | RDF active mode has no pair curves | No pairwise bond labels are enabled | Choose `pairMode:"all"` or provide `activePairs` explicitly |
 
 Do not suppress an error and report success. Return the specific failed command,
@@ -102,8 +108,9 @@ isosurface extraction, and high-bin RDF calculations can take time.
   source file.
 - For volumetric work, use `stepSize: 2` or `4` only as an explicit preview
   tradeoff. Rebuild with `stepSize: 1` before reporting final geometry.
-- For RDF, verify `bins`, requested cutoff, effective cutoff, safe cutoff,
-  warnings, and partial curve names before exporting CSV.
+- For RDF, verify `bins`, requested/effective cutoff, `uniqueMicCutoff`,
+  `periodicImageExtent`, `periodicImageSpan`, warnings, and partial curve names
+  before exporting CSV.
 
 ## Verification Failures
 

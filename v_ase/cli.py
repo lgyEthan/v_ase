@@ -63,6 +63,16 @@ def build_parser() -> argparse.ArgumentParser:
             "Raw ASE format names such as vasp-xml and lammps-data also work."
         ),
     )
+    gui.add_argument(
+        "--volumetric-precision",
+        choices=("fp32", "fp64"),
+        default="fp32",
+        help=(
+            "scalar-grid precision used when reading CHGCAR, LOCPOT, PARCHG, "
+            "Cube, or XSF data. FP32 is faster and uses half the memory; FP64 "
+            "preserves double precision. Default: fp32"
+        ),
+    )
     gui.add_argument("--output-format", help="ASE output format override")
     gui.add_argument(
         "--port",
@@ -339,12 +349,25 @@ def run_gui(args: argparse.Namespace) -> int:
         )
         if volumetric_format:
             try:
-                volumetric_datasets = read_volumetric_file(path, volumetric_format)
+                volumetric_datasets = read_volumetric_file(
+                    path,
+                    volumetric_format,
+                    precision=args.volumetric_precision,
+                )
             except (OSError, TypeError, ValueError) as exc:
                 raise SystemExit(
                     f"v_ase: could not open volumetric data: {exc}"
                 ) from exc
             frames = [volumetric_structure(volumetric_datasets)]
+            initial_design_settings = {
+                "display": {
+                    "volumetricPrecision": (
+                        "float64"
+                        if args.volumetric_precision == "fp64"
+                        else "float32"
+                    )
+                }
+            }
         elif viz_only and is_lammps_dump:
             try:
                 fast = read_fast_lammps_dump(path, args.index)

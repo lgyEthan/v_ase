@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.1.1"
+python -m pip install "v_ase-gui==0.1.2"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.1.1"
+python -m pip install "v_ase-gui[rhino]==0.1.2"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, SciPy, scikit-image,
@@ -70,6 +70,7 @@ Useful options:
 | `--index :` | Read all frames |
 | `--index -1` | Read the last frame |
 | `--format FORMAT` | Force a reader for an ambiguous filename |
+| `--volumetric-precision fp32|fp64` | Choose scalar-grid import precision; FP64 uses twice the grid memory |
 | `--no-browser` | Print the URL without launching a browser |
 | `--no-block` | Keep the server alive until interrupted |
 | `--stream-frames` | Load trajectory coordinates frame by frame |
@@ -114,6 +115,17 @@ from v_ase.visualize import view
 
 editor = view(atoms_or_frames, block=False)
 print(editor.url)
+```
+
+For a scalar-field path, choose import precision explicitly when double
+precision is scientifically required:
+
+```python
+editor = view(
+    "CHGCAR",
+    volumetric_precision="fp64",
+    block=False,
+)
 ```
 
 In Jupyter Notebook or JupyterLab, use `view(atoms_or_frames)` as the cell's

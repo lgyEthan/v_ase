@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.1&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.2&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.1.1';
+            : '/static/vendor/three.module.js?v=0.1.2';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -68,7 +68,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.1.1</span>
+            <span class="version">0.1.2</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -437,6 +437,14 @@
         <details class="panel-section" open data-panel="volumetric" data-panel-group="analysis">
             <summary class="section-header">Volumetric Data</summary>
             <p class="panel-note">CHGCAR, LOCPOT, PARCHG, ELFCAR, Cube, and XSF scalar fields.</p>
+            <div class="prop-row">
+                <label for="volume-import-precision">Import precision</label>
+                <select id="volume-import-precision">
+                    <option value="float32">FP32 · lower memory</option>
+                    <option value="float64">FP64 · full precision</option>
+                </select>
+            </div>
+            <p class="panel-note">Applied while reading the next scalar field. FP64 uses twice the grid memory.</p>
             <button id="btn-volume-add" class="btn-block" type="button">Add Grid Data</button>
             <input id="volume-file" class="hidden" type="file">
             <div id="volume-empty" class="analysis-empty">No scalar field loaded.</div>
@@ -1136,7 +1144,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.1.1&rev=1';
+            : './static/main.js?v=0.1.2&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

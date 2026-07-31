@@ -13,7 +13,7 @@
 
 ## Shared-Document Model
 
-The external agent and researcher operate one live v_ase document:
+The external agent and researcher operate the same live document in v_ase:
 
 ```text
 researcher request -> external agent -> semantic v_ase command

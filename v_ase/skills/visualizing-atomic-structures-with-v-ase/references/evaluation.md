@@ -138,14 +138,18 @@ Run all scenarios, not only static document checks:
      every affected state, then undo both;
    - form `[1,-1,-1]` from three compatible grids and reject each incompatible
      shape/cell/origin/PBC/endpoint/units case;
-   - save and reopen `.vase`, then require exactly the same bounded float32
+   - load the same precision-sensitive fixture as FP32 and FP64, verify dtype,
+     retained scalar difference, and the expected twofold grid-memory change;
+   - save and reopen `.vase`, then require exactly the same bounded FP32/FP64
      volume and visualization settings;
-   - calculate total RDF at several safe cutoffs for a homogeneous periodic
-     system and verify its non-edge plateau approaches one;
+   - calculate total RDF at several cutoffs for a homogeneous periodic system,
+     including a radius that needs images beyond a fixed `2 x 2 x 2`
+     repetition, and verify its non-edge plateau approaches one;
    - calculate active, all, and no-partial modes; verify the
      concentration-weighted partial RDF relation reconstructs the total;
-   - reject partial PBC, clamp an unsafe triclinic cutoff, render the Plotly
-     drawer, and export matching CSV columns and row count.
+   - reject partial PBC, retain an explicit long triclinic cutoff, verify the
+     returned image extent/span, render the Plotly drawer, and export matching
+     CSV columns and row count.
 10. **Exports**
    - render exact PNG/WebP dimensions and compare decoded pixels;
    - verify JPEG and PDF preserve dimensions and use opaque output;
@@ -258,8 +262,10 @@ Every browser render test must check:
 - signed volumetric surfaces have distinct positive/negative coverage, repeat
   with the displayed supercell, and move by the same visual translation as
   atoms;
+- FP64 volumetric import remains FP64 through combination and `.vase`
+  round-trip while the browser receives only compact mesh geometry;
 - the RDF drawer is nonblank, labeled in Angstrom and `g(r)`, and exposes the
-  returned effective cutoff and warning without clipping;
+  retained cutoff and required periodic-image span without clipping;
 - preview and exported image decode to the same composition;
 - README assets are inspected after regeneration, not merely written.
 

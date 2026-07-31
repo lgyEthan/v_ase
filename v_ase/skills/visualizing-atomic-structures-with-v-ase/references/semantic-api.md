@@ -191,9 +191,9 @@ Pass `operation` as a name string or object:
 | `start-relaxation` | `fmax`, `steps`, optional `calculator` | Start optimization |
 | `stop-relaxation` | none | Request optimizer stop |
 | `refresh-displacements` | optional `display` | Recompute displacement vectors |
-| `load-volumetric` | `path`, optional `format` | Load one VASP, Cube, or XSF grid |
+| `load-volumetric` | `path`, optional `format`, `precision` | Load one VASP, Cube, or XSF grid as FP32 or FP64 |
 | `show-volumetric` | `datasetId`, `level`, optional surface controls | Build one isosurface |
-| `combine-volumetric` | `datasetIds`, `coefficients`, optional `name` | Create a linear grid combination |
+| `combine-volumetric` | `datasetIds`, `coefficients`, optional `name`, `precision` | Create a linear grid combination |
 | `remove-volumetric` | `datasetId` | Remove one grid from the document |
 | `calculate-rdf` | optional `cutoff`, `bins`, `pairMode`, `activePairs` | Calculate total and partial RDF curves |
 
@@ -376,7 +376,8 @@ was launched:
 await ai.apply({
   operation: {
     name: "load-volumetric",
-    path: "charge/CHGCAR"
+    path: "charge/CHGCAR",
+    precision: "fp64"
   }
 });
 const state = await ai.describe({includePositions: false});
@@ -385,7 +386,11 @@ const densityId = state.analysis.volumetricDatasets.at(-1).id;
 
 Use explicit `format` only when the filename is ambiguous. Accepted aliases
 include `"chgcar"`, `"locpot"`, `"parchg"`, `"elfcar"`, `"cube"`,
-`"qe-cube"`, `"xsf"`, and `"qe-xsf"`.
+`"qe-cube"`, `"xsf"`, and `"qe-xsf"`. Precision is `"fp32"`/`"float32"`
+or `"fp64"`/`"float64"`. When omitted, loading uses the current **Import
+precision** setting. Verify `precision` and `memory_bytes` in the returned
+dataset descriptor. FP64 preserves double-precision values and uses twice the
+grid memory.
 
 Create an isosurface with a finite level and a dataset ID returned by
 `describe()`:
@@ -422,18 +427,22 @@ await ai.apply({
     name: "combine-volumetric",
     datasetIds: [combinedId, fragmentAId, fragmentBId],
     coefficients: [1, -1, -1],
-    name: "charge-density difference"
+    name: "charge-density difference",
+    precision: "fp64"
   }
 });
 ```
 
 The source grids must have identical dimensions, cell, origin, PBC, and units.
-Do not resample or combine mismatched grids silently. Use
-`remove-volumetric` with `datasetId` to discard a dataset.
+When `precision` is omitted, the output promotes to FP64 if any input is FP64;
+otherwise it remains FP32. Do not resample or combine mismatched grids
+silently. Use `remove-volumetric` with `datasetId` to discard a dataset.
 
-RDF requires a fully periodic 3D cell. The backend limits the cutoff to half
-the shortest triclinic face height, which is the largest unique-MIC radius.
-It returns the effective cutoff and any warning:
+RDF requires a fully periodic 3D cell. The backend accepts a cutoff beyond the
+unique-MIC radius and enumerates every periodic image inside that sphere. It
+does not truncate the calculation to a fixed `2 x 2 x 2` replica. The result
+reports `requestedCutoff`, `cutoff`, `uniqueMicCutoff`,
+`periodicImageExtent`, and `periodicImageSpan`:
 
 ```javascript
 await ai.apply({

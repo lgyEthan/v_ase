@@ -96,27 +96,21 @@ browser document releases the blocking terminal process.
 > panel before using `G` or `R`. The selection is preserved and keyboard focus
 > returns to the 3D viewport.
 
-## AI-Assisted Workflow
+## Work With An AI Agent
 
-Tell an external AI agent what structure or figure you need in natural
-language. With the bundled [v_ase Skill](#agent-setup), the agent can inspect
-the actual atomistic state, operate v_ase through its structured CLI, and show
-the result in the normal GUI while it works.
+Give the bundled [v_ase Skill](#agent-setup) to the external AI agent you
+already use, then describe the scientific result in natural language. v_ase
+itself is not an AI and does not interpret that request.
 
 ![Human and external AI agent working in one live v_ase document](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.png)
 
-1. **You ask:** describe the scientific goal to Codex, Claude Code, or another
-   external agent.
-2. **The agent operates:** the Skill teaches it how to inspect, edit, render,
-   and verify through v_ase's CLI.
-3. **You watch:** v_ase shows the same live document in its GUI.
-4. **You refine:** GUI changes are reported back to the agent before it
-   continues, so your newer work is not overwritten.
-
-v_ase does not contain an LLM and does not accept natural language itself. The
-external agent handles the request; v_ase provides the scientific state,
-verified operations, rendering, and shared GUI. No screenshot OCR or coordinate
-guessing is required.
+1. **You ask the agent.** Use ordinary language; the Skill supplies the v_ase
+   commands, safeguards, and verification workflow.
+2. **The agent operates v_ase.** It reads exact atoms and settings, then sends
+   structured CLI/API operations instead of guessing from screenshots.
+3. **You watch and refine.** The same document stays open in the normal GUI.
+   If you change it there, v_ase reports the new revision so the agent
+   continues from your work rather than overwriting it.
 
 For example:
 
@@ -286,6 +280,22 @@ compatible datasets can be combined with coefficients such as `+1, -1, -1`
 for a charge-density difference. Grid values stay in the local v_ase backend;
 the browser receives only the generated surface mesh.
 
+Choose the import precision before opening or adding a scalar field. **FP32**
+is the lower-memory default; **FP64** preserves double-precision grid values
+and uses twice the grid memory. The same choice is available from the CLI:
+
+```bash
+v_ase gui CHGCAR --volumetric-precision fp64
+```
+
+The Python API exposes the same choice:
+
+```python
+from v_ase.visualize import view
+
+view("CHGCAR", volumetric_precision="fp64")
+```
+
 Visual translation and displayed cell replication move or repeat the
 isosurface together with the atoms. **Set Supercell as Cell** repeats both the
 ASE structure and periodic scalar grid exactly for diagonal integer
@@ -304,13 +314,13 @@ Pair curves default to the active bond-label pairs and can be switched to all
 label pairs or total-only. Set the bin count and cutoff, then export exactly
 the plotted columns as CSV.
 
-RDF uses ASE's periodic neighbor search and the full triclinic cell. To avoid
-shape-dependent tails from incomplete spherical shells, v_ase limits the
-cutoff to half the smallest cell-face spacing and reports when a requested
-value was reduced. Bulk normalization is reported only for cells periodic in
-all three directions; partial-PBC and finite systems require a separate
-boundary correction and are rejected instead of returning a misleading bulk
-`g(r)`.
+RDF uses exact spherical shell volumes and ASE's periodic neighbor search in
+the full triclinic cell. The requested cutoff is not limited to a `2 x 2 x 2`
+replica or reduced at the unique minimum-image radius: v_ase includes every
+periodic image whose distance falls inside the sphere and reports the image
+span used. Bulk normalization is reported only for cells periodic in all three
+directions; partial-PBC and finite systems require a separate boundary
+correction and are rejected instead of returning a misleading bulk `g(r)`.
 
 ![Signed volumetric isosurface and RDF analysis](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric_rdf.png)
 

@@ -47,6 +47,30 @@ ISOSURFACE_BINARY_MAGIC = b"VASEISO1"
 # This accepts that serialization noise without treating distinct cells as equal.
 GRID_GEOMETRY_RTOL = 1e-6
 GRID_GEOMETRY_ATOL = 1e-6
+VOLUMETRIC_PRECISION_DTYPES = {
+    "float32": np.dtype(np.float32),
+    "float64": np.dtype(np.float64),
+}
+VOLUMETRIC_PRECISION_ALIASES = {
+    "fp32": "float32",
+    "float32": "float32",
+    "single": "float32",
+    "fp64": "float64",
+    "float64": "float64",
+    "double": "float64",
+}
+
+
+def normalize_volumetric_precision(value: Any = "float32") -> str:
+    """Return the portable scalar-grid precision name."""
+
+    key = str(value or "float32").strip().lower()
+    try:
+        return VOLUMETRIC_PRECISION_ALIASES[key]
+    except KeyError as exc:
+        raise ValueError(
+            "Volumetric precision must be FP32 or FP64."
+        ) from exc
 
 
 def _max_grid_points() -> int:
@@ -96,16 +120,26 @@ def is_volumetric_file(path: str | Path, fmt: str | None = None) -> bool:
     return resolve_volumetric_format(path, fmt) is not None
 
 
-def _finite_array(values: Any, *, name: str) -> np.ndarray:
-    array = np.asarray(values, dtype=np.float32)
-    if array.ndim != 3 or min(array.shape) < 2:
+def _finite_array(
+    values: Any,
+    *,
+    name: str,
+    precision: str,
+) -> np.ndarray:
+    source = np.asarray(values)
+    if source.ndim != 3 or min(source.shape) < 2:
         raise ValueError(f"{name} must be a three-dimensional grid with at least two points per axis.")
-    if array.size > _max_grid_points():
+    if source.size > _max_grid_points():
         raise ValueError(
-            f"{name} contains {array.size:,} grid points, exceeding the configured "
+            f"{name} contains {source.size:,} grid points, exceeding the configured "
             f"limit of {_max_grid_points():,}. Set V_ASE_MAX_VOLUMETRIC_POINTS only "
             "after confirming sufficient memory."
         )
+    normalized_precision = normalize_volumetric_precision(precision)
+    array = np.asarray(
+        source,
+        dtype=VOLUMETRIC_PRECISION_DTYPES[normalized_precision],
+    )
     if not np.all(np.isfinite(array)):
         raise ValueError(f"{name} contains NaN or infinite scalar values.")
     return array
@@ -137,10 +171,16 @@ class VolumetricData:
     atoms: Atoms | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     dataset_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    precision: str = "float32"
 
     def __post_init__(self) -> None:
         self.name = str(self.name or "Volumetric data").strip() or "Volumetric data"
-        self.values = _finite_array(self.values, name=self.name)
+        self.precision = normalize_volumetric_precision(self.precision)
+        self.values = _finite_array(
+            self.values,
+            name=self.name,
+            precision=self.precision,
+        )
         self.cell = _cell_array(self.cell)
         self.origin = np.asarray(self.origin, dtype=float)
         if self.origin.shape != (3,) or not np.all(np.isfinite(self.origin)):
@@ -192,6 +232,8 @@ class VolumetricData:
             "source_format": self.source_format,
             "component": self.component,
             "endpoint_inclusive": bool(self.endpoint_inclusive),
+            "precision": self.precision,
+            "memory_bytes": int(self.values.nbytes),
             "minimum": self.minimum,
             "maximum": self.maximum,
             "mean": self.mean,
@@ -211,6 +253,7 @@ class VolumetricData:
             source_format=self.source_format,
             component=self.component,
             endpoint_inclusive=self.endpoint_inclusive,
+            precision=self.precision,
             atoms=self.atoms.copy() if self.atoms is not None else None,
             metadata=dict(self.metadata),
             dataset_id=self.dataset_id,
@@ -291,6 +334,7 @@ class VolumetricData:
             source_format=self.source_format,
             component=self.component,
             endpoint_inclusive=self.endpoint_inclusive,
+            precision=self.precision,
             atoms=repeated_atoms,
             metadata=metadata,
             dataset_id=self.dataset_id,
@@ -364,6 +408,7 @@ def _read_vasp_scalar_block(
     dimensions: tuple[int, int, int],
     *,
     divisor: float,
+    precision: str,
 ) -> np.ndarray:
     point_count = int(np.prod(dimensions, dtype=np.int64))
     if point_count > _max_grid_points():
@@ -372,7 +417,9 @@ def _read_vasp_scalar_block(
             f"configured limit of {_max_grid_points():,}."
         )
     nx, ny, nz = dimensions
-    flat = np.empty(point_count, dtype=np.float32)
+    normalized_precision = normalize_volumetric_precision(precision)
+    dtype = VOLUMETRIC_PRECISION_DTYPES[normalized_precision]
+    flat = np.empty(point_count, dtype=dtype)
     offset = 0
     while offset < point_count:
         line = handle.readline()
@@ -380,7 +427,7 @@ def _read_vasp_scalar_block(
             raise ValueError(
                 "VASP scalar grid ended before all declared values were read."
             )
-        parsed = np.fromstring(line, dtype=np.float32, sep=" ")
+        parsed = np.fromstring(line, dtype=dtype, sep=" ")
         if not len(parsed):
             continue
         remaining = point_count - offset
@@ -391,10 +438,10 @@ def _read_vasp_scalar_block(
         flat[offset:offset + len(parsed)] = parsed
         offset += len(parsed)
     # VASP writes x as the innermost (fastest) index. The transpose is a
-    # zero-copy view over the bounded float32 buffer.
+    # zero-copy view over the bounded scalar buffer.
     values = flat.reshape((nz, ny, nx)).transpose(2, 1, 0)
     if divisor != 1.0:
-        values /= np.float32(divisor)
+        values /= dtype.type(divisor)
     return values
 
 
@@ -415,8 +462,12 @@ def _vasp_component_details(
     return f"{quantity}_component", f"component_{component_index + 1}"
 
 
-def _read_vasp_grids(path: Path, canonical_format: str) -> list[VolumetricData]:
-    """Read VASP grids with ASE structure parsing and bounded float32 blocks.
+def _read_vasp_grids(
+    path: Path,
+    canonical_format: str,
+    precision: str,
+) -> list[VolumetricData]:
+    """Read VASP grids with ASE structure parsing and bounded scalar blocks.
 
     The scalar loop follows VASP's documented x-fastest ordering and the
     attached ``Chgcar`` design, while ASE remains authoritative for POSCAR
@@ -455,6 +506,7 @@ def _read_vasp_grids(path: Path, canonical_format: str) -> list[VolumetricData]:
                     handle,
                     dimensions,
                     divisor=divisor,
+                    precision=precision,
                 )
             ]
 
@@ -466,6 +518,7 @@ def _read_vasp_grids(path: Path, canonical_format: str) -> list[VolumetricData]:
                                 handle,
                                 dimensions,
                                 divisor=divisor,
+                                precision=precision,
                             )
                         )
                 frames.append((atoms, blocks))
@@ -479,6 +532,7 @@ def _read_vasp_grids(path: Path, canonical_format: str) -> list[VolumetricData]:
                         handle,
                         dimensions,
                         divisor=divisor,
+                        precision=precision,
                     )
                 )
             else:
@@ -513,13 +567,15 @@ def _read_vasp_grids(path: Path, canonical_format: str) -> list[VolumetricData]:
                     source_format=canonical_format,
                     component=component,
                     endpoint_inclusive=False,
+                    precision=precision,
                     atoms=atoms.copy(),
                     metadata={
                         "source_file": path.name,
                         "source_frame": frame_index,
                         "grid_order": "x-fastest",
                         "scalar_values": (
-                            "bounded float32 VASP grid parser with ASE "
+                            f"bounded {normalize_volumetric_precision(precision)} "
+                            "VASP grid parser with ASE "
                             "structure configuration"
                         ),
                     },
@@ -528,7 +584,7 @@ def _read_vasp_grids(path: Path, canonical_format: str) -> list[VolumetricData]:
     return datasets
 
 
-def _read_cube_grids(path: Path) -> list[VolumetricData]:
+def _read_cube_grids(path: Path, precision: str) -> list[VolumetricData]:
     with path.open("r", encoding="utf-8", errors="strict") as handle:
         payload = read_cube(handle, read_data=True)
     atoms = payload["atoms"]
@@ -548,6 +604,7 @@ def _read_cube_grids(path: Path) -> list[VolumetricData]:
                 source_format="cube",
                 component=component,
                 endpoint_inclusive=False,
+                precision=precision,
                 atoms=atoms.copy(),
                 metadata={
                     "source_file": path.name,
@@ -560,7 +617,7 @@ def _read_cube_grids(path: Path) -> list[VolumetricData]:
     return datasets
 
 
-def _read_xsf_grids(path: Path) -> list[VolumetricData]:
+def _read_xsf_grids(path: Path, precision: str) -> list[VolumetricData]:
     with path.open("r", encoding="utf-8", errors="strict") as handle:
         items = list(iread_xsf(handle, read_data=True))
     if not items or not isinstance(items[-1], tuple):
@@ -580,6 +637,7 @@ def _read_xsf_grids(path: Path) -> list[VolumetricData]:
             source_format="xsf",
             component="total",
             endpoint_inclusive=True,
+            precision=precision,
             atoms=atoms,
             metadata={
                 "source_file": path.name,
@@ -593,6 +651,7 @@ def _read_xsf_grids(path: Path) -> list[VolumetricData]:
 def read_volumetric_file(
     path: str | Path,
     fmt: str | None = None,
+    precision: str = "float32",
 ) -> list[VolumetricData]:
     """Read VASP, Gaussian Cube, or XSF scalar grids.
 
@@ -602,6 +661,7 @@ def read_volumetric_file(
     """
 
     source = Path(path)
+    normalized_precision = normalize_volumetric_precision(precision)
     canonical = resolve_volumetric_format(source, fmt)
     if canonical is None:
         raise ValueError(
@@ -609,11 +669,11 @@ def read_volumetric_file(
             "Use CHGCAR, CHG, LOCPOT, PARCHG, ELFCAR, XSF, or Cube."
         )
     if canonical.startswith("vasp-"):
-        return _read_vasp_grids(source, canonical)
+        return _read_vasp_grids(source, canonical, normalized_precision)
     if canonical == "cube":
-        return _read_cube_grids(source)
+        return _read_cube_grids(source, normalized_precision)
     if canonical == "xsf":
-        return _read_xsf_grids(source)
+        return _read_xsf_grids(source, normalized_precision)
     raise ValueError(f"Unsupported volumetric format: {canonical}.")
 
 
@@ -632,6 +692,7 @@ def combine_volumetric_datasets(
     coefficients: Sequence[float],
     *,
     name: str = "Charge density difference",
+    precision: str | None = None,
 ) -> VolumetricData:
     """Create a validated linear combination such as ``A - B - C``."""
 
@@ -664,6 +725,14 @@ def combine_volumetric_datasets(
         if dataset.units != reference.units:
             raise ValueError("Charge-density difference grids must use the same scalar units.")
 
+    output_precision = normalize_volumetric_precision(
+        precision
+        or (
+            "float64"
+            if any(dataset.precision == "float64" for dataset in datasets)
+            else "float32"
+        )
+    )
     result = np.zeros(reference.values.shape, dtype=np.float64)
     clean_coefficients = []
     for coefficient, dataset in zip(coefficients, datasets):
@@ -674,7 +743,7 @@ def combine_volumetric_datasets(
         result += value * dataset.values
     return VolumetricData(
         name=name,
-        values=result.astype(np.float32),
+        values=result,
         cell=reference.cell.copy(),
         origin=reference.origin.copy(),
         pbc=reference.pbc.copy(),
@@ -683,10 +752,14 @@ def combine_volumetric_datasets(
         source_format="linear-combination",
         component="difference",
         endpoint_inclusive=reference.endpoint_inclusive,
+        precision=output_precision,
         atoms=reference.atoms.copy() if reference.atoms is not None else None,
         metadata={
             "sources": [dataset.dataset_id for dataset in datasets],
             "coefficients": clean_coefficients,
+            "precision_policy": (
+                "explicit" if precision is not None else "highest-input"
+            ),
         },
     )
 

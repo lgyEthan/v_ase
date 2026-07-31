@@ -49,6 +49,7 @@ from .volumetric import (
     combine_volumetric_datasets,
     dataset_by_id,
     generate_isosurface,
+    normalize_volumetric_precision,
     read_volumetric_file,
     resolve_volumetric_format,
     volumetric_structure,
@@ -472,10 +473,11 @@ AI_OPERATION_PARAMETERS = {
     "load-volumetric": {
         "mode": "view-or-edit",
         "required": ["path"],
-        "optional": ["format"],
+        "optional": ["format", "precision"],
         "notes": (
             "path is resolved inside the GUI launch directory. Supported "
-            "formats include CHGCAR, LOCPOT, PARCHG, ELFCAR, Cube, and XSF."
+            "formats include CHGCAR, LOCPOT, PARCHG, ELFCAR, Cube, and XSF. "
+            "precision is fp32/float32 or fp64/float64 and is applied while reading."
         ),
     },
     "show-volumetric": {
@@ -490,8 +492,11 @@ AI_OPERATION_PARAMETERS = {
     "combine-volumetric": {
         "mode": "view-or-edit",
         "required": ["datasetIds", "coefficients"],
-        "optional": ["name"],
-        "notes": "All grids must have matching dimensions, cell, origin, PBC, and units.",
+        "optional": ["name", "precision"],
+        "notes": (
+            "All grids must have matching dimensions, cell, origin, PBC, and "
+            "units. Output precision defaults to the highest input precision."
+        ),
     },
     "remove-volumetric": {
         "mode": "view-or-edit",
@@ -504,7 +509,8 @@ AI_OPERATION_PARAMETERS = {
         "optional": ["cutoff", "bins", "pairMode", "activePairs"],
         "notes": (
             "pairMode is active, all, or none. Fully periodic 3D cells are "
-            "required; unsafe cutoffs are clamped to the unique-MIC limit."
+            "required. Every periodic image inside the requested cutoff is "
+            "counted; the cutoff is not reduced to a fixed supercell or MIC radius."
         ),
     },
 }
@@ -2304,6 +2310,7 @@ async def _replace_session_from_file(
     index: str,
     *,
     source_is_temporary: bool,
+    volumetric_precision: str = "float32",
 ) -> tuple[Dict[str, Any], bool]:
     from .io import read_fast_lammps_dump, read_structure_frames, resolve_input_format
 
@@ -2341,6 +2348,7 @@ async def _replace_session_from_file(
             read_volumetric_file,
             source_path,
             volumetric_format,
+            normalize_volumetric_precision(volumetric_precision),
         )
         structure = volumetric_structure(datasets)
         session.cleanup_temporary_files()
@@ -2423,6 +2431,7 @@ async def _append_session_from_file(
     display_name: str,
     input_format: str | None,
     index: str,
+    volumetric_precision: str = "float32",
 ) -> Dict[str, Any]:
     from .io import read_fast_lammps_dump, read_structure_frames, resolve_input_format
 
@@ -2459,6 +2468,7 @@ async def _append_session_from_file(
             read_volumetric_file,
             source_path,
             volumetric_format,
+            normalize_volumetric_precision(volumetric_precision),
         )
         with session.mode_transition_lock:
             if was_empty:
@@ -2556,6 +2566,7 @@ async def load_structure_file(
     filename: str,
     input_format: str | None = None,
     index: str = ":",
+    volumetric_precision: str = "float32",
 ):
     """Stream a browser-selected structure, trajectory, or project into a session."""
     session = get_session(session_id)
@@ -2570,6 +2581,7 @@ async def load_structure_file(
             input_format,
             index,
             source_is_temporary=True,
+            volumetric_precision=volumetric_precision,
         )
         return data
     except HTTPException:
@@ -2594,6 +2606,7 @@ async def load_structure_path(session_id: str, payload: Dict[str, Any]):
     display_name = _validated_uploaded_filename(source_path.name)
     input_format = payload.get("input_format") or None
     index = str(payload.get("index") or ":")
+    volumetric_precision = str(payload.get("volumetric_precision") or "float32")
     try:
         data, _ = await _replace_session_from_file(
             session,
@@ -2602,6 +2615,7 @@ async def load_structure_path(session_id: str, payload: Dict[str, Any]):
             str(input_format) if input_format else None,
             index,
             source_is_temporary=False,
+            volumetric_precision=volumetric_precision,
         )
         return data
     except HTTPException:
@@ -2617,6 +2631,7 @@ async def append_structure_file(
     filename: str,
     input_format: str | None = None,
     index: str = ":",
+    volumetric_precision: str = "float32",
 ):
     """Append uploaded structures as movie frames without replacing visual settings."""
     session = get_session(session_id)
@@ -2629,6 +2644,7 @@ async def append_structure_file(
             display_name,
             input_format,
             index,
+            volumetric_precision,
         )
     except HTTPException:
         raise
@@ -2651,6 +2667,7 @@ async def append_structure_path(session_id: str, payload: Dict[str, Any]):
     display_name = _validated_uploaded_filename(source_path.name)
     input_format = payload.get("input_format") or None
     index = str(payload.get("index") or ":")
+    volumetric_precision = str(payload.get("volumetric_precision") or "float32")
     try:
         return await _append_session_from_file(
             session,
@@ -2658,6 +2675,7 @@ async def append_structure_path(session_id: str, payload: Dict[str, Any]):
             display_name,
             str(input_format) if input_format else None,
             index,
+            volumetric_precision,
         )
     except HTTPException:
         raise
@@ -2686,6 +2704,11 @@ async def create_volumetric_difference(session_id: str, payload: Dict[str, Any])
                 datasets,
                 coefficients,
                 name=str(payload.get("name") or "Charge density difference"),
+                precision=(
+                    normalize_volumetric_precision(payload["precision"])
+                    if payload.get("precision")
+                    else None
+                ),
             )
             session.volumetric_datasets.append(combined)
             if _volumetric_matches_original_structure(session, combined):

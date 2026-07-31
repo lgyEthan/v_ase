@@ -38,7 +38,10 @@ MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 MAX_ARCHIVE_UNCOMPRESSED_BYTES = 16 * 1024 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 4096
 MAX_NPZ_MEMBERS = 100_000
-MAX_VOLUMETRIC_MEMBER_BYTES = DEFAULT_MAX_GRID_POINTS * np.dtype(np.float32).itemsize + 16 * 1024 * 1024
+MAX_VOLUMETRIC_MEMBER_BYTES = (
+    DEFAULT_MAX_GRID_POINTS * np.dtype(np.float64).itemsize
+    + 16 * 1024 * 1024
+)
 MAX_SIDECAR_NPZ_UNCOMPRESSED_BYTES = 8 * 1024 * 1024 * 1024
 HTML_PROJECT_SCRIPT_ID = "v-ase-project-data"
 HTML_PROJECT_FORMAT = "vase-html-project"
@@ -599,9 +602,21 @@ def read_project_archive(path: str | Path) -> VaseProject:
                             raise ValueError(
                                 "A .vase volumetric grid shape does not match its manifest."
                             )
-                        if values.dtype != np.dtype(np.float32):
+                        if values.dtype not in {
+                            np.dtype(np.float32),
+                            np.dtype(np.float64),
+                        }:
                             raise ValueError(
-                                "A .vase volumetric grid must use the portable float32 encoding."
+                                "A .vase volumetric grid must use portable float32 "
+                                "or float64 encoding."
+                            )
+                        declared_precision = str(
+                            entry.get("precision") or values.dtype.name
+                        )
+                        if declared_precision != values.dtype.name:
+                            raise ValueError(
+                                "A .vase volumetric grid precision does not match "
+                                "its manifest."
                             )
                         source_frame = int((entry.get("metadata") or {}).get("source_frame", 0))
                         source_atoms = (
@@ -621,6 +636,7 @@ def read_project_archive(path: str | Path) -> VaseProject:
                                 source_format=str(entry.get("source_format") or "unknown"),
                                 component=str(entry.get("component") or "total"),
                                 endpoint_inclusive=bool(entry.get("endpoint_inclusive", False)),
+                                precision=declared_precision,
                                 atoms=source_atoms,
                                 metadata=dict(entry.get("metadata") or {}),
                                 dataset_id=str(entry.get("id") or ""),

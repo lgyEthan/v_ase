@@ -380,6 +380,7 @@ def view(
     open_browser: bool = True,
     stream_trajectory: bool = False,
     volumetric_datasets: Optional[Sequence[Any]] = None,
+    volumetric_precision: str = "fp32",
 ) -> Union[Atoms, ASEEditor, None]:
     """
     Open the v_ase structure viewer/editor.
@@ -395,6 +396,10 @@ def view(
     block : bool
         If True, block execution until the browser document is closed or the
         session is finalized through the local API.
+    volumetric_precision : str
+        Scalar-grid precision used when ``atoms`` is a CHGCAR, LOCPOT, PARCHG,
+        Cube, or XSF path. Use ``"fp32"`` for lower memory or ``"fp64"`` to
+        preserve double-precision values.
     ...
     """
     notebook = resolve_notebook_display(notebook)
@@ -405,6 +410,7 @@ def view(
 
     if source_path:
         from .volumetric import (
+            normalize_volumetric_precision,
             read_volumetric_file,
             resolve_volumetric_format,
             volumetric_structure,
@@ -415,9 +421,21 @@ def view(
         volumetric_format = None
 
     if source_path and volumetric_format:
-        loaded_volumetric = read_volumetric_file(source_path, volumetric_format)
+        normalized_precision = normalize_volumetric_precision(
+            volumetric_precision
+        )
+        loaded_volumetric = read_volumetric_file(
+            source_path,
+            volumetric_format,
+            precision=normalized_precision,
+        )
         volumetric_datasets = loaded_volumetric
         atoms = [volumetric_structure(loaded_volumetric)]
+        settings = dict(initial_design_settings or {})
+        display = dict(settings.get("display") or {})
+        display["volumetricPrecision"] = normalized_precision
+        settings["display"] = display
+        initial_design_settings = settings
     elif source_path and source_path.lower().endswith((".vase", ".html", ".htm")):
         from .project import read_project_document
 

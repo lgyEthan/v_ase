@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.2
+
+- Reworked the external-AI-agent documentation into a visual, four-stage
+  human-to-Agent-to-structured-control-to-live-GUI workflow with an explicit
+  same-document feedback loop.
+- Made explicit RDF cutoffs independent of the unique minimum-image radius and
+  fixed display-supercell size by enumerating every periodic image required by
+  ASE's triclinic neighbor search; RDF results now report the actual image
+  extent and span used.
+- Added selectable FP32 and FP64 volumetric imports across the CLI, GUI,
+  semantic API, combinations, and `.vase` project round trips, including
+  reported storage precision and memory.
+- Synchronized the canonical Agent Skill, user and technical documentation,
+  generated README media, scientific regressions, and browser end-to-end
+  validation with the new contracts.
+
 ## 0.1.1
 
 - Added bounded volumetric-data loading for VASP CHGCAR/CHG, LOCPOT, PARCHG,

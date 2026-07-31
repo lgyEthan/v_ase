@@ -464,7 +464,7 @@ for (const path of [
   "fragment-b/CHGCAR"
 ]) {
   await applyCurrent({
-    operation: {name: "load-volumetric", path}
+    operation: {name: "load-volumetric", path, precision: "fp64"}
   });
 }
 
@@ -479,7 +479,8 @@ await applyCurrent({
     name: "combine-volumetric",
     datasetIds: grids.map(grid => grid.id),
     coefficients: [1, -1, -1],
-    name: "charge-density difference"
+    name: "charge-density difference",
+    precision: "fp64"
   }
 });
 
@@ -511,10 +512,12 @@ await applyCurrent({
 Validation:
 
 1. `describe().analysis.volumetricDatasets` identifies all four grids.
-2. The signed surface has both positive and negative mesh groups.
-3. The mesh repeats exactly with the displayed `2 x 2 x 1` supercell.
-4. Both mesh and atoms use the same fractional visual translation.
-5. Repeating the source grids physically is done only after explicit
+2. Every source and the difference report `precision: "float64"` and the
+   expected `memory_bytes`.
+3. The signed surface has both positive and negative mesh groups.
+4. The mesh repeats exactly with the displayed `2 x 2 x 1` supercell.
+5. Both mesh and atoms use the same fractional visual translation.
+6. Repeating the source grids physically is done only after explicit
    `set-supercell`; undo restores atom count, cell, and grid dimensions.
 
 Do not combine grids with different dimensions, cell, origin, PBC, or units.
@@ -545,8 +548,8 @@ const rdf = analyzed.analysis.rdf;
 if (!rdf || rdf.bins !== 400 || !rdf.partialCurves.includes("Cu_surface|O_ads")) {
   throw new Error("The requested partial RDF was not calculated.");
 }
-if (rdf.cutoff > rdf.safeCutoff + 1e-12) {
-  throw new Error("RDF exceeded the unique-MIC cutoff.");
+if (Math.abs(rdf.cutoff - 8.0) > 1e-12 || rdf.periodicImageSpan.length !== 3) {
+  throw new Error("RDF did not retain the requested cutoff and image span.");
 }
 ```
 
@@ -566,10 +569,12 @@ Validation:
 
 1. the total curve is always present;
 2. requested partial labels are present;
-3. the effective cutoff and any clamp warning are reported;
+3. the requested cutoff is retained and all required periodic-image extents
+   are reported, even when a fixed `2 x 2 x 2` repetition is insufficient;
 4. CSV radius count equals `bins`;
 5. a homogeneous periodic test system approaches `g(r) = 1` away from the
-   first few bins for several safe cutoffs.
+   first few bins across several cutoffs, including beyond the unique-MIC
+   reference.
 
 ## Periodic Supercell Measurement
 

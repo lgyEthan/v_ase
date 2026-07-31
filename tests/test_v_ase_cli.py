@@ -46,6 +46,7 @@ def test_v_ase_gui_parser_accepts_an_empty_workspace():
     assert args.port is None
     assert args.show_bonds is True
     assert args.cli_mode is False
+    assert args.volumetric_precision == "fp32"
 
 
 def test_v_ase_gui_parser_accepts_headless_server_mode():
@@ -421,13 +422,22 @@ def test_v_ase_gui_opens_volumetric_input_with_grid_attached(tmp_path, monkeypat
 
     monkeypatch.setattr("v_ase.cli.view", fake_view)
 
-    args = build_parser().parse_args(["gui", str(cube_path)])
+    args = build_parser().parse_args([
+        "gui",
+        str(cube_path),
+        "--volumetric-precision",
+        "fp64",
+    ])
     assert run_gui(args) == 0
     assert len(captured["frames"]) == 1
     assert captured["frames"][0].get_chemical_symbols() == ["Na", "Cl"]
     datasets = captured["kwargs"]["volumetric_datasets"]
     assert len(datasets) == 1
     assert datasets[0].values.shape == values.shape
+    assert datasets[0].values.dtype == np.float64
+    assert captured["kwargs"]["initial_design_settings"]["display"][
+        "volumetricPrecision"
+    ] == "float64"
 
 
 def test_v_ase_gui_reopens_project_embedded_html(tmp_path, monkeypatch):

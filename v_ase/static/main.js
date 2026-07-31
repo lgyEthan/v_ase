@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.1.1&rev=1';
-import { ASERenderer } from './renderer.js?v=0.1.1&rev=1';
-import { ASESelection } from './selection.js?v=0.1.1&rev=1';
-import { ASETransform } from './transform.js?v=0.1.1&rev=1';
+import { ASEApi } from './api.js?v=0.1.2&rev=1';
+import { ASERenderer } from './renderer.js?v=0.1.2&rev=1';
+import { ASESelection } from './selection.js?v=0.1.2&rev=1';
+import { ASETransform } from './transform.js?v=0.1.2&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.1.1&rev=1';
+} from './trajectory.js?v=0.1.2&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -174,6 +174,7 @@ class VAseApp {
                 displacementThickness: 0.08,
                 displacementColor: '#e58b2a',
                 showVolumetric: false,
+                volumetricPrecision: 'float32',
                 volumetricDatasetId: '',
                 volumetricLevel: null,
                 volumetricSurfaceMode: 'single',
@@ -1402,6 +1403,12 @@ class VAseApp {
         return Array.isArray(datasets) ? datasets : [];
     }
 
+    volumetricImportPrecision() {
+        return this.state.display.volumetricPrecision === 'float64'
+            ? 'float64'
+            : 'float32';
+    }
+
     setVolumeStatus(state, title, detail = '') {
         const status = document.getElementById('volume-status');
         if (!status) return;
@@ -1436,6 +1443,19 @@ class VAseApp {
         return magnitude !== 0 && (magnitude < 1e-3 || magnitude >= 1e4)
             ? parsed.toExponential(4)
             : parsed.toPrecision(6);
+    }
+
+    formatByteCount(value) {
+        const bytes = Math.max(0, Number(value) || 0);
+        if (bytes < 1024) return `${Math.round(bytes)} B`;
+        const units = ['KiB', 'MiB', 'GiB', 'TiB'];
+        let scaled = bytes;
+        let unit = -1;
+        do {
+            scaled /= 1024;
+            unit += 1;
+        } while (scaled >= 1024 && unit < units.length - 1);
+        return `${scaled >= 100 ? scaled.toFixed(0) : scaled.toFixed(1)} ${units[unit]}`;
     }
 
     renderVolumetricControls() {
@@ -1475,7 +1495,13 @@ class VAseApp {
             const entries = [
                 ['Grid', (selected.shape || []).join(' x ')],
                 ['Range', `${this.formatScalarValue(selected.minimum)} to ${this.formatScalarValue(selected.maximum)}`],
-                ['Quantity', `${selected.quantity || 'scalar field'} · ${selected.units || 'file native'}`]
+                ['Quantity', `${selected.quantity || 'scalar field'} · ${selected.units || 'file native'}`],
+                [
+                    'Precision',
+                    `${selected.precision === 'float64' ? 'FP64' : 'FP32'} · ${
+                        this.formatByteCount(Number(selected.memory_bytes) || 0)
+                    }`
+                ]
             ];
             entries.forEach(([label, value]) => {
                 const key = document.createElement('strong');
@@ -1521,6 +1547,7 @@ class VAseApp {
         };
         const visible = document.getElementById('chk-volume-visible');
         if (visible) visible.checked = Boolean(display.showVolumetric);
+        setValue('volume-import-precision', this.volumetricImportPrecision());
         setValue('volume-surface-mode', display.volumetricSurfaceMode === 'signed' ? 'signed' : 'single');
         setValue('volume-level', display.volumetricLevel);
         setValue('volume-step', [1, 2, 4].includes(Number(display.volumetricStepSize))
@@ -1536,6 +1563,9 @@ class VAseApp {
     readVolumetricControls() {
         const level = Number(document.getElementById('volume-level')?.value);
         Object.assign(this.state.display, {
+            volumetricPrecision: document.getElementById('volume-import-precision')?.value === 'float64'
+                ? 'float64'
+                : 'float32',
             showVolumetric: Boolean(document.getElementById('chk-volume-visible')?.checked),
             volumetricDatasetId: document.getElementById('volume-dataset')?.value || '',
             volumetricLevel: Number.isFinite(level) ? level : null,
@@ -1640,7 +1670,12 @@ class VAseApp {
         if (!file) return;
         const data = await this.withBusy(
             `Reading ${file.name}...`,
-            () => this.api.appendStructureFile(file, '', ':')
+            () => this.api.appendStructureFile(
+                file,
+                '',
+                ':',
+                this.volumetricImportPrecision()
+            )
         );
         if (data.loaded_file?.source_kind !== 'volumetric') {
             throw new Error('The selected file did not contain supported volumetric data.');
@@ -1661,6 +1696,12 @@ class VAseApp {
 
     setupVolumetricAnalysis() {
         const fileInput = document.getElementById('volume-file');
+        document.getElementById('volume-import-precision')?.addEventListener('change', event => {
+            this.state.display.volumetricPrecision = event.target.value === 'float64'
+                ? 'float64'
+                : 'float32';
+            this.scheduleVisualHistoryCommit('volumetric-import-precision');
+        });
         document.getElementById('btn-volume-add')?.addEventListener('click', () => fileInput?.click());
         fileInput?.addEventListener('change', async () => {
             const file = fileInput.files?.[0];
@@ -1912,7 +1953,11 @@ class VAseApp {
     async calculateRdf() {
         const token = ++this.state.rdfRequestToken;
         const options = this.rdfOptions();
-        this.setRdfStatus('loading', 'Calculating RDF', 'Applying periodic MIC normalization.');
+        this.setRdfStatus(
+            'loading',
+            'Calculating RDF',
+            'Counting every periodic image inside the requested spherical cutoff.'
+        );
         const result = await this.withBusy(
             'Calculating radial distribution function...',
             () => this.api.fetchRdf(options)
@@ -1922,10 +1967,14 @@ class VAseApp {
         document.getElementById('btn-rdf-export').disabled = false;
         await this.plotRdf(result);
         const warning = (result.warnings || []).join(' ');
+        const imageSpan = Array.isArray(result.periodic_image_span)
+            ? result.periodic_image_span.join(' × ')
+            : 'automatic';
+        const pairCount = Object.keys(result.partial || {}).length;
         this.setRdfStatus(
             warning ? 'warning' : 'ready',
             `${result.bins} bins · cutoff ${Number(result.cutoff).toFixed(3)} Å`,
-            warning || `${Object.keys(result.partial || {}).length} pair curve${Object.keys(result.partial || {}).length === 1 ? '' : 's'} plus total.`
+            warning || `${pairCount} pair curve${pairCount === 1 ? '' : 's'} plus total · periodic image span ${imageSpan}.`
         );
         this.scheduleVisualHistoryCommit('rdf');
     }
@@ -6711,7 +6760,18 @@ class VAseApp {
                     bins: this.state.rdfResult.bins,
                     requestedCutoff: this.state.rdfResult.requested_cutoff,
                     cutoff: this.state.rdfResult.cutoff,
+                    uniqueMicCutoff: (
+                        this.state.rdfResult.unique_mic_cutoff
+                        ?? this.state.rdfResult.safe_cutoff
+                    ),
+                    // Retained for agents written against v_ase <= 0.1.1.
                     safeCutoff: this.state.rdfResult.safe_cutoff,
+                    periodicImageExtent: [
+                        ...(this.state.rdfResult.periodic_image_extent || [])
+                    ],
+                    periodicImageSpan: [
+                        ...(this.state.rdfResult.periodic_image_span || [])
+                    ],
                     pairMode: this.state.rdfResult.pair_mode,
                     partialCurves: Object.keys(this.state.rdfResult.partial || {}),
                     warnings: [...(this.state.rdfResult.warnings || [])],
@@ -7026,14 +7086,23 @@ class VAseApp {
         if (name === 'load-volumetric') {
             const path = String(operation.path || '').trim();
             if (!path) throw new Error('load-volumetric requires a path.');
+            const requestedPrecision = operation.precision === 'float64'
+                || operation.precision === 'fp64'
+                ? 'float64'
+                : operation.precision === 'float32'
+                    || operation.precision === 'fp32'
+                    ? 'float32'
+                    : this.volumetricImportPrecision();
             const data = await this.api.appendStructurePath(
                 path,
                 String(operation.format || ''),
-                ':'
+                ':',
+                requestedPrecision
             );
             if (data.loaded_file?.source_kind !== 'volumetric') {
                 throw new Error('The requested path did not contain supported volumetric data.');
             }
+            this.state.display.volumetricPrecision = requestedPrecision;
             this.setAtomsData(data, {
                 clearSelection: !this.hasLoadedAtoms(),
                 preserveDisplay: true,
@@ -7084,7 +7153,12 @@ class VAseApp {
             const result = await this.api.createVolumetricDifference({
                 dataset_ids: operation.datasetIds.map(value => String(value)),
                 coefficients: operation.coefficients.map(Number),
-                name: String(operation.name || 'Charge density difference')
+                name: String(operation.name || 'Charge density difference'),
+                precision: operation.precision === 'float64' || operation.precision === 'fp64'
+                    ? 'float64'
+                    : operation.precision === 'float32' || operation.precision === 'fp32'
+                        ? 'float32'
+                        : undefined
             });
             this.state.atoms.metadata.volumetric_datasets = result.volumetric_datasets || [];
             this.state.display.volumetricDatasetId = result.dataset.id;
@@ -7914,6 +7988,9 @@ class VAseApp {
                 ? nextDisplay.displacementColor
                 : '#e58b2a',
             showVolumetric: Boolean(nextDisplay.showVolumetric),
+            volumetricPrecision: nextDisplay.volumetricPrecision === 'float64'
+                ? 'float64'
+                : 'float32',
             volumetricDatasetId: String(nextDisplay.volumetricDatasetId || ''),
             volumetricLevel: Number.isFinite(Number(nextDisplay.volumetricLevel))
                 ? Number(nextDisplay.volumetricLevel)
@@ -9494,7 +9571,12 @@ class VAseApp {
             }
             const data = await this.withBusy(
                 `Reading ${file.name}...`,
-                () => this.api.loadStructureFile(file, inputFormat, index)
+                () => this.api.loadStructureFile(
+                    file,
+                    inputFormat,
+                    index,
+                    this.volumetricImportPrecision()
+                )
             );
             this.resetHistoryTimeline();
             const isProject = data.loaded_file?.kind === 'project' || Boolean(data.project);
@@ -9543,7 +9625,12 @@ class VAseApp {
             }
             const data = await this.withBusy(
                 `Adding ${file.name} to trajectory...`,
-                () => this.api.appendStructureFile(file, inputFormat, index)
+                () => this.api.appendStructureFile(
+                    file,
+                    inputFormat,
+                    index,
+                    this.volumetricImportPrecision()
+                )
             );
             this.resetHistoryTimeline();
             this.state.trajectoryBinaryCache = null;
@@ -9610,7 +9697,8 @@ class VAseApp {
                         serverPath: null,
                         fileName: file.name,
                         inputFormat,
-                        index
+                        index,
+                        volumetricPrecision: this.volumetricImportPrecision()
                     }, window.location.origin);
                 })
             );

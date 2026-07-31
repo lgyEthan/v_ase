@@ -288,8 +288,9 @@ and documentation use `view()`.
     categories/paths rather than coordinates. `describe()` reports the current
     document revision, and `apply(expectedRevision=...)` rejects stale agent
     commands before they can overwrite a newer human edit.
-59. Volumetric datasets are backend-owned float32 grids with stable IDs, cell,
-    origin, PBC, endpoint convention, quantity, component, and units. VASP
+59. Volumetric datasets are backend-owned, explicitly selected FP32 or FP64
+    grids with stable IDs, cell, origin, PBC, endpoint convention, quantity,
+    component, and units. VASP
     CHGCAR/CHG, LOCPOT, PARCHG, and ELFCAR plus Cube and XSF are accepted only
     after bounded shape, size, finiteness, and nondegenerate-cell validation.
 60. Volumetric combinations require identical dimensions, cell, origin, PBC,
@@ -298,11 +299,12 @@ and documentation use `view()`.
     supercell repeats grid and atoms atomically; reset, undo, and redo restore
     the corresponding atom/grid state together. A non-diagonal materialized
     transform is rejected while a grid is loaded.
-61. Bulk RDF requires full 3D PBC. Its effective radius is no greater than
-    half the shortest triclinic face height. Total and concentration-weighted
-    visual-label partial curves share one ASE periodic neighbor search and
-    reconstruct the total through the standard concentration-weighted
-    relation.
+61. Bulk RDF requires full 3D PBC. The unique-MIC radius remains the automatic
+    default, while explicit larger cutoffs enumerate every periodic image
+    inside the requested sphere instead of assuming a fixed `2 x 2 x 2`
+    repetition. Total and concentration-weighted visual-label partial curves
+    share one ASE periodic neighbor search and reconstruct the total through
+    the standard concentration-weighted relation.
 62. `describe().analysis` and live capability discovery are authoritative for
     volumetric dataset IDs, RDF cutoffs/warnings, and partial curve names.
     Agents never receive the complete scalar grid or infer analysis from
@@ -415,8 +417,9 @@ same implementation for compatibility.
   no arrow meshes. Color, thickness, scale, and 2D/3D restyling reuse the
   latest vectors without repeating the backend calculation.
 - Hidden volumetric surfaces allocate no browser geometry. The full bounded
-  float32 grid stays in Python; the browser receives only descriptors and the
-  requested indexed isosurface. Marching cubes and RDF run off the event loop.
+  FP32 or FP64 grid stays in Python; the browser receives only descriptors and
+  the requested indexed isosurface. Marching cubes and RDF run off the event
+  loop.
 - Total and selected partial RDF curves share one periodic neighbor-list pass.
   The local Plotly drawer is created only when RDF is requested.
 - Inactive workspace tabs suspend rendering and playback.

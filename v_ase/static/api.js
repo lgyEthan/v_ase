@@ -1110,10 +1110,11 @@ export class ASEApi {
         });
     }
 
-    async loadStructureFile(file, inputFormat = '', index = ':') {
+    async loadStructureFile(file, inputFormat = '', index = ':', volumetricPrecision = 'float32') {
         const params = new URLSearchParams({
             filename: file?.name || 'structure',
-            index: index || ':'
+            index: index || ':',
+            volumetric_precision: volumetricPrecision || 'float32'
         });
         if (inputFormat) params.set('input_format', inputFormat);
         return await this.request(`/api/file/load/{session_id}?${params.toString()}`, {
@@ -1123,10 +1124,11 @@ export class ASEApi {
         });
     }
 
-    async appendStructureFile(file, inputFormat = '', index = ':') {
+    async appendStructureFile(file, inputFormat = '', index = ':', volumetricPrecision = 'float32') {
         const params = new URLSearchParams({
             filename: file?.name || 'structure',
-            index: index || ':'
+            index: index || ':',
+            volumetric_precision: volumetricPrecision || 'float32'
         });
         if (inputFormat) params.set('input_format', inputFormat);
         return await this.request(`/api/file/append/{session_id}?${params.toString()}`, {
@@ -1136,11 +1138,12 @@ export class ASEApi {
         });
     }
 
-    async appendStructurePath(path, inputFormat = '', index = ':') {
+    async appendStructurePath(path, inputFormat = '', index = ':', volumetricPrecision = 'float32') {
         return await this.jsonPost(`/api/file/append-path/{session_id}`, {
             path,
             input_format: inputFormat || null,
-            index: index || ':'
+            index: index || ':',
+            volumetric_precision: volumetricPrecision || 'float32'
         });
     }
 
