@@ -14,7 +14,8 @@ from pathlib import Path
 
 import numpy as np
 from ase import Atoms
-from ase.build import fcc111
+from ase.build import bulk, fcc111
+from ase.io.cube import write_cube
 from PIL import Image
 from playwright.sync_api import sync_playwright
 
@@ -155,6 +156,24 @@ def make_logo_scene() -> Atoms:
     atoms.positions -= center
     atoms.info["readme_scene"] = "v_ase_atomistic_logo"
     return atoms
+
+
+def make_volumetric_analysis_scene() -> tuple[Atoms, np.ndarray]:
+    atoms = bulk("NaCl", "rocksalt", a=5.64, cubic=True).repeat((2, 2, 2))
+    shape = (40, 40, 40)
+    axes = [np.arange(size, dtype=float) / size for size in shape]
+    fractional = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1)
+    values = np.zeros(shape, dtype=np.float32)
+    scaled = atoms.get_scaled_positions(wrap=True)
+    for position, symbol in zip(scaled, atoms.get_chemical_symbols()):
+        delta = fractional - position
+        delta -= np.rint(delta)
+        cartesian = np.einsum("...i,ij->...j", delta, atoms.cell.array)
+        radius_squared = np.einsum("...i,...i->...", cartesian, cartesian)
+        sign = 1.0 if symbol == "Na" else -1.0
+        values += sign * np.exp(-radius_squared / (2.0 * 0.58**2))
+    atoms.info["readme_scene"] = "volumetric_rdf_analysis"
+    return atoms, values
 
 
 def open_panels(page, panels):
@@ -1944,6 +1963,93 @@ def capture_relaxation_media(browser) -> None:
         editor.close()
 
 
+def capture_analysis_media(browser) -> None:
+    atoms, values = make_volumetric_analysis_scene()
+    cube_path = ROOT / ".v_ase-readme-analysis.cube"
+    with cube_path.open("w", encoding="utf-8") as handle:
+        write_cube(handle, atoms, data=values)
+
+    editor, page = open_scene(browser, atoms, show_bonds=False)
+    try:
+        set_display(page, {
+            "atomRadiusScale": 0.44,
+            "showBonds": False,
+            "showGrid": False,
+            "showCell": True,
+            "showAxes": False,
+            "viewportBackground": "white",
+            "lightingMode": "studio-shadow",
+            "labelMaterials": {"Na": "metal", "Cl": "standard"},
+        })
+        configure_inspector(page, "analysis", ["volumetric", "rdf"], width=470)
+        result = page.evaluate(
+            """async ({ path, level }) => {
+                const ai = window.v_aseAI;
+                await ai.apply({
+                    operation: {name: 'load-volumetric', path}
+                });
+                const loaded = await ai.describe({includePositions: false});
+                const dataset = loaded.analysis.volumetricDatasets.at(-1);
+                await ai.apply({
+                    operation: {
+                        name: 'show-volumetric',
+                        datasetId: dataset.id,
+                        level,
+                        surfaceMode: 'signed',
+                        stepSize: 1,
+                        opacity: 0.44,
+                        positiveColor: '#168a8a',
+                        negativeColor: '#cf4b5c'
+                    }
+                });
+                await ai.apply({
+                    operation: {
+                        name: 'calculate-rdf',
+                        cutoff: 5.2,
+                        bins: 180,
+                        pairMode: 'all'
+                    }
+                });
+                return await ai.describe({includePositions: false});
+            }""",
+            {
+                "path": cube_path.relative_to(ROOT).as_posix(),
+                "level": float(np.max(np.abs(values)) * 0.32),
+            },
+        )
+        if not result["analysis"]["rdf"]:
+            raise AssertionError("README RDF scene did not produce an analysis result.")
+        page.wait_for_function(
+            """() => Number(
+                window.__V_ASE_APP__.renderer.domElement.dataset.volumetricSurfaceCount || 0
+            ) >= 2"""
+        )
+        page.wait_for_selector("#rdf-plot .plotly", state="attached")
+        center = np.mean(atoms.positions, axis=0)
+        settle_view(
+            page,
+            target=center.tolist(),
+            position=(center + np.array([13.0, -15.0, 11.0])).tolist(),
+            fov=34,
+        )
+        set_atomic_scale(page, 58.0)
+        set_readme_lighting(
+            page,
+            center.tolist(),
+            intensity=2.8,
+            position_offset=(-9.0, -11.0, 15.0),
+        )
+        page.wait_for_timeout(300)
+        screenshot_frame(page).save(
+            ASSET_DIR / "readme_volumetric_rdf.png",
+            optimize=True,
+        )
+    finally:
+        page.close()
+        editor.close()
+        cube_path.unlink(missing_ok=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1969,6 +2075,7 @@ def main() -> int:
             "constraints",
             "measurement",
             "relaxation",
+            "analysis",
         ),
         help="Regenerate one README scene group.",
     )
@@ -1998,6 +2105,7 @@ def main() -> int:
                 "constraints": capture_constraint_media,
                 "measurement": capture_measurement_media,
                 "relaxation": capture_relaxation_media,
+                "analysis": capture_analysis_media,
             }
             if args.only:
                 captures[args.only](browser)

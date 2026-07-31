@@ -11,9 +11,10 @@
 7. Appearance And Bonds
 8. Cell, View, Lighting, And Constraints
 9. Trajectory Analysis
-10. Rendering
-11. Export
-12. Multi-Document Control
+10. Volumetric And RDF Analysis
+11. Rendering
+12. Export
+13. Multi-Document Control
 
 ## Transport And Connection
 
@@ -60,7 +61,8 @@ v_ase api "$COMMAND_URL" describe \
 `describe()` returns document name, View/Edit mode, frame and frame count, atom
 count, labels, ASE elements, atomic numbers, positions, cell, PBC, constraints,
 forces, calculator attachment/name/details, charges, tags, magnetic moments,
-selection references, measurements, display settings, camera, image export profile, and
+selection references, measurements, display settings, camera, image export
+profile, `analysis.volumetricDatasets`, the current RDF summary, and
 `collaboration.revision`.
 
 Use `includePositions: false` for metadata-only inspection of a very large
@@ -189,6 +191,15 @@ Pass `operation` as a name string or object:
 | `start-relaxation` | `fmax`, `steps`, optional `calculator` | Start optimization |
 | `stop-relaxation` | none | Request optimizer stop |
 | `refresh-displacements` | optional `display` | Recompute displacement vectors |
+| `load-volumetric` | `path`, optional `format` | Load one VASP, Cube, or XSF grid |
+| `show-volumetric` | `datasetId`, `level`, optional surface controls | Build one isosurface |
+| `combine-volumetric` | `datasetIds`, `coefficients`, optional `name` | Create a linear grid combination |
+| `remove-volumetric` | `datasetId` | Remove one grid from the document |
+| `calculate-rdf` | optional `cutoff`, `bins`, `pairMode`, `activePairs` | Calculate total and partial RDF curves |
+
+Atom labels are exact user-facing identifiers, not fixed-width display
+abbreviations. Preserve the complete label returned by `describe`; do not
+truncate it before `set-identity`, bond-pair, RDF-pair, or export operations.
 
 All physical edits except View-mode wrapping require Edit mode. For a
 nonphysical scene offset in either mode, set `display.translation` and
@@ -354,6 +365,112 @@ Vectors begin at each atom's currently visible position, repeat across the
 displayed supercell, and keep their physical value when visual translation
 moves both endpoints.
 
+## Volumetric And RDF Analysis
+
+Use `load-volumetric` for VASP `CHGCAR`/`CHG`, `LOCPOT`, `PARCHG`, and
+`ELFCAR`, or for Gaussian Cube and XSF grids written by Quantum ESPRESSO and
+other DFT codes. The path is resolved inside the directory from which the GUI
+was launched:
+
+```javascript
+await ai.apply({
+  operation: {
+    name: "load-volumetric",
+    path: "charge/CHGCAR"
+  }
+});
+const state = await ai.describe({includePositions: false});
+const densityId = state.analysis.volumetricDatasets.at(-1).id;
+```
+
+Use explicit `format` only when the filename is ambiguous. Accepted aliases
+include `"chgcar"`, `"locpot"`, `"parchg"`, `"elfcar"`, `"cube"`,
+`"qe-cube"`, `"xsf"`, and `"qe-xsf"`.
+
+Create an isosurface with a finite level and a dataset ID returned by
+`describe()`:
+
+```javascript
+await ai.apply({
+  operation: {
+    name: "show-volumetric",
+    datasetId: densityId,
+    level: 0.015,
+    surfaceMode: "signed",
+    stepSize: 1,
+    opacity: 0.72,
+    positiveColor: "#2a9d8f",
+    negativeColor: "#d1495b"
+  }
+});
+```
+
+`surfaceMode` is `"single"` or `"signed"` and `stepSize` is `1`, `2`, or
+`4`. A smaller step preserves more grid detail and takes more time. Isosurfaces
+repeat with `display.supercell` and move with visual translation. A physical
+`set-supercell` operation repeats the stored volumetric grid as well as every
+trajectory frame.
+`reset-coordinates` restores the originally loaded atom frames, cell, and
+scalar grids together after a materialized diagonal supercell. Undo and Redo
+retain the same atom/grid pairing.
+
+Charge-density differences use a linear combination:
+
+```javascript
+await ai.apply({
+  operation: {
+    name: "combine-volumetric",
+    datasetIds: [combinedId, fragmentAId, fragmentBId],
+    coefficients: [1, -1, -1],
+    name: "charge-density difference"
+  }
+});
+```
+
+The source grids must have identical dimensions, cell, origin, PBC, and units.
+Do not resample or combine mismatched grids silently. Use
+`remove-volumetric` with `datasetId` to discard a dataset.
+
+RDF requires a fully periodic 3D cell. The backend limits the cutoff to half
+the shortest triclinic face height, which is the largest unique-MIC radius.
+It returns the effective cutoff and any warning:
+
+```javascript
+await ai.apply({
+  operation: {
+    name: "calculate-rdf",
+    cutoff: 6.0,
+    bins: 300,
+    pairMode: "active"
+  }
+});
+const result = await ai.describe({includePositions: false});
+```
+
+`pairMode` is:
+
+- `"active"`: partial curves for currently enabled pairwise bond labels;
+- `"all"`: every distinct visual-label pair;
+- `"none"`: total RDF only.
+
+Supply `activePairs` explicitly when reproducibility must not depend on the
+current bond panel, for example `[["Cu_surface", "O_ads"]]`. The total curve is
+always present. Partial curves follow the conventional concentration relation:
+for a binary system,
+`g = c_a^2 g_aa + 2 c_a c_b g_ab + c_b^2 g_bb`.
+`bins` must be between 8 and 5000.
+
+Export the calculated values without reading Plotly pixels:
+
+```bash
+v_ase api "$COMMAND_URL" export --save rdf.csv --params '{
+  "format":"rdf-csv",
+  "cutoff":6.0,
+  "bins":300,
+  "pairMode":"all"
+}'
+```
+
 ## Rendering
 
 `render()` uses the exact image-export camera and aspect ratio:
@@ -410,6 +527,7 @@ Supported formats:
 | `html` | offline view-only 3D document; `.vase` recovery is optional |
 | `project` | self-contained `.vase` project |
 | `settings` | reusable visual settings without coordinates |
+| `rdf-csv` | total RDF and requested partial curves as CSV |
 
 Standalone HTML:
 

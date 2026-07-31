@@ -343,6 +343,35 @@ Returned vectors retain physical values. The renderer anchors them at current
 visible atom positions, repeats them over display supercells, and applies visual
 translation equally to both endpoints.
 
+Volumetric data is loaded through the ordinary file/path open or append
+pipeline. VASP scalar grids, Cube, and XSF are detected before ASE structure
+dispatch. The current document then exposes:
+
+```text
+POST /api/volumetric/difference/{session_id}
+POST /api/volumetric/isosurface/{session_id}
+POST /api/volumetric/delete/{session_id}
+```
+
+The difference endpoint accepts stable dataset IDs and finite coefficients and
+requires matching dimensions, cell, origin, PBC, endpoint convention, and
+units. The isosurface endpoint returns indexed vertices, normals, and faces;
+the complete source grid remains backend-owned. Physical diagonal supercell
+application repeats every stored grid and records it in the same undo entry as
+atoms and trajectory frames.
+
+RDF endpoints are:
+
+```text
+POST /api/analysis/rdf/{session_id}
+POST /api/analysis/rdf-csv/{session_id}
+```
+
+Payload fields are `cutoff`, `bins`, `pairMode`, and `activePairs`. Full 3D
+PBC is required. The response includes requested, effective, and safe
+triclinic-MIC cutoff, warnings, total `g(r)`, and concentration-weighted
+partial curves. CSV uses the same calculation path.
+
 Agent discovery and semantic state are available through:
 
 ```text
@@ -394,14 +423,20 @@ supercells, history, reset, relaxation, and displacement analysis. Visual
 translation and display supercells are ordinary `display` settings available
 in View and Edit. `rotate-selection` accepts `pivot: "active"`; the last
 explicit atom index is the fixed rotation pivot.
+It also covers volumetric loading, compatible-grid combinations, isosurface
+settings/removal, and RDF calculation. `describe().analysis` returns
+volumetric dataset descriptors and the current RDF summary without serializing
+the scalar grid into agent context.
 `export()` covers image, video, POSCAR,
 ASE Pickle, Blender, Rhino 3DM, OBJ, standalone HTML, `.vase`, and visual
-settings. Rendering and image export use the same capture path as the human
-Export workspace.
+settings, plus RDF CSV. Rendering and image export use the same capture path
+as the human Export workspace.
 
 `describe()` is the primary machine-readable output and includes document,
 mode, frame, atom identity, positions when requested, cell/PBC, constraints,
 properties, selection, measurement, display, camera, and image-export state.
+It also includes volumetric dataset metadata and RDF curve names, cutoff
+metadata, warnings, and frame.
 `apply()` returns the updated semantic state and revision. Human and agent
 mutations are classified separately, coalesced after committed UI changes,
 published to the document and workspace streams, and retained in bounded

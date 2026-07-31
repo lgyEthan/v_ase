@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.120&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.1&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.120';
+            : '/static/vendor/three.module.js?v=0.1.1';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -68,7 +68,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.120</span>
+            <span class="version">0.1.1</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -431,6 +431,100 @@
                 <span class="p-label">Mapped</span><span id="displacement-mapped" class="p-val">-</span>
                 <span class="p-label">Mean / RMS</span><span id="displacement-mean-rms" class="p-val">-</span>
                 <span class="p-label">Maximum</span><span id="displacement-max" class="p-val">-</span>
+            </div>
+        </details>
+
+        <details class="panel-section" open data-panel="volumetric" data-panel-group="analysis">
+            <summary class="section-header">Volumetric Data</summary>
+            <p class="panel-note">CHGCAR, LOCPOT, PARCHG, ELFCAR, Cube, and XSF scalar fields.</p>
+            <button id="btn-volume-add" class="btn-block" type="button">Add Grid Data</button>
+            <input id="volume-file" class="hidden" type="file">
+            <div id="volume-empty" class="analysis-empty">No scalar field loaded.</div>
+            <div id="volume-controls" class="hidden">
+                <div class="prop-row">
+                    <label for="volume-dataset">Dataset</label>
+                    <select id="volume-dataset"></select>
+                </div>
+                <div id="volume-summary" class="volume-summary"></div>
+                <div class="prop-row">
+                    <label for="chk-volume-visible">Show isosurface</label>
+                    <input id="chk-volume-visible" type="checkbox">
+                </div>
+                <div class="prop-row">
+                    <label for="volume-surface-mode">Surface</label>
+                    <select id="volume-surface-mode">
+                        <option value="single">Single level</option>
+                        <option value="signed">Positive + negative</option>
+                    </select>
+                </div>
+                <div class="prop-row">
+                    <label for="volume-level">Isovalue</label>
+                    <input id="volume-level" type="number" step="any">
+                </div>
+                <div class="prop-row">
+                    <label for="volume-step">Mesh detail</label>
+                    <select id="volume-step">
+                        <option value="1">Fine</option>
+                        <option value="2">Balanced</option>
+                        <option value="4">Fast</option>
+                    </select>
+                </div>
+                <div class="prop-row color-pair-row">
+                    <label>Surface colors</label>
+                    <span>
+                        <input id="volume-positive-color" type="color" value="#2f8fdb" aria-label="Positive isosurface color">
+                        <input id="volume-negative-color" type="color" value="#e05b78" aria-label="Negative isosurface color">
+                    </span>
+                </div>
+                <div class="range-row">
+                    <div class="range-head">
+                        <label for="volume-opacity">Opacity</label>
+                        <output id="volume-opacity-value">0.72</output>
+                    </div>
+                    <input id="volume-opacity" type="range" min="0.05" max="1" step="0.01" value="0.72">
+                </div>
+                <div class="btn-stack-row two">
+                    <button id="btn-volume-refresh" type="button">Update Surface</button>
+                    <button id="btn-volume-delete" class="danger-soft" type="button">Remove</button>
+                </div>
+                <details class="inline-subpanel">
+                    <summary>Density Difference</summary>
+                    <p class="panel-note">Select compatible grids and assign coefficients such as +1, -1, -1.</p>
+                    <div id="volume-difference-terms" class="volume-difference-terms"></div>
+                    <button id="btn-volume-difference" class="btn-block" type="button">Create Linear Combination</button>
+                </details>
+            </div>
+            <div id="volume-status" class="analysis-status" data-state="idle">
+                <span class="analysis-status-title">Ready</span>
+                <span class="analysis-status-detail">Grid values remain on the local v_ase server.</span>
+            </div>
+        </details>
+
+        <details class="panel-section" open data-panel="rdf" data-panel-group="analysis">
+            <summary class="section-header">Radial Distribution Function</summary>
+            <div class="prop-row">
+                <label for="rdf-cutoff">Cutoff / Å</label>
+                <input id="rdf-cutoff" type="number" min="0" step="0.1" placeholder="Auto">
+            </div>
+            <div class="prop-row">
+                <label for="rdf-bins">Bins</label>
+                <input id="rdf-bins" type="number" min="8" max="5000" step="1" value="200">
+            </div>
+            <div class="prop-row">
+                <label for="rdf-pair-mode">Pair curves</label>
+                <select id="rdf-pair-mode">
+                    <option value="active">Active bond pairs</option>
+                    <option value="all">All label pairs</option>
+                    <option value="none">Total only</option>
+                </select>
+            </div>
+            <div class="btn-stack-row two">
+                <button id="btn-rdf-calculate" type="button">Calculate &amp; Plot</button>
+                <button id="btn-rdf-export" type="button" disabled>Export CSV</button>
+            </div>
+            <div id="rdf-status" class="analysis-status" data-state="idle">
+                <span class="analysis-status-title">Total RDF</span>
+                <span class="analysis-status-detail">Requires a fully periodic 3D cell.</span>
             </div>
         </details>
 
@@ -920,6 +1014,20 @@
         </div>
     </aside>
 
+    <section id="analysis-drawer" class="analysis-drawer hidden" aria-label="Interactive analysis plot">
+        <div id="analysis-drawer-resizer" class="analysis-drawer-resizer" role="separator"
+             aria-orientation="horizontal" aria-label="Resize analysis plot"></div>
+        <header class="analysis-drawer-head">
+            <div>
+                <span class="analysis-drawer-kicker">ANALYSIS</span>
+                <strong id="analysis-drawer-title">Radial Distribution Function</strong>
+            </div>
+            <button id="btn-analysis-drawer-close" class="btn icon-btn" type="button"
+                    aria-label="Close analysis graph" title="Close graph">×</button>
+        </header>
+        <div id="rdf-plot" class="analysis-plot" aria-label="Radial distribution function plot"></div>
+    </section>
+
     <!-- Bottom Command Overlay -->
     <footer id="command-bar">
         <div id="trajectory-panel" class="trajectory-strip" aria-label="Trajectory controls">
@@ -1028,7 +1136,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.120&rev=1';
+            : './static/main.js?v=0.1.1&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

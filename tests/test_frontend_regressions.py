@@ -852,7 +852,15 @@ def test_new_scientific_defaults_and_ai_control_contract_are_wired():
         main_js.index("if (name === 'make-supercell')"):
         main_js.index("if (name === 'add-atom')")
     ]
-    assert "this.state.display.supercell = [1, 1, 1]" in matrix_operation
+    assert "this.finalizeMaterializedSupercellDisplay()" in matrix_operation
+    finalize_start = main_js.index("finalizeMaterializedSupercellDisplay() {")
+    finalize_end = main_js.index(
+        "normalizedTranslationVector(",
+        finalize_start,
+    )
+    finalize_helper = main_js[finalize_start:finalize_end]
+    assert "this.state.display.supercell = [1, 1, 1]" in finalize_helper
+    assert "this.resetVisualHistoryBaseline()" in finalize_helper
 
 
 def test_open_file_uses_the_native_system_picker_immediately():
@@ -865,7 +873,13 @@ def test_open_file_uses_the_native_system_picker_immediately():
     assert "showLaunchDirectoryBrowser" not in main_js
     assert "browseStructureFiles(directory" not in api_js
     assert "loadStructurePath(path" not in api_js
-    assert "appendStructurePath(path" not in api_js
+    # Agent-only path loading remains restricted to the terminal launch
+    # directory; the human Open workflow must still invoke the native picker.
+    assert "appendStructurePath(path" in api_js
+    assert "appendStructurePath" not in main_js[
+        main_js.index("chooseStructureFile()"):
+        main_js.index("chooseSystemStructureFile", main_js.index("chooseStructureFile()") + 1)
+    ]
     assert ".launch-file-list" not in style_css
 
 

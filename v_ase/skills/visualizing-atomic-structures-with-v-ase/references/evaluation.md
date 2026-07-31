@@ -22,6 +22,8 @@ The description should trigger for these requests even when v_ase is not named:
 8. `[trigger]` Analyze trajectory displacement vectors.
 9. `[trigger]` Find a clear camera angle for graphene on hBN.
 10. `[trigger]` Let an AI inspect an atomic structure without screenshot OCR.
+11. `[trigger]` Plot a signed charge-density-difference isosurface from three CHGCAR files.
+12. `[trigger]` Calculate total and Cu-O partial RDF curves and export CSV.
 
 It should not trigger for these nearby but unrelated requests:
 
@@ -58,11 +60,14 @@ Current operation coverage:
 - wrap, translate-all, set-supercell, make-supercell;
 - add-atom, delete-selection, set-identity, set-constraints;
 - move-selection, rotate-selection, undo, redo, reset-coordinates;
-- start-relaxation, stop-relaxation, refresh-displacements.
+- start-relaxation, stop-relaxation, refresh-displacements;
+- load-volumetric, show-volumetric, combine-volumetric, remove-volumetric;
+- calculate-rdf.
 
 Current export coverage:
 
-- image, video, poscar, pickle, blender, 3dm, obj, html, project, settings.
+- image, video, poscar, pickle, blender, 3dm, obj, html, project, settings,
+  rdf-csv.
 
 ## End-To-End Scenarios
 
@@ -122,7 +127,26 @@ Run all scenarios, not only static document checks:
    - verify current-position vector anchors, supercell repetition, and equal
      endpoint translation without changing vector values;
    - render interpolation with known frame count.
-9. **Exports**
+9. **Volumetric and RDF analysis**
+   - load VASP CHGCAR/LOCPOT/PARCHG/ELFCAR plus Cube and XSF fixtures;
+   - compare parsed shape, cell, origin, PBC, scalar range, quantity, and units
+     with the source fixture;
+   - create single and signed isosurfaces, verify nonblank triangles, colors,
+     opacity, and step-size behavior;
+   - display-repeat and visually translate atoms and meshes together;
+   - physically materialize a supercell, verify atom and grid dimensions in
+     every affected state, then undo both;
+   - form `[1,-1,-1]` from three compatible grids and reject each incompatible
+     shape/cell/origin/PBC/endpoint/units case;
+   - save and reopen `.vase`, then require exactly the same bounded float32
+     volume and visualization settings;
+   - calculate total RDF at several safe cutoffs for a homogeneous periodic
+     system and verify its non-edge plateau approaches one;
+   - calculate active, all, and no-partial modes; verify the
+     concentration-weighted partial RDF relation reconstructs the total;
+   - reject partial PBC, clamp an unsafe triclinic cutoff, render the Plotly
+     drawer, and export matching CSV columns and row count.
+10. **Exports**
    - render exact PNG/WebP dimensions and compare decoded pixels;
    - verify JPEG and PDF preserve dimensions and use opaque output;
    - export 72 source frames at 30 FPS, decode exactly 72 frames, and verify
@@ -146,7 +170,7 @@ Run all scenarios, not only static document checks:
    - probe MOV/AVI dimensions, FPS, and frame count.
    - verify image progress is monotonic, reports an ETA, emits 100 exactly
      once, and reaches it only after the destination write.
-10. **Live collaboration and documents**
+11. **Live collaboration and documents**
     - create and switch independent documents;
     - verify state isolation and distinct `.vase` output;
     - open `human_url` and confirm it shows the AI-modified state;
@@ -161,13 +185,13 @@ Run all scenarios, not only static document checks:
       to launch the CLI, open `human_url`, use `command_url`, exercise every
       advertised operation/export or report an intentional optional-dependency
       failure, and verify semantic plus rendered results.
-11. **Settings and resets**
+12. **Settings and resets**
     - save and reload display supercell and visual translation;
     - verify Reset Coordinates preserves both;
     - verify full Reset returns translation to zero;
-   - verify pairwise rows expose enabled/max only and retain a resized label
-     column.
-12. **README scientific examples**
+    - verify pairwise rows expose enabled/max only and retain a resized label
+      column.
+13. **README scientific examples**
     - verify the phosphorene media starts from a flat sheet and records the
       production left-drag marquee selecting ridge 2 through the tail;
     - verify the Transform panel visibly contains Selection COM, X,
@@ -231,6 +255,11 @@ Every browser render test must check:
   affecting the orientation gizmo;
 - Hookean spring has X and Z span around its axis and wire radius smaller than
   its coil radius;
+- signed volumetric surfaces have distinct positive/negative coverage, repeat
+  with the displayed supercell, and move by the same visual translation as
+  atoms;
+- the RDF drawer is nonblank, labeled in Angstrom and `g(r)`, and exposes the
+  returned effective cutoff and warning without clipping;
 - preview and exported image decode to the same composition;
 - README assets are inspected after regeneration, not merely written.
 

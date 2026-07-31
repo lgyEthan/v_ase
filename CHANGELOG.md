@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.1
+
+- Added bounded volumetric-data loading for VASP CHGCAR/CHG, LOCPOT, PARCHG,
+  and ELFCAR plus Gaussian Cube and XSF grids, including Quantum ESPRESSO
+  Cube/XSF output.
+- Added single and signed isosurfaces, compatible-grid linear combinations for
+  charge-density differences, display supercell/translation integration, and
+  physical supercell repetition with atomic Reset/Undo/Redo.
+- Added total and visual-label partial radial distribution functions with
+  triclinic unique-MIC cutoff protection, active/all/none pair modes, a
+  resizable Plotly analysis drawer, and CSV export.
+- Preserved complete custom atom labels during renaming and pair analysis,
+  including labels longer than an earlier array's fixed-width dtype.
+- Added volumetric arrays to self-contained `.vase` projects using validated
+  bounded NPZ members without executable pickle payloads.
+- Extended the vendor-neutral semantic API, live discovery schema, canonical
+  Skill, user documentation, browser tests, scientific tests, and release
+  validation for volumetric and RDF workflows.
+- Updated the package version, scientific-discovery keywords, dependencies,
+  and synchronized README media for the first analysis-focused 0.1 release.
+
 ## 0.0.120
 
 - Removed persistent application chrome from standalone HTML previews. The

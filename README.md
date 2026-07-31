@@ -26,7 +26,8 @@ completed structure is inspected from above and below.
 | --- | --- |
 | Structures and trajectories | ASE-supported formats, live timeline, per-frame bonds |
 | Geometry editing | Ordered selection, `G` move, `R` rotate, axis locks, numeric input |
-| Scientific inspection | Distances, angles, torsions, displacement vectors, constraints |
+| Scientific inspection | Distances, angles, torsions, displacement vectors, RDF, constraints |
+| Volumetric fields | VASP and Cube/XSF grids, isosurfaces, density differences |
 | Figure preparation | Appearance, bonds, lighting, exact preview, image/video export |
 | Reproducible sessions | Self-contained `.vase` projects and reusable visual settings |
 | Agent workflows | Semantic state/command API and a vendor-neutral AI skill |
@@ -74,7 +75,7 @@ v_ase gui structure.vasp --interactive
 No Node.js installation or hosted account is required. Closing the v_ase
 browser document releases the blocking terminal process.
 
-## Everyday Workflow
+## Common Tasks
 
 | Goal | Action |
 | --- | --- |
@@ -82,6 +83,8 @@ browser document releases the blocking terminal process.
 | Edit coordinates | Enter **Edit**, select atoms, press `Esc` to focus the viewport, then use `G` or `R` |
 | Measure geometry | Select 2, 3, or 4 atoms in the required order |
 | Play a trajectory | Use the bottom timeline or `Space`; FPS and Skip update live |
+| Plot an RDF | Use **Analysis > Radial Distribution Function** |
+| View a charge or potential grid | Open CHGCAR/LOCPOT/PARCHG/Cube/XSF, then use **Analysis > Volumetric Data** |
 | Style a figure | Use **Structure > Appearance/Bonding** and **View** |
 | Repeat or wrap a cell | Use **Structure > Cell & Replication** |
 | Save the whole session | Use **Export > v_ase Project** and choose compact `.vase` or browser-ready HTML |
@@ -263,6 +266,56 @@ the previous frame or a chosen reference. Minimum-image correction, vector
 scale, thickness, color, and 2D/3D style are configurable. Displayed
 supercells repeat the vectors, and visual translation moves both endpoints
 without changing the physical displacement.
+
+### Volumetric Fields
+
+Open a VASP `CHGCAR`, `CHG`, `PARCHG`, `LOCPOT`, or `ELFCAR` directly. Quantum
+ESPRESSO and other electronic-structure codes can use Gaussian Cube or XSF
+grid output:
+
+```bash
+v_ase gui CHGCAR
+v_ase gui LOCPOT
+v_ase gui charge-density.cube
+v_ase gui charge-density.xsf
+```
+
+**Analysis > Volumetric Data** controls the dataset, isovalue, signed
+positive/negative surfaces, mesh detail, colors, and opacity. Multiple
+compatible datasets can be combined with coefficients such as `+1, -1, -1`
+for a charge-density difference. Grid values stay in the local v_ase backend;
+the browser receives only the generated surface mesh.
+
+Visual translation and displayed cell replication move or repeat the
+isosurface together with the atoms. **Set Supercell as Cell** repeats both the
+ASE structure and periodic scalar grid exactly for diagonal integer
+replications. A general non-diagonal cell matrix is rejected while scalar
+grids are loaded because preserving that sampled field would require an
+explicit interpolation choice.
+After a materialized diagonal supercell, **Reset Coordinates** restores the
+original atoms, cell, and scalar grid together; Undo/Redo keeps the same
+atomic field pairing.
+
+### Radial Distribution Function
+
+**Analysis > Radial Distribution Function** plots the current frame in a
+resizable Plotly drawer below the viewport. The total RDF is always included.
+Pair curves default to the active bond-label pairs and can be switched to all
+label pairs or total-only. Set the bin count and cutoff, then export exactly
+the plotted columns as CSV.
+
+RDF uses ASE's periodic neighbor search and the full triclinic cell. To avoid
+shape-dependent tails from incomplete spherical shells, v_ase limits the
+cutoff to half the smallest cell-face spacing and reports when a requested
+value was reduced. Bulk normalization is reported only for cells periodic in
+all three directions; partial-PBC and finite systems require a separate
+boundary correction and are rejected instead of returning a misleading bulk
+`g(r)`.
+
+![Signed volumetric isosurface and RDF analysis](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric_rdf.png)
+
+The same Analysis workspace keeps the 3D scalar field, structure, total RDF,
+and selected label-pair curves synchronized to the current frame.
 
 ## Constraints
 
@@ -676,9 +729,10 @@ path. `view_edit()` remains a compatibility alias for Edit mode.
 
 ## File Formats
 
-Common inputs include POSCAR/CONTCAR, VASP files, XDATCAR, `vasprun.xml`,
-XYZ/extxyz, ASE `.traj`, LAMMPS dump/data, CIF, and `.vase`. ASE readers cover
-additional formats.
+Common structure inputs include POSCAR/CONTCAR, VASP files, XDATCAR,
+`vasprun.xml`, XYZ/extxyz, ASE `.traj`, LAMMPS dump/data, CIF, and `.vase`.
+Volumetric inputs include VASP CHGCAR/CHG/PARCHG/LOCPOT/ELFCAR and Gaussian
+Cube/XSF grids. ASE readers cover additional structure formats.
 
 Use `--format` when an ambiguous filename does not identify the reader:
 
@@ -687,6 +741,9 @@ v_ase gui ABCD --format POSCAR
 v_ase gui ABCD --format vasprun.xml
 v_ase gui ABCD --format lammpstrj
 v_ase gui ABCD --format data
+v_ase gui ABCD --format CHGCAR
+v_ase gui ABCD --format qe-cube
+v_ase gui ABCD --format qe-xsf
 ```
 
 Use `--index :` for every frame, `--index -1` for the last frame, or an integer
@@ -694,7 +751,8 @@ for one frame.
 
 Repeated POSCAR/CONTCAR species blocks remain separate visual labels. For
 example, `O Cu O` with counts `1 14 5` becomes `O1`, `Cu`, and `O2` while all
-oxygen atoms remain ASE element `O`.
+oxygen atoms remain ASE element `O`. Custom labels retain their complete text
+when they are renamed or used for pair analysis.
 
 ## Controls
 
@@ -838,6 +896,24 @@ browser download would remove advance destination selection.
 </details>
 
 <details>
+<summary>RDF reports that fully periodic 3D boundaries are required</summary>
+
+v_ase does not label a finite or partial-PBC histogram as a bulk RDF. Define a
+valid 3D periodic cell for bulk `g(r)`, or use a method with the boundary
+correction appropriate to the finite, slab, or wire geometry.
+
+</details>
+
+<details>
+<summary>Volumetric datasets cannot be combined</summary>
+
+Density differences require identical grid dimensions, cell vectors, origin,
+PBC, endpoint convention, and units. Generate all component grids on the same
+FFT mesh, or resample them deliberately before opening them in v_ase.
+
+</details>
+
+<details>
 <summary>Installation fails while pip checks an unrelated package version</summary>
 
 A package version reported as `None` usually belongs to a different incomplete
@@ -854,4 +930,6 @@ python -m pip install v_ase-gui
 
 Run `v_ase --help` or `v_ase gui --help` for all CLI options. Report
 reproducible problems at
-[GitHub Issues](https://github.com/lgyEthan/v_ase/issues).
+[GitHub Issues](https://github.com/lgyEthan/v_ase/issues). Security and
+third-party details are in [SECURITY.md](SECURITY.md) and
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

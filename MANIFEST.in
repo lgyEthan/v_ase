@@ -2,6 +2,8 @@ include README.md
 include AGENTS.md
 include CHANGELOG.md
 include LICENSE
+include SECURITY.md
+include THIRD_PARTY_NOTICES.md
 include requirements.txt
 recursive-include v_ase/static *.html *.css *.js *.png
 recursive-include v_ase/static/vendor *

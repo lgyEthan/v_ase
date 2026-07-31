@@ -105,6 +105,10 @@ def test_skill_version_install_and_environment_contract_are_current():
         "HOST:/",
         "--stream-frames",
         "rhino3dm",
+        "scikit-image",
+        "Plotly",
+        "CHGCAR",
+        "qe-cube",
     ):
         assert required in skill_text + cli_text
 
@@ -216,6 +220,7 @@ def test_skill_trigger_evaluation_has_positive_and_negative_boundaries():
         "Periodic structure",
         "Constraints rendering",
         "Trajectory",
+        "Volumetric and RDF analysis",
         "Exports",
         "Live collaboration and documents",
     ):
@@ -273,6 +278,27 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         "kind is fixed_line or fixed_plane"
     )
     assert "embedProject" in schema["export_parameters"]["html"]["optional"]
+    assert schema["operation_parameters"]["load-volumetric"]["required"] == ["path"]
+    assert schema["operation_parameters"]["show-volumetric"]["required"] == [
+        "datasetId",
+        "level",
+    ]
+    assert schema["operation_parameters"]["combine-volumetric"]["required"] == [
+        "datasetIds",
+        "coefficients",
+    ]
+    assert {
+        "cutoff",
+        "bins",
+        "pairMode",
+        "activePairs",
+    }.issubset(schema["operation_parameters"]["calculate-rdf"]["optional"])
+    assert schema["export_parameters"]["rdf-csv"]["optional"] == [
+        "cutoff",
+        "bins",
+        "pairMode",
+        "activePairs",
+    ]
     assert schema["accepts_natural_language"] is False
     assert schema["stdin_commands"] is False
     assert schema["collaboration"]["protocol"] == "v_ase.collaboration.v1"
@@ -281,6 +307,25 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         schema["control_schema"]["properties"]["expectedRevision"]["minimum"]
         == 0
     )
+
+
+def test_skill_documents_volumetric_and_rdf_end_to_end_contracts():
+    documented = _documented_skill_text()
+    for required in (
+        "`load-volumetric`",
+        "`show-volumetric`",
+        "`combine-volumetric`",
+        "`remove-volumetric`",
+        "`calculate-rdf`",
+        "`rdf-csv`",
+        "analysis.volumetricDatasets",
+        "identical dimensions, cell, origin, PBC",
+        "half the shortest triclinic face height",
+        "concentration-weighted",
+        "fully periodic 3D",
+        "V_ASE_MAX_VOLUMETRIC_POINTS",
+    ):
+        assert required in documented, required
 
 
 def test_legacy_guide_is_a_resolving_compatibility_link():

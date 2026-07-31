@@ -51,6 +51,17 @@ INPUT_FORMAT_ALIASES = {
     "html": "vase-html-project",
     "vase-html": "vase-html-project",
     "vase-html-project": "vase-html-project",
+    "chg": "vasp-density",
+    "chgcar": "vasp-density",
+    "parchg": "vasp-partial-density",
+    "locpot": "vasp-potential",
+    "elfcar": "vasp-elf",
+    "cube": "cube",
+    "cub": "cube",
+    "gaussian-cube": "cube",
+    "xsf": "xsf",
+    "qe-cube": "cube",
+    "qe-xsf": "xsf",
 }
 
 
@@ -272,7 +283,11 @@ def atom_labels(atoms: Atoms) -> list[str]:
 def set_atom_labels(atoms: Atoms, labels: Iterable[object]) -> None:
     """Store user-facing labels without changing ASE chemical symbols."""
     normalized = [normalize_atom_type_label(label) for label in labels]
-    atoms.set_array(ATOM_LABEL_ARRAY, np.asarray(normalized, dtype="U64"))
+    # ASE updates an existing array in place and therefore preserves its old
+    # fixed-width Unicode dtype. Recreate the array so longer renamed labels
+    # are never silently truncated.
+    atoms.set_array(ATOM_LABEL_ARRAY, None)
+    atoms.set_array(ATOM_LABEL_ARRAY, np.asarray(normalized, dtype=str))
 
 
 def _vasp_species_block_labels(path: Path, atoms: Atoms) -> list[str] | None:

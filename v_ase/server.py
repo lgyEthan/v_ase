@@ -32,6 +32,7 @@ from .repulsion import (
     repulsion_metadata,
 )
 from .commensurate import find_commensurate_angles
+from .analysis import calculate_rdf, rdf_csv
 from .ai import AI_PROTOCOL, COLLABORATION_PROTOCOL, ai_skill_path
 from .project import (
     PROJECT_MIME,
@@ -41,6 +42,16 @@ from .project import (
     read_project_html,
     replace_session_from_project,
     write_project_archive,
+)
+from .volumetric import (
+    GRID_GEOMETRY_ATOL,
+    GRID_GEOMETRY_RTOL,
+    combine_volumetric_datasets,
+    dataset_by_id,
+    generate_isosurface,
+    read_volumetric_file,
+    resolve_volumetric_format,
+    volumetric_structure,
 )
 import numpy as np
 from ase import Atom
@@ -178,6 +189,26 @@ COLLABORATION_EVENT_CATEGORIES = frozenset({
     "trajectory",
 })
 
+
+@app.get("/api/vendor/plotly.js", include_in_schema=False)
+async def plotly_javascript_bundle():
+    """Serve Plotly from the installed Python package without a CDN request."""
+    try:
+        import plotly
+    except ModuleNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Interactive RDF plots require the plotly package.",
+        ) from exc
+    bundle = Path(plotly.__file__).resolve().parent / "package_data" / "plotly.min.js"
+    if not bundle.is_file():
+        raise HTTPException(status_code=503, detail="The installed Plotly bundle is incomplete.")
+    return FileResponse(
+        bundle,
+        media_type="text/javascript",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
 AI_CONTROL_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": (
@@ -264,7 +295,8 @@ AI_CONTROL_SCHEMA = {
                 "delete-selection, set-identity, set-constraints, "
                 "move-selection, rotate-selection, undo, redo, "
                 "reset-coordinates, start-relaxation, stop-relaxation, and "
-                "refresh-displacements."
+                "refresh-displacements, load-volumetric, show-volumetric, "
+                "combine-volumetric, remove-volumetric, and calculate-rdf."
             ),
             "oneOf": [
                 {
@@ -272,6 +304,7 @@ AI_CONTROL_SCHEMA = {
                     "enum": [
                         "wrap", "undo", "redo", "reset-coordinates",
                         "stop-relaxation", "refresh-displacements",
+                        "calculate-rdf",
                     ],
                 },
                 {
@@ -287,6 +320,9 @@ AI_CONTROL_SCHEMA = {
                                 "rotate-selection", "undo", "redo",
                                 "reset-coordinates", "start-relaxation",
                                 "stop-relaxation", "refresh-displacements",
+                                "load-volumetric", "show-volumetric",
+                                "combine-volumetric", "remove-volumetric",
+                                "calculate-rdf",
                             ],
                         },
                     },
@@ -433,6 +469,44 @@ AI_OPERATION_PARAMETERS = {
         "required": [],
         "optional": ["display"],
     },
+    "load-volumetric": {
+        "mode": "view-or-edit",
+        "required": ["path"],
+        "optional": ["format"],
+        "notes": (
+            "path is resolved inside the GUI launch directory. Supported "
+            "formats include CHGCAR, LOCPOT, PARCHG, ELFCAR, Cube, and XSF."
+        ),
+    },
+    "show-volumetric": {
+        "mode": "view-or-edit",
+        "required": ["datasetId", "level"],
+        "optional": [
+            "surfaceMode", "stepSize", "opacity",
+            "positiveColor", "negativeColor",
+        ],
+        "notes": "surfaceMode is single or signed; stepSize is 1, 2, or 4.",
+    },
+    "combine-volumetric": {
+        "mode": "view-or-edit",
+        "required": ["datasetIds", "coefficients"],
+        "optional": ["name"],
+        "notes": "All grids must have matching dimensions, cell, origin, PBC, and units.",
+    },
+    "remove-volumetric": {
+        "mode": "view-or-edit",
+        "required": ["datasetId"],
+        "optional": [],
+    },
+    "calculate-rdf": {
+        "mode": "view-or-edit",
+        "required": [],
+        "optional": ["cutoff", "bins", "pairMode", "activePairs"],
+        "notes": (
+            "pairMode is active, all, or none. Fully periodic 3D cells are "
+            "required; unsafe cutoffs are clamped to the unique-MIC limit."
+        ),
+    },
 }
 
 AI_EXPORT_PARAMETERS = {
@@ -461,6 +535,10 @@ AI_EXPORT_PARAMETERS = {
     },
     "project": {"optional": []},
     "settings": {"optional": []},
+    "rdf-csv": {
+        "optional": ["cutoff", "bins", "pairMode", "activePairs"],
+        "notes": "Exports the total RDF and currently requested partial curves.",
+    },
 }
 
 
@@ -611,6 +689,10 @@ def session_atoms_to_json(session: EditorSession, include_inline_trajectory: boo
         (session.config or {}).get("stream_trajectory", False)
     )
     data["metadata"]["calculator_details"] = repulsion_metadata(session.working_atoms.calc)
+    data["metadata"]["volumetric_datasets"] = [
+        dataset.summary()
+        for dataset in session.volumetric_datasets
+    ]
     if is_vase_repulsion_calculator(session.working_atoms.calc):
         data["metadata"]["calculator"] = "Repulsion"
         data["metadata"]["has_calculator"] = True
@@ -2031,6 +2113,14 @@ def _uploaded_format_hint(filename: str, explicit_format: str | None) -> str | N
         return "vasp-xdatcar"
     if lower_name == "vasprun.xml":
         return "vasp-xml"
+    if lower_name in {"chg", "chgcar"} or lower_name.startswith(("chg.", "chgcar.")):
+        return "vasp-density"
+    if lower_name == "locpot" or lower_name.startswith("locpot."):
+        return "vasp-potential"
+    if lower_name == "parchg" or lower_name.startswith("parchg."):
+        return "vasp-partial-density"
+    if lower_name == "elfcar" or lower_name.startswith("elfcar."):
+        return "vasp-elf"
     return None
 
 
@@ -2220,6 +2310,10 @@ async def _replace_session_from_file(
     suffix = Path(display_name).suffix
     format_hint = _uploaded_format_hint(display_name, input_format)
     resolved_format = resolve_input_format(format_hint)
+    volumetric_format = resolve_volumetric_format(
+        Path(display_name),
+        format_hint or resolved_format,
+    )
     is_vase_project = (
         suffix.lower() == ".vase"
         or resolved_format == "vase-project"
@@ -2242,6 +2336,20 @@ async def _replace_session_from_file(
         session.cleanup_temporary_files()
         replace_session_from_project(session, project)
         loaded_kind = "project"
+    elif volumetric_format:
+        datasets = await asyncio.to_thread(
+            read_volumetric_file,
+            source_path,
+            volumetric_format,
+        )
+        structure = volumetric_structure(datasets)
+        session.cleanup_temporary_files()
+        replace_session_frames(
+            session,
+            [structure],
+            volumetric_datasets=datasets,
+        )
+        loaded_kind = "volumetric"
     elif is_viz_only(session) and is_lammps_dump:
         try:
             fast = await asyncio.to_thread(read_fast_lammps_dump, source_path, index)
@@ -2277,7 +2385,7 @@ async def _replace_session_from_file(
     data["loaded_file"] = {
         "filename": display_name,
         "kind": loaded_kind,
-        "format": resolved_format or (
+        "format": volumetric_format or resolved_format or (
             "vase-html-project" if is_html_project
             else "vase-project" if is_vase_project
             else "auto"
@@ -2289,6 +2397,24 @@ async def _replace_session_from_file(
             "settings": project.settings,
         }
     return data, keep_source
+
+
+def _volumetric_matches_original_structure(
+    session: EditorSession,
+    dataset,
+) -> bool:
+    original_cell = np.asarray(session.original_atoms.cell.array, dtype=float)
+    original_pbc = np.asarray(session.original_atoms.pbc, dtype=bool)
+    return (
+        abs(float(np.linalg.det(original_cell))) > 1e-12
+        and np.allclose(
+            dataset.cell,
+            original_cell,
+            rtol=GRID_GEOMETRY_RTOL,
+            atol=GRID_GEOMETRY_ATOL,
+        )
+        and np.array_equal(dataset.pbc, original_pbc)
+    )
 
 
 async def _append_session_from_file(
@@ -2304,6 +2430,10 @@ async def _append_session_from_file(
     was_empty = bool((session.config or {}).get("empty_workspace", False)) and len(session.working_atoms) == 0
     format_hint = _uploaded_format_hint(display_name, input_format)
     resolved_format = resolve_input_format(format_hint)
+    volumetric_format = resolve_volumetric_format(
+        Path(display_name),
+        format_hint or resolved_format,
+    )
     is_vase_project = (
         suffix.lower() == ".vase"
         or resolved_format == "vase-project"
@@ -2324,6 +2454,58 @@ async def _append_session_from_file(
         selected_indices = _selected_frame_indices(index, len(project.frames))
         frames = [project.frames[frame_index] for frame_index in selected_indices]
         source_kind = "project"
+    elif volumetric_format:
+        datasets = await asyncio.to_thread(
+            read_volumetric_file,
+            source_path,
+            volumetric_format,
+        )
+        with session.mode_transition_lock:
+            if was_empty:
+                replace_session_frames(
+                    session,
+                    [volumetric_structure(datasets)],
+                    volumetric_datasets=datasets,
+                )
+                session.config["document_name"] = display_name
+                session.config["empty_workspace"] = False
+            else:
+                reference_cell = np.asarray(session.working_atoms.cell.array, dtype=float)
+                reference_pbc = np.asarray(session.working_atoms.pbc, dtype=bool)
+                if (
+                    abs(float(np.linalg.det(reference_cell))) <= 1e-12
+                    or any(
+                        not np.allclose(
+                            dataset.cell,
+                            reference_cell,
+                            rtol=GRID_GEOMETRY_RTOL,
+                            atol=GRID_GEOMETRY_ATOL,
+                        )
+                        or not np.array_equal(dataset.pbc, reference_pbc)
+                        for dataset in datasets
+                    )
+                ):
+                    raise ValueError(
+                        "Added volumetric data must use the current structure's "
+                        "unit cell and periodic boundary conditions."
+                    )
+                session.volumetric_datasets.extend(datasets)
+                session.original_volumetric_datasets.extend(
+                    dataset
+                    for dataset in datasets
+                    if _volumetric_matches_original_structure(session, dataset)
+                )
+        data = session_atoms_to_json(session)
+        data["loaded_file"] = {
+            "filename": display_name,
+            "kind": "append",
+            "source_kind": "volumetric",
+            "format": volumetric_format,
+            "appended_frames": 0,
+            "appended_volumetric_datasets": len(datasets),
+            "project_settings_ignored": False,
+        }
+        return data
     elif is_lammps_dump:
         try:
             fast = await asyncio.to_thread(read_fast_lammps_dump, source_path, index)
@@ -2483,6 +2665,94 @@ async def append_structure_path(session_id: str, payload: Dict[str, Any]):
         raise HTTPException(status_code=400, detail=f"Could not append {display_name}: {exc}") from exc
 
 
+@app.post("/api/volumetric/difference/{session_id}")
+async def create_volumetric_difference(session_id: str, payload: Dict[str, Any]):
+    """Create a validated linear combination of loaded scalar fields."""
+    session = get_session(session_id)
+    dataset_ids = payload.get("dataset_ids") or []
+    coefficients = payload.get("coefficients") or []
+    if not isinstance(dataset_ids, list) or not isinstance(coefficients, list):
+        raise HTTPException(
+            status_code=400,
+            detail="Volumetric dataset ids and coefficients must be arrays.",
+        )
+    try:
+        with session.mode_transition_lock:
+            datasets = [
+                dataset_by_id(session.volumetric_datasets, str(dataset_id))
+                for dataset_id in dataset_ids
+            ]
+            combined = combine_volumetric_datasets(
+                datasets,
+                coefficients,
+                name=str(payload.get("name") or "Charge density difference"),
+            )
+            session.volumetric_datasets.append(combined)
+            if _volumetric_matches_original_structure(session, combined):
+                session.original_volumetric_datasets.append(combined)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "status": "ok",
+        "dataset": combined.summary(),
+        "volumetric_datasets": [
+            dataset.summary()
+            for dataset in session.volumetric_datasets
+        ],
+    }
+
+
+@app.post("/api/volumetric/isosurface/{session_id}")
+async def volumetric_isosurface(session_id: str, payload: Dict[str, Any]):
+    """Return a compact binary mesh without transferring the source grid."""
+    session = get_session(session_id)
+    try:
+        dataset = dataset_by_id(
+            session.volumetric_datasets,
+            str(payload.get("dataset_id") or ""),
+        )
+        mesh = await asyncio.to_thread(
+            generate_isosurface,
+            dataset,
+            float(payload.get("level")),
+            step_size=int(payload.get("step_size", 1)),
+        )
+    except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(
+        content=mesh.binary(),
+        media_type="application/vnd.v-ase.isosurface",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.post("/api/volumetric/delete/{session_id}")
+async def delete_volumetric_dataset(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    dataset_id = str(payload.get("dataset_id") or "")
+    with session.mode_transition_lock:
+        retained = [
+            dataset
+            for dataset in session.volumetric_datasets
+            if dataset.dataset_id != dataset_id
+        ]
+        if len(retained) == len(session.volumetric_datasets):
+            raise HTTPException(status_code=404, detail="Volumetric dataset was not found.")
+        session.volumetric_datasets = retained
+        session.original_volumetric_datasets = [
+            dataset
+            for dataset in session.original_volumetric_datasets
+            if dataset.dataset_id != dataset_id
+        ]
+    return {
+        "status": "ok",
+        "volumetric_datasets": [
+            dataset.summary()
+            for dataset in retained
+        ],
+    }
+
+
 @app.post("/api/constrain/{session_id}")
 async def constrain_positions(session_id: str, payload: Dict[str, Any]):
     """AUTHORITATIVE: Backend correction of proposed positions."""
@@ -2537,7 +2807,10 @@ async def reset(session_id: str, payload: Dict[str, Any] | None = None):
     session = get_session(session_id)
     require_editable(session, "Full reset")
     sync_session_frame_from_payload(session, payload)
-    session.push_history(include_trajectory=True)
+    session.push_history(
+        include_trajectory=True,
+        include_volumetric=bool(session.volumetric_datasets),
+    )
     session.reset_all_frames()
     return session_update_to_json(session)
 
@@ -2547,7 +2820,10 @@ async def reset_coordinates(session_id: str, payload: Dict[str, Any] | None = No
     session = get_session(session_id)
     require_editable(session, "Coordinate reset")
     sync_session_frame_from_payload(session, payload)
-    session.push_history(include_trajectory=True)
+    session.push_history(
+        include_trajectory=True,
+        include_volumetric=bool(session.volumetric_datasets),
+    )
     session.reset_all_frames()
     return session_update_to_json(session)
 
@@ -3044,6 +3320,52 @@ async def displacement_analysis(session_id: str, payload: Dict[str, Any]):
 
     return await asyncio.to_thread(calculate)
 
+
+def _calculate_session_rdf(session: EditorSession, payload: Dict[str, Any]):
+    with session.mode_transition_lock:
+        sync_session_frame_from_payload(session, payload)
+        atoms = session.working_atoms.copy()
+        frame_index = int(session.current_frame)
+    requested_cutoff = payload.get("cutoff")
+    cutoff = (
+        None
+        if requested_cutoff is None or requested_cutoff == ""
+        else float(requested_cutoff)
+    )
+    return calculate_rdf(
+        atoms,
+        cutoff=cutoff,
+        bins=int(payload.get("bins", 200)),
+        pair_mode=str(payload.get("pair_mode") or "active"),
+        active_pairs=payload.get("active_pairs") or [],
+        frame_index=frame_index,
+    )
+
+
+@app.post("/api/analysis/rdf/{session_id}")
+async def radial_distribution_analysis(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    try:
+        result = await asyncio.to_thread(_calculate_session_rdf, session, payload)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result.payload()
+
+
+@app.post("/api/analysis/rdf-csv/{session_id}")
+async def radial_distribution_csv(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    try:
+        result = await asyncio.to_thread(_calculate_session_rdf, session, payload)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(
+        content=rdf_csv(result),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="v_ase_rdf.csv"'},
+    )
+
+
 @app.post("/api/done/{session_id}")
 async def done(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
@@ -3067,9 +3389,17 @@ async def apply_supercell(session_id: str, payload: Dict[str, Any]):
     sync_session_frame_from_payload(session, payload)
     reps = [int(v) for v in payload.get("reps", [1, 1, 1])]
     validate_supercell_request(session, reps)
-    session.push_history(include_trajectory=True)
+    repeated_volumes = [
+        dataset.replicated(reps)
+        for dataset in session.volumetric_datasets
+    ]
+    session.push_history(
+        include_trajectory=True,
+        include_volumetric=bool(session.volumetric_datasets),
+    )
     set_current_payload_positions(session, payload)
     apply_all_frames(session, lambda atoms: repeat_atoms_as_supercell(atoms, reps))
+    session.volumetric_datasets = repeated_volumes
     session.invalidate_trajectory_layout()
     return session_update_to_json(session)
 
@@ -3081,9 +3411,30 @@ async def apply_supercell_matrix(session_id: str, payload: Dict[str, Any]):
     sync_session_frame_from_payload(session, payload)
     matrix = payload.get("matrix")
     P = validate_supercell_matrix_request(session, matrix)
-    session.push_history(include_trajectory=True)
+    repeated_volumes = None
+    if session.volumetric_datasets:
+        diagonal = np.diag(np.diag(P))
+        if not np.array_equal(P, diagonal) or np.any(np.diag(P) < 1):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "A non-diagonal cell transform cannot preserve the loaded "
+                    "volumetric grid exactly. Remove the volumetric dataset or "
+                    "use diagonal supercell repetitions."
+                ),
+            )
+        repeated_volumes = [
+            dataset.replicated(np.diag(P).tolist())
+            for dataset in session.volumetric_datasets
+        ]
+    session.push_history(
+        include_trajectory=True,
+        include_volumetric=bool(session.volumetric_datasets),
+    )
     set_current_payload_positions(session, payload)
     apply_all_frames(session, lambda atoms: make_supercell_atoms(atoms, P))
+    if repeated_volumes is not None:
+        session.volumetric_datasets = repeated_volumes
     session.invalidate_trajectory_layout()
     return session_update_to_json(session)
 

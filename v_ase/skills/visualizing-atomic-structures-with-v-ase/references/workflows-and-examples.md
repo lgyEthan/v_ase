@@ -4,13 +4,16 @@
 
 1. Publication Image
 2. Natural-Language Defect Edit
-3. Phosphorene Slice Rotation
-4. Constraint-Aware Edit
-5. Ordered Measurement
-6. Trajectory Analysis And Video
-7. Periodic Supercell Measurement
-8. Multi-Document Live Collaboration
-9. Offline View-Only Handoff
+3. Phosphorene Cumulative Tail Rotation
+4. Rotate Around A Specific Atom
+5. Constraint-Aware Edit
+6. Ordered Measurement
+7. Trajectory Analysis And Video
+8. Volumetric Difference And Isosurface
+9. RDF And CSV
+10. Periodic Supercell Measurement
+11. Multi-Document Live Collaboration
+12. Offline View-Only Handoff
 
 These templates are starting points. Preserve the plan, validate, execute, and
 verify sequence even when parameters change.
@@ -447,6 +450,126 @@ if (movie.mimeType !== "video/quicktime" || movie.bytes <= 0) {
 
 Interpolation can be expensive. Inform the user before choosing a multiplier
 above one.
+
+## Volumetric Difference And Isosurface
+
+Input: one structure and three charge grids generated on the same FFT grid,
+for example `combined/CHGCAR`, `fragment-a/CHGCAR`, and
+`fragment-b/CHGCAR`.
+
+```javascript
+for (const path of [
+  "combined/CHGCAR",
+  "fragment-a/CHGCAR",
+  "fragment-b/CHGCAR"
+]) {
+  await applyCurrent({
+    operation: {name: "load-volumetric", path}
+  });
+}
+
+const loaded = await ai.describe({includePositions: false});
+const grids = loaded.analysis.volumetricDatasets.slice(-3);
+if (grids.length !== 3 || grids.some(grid => !grid.id)) {
+  throw new Error("The three charge grids were not loaded.");
+}
+
+await applyCurrent({
+  operation: {
+    name: "combine-volumetric",
+    datasetIds: grids.map(grid => grid.id),
+    coefficients: [1, -1, -1],
+    name: "charge-density difference"
+  }
+});
+
+const combined = await ai.describe({includePositions: false});
+const difference = combined.analysis.volumetricDatasets.at(-1);
+if (!difference || difference.name !== "charge-density difference") {
+  throw new Error("The charge-density difference was not created.");
+}
+
+await applyCurrent({
+  display: {
+    supercell: [2, 2, 1],
+    translationMode: "fractional",
+    translation: [0.25, 0, 0]
+  },
+  operation: {
+    name: "show-volumetric",
+    datasetId: difference.id,
+    level: 0.003,
+    surfaceMode: "signed",
+    stepSize: 1,
+    opacity: 0.68,
+    positiveColor: "#2a9d8f",
+    negativeColor: "#d1495b"
+  }
+});
+```
+
+Validation:
+
+1. `describe().analysis.volumetricDatasets` identifies all four grids.
+2. The signed surface has both positive and negative mesh groups.
+3. The mesh repeats exactly with the displayed `2 x 2 x 1` supercell.
+4. Both mesh and atoms use the same fractional visual translation.
+5. Repeating the source grids physically is done only after explicit
+   `set-supercell`; undo restores atom count, cell, and grid dimensions.
+
+Do not combine grids with different dimensions, cell, origin, PBC, or units.
+Do not hide that validation error by interpolating one grid onto another.
+
+## RDF And CSV
+
+Input: a fully periodic 3D structure or trajectory frame.
+
+```javascript
+const before = await ai.describe({includePositions: false});
+if (before.pbc.some(value => !value)) {
+  throw new Error("Bulk RDF requires full 3D periodicity.");
+}
+
+await applyCurrent({
+  operation: {
+    name: "calculate-rdf",
+    cutoff: 8.0,
+    bins: 400,
+    pairMode: "active",
+    activePairs: [["Cu_surface", "O_ads"]]
+  }
+});
+
+const analyzed = await ai.describe({includePositions: false});
+const rdf = analyzed.analysis.rdf;
+if (!rdf || rdf.bins !== 400 || !rdf.partialCurves.includes("Cu_surface|O_ads")) {
+  throw new Error("The requested partial RDF was not calculated.");
+}
+if (rdf.cutoff > rdf.safeCutoff + 1e-12) {
+  throw new Error("RDF exceeded the unique-MIC cutoff.");
+}
+```
+
+Export the exact numeric result:
+
+```bash
+v_ase api "$COMMAND_URL" export --save rdf.csv --params '{
+  "format":"rdf-csv",
+  "cutoff":8.0,
+  "bins":400,
+  "pairMode":"active",
+  "activePairs":[["Cu_surface","O_ads"]]
+}'
+```
+
+Validation:
+
+1. the total curve is always present;
+2. requested partial labels are present;
+3. the effective cutoff and any clamp warning are reported;
+4. CSV radius count equals `bins`;
+5. a homogeneous periodic test system approaches `g(r) = 1` away from the
+   first few bins for several safe cutoffs.
 
 ## Periodic Supercell Measurement
 

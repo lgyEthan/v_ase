@@ -1,0 +1,235 @@
+"""Numerically validated structural analysis routines."""
+
+from __future__ import annotations
+
+import csv
+from dataclasses import dataclass
+import io
+from itertools import combinations_with_replacement
+from typing import Any, Iterable, Sequence
+
+import numpy as np
+from ase import Atoms
+from ase.neighborlist import neighbor_list
+
+from .io import atom_labels
+
+
+MAX_RDF_BINS = 5000
+DEFAULT_RDF_BINS = 200
+
+
+@dataclass(frozen=True)
+class RdfResult:
+    radius: np.ndarray
+    total: np.ndarray
+    partial: dict[str, np.ndarray]
+    requested_cutoff: float
+    cutoff: float
+    safe_cutoff: float
+    bins: int
+    pair_mode: str
+    warnings: tuple[str, ...]
+    frame_index: int = 0
+
+    def payload(self) -> dict[str, Any]:
+        return {
+            "schema": "v_ase.rdf.v1",
+            "radius": self.radius.tolist(),
+            "total": self.total.tolist(),
+            "partial": {
+                key: values.tolist()
+                for key, values in self.partial.items()
+            },
+            "requested_cutoff": self.requested_cutoff,
+            "cutoff": self.cutoff,
+            "safe_cutoff": self.safe_cutoff,
+            "bins": self.bins,
+            "pair_mode": self.pair_mode,
+            "warnings": list(self.warnings),
+            "frame_index": self.frame_index,
+        }
+
+
+def _cell_face_heights(cell: np.ndarray) -> np.ndarray:
+    volume = abs(float(np.linalg.det(cell)))
+    heights = np.empty(3, dtype=float)
+    for axis in range(3):
+        other = [index for index in range(3) if index != axis]
+        area = float(np.linalg.norm(np.cross(cell[other[0]], cell[other[1]])))
+        if area <= 1e-14:
+            raise ValueError("RDF requires a non-degenerate three-dimensional cell.")
+        heights[axis] = volume / area
+    return heights
+
+
+def safe_rdf_cutoff(atoms: Atoms) -> float:
+    """Return a conservative unique-MIC radius for an arbitrary triclinic cell."""
+
+    if len(atoms) < 2:
+        raise ValueError("RDF requires at least two atoms.")
+    if not np.all(np.asarray(atoms.pbc, dtype=bool)):
+        raise ValueError(
+            "RDF normalization currently requires periodic boundaries in x, y, and z. "
+            "A partial-PBC or finite-system RDF needs an explicit boundary correction "
+            "and is not reported as a bulk g(r)."
+        )
+    cell = np.asarray(atoms.cell.array, dtype=float)
+    if cell.shape != (3, 3) or abs(float(np.linalg.det(cell))) <= 1e-12:
+        raise ValueError("RDF requires a finite three-dimensional unit cell.")
+    return 0.5 * float(np.min(_cell_face_heights(cell)))
+
+
+def _canonical_pair(left: str, right: str) -> tuple[str, str]:
+    return (left, right) if left <= right else (right, left)
+
+
+def pair_key(left: str, right: str) -> str:
+    first, second = _canonical_pair(str(left), str(right))
+    return f"{first}|{second}"
+
+
+def parse_pair_keys(values: Iterable[Any] | None) -> set[tuple[str, str]]:
+    parsed: set[tuple[str, str]] = set()
+    for value in values or []:
+        if isinstance(value, str):
+            tokens = value.split("|", 1)
+        elif isinstance(value, Sequence) and len(value) == 2:
+            tokens = [str(value[0]), str(value[1])]
+        else:
+            continue
+        if len(tokens) == 2 and tokens[0] and tokens[1]:
+            parsed.add(_canonical_pair(tokens[0], tokens[1]))
+    return parsed
+
+
+def calculate_rdf(
+    atoms: Atoms,
+    *,
+    cutoff: float | None = None,
+    bins: int = DEFAULT_RDF_BINS,
+    pair_mode: str = "active",
+    active_pairs: Iterable[Any] | None = None,
+    frame_index: int = 0,
+) -> RdfResult:
+    """Compute an OVITO-style total and label-resolved instantaneous RDF.
+
+    The histogram uses directed neighbors and the simulation-cell number
+    density.  Partial curves follow the concentration weighting convention
+    ``g = sum(c_a*c_b*g_ab)`` with a factor of two for mixed pairs.
+    """
+
+    safe_cutoff = safe_rdf_cutoff(atoms)
+    requested = float(cutoff) if cutoff is not None else safe_cutoff
+    if not np.isfinite(requested) or requested <= 0:
+        raise ValueError("RDF cutoff must be a positive finite distance.")
+    clean_bins = int(bins)
+    if clean_bins < 8 or clean_bins > MAX_RDF_BINS:
+        raise ValueError(f"RDF bins must be between 8 and {MAX_RDF_BINS}.")
+
+    warnings: list[str] = []
+    effective = min(requested, safe_cutoff * (1.0 - 1e-10))
+    if requested > safe_cutoff:
+        warnings.append(
+            f"Cutoff was limited to {safe_cutoff:.6g} A, half the smallest "
+            "triclinic cell face spacing, to preserve unique MIC shells."
+        )
+
+    indices_i, indices_j, distances = neighbor_list(
+        "ijd",
+        atoms,
+        effective,
+        self_interaction=False,
+    )
+    edges = np.linspace(0.0, effective, clean_bins + 1, dtype=float)
+    radius = 0.5 * (edges[:-1] + edges[1:])
+    shell_volume = (4.0 * np.pi / 3.0) * (edges[1:] ** 3 - edges[:-1] ** 3)
+    cell_volume = abs(float(np.linalg.det(np.asarray(atoms.cell.array, dtype=float))))
+    natoms = len(atoms)
+
+    total_histogram = np.histogram(distances, bins=edges)[0].astype(float)
+    total_normalization = (float(natoms) ** 2 / cell_volume) * shell_volume
+    total = np.divide(
+        total_histogram,
+        total_normalization,
+        out=np.zeros_like(total_histogram),
+        where=total_normalization > 0,
+    )
+
+    # Let NumPy size the Unicode dtype from the actual labels. A fixed-width
+    # dtype can silently merge distinct user labels that share a long prefix.
+    labels = np.asarray(atom_labels(atoms), dtype=str)
+    ordered_labels = list(dict.fromkeys(labels.tolist()))
+    counts = {
+        label: int(np.count_nonzero(labels == label))
+        for label in ordered_labels
+    }
+    mode = str(pair_mode or "active").lower()
+    if mode not in {"active", "all", "none"}:
+        raise ValueError("RDF pair mode must be active, all, or none.")
+    if mode == "all":
+        selected_pairs = set(combinations_with_replacement(ordered_labels, 2))
+    elif mode == "active":
+        selected_pairs = parse_pair_keys(active_pairs)
+    else:
+        selected_pairs = set()
+
+    partial: dict[str, np.ndarray] = {}
+    empty_labels = np.asarray([], dtype=labels.dtype)
+    labels_i = labels[indices_i] if len(indices_i) else empty_labels
+    labels_j = labels[indices_j] if len(indices_j) else empty_labels
+    for left, right in combinations_with_replacement(ordered_labels, 2):
+        canonical = _canonical_pair(left, right)
+        if canonical not in selected_pairs:
+            continue
+        if left == right:
+            mask = (labels_i == left) & (labels_j == right)
+            pair_population = float(counts[left] ** 2)
+        else:
+            mask = (
+                ((labels_i == left) & (labels_j == right))
+                | ((labels_i == right) & (labels_j == left))
+            )
+            pair_population = float(2 * counts[left] * counts[right])
+        histogram = np.histogram(distances[mask], bins=edges)[0].astype(float)
+        normalization = (pair_population / cell_volume) * shell_volume
+        partial[pair_key(left, right)] = np.divide(
+            histogram,
+            normalization,
+            out=np.zeros_like(histogram),
+            where=normalization > 0,
+        )
+
+    return RdfResult(
+        radius=radius,
+        total=total,
+        partial=partial,
+        requested_cutoff=requested,
+        cutoff=effective,
+        safe_cutoff=safe_cutoff,
+        bins=clean_bins,
+        pair_mode=mode,
+        warnings=tuple(warnings),
+        frame_index=int(frame_index),
+    )
+
+
+def rdf_csv(result: RdfResult) -> bytes:
+    """Serialize the plotted RDF columns without locale-dependent formatting."""
+
+    stream = io.StringIO(newline="")
+    writer = csv.writer(stream)
+    partial_names = list(result.partial)
+    writer.writerow(["r_angstrom", "total_g_r", *partial_names])
+    for row_index, radius in enumerate(result.radius):
+        writer.writerow(
+            [
+                f"{float(radius):.12g}",
+                f"{float(result.total[row_index]):.12g}",
+                *[
+                    f"{float(result.partial[name][row_index]):.12g}"
+                    for name in partial_names
+                ],
+            ]
+        )
+    return stream.getvalue().encode("utf-8")

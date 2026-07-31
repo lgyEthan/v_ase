@@ -201,6 +201,7 @@ export class ASEApi {
 
         let result;
         if (expect === 'blob') result = await res.blob();
+        else if (expect === 'arrayBuffer') result = await res.arrayBuffer();
         else if (expect === 'text') result = await res.text();
         else result = await res.json();
         this.emitMutationCallbacks(path, options);
@@ -1063,6 +1064,43 @@ export class ASEApi {
         );
     }
 
+    async fetchRdf(options = {}) {
+        return await this.jsonPost(
+            `/api/analysis/rdf/{session_id}`,
+            this.framePayload(options)
+        );
+    }
+
+    async exportRdfCsv(options = {}) {
+        return await this.request(`/api/analysis/rdf-csv/{session_id}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(this.framePayload(options))
+        }, { expect: 'blob' });
+    }
+
+    async fetchIsosurface(options = {}) {
+        return await this.request(`/api/volumetric/isosurface/{session_id}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(options)
+        }, { expect: 'arrayBuffer' });
+    }
+
+    async createVolumetricDifference(options = {}) {
+        return await this.jsonPost(
+            `/api/volumetric/difference/{session_id}`,
+            options
+        );
+    }
+
+    async deleteVolumetricDataset(datasetId) {
+        return await this.jsonPost(
+            `/api/volumetric/delete/{session_id}`,
+            { dataset_id: datasetId }
+        );
+    }
+
     async loadProject(file) {
         const body = file instanceof Blob ? await file.arrayBuffer() : file;
         return await this.request(`/api/project/load/{session_id}`, {
@@ -1095,6 +1133,14 @@ export class ASEApi {
             method: 'POST',
             headers: {'Content-Type': file?.type || 'application/octet-stream'},
             body: file
+        });
+    }
+
+    async appendStructurePath(path, inputFormat = '', index = ':') {
+        return await this.jsonPost(`/api/file/append-path/{session_id}`, {
+            path,
+            input_format: inputFormat || null,
+            index: index || ':'
         });
     }
 

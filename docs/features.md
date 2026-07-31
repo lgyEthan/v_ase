@@ -12,6 +12,7 @@ Each document owns:
 - loaded or virtual trajectory state;
 - current frame and optional relaxation trajectory;
 - calculator and constraint state;
+- bounded volumetric datasets and current analysis results;
 - undo/redo history in interactive mode;
 - browser selection, camera, and visual settings;
 - independent `.vase` save state.
@@ -84,6 +85,13 @@ Specialized readers preserve data ASE cannot represent directly:
 Label identity is stored in the `v_ase_atom_type` ASE array for archive
 compatibility. New code accesses it through `atom_labels()` and
 `set_atom_labels()`.
+
+`v_ase.volumetric` is the canonical scalar-grid pipeline. It reads VASP
+CHGCAR/CHG, LOCPOT, PARCHG, and ELFCAR plus Gaussian Cube and XSF. Quantum
+ESPRESSO data uses its official Cube/XSF output rather than a second private
+grid dialect. Every dataset owns one float32 3D grid, cell, origin, PBC,
+endpoint convention, quantity, units, component, and stable ID. Grid size,
+shape, finiteness, and cell volume are validated before a session accepts it.
 
 ## View And Edit Modes
 
@@ -320,6 +328,50 @@ instanced shaft batch and one instanced head batch. 3D/flat style, scale,
 thickness, and color changes restyle the cached result without recalculation.
 Hidden analysis has no calculation or render cost.
 
+## Volumetric And RDF Analysis
+
+Volumetric datasets are document state, not renderer-only assets. The backend
+owns the scalar values and metadata; the frontend receives only dataset
+descriptors and extracted indexed isosurface meshes.
+
+Supported operations:
+
+- load one VASP, Cube, or XSF grid;
+- form an arbitrary finite linear combination of compatible grids;
+- extract one positive surface or paired positive/negative surfaces;
+- remove a dataset;
+- repeat meshes for a display supercell and move them with visual translation;
+- repeat the underlying grid when a physical diagonal supercell is
+  materialized.
+
+Linear combinations require identical shape, cell, origin, PBC, endpoint
+convention, and scalar units. There is no implicit resampling. A materialized
+non-diagonal cell transform is rejected while volumetric data is present
+because it cannot preserve the sampled field without a separately validated
+resampling algorithm. Undo restores atoms, trajectories, cells, and
+volumetric datasets atomically.
+Coordinate reset also restores the originally loaded atom frames and scalar
+grids as one state after a materialized diagonal supercell.
+
+Marching cubes closes periodic seams before extracting the surface. `stepSize`
+1 preserves the loaded grid; 2 and 4 are explicit interactive previews.
+Extracted meshes use indexed float32 geometry and are cached by dataset,
+isovalue, sign mode, step size, and styling inputs.
+
+Bulk radial distribution functions use an ASE periodic directed-neighbor
+search and shell-volume normalization. The largest admissible radius is half
+the shortest triclinic face height, ensuring each pair has a unique MIC image.
+Partial or finite PBC is rejected rather than shown with an invalid bulk
+normalization. The total curve is always returned. Optional visual-label pair
+curves use the conventional OVITO relation
+`g = sum(c_a c_b g_ab)`, with a factor of two for mixed pairs. Pair selection
+can follow enabled bond labels, include all label pairs, or be disabled.
+
+The Analysis drawer uses the locally installed Plotly bundle and remains
+resizable below the viewport. RDF computation stays in the backend; the
+browser receives numeric arrays for plotting and CSV export. Hidden RDF and
+volumetric surfaces incur no per-frame render work.
+
 ## Rendering
 
 The viewport is demand-rendered. Camera input, frame updates, transforms, and
@@ -408,6 +460,8 @@ the View/Edit visual translation saved in display settings.
 - Video: H.264 MOV or MPEG-4 AVI with source-frame or interpolated playback.
 - Visual Settings JSON: structure-independent presentation preset.
 - `.vase`: complete validated project archive.
+- `.vase` volumetric state: validated compressed NPZ members with bounded
+  expected arrays; no executable pickle payload.
 - Standalone HTML View: a single offline, view-only document containing
   inlined Three.js/runtime assets plus browser-ready scene and trajectory
   data. It shares the image/video Preview Area crop, defaults to grid off with
@@ -426,6 +480,7 @@ the View/Edit visual translation saved in display settings.
 - Rhino 3DM: block-instanced atoms/bonds with metadata and saved views; optional
   `rhino3dm` dependency.
 - OBJ: static OBJ/MTL plus camera/metadata JSON sidecar; no optional dependency.
+- RDF CSV: radius, total `g(r)`, and requested partial curves.
 
 Blender's optimized mode intentionally avoids one object per atom. Individual
 objects remain available only when atom-by-atom Blender editing is required.

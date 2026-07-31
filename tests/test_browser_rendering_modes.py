@@ -155,6 +155,264 @@ def test_exact_selection_rotation_panel_commits_and_undoes_backend_coordinates()
         editor.close()
 
 
+def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
+    tmp_path,
+    monkeypatch,
+):
+    coordinates = np.linspace(1.0, 7.0, 3)
+    positions = np.asarray(
+        [
+            [x, y, z]
+            for x in coordinates
+            for y in coordinates
+            for z in coordinates
+        ],
+        dtype=float,
+    )
+    symbols = ["C" if index % 2 == 0 else "O" for index in range(len(positions))]
+    atoms = Atoms(symbols, positions=positions, cell=[9.0, 9.0, 9.0], pbc=True)
+    set_atom_labels(
+        atoms,
+        ["C_bulk" if symbol == "C" else "O_bulk" for symbol in symbols],
+    )
+
+    shape = (24, 24, 24)
+    axes = [np.arange(size, dtype=float) / size for size in shape]
+    fractional = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1)
+    values = np.zeros(shape, dtype=float)
+    for scaled_position, symbol in zip(
+        atoms.get_scaled_positions(wrap=True),
+        symbols,
+    ):
+        delta = fractional - scaled_position
+        delta -= np.rint(delta)
+        cartesian = delta * 9.0
+        radius_squared = np.einsum("...i,...i->...", cartesian, cartesian)
+        values += (1.0 if symbol == "C" else -1.0) * np.exp(
+            -radius_squared / (2.0 * 0.55**2)
+        )
+    cube_path = tmp_path / "signed-density.cube"
+    write(cube_path, atoms, data=values, format="cube")
+
+    monkeypatch.chdir(tmp_path)
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            try:
+                page.goto(
+                    f"http://127.0.0.1:{port}/?session_id={editor.session_id}"
+                )
+                page.wait_for_function(
+                    "window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 27"
+                )
+                loaded = page.evaluate(
+                    """async path => {
+                        await window.v_aseAI.apply({
+                            operation: {name: 'load-volumetric', path}
+                        });
+                        return await window.v_aseAI.describe({
+                            includePositions: false
+                        });
+                    }""",
+                    cube_path.name,
+                )
+                datasets = loaded["analysis"]["volumetricDatasets"]
+                assert len(datasets) == 1
+                assert datasets[0]["shape"] == list(shape)
+                dataset_id = datasets[0]["id"]
+
+                active_pairs = page.evaluate(
+                    """() => {
+                        const app = window.__ASE_APP__;
+                        const cc = app.labelPairKey('C_bulk', 'C_bulk');
+                        const co = app.labelPairKey('C_bulk', 'O_bulk');
+                        const oo = app.labelPairKey('O_bulk', 'O_bulk');
+                        app.state.display.bondMode = 'pairwise';
+                        app.state.display.pairwiseBondRanges = {
+                            [cc]: {enabled: false, min: 0, max: 0},
+                            [co]: {enabled: true, min: 0, max: 2.4},
+                            [oo]: {enabled: false, min: 0, max: 0}
+                        };
+                        app.state.display.pairwiseBondCutoffs = {
+                            [cc]: 0,
+                            [co]: 2.4,
+                            [oo]: 0
+                        };
+                        return app.activeRdfPairs();
+                    }"""
+                )
+                assert active_pairs == [["C_bulk", "O_bulk"]]
+
+                analyzed = page.evaluate(
+                    """async ({datasetId, level}) => {
+                        await window.v_aseAI.apply({
+                            display: {
+                                supercell: [2, 1, 1],
+                                translationMode: 'fractional',
+                                translation: [0.125, 0, 0]
+                            },
+                            operation: {
+                                name: 'show-volumetric',
+                                datasetId,
+                                level,
+                                surfaceMode: 'signed',
+                                stepSize: 1,
+                                opacity: 0.65
+                            }
+                        });
+                        await window.v_aseAI.apply({
+                            operation: {
+                                name: 'calculate-rdf',
+                                cutoff: 4.0,
+                                bins: 64,
+                                pairMode: 'all'
+                            }
+                        });
+                        return await window.v_aseAI.describe({
+                            includePositions: false
+                        });
+                    }""",
+                    {
+                        "datasetId": dataset_id,
+                        "level": float(np.max(np.abs(values)) * 0.35),
+                    },
+                )
+                assert analyzed["analysis"]["rdf"]["bins"] == 64
+                assert set(analyzed["analysis"]["rdf"]["partialCurves"]) == {
+                    "C_bulk|C_bulk",
+                    "C_bulk|O_bulk",
+                    "O_bulk|O_bulk",
+                }
+                page.wait_for_function(
+                    """() => Number(
+                        window.__ASE_APP__.renderer.domElement.dataset
+                            .volumetricSurfaceCount || 0
+                    ) >= 2"""
+                )
+                page.wait_for_selector("#rdf-plot .plotly", state="attached")
+                assert page.locator("#rdf-plot .scatterlayer path").count() >= 2
+                assert not page.locator("#analysis-drawer").evaluate(
+                    "element => element.classList.contains('hidden')"
+                )
+
+                csv_result = page.evaluate(
+                    """async () => await window.v_aseAI.export({
+                        format: 'rdf-csv',
+                        cutoff: 4.0,
+                        bins: 64,
+                        pairMode: 'all'
+                    })"""
+                )
+                assert csv_result["mimeType"] == "text/csv"
+                encoded = csv_result["dataUrl"].split(",", 1)[1]
+                csv_lines = base64.b64decode(encoded).decode("utf-8").splitlines()
+                assert len(csv_lines) == 65
+                assert csv_lines[0].split(",") == [
+                    "r_angstrom",
+                    "total_g_r",
+                    "C_bulk|C_bulk",
+                    "C_bulk|O_bulk",
+                    "O_bulk|O_bulk",
+                ]
+
+                stale_result = page.evaluate(
+                    """async () => {
+                        const app = window.__ASE_APP__;
+                        const previousFetch = app.api.fetchRdf;
+                        const result = structuredClone(app.state.rdfResult);
+                        let resolveFetch = null;
+                        app.api.fetchRdf = () => new Promise(resolve => {
+                            resolveFetch = resolve;
+                        });
+                        try {
+                            const pending = app.aiApplyOperation({
+                                name: 'calculate-rdf',
+                                cutoff: 4.0,
+                                bins: 64,
+                                pairMode: 'all'
+                            }).then(
+                                () => ({ok: true, message: ''}),
+                                error => ({ok: false, message: error.message})
+                            );
+                            while (!resolveFetch) {
+                                await new Promise(resolve => setTimeout(resolve, 0));
+                            }
+                            app.invalidateRdfResult(
+                                'The trajectory frame changed during RDF analysis.'
+                            );
+                            resolveFetch(result);
+                            return await pending;
+                        } finally {
+                            app.api.fetchRdf = previousFetch;
+                        }
+                    }"""
+                )
+                assert stale_result["ok"] is False
+                assert "changed while RDF was being calculated" in stale_result["message"]
+                assert page.locator("#btn-rdf-export").is_disabled()
+
+                repeated = page.evaluate(
+                    """async () => {
+                        await window.v_aseAI.apply({
+                            operation: {
+                                name: 'set-supercell',
+                                reps: [2, 1, 1]
+                            }
+                        });
+                        return await window.v_aseAI.describe({
+                            includePositions: false
+                        });
+                    }"""
+                )
+                assert repeated["atomCount"] == 54
+                assert repeated["analysis"]["volumetricDatasets"][0]["shape"] == [
+                    48,
+                    24,
+                    24,
+                ]
+                assert repeated["analysis"]["rdf"] is None
+                assert page.locator("#btn-rdf-export").is_disabled()
+                assert page.locator("#analysis-drawer").evaluate(
+                    "element => element.classList.contains('hidden')"
+                )
+                assert (
+                    page.locator("#rdf-status .analysis-status-title").inner_text()
+                    == "RDF needs recalculation"
+                )
+
+                restored = page.evaluate(
+                    """async () => {
+                        await window.v_aseAI.apply({operation: 'undo'});
+                        return await window.v_aseAI.describe({
+                            includePositions: false
+                        });
+                    }"""
+                )
+                assert restored["atomCount"] == 27
+                assert restored["analysis"]["volumetricDatasets"][0]["shape"] == [
+                    24,
+                    24,
+                    24,
+                ]
+            finally:
+                browser.close()
+    finally:
+        editor.close()
+
+
 def test_fixed_plane_move_restores_per_atom_motion_plane_guide():
     atoms = Atoms(
         "LiOH",

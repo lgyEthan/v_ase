@@ -24,6 +24,20 @@ color updates the cached GPU batches without repeating the ASE/MIC calculation.
 Backend mapping runs off the event loop and shows a delayed busy state only
 when it is not effectively instantaneous.
 
+Volumetric analysis is also opt-in. Scalar grids remain compact float32 arrays
+in the backend and are bounded by `V_ASE_MAX_VOLUMETRIC_POINTS`. The browser
+receives only descriptors and the currently requested indexed mesh, never the
+complete grid. Marching cubes and RDF run through worker threads instead of
+blocking the FastAPI event loop. Surface `stepSize` 2 or 4 reduces preview
+geometry explicitly; final scientific extraction retains step 1. Hidden
+surfaces allocate no Three.js mesh.
+
+RDF uses one periodic neighbor-list pass at the effective cutoff. Total and
+selected partial histograms share that pass. Plotly is loaded from the local
+Python installation and the drawer is created only when analysis is requested.
+CSV reuses the same calculation function rather than scraping or resampling
+the plotted curve.
+
 Video interpolation is also opt-in. `1x` follows the existing one-render-per-
 source-frame path. Higher multipliers retain only two flattened endpoint frames
 at a time, generate one temporary subframe buffer, and reuse the existing atom,
@@ -215,6 +229,10 @@ Performance-sensitive static contracts are locked by
 - frame-persistent selection and displacement-vector instancing;
 - visual translation after supercell instancing without coordinate copies;
 - supercell-repeated displacement vectors with shared physical values;
+- signed isosurface construction, display repetition, translation, and
+  physical grid repetition/reset/undo;
+- RDF calculation at multiple safe cutoffs, partial-curve normalization,
+  Plotly drawer rendering, and CSV parity;
 - frame-specific cell/PBC handling for wrap, translation, and supercells;
 - output preview/capture parity;
 - inactive multi-document suspension.

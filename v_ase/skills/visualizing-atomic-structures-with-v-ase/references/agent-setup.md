@@ -25,7 +25,8 @@ If the client accepts only individual files, always provide:
 
 Choose task references as follows:
 
-- live state, selection, edits, camera, materials, render, or export:
+- live state, selection, edits, camera, materials, volumetric grids, RDF,
+  render, or export:
   `references/semantic-api.md`;
 - a human watching or modifying the same GUI while the agent works:
   `references/collaboration.md`;
@@ -168,6 +169,9 @@ reference. `state_url` is backend/bootstrap state, not a complete snapshot of
 the live camera and visual settings. The `describe` command is authoritative.
 Prefer `{"includePositions":false}` for initial metadata inspection of large
 structures, then request positions only for coordinate-dependent work.
+Volumetric dataset IDs and RDF summaries are under `describe().analysis`.
+Resolve DFT grid paths inside the GUI launch directory and never derive an
+isosurface or RDF result from screenshot pixels.
 
 If no live browser is connected, commands fail with HTTP 409 and tell the
 agent to open `human_url`. If the browser controller cannot evaluate

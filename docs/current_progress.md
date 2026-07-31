@@ -15,7 +15,8 @@ cell-rotation details belong in
 - Editable mode: `--interactive` or `view(..., viz_only=False)`
 - Runtime mode switch: top-bar **View / Edit**
 - Full project format: `.vase`
-- Shareable view format: self-contained view-only HTML with embedded `.vase`
+- Shareable view format: self-contained view-only HTML with optional `.vase`
+  recovery
 - Reusable presentation preset: visual-settings JSON
 
 `view_edit()` remains a compatibility alias for interactive mode. New examples
@@ -26,6 +27,9 @@ and documentation use `view()`.
 ### Python Backend
 
 - `v_ase/io.py`: canonical file-format aliases and structure/trajectory input.
+- `v_ase/volumetric.py`: bounded VASP/Cube/XSF scalar-grid input,
+  combinations, repetition, and marching-cubes extraction.
+- `v_ase/analysis.py`: triclinic-safe total/partial RDF and CSV.
 - `v_ase/session.py`: document state, history, calculator-preserving copies,
   trajectory sources, and workspace lifetime.
 - `v_ase/server.py`: local FastAPI and WebSocket contract.
@@ -284,6 +288,25 @@ and documentation use `view()`.
     categories/paths rather than coordinates. `describe()` reports the current
     document revision, and `apply(expectedRevision=...)` rejects stale agent
     commands before they can overwrite a newer human edit.
+59. Volumetric datasets are backend-owned float32 grids with stable IDs, cell,
+    origin, PBC, endpoint convention, quantity, component, and units. VASP
+    CHGCAR/CHG, LOCPOT, PARCHG, and ELFCAR plus Cube and XSF are accepted only
+    after bounded shape, size, finiteness, and nondegenerate-cell validation.
+60. Volumetric combinations require identical dimensions, cell, origin, PBC,
+    endpoint convention, and scalar units. Display repetition and visual
+    translation transform the extracted mesh with atoms. A physical diagonal
+    supercell repeats grid and atoms atomically; reset, undo, and redo restore
+    the corresponding atom/grid state together. A non-diagonal materialized
+    transform is rejected while a grid is loaded.
+61. Bulk RDF requires full 3D PBC. Its effective radius is no greater than
+    half the shortest triclinic face height. Total and concentration-weighted
+    visual-label partial curves share one ASE periodic neighbor search and
+    reconstruct the total through the standard concentration-weighted
+    relation.
+62. `describe().analysis` and live capability discovery are authoritative for
+    volumetric dataset IDs, RDF cutoffs/warnings, and partial curve names.
+    Agents never receive the complete scalar grid or infer analysis from
+    screenshots.
 
 ## Canonical Names And Compatibility
 
@@ -334,7 +357,9 @@ same implementation for compatibility.
 - `.vase` is a validated ZIP archive containing every trajectory frame, current
   frame, edits, cells/PBC, constraints, labels, safe arrays and metadata,
   cached standard results, supported built-in calculator configuration, and
-  visual settings. It does not reference the source file.
+  visual settings. Volumetric grids are compressed bounded NPZ members with
+  expected arrays and no executable pickle payload. The project does not
+  reference the source file.
 - Standalone HTML export embeds browser-ready scene data and all runtime assets.
   Lightweight HTML omits `.vase` by default; **HTML Project** embeds the
   validated archive by default. Both use the exact image/video Preview Area
@@ -389,6 +414,11 @@ same implementation for compatibility.
 - Hidden displacement analysis performs no backend calculation and allocates
   no arrow meshes. Color, thickness, scale, and 2D/3D restyling reuse the
   latest vectors without repeating the backend calculation.
+- Hidden volumetric surfaces allocate no browser geometry. The full bounded
+  float32 grid stays in Python; the browser receives only descriptors and the
+  requested indexed isosurface. Marching cubes and RDF run off the event loop.
+- Total and selected partial RDF curves share one periodic neighbor-list pass.
+  The local Plotly drawer is created only when RDF is requested.
 - Inactive workspace tabs suspend rendering and playback.
 - Local servers use readiness polling and are stopped/joined by their owning
   editor or blocking session. Release is lease-bound so a delayed prior session
@@ -402,7 +432,8 @@ Current benchmark method and results are in [performance.md](performance.md).
 2. JavaScript syntax checks for every first-party module.
 3. Full `pytest` suite.
 4. Real Chromium browser workflows, including large trajectories, supercells,
-   bonds, constraints, preview/export parity, and multiple documents.
+   bonds, constraints, volumetric surfaces, RDF/CSV, preview/export parity,
+   and multiple documents.
 5. 15,000-atom browser benchmark with zero idle render frames.
 6. Blender runtime and 15,000-atom optimized scene benchmark when Blender is
    available.

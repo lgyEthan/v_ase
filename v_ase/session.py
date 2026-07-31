@@ -20,6 +20,7 @@ class SessionHistoryState:
     trajectory_frames: Optional[List[Atoms]] = None
     original_atoms: Optional[Atoms] = None
     original_frames: Optional[List[Atoms]] = None
+    volumetric_datasets: Optional[List[Any]] = None
 
 
 @dataclass
@@ -32,6 +33,10 @@ class EditorSession:
     trajectory_frames: List[Atoms] = field(default_factory=list)
     trajectory_source: Any = None
     current_frame: int = 0
+    # Scalar grids are immutable by convention. History stores references only
+    # for operations that replace them, avoiding copies of large arrays.
+    volumetric_datasets: List[Any] = field(default_factory=list)
+    original_volumetric_datasets: List[Any] = field(default_factory=list)
     
     # History
     history: List[SessionHistoryState] = field(default_factory=list)
@@ -93,6 +98,8 @@ class EditorSession:
         if self.trajectory_source is None:
             for frame in self.trajectory_frames:
                 self._ensure_session_calculator(frame)
+        if not self.original_volumetric_datasets:
+            self.original_volumetric_datasets = list(self.volumetric_datasets)
         self.refresh_trajectory_identity()
 
     def publish_collaboration_event(
@@ -169,6 +176,7 @@ class EditorSession:
         *,
         include_trajectory: bool = False,
         include_original: bool = False,
+        include_volumetric: bool = False,
     ) -> SessionHistoryState:
         return SessionHistoryState(
             working_atoms=self._copy_atoms(self.working_atoms),
@@ -188,6 +196,11 @@ class EditorSession:
                 if include_original
                 else None
             ),
+            volumetric_datasets=(
+                list(self.volumetric_datasets)
+                if include_volumetric
+                else None
+            ),
         )
 
     def _restore_history_state(self, state: SessionHistoryState) -> None:
@@ -204,6 +217,8 @@ class EditorSession:
                 self._copy_atoms(frame)
                 for frame in state.original_frames
             ]
+        if state.volumetric_datasets is not None:
+            self.volumetric_datasets = list(state.volumetric_datasets)
         frame_count = max(1, len(self.trajectory_frames))
         self.current_frame = max(0, min(int(state.current_frame), frame_count - 1))
         self.working_atoms = self._copy_atoms(state.working_atoms)
@@ -215,11 +230,13 @@ class EditorSession:
         *,
         include_trajectory: bool = False,
         include_original: bool = False,
+        include_volumetric: bool = False,
     ):
         """Save the mutation's complete affected scope for Undo."""
         self.history.append(self._history_state(
             include_trajectory=include_trajectory,
             include_original=include_original,
+            include_volumetric=include_volumetric,
         ))
         if len(self.history) > 50:
             self.history.pop(0)
@@ -233,6 +250,7 @@ class EditorSession:
         self.redo_stack.append(self._history_state(
             include_trajectory=state.trajectory_frames is not None,
             include_original=state.original_frames is not None,
+            include_volumetric=state.volumetric_datasets is not None,
         ))
         self._restore_history_state(state)
         return self.working_atoms
@@ -245,6 +263,7 @@ class EditorSession:
         self.history.append(self._history_state(
             include_trajectory=state.trajectory_frames is not None,
             include_original=state.original_frames is not None,
+            include_volumetric=state.volumetric_datasets is not None,
         ))
         self._restore_history_state(state)
         return self.working_atoms
@@ -332,6 +351,7 @@ class EditorSession:
         """Restore every trajectory frame to the originally loaded coordinates/cell."""
         if self.trajectory_source is not None:
             self.set_frame(self.current_frame)
+            self.volumetric_datasets = list(self.original_volumetric_datasets)
             return
         if self.original_frames:
             self.trajectory_frames = [self._copy_atoms(frame) for frame in self.original_frames]
@@ -339,6 +359,7 @@ class EditorSession:
             self.trajectory_frames = [self._copy_atoms(self.original_atoms)]
         self.current_frame = min(self.current_frame, len(self.trajectory_frames) - 1)
         self.working_atoms = self._copy_atoms(self.trajectory_frames[self.current_frame])
+        self.volumetric_datasets = list(self.original_volumetric_datasets)
         self.invalidate_trajectory_layout()
 
     def cleanup_temporary_files(self):
@@ -582,6 +603,7 @@ def replace_session_frames(
     trajectory_source=None,
     current_frame: int = 0,
     initial_design_settings: Optional[Dict[str, Any]] = None,
+    volumetric_datasets: Optional[List[Any]] = None,
 ) -> None:
     """Replace the loaded document while preserving the session's UI mode."""
     if not frames or not all(isinstance(frame, Atoms) for frame in frames):
@@ -595,6 +617,8 @@ def replace_session_frames(
     session.original_frames = original_frames
     session.trajectory_frames = working_frames
     session.trajectory_source = trajectory_source
+    session.volumetric_datasets = list(volumetric_datasets or [])
+    session.original_volumetric_datasets = list(volumetric_datasets or [])
     session.current_frame = frame_index
     session.original_atoms = copy_atoms_with_calc(original_frames[0], attach_default=attach_default)
     session.working_atoms = copy_atoms_with_calc(working_frames[frame_index], attach_default=attach_default)

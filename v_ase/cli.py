@@ -58,7 +58,8 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "force the input file format when the filename is ambiguous. "
             "Common aliases: POSCAR, XDATCAR, vasprun.xml, lammpstrj, traj, xyz, "
-            "extxyz, data, vase, html. "
+            "extxyz, data, CHG, CHGCAR, LOCPOT, PARCHG, ELFCAR, cube, xsf, "
+            "vase, html. "
             "Raw ASE format names such as vasp-xml and lammps-data also work."
         ),
     )
@@ -298,6 +299,7 @@ def run_gui(args: argparse.Namespace) -> int:
     trajectory_source = None
     initial_frame = 0
     initial_design_settings = None
+    volumetric_datasets = None
     is_vase_project = suffix == ".vase" or resolved_format == "vase-project"
     is_html_project = (
         suffix in {".html", ".htm"}
@@ -321,23 +323,43 @@ def run_gui(args: argparse.Namespace) -> int:
         except ValueError as exc:
             raise SystemExit(f"v_ase: could not open project: {exc}") from exc
         frames = project.frames
+        volumetric_datasets = project.volumetric_datasets
         initial_frame = project.current_frame
         initial_design_settings = project.settings
-    elif viz_only and is_lammps_dump:
-        try:
-            fast = read_fast_lammps_dump(path, args.index)
-            frames = [fast.atoms]
-            trajectory_source = fast.trajectory
-            initial_frame = fast.initial_frame
-        except ValueError as exc:
-            print(
-                f"v_ase: fast LAMMPS loader unavailable ({exc}); "
-                "falling back to the compatible loader.",
-                file=sys.stderr,
-            )
+    elif path is not None:
+        from v_ase.volumetric import (
+            read_volumetric_file,
+            resolve_volumetric_format,
+            volumetric_structure,
+        )
+
+        volumetric_format = resolve_volumetric_format(
+            path,
+            args.format or resolved_format,
+        )
+        if volumetric_format:
+            try:
+                volumetric_datasets = read_volumetric_file(path, volumetric_format)
+            except (OSError, TypeError, ValueError) as exc:
+                raise SystemExit(
+                    f"v_ase: could not open volumetric data: {exc}"
+                ) from exc
+            frames = [volumetric_structure(volumetric_datasets)]
+        elif viz_only and is_lammps_dump:
+            try:
+                fast = read_fast_lammps_dump(path, args.index)
+                frames = [fast.atoms]
+                trajectory_source = fast.trajectory
+                initial_frame = fast.initial_frame
+            except ValueError as exc:
+                print(
+                    f"v_ase: fast LAMMPS loader unavailable ({exc}); "
+                    "falling back to the compatible loader.",
+                    file=sys.stderr,
+                )
+                frames = read_structure_frames(path, args.index, args.format)
+        else:
             frames = read_structure_frames(path, args.index, args.format)
-    else:
-        frames = read_structure_frames(path, args.index, args.format)
     if not frames:
         raise SystemExit(f"v_ase: no frames found in {path}")
 
@@ -356,6 +378,7 @@ def run_gui(args: argparse.Namespace) -> int:
         document_name=path.name if path is not None else "Untitled",
         open_browser=not args.no_browser and not args.cli_mode,
         stream_trajectory=args.stream_frames,
+        volumetric_datasets=volumetric_datasets,
     )
 
     if keep_alive:

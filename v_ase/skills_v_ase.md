@@ -36,6 +36,11 @@ need page-main-world JavaScript access.
 The agent calls `v_ase api "$COMMAND_URL" schema` before a broad workflow to
 discover exact operation and export parameters, then uses `capabilities` and
 `describe` for the live document and attached calculator state.
+The same semantic contract includes VASP/Cube/XSF volumetric grids, signed
+isosurfaces, compatible-grid density differences, total and label-pair RDF,
+and RDF CSV export. Agents use `describe().analysis` for dataset IDs,
+effective cutoffs, warnings, and curve names instead of reading plots or
+surfaces from screenshots.
 The canonical skill also documents standalone `html` export in lightweight
 view-only and project-embedded modes. Lightweight view-only is the ordinary
 export default; the human HTML Project action embeds `.vase` by default.

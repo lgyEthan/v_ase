@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.120&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.120&rev=1';
-import { ASESelection } from './selection.js?v=0.0.120&rev=1';
-import { ASETransform } from './transform.js?v=0.0.120&rev=1';
+import { ASEApi } from './api.js?v=0.1.1&rev=1';
+import { ASERenderer } from './renderer.js?v=0.1.1&rev=1';
+import { ASESelection } from './selection.js?v=0.1.1&rev=1';
+import { ASETransform } from './transform.js?v=0.1.1&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.120&rev=1';
+} from './trajectory.js?v=0.1.1&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -172,7 +172,18 @@ class VAseApp {
                 displacementStyle: '3d',
                 displacementScale: 1,
                 displacementThickness: 0.08,
-                displacementColor: '#e58b2a'
+                displacementColor: '#e58b2a',
+                showVolumetric: false,
+                volumetricDatasetId: '',
+                volumetricLevel: null,
+                volumetricSurfaceMode: 'single',
+                volumetricStepSize: 1,
+                volumetricOpacity: 0.72,
+                volumetricPositiveColor: '#2f8fdb',
+                volumetricNegativeColor: '#e05b78',
+                rdfCutoff: null,
+                rdfBins: 200,
+                rdfPairMode: 'active'
             },
             antiAliasing: true,
             sphereQuality: 'auto',
@@ -231,6 +242,10 @@ class VAseApp {
             displacementRequestToken: 0,
             displacementRefreshTimer: null,
             displacementStats: null,
+            volumetricRequestToken: 0,
+            rdfResult: null,
+            rdfRequestToken: 0,
+            plotlyPromise: null,
             videoExportId: null,
             videoExportStartedAt: null
         };
@@ -259,6 +274,8 @@ class VAseApp {
             this.setupInspectorResizer();
             this.setupInspectorNavigation();
             this.setupDisplacementAnalysis();
+            this.setupVolumetricAnalysis();
+            this.setupRdfAnalysis();
             this.setupViewControls();
             this.setupRuntimeModeControls();
             this.setupSelectedAppearanceControls();
@@ -1380,6 +1397,611 @@ class VAseApp {
         }
     }
 
+    volumetricDatasets() {
+        const datasets = this.state.atoms?.metadata?.volumetric_datasets;
+        return Array.isArray(datasets) ? datasets : [];
+    }
+
+    setVolumeStatus(state, title, detail = '') {
+        const status = document.getElementById('volume-status');
+        if (!status) return;
+        status.dataset.state = state;
+        const titleElement = status.querySelector('.analysis-status-title');
+        const detailElement = status.querySelector('.analysis-status-detail');
+        if (titleElement) titleElement.textContent = title;
+        if (detailElement) detailElement.textContent = detail;
+    }
+
+    selectedVolumetricDataset() {
+        const datasets = this.volumetricDatasets();
+        const selectedId = this.state.display.volumetricDatasetId;
+        return datasets.find(dataset => dataset.id === selectedId) || datasets[0] || null;
+    }
+
+    defaultVolumetricLevel(dataset) {
+        if (!dataset) return null;
+        const minimum = Number(dataset.minimum);
+        const maximum = Number(dataset.maximum);
+        if (!Number.isFinite(minimum) || !Number.isFinite(maximum) || maximum <= minimum) return null;
+        if (minimum < 0 && maximum > 0) {
+            return Math.max(Math.abs(minimum), Math.abs(maximum)) * 0.18;
+        }
+        return minimum + (maximum - minimum) * 0.22;
+    }
+
+    formatScalarValue(value) {
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed)) return '-';
+        const magnitude = Math.abs(parsed);
+        return magnitude !== 0 && (magnitude < 1e-3 || magnitude >= 1e4)
+            ? parsed.toExponential(4)
+            : parsed.toPrecision(6);
+    }
+
+    renderVolumetricControls() {
+        const datasets = this.volumetricDatasets();
+        const empty = document.getElementById('volume-empty');
+        const controls = document.getElementById('volume-controls');
+        empty?.classList.toggle('hidden', datasets.length > 0);
+        controls?.classList.toggle('hidden', datasets.length === 0);
+        const select = document.getElementById('volume-dataset');
+        if (!select) return;
+
+        const previousId = this.state.display.volumetricDatasetId;
+        select.replaceChildren();
+        datasets.forEach(dataset => {
+            const option = document.createElement('option');
+            option.value = dataset.id;
+            option.textContent = dataset.name;
+            select.appendChild(option);
+        });
+        const selected = datasets.find(dataset => dataset.id === previousId) || datasets[0] || null;
+        if (!selected) {
+            this.state.display.volumetricDatasetId = '';
+            this.state.display.showVolumetric = false;
+            this.renderer.clearVolumetricSurfaces();
+            return;
+        }
+        const datasetChanged = selected.id !== previousId;
+        this.state.display.volumetricDatasetId = selected.id;
+        select.value = selected.id;
+        if (datasetChanged || !Number.isFinite(Number(this.state.display.volumetricLevel))) {
+            this.state.display.volumetricLevel = this.defaultVolumetricLevel(selected);
+        }
+
+        const summary = document.getElementById('volume-summary');
+        if (summary) {
+            summary.replaceChildren();
+            const entries = [
+                ['Grid', (selected.shape || []).join(' x ')],
+                ['Range', `${this.formatScalarValue(selected.minimum)} to ${this.formatScalarValue(selected.maximum)}`],
+                ['Quantity', `${selected.quantity || 'scalar field'} · ${selected.units || 'file native'}`]
+            ];
+            entries.forEach(([label, value]) => {
+                const key = document.createElement('strong');
+                const text = document.createElement('span');
+                key.textContent = label;
+                text.textContent = value;
+                summary.append(key, text);
+            });
+        }
+
+        const differenceTerms = document.getElementById('volume-difference-terms');
+        if (differenceTerms) {
+            differenceTerms.replaceChildren();
+            datasets.forEach((dataset, index) => {
+                const row = document.createElement('label');
+                row.className = 'volume-difference-term';
+                const enabled = document.createElement('input');
+                enabled.type = 'checkbox';
+                enabled.dataset.datasetId = dataset.id;
+                enabled.checked = index < Math.min(3, datasets.length);
+                const name = document.createElement('span');
+                name.textContent = dataset.name;
+                name.title = dataset.name;
+                const coefficient = document.createElement('input');
+                coefficient.type = 'number';
+                coefficient.step = 'any';
+                coefficient.value = index === 0 ? '1' : '-1';
+                coefficient.setAttribute('aria-label', `Coefficient for ${dataset.name}`);
+                row.append(enabled, name, coefficient);
+                differenceTerms.appendChild(row);
+            });
+        }
+        this.syncVolumetricControls();
+    }
+
+    syncVolumetricControls() {
+        const display = this.state.display;
+        const setValue = (id, value) => {
+            const element = document.getElementById(id);
+            if (element && document.activeElement !== element && value !== null && value !== undefined) {
+                element.value = `${value}`;
+            }
+        };
+        const visible = document.getElementById('chk-volume-visible');
+        if (visible) visible.checked = Boolean(display.showVolumetric);
+        setValue('volume-surface-mode', display.volumetricSurfaceMode === 'signed' ? 'signed' : 'single');
+        setValue('volume-level', display.volumetricLevel);
+        setValue('volume-step', [1, 2, 4].includes(Number(display.volumetricStepSize))
+            ? Number(display.volumetricStepSize)
+            : 1);
+        setValue('volume-positive-color', display.volumetricPositiveColor || '#2f8fdb');
+        setValue('volume-negative-color', display.volumetricNegativeColor || '#e05b78');
+        setValue('volume-opacity', Number(display.volumetricOpacity) || 0.72);
+        const output = document.getElementById('volume-opacity-value');
+        if (output) output.textContent = (Number(display.volumetricOpacity) || 0.72).toFixed(2);
+    }
+
+    readVolumetricControls() {
+        const level = Number(document.getElementById('volume-level')?.value);
+        Object.assign(this.state.display, {
+            showVolumetric: Boolean(document.getElementById('chk-volume-visible')?.checked),
+            volumetricDatasetId: document.getElementById('volume-dataset')?.value || '',
+            volumetricLevel: Number.isFinite(level) ? level : null,
+            volumetricSurfaceMode: document.getElementById('volume-surface-mode')?.value === 'signed'
+                ? 'signed'
+                : 'single',
+            volumetricStepSize: [1, 2, 4].includes(Number(document.getElementById('volume-step')?.value))
+                ? Number(document.getElementById('volume-step')?.value)
+                : 1,
+            volumetricOpacity: Math.max(
+                0.05,
+                Math.min(1, Number(document.getElementById('volume-opacity')?.value) || 0.72)
+            ),
+            volumetricPositiveColor: document.getElementById('volume-positive-color')?.value || '#2f8fdb',
+            volumetricNegativeColor: document.getElementById('volume-negative-color')?.value || '#e05b78'
+        });
+        this.syncVolumetricControls();
+    }
+
+    decodeIsosurface(buffer) {
+        const bytes = new Uint8Array(buffer);
+        const magic = new TextDecoder().decode(bytes.slice(0, 8));
+        if (magic !== 'VASEISO1' || bytes.byteLength < 12) {
+            throw new Error('v_ase returned an invalid isosurface payload.');
+        }
+        const view = new DataView(buffer);
+        const headerLength = view.getUint32(8, true);
+        const headerStart = 12;
+        const dataStart = headerStart + headerLength;
+        if (dataStart > bytes.byteLength) throw new Error('Isosurface header is truncated.');
+        const header = JSON.parse(new TextDecoder().decode(bytes.slice(headerStart, dataStart)));
+        const vertexBytes = Number(header.vertex_count) * 3 * 4;
+        const faceBytes = Number(header.face_count) * 3 * 4;
+        if (dataStart + vertexBytes + faceBytes !== bytes.byteLength) {
+            throw new Error('Isosurface mesh dimensions do not match its payload.');
+        }
+        return {
+            header,
+            vertices: new Float32Array(buffer.slice(dataStart, dataStart + vertexBytes)),
+            faces: new Uint32Array(buffer.slice(dataStart + vertexBytes))
+        };
+    }
+
+    async updateVolumetricSurface() {
+        this.readVolumetricControls();
+        const token = ++this.state.volumetricRequestToken;
+        const dataset = this.selectedVolumetricDataset();
+        if (!dataset || !this.state.display.showVolumetric) {
+            this.renderer.clearVolumetricSurfaces();
+            this.setVolumeStatus('idle', dataset ? 'Isosurface hidden' : 'No scalar field', '');
+            return;
+        }
+        const requested = Number(this.state.display.volumetricLevel);
+        if (!Number.isFinite(requested)) {
+            throw new Error('Enter a finite isovalue.');
+        }
+        const levels = this.state.display.volumetricSurfaceMode === 'signed'
+            ? [...new Set([Math.abs(requested), -Math.abs(requested)])]
+            : [requested];
+        const available = levels.filter(level => (
+            level > Number(dataset.minimum) && level < Number(dataset.maximum)
+        ));
+        if (!available.length) {
+            throw new Error(
+                `Isovalue must be between ${this.formatScalarValue(dataset.minimum)} `
+                + `and ${this.formatScalarValue(dataset.maximum)}.`
+            );
+        }
+        this.setVolumeStatus('loading', 'Generating isosurface', `${dataset.name}`);
+        const meshes = await Promise.all(available.map(async level => {
+            const payload = await this.api.fetchIsosurface({
+                dataset_id: dataset.id,
+                level,
+                step_size: this.state.display.volumetricStepSize
+            });
+            const decoded = this.decodeIsosurface(payload);
+            return {
+                datasetId: dataset.id,
+                level,
+                vertices: decoded.vertices,
+                faces: decoded.faces,
+                cell: decoded.header.cell,
+                color: level < 0
+                    ? this.state.display.volumetricNegativeColor
+                    : this.state.display.volumetricPositiveColor,
+                opacity: this.state.display.volumetricOpacity
+            };
+        }));
+        if (token !== this.state.volumetricRequestToken) return;
+        this.renderer.setVolumetricSurfaces(meshes);
+        this.setVolumeStatus(
+            available.length < levels.length ? 'warning' : 'ready',
+            `${meshes.length} isosurface${meshes.length === 1 ? '' : 's'}`,
+            available.length < levels.length
+                ? 'One signed level lies outside this dataset range.'
+                : `${meshes.reduce((sum, mesh) => sum + mesh.faces.length / 3, 0).toLocaleString()} triangles`
+        );
+        this.scheduleVisualHistoryCommit('volumetric');
+    }
+
+    async addVolumetricFile(file) {
+        if (!file) return;
+        const data = await this.withBusy(
+            `Reading ${file.name}...`,
+            () => this.api.appendStructureFile(file, '', ':')
+        );
+        if (data.loaded_file?.source_kind !== 'volumetric') {
+            throw new Error('The selected file did not contain supported volumetric data.');
+        }
+        const wasEmpty = !this.hasLoadedAtoms();
+        this.setAtomsData(data, {
+            clearSelection: wasEmpty,
+            preserveDisplay: true,
+            preserveRdf: true
+        });
+        this.renderVolumetricControls();
+        this.toast(
+            `Added ${Number(data.loaded_file?.appended_volumetric_datasets) || 0} scalar field`
+            + `${Number(data.loaded_file?.appended_volumetric_datasets) === 1 ? '' : 's'}.`,
+            'success'
+        );
+    }
+
+    setupVolumetricAnalysis() {
+        const fileInput = document.getElementById('volume-file');
+        document.getElementById('btn-volume-add')?.addEventListener('click', () => fileInput?.click());
+        fileInput?.addEventListener('change', async () => {
+            const file = fileInput.files?.[0];
+            fileInput.value = '';
+            try {
+                await this.addVolumetricFile(file);
+            } catch (error) {
+                this.setVolumeStatus('warning', 'Could not load scalar field', error.message);
+                this.toast(`Volumetric data failed: ${error.message}`, 'error');
+            }
+        });
+        document.getElementById('volume-dataset')?.addEventListener('change', () => {
+            this.state.display.volumetricDatasetId = document.getElementById('volume-dataset')?.value || '';
+            this.state.display.volumetricLevel = this.defaultVolumetricLevel(this.selectedVolumetricDataset());
+            this.syncVolumetricControls();
+            if (this.state.display.showVolumetric) {
+                this.updateVolumetricSurface().catch(error => {
+                    this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);
+                });
+            }
+        });
+        ['chk-volume-visible', 'volume-surface-mode'].forEach(id => {
+            document.getElementById(id)?.addEventListener('change', () => {
+                this.updateVolumetricSurface().catch(error => {
+                    this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);
+                    this.renderer.clearVolumetricSurfaces();
+                });
+            });
+        });
+        ['volume-opacity', 'volume-positive-color', 'volume-negative-color'].forEach(id => {
+            document.getElementById(id)?.addEventListener('input', () => {
+                this.readVolumetricControls();
+                if (this.state.display.showVolumetric) {
+                    this.renderer.updateVolumetricSurfaceStyle({
+                        positiveColor: this.state.display.volumetricPositiveColor,
+                        negativeColor: this.state.display.volumetricNegativeColor,
+                        opacity: this.state.display.volumetricOpacity
+                    });
+                }
+            });
+            document.getElementById(id)?.addEventListener('change', () => {
+                this.scheduleVisualHistoryCommit('volumetric-style');
+            });
+        });
+        document.getElementById('btn-volume-refresh')?.addEventListener('click', () => {
+            this.updateVolumetricSurface().catch(error => {
+                this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);
+                this.renderer.clearVolumetricSurfaces();
+            });
+        });
+        document.getElementById('btn-volume-delete')?.addEventListener('click', async () => {
+            const dataset = this.selectedVolumetricDataset();
+            if (!dataset) return;
+            try {
+                const result = await this.api.deleteVolumetricDataset(dataset.id);
+                this.state.atoms.metadata.volumetric_datasets = result.volumetric_datasets || [];
+                this.state.display.volumetricDatasetId = '';
+                this.renderer.clearVolumetricSurfaces();
+                this.renderVolumetricControls();
+            } catch (error) {
+                this.toast(`Remove scalar field failed: ${error.message}`, 'error');
+            }
+        });
+        document.getElementById('btn-volume-difference')?.addEventListener('click', async () => {
+            const terms = [...document.querySelectorAll('.volume-difference-term')]
+                .filter(row => row.querySelector('input[type="checkbox"]')?.checked)
+                .map(row => ({
+                    id: row.querySelector('input[type="checkbox"]')?.dataset.datasetId,
+                    coefficient: Number(row.querySelector('input[type="number"]')?.value)
+                }));
+            if (terms.length < 2 || terms.some(term => !Number.isFinite(term.coefficient))) {
+                this.toast('Select at least two grids with finite coefficients.', 'warning');
+                return;
+            }
+            try {
+                const result = await this.withBusy(
+                    'Calculating volumetric difference...',
+                    () => this.api.createVolumetricDifference({
+                        dataset_ids: terms.map(term => term.id),
+                        coefficients: terms.map(term => term.coefficient),
+                        name: 'Charge density difference'
+                    })
+                );
+                this.state.atoms.metadata.volumetric_datasets = result.volumetric_datasets || [];
+                this.state.display.volumetricDatasetId = result.dataset.id;
+                this.state.display.volumetricLevel = this.defaultVolumetricLevel(result.dataset);
+                this.renderVolumetricControls();
+                this.toast('Created charge density difference.', 'success');
+            } catch (error) {
+                this.toast(`Density difference failed: ${error.message}`, 'error');
+            }
+        });
+        this.renderVolumetricControls();
+    }
+
+    rdfOptions() {
+        const cutoffText = document.getElementById('rdf-cutoff')?.value.trim() || '';
+        const cutoff = cutoffText ? Number(cutoffText) : null;
+        const bins = Math.max(8, Math.min(5000, parseInt(
+            document.getElementById('rdf-bins')?.value || '200',
+            10
+        ) || 200));
+        const pairMode = ['active', 'all', 'none'].includes(
+            document.getElementById('rdf-pair-mode')?.value
+        ) ? document.getElementById('rdf-pair-mode').value : 'active';
+        Object.assign(this.state.display, {
+            rdfCutoff: Number.isFinite(cutoff) ? cutoff : null,
+            rdfBins: bins,
+            rdfPairMode: pairMode
+        });
+        return {
+            cutoff: Number.isFinite(cutoff) ? cutoff : null,
+            bins,
+            pair_mode: pairMode,
+            active_pairs: this.activeRdfPairs()
+        };
+    }
+
+    activeRdfPairs() {
+        const labels = this.state.atoms?.symbols || [];
+        if (this.state.display.bondMode === 'pairwise') {
+            return this.uniqueLabelPairs().filter(([left, right]) => {
+                const range = this.pairwiseBondRange(left, right);
+                return range.enabled && Number(range.max) > 0;
+            });
+        }
+
+        const sourcePairs = this.state.display.bondMode === 'manual'
+            ? this.state.display.manualBondPairs || []
+            : this.renderer.bondPairs || [];
+        const activePairs = new Map();
+        sourcePairs.forEach(([first, second]) => {
+            const left = labels[first];
+            const right = labels[second];
+            if (!left || !right) return;
+            const key = this.labelPairKey(left, right);
+            activePairs.set(key, [left, right]);
+        });
+        return [...activePairs.values()];
+    }
+
+    setRdfStatus(state, title, detail = '') {
+        const status = document.getElementById('rdf-status');
+        if (!status) return;
+        status.dataset.state = state;
+        const titleElement = status.querySelector('.analysis-status-title');
+        const detailElement = status.querySelector('.analysis-status-detail');
+        if (titleElement) titleElement.textContent = title;
+        if (detailElement) detailElement.textContent = detail;
+    }
+
+    invalidateRdfResult(
+        detail = 'The structure or trajectory frame changed. Calculate the RDF again.'
+    ) {
+        const status = document.getElementById('rdf-status');
+        const wasCalculating = status?.dataset?.state === 'loading';
+        const hadResult = Boolean(this.state.rdfResult);
+        this.state.rdfRequestToken += 1;
+        this.state.rdfResult = null;
+        const exportButton = document.getElementById('btn-rdf-export');
+        if (exportButton) exportButton.disabled = true;
+        const plot = document.getElementById('rdf-plot');
+        if (plot && window.Plotly?.purge) window.Plotly.purge(plot);
+        document.getElementById('analysis-drawer')?.classList.add('hidden');
+        if (hadResult || wasCalculating) {
+            this.setRdfStatus('idle', 'RDF needs recalculation', detail);
+        }
+    }
+
+    ensurePlotly() {
+        if (window.Plotly) return Promise.resolve(window.Plotly);
+        if (this.state.plotlyPromise) return this.state.plotlyPromise;
+        this.state.plotlyPromise = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = new URL('/api/vendor/plotly.js', window.location.origin).href;
+            script.async = true;
+            script.onload = () => window.Plotly
+                ? resolve(window.Plotly)
+                : reject(new Error('Plotly loaded without its browser API.'));
+            script.onerror = () => reject(new Error('Could not load the local Plotly bundle.'));
+            document.head.appendChild(script);
+        });
+        return this.state.plotlyPromise;
+    }
+
+    async plotRdf(result) {
+        const Plotly = await this.ensurePlotly();
+        const plot = document.getElementById('rdf-plot');
+        const drawer = document.getElementById('analysis-drawer');
+        if (!plot || !drawer) return;
+        drawer.classList.remove('hidden');
+        const style = getComputedStyle(document.documentElement);
+        const textColor = style.getPropertyValue('--text').trim() || '#dce4e3';
+        const mutedColor = style.getPropertyValue('--muted').trim() || '#879392';
+        const lineColor = style.getPropertyValue('--line').trim() || '#33403f';
+        const teal = style.getPropertyValue('--teal').trim() || '#58d5bd';
+        const palette = [teal, '#e58b2a', '#6aa7ff', '#e05b78', '#a7d46f', '#c49ae8'];
+        const traces = [{
+            x: result.radius,
+            y: result.total,
+            type: 'scatter',
+            mode: 'lines',
+            name: 'Total',
+            line: { color: teal, width: 2.4 }
+        }];
+        Object.entries(result.partial || {}).forEach(([name, values], index) => {
+            traces.push({
+                x: result.radius,
+                y: values,
+                type: 'scatter',
+                mode: 'lines',
+                name: name.replace('|', ' - '),
+                line: { color: palette[(index + 1) % palette.length], width: 1.5 }
+            });
+        });
+        await Plotly.react(plot, traces, {
+            autosize: true,
+            margin: { l: 56, r: 18, t: 16, b: 48 },
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            plot_bgcolor: 'rgba(0,0,0,0)',
+            font: { color: textColor, family: 'Inter, system-ui, sans-serif', size: 11 },
+            xaxis: {
+                title: 'r / Å',
+                gridcolor: lineColor,
+                zeroline: false,
+                color: mutedColor
+            },
+            yaxis: {
+                title: 'g(r)',
+                gridcolor: lineColor,
+                zerolinecolor: lineColor,
+                color: mutedColor
+            },
+            legend: {
+                orientation: 'h',
+                x: 0,
+                y: 1.08,
+                bgcolor: 'rgba(0,0,0,0)'
+            },
+            hovermode: 'x unified'
+        }, {
+            responsive: true,
+            displaylogo: false,
+            scrollZoom: true,
+            modeBarButtonsToRemove: ['lasso2d', 'select2d']
+        });
+    }
+
+    async calculateRdf() {
+        const token = ++this.state.rdfRequestToken;
+        const options = this.rdfOptions();
+        this.setRdfStatus('loading', 'Calculating RDF', 'Applying periodic MIC normalization.');
+        const result = await this.withBusy(
+            'Calculating radial distribution function...',
+            () => this.api.fetchRdf(options)
+        );
+        if (token !== this.state.rdfRequestToken) return;
+        this.state.rdfResult = result;
+        document.getElementById('btn-rdf-export').disabled = false;
+        await this.plotRdf(result);
+        const warning = (result.warnings || []).join(' ');
+        this.setRdfStatus(
+            warning ? 'warning' : 'ready',
+            `${result.bins} bins · cutoff ${Number(result.cutoff).toFixed(3)} Å`,
+            warning || `${Object.keys(result.partial || {}).length} pair curve${Object.keys(result.partial || {}).length === 1 ? '' : 's'} plus total.`
+        );
+        this.scheduleVisualHistoryCommit('rdf');
+    }
+
+    setupAnalysisDrawerResize() {
+        const drawer = document.getElementById('analysis-drawer');
+        const resizer = document.getElementById('analysis-drawer-resizer');
+        if (!drawer || !resizer) return;
+        resizer.addEventListener('pointerdown', event => {
+            event.preventDefault();
+            const startY = event.clientY;
+            const startHeight = drawer.getBoundingClientRect().height;
+            const onMove = moveEvent => {
+                const height = Math.max(
+                    210,
+                    Math.min(window.innerHeight * 0.62, startHeight + startY - moveEvent.clientY)
+                );
+                drawer.style.height = `${height}px`;
+                window.Plotly?.Plots?.resize?.(document.getElementById('rdf-plot'));
+            };
+            const onUp = () => {
+                window.removeEventListener('pointermove', onMove);
+                window.removeEventListener('pointerup', onUp);
+                window.removeEventListener('pointercancel', onUp);
+            };
+            window.addEventListener('pointermove', onMove);
+            window.addEventListener('pointerup', onUp);
+            window.addEventListener('pointercancel', onUp);
+        });
+    }
+
+    syncRdfControls() {
+        const cutoff = document.getElementById('rdf-cutoff');
+        const bins = document.getElementById('rdf-bins');
+        const mode = document.getElementById('rdf-pair-mode');
+        if (cutoff && document.activeElement !== cutoff) {
+            cutoff.value = this.state.display.rdfCutoff === null
+                ? ''
+                : `${this.state.display.rdfCutoff}`;
+        }
+        if (bins && document.activeElement !== bins) bins.value = `${this.state.display.rdfBins || 200}`;
+        if (mode && document.activeElement !== mode) mode.value = this.state.display.rdfPairMode || 'active';
+    }
+
+    setupRdfAnalysis() {
+        this.syncRdfControls();
+        ['rdf-cutoff', 'rdf-bins', 'rdf-pair-mode'].forEach(id => {
+            document.getElementById(id)?.addEventListener('input', () => {
+                this.invalidateRdfResult(
+                    'RDF settings changed. Calculate the RDF again before exporting CSV.'
+                );
+            });
+        });
+        document.getElementById('btn-rdf-calculate')?.addEventListener('click', () => {
+            this.calculateRdf().catch(error => {
+                this.setRdfStatus('warning', 'RDF unavailable', error.message);
+                this.toast(`RDF failed: ${error.message}`, 'error');
+            });
+        });
+        document.getElementById('btn-rdf-export')?.addEventListener('click', async () => {
+            try {
+                const blob = await this.withBusy(
+                    'Preparing RDF data...',
+                    () => this.api.exportRdfCsv(this.rdfOptions())
+                );
+                this.downloadBlob(blob, 'v_ase_rdf.csv', 'text/csv');
+            } catch (error) {
+                this.toast(`RDF export failed: ${error.message}`, 'error');
+            }
+        });
+        document.getElementById('btn-analysis-drawer-close')?.addEventListener('click', () => {
+            document.getElementById('analysis-drawer')?.classList.add('hidden');
+        });
+        this.setupAnalysisDrawerResize();
+    }
+
     normalizedViewRotationStep(value = this.state.display.viewRotationStepDeg) {
         const parsed = Number(value);
         return Number.isFinite(parsed) ? Math.max(0.1, Math.min(360, parsed)) : 15;
@@ -1914,6 +2536,12 @@ class VAseApp {
             const hasRequestedAtomicScale = Number.isFinite(requestedAtomicScale) && requestedAtomicScale > 0;
             this.renderer.setDisplayOptions(this.state.display, { rebuild: false });
             this.renderer.rebuildAtoms(data, data.metadata.custom_colors || {});
+            this.renderVolumetricControls();
+            if (this.state.display.showVolumetric) {
+                this.updateVolumetricSurface().catch(error => {
+                    this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);
+                });
+            }
             const projectCamera = data.metadata?.config?.initial_design_settings?.camera;
             if (projectCamera) this.applyCameraSettings(projectCamera, { syncScale: false });
             if (projectCamera && hasRequestedAtomicScale) {
@@ -2328,9 +2956,18 @@ class VAseApp {
         {
             clearSelection = false,
             preserveDisplay = true,
+            preserveRdf = false,
             resetTrajectoryIdentity = false
         } = {}
     ) {
+        if (!preserveRdf) this.invalidateRdfResult();
+        const previousVolumeSignature = JSON.stringify(
+            this.volumetricDatasets().map(dataset => [
+                dataset.id,
+                dataset.shape,
+                dataset.cell
+            ])
+        );
         if (preserveDisplay) this.captureBondSettingsFromControls();
         this.state.atoms = data;
         this.syncTrajectoryIdentity(data, { reset: resetTrajectoryIdentity });
@@ -2359,6 +2996,26 @@ class VAseApp {
         this.renderPairwiseBondControls({ capture: preserveDisplay });
         this.renderer.setDisplayOptions(this.state.display, { rebuild: false });
         this.renderer.rebuildAtoms(data, data.metadata.custom_colors || {});
+        this.renderVolumetricControls();
+        const nextVolumeSignature = JSON.stringify(
+            this.volumetricDatasets().map(dataset => [
+                dataset.id,
+                dataset.shape,
+                dataset.cell
+            ])
+        );
+        if (nextVolumeSignature !== previousVolumeSignature) {
+            if (!this.volumetricDatasets().length || !this.state.display.showVolumetric) {
+                this.renderer.clearVolumetricSurfaces();
+            } else {
+                queueMicrotask(() => {
+                    this.updateVolumetricSurface().catch(error => {
+                        this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);
+                        this.renderer.clearVolumetricSurfaces();
+                    });
+                });
+            }
+        }
         this.renderAppearanceRows();
         this.updateEditingAvailability();
         this.setHoveredAtom(null);
@@ -5638,6 +6295,10 @@ class VAseApp {
             cancelAnimationFrame(this.state.bondApplyRequest);
             this.state.bondApplyRequest = null;
         }
+        const previousRdfPairs = (
+            this.state.rdfResult
+            && this.state.display.rdfPairMode === 'active'
+        ) ? JSON.stringify(this.activeRdfPairs()) : null;
         this.state.display.showBonds = Boolean(document.getElementById('chk-bonds')?.checked);
         this.state.display.showPeriodicBonds = Boolean(
             document.getElementById('chk-periodic-bonds')?.checked
@@ -5657,6 +6318,14 @@ class VAseApp {
             bondColorMode: this.state.display.bondColorMode,
             bondCustomColor: this.state.display.bondCustomColor
         });
+        if (
+            previousRdfPairs !== null
+            && previousRdfPairs !== JSON.stringify(this.activeRdfPairs())
+        ) {
+            this.invalidateRdfResult(
+                'Active bond-pair settings changed. Calculate the RDF again.'
+            );
+        }
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
         this.scheduleVisualHistoryCommit('bonds');
     }
@@ -5943,7 +6612,14 @@ class VAseApp {
                 ? command.operation
                 : command.operation?.name;
             if (operation === 'set-constraints') categories.add('constraints');
-            else if (operation === 'refresh-displacements') categories.add('analysis');
+            else if ([
+                'refresh-displacements',
+                'load-volumetric',
+                'show-volumetric',
+                'combine-volumetric',
+                'remove-volumetric',
+                'calculate-rdf'
+            ].includes(operation)) categories.add('analysis');
             else if (['start-relaxation', 'stop-relaxation'].includes(operation)) {
                 categories.add('trajectory');
                 categories.add('structure');
@@ -6028,6 +6704,20 @@ class VAseApp {
             display: this.clonePlain(this.state.display),
             camera: this.cameraSettingsSnapshot(),
             imageExport: this.clonePlain(this.currentImageExportProfile()),
+            analysis: {
+                volumetricDatasets: this.clonePlain(this.volumetricDatasets()),
+                rdf: this.state.rdfResult ? {
+                    schema: this.state.rdfResult.schema,
+                    bins: this.state.rdfResult.bins,
+                    requestedCutoff: this.state.rdfResult.requested_cutoff,
+                    cutoff: this.state.rdfResult.cutoff,
+                    safeCutoff: this.state.rdfResult.safe_cutoff,
+                    pairMode: this.state.rdfResult.pair_mode,
+                    partialCurves: Object.keys(this.state.rdfResult.partial || {}),
+                    warnings: [...(this.state.rdfResult.warnings || [])],
+                    frame: this.state.rdfResult.frame_index
+                } : null
+            },
             collaboration: {
                 protocol: 'v_ase.collaboration.v1',
                 revision: this.collaborationRevision,
@@ -6078,7 +6768,7 @@ class VAseApp {
                 'atoms', 'labels', 'elements', 'positions', 'cell', 'pbc',
                 'constraints', 'forces', 'charges', 'tags', 'magnetic-moments',
                 'selection', 'measurement', 'trajectory', 'camera', 'display',
-                'collaboration'
+                'volumetric-data', 'rdf', 'collaboration'
             ],
             apply: [
                 'expectedRevision', 'frame', 'mode', 'display', 'quality',
@@ -6089,11 +6779,12 @@ class VAseApp {
                 'add-atom', 'delete-selection', 'set-identity', 'set-constraints',
                 'move-selection', 'rotate-selection', 'undo', 'redo',
                 'reset-coordinates', 'start-relaxation', 'stop-relaxation',
-                'refresh-displacements'
+                'refresh-displacements', 'load-volumetric', 'show-volumetric',
+                'combine-volumetric', 'remove-volumetric', 'calculate-rdf'
             ],
             exports: [
                 'image', 'video', 'poscar', 'pickle', 'blender', '3dm', 'obj',
-                'html', 'project', 'settings'
+                'html', 'project', 'settings', 'rdf-csv'
             ]
         };
     }
@@ -6170,7 +6861,7 @@ class VAseApp {
                 throw new Error('Supercell repetitions must be integers from 1 to 64.');
             }
             setData(await this.api.applySupercell(positions(), reps, applyConstraints), true);
-            this.state.display.supercell = [1, 1, 1];
+            this.finalizeMaterializedSupercellDisplay();
             return;
         }
         if (name === 'make-supercell') {
@@ -6192,7 +6883,7 @@ class VAseApp {
                 matrix.map(row => row.map(Number)),
                 applyConstraints
             ), true);
-            this.state.display.supercell = [1, 1, 1];
+            this.finalizeMaterializedSupercellDisplay();
             return;
         }
         if (name === 'add-atom') {
@@ -6330,6 +7021,125 @@ class VAseApp {
                 });
             }
             await this.refreshDisplacementAnalysis();
+            return;
+        }
+        if (name === 'load-volumetric') {
+            const path = String(operation.path || '').trim();
+            if (!path) throw new Error('load-volumetric requires a path.');
+            const data = await this.api.appendStructurePath(
+                path,
+                String(operation.format || ''),
+                ':'
+            );
+            if (data.loaded_file?.source_kind !== 'volumetric') {
+                throw new Error('The requested path did not contain supported volumetric data.');
+            }
+            this.setAtomsData(data, {
+                clearSelection: !this.hasLoadedAtoms(),
+                preserveDisplay: true,
+                preserveRdf: true
+            });
+            this.renderVolumetricControls();
+            return;
+        }
+        if (name === 'show-volumetric') {
+            const datasetId = String(operation.datasetId || '').trim();
+            const dataset = this.volumetricDatasets().find(item => item.id === datasetId);
+            if (!dataset) throw new Error(`Volumetric dataset '${datasetId}' was not found.`);
+            const level = Number(operation.level);
+            if (!Number.isFinite(level)) throw new Error('show-volumetric requires a finite level.');
+            Object.assign(this.state.display, {
+                showVolumetric: true,
+                volumetricDatasetId: datasetId,
+                volumetricLevel: level,
+                volumetricSurfaceMode: operation.surfaceMode === 'signed' ? 'signed' : 'single',
+                volumetricStepSize: [1, 2, 4].includes(Number(operation.stepSize))
+                    ? Number(operation.stepSize)
+                    : this.state.display.volumetricStepSize,
+                volumetricOpacity: operation.opacity === undefined
+                    ? this.state.display.volumetricOpacity
+                    : Math.max(0.05, Math.min(1, Number(operation.opacity) || 0.72)),
+                volumetricPositiveColor: this.validHexColor(operation.positiveColor)
+                    ? operation.positiveColor
+                    : this.state.display.volumetricPositiveColor,
+                volumetricNegativeColor: this.validHexColor(operation.negativeColor)
+                    ? operation.negativeColor
+                    : this.state.display.volumetricNegativeColor
+            });
+            this.renderVolumetricControls();
+            await this.updateVolumetricSurface();
+            return;
+        }
+        if (name === 'combine-volumetric') {
+            if (
+                !Array.isArray(operation.datasetIds)
+                || !Array.isArray(operation.coefficients)
+                || operation.datasetIds.length < 2
+                || operation.datasetIds.length !== operation.coefficients.length
+            ) {
+                throw new Error(
+                    'combine-volumetric requires matching datasetIds and coefficients arrays.'
+                );
+            }
+            const result = await this.api.createVolumetricDifference({
+                dataset_ids: operation.datasetIds.map(value => String(value)),
+                coefficients: operation.coefficients.map(Number),
+                name: String(operation.name || 'Charge density difference')
+            });
+            this.state.atoms.metadata.volumetric_datasets = result.volumetric_datasets || [];
+            this.state.display.volumetricDatasetId = result.dataset.id;
+            this.state.display.volumetricLevel = this.defaultVolumetricLevel(result.dataset);
+            this.renderVolumetricControls();
+            return;
+        }
+        if (name === 'remove-volumetric') {
+            const datasetId = String(operation.datasetId || '').trim();
+            if (!datasetId) throw new Error('remove-volumetric requires datasetId.');
+            const result = await this.api.deleteVolumetricDataset(datasetId);
+            this.state.atoms.metadata.volumetric_datasets = result.volumetric_datasets || [];
+            if (this.state.display.volumetricDatasetId === datasetId) {
+                this.state.display.volumetricDatasetId = '';
+                this.state.display.showVolumetric = false;
+                this.renderer.clearVolumetricSurfaces();
+            }
+            this.renderVolumetricControls();
+            return;
+        }
+        if (name === 'calculate-rdf') {
+            const pairMode = ['active', 'all', 'none'].includes(operation.pairMode)
+                ? operation.pairMode
+                : this.state.display.rdfPairMode;
+            const cutoffInput = document.getElementById('rdf-cutoff');
+            const binsInput = document.getElementById('rdf-bins');
+            const modeInput = document.getElementById('rdf-pair-mode');
+            if (cutoffInput) {
+                cutoffInput.value = operation.cutoff === undefined || operation.cutoff === null
+                    ? ''
+                    : `${Number(operation.cutoff)}`;
+            }
+            if (binsInput && operation.bins !== undefined) binsInput.value = `${Number(operation.bins)}`;
+            if (modeInput) modeInput.value = pairMode;
+            const options = this.rdfOptions();
+            if (Array.isArray(operation.activePairs)) {
+                options.active_pairs = this.clonePlain(operation.activePairs);
+            }
+            const token = ++this.state.rdfRequestToken;
+            const result = await this.api.fetchRdf(options);
+            if (token !== this.state.rdfRequestToken) {
+                throw new Error(
+                    'The structure or trajectory frame changed while RDF was being '
+                    + 'calculated. Inspect the current state and retry.'
+                );
+            }
+            this.state.rdfResult = result;
+            document.getElementById('btn-rdf-export').disabled = false;
+            await this.plotRdf(result);
+            const warning = (result.warnings || []).join(' ');
+            this.setRdfStatus(
+                warning ? 'warning' : 'ready',
+                `${result.bins} bins · cutoff ${Number(result.cutoff).toFixed(3)} Å`,
+                warning || `${Object.keys(result.partial || {}).length} pair curves plus total.`
+            );
             return;
         }
         throw new Error(`Unsupported AI operation '${name}'.`);
@@ -6620,9 +7430,21 @@ class VAseApp {
             blob = await this.api.saveVisualSettings(this.designSettingsSnapshot());
             filename = 'v_ase-settings.json';
             mimeType = 'application/json';
+        } else if (format === 'rdf-csv') {
+            const options = this.rdfOptions();
+            if (request.cutoff !== undefined) options.cutoff = request.cutoff;
+            if (request.bins !== undefined) options.bins = request.bins;
+            if (request.pairMode !== undefined) options.pair_mode = request.pairMode;
+            if (request.activePairs !== undefined) {
+                options.active_pairs = this.clonePlain(request.activePairs);
+            }
+            blob = await this.api.exportRdfCsv(options);
+            filename = 'v_ase_rdf.csv';
+            mimeType = 'text/csv';
         } else {
             throw new Error(
-                "export format must be image, video, poscar, pickle, blender, 3dm, obj, html, project, or settings."
+                "export format must be image, video, poscar, pickle, blender, "
+                + "3dm, obj, html, project, settings, or rdf-csv."
             );
         }
         return {
@@ -7091,6 +7913,31 @@ class VAseApp {
             displacementColor: this.validHexColor(nextDisplay.displacementColor)
                 ? nextDisplay.displacementColor
                 : '#e58b2a',
+            showVolumetric: Boolean(nextDisplay.showVolumetric),
+            volumetricDatasetId: String(nextDisplay.volumetricDatasetId || ''),
+            volumetricLevel: Number.isFinite(Number(nextDisplay.volumetricLevel))
+                ? Number(nextDisplay.volumetricLevel)
+                : null,
+            volumetricSurfaceMode: nextDisplay.volumetricSurfaceMode === 'signed'
+                ? 'signed'
+                : 'single',
+            volumetricStepSize: [1, 2, 4].includes(Number(nextDisplay.volumetricStepSize))
+                ? Number(nextDisplay.volumetricStepSize)
+                : 1,
+            volumetricOpacity: finiteClamped(nextDisplay.volumetricOpacity, 0.72, 0.05, 1),
+            volumetricPositiveColor: this.validHexColor(nextDisplay.volumetricPositiveColor)
+                ? nextDisplay.volumetricPositiveColor
+                : '#2f8fdb',
+            volumetricNegativeColor: this.validHexColor(nextDisplay.volumetricNegativeColor)
+                ? nextDisplay.volumetricNegativeColor
+                : '#e05b78',
+            rdfCutoff: Number.isFinite(Number(nextDisplay.rdfCutoff)) && Number(nextDisplay.rdfCutoff) > 0
+                ? Number(nextDisplay.rdfCutoff)
+                : null,
+            rdfBins: integerClamped(nextDisplay.rdfBins, 200, 8, 5000),
+            rdfPairMode: ['active', 'all', 'none'].includes(nextDisplay.rdfPairMode)
+                ? nextDisplay.rdfPairMode
+                : 'active',
             pairwiseLabelColumnWidth: finiteClamped(
                 nextDisplay.pairwiseLabelColumnWidth, 210, 120, 520
             ),
@@ -7181,6 +8028,7 @@ class VAseApp {
         this.syncDesignControls();
         this.renderPairwiseBondControls({ capture: false });
         this.renderAppearanceRows();
+        this.syncRdfControls();
         this.syncDesignControls();
         if (source.camera) this.applyCameraSettings(source.camera, { syncScale: false });
         if (Number.isFinite(requestedAtomicScale) && requestedAtomicScale > 0) {
@@ -7190,6 +8038,12 @@ class VAseApp {
         }
         if (render) {
             this.renderer.setDisplayOptions(this.state.display);
+            this.renderVolumetricControls();
+            if (this.state.display.showVolumetric) {
+                this.updateVolumetricSurface().catch(error => {
+                    this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);
+                });
+            }
             this.updateSelectionVisuals();
             this.updateBondModeUI();
             this.updateUI();
@@ -7365,13 +8219,23 @@ class VAseApp {
                 () => this.api.applySupercell(this.backendPositionsPayload(), reps, this.state.applyConstraints)
             );
             this.setAtomsData(data, { clearSelection: true });
-            ['super-x', 'super-y', 'super-z'].forEach(id => { document.getElementById(id).value = '1'; });
-            this.state.display.supercell = [1, 1, 1];
-            this.renderer.setDisplayOptions(this.state.display);
+            this.finalizeMaterializedSupercellDisplay();
             this.toast(`Set ${reps.join(' x ')} supercell as editable cell for all frames.`, 'success');
         } catch (err) {
             this.toast(`Set supercell failed: ${err.message}`, 'error');
         }
+    }
+
+    finalizeMaterializedSupercellDisplay() {
+        ['super-x', 'super-y', 'super-z'].forEach(id => {
+            const input = document.getElementById(id);
+            if (input) input.value = '1';
+        });
+        this.state.display.supercell = [1, 1, 1];
+        this.renderer.setDisplayOptions(this.state.display);
+        // The preview reset belongs to the same physical supercell operation.
+        // Starting a new visual-history entry here would make Undo require two steps.
+        this.resetVisualHistoryBaseline();
     }
 
     normalizedTranslationVector(vector = [0, 0, 0]) {
@@ -8695,10 +9559,22 @@ class VAseApp {
             this.renderer.needsInitialCameraFit = wasEmpty;
             this.setAtomsData(data, {
                 clearSelection: wasEmpty,
-                preserveDisplay: true
+                preserveDisplay: true,
+                preserveRdf: data.loaded_file?.source_kind === 'volumetric'
             });
             if (wasEmpty) this.initialDesignSettings = this.designSettingsSnapshot();
             this.resetVisualHistoryBaseline();
+            if (data.loaded_file?.source_kind === 'volumetric') {
+                const addedVolumes = Number(data.loaded_file?.appended_volumetric_datasets) || 0;
+                this.renderVolumetricControls();
+                this.toast(
+                    `Added ${addedVolumes} scalar field${addedVolumes === 1 ? '' : 's'} `
+                    + `from ${data.loaded_file?.filename || file.name}.`,
+                    'success'
+                );
+                this.notifyWorkspaceDocument();
+                return;
+            }
             const added = Number(data.loaded_file?.appended_frames) || 0;
             const total = Number(data.metadata?.frame_count) || 1;
             const projectNote = data.loaded_file?.project_settings_ignored

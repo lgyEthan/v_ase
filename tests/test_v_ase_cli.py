@@ -3,6 +3,8 @@ import json
 import tomllib
 from pathlib import Path
 
+import numpy as np
+from ase import Atoms
 from ase.build import molecule
 from ase.io import write
 import pytest
@@ -392,7 +394,40 @@ def test_format_aliases_resolve_to_ase_format_names():
     assert resolve_input_format("data") == "lammps-data"
     assert resolve_input_format("vase") == "vase-project"
     assert resolve_input_format("html") == "vase-html-project"
+    assert resolve_input_format("CHGCAR") == "vasp-density"
+    assert resolve_input_format("LOCPOT") == "vasp-potential"
+    assert resolve_input_format("PARCHG") == "vasp-partial-density"
+    assert resolve_input_format("cube") == "cube"
+    assert resolve_input_format("xsf") == "xsf"
     assert resolve_input_format("espresso-in") == "espresso-in"
+
+
+def test_v_ase_gui_opens_volumetric_input_with_grid_attached(tmp_path, monkeypatch):
+    atoms = Atoms(
+        "NaCl",
+        positions=[[1.0, 1.0, 1.0], [3.0, 3.0, 3.0]],
+        cell=[5.0, 5.0, 5.0],
+        pbc=True,
+    )
+    values = np.linspace(-0.5, 0.8, 8 * 9 * 10).reshape(8, 9, 10)
+    cube_path = tmp_path / "density.cube"
+    write(cube_path, atoms, data=values, format="cube")
+    captured = {}
+
+    def fake_view(frames, **kwargs):
+        captured["frames"] = frames
+        captured["kwargs"] = kwargs
+        return frames[0]
+
+    monkeypatch.setattr("v_ase.cli.view", fake_view)
+
+    args = build_parser().parse_args(["gui", str(cube_path)])
+    assert run_gui(args) == 0
+    assert len(captured["frames"]) == 1
+    assert captured["frames"][0].get_chemical_symbols() == ["Na", "Cl"]
+    datasets = captured["kwargs"]["volumetric_datasets"]
+    assert len(datasets) == 1
+    assert datasets[0].values.shape == values.shape
 
 
 def test_v_ase_gui_reopens_project_embedded_html(tmp_path, monkeypatch):

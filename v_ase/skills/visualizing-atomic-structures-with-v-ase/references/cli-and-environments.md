@@ -14,17 +14,18 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.120"
+python -m pip install "v_ase-gui==0.1.1"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.0.120"
+python -m pip install "v_ase-gui[rhino]==0.1.1"
 ```
 
-Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, imageio-ffmpeg, and
-Pillow. No Node.js runtime, API key, or hosted account is required.
+Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, SciPy, scikit-image,
+Plotly, imageio-ffmpeg, and Pillow. No Node.js runtime, API key, or hosted
+account is required.
 
 Verify the active executable and import:
 
@@ -151,12 +152,25 @@ ASE-readable structures and trajectories are supported. Common inputs include:
 - CIF and other formats registered by ASE;
 - self-contained `.vase` projects.
 
+Volumetric inputs may be opened directly or loaded into an existing document:
+
+- VASP `CHGCAR`/`CHG`, `LOCPOT`, `PARCHG`, and `ELFCAR`;
+- Gaussian Cube;
+- XSF `DATAGRID_3D` blocks;
+- Quantum ESPRESSO scalar data exported by `pp.x` as Cube or XSF.
+
 Use `--format` when the filename does not identify the reader:
 
 ```bash
 v_ase gui ABCD --format vasprun.xml
 v_ase gui INPUT --format lammps-data
+v_ase gui GRID --format CHGCAR
+v_ase gui charge.dat --format qe-cube
 ```
+
+For semantic `load-volumetric`, relative paths are resolved inside the
+directory where `v_ase gui` was launched. This keeps an agent inside the same
+local or remote working directory as the DFT calculation.
 
 The semantic state keeps visual labels separate from ASE chemical symbols.
 Custom labels such as `O_bridge` remain labels while the backend element can
@@ -177,6 +191,7 @@ Main outputs:
 - shareable view: one offline view-only HTML document with optional embedded `.vase` recovery;
 - complete session: `.vase`;
 - reusable appearance: visual settings JSON.
+- analysis table: total and pairwise RDF as CSV.
 
 Use `.vase` as the canonical editable project. Use HTML when the recipient
 should inspect the saved 3D scene and trajectory in a browser without
@@ -229,5 +244,8 @@ to an untrusted network.
 - Browser-native video capture requires a Chromium-family browser with
   `MediaRecorder`.
 - 3DM export requires the optional `rhino3dm` dependency.
+- Volumetric input is bounded by `V_ASE_MAX_VOLUMETRIC_POINTS`. Keep the
+  default safety limit unless the machine has enough memory for the complete
+  grid and extracted surface.
 - Very large trajectories should use `--stream-frames`; do not preload every
   coordinate into an agent context.

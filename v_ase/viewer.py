@@ -379,6 +379,7 @@ def view(
     close_on_disconnect: bool = True,
     open_browser: bool = True,
     stream_trajectory: bool = False,
+    volumetric_datasets: Optional[Sequence[Any]] = None,
 ) -> Union[Atoms, ASEEditor, None]:
     """
     Open the v_ase structure viewer/editor.
@@ -402,11 +403,27 @@ def view(
     if document_name is None:
         document_name = os.path.basename(source_path) if source_path else "Untitled"
 
-    if source_path and source_path.lower().endswith((".vase", ".html", ".htm")):
+    if source_path:
+        from .volumetric import (
+            read_volumetric_file,
+            resolve_volumetric_format,
+            volumetric_structure,
+        )
+
+        volumetric_format = resolve_volumetric_format(source_path)
+    else:
+        volumetric_format = None
+
+    if source_path and volumetric_format:
+        loaded_volumetric = read_volumetric_file(source_path, volumetric_format)
+        volumetric_datasets = loaded_volumetric
+        atoms = [volumetric_structure(loaded_volumetric)]
+    elif source_path and source_path.lower().endswith((".vase", ".html", ".htm")):
         from .project import read_project_document
 
         project = read_project_document(atoms)
         atoms = project.frames
+        volumetric_datasets = project.volumetric_datasets
         initial_frame = project.current_frame
         if initial_design_settings is None:
             initial_design_settings = project.settings
@@ -442,6 +459,7 @@ def view(
         trajectory_frames=working_frames,
         trajectory_source=trajectory_source,
         current_frame=initial_frame,
+        volumetric_datasets=list(volumetric_datasets or []),
         config={
             "show_cell": show_cell,
             "show_axes": show_axes,

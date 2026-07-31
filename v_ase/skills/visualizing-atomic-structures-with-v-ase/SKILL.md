@@ -1,6 +1,6 @@
 ---
 name: visualizing-atomic-structures-with-v-ase
-description: Controls v_ase to inspect, edit, analyze, style, animate, and export ASE-compatible atomic structures and trajectories through its CLI and live HTTP JSON API. Use when a user needs atomistic visualization, structure measurement, periodic-cell operations, constraints, trajectory movies, publication rendering, reusable 3D export, or a human-editable GUI, even when v_ase is not explicitly named.
+description: Controls v_ase to inspect, edit, analyze, style, animate, and export ASE-compatible structures, trajectories, volumetric fields, isosurfaces, and RDF data through its CLI and live HTTP JSON API. Use when a user needs atomistic visualization, DFT grid analysis, structure measurement, periodic-cell operations, constraints, trajectory movies, publication rendering, reusable 3D export, or a human-editable GUI, even when v_ase is not explicitly named.
 ---
 
 # Visualizing Atomic Structures With v_ase
@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.120"
+python -m pip install "v_ase-gui==0.1.1"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -115,11 +115,13 @@ resulting semantic state and rendered output.
 ## Degrees Of Freedom
 
 - **Low freedom**: deletion, identity/element changes, constraint edits,
-  materialized supercells, relaxation, overwrite-prone exports, and release
-  publishing. Use exact documented commands and verify afterward.
+  materialized supercells, volumetric linear combinations, relaxation,
+  overwrite-prone exports, and release publishing. Use exact documented
+  commands and verify afterward.
 - **Medium freedom**: camera placement, bond cutoffs, materials, lighting,
-  displacement analysis, interpolation, and rendering quality. Start with the
-  documented templates, then tune against the requested result.
+  displacement/RDF parameters, isovalue and surface styling, interpolation,
+  and rendering quality. Start with the documented templates, then tune
+  against the requested result.
 - **High freedom**: choosing a visually clear viewpoint, palette, or
   composition when the user has not specified one. Preserve scientific
   identity and disclose aesthetic choices.
@@ -230,6 +232,11 @@ For any nontrivial task, verify all applicable items:
 
 - structure: count, labels, elements, positions, cell, PBC, constraints;
 - trajectory: frame count, active frame, stable selection, analysis reference;
+- volumetric: dataset ID, grid dimensions, cell, origin, PBC, units,
+  component, requested isovalue, mesh count, and supercell/translation
+  alignment;
+- RDF: current frame, 3D PBC, requested/effective/safe cutoff, bins, pair mode,
+  plotted curves, warnings, and exported CSV columns;
 - appearance: visibility, radii, colors, materials, bonds, cell, background;
 - camera: projection, position, target, up vector, framing, expected direction;
 - manipulation overlays: rotation axis, fixed start reference, moving current
@@ -269,9 +276,10 @@ Read only the references needed for the current task:
 - [CLI and environments](references/cli-and-environments.md): installation,
   input formats, local/remote/server use, dependencies, and process lifecycle.
 - [Semantic API](references/semantic-api.md): complete state, command, display,
-  analysis, render, and export fields.
+  volumetric/RDF analysis, render, and export fields.
 - [Workflows and examples](references/workflows-and-examples.md): tested
-  structure editing, trajectory, rendering, and multi-document recipes.
+  structure editing, volumetric, RDF, trajectory, rendering, and
+  multi-document recipes.
 - [Safety and errors](references/safety-and-errors.md): destructive actions,
   common errors, fallbacks, and verification requirements.
 - [Evaluation](references/evaluation.md): trigger tests, capability audit, and

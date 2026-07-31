@@ -579,6 +579,10 @@ export class ASERenderer {
         this.displacementGroup = new THREE.Group();
         this.displacementGroup.name = 'v_ase_displacement_vectors';
         this.scene.add(this.displacementGroup);
+        this.volumetricGroup = new THREE.Group();
+        this.volumetricGroup.name = 'v_ase_volumetric_isosurfaces';
+        this.scene.add(this.volumetricGroup);
+        this.volumetricSurfaces = [];
         this.commensurateGuideGroup = new THREE.Group();
         this.scene.add(this.commensurateGuideGroup);
         this.commensurateGuideSignature = null;
@@ -1066,6 +1070,7 @@ export class ASERenderer {
             this.replicaSelectionOutlines,
             this.bondGroup,
             this.displacementGroup,
+            this.volumetricGroup,
             this.commensurateGuideGroup,
             this.constraintMarkGroup,
             this.constraintGuideGroup,
@@ -1148,7 +1153,13 @@ export class ASERenderer {
 
     applyShadowFlags() {
         const enabled = Boolean(this.shadowModeActive);
-        [this.atomMeshes, this.cellGroup, this.bondGroup, this.supercellGroup].forEach(group => {
+        [
+            this.atomMeshes,
+            this.cellGroup,
+            this.bondGroup,
+            this.supercellGroup,
+            this.volumetricGroup
+        ].forEach(group => {
             group?.traverse?.(object => {
                 if (!object.isMesh) return;
                 object.castShadow = enabled;
@@ -1173,6 +1184,13 @@ export class ASERenderer {
             high.copy(proxy.position).addScalar(radius);
             base.expandByPoint(low);
             base.expandByPoint(high);
+        });
+        this.volumetricSurfaces?.forEach(surface => {
+            surface.geometry?.computeBoundingBox?.();
+            const bounds = surface.geometry?.boundingBox;
+            if (!bounds?.isEmpty?.()) {
+                base.union(bounds);
+            }
         });
 
         if (base.isEmpty()) {
@@ -3201,6 +3219,9 @@ export class ASERenderer {
         if (visibilityChanged) this.applyAtomVisibility(changedVisibilityLabels);
         else if (bondsChanged) this.rebuildBonds();
         if (supercellChanged) this.rebuildSupercell();
+        if (supercellChanged && this.volumetricSurfaces.length) {
+            this.rebuildVolumetricSurfaces();
+        }
         if ((displacementChanged || visibilityChanged || supercellChanged) && this.displacementData) {
             this.setDisplacementVectors(this.displacementData, this.displayOptions);
         }
@@ -3955,6 +3976,112 @@ export class ASERenderer {
         if (!keepData) this.displacementData = null;
         this.displacementCameraSignature = '';
         this.domElement.dataset.displacementCount = '0';
+        this.requestRender();
+    }
+
+    clearVolumetricSurfaces() {
+        if (!this.volumetricGroup) return;
+        while (this.volumetricGroup.children.length) {
+            this.volumetricGroup.remove(this.volumetricGroup.children[0]);
+        }
+        this.volumetricSurfaces.forEach(surface => {
+            surface.geometry?.dispose?.();
+            surface.material?.dispose?.();
+        });
+        this.volumetricSurfaces = [];
+        this.domElement.dataset.volumetricSurfaceCount = '0';
+        this.requestRender();
+    }
+
+    setVolumetricSurfaces(specifications = []) {
+        this.clearVolumetricSurfaces();
+        this.volumetricSurfaces = specifications.map(specification => {
+            const vertices = specification.vertices instanceof Float32Array
+                ? specification.vertices
+                : new Float32Array(specification.vertices || []);
+            const faces = specification.faces instanceof Uint32Array
+                ? specification.faces
+                : new Uint32Array(specification.faces || []);
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+            geometry.setIndex(new THREE.BufferAttribute(faces, 1));
+            geometry.computeVertexNormals();
+            geometry.computeBoundingSphere();
+            const opacity = Math.max(0.05, Math.min(1, Number(specification.opacity) || 0.72));
+            const material = new THREE.MeshStandardMaterial({
+                color: this.validHexColor(specification.color) ? specification.color : '#2f8fdb',
+                side: THREE.DoubleSide,
+                transparent: opacity < 0.999,
+                opacity,
+                depthWrite: opacity >= 0.96,
+                roughness: 0.42,
+                metalness: 0.04
+            });
+            return {
+                ...specification,
+                cell: (specification.cell || []).map(vector => [...vector]),
+                geometry,
+                material
+            };
+        });
+        this.rebuildVolumetricSurfaces();
+    }
+
+    updateVolumetricSurfaceStyle({
+        positiveColor = '#2f8fdb',
+        negativeColor = '#e05b78',
+        opacity = 0.72
+    } = {}) {
+        const alpha = Math.max(0.05, Math.min(1, Number(opacity) || 0.72));
+        this.volumetricSurfaces.forEach(surface => {
+            const color = Number(surface.level) < 0 ? negativeColor : positiveColor;
+            if (this.validHexColor(color)) surface.material.color.set(color);
+            surface.material.opacity = alpha;
+            surface.material.transparent = alpha < 0.999;
+            surface.material.depthWrite = alpha >= 0.96;
+            surface.material.needsUpdate = true;
+            surface.color = color;
+            surface.opacity = alpha;
+        });
+        this.invalidateSunShadowBounds();
+        if (this.shadowModeActive) this.fitSunShadowCamera();
+        this.requestRender();
+    }
+
+    rebuildVolumetricSurfaces() {
+        if (!this.volumetricGroup) return;
+        while (this.volumetricGroup.children.length) {
+            this.volumetricGroup.remove(this.volumetricGroup.children[0]);
+        }
+        const repetitions = this.displayOptions.supercell || [1, 1, 1];
+        let count = 0;
+        this.volumetricSurfaces.forEach(surface => {
+            const cell = surface.cell?.length === 3
+                ? surface.cell.map(vector => new THREE.Vector3(...vector))
+                : null;
+            const translations = [{ cellOffset: [0, 0, 0], vector: new THREE.Vector3() }];
+            if (cell) translations.push(...this.supercellTranslations(cell, repetitions));
+            translations.forEach(translation => {
+                const mesh = new THREE.Mesh(surface.geometry, surface.material);
+                mesh.position.copy(translation.vector);
+                mesh.userData = {
+                    volumetricSurface: true,
+                    datasetId: surface.datasetId,
+                    level: surface.level,
+                    cellOffset: translation.cellOffset,
+                    sharedGeometry: true,
+                    sharedMaterial: true
+                };
+                mesh.castShadow = Boolean(this.shadowModeActive);
+                mesh.receiveShadow = Boolean(this.shadowModeActive);
+                this.volumetricGroup.add(mesh);
+                count++;
+            });
+        });
+        this.volumetricGroup.position.copy(this.visualTranslationVector());
+        this.domElement.dataset.volumetricSurfaceCount = String(count);
+        this.invalidateSunShadowBounds();
+        this.applyShadowFlags();
         this.requestRender();
     }
 
