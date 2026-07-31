@@ -133,6 +133,18 @@ Run all scenarios, not only static document checks:
      with the source fixture;
    - create single and signed isosurfaces, verify nonblank triangles, colors,
      opacity, and step-size behavior;
+   - compare zero and nonzero field smearing, verify FP32/FP64 source arrays
+     remain unchanged, periodic axes wrap, and nonperiodic axes do not bleed
+     across their boundary;
+   - compare zero and nonzero mesh smoothing, verify interior vertices move
+     while cell-boundary vertices and periodic seams remain closed;
+   - verify semantic state reports rendered levels, post-smearing range,
+     surface/triangle counts, and partial signed status while the source
+     dataset descriptor stays unchanged;
+   - reject an invalid sign mode, step size, sigma, fractional smoothing pass,
+     opacity, color, and zero signed level rather than clamping;
+   - verify a volumetric import emits an `analysis` collaboration event and
+     never a false `trajectory.frames` change;
    - verify the first loaded grid is visible at a valid default level and
      changing opacity restyles the existing mesh without regenerating it;
    - display-repeat and visually translate atoms and meshes together;

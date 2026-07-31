@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 from pathlib import Path
 import zipfile
 
@@ -14,8 +15,12 @@ from ase.io.xsf import write_xsf
 
 from v_ase.volumetric import (
     ISOSURFACE_BINARY_MAGIC,
+    MAX_ISOSURFACE_SMOOTHING_ITERATIONS,
+    MAX_VOLUMETRIC_SMEARING_SIGMA,
     VolumetricData,
     _max_grid_points,
+    _smear_scalar_grid,
+    _smooth_mesh_vertices,
     combine_volumetric_datasets,
     generate_isosurface,
     normalize_volumetric_precision,
@@ -411,6 +416,160 @@ def test_periodic_isosurface_closes_cell_seams_and_uses_cartesian_cell(monkeypat
     assert np.all(np.isfinite(mesh.vertices))
 
 
+def test_field_smearing_preserves_precision_source_values_and_periodic_boundaries():
+    pytest.importorskip("scipy")
+    values = np.zeros((9, 8, 7), dtype=np.float64)
+    values[0, 0, 3] = 1.0
+    source = values.copy()
+    dataset = VolumetricData(
+        "periodic impulse",
+        values,
+        np.diag([9.0, 8.0, 7.0]),
+        pbc=[True, False, False],
+        precision="float64",
+    )
+
+    smoothed = _smear_scalar_grid(dataset, 1.0)
+
+    assert smoothed.dtype == np.float64
+    np.testing.assert_array_equal(dataset.values, source)
+    assert smoothed[-1, 0, 3] > 0
+    assert smoothed[0, -1, 3] == pytest.approx(0.0)
+    assert _smear_scalar_grid(dataset, 1.0) is smoothed
+    assert _smear_scalar_grid(dataset, 0.0) is dataset.values
+
+
+def test_field_smearing_restores_redundant_planes_for_endpoint_inclusive_grid():
+    pytest.importorskip("scipy")
+    rng = np.random.default_rng(71)
+    core = rng.normal(size=(7, 6, 5)).astype(np.float32)
+    values = np.concatenate((core, core[:1]), axis=0)
+    values = np.concatenate((values, values[:, :1]), axis=1)
+    values = np.concatenate((values, values[:, :, :1]), axis=2)
+    dataset = VolumetricData(
+        "inclusive periodic grid",
+        values,
+        np.diag([7.0, 6.0, 5.0]),
+        pbc=True,
+        endpoint_inclusive=True,
+        precision="float32",
+    )
+
+    smoothed = _smear_scalar_grid(dataset, 0.75)
+
+    assert smoothed.shape == values.shape
+    assert smoothed.dtype == np.float32
+    np.testing.assert_allclose(smoothed[-1], smoothed[0])
+    np.testing.assert_allclose(smoothed[:, -1], smoothed[:, 0])
+    np.testing.assert_allclose(smoothed[:, :, -1], smoothed[:, :, 0])
+
+
+def test_surface_smoothing_fairs_mesh_without_moving_domain_boundary_vertices():
+    pytest.importorskip("skimage")
+    pytest.importorskip("scipy")
+    shape = (20, 18, 16)
+    fractional = np.stack(
+        np.meshgrid(
+            *[np.arange(size) / size for size in shape],
+            indexing="ij",
+        ),
+        axis=-1,
+    )
+    delta = fractional - np.array([0.04, 0.5, 0.5])
+    delta -= np.round(delta)
+    radius = np.linalg.norm(delta, axis=-1)
+    values = (
+        0.23
+        - radius
+        + 0.018 * np.sin(12 * np.pi * fractional[..., 1])
+        * np.sin(10 * np.pi * fractional[..., 2])
+    )
+    dataset = VolumetricData(
+        "coarse periodic sphere",
+        values,
+        np.diag([4.0, 5.0, 6.0]),
+        pbc=True,
+    )
+
+    raw = generate_isosurface(
+        dataset,
+        0.0,
+        smearing_sigma=0.0,
+        smoothing_iterations=0,
+    )
+    refined = generate_isosurface(
+        dataset,
+        0.0,
+        smearing_sigma=0.0,
+        smoothing_iterations=6,
+    )
+    smeared = generate_isosurface(
+        dataset,
+        0.0,
+        smearing_sigma=0.35,
+        smoothing_iterations=0,
+    )
+
+    assert raw.faces.shape == refined.faces.shape
+    assert raw.vertices.shape == refined.vertices.shape
+    boundary = np.isclose(raw.vertices[:, 0], 0.0, atol=1e-6)
+    assert np.any(boundary)
+    np.testing.assert_allclose(refined.vertices[boundary], raw.vertices[boundary])
+    assert not np.allclose(refined.vertices[~boundary], raw.vertices[~boundary])
+
+    def laplacian_roughness(mesh):
+        edges = np.concatenate(
+            (
+                mesh.faces[:, (0, 1)],
+                mesh.faces[:, (1, 2)],
+                mesh.faces[:, (2, 0)],
+            ),
+            axis=0,
+        )
+        edges = np.unique(np.sort(edges, axis=1), axis=0)
+        sums = np.zeros_like(mesh.vertices, dtype=np.float64)
+        counts = np.zeros(len(mesh.vertices), dtype=np.int64)
+        np.add.at(sums, edges[:, 0], mesh.vertices[edges[:, 1]])
+        np.add.at(sums, edges[:, 1], mesh.vertices[edges[:, 0]])
+        np.add.at(counts, edges[:, 0], 1)
+        np.add.at(counts, edges[:, 1], 1)
+        residual = mesh.vertices - sums / counts[:, None]
+        return float(np.mean(np.linalg.norm(residual[~boundary], axis=1)))
+
+    assert laplacian_roughness(refined) < laplacian_roughness(raw)
+    assert refined.metadata["smearing_sigma"] == pytest.approx(0.0)
+    assert refined.metadata["smoothing_iterations"] == 6
+    assert refined.metadata["fixed_boundary_vertices"] >= int(np.count_nonzero(boundary))
+    assert smeared.metadata["smearing_sigma"] == pytest.approx(0.35)
+    assert smeared.metadata["display_minimum"] < 0 < smeared.metadata["display_maximum"]
+
+
+def test_volumetric_refinement_limits_are_strict():
+    dataset = VolumetricData(
+        "limits",
+        np.linspace(-1, 1, 5 ** 3).reshape(5, 5, 5),
+        np.eye(3),
+    )
+    with pytest.raises(ValueError, match="smearing sigma"):
+        generate_isosurface(
+            dataset,
+            0.0,
+            smearing_sigma=MAX_VOLUMETRIC_SMEARING_SIGMA + 0.1,
+        )
+    with pytest.raises(ValueError, match="smoothing passes"):
+        _smooth_mesh_vertices(
+            np.zeros((4, 3)),
+            np.array([[0, 1, 2], [0, 2, 3]]),
+            iterations=MAX_ISOSURFACE_SMOOTHING_ITERATIONS + 1,
+        )
+    with pytest.raises(ValueError, match="smoothing passes"):
+        generate_isosurface(
+            dataset,
+            0.0,
+            smoothing_iterations=1.5,
+        )
+
+
 def test_vase_project_roundtrips_volumetric_data_without_pickle(tmp_path):
     atoms = Atoms("Li", positions=[[0.5, 0.5, 0.5]], cell=[4, 5, 6], pbc=True)
     values = np.linspace(-0.4, 0.8, 7 * 8 * 9, dtype=np.float32).reshape(7, 8, 9)
@@ -593,9 +752,15 @@ def test_volumetric_api_exposes_metadata_difference_and_binary_mesh():
                 "dataset_id": first.dataset_id,
                 "level": 0.0,
                 "step_size": 1,
+                "smearing_sigma": 0.4,
+                "smoothing_iterations": 5,
             },
         ))
         assert response.body.startswith(ISOSURFACE_BINARY_MAGIC)
         assert response.media_type == "application/vnd.v-ase.isosurface"
+        header_size = int.from_bytes(response.body[8:12], "little")
+        header = json.loads(response.body[12:12 + header_size])
+        assert header["metadata"]["smearing_sigma"] == pytest.approx(0.4)
+        assert header["metadata"]["smoothing_iterations"] == 5
     finally:
         sessions.pop(session.session_id, None)

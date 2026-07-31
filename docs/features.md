@@ -345,6 +345,10 @@ Supported operations:
   isosurface for the newest dataset;
 - form an arbitrary finite linear combination of compatible grids;
 - extract one positive surface or paired positive/negative surfaces;
+- optionally Gaussian-smear only the displayed field with periodic wrapping
+  and nonperiodic reflection before extraction;
+- optionally fair the extracted indexed mesh while fixing cell-boundary
+  vertices;
 - restyle positive/negative colors and opacity live without rerunning marching
   cubes;
 - remove a dataset;
@@ -367,8 +371,26 @@ grids as one state after a materialized diagonal supercell.
 
 Marching cubes closes periodic seams before extracting the surface. `stepSize`
 1 preserves the loaded grid; 2 and 4 are explicit interactive previews.
-Extracted meshes use indexed float32 geometry and are cached by dataset,
-isovalue, sign mode, step size, and styling inputs.
+Field smearing is measured in grid voxels, preserves the source dtype, and
+never mutates the stored scalar array. Its last result is cached per dataset
+so a signed positive/negative request filters the grid once. Mesh smoothing is
+a shrinkage-reducing two-pass Laplacian fairing stage after marching cubes;
+zero passes returns the original extracted vertices. Extracted meshes use
+indexed float32 geometry.
+
+The control split follows published behavior, not copied source code: the
+[VESTA manual](https://jp-minerals.org/vesta/en/doc/VESTAch6.html) documents
+volumetric interpolation as a resolution control, while the
+[OVITO manual](https://www.ovito.org/manual/reference/pipelines/modifiers/create_isosurface.html)
+documents iterative post-extraction mesh fairing. Boundary modes use the
+documented `wrap` and `reflect` semantics of
+[SciPy `gaussian_filter`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.gaussian_filter.html).
+v_ase's implementation and parameter contract are original and independently
+tested against its own periodic-grid representation.
+The semantic state keeps source dataset descriptors separate from a generated
+surface summary containing rendered levels, post-smearing range, mesh counts,
+and refinement settings. Invalid semantic refinement values are rejected;
+volumetric imports publish analysis-only collaboration changes.
 
 Bulk radial distribution functions use an ASE periodic directed-neighbor
 search and exact spherical shell-volume normalization. The default radius is

@@ -298,6 +298,13 @@ and documentation use `view()`.
     after bounded shape, size, finiteness, and nondegenerate-cell validation.
     The first/newest imported grid is shown immediately at a valid default
     level; color and opacity edits update the existing browser mesh live.
+    Optional Gaussian field smearing uses wrap boundaries on periodic axes and
+    reflect boundaries elsewhere without mutating the stored grid. Independent
+    boundary-preserving mesh fairing reduces voxel stair-steps after marching
+    cubes. Both stages are explicit, bounded, persisted display settings and
+    can be disabled with zero. Semantic state reports the rendered levels,
+    mesh/triangle counts, post-smearing range, and partial signed-surface
+    status without transmitting the source grid.
 60. Volumetric combinations require identical dimensions, cell, origin, PBC,
     endpoint convention, and scalar units. Display repetition and visual
     translation transform the extracted mesh with atoms. A physical diagonal

@@ -83,6 +83,8 @@ test edit and a new filename for output.
 | unsupported volumetric format | File is not VASP scalar grid, Cube, or XSF | Convert the DFT output to Cube/XSF or pass the correct explicit format |
 | charge-density difference grids must match | Grid shape, cell, origin, PBC, endpoint convention, or units differ | Regenerate all component grids with the same calculation grid; do not force a combination |
 | requested isosurface is outside the scalar range | Absolute level has no crossing | Inspect dataset minimum/maximum and choose an in-range nonzero level |
+| requested isosurface is outside the range after smearing | Gaussian filtering changed the displayed extrema | Reduce `smearingSigma` or choose a level inside the reported displayed range; do not alter the source grid |
+| isosurface lost a narrow feature | Field smearing is too strong for that topology | Set `smearingSigma:0` to inspect raw data, then use the smallest defensible value |
 | RDF requires full 3D periodicity | PBC is partial/false or the cell is degenerate | Stop; use a boundary-corrected finite-system method outside v_ase |
 | RDF periodic image span is large | The requested radius reaches several copies of the primitive cell | Confirm the requested cutoff, allow the complete search to finish, and report `periodicImageSpan`; do not silently truncate it |
 | RDF active mode has no pair curves | No pairwise bond labels are enabled | Choose `pairMode:"all"` or provide `activePairs` explicitly |
@@ -108,6 +110,13 @@ isosurface extraction, and high-bin RDF calculations can take time.
   source file.
 - For volumetric work, use `stepSize: 2` or `4` only as an explicit preview
   tradeoff. Rebuild with `stepSize: 1` before reporting final geometry.
+- Treat `smearingSigma` as a visualization transform, not a new scientific
+  dataset. Preserve the source field and report nonzero smearing when the
+  surface is used for analysis or publication.
+- The default safety limits are 134,217,728 source grid points and 2,000,000
+  triangles for one generated surface. Do not bypass them without first
+  estimating memory use and reducing `stepSize`, grid size, or isovalue
+  complexity.
 - For RDF, verify `bins`, requested/effective cutoff, `uniqueMicCutoff`,
   `periodicImageExtent`, `periodicImageSpan`, warnings, and partial curve names
   before exporting CSV.

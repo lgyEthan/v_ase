@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import struct
+import threading
 from typing import Any, Iterable, Sequence
 import uuid
 
@@ -42,6 +43,8 @@ VOLUMETRIC_FORMAT_ALIASES = {
 
 DEFAULT_MAX_GRID_POINTS = 128 * 1024 * 1024
 MAX_ISOSURFACE_TRIANGLES = 2_000_000
+MAX_VOLUMETRIC_SMEARING_SIGMA = 8.0
+MAX_ISOSURFACE_SMOOTHING_ITERATIONS = 30
 ISOSURFACE_BINARY_MAGIC = b"VASEISO1"
 # Cube and XSF writers commonly round cell vectors to six decimal places.
 # This accepts that serialization noise without treating distinct cells as equal.
@@ -172,6 +175,24 @@ class VolumetricData:
     metadata: dict[str, Any] = field(default_factory=dict)
     dataset_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     precision: str = "float32"
+    _smearing_cache_sigma: float | None = field(
+        default=None,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _smearing_cache_values: np.ndarray | None = field(
+        default=None,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _smearing_cache_lock: threading.Lock = field(
+        default_factory=threading.Lock,
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         self.name = str(self.name or "Volumetric data").strip() or "Volumetric data"
@@ -765,7 +786,13 @@ def combine_volumetric_datasets(
 
 
 def _periodic_marching_grid(dataset: VolumetricData) -> tuple[np.ndarray, np.ndarray]:
-    values = dataset.values
+    return _periodic_marching_grid_values(dataset, dataset.values)
+
+
+def _periodic_marching_grid_values(
+    dataset: VolumetricData,
+    values: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
     if dataset.endpoint_inclusive:
         denominator = np.maximum(np.asarray(values.shape, dtype=float) - 1.0, 1.0)
         return values, denominator
@@ -781,14 +808,189 @@ def _periodic_marching_grid(dataset: VolumetricData) -> tuple[np.ndarray, np.nda
     return expanded, denominator
 
 
+def _validated_smearing_sigma(value: Any) -> float:
+    try:
+        sigma = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Field smearing sigma must be a finite number.") from exc
+    if not np.isfinite(sigma) or sigma < 0 or sigma > MAX_VOLUMETRIC_SMEARING_SIGMA:
+        raise ValueError(
+            "Field smearing sigma must be between 0 and "
+            f"{MAX_VOLUMETRIC_SMEARING_SIGMA:g} grid points."
+        )
+    return sigma
+
+
+def _validated_smoothing_iterations(value: Any) -> int:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Surface smoothing passes must be an integer.") from exc
+    if (
+        not np.isfinite(numeric)
+        or numeric != np.floor(numeric)
+        or numeric < 0
+        or numeric > MAX_ISOSURFACE_SMOOTHING_ITERATIONS
+    ):
+        raise ValueError(
+            "Surface smoothing passes must be an integer between 0 and "
+            f"{MAX_ISOSURFACE_SMOOTHING_ITERATIONS}."
+        )
+    return int(numeric)
+
+
+def _smear_scalar_grid(
+    dataset: VolumetricData,
+    sigma: float,
+) -> np.ndarray:
+    """Return an optionally Gaussian-smoothed display grid.
+
+    The source array is never modified. Periodic axes use wrapped convolution.
+    Endpoint-inclusive periodic grids are filtered without their redundant
+    closing plane and have that plane restored afterwards.
+    """
+
+    smear_sigma = _validated_smearing_sigma(sigma)
+    if smear_sigma == 0:
+        with dataset._smearing_cache_lock:
+            dataset._smearing_cache_sigma = None
+            dataset._smearing_cache_values = None
+        return dataset.values
+
+    with dataset._smearing_cache_lock:
+        if (
+            dataset._smearing_cache_sigma == smear_sigma
+            and dataset._smearing_cache_values is not None
+        ):
+            return dataset._smearing_cache_values
+
+        try:
+            from scipy.ndimage import gaussian_filter
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "Volumetric field smearing requires SciPy. "
+                "Install or repair v_ase with `python -m pip install -U v_ase-gui`."
+            ) from exc
+
+        # Release a prior full-grid cache before allocating the replacement.
+        dataset._smearing_cache_sigma = None
+        dataset._smearing_cache_values = None
+
+        slices = [slice(None), slice(None), slice(None)]
+        closing_axes: list[int] = []
+        if dataset.endpoint_inclusive:
+            for axis, periodic in enumerate(dataset.pbc):
+                if periodic:
+                    slices[axis] = slice(0, -1)
+                    closing_axes.append(axis)
+
+        core = dataset.values[tuple(slices)]
+        modes = tuple("wrap" if periodic else "reflect" for periodic in dataset.pbc)
+        smoothed = gaussian_filter(
+            core,
+            sigma=smear_sigma,
+            mode=modes,
+            output=dataset.values.dtype,
+        )
+        for axis in closing_axes:
+            smoothed = np.concatenate(
+                (smoothed, np.take(smoothed, [0], axis=axis)),
+                axis=axis,
+            )
+        smoothed = np.ascontiguousarray(smoothed, dtype=dataset.values.dtype)
+        dataset._smearing_cache_sigma = smear_sigma
+        dataset._smearing_cache_values = smoothed
+        return smoothed
+
+
+def _mesh_boundary_mask(
+    vertices: np.ndarray,
+    denominator: np.ndarray,
+) -> np.ndarray:
+    """Keep domain-edge vertices fixed so clipped and periodic seams stay closed."""
+
+    boundary = np.zeros(len(vertices), dtype=bool)
+    for axis in range(3):
+        tolerance = max(1e-6, float(denominator[axis]) * 1e-6)
+        boundary |= np.isclose(vertices[:, axis], 0.0, atol=tolerance)
+        boundary |= np.isclose(
+            vertices[:, axis],
+            float(denominator[axis]),
+            atol=tolerance,
+        )
+    return boundary
+
+
+def _smooth_mesh_vertices(
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    *,
+    iterations: int,
+    fixed: np.ndarray | None = None,
+) -> np.ndarray:
+    """Apply shrinkage-reducing two-pass Laplacian mesh fairing."""
+
+    passes = _validated_smoothing_iterations(iterations)
+    source = np.asarray(vertices, dtype=np.float64)
+    if passes == 0 or len(source) < 4 or not len(faces):
+        return source.copy()
+
+    try:
+        from scipy.sparse import coo_matrix
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "Isosurface mesh smoothing requires SciPy. "
+            "Install or repair v_ase with `python -m pip install -U v_ase-gui`."
+        ) from exc
+
+    triangles = np.asarray(faces, dtype=np.int64)
+    edges = np.concatenate(
+        (
+            triangles[:, (0, 1)],
+            triangles[:, (1, 2)],
+            triangles[:, (2, 0)],
+        ),
+        axis=0,
+    )
+    edges = np.unique(np.sort(edges, axis=1), axis=0)
+    rows = np.concatenate((edges[:, 0], edges[:, 1]))
+    columns = np.concatenate((edges[:, 1], edges[:, 0]))
+    adjacency = coo_matrix(
+        (np.ones(len(rows), dtype=np.float64), (rows, columns)),
+        shape=(len(source), len(source)),
+    ).tocsr()
+    degree = np.asarray(adjacency.sum(axis=1)).reshape(-1)
+    movable = degree > 0
+    if fixed is not None:
+        fixed_mask = np.asarray(fixed, dtype=bool)
+        if fixed_mask.shape != (len(source),):
+            raise ValueError("Isosurface fixed-vertex mask has an invalid shape.")
+        movable &= ~fixed_mask
+
+    result = source.copy()
+    # The negative second pass counters the shrinkage of ordinary Laplacian
+    # smoothing while retaining its high-frequency fairing effect.
+    for _ in range(passes):
+        average = adjacency @ result
+        average[movable] /= degree[movable, None]
+        result[movable] += 0.5 * (average[movable] - result[movable])
+
+        average = adjacency @ result
+        average[movable] /= degree[movable, None]
+        result[movable] -= 0.53 * (average[movable] - result[movable])
+    return result
+
+
 def generate_isosurface(
     dataset: VolumetricData,
     level: float,
     *,
     step_size: int = 1,
+    smearing_sigma: float = 0.0,
+    smoothing_iterations: int = 4,
     max_triangles: int = MAX_ISOSURFACE_TRIANGLES,
 ) -> IsosurfaceMesh:
-    """Generate a cell-aware marching-cubes mesh for one scalar level."""
+    """Generate a cell-aware, optionally refined mesh for one scalar level."""
 
     try:
         from skimage.measure import marching_cubes
@@ -801,13 +1003,18 @@ def generate_isosurface(
     iso_level = float(level)
     if not np.isfinite(iso_level):
         raise ValueError("Isosurface level must be finite.")
-    minimum, maximum = dataset.minimum, dataset.maximum
+    smear_sigma = _validated_smearing_sigma(smearing_sigma)
+    smoothing_passes = _validated_smoothing_iterations(smoothing_iterations)
+    display_values = _smear_scalar_grid(dataset, smear_sigma)
+    minimum = float(np.min(display_values))
+    maximum = float(np.max(display_values))
     if not minimum < iso_level < maximum:
         raise ValueError(
-            f"Isosurface level must lie strictly between {minimum:.8g} and {maximum:.8g}."
+            "Isosurface level must lie strictly between "
+            f"{minimum:.8g} and {maximum:.8g} after field smearing."
         )
     quality_step = max(1, min(8, int(step_size)))
-    volume, denominator = _periodic_marching_grid(dataset)
+    volume, denominator = _periodic_marching_grid_values(dataset, display_values)
     try:
         vertices, faces, _normals, _values = marching_cubes(
             volume,
@@ -823,6 +1030,13 @@ def generate_isosurface(
             f"{max_triangles:,} triangle safety limit. Increase the mesh step."
         )
 
+    fixed = _mesh_boundary_mask(vertices, denominator)
+    vertices = _smooth_mesh_vertices(
+        vertices,
+        faces,
+        iterations=smoothing_passes,
+        fixed=fixed,
+    )
     fractional = vertices / denominator
     cartesian = dataset.origin + fractional @ dataset.cell
     return IsosurfaceMesh(
@@ -835,6 +1049,11 @@ def generate_isosurface(
         origin=dataset.origin.copy(),
         metadata={
             "step_size": quality_step,
+            "smearing_sigma": smear_sigma,
+            "smoothing_iterations": smoothing_passes,
+            "display_minimum": minimum,
+            "display_maximum": maximum,
+            "fixed_boundary_vertices": int(np.count_nonzero(fixed)),
             "periodic_seams": [
                 bool(value and not dataset.endpoint_inclusive)
                 for value in dataset.pbc

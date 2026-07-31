@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.1.4&rev=1';
-import { ASERenderer } from './renderer.js?v=0.1.4&rev=1';
-import { ASESelection } from './selection.js?v=0.1.4&rev=1';
-import { ASETransform } from './transform.js?v=0.1.4&rev=1';
+import { ASEApi } from './api.js?v=0.1.5&rev=1';
+import { ASERenderer } from './renderer.js?v=0.1.5&rev=1';
+import { ASESelection } from './selection.js?v=0.1.5&rev=1';
+import { ASETransform } from './transform.js?v=0.1.5&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.1.4&rev=1';
+} from './trajectory.js?v=0.1.5&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -179,6 +179,8 @@ class VAseApp {
                 volumetricLevel: null,
                 volumetricSurfaceMode: 'single',
                 volumetricStepSize: 1,
+                volumetricSmearingSigma: 0,
+                volumetricSmoothingIterations: 4,
                 volumetricOpacity: 0.72,
                 volumetricPositiveColor: '#2f8fdb',
                 volumetricNegativeColor: '#e05b78',
@@ -244,6 +246,7 @@ class VAseApp {
             displacementRefreshTimer: null,
             displacementStats: null,
             volumetricRequestToken: 0,
+            volumetricSurfaceSummary: null,
             rdfResult: null,
             rdfRequestToken: 0,
             plotlyPromise: null,
@@ -1567,6 +1570,17 @@ class VAseApp {
         setValue('volume-step', [1, 2, 4].includes(Number(display.volumetricStepSize))
             ? Number(display.volumetricStepSize)
             : 1);
+        setValue(
+            'volume-smearing',
+            Math.max(0, Math.min(8, Number(display.volumetricSmearingSigma) || 0))
+        );
+        setValue(
+            'volume-smoothing',
+            Math.max(0, Math.min(
+                30,
+                Math.round(Number(display.volumetricSmoothingIterations) || 0)
+            ))
+        );
         setValue('volume-positive-color', display.volumetricPositiveColor || '#2f8fdb');
         setValue('volume-negative-color', display.volumetricNegativeColor || '#e05b78');
         setValue('volume-opacity', Number(display.volumetricOpacity) || 0.72);
@@ -1589,6 +1603,17 @@ class VAseApp {
             volumetricStepSize: [1, 2, 4].includes(Number(document.getElementById('volume-step')?.value))
                 ? Number(document.getElementById('volume-step')?.value)
                 : 1,
+            volumetricSmearingSigma: Math.max(
+                0,
+                Math.min(8, Number(document.getElementById('volume-smearing')?.value) || 0)
+            ),
+            volumetricSmoothingIterations: Math.max(
+                0,
+                Math.min(
+                    30,
+                    Math.round(Number(document.getElementById('volume-smoothing')?.value) || 0)
+                )
+            ),
             volumetricOpacity: Math.max(
                 0.05,
                 Math.min(1, Number(document.getElementById('volume-opacity')?.value) || 0.72)
@@ -1629,6 +1654,7 @@ class VAseApp {
         const dataset = this.selectedVolumetricDataset();
         if (!dataset || !this.state.display.showVolumetric) {
             this.renderer.clearVolumetricSurfaces();
+            this.state.volumetricSurfaceSummary = null;
             this.setVolumeStatus('idle', dataset ? 'Isosurface hidden' : 'No scalar field', '');
             return;
         }
@@ -1648,34 +1674,84 @@ class VAseApp {
                 + `and ${this.formatScalarValue(dataset.maximum)}.`
             );
         }
+        this.state.volumetricSurfaceSummary = null;
         this.setVolumeStatus('loading', 'Generating isosurface', `${dataset.name}`);
-        const meshes = await Promise.all(available.map(async level => {
-            const payload = await this.api.fetchIsosurface({
-                dataset_id: dataset.id,
-                level,
-                step_size: this.state.display.volumetricStepSize
-            });
-            const decoded = this.decodeIsosurface(payload);
-            return {
-                datasetId: dataset.id,
-                level,
-                vertices: decoded.vertices,
-                faces: decoded.faces,
-                cell: decoded.header.cell,
-                color: level < 0
-                    ? this.state.display.volumetricNegativeColor
-                    : this.state.display.volumetricPositiveColor,
-                opacity: this.state.display.volumetricOpacity
-            };
+        const generated = await Promise.all(available.map(async level => {
+            try {
+                const payload = await this.api.fetchIsosurface({
+                    dataset_id: dataset.id,
+                    level,
+                    step_size: this.state.display.volumetricStepSize,
+                    smearing_sigma: this.state.display.volumetricSmearingSigma,
+                    smoothing_iterations: this.state.display.volumetricSmoothingIterations
+                });
+                const decoded = this.decodeIsosurface(payload);
+                return {
+                    datasetId: dataset.id,
+                    level,
+                    vertices: decoded.vertices,
+                    faces: decoded.faces,
+                    cell: decoded.header.cell,
+                    metadata: decoded.header.metadata || {},
+                    color: level < 0
+                        ? this.state.display.volumetricNegativeColor
+                        : this.state.display.volumetricPositiveColor,
+                    opacity: this.state.display.volumetricOpacity
+                };
+            } catch (error) {
+                if (String(error?.message || '').includes('after field smearing')) {
+                    return null;
+                }
+                throw error;
+            }
         }));
+        const meshes = generated.filter(Boolean);
+        if (!meshes.length) {
+            throw new Error(
+                'The selected isovalue has no crossing after field smearing. '
+                + 'Reduce smearing or choose another isovalue.'
+            );
+        }
         if (token !== this.state.volumetricRequestToken) return;
         this.renderer.setVolumetricSurfaces(meshes);
+        const refinements = [];
+        if (this.state.display.volumetricSmearingSigma > 0) {
+            refinements.push(`σ ${this.state.display.volumetricSmearingSigma.toFixed(2)} voxel`);
+        }
+        if (this.state.display.volumetricSmoothingIterations > 0) {
+            refinements.push(
+                `${this.state.display.volumetricSmoothingIterations} smoothing passes`
+            );
+        }
+        const triangleCount = meshes.reduce(
+            (sum, mesh) => sum + mesh.faces.length / 3,
+            0
+        );
+        const meshMetadata = meshes[0]?.metadata || {};
+        this.state.volumetricSurfaceSummary = {
+            datasetId: dataset.id,
+            requestedLevel: requested,
+            renderedLevels: meshes.map(mesh => mesh.level),
+            surfaceMode: this.state.display.volumetricSurfaceMode,
+            surfaceCount: meshes.length,
+            triangleCount,
+            smearingSigma: this.state.display.volumetricSmearingSigma,
+            smoothingIterations: this.state.display.volumetricSmoothingIterations,
+            displayMinimum: Number.isFinite(Number(meshMetadata.display_minimum))
+                ? Number(meshMetadata.display_minimum)
+                : null,
+            displayMaximum: Number.isFinite(Number(meshMetadata.display_maximum))
+                ? Number(meshMetadata.display_maximum)
+                : null,
+            partialSignedSurface: meshes.length < levels.length
+        };
         this.setVolumeStatus(
-            available.length < levels.length ? 'warning' : 'ready',
+            meshes.length < levels.length ? 'warning' : 'ready',
             `${meshes.length} isosurface${meshes.length === 1 ? '' : 's'}`,
-            available.length < levels.length
-                ? 'One signed level lies outside this dataset range.'
-                : `${meshes.reduce((sum, mesh) => sum + mesh.faces.length / 3, 0).toLocaleString()} triangles`
+            meshes.length < levels.length
+                ? 'One signed level lies outside the displayed field range.'
+                : `${triangleCount.toLocaleString()} triangles`
+                    + `${refinements.length ? ` · ${refinements.join(' · ')}` : ''}`
         );
         this.scheduleVisualHistoryCommit('volumetric');
     }
@@ -1688,7 +1764,8 @@ class VAseApp {
                 file,
                 '',
                 ':',
-                this.volumetricImportPrecision()
+                this.volumetricImportPrecision(),
+                { emitMutation: false }
             )
         );
         if (data.loaded_file?.source_kind !== 'volumetric') {
@@ -1702,6 +1779,12 @@ class VAseApp {
         });
         this.activateNewestVolumetricDataset();
         await this.updateVolumetricSurface();
+        this.scheduleCollaborationEvent({
+            source: this.currentCollaborationActor(),
+            categories: ['analysis'],
+            changedPaths: ['analysis.volumetricDatasets'],
+            summary: 'A volumetric dataset was added.'
+        });
         this.toast(
             `Added ${Number(data.loaded_file?.appended_volumetric_datasets) || 0} scalar field`
             + `${Number(data.loaded_file?.appended_volumetric_datasets) === 1 ? '' : 's'}.`,
@@ -1739,6 +1822,19 @@ class VAseApp {
             }
         });
         ['chk-volume-visible', 'volume-surface-mode'].forEach(id => {
+            document.getElementById(id)?.addEventListener('change', () => {
+                this.updateVolumetricSurface().catch(error => {
+                    this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);
+                    this.renderer.clearVolumetricSurfaces();
+                });
+            });
+        });
+        [
+            'volume-level',
+            'volume-step',
+            'volume-smearing',
+            'volume-smoothing'
+        ].forEach(id => {
             document.getElementById(id)?.addEventListener('change', () => {
                 this.updateVolumetricSurface().catch(error => {
                     this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);
@@ -6791,6 +6887,7 @@ class VAseApp {
             imageExport: this.clonePlain(this.currentImageExportProfile()),
             analysis: {
                 volumetricDatasets: this.clonePlain(this.volumetricDatasets()),
+                volumetricSurface: this.clonePlain(this.state.volumetricSurfaceSummary),
                 rdf: this.state.rdfResult ? {
                     schema: this.state.rdfResult.schema,
                     bins: this.state.rdfResult.bins,
@@ -7133,7 +7230,8 @@ class VAseApp {
                 path,
                 String(operation.format || ''),
                 ':',
-                requestedPrecision
+                requestedPrecision,
+                { emitMutation: false }
             );
             if (data.loaded_file?.source_kind !== 'volumetric') {
                 throw new Error('The requested path did not contain supported volumetric data.');
@@ -7154,17 +7252,68 @@ class VAseApp {
             if (!dataset) throw new Error(`Volumetric dataset '${datasetId}' was not found.`);
             const level = Number(operation.level);
             if (!Number.isFinite(level)) throw new Error('show-volumetric requires a finite level.');
+            const surfaceMode = operation.surfaceMode === undefined
+                ? this.state.display.volumetricSurfaceMode
+                : String(operation.surfaceMode);
+            if (!['single', 'signed'].includes(surfaceMode)) {
+                throw new Error("surfaceMode must be 'single' or 'signed'.");
+            }
+            if (surfaceMode === 'signed' && level === 0) {
+                throw new Error('A signed isosurface requires a non-zero level magnitude.');
+            }
+            const stepSize = operation.stepSize === undefined
+                ? this.state.display.volumetricStepSize
+                : Number(operation.stepSize);
+            if (![1, 2, 4].includes(stepSize)) {
+                throw new Error('stepSize must be 1, 2, or 4.');
+            }
+            const smearingSigma = operation.smearingSigma === undefined
+                ? this.state.display.volumetricSmearingSigma
+                : Number(operation.smearingSigma);
+            if (
+                !Number.isFinite(smearingSigma)
+                || smearingSigma < 0
+                || smearingSigma > 8
+            ) {
+                throw new Error('smearingSigma must be between 0 and 8 grid voxels.');
+            }
+            const smoothingIterations = operation.smoothingIterations === undefined
+                ? this.state.display.volumetricSmoothingIterations
+                : Number(operation.smoothingIterations);
+            if (
+                !Number.isInteger(smoothingIterations)
+                || smoothingIterations < 0
+                || smoothingIterations > 30
+            ) {
+                throw new Error('smoothingIterations must be an integer from 0 through 30.');
+            }
+            const opacity = operation.opacity === undefined
+                ? this.state.display.volumetricOpacity
+                : Number(operation.opacity);
+            if (!Number.isFinite(opacity) || opacity < 0.05 || opacity > 1) {
+                throw new Error('opacity must be between 0.05 and 1.');
+            }
+            if (
+                operation.positiveColor !== undefined
+                && !this.validHexColor(operation.positiveColor)
+            ) {
+                throw new Error('positiveColor must be a six-digit hexadecimal color.');
+            }
+            if (
+                operation.negativeColor !== undefined
+                && !this.validHexColor(operation.negativeColor)
+            ) {
+                throw new Error('negativeColor must be a six-digit hexadecimal color.');
+            }
             Object.assign(this.state.display, {
                 showVolumetric: true,
                 volumetricDatasetId: datasetId,
                 volumetricLevel: level,
-                volumetricSurfaceMode: operation.surfaceMode === 'signed' ? 'signed' : 'single',
-                volumetricStepSize: [1, 2, 4].includes(Number(operation.stepSize))
-                    ? Number(operation.stepSize)
-                    : this.state.display.volumetricStepSize,
-                volumetricOpacity: operation.opacity === undefined
-                    ? this.state.display.volumetricOpacity
-                    : Math.max(0.05, Math.min(1, Number(operation.opacity) || 0.72)),
+                volumetricSurfaceMode: surfaceMode,
+                volumetricStepSize: stepSize,
+                volumetricSmearingSigma: smearingSigma,
+                volumetricSmoothingIterations: smoothingIterations,
+                volumetricOpacity: opacity,
                 volumetricPositiveColor: this.validHexColor(operation.positiveColor)
                     ? operation.positiveColor
                     : this.state.display.volumetricPositiveColor,
@@ -8038,6 +8187,12 @@ class VAseApp {
             volumetricStepSize: [1, 2, 4].includes(Number(nextDisplay.volumetricStepSize))
                 ? Number(nextDisplay.volumetricStepSize)
                 : 1,
+            volumetricSmearingSigma: finiteClamped(
+                nextDisplay.volumetricSmearingSigma, 0, 0, 8
+            ),
+            volumetricSmoothingIterations: integerClamped(
+                nextDisplay.volumetricSmoothingIterations, 4, 0, 30
+            ),
             volumetricOpacity: finiteClamped(nextDisplay.volumetricOpacity, 0.72, 0.05, 1),
             volumetricPositiveColor: this.validHexColor(nextDisplay.volumetricPositiveColor)
                 ? nextDisplay.volumetricPositiveColor
@@ -9674,7 +9829,8 @@ class VAseApp {
                     file,
                     inputFormat,
                     index,
-                    this.volumetricImportPrecision()
+                    this.volumetricImportPrecision(),
+                    { emitMutation: false }
                 )
             );
             this.resetHistoryTimeline();
@@ -9700,6 +9856,12 @@ class VAseApp {
                 const addedVolumes = Number(data.loaded_file?.appended_volumetric_datasets) || 0;
                 this.activateNewestVolumetricDataset();
                 await this.updateVolumetricSurface();
+                this.scheduleCollaborationEvent({
+                    source: this.currentCollaborationActor(),
+                    categories: ['analysis'],
+                    changedPaths: ['analysis.volumetricDatasets'],
+                    summary: 'A volumetric dataset was added.'
+                });
                 this.toast(
                     `Added ${addedVolumes} scalar field${addedVolumes === 1 ? '' : 's'} `
                     + `from ${data.loaded_file?.filename || file.name}.`,
@@ -9708,6 +9870,12 @@ class VAseApp {
                 this.notifyWorkspaceDocument();
                 return;
             }
+            this.scheduleCollaborationEvent({
+                source: this.currentCollaborationActor(),
+                categories: ['document', 'trajectory'],
+                changedPaths: ['trajectory.frames'],
+                summary: 'Structures were appended to the trajectory.'
+            });
             const added = Number(data.loaded_file?.appended_frames) || 0;
             const total = Number(data.metadata?.frame_count) || 1;
             const projectNote = data.loaded_file?.project_settings_ignored

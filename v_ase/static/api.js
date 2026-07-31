@@ -164,10 +164,14 @@ export class ASEApi {
         });
     }
 
-    async request(path, options = {}, { expect = 'json', needsSession = true } = {}) {
+    async request(
+        path,
+        options = {},
+        { expect = 'json', needsSession = true, emitMutation = true } = {}
+    ) {
         if (this.mock) {
             const result = await this.handleMockRequest(path, options, { expect, needsSession });
-            this.emitMutationCallbacks(path, options);
+            if (emitMutation) this.emitMutationCallbacks(path, options);
             return result;
         }
         if (window.location.protocol === 'file:') {
@@ -204,7 +208,7 @@ export class ASEApi {
         else if (expect === 'arrayBuffer') result = await res.arrayBuffer();
         else if (expect === 'text') result = await res.text();
         else result = await res.json();
-        this.emitMutationCallbacks(path, options);
+        if (emitMutation) this.emitMutationCallbacks(path, options);
         return result;
     }
 
@@ -609,12 +613,12 @@ export class ASEApi {
         throw new Error(`Unhandled mock ASE API path: ${path}`);
     }
 
-    jsonPost(path, payload = {}) {
+    jsonPost(path, payload = {}, requestOptions = {}) {
         return this.request(path, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(payload)
-        });
+        }, requestOptions);
     }
 
     post(path) {
@@ -1124,7 +1128,13 @@ export class ASEApi {
         });
     }
 
-    async appendStructureFile(file, inputFormat = '', index = ':', volumetricPrecision = 'float32') {
+    async appendStructureFile(
+        file,
+        inputFormat = '',
+        index = ':',
+        volumetricPrecision = 'float32',
+        { emitMutation = true } = {}
+    ) {
         const params = new URLSearchParams({
             filename: file?.name || 'structure',
             index: index || ':',
@@ -1135,16 +1145,22 @@ export class ASEApi {
             method: 'POST',
             headers: {'Content-Type': file?.type || 'application/octet-stream'},
             body: file
-        });
+        }, { emitMutation });
     }
 
-    async appendStructurePath(path, inputFormat = '', index = ':', volumetricPrecision = 'float32') {
+    async appendStructurePath(
+        path,
+        inputFormat = '',
+        index = ':',
+        volumetricPrecision = 'float32',
+        { emitMutation = true } = {}
+    ) {
         return await this.jsonPost(`/api/file/append-path/{session_id}`, {
             path,
             input_format: inputFormat || null,
             index: index || ':',
             volumetric_precision: volumetricPrecision || 'float32'
-        });
+        }, { emitMutation });
     }
 
 }

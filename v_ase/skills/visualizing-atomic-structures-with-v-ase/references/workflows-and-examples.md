@@ -504,6 +504,8 @@ await applyCurrent({
     level: 0.003,
     surfaceMode: "signed",
     stepSize: 1,
+    smearingSigma: 0.4,
+    smoothingIterations: 6,
     opacity: 0.68,
     positiveColor: "#2a9d8f",
     negativeColor: "#d1495b"
@@ -516,12 +518,22 @@ Validation:
 1. `describe().analysis.volumetricDatasets` identifies all four grids.
 2. Every source and the difference report `precision: "float64"` and the
    expected `memory_bytes`.
-3. The signed surface has both positive and negative mesh groups.
-4. Changing opacity restyles the current mesh immediately without changing
+3. `describe().analysis.volumetricSurface` reports the rendered levels,
+   surface and triangle counts, post-smearing range, and refinement settings.
+   Signed mode has both mesh groups when `+abs(level)` and `-abs(level)` both
+   cross that reported range; otherwise it explicitly reports a partial
+   signed surface.
+4. The source dataset descriptor is identical before and after changing
+   `smearingSigma`. The package regression suite, rather than the semantic
+   summary API, verifies that the underlying FP32/FP64 array remains bitwise
+   unchanged.
+5. Mesh smoothing fixes vertices on the cell boundary and does not open a
+   periodic seam.
+6. Changing opacity restyles the current mesh immediately without changing
    the mesh count.
-5. The mesh repeats exactly with the displayed `2 x 2 x 1` supercell.
-6. Both mesh and atoms use the same fractional visual translation.
-7. Repeating the source grids physically is done only after explicit
+7. The mesh repeats exactly with the displayed `2 x 2 x 1` supercell.
+8. Both mesh and atoms use the same fractional visual translation.
+9. Repeating the source grids physically is done only after explicit
    `set-supercell`; undo restores atom count, cell, and grid dimensions.
 
 Do not combine grids with different dimensions, cell, origin, PBC, or units.

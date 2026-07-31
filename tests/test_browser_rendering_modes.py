@@ -218,8 +218,8 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                 page.wait_for_function(
                     "window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 27"
                 )
-                loaded = page.evaluate(
-                    """async path => {
+                pre_load_revision = page.evaluate(
+                    """async () => {
                         const precision = document.getElementById(
                             'volume-import-precision'
                         );
@@ -227,6 +227,15 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                         precision.dispatchEvent(new Event('change', {
                             bubbles: true
                         }));
+                        await window.__ASE_APP__.flushCollaborationEvents();
+                        const state = await window.v_aseAI.describe({
+                            includePositions: false
+                        });
+                        return state.collaboration.revision;
+                    }"""
+                )
+                loaded = page.evaluate(
+                    """async path => {
                         await window.v_aseAI.apply({
                             operation: {name: 'load-volumetric', path}
                         });
@@ -241,7 +250,35 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                 assert datasets[0]["shape"] == list(shape)
                 assert datasets[0]["precision"] == "float64"
                 assert datasets[0]["memory_bytes"] == int(values.size * 8)
+                source_descriptor = datasets[0]
                 dataset_id = datasets[0]["id"]
+                collaboration_events = page.evaluate(
+                    """async ({sessionId, after}) => {
+                        const response = await fetch(
+                            `/api/ai/events/${encodeURIComponent(sessionId)}`
+                            + `?after=${after}&timeout=0`
+                        );
+                        return await response.json();
+                    }""",
+                    {
+                        "sessionId": editor.session_id,
+                        "after": pre_load_revision,
+                    },
+                )
+                agent_events = [
+                    event
+                    for event in collaboration_events["events"]
+                    if event["source"] == "agent"
+                ]
+                assert agent_events
+                assert any(
+                    "analysis" in event["categories"]
+                    for event in agent_events
+                )
+                assert all(
+                    "trajectory.frames" not in event["changed_paths"]
+                    for event in agent_events
+                )
                 page.wait_for_function(
                     """() => Number(
                         window.__ASE_APP__.renderer.domElement.dataset
@@ -290,6 +327,8 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                                 level,
                                 surfaceMode: 'signed',
                                 stepSize: 1,
+                                smearingSigma: 0.45,
+                                smoothingIterations: 7,
                                 opacity: 0.65
                             }
                         });
@@ -311,6 +350,64 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                     },
                 )
                 assert analyzed["analysis"]["rdf"]["bins"] == 64
+                assert analyzed["analysis"]["volumetricDatasets"][0] == source_descriptor
+                surface_summary = analyzed["analysis"]["volumetricSurface"]
+                assert surface_summary["datasetId"] == dataset_id
+                assert surface_summary["surfaceMode"] == "signed"
+                assert surface_summary["surfaceCount"] == 2
+                assert surface_summary["triangleCount"] > 0
+                assert surface_summary["smearingSigma"] == pytest.approx(0.45)
+                assert surface_summary["smoothingIterations"] == 7
+                assert surface_summary["displayMinimum"] < 0
+                assert surface_summary["displayMaximum"] > 0
+                assert not surface_summary["partialSignedSurface"]
+                assert sorted(surface_summary["renderedLevels"])[0] < 0
+                assert sorted(surface_summary["renderedLevels"])[1] > 0
+                refinement_state = page.evaluate(
+                    """() => ({
+                        smearing: window.__ASE_APP__.state.display.volumetricSmearingSigma,
+                        smoothing: window.__ASE_APP__.state.display.volumetricSmoothingIterations,
+                        smearingInput: document.getElementById('volume-smearing').value,
+                        smoothingInput: document.getElementById('volume-smoothing').value,
+                        status: document.getElementById('volume-status').textContent
+                    })"""
+                )
+                assert refinement_state["smearing"] == pytest.approx(0.45)
+                assert refinement_state["smoothing"] == 7
+                assert refinement_state["smearingInput"] == "0.45"
+                assert refinement_state["smoothingInput"] == "7"
+                assert "σ 0.45 voxel" in refinement_state["status"]
+                assert "7 smoothing passes" in refinement_state["status"]
+                validation_errors = page.evaluate(
+                    """async datasetId => {
+                        const invalid = [
+                            {name: 'show-volumetric', datasetId, level: 0.1,
+                                surfaceMode: 'invalid'},
+                            {name: 'show-volumetric', datasetId, level: 0.1,
+                                smearingSigma: 8.1},
+                            {name: 'show-volumetric', datasetId, level: 0.1,
+                                smoothingIterations: 1.5},
+                            {name: 'show-volumetric', datasetId, level: 0,
+                                surfaceMode: 'signed'}
+                        ];
+                        const messages = [];
+                        for (const operation of invalid) {
+                            try {
+                                await window.v_aseAI.apply({operation});
+                                messages.push(null);
+                            } catch (error) {
+                                messages.push(error.message);
+                            }
+                        }
+                        return messages;
+                    }""",
+                    dataset_id,
+                )
+                assert all(validation_errors)
+                assert "surfaceMode" in validation_errors[0]
+                assert "smearingSigma" in validation_errors[1]
+                assert "smoothingIterations" in validation_errors[2]
+                assert "non-zero" in validation_errors[3]
                 assert analyzed["analysis"]["rdf"]["uniqueMicCutoff"] == pytest.approx(
                     4.5
                 )

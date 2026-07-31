@@ -411,6 +411,8 @@ await ai.apply({
     level: 0.015,
     surfaceMode: "signed",
     stepSize: 1,
+    smearingSigma: 0.4,
+    smoothingIterations: 6,
     opacity: 0.72,
     positiveColor: "#2a9d8f",
     negativeColor: "#d1495b"
@@ -419,16 +421,39 @@ await ai.apply({
 ```
 
 `surfaceMode` is `"single"` or `"signed"` and `stepSize` is `1`, `2`, or
-`4`. A smaller step preserves more grid detail and takes more time. GUI
-opacity/color input and repeated `show-volumetric` commands restyle the
+`4`. A smaller step preserves more grid detail and takes more time.
+Signed mode interprets `level` as a nonzero magnitude and requests
+`+abs(level)` plus `-abs(level)`. If smearing leaves only one sign inside the
+displayed scalar range, v_ase keeps that valid surface and reports
+`partialSignedSurface: true`; it never silently invents the missing surface.
+`smearingSigma` is `0` through `8` grid voxels and filters only a display copy
+of the scalar field. It wraps periodic axes and reflects nonperiodic axes.
+`smoothingIterations` is an integer from `0` through `30` and fairs only the
+extracted mesh while keeping cell-boundary vertices fixed. Set either to `0`
+to disable that stage. Smearing can change small-scale topology and the
+displayed scalar range, so begin near `0.3` to `0.5` and verify the surface;
+do not present a heavily smeared surface as raw data.
+`opacity` is `0.05` through `1`; colors are six-digit `#RRGGBB` strings.
+Invalid semantic values are rejected rather than rounded or clamped.
+
+GUI opacity/color input and repeated `show-volumetric` commands restyle the
 existing mesh immediately; marching cubes is rerun only when the dataset,
-isovalue, sign mode, or detail changes. Isosurfaces repeat with
-`display.supercell` and move with visual translation. A physical
+isovalue, sign mode, detail, smearing, or smoothing changes. Isosurfaces
+repeat with `display.supercell` and move with visual translation. A physical
 `set-supercell` operation repeats the stored volumetric grid as well as every
 trajectory frame.
 `reset-coordinates` restores the originally loaded atom frames, cell, and
 scalar grids together after a materialized diagonal supercell. Undo and Redo
 retain the same atom/grid pairing.
+
+After generation, `describe().analysis.volumetricSurface` reports
+`renderedLevels`, `surfaceCount`, `triangleCount`, `displayMinimum`,
+`displayMaximum`, `smearingSigma`, `smoothingIterations`, and
+`partialSignedSurface`. The source dataset descriptor remains separate under
+`analysis.volumetricDatasets`; comparing that descriptor before and after is
+the API-level check that display-only refinement did not replace the source.
+Bitwise source-array identity is enforced by the package regression suite
+because the semantic API intentionally does not transmit full scalar grids.
 
 Charge-density differences use a linear combination:
 

@@ -30,8 +30,10 @@ uses twice the grid memory. The browser receives only descriptors and the
 currently requested indexed float32 mesh, never the complete grid. Marching
 cubes and RDF run through worker threads instead of blocking the FastAPI event
 loop. Surface `stepSize` 2 or 4 reduces preview geometry explicitly; final
-scientific extraction retains step 1. Hidden surfaces allocate no Three.js
-mesh.
+scientific extraction retains step 1. Optional field smearing retains only
+the latest filtered grid per dataset and is reused by both signs of a signed
+surface. Mesh fairing uses sparse vertex adjacency and does no work at zero
+passes. Hidden surfaces allocate no Three.js mesh.
 
 RDF uses one periodic neighbor-list pass at the requested cutoff. ASE
 enumerates every contributing periodic shift, so a long cutoff is not
@@ -232,7 +234,8 @@ Performance-sensitive static contracts are locked by
 - visual translation after supercell instancing without coordinate copies;
 - supercell-repeated displacement vectors with shared physical values;
 - signed isosurface construction, display repetition, translation, and
-  physical grid repetition/reset/undo;
+  physical grid repetition/reset/undo, including PBC-aware field smearing and
+  boundary-preserving mesh smoothing;
 - RDF calculation at multiple cutoffs, including image spans beyond a fixed
   `2 x 2 x 2` repetition, partial-curve normalization,
   Plotly drawer rendering, and CSV parity;

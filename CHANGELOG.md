@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.5
+
+- Added PBC-aware Gaussian field smearing for display-only volumetric data,
+  with wrapped periodic axes, reflected nonperiodic boundaries, preserved
+  FP32/FP64 source arrays, and bounded persisted controls.
+- Added independent boundary-preserving isosurface mesh fairing to reduce
+  voxel stair-steps without opening periodic or clipped cell seams.
+- Extended the GUI, semantic API, generated README example, canonical Agent
+  Skill, and numerical/browser regressions for both refinement stages.
+- Added strict semantic parameter validation and an inspectable generated-mesh
+  summary, and stopped volumetric imports from emitting false trajectory
+  collaboration events.
+
 ## 0.1.4
 
 - Made newly opened or added volumetric datasets immediately visible at an

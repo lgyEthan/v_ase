@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.4&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.5&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.1.4';
+            : '/static/vendor/three.module.js?v=0.1.5';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -68,7 +68,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.1.4</span>
+            <span class="version">0.1.5</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -477,6 +477,18 @@
                         <option value="4">Fast</option>
                     </select>
                 </div>
+                <div class="prop-row">
+                    <label for="volume-smearing">Field smearing σ (voxels)</label>
+                    <input id="volume-smearing" type="number" min="0" max="8" step="0.05" value="0">
+                </div>
+                <div class="prop-row">
+                    <label for="volume-smoothing">Mesh smoothing passes</label>
+                    <input id="volume-smoothing" type="number" min="0" max="30" step="1" value="4">
+                </div>
+                <p class="panel-note">
+                    Smearing filters only the displayed field. Mesh smoothing refines the extracted surface.
+                    Set either value to 0 to preserve that stage exactly.
+                </p>
                 <div class="prop-row color-pair-row">
                     <label>Surface colors</label>
                     <span>
@@ -1144,7 +1156,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.1.4&rev=1';
+            : './static/main.js?v=0.1.5&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

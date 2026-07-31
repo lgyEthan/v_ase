@@ -365,10 +365,24 @@ POST /api/volumetric/delete/{session_id}
 
 The difference endpoint accepts stable dataset IDs and finite coefficients and
 requires matching dimensions, cell, origin, PBC, endpoint convention, and
-units. The isosurface endpoint returns indexed vertices, normals, and faces;
-the complete source grid remains backend-owned. Physical diagonal supercell
-application repeats every stored grid and records it in the same undo entry as
-atoms and trajectory frames.
+units. The isosurface payload accepts optional `smearing_sigma` in grid voxels
+from `0` through `8`, plus `smoothing_iterations` from `0` through `30`.
+Smearing uses wrapped boundaries on periodic axes and reflected boundaries on
+nonperiodic axes. It filters a display copy without modifying the stored FP32
+or FP64 field. Mesh smoothing is applied after marching cubes and fixes
+cell-boundary vertices. The endpoint returns indexed vertices and faces with
+the applied refinement values in its binary header; the complete source grid
+remains backend-owned. Physical diagonal supercell application repeats every
+stored grid and records it in the same undo entry as atoms and trajectory
+frames.
+
+The semantic `show-volumetric` operation validates the same ranges instead of
+silently clamping values. Signed mode uses `+abs(level)` and `-abs(level)`,
+requires a nonzero level, and may retain only one sign if smearing moves the
+other sign outside the displayed scalar range. `describe()` exposes the
+resulting mesh counts, rendered levels, post-smearing range, and refinement
+settings under `analysis.volumetricSurface`; it does not transmit source grid
+arrays.
 
 RDF endpoints are:
 

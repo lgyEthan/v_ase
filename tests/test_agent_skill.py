@@ -288,6 +288,39 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         "datasetId",
         "level",
     ]
+    assert {
+        "smearingSigma",
+        "smoothingIterations",
+    }.issubset(schema["operation_parameters"]["show-volumetric"]["optional"])
+    operation_object = schema["control_schema"]["properties"]["operation"]["oneOf"][1]
+    show_schema = next(
+        item["then"]
+        for item in operation_object["allOf"]
+        if (
+            item["if"]["properties"]["name"].get("const")
+            == "show-volumetric"
+        )
+    )
+    show_properties = show_schema["properties"]
+    assert show_schema["required"] == ["datasetId", "level"]
+    assert show_properties["surfaceMode"]["enum"] == ["single", "signed"]
+    assert show_properties["stepSize"]["enum"] == [1, 2, 4]
+    assert show_properties["smearingSigma"] == {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 8,
+    }
+    assert show_properties["smoothingIterations"] == {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 30,
+    }
+    assert show_properties["opacity"] == {
+        "type": "number",
+        "minimum": 0.05,
+        "maximum": 1,
+    }
+    assert show_properties["positiveColor"]["pattern"] == "^#[0-9A-Fa-f]{6}$"
     assert schema["operation_parameters"]["combine-volumetric"]["required"] == [
         "datasetIds",
         "coefficients",
@@ -330,6 +363,13 @@ def test_skill_documents_volumetric_and_rdf_end_to_end_contracts():
         "fixed `2 x 2 x 2`",
         "FP32",
         "FP64",
+        "smearingSigma",
+        "smoothingIterations",
+        "display copy",
+        "cell-boundary vertices",
+        "analysis.volumetricSurface",
+        "partialSignedSurface",
+        "2,000,000",
         "concentration-weighted",
         "fully periodic 3D",
         "V_ASE_MAX_VOLUMETRIC_POINTS",

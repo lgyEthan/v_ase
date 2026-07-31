@@ -276,15 +276,28 @@ v_ase gui charge-density.xsf
 ```
 
 **Analysis > Volumetric Data** controls the dataset, isovalue, signed
-positive/negative surfaces, mesh detail, colors, and isosurface opacity.
+positive/negative surfaces, mesh detail, field smearing, mesh smoothing,
+colors, and isosurface opacity.
 Opening a volumetric file, or adding the first scalar field, immediately shows
 an isosurface at a valid default level. Drag **Isosurface opacity** to update
 the current surface live without regenerating its mesh. Multiple compatible
 datasets can be combined with coefficients such as `+1, -1, -1` for a
 charge-density difference. Grid values stay in the local v_ase backend; the
 browser receives only the generated surface mesh.
+Signed mode treats the isovalue as a nonzero magnitude and renders the
+positive and negative crossings that remain inside the displayed field range.
 
-![Signed benzene pi-field isosurfaces with live opacity control](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric.png)
+![Smooth signed benzene pi-field isosurfaces with live opacity control](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric.png)
+
+**Field smearing σ** applies a Gaussian filter measured in grid voxels before
+the isosurface is extracted. Periodic directions wrap across the cell;
+nonperiodic directions reflect at their boundary. **Mesh smoothing passes**
+then reduce voxel stair-steps on the extracted mesh while keeping cell-boundary
+vertices fixed. The source scalar field, its saved precision, integral, and
+charge-density-difference inputs are never modified. Set either control to
+`0` to disable that stage. Because field smearing can merge small features or
+change the range crossed by an isovalue, use the smallest value that removes
+visible grid artifacts and verify the resulting topology.
 
 Choose the import precision before opening or adding a scalar field. **FP32**
 is the lower-memory default; **FP64** preserves double-precision grid values

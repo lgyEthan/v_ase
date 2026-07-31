@@ -402,6 +402,9 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "in-plane compression" not in readme
     assert "10.1021/acs.jpcc.0c04453" not in readme
     assert "**Axes** and **Unit Cell** switches update the working viewport" in readme
+    assert "**Field smearing σ**" in readme
+    assert "**Mesh smoothing passes**" in readme
+    assert "source scalar field" in readme
 
     for filename in (
         "readme_phosphorene_twist.gif",
@@ -468,6 +471,14 @@ def test_readme_ferrocene_and_copper_bond_media_use_documented_visual_controls()
     assert '"Cu_substrate": "metal"' in source
     assert '"Cu_oxide": "standard"' in source
     assert '"O_oxide": "rubber"' in source
+
+
+def test_readme_volumetric_media_uses_refined_isosurface_controls():
+    source = (ROOT / "scripts" / "capture_readme_screenshots.py").read_text()
+    assert "smearingSigma: 0.45" in source
+    assert "smoothingIterations: 7" in source
+    assert "document.getElementById('volume-smearing')?.value" in source
+    assert "document.getElementById('volume-smoothing')?.value" in source
     assert "#176f8c" not in source
 
     image = np.asarray(

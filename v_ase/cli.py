@@ -383,6 +383,8 @@ def run_gui(args: argparse.Namespace) -> int:
                     "volumetricDatasetId": first_dataset.dataset_id,
                     "volumetricLevel": volumetric_level,
                     "volumetricSurfaceMode": volumetric_surface_mode,
+                    "volumetricSmearingSigma": 0.0,
+                    "volumetricSmoothingIterations": 4,
                 }
             }
         elif viz_only and is_lammps_dump:

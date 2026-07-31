@@ -1989,6 +1989,8 @@ def capture_volumetric_media(browser) -> None:
                         level,
                         surfaceMode: 'signed',
                         stepSize: 1,
+                        smearingSigma: 0.45,
+                        smoothingIterations: 7,
                         opacity: 0.56,
                         positiveColor: '#258fbd',
                         negativeColor: '#dc5976'
@@ -2027,6 +2029,9 @@ def capture_volumetric_media(browser) -> None:
                 const app = window.__V_ASE_APP__;
                 return {
                     value: document.getElementById('volume-opacity-value')?.textContent,
+                    smearing: document.getElementById('volume-smearing')?.value,
+                    smoothing: document.getElementById('volume-smoothing')?.value,
+                    status: document.getElementById('volume-status')?.textContent,
                     materials: app.renderer.volumetricSurfaces.map(surface => ({
                         opacity: surface.material.opacity,
                         transparent: surface.material.transparent
@@ -2036,6 +2041,10 @@ def capture_volumetric_media(browser) -> None:
         )
         if opacity_state["value"] != "0.56":
             raise AssertionError("README volumetric opacity readout is not synchronized.")
+        if opacity_state["smearing"] != "0.45" or opacity_state["smoothing"] != "7":
+            raise AssertionError("README volumetric refinement controls are not synchronized.")
+        if "σ 0.45 voxel" not in opacity_state["status"] or "7 smoothing passes" not in opacity_state["status"]:
+            raise AssertionError("README volumetric refinement status is incomplete.")
         if not all(
             abs(material["opacity"] - 0.56) < 1e-6 and material["transparent"]
             for material in opacity_state["materials"]

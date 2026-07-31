@@ -327,6 +327,96 @@ AI_CONTROL_SCHEMA = {
                             ],
                         },
                     },
+                    "allOf": [
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "load-volumetric"},
+                                },
+                            },
+                            "then": {
+                                "required": ["path"],
+                                "properties": {
+                                    "path": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                    },
+                                    "format": {"type": "string"},
+                                    "precision": {
+                                        "enum": [
+                                            "fp32", "float32",
+                                            "fp64", "float64",
+                                        ],
+                                    },
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "show-volumetric"},
+                                },
+                            },
+                            "then": {
+                                "required": ["datasetId", "level"],
+                                "properties": {
+                                    "datasetId": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                    },
+                                    "level": {"type": "number"},
+                                    "surfaceMode": {
+                                        "enum": ["single", "signed"],
+                                    },
+                                    "stepSize": {"enum": [1, 2, 4]},
+                                    "smearingSigma": {
+                                        "type": "number",
+                                        "minimum": 0,
+                                        "maximum": 8,
+                                    },
+                                    "smoothingIterations": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 30,
+                                    },
+                                    "opacity": {
+                                        "type": "number",
+                                        "minimum": 0.05,
+                                        "maximum": 1,
+                                    },
+                                    "positiveColor": {
+                                        "type": "string",
+                                        "pattern": "^#[0-9A-Fa-f]{6}$",
+                                    },
+                                    "negativeColor": {
+                                        "type": "string",
+                                        "pattern": "^#[0-9A-Fa-f]{6}$",
+                                    },
+                                },
+                                "allOf": [
+                                    {
+                                        "if": {
+                                            "required": ["surfaceMode"],
+                                            "properties": {
+                                                "surfaceMode": {
+                                                    "const": "signed",
+                                                },
+                                            },
+                                        },
+                                        "then": {
+                                            "properties": {
+                                                "level": {
+                                                    "not": {"const": 0},
+                                                },
+                                            },
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                    ],
                     "additionalProperties": True,
                 },
             ],
@@ -485,9 +575,20 @@ AI_OPERATION_PARAMETERS = {
         "required": ["datasetId", "level"],
         "optional": [
             "surfaceMode", "stepSize", "opacity",
-            "positiveColor", "negativeColor",
+            "positiveColor", "negativeColor", "smearingSigma",
+            "smoothingIterations",
         ],
-        "notes": "surfaceMode is single or signed; stepSize is 1, 2, or 4.",
+        "notes": (
+            "surfaceMode is single or signed; stepSize is 1, 2, or 4. "
+            "Signed mode renders +abs(level) and -abs(level), requires a "
+            "non-zero level, and may return only the sign that still crosses "
+            "the displayed field range after smearing. opacity is 0.05-1; "
+            "colors are six-digit #RRGGBB values. "
+            "smearingSigma is 0-8 grid points and filters only the displayed "
+            "field. smoothingIterations is an integer from 0-30 and fairs only "
+            "the extracted mesh. The default safety limits are 134,217,728 "
+            "source grid points and 2,000,000 output triangles per surface."
+        ),
     },
     "combine-volumetric": {
         "mode": "view-or-edit",
@@ -2739,6 +2840,8 @@ async def volumetric_isosurface(session_id: str, payload: Dict[str, Any]):
             dataset,
             float(payload.get("level")),
             step_size=int(payload.get("step_size", 1)),
+            smearing_sigma=float(payload.get("smearing_sigma", 0.0)),
+            smoothing_iterations=payload.get("smoothing_iterations", 4),
         )
     except (KeyError, TypeError, ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
