@@ -1,0 +1,443 @@
+import asyncio
+from pathlib import Path
+
+import numpy as np
+import pytest
+from ase import Atoms
+from ase.build import bulk
+from fastapi import HTTPException
+
+from v_ase.io import atom_labels, set_atom_labels
+from v_ase.phonon import (
+    PhononModel,
+    create_phonon_model,
+    generate_finite_displacements,
+    generate_mode_trajectory,
+    load_phonon_model,
+    phonon_modes_at_q,
+    phonopy_to_ase,
+    qpoint_commensurability,
+    validate_phonon_model_for_atoms,
+)
+from v_ase.symmetry import (
+    analyze_symmetry,
+    high_symmetry_path,
+    symmetry_tolerance_scan,
+    transform_by_symmetry,
+)
+from v_ase.server import (
+    apply_positions,
+    phonon_displacements,
+    phonon_modes,
+    symmetry_analysis,
+    symmetry_transform,
+)
+from v_ase.session import EditorSession, sessions
+
+
+pytest.importorskip("spglib")
+
+
+def test_spacegroup_orbits_and_tolerance_scan_for_diamond_silicon():
+    atoms = bulk("Si", "diamond", a=5.43)
+    result = analyze_symmetry(atoms)
+
+    assert result["number"] == 227
+    assert result["international"] == "Fd-3m"
+    assert result["pointgroup"] == "m-3m"
+    assert result["crystal_system"] == "cubic"
+    assert result["operation_count"] == 48
+    assert result["primitive_atom_count"] == 2
+    assert len(result["orbits"]) == 1
+    assert result["orbits"][0]["multiplicity"] == 2
+    assert result["orbits"][0]["site_symmetry"] == "-43m"
+
+    scan = symmetry_tolerance_scan(atoms, tolerances=[1e-6, 1e-5, 1e-4])
+    assert [entry["number"] for entry in scan] == [227, 227, 227]
+
+
+def test_custom_labels_can_be_ignored_or_treated_as_crystallographic_types():
+    atoms = bulk("Si", "diamond", a=5.43)
+    set_atom_labels(atoms, ["Si_A", "Si_B"])
+
+    by_element = analyze_symmetry(atoms, type_basis="element")
+    by_label = analyze_symmetry(atoms, type_basis="label")
+
+    assert by_element["number"] == 227
+    assert len(by_element["orbits"]) == 1
+    assert by_element["warnings"]
+    assert len(by_label["orbits"]) == 2
+    assert by_label["number"] != by_element["number"]
+
+
+def test_partial_pbc_is_reported_as_a_3d_spglib_approximation():
+    atoms = bulk("C", "diamond", a=3.57)
+    atoms.pbc = [True, True, False]
+    result = analyze_symmetry(atoms)
+    assert any("three-dimensional periodic symmetry" in item for item in result["warnings"])
+
+
+def test_primitive_conventional_and_refined_cells_preserve_valid_identity():
+    primitive = bulk("Si", "diamond", a=5.43)
+    set_atom_labels(primitive, ["Si_A", "Si_B"])
+
+    conventional, metadata = transform_by_symmetry(
+        primitive,
+        "conventional",
+        type_basis="label",
+    )
+    assert len(conventional) == 8
+    assert set(conventional.get_chemical_symbols()) == {"Si"}
+    assert set(atom_labels(conventional)) == {"Si_A", "Si_B"}
+    assert metadata["result_atom_count"] == 8
+
+    recovered, _ = transform_by_symmetry(
+        conventional,
+        "primitive",
+        type_basis="label",
+    )
+    assert len(recovered) == 2
+    refined, _ = transform_by_symmetry(recovered, "refine", type_basis="label")
+    assert len(refined) >= 2
+
+
+def test_seekpath_returns_standard_primitive_reciprocal_path():
+    pytest.importorskip("seekpath")
+    atoms = bulk("Al", "fcc", a=4.05)
+    path = high_symmetry_path(atoms)
+    assert path["spacegroup_number"] == 225
+    assert path["path"]
+    assert "GAMMA" in path["point_coords"]
+    assert np.asarray(path["reciprocal_primitive_lattice"]).shape == (3, 3)
+    assert path["path"] == [
+        ["GAMMA", "X"],
+        ["X", "U"],
+        ["K", "GAMMA"],
+        ["GAMMA", "L"],
+        ["L", "W"],
+        ["W", "X"],
+    ]
+
+
+def _synthetic_phonopy_model() -> PhononModel:
+    pytest.importorskip("phonopy")
+    atoms = Atoms(
+        "Si2",
+        scaled_positions=[[0, 0, 0], [0.25, 0.25, 0.25]],
+        cell=[[0, 2.715, 2.715], [2.715, 0, 2.715], [2.715, 2.715, 0]],
+        pbc=True,
+    )
+    atoms.set_masses([28.0, 30.0])
+    set_atom_labels(atoms, ["Si_framework", "Si_guest"])
+    model = create_phonon_model(atoms, supercell_matrix=(1, 1, 1))
+    force_constants = np.zeros((2, 2, 3, 3), dtype=float)
+    force_constants[0, 0] = np.eye(3) * 10.0
+    force_constants[1, 1] = np.eye(3) * 20.0
+    model.phonon.force_constants = force_constants
+    return model
+
+
+def _monatomic_chain_model() -> PhononModel:
+    """Nearest-neighbour chain used to validate the analytical dispersion."""
+    pytest.importorskip("phonopy")
+    atoms = Atoms(
+        "Si",
+        positions=[[0, 0, 0]],
+        cell=np.diag([1.0, 5.0, 5.0]),
+        pbc=True,
+    )
+    model = create_phonon_model(
+        atoms,
+        supercell_matrix=(2, 1, 1),
+        primitive_matrix=np.eye(3),
+    )
+    spring = 10.0
+    force_constants = np.zeros((2, 2, 3, 3), dtype=float)
+    force_constants[0, 0, 0, 0] = 2 * spring
+    force_constants[0, 1, 0, 0] = -2 * spring
+    force_constants[1, 0, 0, 0] = -2 * spring
+    force_constants[1, 1, 0, 0] = 2 * spring
+    model.phonon.force_constants = force_constants
+    return model
+
+
+def test_finite_displacements_are_generated_before_force_constants_exist():
+    pytest.importorskip("phonopy")
+    atoms = bulk("NaCl", "rocksalt", a=5.64)
+    set_atom_labels(atoms, ["Na_site", "Cl_site"])
+    model, frames, metadata = generate_finite_displacements(
+        atoms,
+        supercell_matrix=(2, 2, 2),
+        distance=0.01,
+    )
+
+    assert not model.has_force_constants
+    assert frames
+    assert metadata["forces_required"] is True
+    assert all(len(frame) == 16 for frame in frames)
+    assert {"Na_site", "Cl_site"} <= set(atom_labels(frames[0]))
+    assert frames[0].info["v_ase_phonon_displacement"]["distance_angstrom"] == 0.01
+
+
+def test_mode_generation_requires_force_constants_and_commensurate_qpoint():
+    pytest.importorskip("phonopy")
+    atoms = bulk("Al", "fcc", a=4.05)
+    empty = create_phonon_model(atoms, supercell_matrix=(1, 1, 1))
+    with pytest.raises(ValueError, match="require force constants"):
+        phonon_modes_at_q(empty, [0, 0, 0])
+
+    check = qpoint_commensurability([0.5, 0, 0], [2, 1, 1])
+    assert check["commensurate"] is True
+    assert qpoint_commensurability([1 / 3, 0, 0], [2, 1, 1])["commensurate"] is False
+
+
+def test_frozen_mode_trajectory_uses_frequency_band_phase_and_amplitude():
+    model = _synthetic_phonopy_model()
+    modes = phonon_modes_at_q(model, [0, 0, 0], projection_direction=[1, 0, 0])
+    assert modes["band_count"] == 6
+    assert all(item["frequency_thz"] > 0 for item in modes["bands"])
+    assert modes["projection_direction"] == [1.0, 0.0, 0.0]
+    assert all(0 <= item["directional_fraction"] <= 1 for item in modes["bands"])
+
+    trajectory, metadata = generate_mode_trajectory(
+        model,
+        qpoint=[0, 0, 0],
+        band=1,
+        amplitude=0.1,
+        dimension=(1, 1, 1),
+        frames=8,
+    )
+    assert len(trajectory) == 8
+    assert metadata["frame_count"] == 8
+    assert metadata["frequency_thz"] == pytest.approx(modes["bands"][0]["frequency_thz"])
+    displacement = trajectory[0].positions - trajectory[4].positions
+    assert np.linalg.norm(displacement) > 0.05
+    assert trajectory[0].info["v_ase_phonon_mode"]["band"] == 1
+    assert atom_labels(trajectory[0]) == ["Si_framework", "Si_guest"]
+    assert trajectory[0].get_masses() == pytest.approx([28.0, 30.0])
+
+    with pytest.raises(ValueError, match="not commensurate"):
+        generate_mode_trajectory(
+            model,
+            qpoint=[1 / 3, 0, 0],
+            band=1,
+            amplitude=0.1,
+            dimension=(2, 1, 1),
+        )
+
+
+def test_monatomic_chain_matches_the_analytical_nearest_neighbour_dispersion():
+    model = _monatomic_chain_model()
+    gamma = phonon_modes_at_q(model, [0, 0, 0])
+    quarter = phonon_modes_at_q(model, [0.25, 0, 0])
+    boundary = phonon_modes_at_q(model, [0.5, 0, 0])
+
+    assert [band["frequency_thz"] for band in gamma["bands"]] == pytest.approx(
+        [0.0, 0.0, 0.0],
+        abs=1e-10,
+    )
+    quarter_longitudinal = max(
+        quarter["bands"],
+        key=lambda item: item["frequency_thz"],
+    )
+    boundary_longitudinal = max(
+        boundary["bands"],
+        key=lambda item: item["frequency_thz"],
+    )
+    assert quarter_longitudinal["dominant_axis"] == "x"
+    assert quarter_longitudinal["longitudinal_fraction"] == pytest.approx(1.0)
+    assert (
+        quarter_longitudinal["frequency_thz"]
+        / boundary_longitudinal["frequency_thz"]
+    ) == pytest.approx(np.sin(np.pi / 4), rel=1e-10)
+
+    active = phonopy_to_ase(model.phonon.unitcell)
+    quarter_turn = np.asarray([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    active.set_cell(np.asarray(active.cell) @ quarter_turn, scale_atoms=True)
+    validate_phonon_model_for_atoms(model, active)
+    rotated_quarter = max(
+        phonon_modes_at_q(model, [0.25, 0, 0])["bands"],
+        key=lambda item: item["frequency_thz"],
+    )
+    assert rotated_quarter["dominant_axis"] == "y"
+    assert rotated_quarter["longitudinal_fraction"] == pytest.approx(1.0)
+
+
+def test_phonopy_project_compatibility_checks_cell_species_order_and_positions():
+    model = _synthetic_phonopy_model()
+    matching = phonopy_to_ase(model.phonon.unitcell)
+    validate_phonon_model_for_atoms(model, matching)
+
+    wrong_cell = matching.copy()
+    wrong_cell.cell[0, 0] += 0.02
+    with pytest.raises(ValueError, match="lattice metric does not match"):
+        validate_phonon_model_for_atoms(model, wrong_cell)
+
+    wrong_species = matching.copy()
+    wrong_species[0].symbol = "Ge"
+    with pytest.raises(ValueError, match="chemical elements"):
+        validate_phonon_model_for_atoms(model, wrong_species)
+
+    wrong_position = matching.copy()
+    wrong_position.positions[1, 0] += 0.02
+    with pytest.raises(ValueError, match="fractional positions"):
+        validate_phonon_model_for_atoms(model, wrong_position)
+
+
+def test_phonopy_project_can_align_a_rigid_cartesian_cell_rotation():
+    model = _synthetic_phonopy_model()
+    matching = phonopy_to_ase(model.phonon.unitcell)
+    angle = np.deg2rad(37.0)
+    rotation = np.asarray(
+        [
+            [np.cos(angle), -np.sin(angle), 0.0],
+            [np.sin(angle), np.cos(angle), 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    rotated = matching.copy()
+    rotated.set_cell(np.asarray(matching.cell) @ rotation, scale_atoms=True)
+
+    validate_phonon_model_for_atoms(model, rotated)
+    assert model.cartesian_transform == pytest.approx(rotation)
+    assert model.summary()["aligned_to_active_structure"] is True
+
+    trajectory, _ = generate_mode_trajectory(
+        model,
+        qpoint=[0, 0, 0],
+        band=1,
+        amplitude=0.1,
+        frames=1,
+        oscillation=False,
+    )
+    assert np.asarray(trajectory[0].cell) == pytest.approx(np.asarray(rotated.cell))
+
+
+def test_saved_phonopy_project_reloads_with_force_constants(tmp_path: Path):
+    model = _synthetic_phonopy_model()
+    project = tmp_path / "phonopy_params.yaml"
+    model.phonon.save(project, settings={"force_constants": True})
+
+    loaded = load_phonon_model(project)
+    assert loaded.has_force_constants
+    summary = loaded.summary()
+    assert summary["unit_atoms"] == 2
+    assert summary["frequency_unit"] == "THz"
+
+
+def _editor_session(name: str, atoms: Atoms, *, viz_only: bool = False) -> EditorSession:
+    session = EditorSession(
+        name,
+        atoms.copy(),
+        atoms.copy(),
+        config={"viz_only": viz_only},
+    )
+    sessions[name] = session
+    return session
+
+
+def test_server_symmetry_analysis_is_available_in_view_mode_without_mutation():
+    atoms = bulk("Si", "diamond", a=5.43)
+    session = _editor_session("symmetry-view-analysis", atoms, viz_only=True)
+    before = session.working_atoms.positions.copy()
+    try:
+        result = asyncio.run(symmetry_analysis(session.session_id, {
+            "symprec": 1e-5,
+            "type_basis": "element",
+            "tolerances": [1e-6, 1e-5],
+        }))
+    finally:
+        sessions.pop(session.session_id, None)
+
+    assert result["number"] == 227
+    assert len(result["tolerance_scan"]) == 2
+    assert np.allclose(session.working_atoms.positions, before)
+    assert session.history == []
+
+
+def test_server_symmetry_transform_replaces_trajectory_and_can_undo():
+    atoms = bulk("Si", "diamond", a=5.43)
+    session = _editor_session("symmetry-transform-edit", atoms)
+    original_count = len(session.working_atoms)
+    try:
+        result = asyncio.run(symmetry_transform(session.session_id, {
+            "mode": "conventional",
+            "symprec": 1e-5,
+            "type_basis": "element",
+        }))
+        assert result["metadata"]["natoms"] == 8
+        assert session.frame_count == 1
+        assert len(session.working_atoms) == 8
+        restored = session.undo()
+    finally:
+        sessions.pop(session.session_id, None)
+
+    assert restored is not None
+    assert len(restored) == original_count
+
+
+def test_server_finite_displacements_become_calculation_input_trajectory():
+    pytest.importorskip("phonopy")
+    atoms = bulk("NaCl", "rocksalt", a=5.64)
+    session = _editor_session("phonon-displacement-edit", atoms)
+    try:
+        result = asyncio.run(phonon_displacements(session.session_id, {
+            "supercell_matrix": [2, 2, 2],
+            "distance": 0.01,
+        }))
+        assert result["phonon"]["forces_required"] is True
+        assert session.frame_count == result["phonon"]["displacement_count"]
+        assert session.phonon_model is not None
+        assert session.phonon_model.has_force_constants is False
+        generated_model = session.phonon_model
+        with pytest.raises(HTTPException, match="require force constants") as error:
+            asyncio.run(phonon_modes(session.session_id, {"qpoint": [0, 0, 0]}))
+        assert error.value.status_code == 400
+        session.undo()
+        assert session.phonon_model is None
+        session.redo()
+        assert session.phonon_model is generated_model
+        session.undo()
+    finally:
+        sessions.pop(session.session_id, None)
+
+    assert session.frame_count == 1
+    assert len(session.working_atoms) == len(atoms)
+
+
+def test_physical_edit_invalidates_loaded_phonon_model_and_undo_restores_it():
+    model = _synthetic_phonopy_model()
+    atoms = phonopy_to_ase(model.phonon.unitcell)
+    session = _editor_session("phonon-model-edit-invalidation", atoms)
+    session.phonon_model = model
+    moved = atoms.positions.copy()
+    moved[0, 0] += 0.02
+    try:
+        asyncio.run(apply_positions(session.session_id, {"positions": moved.tolist()}))
+        assert session.phonon_model is None
+        session.undo()
+        assert session.phonon_model is model
+    finally:
+        sessions.pop(session.session_id, None)
+
+
+def test_scientific_endpoints_report_invalid_user_input_without_mutation():
+    atoms = bulk("Si", "diamond", a=5.43)
+    session = _editor_session("scientific-invalid-input", atoms)
+    before = session.working_atoms.copy()
+    try:
+        with pytest.raises(HTTPException) as symmetry_error:
+            asyncio.run(symmetry_analysis(session.session_id, {"symprec": 0}))
+        with pytest.raises(HTTPException) as phonon_error:
+            asyncio.run(phonon_displacements(session.session_id, {
+                "supercell_matrix": [0, 2, 2],
+                "distance": 0.01,
+            }))
+    finally:
+        sessions.pop(session.session_id, None)
+
+    assert symmetry_error.value.status_code == 400
+    assert phonon_error.value.status_code == 400
+    assert len(session.history) == 0
+    assert session.frame_count == 1
+    assert np.allclose(session.working_atoms.positions, before.positions)

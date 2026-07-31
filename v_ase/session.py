@@ -20,6 +20,7 @@ class SessionHistoryState:
     trajectory_frames: Optional[List[Atoms]] = None
     original_atoms: Optional[Atoms] = None
     original_frames: Optional[List[Atoms]] = None
+    phonon_model: Any = None
 
 
 @dataclass
@@ -31,6 +32,7 @@ class EditorSession:
     original_frames: List[Atoms] = field(default_factory=list)
     trajectory_frames: List[Atoms] = field(default_factory=list)
     trajectory_source: Any = None
+    phonon_model: Any = field(default=None, repr=False)
     current_frame: int = 0
     
     # History
@@ -188,6 +190,7 @@ class EditorSession:
                 if include_original
                 else None
             ),
+            phonon_model=self.phonon_model,
         )
 
     def _restore_history_state(self, state: SessionHistoryState) -> None:
@@ -204,6 +207,7 @@ class EditorSession:
                 self._copy_atoms(frame)
                 for frame in state.original_frames
             ]
+        self.phonon_model = state.phonon_model
         frame_count = max(1, len(self.trajectory_frames))
         self.current_frame = max(0, min(int(state.current_frame), frame_count - 1))
         self.working_atoms = self._copy_atoms(state.working_atoms)
@@ -595,6 +599,7 @@ def replace_session_frames(
     session.original_frames = original_frames
     session.trajectory_frames = working_frames
     session.trajectory_source = trajectory_source
+    session.phonon_model = None
     session.current_frame = frame_index
     session.original_atoms = copy_atoms_with_calc(original_frames[0], attach_default=attach_default)
     session.working_atoms = copy_atoms_with_calc(working_frames[frame_index], attach_default=attach_default)
@@ -668,6 +673,7 @@ def append_session_frames(session: EditorSession, frames: List[Atoms]) -> int:
     session.original_frames = existing_original + appended_original
     session.trajectory_frames = existing_working + appended_working
     session.trajectory_source = None
+    session.phonon_model = None
     session.current_frame = current_frame
     session.original_atoms = copy_atoms_with_calc(
         session.original_frames[0],

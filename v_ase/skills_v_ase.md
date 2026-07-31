@@ -9,6 +9,7 @@ Start with:
 - [agent setup](skills/visualizing-atomic-structures-with-v-ase/references/agent-setup.md)
 - [live collaboration](skills/visualizing-atomic-structures-with-v-ase/references/collaboration.md)
 - [semantic API](skills/visualizing-atomic-structures-with-v-ase/references/semantic-api.md)
+- [symmetry and phonons](skills/visualizing-atomic-structures-with-v-ase/references/symmetry-and-phonons.md)
 - [verified workflows](skills/visualizing-atomic-structures-with-v-ase/references/workflows-and-examples.md)
 - [safety and errors](skills/visualizing-atomic-structures-with-v-ase/references/safety-and-errors.md)
 
@@ -47,4 +48,8 @@ without changing frame bounds. It also documents `%v_ase inline`,
 `notebook=` overrides and ordinary-Python browser behavior. This release
 documents specific-atom rotation through the human
 **Active atom (last selected)** pivot and semantic `pivot: "active"` mode.
+The isolated `symmetry` alpha additionally documents nonmutating space-group
+analysis, HPKOT reciprocal paths, undoable cell standardization,
+finite-displacement input generation, completed-Phonopy-project loading,
+q-point polarization inspection, and commensurate mode trajectories.
 The compatibility file remains available so existing links do not fail.

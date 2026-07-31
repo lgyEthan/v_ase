@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "v_ase-gui"
-version = "0.0.120"
+version = "0.1.0a1+symmetry"
 description = "A local 3D viewer and editor for atomic structures and trajectories."
 readme = "README.md"
 license = "MIT"
@@ -52,6 +52,14 @@ dev = [
 ]
 rhino = [
   "rhino3dm>=8.0",
+]
+symmetry = [
+  "spglib>=2.5",
+  "seekpath>=2.1",
+]
+phonon = [
+  "phonopy>=2.40",
+  "seekpath>=2.1",
 ]
 
 [tool.setuptools.packages.find]

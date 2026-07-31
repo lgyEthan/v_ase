@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.120&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.0a1%2Bsymmetry&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.120';
+            : '/static/vendor/three.module.js?v=0.1.0a1%2Bsymmetry';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -68,7 +68,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.120</span>
+            <span class="version">0.1.0a1+symmetry</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -431,6 +431,157 @@
                 <span class="p-label">Mapped</span><span id="displacement-mapped" class="p-val">-</span>
                 <span class="p-label">Mean / RMS</span><span id="displacement-mean-rms" class="p-val">-</span>
                 <span class="p-label">Maximum</span><span id="displacement-max" class="p-val">-</span>
+            </div>
+        </details>
+
+        <details class="panel-section" open data-panel="symmetry" data-panel-group="analysis">
+            <summary class="section-header">Crystal Symmetry</summary>
+            <div class="science-control-grid">
+                <label>
+                    <span>Position tolerance</span>
+                    <span class="field-with-unit">
+                        <input id="symmetry-symprec" type="number" value="0.00001" min="0.00000001" max="1" step="0.00001" inputmode="decimal">
+                        <span>A</span>
+                    </span>
+                </label>
+                <label>
+                    <span>Angle tolerance</span>
+                    <span class="field-with-unit">
+                        <input id="symmetry-angle-tolerance" type="number" value="-1" min="-1" max="180" step="0.1" inputmode="decimal">
+                        <span>deg</span>
+                    </span>
+                </label>
+            </div>
+            <div class="prop-row">
+                <label for="symmetry-type-basis">Atomic identity</label>
+                <select id="symmetry-type-basis">
+                    <option value="element" selected>Chemical element</option>
+                    <option value="label">Element + label</option>
+                </select>
+            </div>
+            <div class="prop-row">
+                <label for="chk-symmetry-magnetic">Magnetic symmetry</label>
+                <input type="checkbox" id="chk-symmetry-magnetic">
+            </div>
+            <div class="btn-stack-row two">
+                <button id="btn-analyze-symmetry" type="button" data-requires-atoms>Analyze</button>
+                <button id="btn-symmetry-path" type="button" data-requires-atoms>Reciprocal Path</button>
+            </div>
+            <div id="symmetry-status" class="analysis-status" data-state="idle">
+                <span class="analysis-status-title">Not analyzed</span>
+                <span class="analysis-status-detail">Inspect the current frame with spglib.</span>
+            </div>
+            <div id="symmetry-result" class="science-result hidden">
+                <div class="science-result-head">
+                    <strong id="symmetry-spacegroup">-</strong>
+                    <span id="symmetry-number">-</span>
+                </div>
+                <div class="prop-grid analysis-stats">
+                    <span class="p-label">Point group</span><span id="symmetry-pointgroup" class="p-val">-</span>
+                    <span class="p-label">Crystal system</span><span id="symmetry-crystal-system" class="p-val">-</span>
+                    <span class="p-label">Operations</span><span id="symmetry-operation-count" class="p-val">-</span>
+                    <span class="p-label">Independent sites</span><span id="symmetry-orbit-count" class="p-val">-</span>
+                </div>
+                <div id="symmetry-orbits" class="symmetry-orbit-list" aria-label="Symmetry-independent atomic sites"></div>
+            </div>
+            <div id="symmetry-path-result" class="science-code-result hidden"></div>
+            <div class="science-stage" data-edit-only>
+                <div class="science-stage-label"><span>Structure operation</span><small>replaces the trajectory</small></div>
+                <p class="panel-note">Create one standardized structure. Constraints, calculators, and unmapped per-atom arrays are removed when atom ordering changes.</p>
+                <div class="btn-stack-row symmetry-transform-actions">
+                    <button type="button" data-symmetry-transform="primitive">Primitive</button>
+                    <button type="button" data-symmetry-transform="conventional">Conventional</button>
+                    <button type="button" data-symmetry-transform="refine">Refine Only</button>
+                </div>
+            </div>
+        </details>
+
+        <details class="panel-section" open data-panel="phonons" data-panel-group="analysis">
+            <summary class="section-header">Phonons</summary>
+            <div class="science-stage">
+                <div class="science-stage-label"><span>1. Prepare calculations</span><small>force constants not required</small></div>
+                <div class="prop-row">
+                    <label>Supercell</label>
+                    <div class="num-group">
+                        <input id="phonon-super-x" type="number" value="2" min="1" max="20" step="1" aria-label="Phonon supercell x">
+                        <input id="phonon-super-y" type="number" value="2" min="1" max="20" step="1" aria-label="Phonon supercell y">
+                        <input id="phonon-super-z" type="number" value="2" min="1" max="20" step="1" aria-label="Phonon supercell z">
+                    </div>
+                </div>
+                <div class="prop-row">
+                    <label for="phonon-displacement-distance">Displacement</label>
+                    <span class="field-with-unit">
+                        <input id="phonon-displacement-distance" type="number" value="0.01" min="0.000001" max="1" step="0.001" inputmode="decimal">
+                        <span>A</span>
+                    </span>
+                </div>
+                <button id="btn-phonon-displacements" class="btn-block" type="button" data-edit-only data-requires-atoms>Generate Calculation Inputs</button>
+                <p class="panel-note">Creates symmetry-reduced displaced supercells. Calculate forces for every generated frame before interpreting frequencies or modes.</p>
+            </div>
+            <div class="science-stage">
+                <div class="science-stage-label"><span>2. Load force constants</span><small>phonopy YAML</small></div>
+                <input id="phonopy-project-file" class="hidden" type="file" accept=".yaml,.yml,application/yaml,text/yaml">
+                <button id="btn-load-phonopy-project" class="btn-block" type="button">Load Completed Project</button>
+                <div id="phonon-model-status" class="analysis-status" data-state="idle">
+                    <span class="analysis-status-title">No phonopy model</span>
+                    <span class="analysis-status-detail">Load a phonopy YAML that contains force constants.</span>
+                </div>
+            </div>
+            <div class="science-stage">
+                <div class="science-stage-label"><span>3. Inspect a q-point</span><small>reciprocal coordinates</small></div>
+                <div class="prop-row">
+                    <label>q-point</label>
+                    <div class="num-group">
+                        <input id="phonon-q-x" type="number" value="0" step="0.01" aria-label="Phonon q x">
+                        <input id="phonon-q-y" type="number" value="0" step="0.01" aria-label="Phonon q y">
+                        <input id="phonon-q-z" type="number" value="0" step="0.01" aria-label="Phonon q z">
+                    </div>
+                </div>
+                <div class="prop-row">
+                    <label for="phonon-projection-axis">Polarization projection</label>
+                    <select id="phonon-projection-axis">
+                        <option value="none" selected>None</option>
+                        <option value="x">Cartesian X</option>
+                        <option value="y">Cartesian Y</option>
+                        <option value="z">Cartesian Z</option>
+                    </select>
+                </div>
+                <button id="btn-phonon-modes" class="btn-block" type="button">Calculate Modes</button>
+                <div id="phonon-mode-result" class="phonon-mode-list hidden"></div>
+            </div>
+            <div class="science-stage" data-edit-only>
+                <div class="science-stage-label"><span>4. Build mode trajectory</span><small>mass-weighted eigenvector</small></div>
+                <div class="science-control-grid">
+                    <label>
+                        <span>Band</span>
+                        <input id="phonon-mode-band" type="number" value="1" min="1" step="1">
+                    </label>
+                    <label>
+                        <span>Amplitude (A)</span>
+                        <input id="phonon-mode-amplitude" type="number" value="0.10" min="0" max="10" step="0.01">
+                    </label>
+                    <label>
+                        <span>Phase (deg)</span>
+                        <input id="phonon-mode-phase" type="number" value="0" step="1">
+                    </label>
+                    <label>
+                        <span>Frames</span>
+                        <input id="phonon-mode-frames" type="number" value="24" min="1" max="240" step="1">
+                    </label>
+                </div>
+                <div class="prop-row">
+                    <label>Mode supercell</label>
+                    <div class="num-group">
+                        <input id="phonon-mode-super-x" type="number" value="1" min="1" max="50" step="1" aria-label="Mode supercell x">
+                        <input id="phonon-mode-super-y" type="number" value="1" min="1" max="50" step="1" aria-label="Mode supercell y">
+                        <input id="phonon-mode-super-z" type="number" value="1" min="1" max="50" step="1" aria-label="Mode supercell z">
+                    </div>
+                </div>
+                <div class="prop-row">
+                    <label for="chk-phonon-oscillation">Oscillation movie</label>
+                    <input type="checkbox" id="chk-phonon-oscillation" checked>
+                </div>
+                <button id="btn-phonon-modulate" class="btn-block" type="button">Create Mode Trajectory</button>
             </div>
         </details>
 
@@ -1028,7 +1179,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.120&rev=1';
+            : './static/main.js?v=0.1.0a1%2Bsymmetry&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

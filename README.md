@@ -4,9 +4,13 @@
 
 # v_ase
 
-[![PyPI version](https://img.shields.io/pypi/v/v_ase-gui.svg)](https://pypi.org/project/v-ase-gui/)
-[![Python versions](https://img.shields.io/pypi/pyversions/v_ase-gui.svg)](https://pypi.org/project/v-ase-gui/)
+[![Symmetry branch](https://img.shields.io/badge/branch-symmetry_alpha-19a89d.svg)](https://github.com/lgyEthan/v_ase/tree/symmetry)
+[![Version](https://img.shields.io/badge/version-0.1.0a1%2Bsymmetry-d2a84a.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+> **Experimental symmetry build:** this branch is isolated from `main`, uses
+> the independent version `0.1.0a1+symmetry`, and is not published to PyPI.
+> Install it from the `symmetry` branch as shown below.
 
 `v_ase` brings ASE's convenient terminal and Python workflow together with
 direct, Blender-style 3D structure editing. Open a structure or trajectory
@@ -26,26 +30,23 @@ completed structure is inspected from above and below.
 | --- | --- |
 | Structures and trajectories | ASE-supported formats, live timeline, per-frame bonds |
 | Geometry editing | Ordered selection, `G` move, `R` rotate, axis locks, numeric input |
-| Scientific inspection | Distances, angles, torsions, displacement vectors, constraints |
+| Scientific inspection | Distances, angles, torsions, displacement vectors, constraints, space-group and phonon-mode analysis |
 | Figure preparation | Appearance, bonds, lighting, exact preview, image/video export |
 | Reproducible sessions | Self-contained `.vase` projects and reusable visual settings |
 | Agent workflows | Semantic state/command API and a vendor-neutral AI skill |
 
 ## Quick Start
 
-Install from PyPI:
+Install the isolated symmetry branch and its optional scientific backends:
 
 ```bash
-python -m pip install v_ase-gui
-```
-
-Or install the current GitHub source:
-
-```bash
-git clone https://github.com/lgyEthan/v_ase.git
+git clone --branch symmetry https://github.com/lgyEthan/v_ase.git
 cd v_ase
-python -m pip install -e .
+python -m pip install -e ".[symmetry,phonon]"
 ```
+
+Use `python -m pip install -e .` when the symmetry and phonon panels are not
+needed. The published PyPI package tracks `main`, not this experimental branch.
 
 Start an empty workspace or open a file:
 
@@ -79,6 +80,9 @@ browser document releases the blocking terminal process.
 | Goal | Action |
 | --- | --- |
 | Inspect a structure | Middle-drag to orbit, wheel to zoom, left-click to select |
+| Analyze crystal symmetry | Open **Analysis > Crystal Symmetry**, choose the atomic identity basis, then **Analyze** |
+| Prepare phonon calculations | Enter **Edit**, open **Analysis > Phonons**, and generate finite-displacement inputs |
+| Visualize a phonon eigenmode | Load a completed phonopy YAML, inspect a q-point, select a band, and create a mode trajectory |
 | Edit coordinates | Enter **Edit**, select atoms, press `Esc` to focus the viewport, then use `G` or `R` |
 | Measure geometry | Select 2, 3, or 4 atoms in the required order |
 | Play a trajectory | Use the bottom timeline or `Space`; FPS and Skip update live |
@@ -92,6 +96,64 @@ browser document releases the blocking terminal process.
 > **Viewport tip:** after selecting atoms, press `Esc` to close the control
 > panel before using `G` or `R`. The selection is preserved and keyboard focus
 > returns to the 3D viewport.
+
+## Crystal Symmetry And Phonon Modes
+
+The symmetry build adds non-destructive crystallographic analysis and explicit,
+undoable structure-generation workflows.
+
+### What Can Be Done Before A Phonon Calculation?
+
+- Generate arbitrary trial displacements with the normal Edit tools.
+- Generate symmetry-reduced finite-displacement supercells for force
+  calculations under **Analysis > Phonons**.
+- Analyze the space group, point group, Wyckoff positions, site symmetries,
+  equivalent-atom orbits, and tolerance stability.
+- Create primitive, conventional, or refined cells. These operations replace
+  the current trajectory with one standardized frame and remain undoable.
+
+A uniform displacement of every atom is only a rigid translation. It does not
+identify a phonon branch.
+
+### What Requires Force Constants?
+
+A physical deformation along phonon band `nu` at q-point `q` requires the
+dynamical matrix and its mass-weighted eigenvector. Load a completed phonopy
+YAML containing force constants, choose the q-point and band, then set the
+amplitude, phase, commensurate mode supercell, and frame count. v_ase uses
+Phonopy's modulation convention rather than inventing a displacement pattern.
+
+The optional **Polarization projection** ranks how strongly each mode points
+along Cartesian X, Y, or Z. This helps locate a mode that moves primarily in a
+requested direction, but it does not replace the eigenvector calculation.
+
+### Symmetry Workflow
+
+1. Choose **Chemical element** when custom labels are visualization metadata,
+   or **Element + label** when labels represent physically distinct sites.
+2. Run **Analyze** and inspect the space group, tolerance stability, and
+   independent-site list.
+3. Use **Reciprocal Path** for the SeeK-path HPKOT high-symmetry path.
+4. In Edit mode, create a primitive, conventional, or refined structure only
+   after reviewing the data-loss warning.
+
+### Phonon Workflow
+
+1. Generate finite-displacement calculation inputs. No force constants are
+   required at this stage.
+2. Calculate forces for every generated supercell using an external calculator.
+3. Build force constants with Phonopy and save them in a phonopy YAML project.
+4. Load that completed project in v_ase.
+5. Inspect frequencies and polarization at a q-point.
+6. Create a frozen structure or oscillating mode trajectory. The selected
+   supercell must satisfy the q-point commensurability condition.
+
+The loaded phonopy unit cell must match the current atom order, elements,
+lattice metric, and periodic positions. A rigid Cartesian orientation change
+is aligned automatically; v_ase rejects a physically mismatched project.
+
+Equations, physical assumptions, dependency boundaries, and primary references
+are collected in [Symmetry and phonon methodology](docs/symmetry_and_phonons.md).
 
 ## AI-Assisted Workflow
 

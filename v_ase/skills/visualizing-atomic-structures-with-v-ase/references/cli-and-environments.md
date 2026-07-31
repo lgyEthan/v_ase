@@ -11,20 +11,28 @@
 
 ## Installation
 
-Install the tested release into the active Python environment:
+Clone or enter a checkout of the isolated `symmetry` branch, then install it
+into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.120"
+git clone --branch symmetry https://github.com/lgyEthan/v_ase.git
+cd v_ase
+python -m pip install -e ".[symmetry,phonon]"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.0.120"
+python -m pip install -e ".[symmetry,phonon,rhino]"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, imageio-ffmpeg, and
-Pillow. No Node.js runtime, API key, or hosted account is required.
+Pillow. Symmetry analysis adds spglib and SeeK-path; physical phonon mode
+workflows add Phonopy. No Node.js runtime, API key, or hosted account is
+required.
+
+The tested branch version is `0.1.0a1+symmetry`. It is not a PyPI release;
+never substitute a `v_ase-gui==...` registry install for this checkout.
 
 Verify the active executable and import:
 
@@ -227,5 +235,7 @@ to an untrusted network.
 - Browser-native video capture requires a Chromium-family browser with
   `MediaRecorder`.
 - 3DM export requires the optional `rhino3dm` dependency.
+- Space-group and reciprocal-path analysis require `spglib` and `seekpath`.
+- Finite-displacement and physical mode workflows require `phonopy`.
 - Very large trajectories should use `--stream-frames`; do not preload every
   coordinate into an agent context.

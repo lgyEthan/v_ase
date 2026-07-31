@@ -63,6 +63,12 @@ forces, calculator attachment/name/details, charges, tags, magnetic moments,
 selection references, measurements, display settings, camera, image export profile, and
 `collaboration.revision`.
 
+Scientific state in `describe()` is summarized to keep large structures
+token-efficient: symmetry operations, per-atom equivalence arrays, phonon
+participation arrays, and complex eigenvectors are omitted. Use the direct
+endpoint under `schema.scientific_endpoints` only when those full arrays are
+required.
+
 Use `includePositions: false` for metadata-only inspection of a very large
 frame. Re-enable positions before coordinate-dependent work.
 
@@ -353,6 +359,24 @@ Reference mode is `"previous"` or `"frame"`. Style is `"3d"` or `"2d"`.
 Vectors begin at each atom's currently visible position, repeat across the
 displayed supercell, and keep their physical value when visual translation
 moves both endpoints.
+
+## Symmetry And Phonons
+
+The symmetry alpha exposes these operations through `apply()`:
+
+- `analyze-symmetry`
+- `symmetry-path`
+- `standardize-symmetry`
+- `generate-phonon-displacements`
+- `inspect-phonon-modes`
+- `generate-phonon-mode`
+
+Use the exact parameters and verification rules in
+`references/symmetry-and-phonons.md`. The first two are nonmutating.
+Standardization and generated trajectories require Edit mode and replace the
+current trajectory after creating an Undo checkpoint. A completed phonopy YAML
+is uploaded to the direct endpoint reported by `schema.scientific_endpoints`;
+binary file upload is deliberately not embedded in an `apply()` JSON object.
 
 ## Rendering
 

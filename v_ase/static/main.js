@@ -1,13 +1,15 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.120&rev=1';
-import { ASERenderer } from './renderer.js?v=0.0.120&rev=1';
-import { ASESelection } from './selection.js?v=0.0.120&rev=1';
-import { ASETransform } from './transform.js?v=0.0.120&rev=1';
+import { ASEApi } from './api.js?v=0.1.0a1%2Bsymmetry&rev=1';
+import { ASERenderer } from './renderer.js?v=0.1.0a1%2Bsymmetry&rev=1';
+import { ASESelection } from './selection.js?v=0.1.0a1%2Bsymmetry&rev=1';
+import { ASETransform } from './transform.js?v=0.1.0a1%2Bsymmetry&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.120&rev=1';
+} from './trajectory.js?v=0.1.0a1%2Bsymmetry&rev=1';
+
+const V_ASE_BUILD_VERSION = '0.1.0a1+symmetry';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -231,6 +233,10 @@ class VAseApp {
             displacementRequestToken: 0,
             displacementRefreshTimer: null,
             displacementStats: null,
+            symmetryResult: null,
+            symmetryPath: null,
+            phononModelSummary: null,
+            phononModes: null,
             videoExportId: null,
             videoExportStartedAt: null
         };
@@ -259,6 +265,7 @@ class VAseApp {
             this.setupInspectorResizer();
             this.setupInspectorNavigation();
             this.setupDisplacementAnalysis();
+            this.setupSymmetryPhononAnalysis();
             this.setupViewControls();
             this.setupRuntimeModeControls();
             this.setupSelectedAppearanceControls();
@@ -1380,6 +1387,502 @@ class VAseApp {
         }
     }
 
+    setupSymmetryPhononAnalysis() {
+        document.getElementById('btn-analyze-symmetry')?.addEventListener(
+            'click',
+            () => this.analyzeCurrentSymmetry()
+        );
+        document.getElementById('btn-symmetry-path')?.addEventListener(
+            'click',
+            () => this.calculateHighSymmetryPath()
+        );
+        document.querySelectorAll('[data-symmetry-transform]').forEach(button => {
+            button.addEventListener('click', () => {
+                this.applySymmetryTransform(button.dataset.symmetryTransform);
+            });
+        });
+        document.getElementById('btn-phonon-displacements')?.addEventListener(
+            'click',
+            () => this.createFiniteDisplacementTrajectory()
+        );
+        const projectInput = document.getElementById('phonopy-project-file');
+        document.getElementById('btn-load-phonopy-project')?.addEventListener(
+            'click',
+            () => projectInput?.click()
+        );
+        projectInput?.addEventListener('change', () => {
+            const file = projectInput.files?.[0];
+            projectInput.value = '';
+            if (file) this.loadPhonopyProject(file);
+        });
+        document.getElementById('btn-phonon-modes')?.addEventListener(
+            'click',
+            () => this.calculatePhononModes()
+        );
+        document.getElementById('btn-phonon-modulate')?.addEventListener(
+            'click',
+            () => this.createPhononModeTrajectory()
+        );
+    }
+
+    finiteScienceNumber(id, label, {
+        minimum = -Infinity,
+        maximum = Infinity,
+        integer = false
+    } = {}) {
+        const input = document.getElementById(id);
+        const value = Number(input?.value);
+        if (!Number.isFinite(value)) throw new Error(`${label} must be finite.`);
+        if (integer && !Number.isInteger(value)) throw new Error(`${label} must be an integer.`);
+        if (value < minimum || value > maximum) {
+            throw new Error(`${label} must be between ${minimum} and ${maximum}.`);
+        }
+        return value;
+    }
+
+    scienceVector(ids, label, options = {}) {
+        return ids.map((id, index) => this.finiteScienceNumber(
+            id,
+            `${label} ${'xyz'[index]}`,
+            options
+        ));
+    }
+
+    symmetryAnalysisOptions() {
+        const symprec = this.finiteScienceNumber(
+            'symmetry-symprec',
+            'Position tolerance',
+            { minimum: 1e-8, maximum: 1 }
+        );
+        const angleTolerance = this.finiteScienceNumber(
+            'symmetry-angle-tolerance',
+            'Angle tolerance',
+            { minimum: -1, maximum: 180 }
+        );
+        const positions = this.state.vizOnly
+            ? this.state.atoms?.positions
+            : this.backendPositionsPayload();
+        return {
+            symprec,
+            angle_tolerance: angleTolerance,
+            type_basis: document.getElementById('symmetry-type-basis')?.value === 'label'
+                ? 'label'
+                : 'element',
+            magnetic: Boolean(document.getElementById('chk-symmetry-magnetic')?.checked),
+            positions
+        };
+    }
+
+    setScienceStatus(id, state, title, detail = '') {
+        const status = document.getElementById(id);
+        if (!status) return;
+        status.dataset.state = state;
+        const titleElement = status.querySelector('.analysis-status-title');
+        const detailElement = status.querySelector('.analysis-status-detail');
+        if (titleElement) titleElement.textContent = title;
+        if (detailElement) detailElement.textContent = detail;
+    }
+
+    async analyzeCurrentSymmetry() {
+        try {
+            const options = this.symmetryAnalysisOptions();
+            options.tolerances = [
+                options.symprec / 100,
+                options.symprec / 10,
+                options.symprec,
+                options.symprec * 10,
+                options.symprec * 100
+            ].filter(value => value >= 1e-8 && value <= 1);
+            this.setScienceStatus(
+                'symmetry-status',
+                'loading',
+                'Analyzing symmetry',
+                `spglib tolerance ${options.symprec} A`
+            );
+            const result = await this.withBusy(
+                'Analyzing crystallographic symmetry...',
+                () => this.api.analyzeSymmetry(options)
+            );
+            this.state.symmetryResult = result;
+            this.renderSymmetryResult(result);
+        } catch (error) {
+            this.setScienceStatus('symmetry-status', 'warning', 'Symmetry unavailable', error.message);
+            this.toast(`Symmetry analysis failed: ${error.message}`, 'error');
+        }
+    }
+
+    renderSymmetryResult(result) {
+        const container = document.getElementById('symmetry-result');
+        if (!container) return;
+        const text = (id, value) => {
+            const element = document.getElementById(id);
+            if (element) element.textContent = `${value ?? '-'}`;
+        };
+        if (result.kind === 'magnetic') {
+            container.classList.add('hidden');
+            this.setScienceStatus(
+                'symmetry-status',
+                'ready',
+                `Magnetic space group UNI ${result.uni_number}`,
+                `${result.operation_count} operations; type ${result.magnetic_spacegroup_type}.`
+            );
+            return;
+        }
+        container.classList.remove('hidden');
+        text('symmetry-spacegroup', result.international);
+        text('symmetry-number', `No. ${result.number}`);
+        text('symmetry-pointgroup', result.pointgroup);
+        text('symmetry-crystal-system', result.crystal_system);
+        text('symmetry-operation-count', result.operation_count);
+        text('symmetry-orbit-count', result.orbits?.length || 0);
+        const orbitList = document.getElementById('symmetry-orbits');
+        orbitList?.replaceChildren(...(result.orbits || []).map(orbit => {
+            const row = document.createElement('div');
+            row.className = 'symmetry-orbit-row';
+            const number = document.createElement('strong');
+            number.textContent = `${orbit.orbit}`;
+            const site = document.createElement('span');
+            site.textContent = `${orbit.wyckoff}  ${orbit.site_symmetry || '-'}`;
+            const identity = document.createElement('span');
+            const labels = (orbit.labels || []).join(', ');
+            identity.textContent = `${labels || orbit.element} | ${orbit.multiplicity} atom${orbit.multiplicity === 1 ? '' : 's'}`;
+            identity.title = `Indices: ${(orbit.indices || []).join(', ')}`;
+            row.append(number, site, identity);
+            return row;
+        }));
+        const warnings = (result.warnings || []).join(' ');
+        const scan = result.tolerance_scan || [];
+        const stableGroups = new Set(
+            scan.filter(item => !item.error).map(item => `${item.number}:${item.international}`)
+        );
+        const stability = scan.length
+            ? `${stableGroups.size === 1 ? 'Stable' : 'Changes'} across ${scan.length} tested tolerances.`
+            : '';
+        this.setScienceStatus(
+            'symmetry-status',
+            warnings ? 'warning' : 'ready',
+            `${result.international} (No. ${result.number})`,
+            [stability, warnings].filter(Boolean).join(' ')
+        );
+    }
+
+    invalidateScientificResults() {
+        this.state.symmetryResult = null;
+        this.state.symmetryPath = null;
+        this.state.phononModes = null;
+        document.getElementById('symmetry-result')?.classList.add('hidden');
+        document.getElementById('symmetry-orbits')?.replaceChildren();
+        document.getElementById('symmetry-path-result')?.classList.add('hidden');
+        document.getElementById('phonon-mode-result')?.classList.add('hidden');
+        this.setScienceStatus(
+            'symmetry-status',
+            'idle',
+            'Not analyzed',
+            'Inspect the current frame with spglib.'
+        );
+    }
+
+    async calculateHighSymmetryPath() {
+        try {
+            const result = await this.withBusy(
+                'Calculating the standard reciprocal path...',
+                () => this.api.fetchHighSymmetryPath(this.symmetryAnalysisOptions())
+            );
+            this.state.symmetryPath = result;
+            const container = document.getElementById('symmetry-path-result');
+            if (container) {
+                container.classList.remove('hidden');
+                const segments = (result.path || [])
+                    .map(([start, end]) => `${start} -> ${end}`)
+                    .join(' | ');
+                container.textContent = [
+                    `${result.bravais_lattice || '-'} / ${result.spacegroup_international || '-'} No. ${result.spacegroup_number ?? '-'}`,
+                    segments || 'No path segments returned.'
+                ].join('\n');
+            }
+            this.toast('Calculated the HPKOT high-symmetry path.', 'success');
+        } catch (error) {
+            this.toast(`Reciprocal path failed: ${error.message}`, 'error');
+        }
+    }
+
+    async applySymmetryTransform(mode) {
+        if (!['primitive', 'conventional', 'refine'].includes(mode)) return;
+        if (!this.canEditAtoms()) {
+            this.editOnlyToast();
+            return;
+        }
+        const accepted = await this.showConfirmModal({
+            title: `Create ${mode} structure?`,
+            intro: 'This replaces the loaded trajectory with one standardized frame.',
+            items: [
+                'Atom ordering and atom count may change.',
+                'Constraints and calculators are removed when no exact mapping exists.',
+                'The complete replacement can be undone with Ctrl+Z.'
+            ],
+            confirmText: `Create ${mode}`
+        });
+        if (!accepted) return;
+        try {
+            const result = await this.withBusy(
+                `Creating ${mode} structure...`,
+                () => this.api.transformBySymmetry({
+                    ...this.symmetryAnalysisOptions(),
+                    mode,
+                    idealize: true
+                })
+            );
+            const metadata = result.symmetry_transform || {};
+            this.setAtomsData(result, { clearSelection: true });
+            const warnings = (metadata.warnings || []).join(' ');
+            this.toast(
+                `${mode[0].toUpperCase()}${mode.slice(1)} structure created: ${metadata.source_atom_count ?? '-'} -> ${metadata.result_atom_count ?? '-'} atoms.${warnings ? ` ${warnings}` : ''}`,
+                warnings ? 'warning' : 'success'
+            );
+            await this.analyzeCurrentSymmetry();
+        } catch (error) {
+            this.toast(`Symmetry transform failed: ${error.message}`, 'error');
+        }
+    }
+
+    async createFiniteDisplacementTrajectory() {
+        if (!this.canEditAtoms()) {
+            this.editOnlyToast();
+            return;
+        }
+        let supercell;
+        let distance;
+        try {
+            supercell = this.scienceVector(
+                ['phonon-super-x', 'phonon-super-y', 'phonon-super-z'],
+                'Supercell',
+                { minimum: 1, maximum: 20, integer: true }
+            );
+            distance = this.finiteScienceNumber(
+                'phonon-displacement-distance',
+                'Displacement',
+                { minimum: 1e-6, maximum: 1 }
+            );
+        } catch (error) {
+            this.toast(error.message, 'error');
+            return;
+        }
+        const accepted = await this.showConfirmModal({
+            title: 'Generate finite-displacement inputs?',
+            intro: 'The current trajectory will be replaced by symmetry-reduced calculation inputs.',
+            items: [
+                `Supercell: ${supercell.join(' x ')}; displacement: ${distance} A.`,
+                'These frames do not contain forces and are not physical phonon modes.',
+                'Use Ctrl+Z to restore the current trajectory.'
+            ],
+            confirmText: 'Generate inputs'
+        });
+        if (!accepted) return;
+        try {
+            const result = await this.withBusy(
+                'Generating symmetry-reduced finite displacements...',
+                () => this.api.generatePhononDisplacements({
+                    supercell_matrix: supercell,
+                    distance,
+                    symprec: this.symmetryAnalysisOptions().symprec,
+                    positions: this.backendPositionsPayload()
+                })
+            );
+            const metadata = result.phonon || {};
+            this.state.phononModelSummary = metadata;
+            this.state.phononModes = null;
+            this.setAtomsData(result, { clearSelection: true });
+            this.renderPhononModelSummary(metadata);
+            document.getElementById('phonon-mode-result')?.classList.add('hidden');
+            this.toast(
+                `Generated ${metadata.displacement_count || result.metadata?.frame_count || 0} finite-displacement inputs. Forces are still required.`,
+                'success'
+            );
+        } catch (error) {
+            this.toast(`Finite displacement generation failed: ${error.message}`, 'error');
+        }
+    }
+
+    async loadPhonopyProject(file) {
+        try {
+            const result = await this.withBusy(
+                `Loading ${file.name}...`,
+                () => this.api.loadPhonopyProject(file)
+            );
+            this.state.phononModelSummary = result;
+            this.state.phononModes = null;
+            this.renderPhononModelSummary(result);
+            document.getElementById('phonon-mode-result')?.classList.add('hidden');
+            this.toast(
+                result.has_force_constants
+                    ? 'Loaded phonopy force constants.'
+                    : 'Loaded phonopy project, but it does not contain force constants.',
+                result.has_force_constants ? 'success' : 'warning'
+            );
+        } catch (error) {
+            this.setScienceStatus(
+                'phonon-model-status',
+                'warning',
+                'Could not load phonopy project',
+                error.message
+            );
+            this.toast(`Phonopy load failed: ${error.message}`, 'error');
+        }
+    }
+
+    renderPhononModelSummary(result) {
+        if (!result) {
+            this.setScienceStatus(
+                'phonon-model-status',
+                'idle',
+                'No phonopy model',
+                'Load a phonopy YAML that contains force constants.'
+            );
+            return;
+        }
+        const supercell = Array.isArray(result.supercell_matrix)
+            ? result.supercell_matrix.map(row => row.join(' ')).join('; ')
+            : '-';
+        this.setScienceStatus(
+            'phonon-model-status',
+            result.has_force_constants ? 'ready' : 'warning',
+            result.has_force_constants ? 'Force constants ready' : 'Calculation inputs only',
+            `${result.unit_atoms ?? '-'} unit atoms; ${result.supercell_atoms ?? '-'} supercell atoms; P=[${supercell}].`
+        );
+    }
+
+    phononQPoint() {
+        return this.scienceVector(
+            ['phonon-q-x', 'phonon-q-y', 'phonon-q-z'],
+            'q-point'
+        );
+    }
+
+    async calculatePhononModes() {
+        try {
+            const axis = document.getElementById('phonon-projection-axis')?.value;
+            const projection = {
+                x: [1, 0, 0],
+                y: [0, 1, 0],
+                z: [0, 0, 1]
+            }[axis] || null;
+            const result = await this.withBusy(
+                'Diagonalizing the dynamical matrix...',
+                () => this.api.fetchPhononModes({
+                    qpoint: this.phononQPoint(),
+                    projection_direction: projection
+                })
+            );
+            this.state.phononModes = result;
+            this.renderPhononModes(result);
+            this.toast(`Calculated ${result.band_count} modes at q=(${result.qpoint.join(', ')}).`, 'success');
+        } catch (error) {
+            this.toast(`Phonon mode calculation failed: ${error.message}`, 'error');
+        }
+    }
+
+    renderPhononModes(result) {
+        const container = document.getElementById('phonon-mode-result');
+        if (!container) return;
+        container.classList.remove('hidden');
+        container.replaceChildren(...(result.bands || []).map(mode => {
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'phonon-mode-row';
+            row.setAttribute('aria-selected', 'false');
+            const band = document.createElement('strong');
+            band.textContent = `${mode.band}`;
+            const frequency = document.createElement('span');
+            frequency.className = `phonon-mode-frequency${mode.imaginary ? ' imaginary' : ''}`;
+            frequency.textContent = `${Number(mode.frequency_thz).toFixed(4)} THz`;
+            const character = document.createElement('span');
+            const longitudinal = Number.isFinite(mode.longitudinal_fraction)
+                ? `, L ${(100 * mode.longitudinal_fraction).toFixed(0)}%`
+                : '';
+            const projected = Number.isFinite(mode.directional_fraction)
+                ? `, P ${(100 * mode.directional_fraction).toFixed(0)}%`
+                : '';
+            character.textContent = `${String(mode.dominant_axis || '-').toUpperCase()} dominant${longitudinal}${projected}`;
+            row.append(band, frequency, character);
+            row.addEventListener('click', () => {
+                document.getElementById('phonon-mode-band').value = `${mode.band}`;
+                container.querySelectorAll('.phonon-mode-row').forEach(item => {
+                    item.setAttribute('aria-selected', item === row ? 'true' : 'false');
+                });
+            });
+            return row;
+        }));
+        const bandInput = document.getElementById('phonon-mode-band');
+        if (bandInput) bandInput.max = `${Math.max(1, Number(result.band_count) || 1)}`;
+    }
+
+    async createPhononModeTrajectory() {
+        if (!this.canEditAtoms()) {
+            this.editOnlyToast();
+            return;
+        }
+        let options;
+        try {
+            options = {
+                qpoint: this.phononQPoint(),
+                band: this.finiteScienceNumber(
+                    'phonon-mode-band',
+                    'Band',
+                    { minimum: 1, maximum: 100000, integer: true }
+                ),
+                amplitude: this.finiteScienceNumber(
+                    'phonon-mode-amplitude',
+                    'Amplitude',
+                    { minimum: 0, maximum: 10 }
+                ),
+                phase_degrees: this.finiteScienceNumber(
+                    'phonon-mode-phase',
+                    'Phase',
+                    { minimum: -1000000, maximum: 1000000 }
+                ),
+                frames: this.finiteScienceNumber(
+                    'phonon-mode-frames',
+                    'Frames',
+                    { minimum: 1, maximum: 240, integer: true }
+                ),
+                dimension: this.scienceVector(
+                    ['phonon-mode-super-x', 'phonon-mode-super-y', 'phonon-mode-super-z'],
+                    'Mode supercell',
+                    { minimum: 1, maximum: 50, integer: true }
+                ),
+                oscillation: Boolean(document.getElementById('chk-phonon-oscillation')?.checked)
+            };
+        } catch (error) {
+            this.toast(error.message, 'error');
+            return;
+        }
+        const accepted = await this.showConfirmModal({
+            title: 'Create phonon-mode trajectory?',
+            intro: 'This replaces the current trajectory with the selected mass-weighted phonon mode.',
+            items: [
+                `q=(${options.qpoint.join(', ')}), band ${options.band}, amplitude ${options.amplitude} A.`,
+                `Mode supercell: ${options.dimension.join(' x ')}; frames: ${options.frames}.`,
+                'The q-point must be commensurate with the selected mode supercell.'
+            ],
+            confirmText: 'Create trajectory'
+        });
+        if (!accepted) return;
+        try {
+            const result = await this.withBusy(
+                'Generating the phonon-mode trajectory...',
+                () => this.api.generatePhononModeTrajectory(options)
+            );
+            const metadata = result.phonon || {};
+            this.setAtomsData(result, { clearSelection: true });
+            this.toast(
+                `Created ${metadata.frame_count || 1} frame${metadata.frame_count === 1 ? '' : 's'} for band ${metadata.band}; ${Number(metadata.frequency_thz).toFixed(4)} THz.`,
+                metadata.imaginary ? 'warning' : 'success'
+            );
+        } catch (error) {
+            this.toast(`Phonon trajectory failed: ${error.message}`, 'error');
+        }
+    }
+
     normalizedViewRotationStep(value = this.state.display.viewRotationStepDeg) {
         const parsed = Number(value);
         return Number.isFinite(parsed) ? Math.max(0.1, Math.min(360, parsed)) : 15;
@@ -1904,6 +2407,8 @@ class VAseApp {
                 this.loadTrajectoryCache({ background: true });
             }
             this.applyInitialDisplayConfig(data);
+            this.state.phononModelSummary = data.metadata?.phonon_model || null;
+            this.renderPhononModelSummary(this.state.phononModelSummary);
             this.renderPairwiseBondControls();
             this.renderAppearanceRows();
             this.updateEditingAvailability();
@@ -2332,7 +2837,10 @@ class VAseApp {
         } = {}
     ) {
         if (preserveDisplay) this.captureBondSettingsFromControls();
+        this.invalidateScientificResults();
         this.state.atoms = data;
+        this.state.phononModelSummary = data.metadata?.phonon_model ?? null;
+        this.renderPhononModelSummary(this.state.phononModelSummary);
         this.syncTrajectoryIdentity(data, { reset: resetTrajectoryIdentity });
         this.rebuildLabelIndexCache(data.symbols || []);
         this.state.cachedFmax = this.computeFmax(data.forces || []);
@@ -5943,7 +6451,14 @@ class VAseApp {
                 ? command.operation
                 : command.operation?.name;
             if (operation === 'set-constraints') categories.add('constraints');
-            else if (operation === 'refresh-displacements') categories.add('analysis');
+            else if (
+                operation === 'refresh-displacements'
+                || operation === 'analyze-symmetry'
+                || operation === 'symmetry-path'
+                || operation === 'inspect-phonon-modes'
+            ) {
+                categories.add('analysis');
+            }
             else if (['start-relaxation', 'stop-relaxation'].includes(operation)) {
                 categories.add('trajectory');
                 categories.add('structure');
@@ -6028,6 +6543,12 @@ class VAseApp {
             display: this.clonePlain(this.state.display),
             camera: this.cameraSettingsSnapshot(),
             imageExport: this.clonePlain(this.currentImageExportProfile()),
+            analysis: {
+                symmetry: this.aiSymmetrySummary(this.state.symmetryResult),
+                symmetryPath: this.aiSymmetryPathSummary(this.state.symmetryPath),
+                phononModel: this.clonePlain(this.state.phononModelSummary),
+                phononModes: this.aiPhononModesSummary(this.state.phononModes)
+            },
             collaboration: {
                 protocol: 'v_ase.collaboration.v1',
                 revision: this.collaborationRevision,
@@ -6036,6 +6557,82 @@ class VAseApp {
         };
         if (includePositions) result.positions = positions;
         return result;
+    }
+
+    aiSymmetrySummary(result) {
+        if (!result) return null;
+        const summary = {
+            status: result.status,
+            kind: result.kind,
+            symprec: result.symprec,
+            angle_tolerance: result.angle_tolerance,
+            type_basis: result.type_basis,
+            international: result.international,
+            number: result.number,
+            hall: result.hall,
+            hall_number: result.hall_number,
+            choice: result.choice,
+            pointgroup: result.pointgroup,
+            crystal_system: result.crystal_system,
+            operation_count: result.operation_count,
+            primitive_atom_count: result.primitive_atom_count,
+            standard_atom_count: result.standard_atom_count,
+            uni_number: result.uni_number,
+            magnetic_spacegroup_type: result.magnetic_spacegroup_type,
+            warnings: this.clonePlain(result.warnings || []),
+            tolerance_scan: this.clonePlain(result.tolerance_scan || [])
+        };
+        if (Array.isArray(result.orbits)) {
+            summary.orbit_count = result.orbits.length;
+            summary.orbits = result.orbits.map(orbit => ({
+                orbit: orbit.orbit,
+                representative: orbit.representative,
+                multiplicity: orbit.multiplicity,
+                wyckoff: orbit.wyckoff,
+                site_symmetry: orbit.site_symmetry,
+                element: orbit.element,
+                labels: this.clonePlain(orbit.labels || []),
+                fractional_position: this.clonePlain(orbit.fractional_position)
+            }));
+        }
+        return summary;
+    }
+
+    aiSymmetryPathSummary(result) {
+        if (!result) return null;
+        return {
+            status: result.status,
+            spacegroup_number: result.spacegroup_number,
+            spacegroup_international: result.spacegroup_international,
+            bravais_lattice: result.bravais_lattice,
+            has_inversion_symmetry: result.has_inversion_symmetry,
+            augmented_path: result.augmented_path,
+            point_coords: this.clonePlain(result.point_coords || {}),
+            path: this.clonePlain(result.path || []),
+            reciprocal_primitive_lattice: this.clonePlain(
+                result.reciprocal_primitive_lattice || []
+            )
+        };
+    }
+
+    aiPhononModesSummary(result) {
+        if (!result) return null;
+        return {
+            status: result.status,
+            qpoint: this.clonePlain(result.qpoint || []),
+            band_count: result.band_count,
+            frequency_unit: result.frequency_unit,
+            projection_direction: this.clonePlain(result.projection_direction),
+            bands: (result.bands || []).map(band => ({
+                band: band.band,
+                frequency_thz: band.frequency_thz,
+                imaginary: band.imaginary,
+                dominant_axis: band.dominant_axis,
+                longitudinal_fraction: band.longitudinal_fraction,
+                directional_fraction: band.directional_fraction,
+                dominant_atom: band.dominant_atom
+            }))
+        };
     }
 
     setAIAxisView(axis) {
@@ -6078,7 +6675,7 @@ class VAseApp {
                 'atoms', 'labels', 'elements', 'positions', 'cell', 'pbc',
                 'constraints', 'forces', 'charges', 'tags', 'magnetic-moments',
                 'selection', 'measurement', 'trajectory', 'camera', 'display',
-                'collaboration'
+                'symmetry', 'phonons', 'collaboration'
             ],
             apply: [
                 'frame', 'mode', 'display', 'quality', 'applyConstraints',
@@ -6089,7 +6686,9 @@ class VAseApp {
                 'add-atom', 'delete-selection', 'set-identity', 'set-constraints',
                 'move-selection', 'rotate-selection', 'undo', 'redo',
                 'reset-coordinates', 'start-relaxation', 'stop-relaxation',
-                'refresh-displacements'
+                'refresh-displacements', 'analyze-symmetry', 'symmetry-path',
+                'standardize-symmetry', 'generate-phonon-displacements',
+                'inspect-phonon-modes', 'generate-phonon-mode'
             ],
             exports: [
                 'image', 'video', 'poscar', 'pickle', 'blender', '3dm', 'obj',
@@ -6128,6 +6727,49 @@ class VAseApp {
         if (this.state.vizOnly) {
             throw new Error(`${operationName} requires Edit mode. Apply {mode: "edit"} first.`);
         }
+    }
+
+    aiFiniteNumber(value, name, {
+        minimum = -Infinity,
+        maximum = Infinity,
+        integer = false,
+        defaultValue = undefined
+    } = {}) {
+        const candidate = value === undefined ? defaultValue : value;
+        const parsed = Number(candidate);
+        if (!Number.isFinite(parsed)) throw new Error(`${name} must be finite.`);
+        if (integer && !Number.isInteger(parsed)) throw new Error(`${name} must be an integer.`);
+        if (parsed < minimum || parsed > maximum) {
+            throw new Error(`${name} must be between ${minimum} and ${maximum}.`);
+        }
+        return parsed;
+    }
+
+    aiPositiveIntegerVector(value, name, maximum = 64) {
+        const vector = this.aiFiniteVector(value, name);
+        if (!vector.every(item => Number.isInteger(item) && item >= 1 && item <= maximum)) {
+            throw new Error(`${name} must contain three integers from 1 through ${maximum}.`);
+        }
+        return vector;
+    }
+
+    aiSymmetryOptions(operation, positions) {
+        const typeBasis = operation.typeBasis === 'label' ? 'label' : 'element';
+        return {
+            symprec: this.aiFiniteNumber(
+                operation.symprec,
+                'symprec',
+                { minimum: 1e-8, maximum: 1, defaultValue: 1e-5 }
+            ),
+            angle_tolerance: this.aiFiniteNumber(
+                operation.angleTolerance,
+                'angleTolerance',
+                { minimum: -1, maximum: 180, defaultValue: -1 }
+            ),
+            type_basis: typeBasis,
+            magnetic: Boolean(operation.magnetic),
+            positions
+        };
     }
 
     async aiApplyOperation(operation) {
@@ -6331,6 +6973,124 @@ class VAseApp {
             }
             await this.refreshDisplacementAnalysis();
             return;
+        }
+        if (name === 'analyze-symmetry') {
+            const options = this.aiSymmetryOptions(operation, positions());
+            if (operation.toleranceScan !== false) {
+                options.tolerances = [
+                    options.symprec / 100,
+                    options.symprec / 10,
+                    options.symprec,
+                    options.symprec * 10,
+                    options.symprec * 100
+                ].filter(value => value >= 1e-8 && value <= 1);
+            }
+            const result = await this.api.analyzeSymmetry(options);
+            this.state.symmetryResult = result;
+            this.renderSymmetryResult(result);
+            return result;
+        }
+        if (name === 'symmetry-path') {
+            const result = await this.api.fetchHighSymmetryPath(
+                this.aiSymmetryOptions(operation, positions())
+            );
+            this.state.symmetryPath = result;
+            const container = document.getElementById('symmetry-path-result');
+            if (container) {
+                container.classList.remove('hidden');
+                container.textContent = (result.path || [])
+                    .map(([start, end]) => `${start} -> ${end}`)
+                    .join(' | ');
+            }
+            return result;
+        }
+        if (name === 'standardize-symmetry') {
+            this.aiRequireEdit('standardize-symmetry');
+            const transform = String(operation.transform || '').toLowerCase();
+            if (!['primitive', 'conventional', 'refine'].includes(transform)) {
+                throw new Error('standardize-symmetry transform must be primitive, conventional, or refine.');
+            }
+            const result = await this.api.transformBySymmetry({
+                ...this.aiSymmetryOptions(operation, positions()),
+                mode: transform,
+                idealize: operation.idealize !== false
+            });
+            setData(result, true);
+            return result.symmetry_transform;
+        }
+        if (name === 'generate-phonon-displacements') {
+            this.aiRequireEdit('generate-phonon-displacements');
+            const result = await this.api.generatePhononDisplacements({
+                supercell_matrix: this.aiPositiveIntegerVector(
+                    operation.supercell,
+                    'supercell',
+                    20
+                ),
+                distance: this.aiFiniteNumber(
+                    operation.distance,
+                    'distance',
+                    { minimum: 1e-6, maximum: 1, defaultValue: 0.01 }
+                ),
+                symprec: this.aiFiniteNumber(
+                    operation.symprec,
+                    'symprec',
+                    { minimum: 1e-8, maximum: 1, defaultValue: 1e-5 }
+                ),
+                positions: positions()
+            });
+            setData(result, true);
+            return result.phonon;
+        }
+        if (name === 'inspect-phonon-modes') {
+            const result = await this.api.fetchPhononModes({
+                qpoint: this.aiFiniteVector(operation.qpoint, 'qpoint'),
+                nac_direction: operation.nacDirection === undefined
+                    ? null
+                    : this.aiFiniteVector(operation.nacDirection, 'nacDirection'),
+                projection_direction: operation.projectionDirection === undefined
+                    ? null
+                    : this.aiFiniteVector(operation.projectionDirection, 'projectionDirection')
+            });
+            this.state.phononModes = result;
+            this.renderPhononModes(result);
+            return result;
+        }
+        if (name === 'generate-phonon-mode') {
+            this.aiRequireEdit('generate-phonon-mode');
+            const result = await this.api.generatePhononModeTrajectory({
+                qpoint: this.aiFiniteVector(operation.qpoint, 'qpoint'),
+                band: this.aiFiniteNumber(
+                    operation.band,
+                    'band',
+                    { minimum: 1, maximum: 100000, integer: true }
+                ),
+                amplitude: this.aiFiniteNumber(
+                    operation.amplitude,
+                    'amplitude',
+                    { minimum: 0, maximum: 10 }
+                ),
+                phase_degrees: this.aiFiniteNumber(
+                    operation.phaseDegrees,
+                    'phaseDegrees',
+                    { minimum: -1000000, maximum: 1000000, defaultValue: 0 }
+                ),
+                dimension: this.aiPositiveIntegerVector(
+                    operation.dimension,
+                    'dimension',
+                    50
+                ),
+                frames: this.aiFiniteNumber(
+                    operation.frames,
+                    'frames',
+                    { minimum: 1, maximum: 240, integer: true, defaultValue: 24 }
+                ),
+                oscillation: operation.oscillation !== false,
+                nac_direction: operation.nacDirection === undefined
+                    ? null
+                    : this.aiFiniteVector(operation.nacDirection, 'nacDirection')
+            });
+            setData(result, true);
+            return result.phonon;
         }
         throw new Error(`Unsupported AI operation '${name}'.`);
     }

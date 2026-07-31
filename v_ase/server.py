@@ -32,6 +32,21 @@ from .repulsion import (
     repulsion_metadata,
 )
 from .commensurate import find_commensurate_angles
+from .phonon import (
+    PhononDependencyError,
+    generate_finite_displacements,
+    generate_mode_trajectory,
+    load_phonon_model,
+    phonon_modes_at_q,
+    validate_phonon_model_for_atoms,
+)
+from .symmetry import (
+    SymmetryDependencyError,
+    analyze_symmetry,
+    high_symmetry_path,
+    symmetry_tolerance_scan,
+    transform_by_symmetry,
+)
 from .ai import AI_PROTOCOL, COLLABORATION_PROTOCOL, ai_skill_path
 from .project import (
     PROJECT_MIME,
@@ -264,7 +279,9 @@ AI_CONTROL_SCHEMA = {
                 "delete-selection, set-identity, set-constraints, "
                 "move-selection, rotate-selection, undo, redo, "
                 "reset-coordinates, start-relaxation, stop-relaxation, and "
-                "refresh-displacements."
+                "refresh-displacements, analyze-symmetry, symmetry-path, "
+                "standardize-symmetry, generate-phonon-displacements, "
+                "inspect-phonon-modes, and generate-phonon-mode."
             ),
             "oneOf": [
                 {
@@ -272,6 +289,7 @@ AI_CONTROL_SCHEMA = {
                     "enum": [
                         "wrap", "undo", "redo", "reset-coordinates",
                         "stop-relaxation", "refresh-displacements",
+                        "analyze-symmetry", "symmetry-path",
                     ],
                 },
                 {
@@ -287,6 +305,11 @@ AI_CONTROL_SCHEMA = {
                                 "rotate-selection", "undo", "redo",
                                 "reset-coordinates", "start-relaxation",
                                 "stop-relaxation", "refresh-displacements",
+                                "analyze-symmetry", "symmetry-path",
+                                "standardize-symmetry",
+                                "generate-phonon-displacements",
+                                "inspect-phonon-modes",
+                                "generate-phonon-mode",
                             ],
                         },
                     },
@@ -433,6 +456,60 @@ AI_OPERATION_PARAMETERS = {
         "required": [],
         "optional": ["display"],
     },
+    "analyze-symmetry": {
+        "mode": "view-or-edit",
+        "required": [],
+        "optional": [
+            "symprec", "angleTolerance", "typeBasis", "magnetic",
+            "toleranceScan",
+        ],
+        "notes": (
+            "typeBasis is element or label. Results are returned under "
+            "describe().analysis.symmetry."
+        ),
+    },
+    "symmetry-path": {
+        "mode": "view-or-edit",
+        "required": [],
+        "optional": ["symprec", "angleTolerance", "typeBasis"],
+        "notes": "Returns the SeeK-path HPKOT path under describe().analysis.symmetryPath.",
+    },
+    "standardize-symmetry": {
+        "mode": "edit",
+        "required": ["transform"],
+        "optional": ["symprec", "angleTolerance", "typeBasis", "idealize"],
+        "notes": (
+            "transform is primitive, conventional, or refine. The current "
+            "trajectory becomes one frame and the operation is undoable."
+        ),
+    },
+    "generate-phonon-displacements": {
+        "mode": "edit",
+        "required": ["supercell"],
+        "optional": ["distance", "symprec"],
+        "notes": (
+            "Creates finite-displacement force-calculation inputs. It does not "
+            "produce physical modes before forces and force constants exist."
+        ),
+    },
+    "inspect-phonon-modes": {
+        "mode": "view-or-edit",
+        "required": ["qpoint", "loaded-phonopy-force-constants"],
+        "optional": ["nacDirection", "projectionDirection"],
+        "notes": (
+            "projectionDirection returns the fraction of each mass-weighted "
+            "eigenvector polarized along a requested Cartesian direction."
+        ),
+    },
+    "generate-phonon-mode": {
+        "mode": "edit",
+        "required": [
+            "qpoint", "band", "amplitude", "dimension",
+            "loaded-phonopy-force-constants",
+        ],
+        "optional": ["phaseDegrees", "frames", "oscillation", "nacDirection"],
+        "notes": "The q-point must satisfy that dimension.T @ q is integer.",
+    },
 }
 
 AI_EXPORT_PARAMETERS = {
@@ -507,6 +584,15 @@ def ai_schema_payload() -> Dict[str, Any]:
                 "render({width, height, options})",
                 "export({format, ...options})",
             ],
+        },
+        "scientific_endpoints": {
+            "symmetry_analysis": "/api/analysis/symmetry/{session_id}",
+            "symmetry_path": "/api/analysis/symmetry/path/{session_id}",
+            "symmetry_transform": "/api/analysis/symmetry/transform/{session_id}",
+            "phonon_displacements": "/api/analysis/phonon/displacements/{session_id}",
+            "phonopy_upload": "/api/analysis/phonon/load/{session_id}?filename=phonopy_params.yaml",
+            "phonon_modes": "/api/analysis/phonon/modes/{session_id}",
+            "phonon_modulation": "/api/analysis/phonon/modulate/{session_id}",
         },
     }
 
@@ -611,6 +697,11 @@ def session_atoms_to_json(session: EditorSession, include_inline_trajectory: boo
         (session.config or {}).get("stream_trajectory", False)
     )
     data["metadata"]["calculator_details"] = repulsion_metadata(session.working_atoms.calc)
+    data["metadata"]["phonon_model"] = (
+        session.phonon_model.summary()
+        if session.phonon_model is not None
+        else None
+    )
     if is_vase_repulsion_calculator(session.working_atoms.calc):
         data["metadata"]["calculator"] = "Repulsion"
         data["metadata"]["has_calculator"] = True
@@ -2483,6 +2574,24 @@ async def append_structure_path(session_id: str, payload: Dict[str, Any]):
         raise HTTPException(status_code=400, detail=f"Could not append {display_name}: {exc}") from exc
 
 
+def invalidate_phonon_model(session: EditorSession) -> None:
+    """Detach force constants after a physical structure change."""
+    session.phonon_model = None
+
+
+def refresh_or_invalidate_phonon_model(session: EditorSession) -> None:
+    """Keep a model for label-only edits, but reject changed physical identity."""
+    model = session.phonon_model
+    if model is None:
+        return
+    try:
+        validate_phonon_model_for_atoms(model, session.working_atoms)
+    except ValueError:
+        invalidate_phonon_model(session)
+        return
+    model.unit_labels = atom_labels(session.working_atoms)
+
+
 @app.post("/api/constrain/{session_id}")
 async def constrain_positions(session_id: str, payload: Dict[str, Any]):
     """AUTHORITATIVE: Backend correction of proposed positions."""
@@ -2525,6 +2634,7 @@ async def apply_positions(session_id: str, payload: Dict[str, Any]):
     # Enforcement: Final coordinates MUST respect ASE constraints
     session.working_atoms.set_positions(positions, apply_constraint=payload_apply_constraint(payload))
     session.sync_current_frame()
+    invalidate_phonon_model(session)
     if session.is_relaxing:
         from .relax import request_relax_restart
         request_relax_restart(session)
@@ -2539,6 +2649,7 @@ async def reset(session_id: str, payload: Dict[str, Any] | None = None):
     sync_session_frame_from_payload(session, payload)
     session.push_history(include_trajectory=True)
     session.reset_all_frames()
+    invalidate_phonon_model(session)
     return session_update_to_json(session)
 
 
@@ -2549,6 +2660,7 @@ async def reset_coordinates(session_id: str, payload: Dict[str, Any] | None = No
     sync_session_frame_from_payload(session, payload)
     session.push_history(include_trajectory=True)
     session.reset_all_frames()
+    invalidate_phonon_model(session)
     return session_update_to_json(session)
 
 
@@ -2729,6 +2841,7 @@ async def add_atoms(session_id: str, payload: Dict[str, Any]):
         )
         session.working_atoms.append(Atom(atom_symbol, position=position))
     set_atom_labels(session.working_atoms, labels)
+    invalidate_phonon_model(session)
     session.invalidate_trajectory_layout()
     session.sync_current_frame()
     session.refresh_trajectory_identity()
@@ -2746,6 +2859,7 @@ async def delete_atoms(session_id: str, payload: Dict[str, Any]):
 
     session.push_history()
     session.working_atoms = delete_indices_from_atoms(session.working_atoms, indices)
+    invalidate_phonon_model(session)
     session.invalidate_trajectory_layout()
     session.sync_current_frame()
     session.refresh_trajectory_identity()
@@ -2788,6 +2902,7 @@ async def update_atom_identity(session_id: str, payload: Dict[str, Any]):
         label,
         base_symbol,
     )
+    refresh_or_invalidate_phonon_model(session)
     session.invalidate_trajectory_layout()
     session.refresh_trajectory_identity()
     return session_update_to_json(session)
@@ -3044,6 +3159,282 @@ async def displacement_analysis(session_id: str, payload: Dict[str, Any]):
 
     return await asyncio.to_thread(calculate)
 
+
+def _symmetry_options(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "symprec": float(payload.get("symprec", 1e-5)),
+        "angle_tolerance": float(payload.get("angle_tolerance", -1.0)),
+        "type_basis": str(payload.get("type_basis", "element")).strip().lower(),
+    }
+
+
+def _analysis_snapshot(session: EditorSession, payload: Dict[str, Any]):
+    sync_session_frame_from_payload(session, payload)
+    atoms = session.working_atoms.copy()
+    supplied_positions = payload.get("positions")
+    if supplied_positions is not None:
+        positions = np.asarray(supplied_positions, dtype=float)
+        if positions.shape != (len(atoms), 3) or not np.isfinite(positions).all():
+            raise HTTPException(
+                status_code=400,
+                detail="positions must be a finite N x 3 array for the current frame.",
+            )
+        atoms.set_positions(positions, apply_constraint=False)
+    return atoms
+
+
+def _symmetry_dependency_detail(exc: Exception) -> HTTPException:
+    return HTTPException(status_code=424, detail=str(exc))
+
+
+def _scientific_input_detail(exc: Exception) -> HTTPException:
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/analysis/symmetry/{session_id}")
+async def symmetry_analysis(session_id: str, payload: Dict[str, Any]):
+    """Analyze the current structure without changing the document."""
+    session = get_session(session_id)
+
+    def calculate():
+        with session.mode_transition_lock:
+            atoms = _analysis_snapshot(session, payload)
+            options = _symmetry_options(payload)
+            result = analyze_symmetry(
+                atoms,
+                **options,
+                magnetic=bool(payload.get("magnetic", False)),
+                mag_symprec=float(payload.get("mag_symprec", -1.0)),
+            )
+            tolerances = payload.get("tolerances")
+            if tolerances:
+                result["tolerance_scan"] = symmetry_tolerance_scan(
+                    atoms,
+                    tolerances=tolerances,
+                    angle_tolerance=options["angle_tolerance"],
+                    type_basis=options["type_basis"],
+                )
+            return result
+
+    try:
+        return await asyncio.to_thread(calculate)
+    except SymmetryDependencyError as exc:
+        raise _symmetry_dependency_detail(exc) from exc
+    except (TypeError, ValueError) as exc:
+        raise _scientific_input_detail(exc) from exc
+
+
+@app.post("/api/analysis/symmetry/path/{session_id}")
+async def symmetry_reciprocal_path(session_id: str, payload: Dict[str, Any]):
+    """Return the HPKOT high-symmetry reciprocal path for the current structure."""
+    session = get_session(session_id)
+
+    def calculate():
+        with session.mode_transition_lock:
+            atoms = _analysis_snapshot(session, payload)
+            return high_symmetry_path(
+                atoms,
+                **_symmetry_options(payload),
+                with_time_reversal=bool(payload.get("with_time_reversal", True)),
+            )
+
+    try:
+        return await asyncio.to_thread(calculate)
+    except SymmetryDependencyError as exc:
+        raise _symmetry_dependency_detail(exc) from exc
+    except (TypeError, ValueError, RuntimeError) as exc:
+        raise _scientific_input_detail(exc) from exc
+
+
+@app.post("/api/analysis/symmetry/transform/{session_id}")
+async def symmetry_transform(session_id: str, payload: Dict[str, Any]):
+    """Replace the document with one standardized structure and keep Undo available."""
+    session = get_session(session_id)
+    require_editable(session, "Symmetry standardization")
+
+    def calculate():
+        with session.mode_transition_lock:
+            atoms = _analysis_snapshot(session, payload)
+            transformed, metadata = transform_by_symmetry(
+                atoms,
+                str(payload.get("mode", "")).strip().lower(),
+                **_symmetry_options(payload),
+                idealize=bool(payload.get("idealize", True)),
+            )
+            session.push_history(include_trajectory=True)
+            session.trajectory_source = None
+            session.trajectory_frames = [session._copy_atoms(transformed)]
+            session.current_frame = 0
+            session.working_atoms = session._copy_atoms(transformed)
+            session.phonon_model = None
+            session.invalidate_trajectory_layout()
+            session.refresh_trajectory_identity()
+            response = session_update_to_json(session)
+            response["symmetry_transform"] = metadata
+            return response
+
+    try:
+        return await asyncio.to_thread(calculate)
+    except SymmetryDependencyError as exc:
+        raise _symmetry_dependency_detail(exc) from exc
+    except (TypeError, ValueError) as exc:
+        raise _scientific_input_detail(exc) from exc
+
+
+@app.post("/api/analysis/phonon/displacements/{session_id}")
+async def phonon_displacements(session_id: str, payload: Dict[str, Any]):
+    """Generate finite-displacement calculation inputs as a new document trajectory."""
+    session = get_session(session_id)
+    require_editable(session, "Finite-displacement trajectory generation")
+
+    def calculate():
+        with session.mode_transition_lock:
+            atoms = _analysis_snapshot(session, payload)
+            model, frames, metadata = generate_finite_displacements(
+                atoms,
+                supercell_matrix=payload.get("supercell_matrix", [2, 2, 2]),
+                distance=float(payload.get("distance", 0.01)),
+                plusminus=payload.get("plusminus", "auto"),
+                diagonal=bool(payload.get("diagonal", True)),
+                symprec=float(payload.get("symprec", 1e-5)),
+            )
+            session.push_history(include_trajectory=True)
+            session.trajectory_source = None
+            session.trajectory_frames = [
+                session._copy_atoms(frame)
+                for frame in frames
+            ]
+            session.current_frame = 0
+            session.working_atoms = session._copy_atoms(session.trajectory_frames[0])
+            session.phonon_model = model
+            session.invalidate_trajectory_layout()
+            session.refresh_trajectory_identity()
+            response = session_update_to_json(session)
+            response["phonon"] = metadata
+            return response
+
+    try:
+        return await asyncio.to_thread(calculate)
+    except PhononDependencyError as exc:
+        raise _symmetry_dependency_detail(exc) from exc
+    except (TypeError, ValueError, RuntimeError) as exc:
+        raise _scientific_input_detail(exc) from exc
+
+
+@app.post("/api/analysis/phonon/load/{session_id}")
+async def phonon_load_project(
+    session_id: str,
+    request: Request,
+    filename: str = "phonopy_params.yaml",
+):
+    """Load a phonopy YAML containing force constants into this document only."""
+    session = get_session(session_id)
+    display_name = _validated_uploaded_filename(filename)
+    suffix = "".join(Path(display_name).suffixes[-2:]) or ".yaml"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    try:
+        raw = await request.body()
+        if not raw:
+            raise HTTPException(status_code=400, detail="The phonopy project is empty.")
+        if len(raw) > MAX_UPLOADED_STRUCTURE_BYTES:
+            raise HTTPException(status_code=413, detail="The phonopy project is too large.")
+        tmp.write(raw)
+        tmp.close()
+        model = await asyncio.to_thread(load_phonon_model, tmp.name)
+        with session.mode_transition_lock:
+            validate_phonon_model_for_atoms(model, session.working_atoms)
+            model.unit_labels = atom_labels(session.working_atoms)
+            session.phonon_model = model
+        summary = model.summary()
+        summary["source"] = display_name
+        return summary
+    except PhononDependencyError as exc:
+        raise _symmetry_dependency_detail(exc) from exc
+    except (TypeError, ValueError, RuntimeError, OSError) as exc:
+        raise _scientific_input_detail(exc) from exc
+    finally:
+        try:
+            tmp.close()
+        except OSError:
+            pass
+        _remove_temporary_file(tmp.name)
+
+
+def _require_session_phonon_model(session: EditorSession):
+    model = session.phonon_model
+    if model is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No phonopy model is loaded. Generate finite displacements or "
+                "load a completed phonopy YAML project first."
+            ),
+        )
+    return model
+
+
+@app.post("/api/analysis/phonon/modes/{session_id}")
+async def phonon_modes(session_id: str, payload: Dict[str, Any]):
+    """Inspect physical frequencies and eigenvectors at one q-point."""
+    session = get_session(session_id)
+
+    def calculate():
+        with session.mode_transition_lock:
+            return phonon_modes_at_q(
+                _require_session_phonon_model(session),
+                payload.get("qpoint", [0, 0, 0]),
+                nac_direction=payload.get("nac_direction"),
+                projection_direction=payload.get("projection_direction"),
+            )
+
+    try:
+        return await asyncio.to_thread(calculate)
+    except PhononDependencyError as exc:
+        raise _symmetry_dependency_detail(exc) from exc
+    except (TypeError, ValueError, RuntimeError) as exc:
+        raise _scientific_input_detail(exc) from exc
+
+
+@app.post("/api/analysis/phonon/modulate/{session_id}")
+async def phonon_modulate(session_id: str, payload: Dict[str, Any]):
+    """Create a frozen-mode or oscillating-mode trajectory from eigenvectors."""
+    session = get_session(session_id)
+    require_editable(session, "Frozen-phonon trajectory generation")
+
+    def calculate():
+        with session.mode_transition_lock:
+            frames, metadata = generate_mode_trajectory(
+                _require_session_phonon_model(session),
+                qpoint=payload.get("qpoint", [0, 0, 0]),
+                band=int(payload.get("band", 1)),
+                amplitude=float(payload.get("amplitude", 0.1)),
+                phase_degrees=float(payload.get("phase_degrees", 0.0)),
+                dimension=payload.get("dimension", [1, 1, 1]),
+                frames=int(payload.get("frames", 24)),
+                oscillation=bool(payload.get("oscillation", True)),
+                nac_direction=payload.get("nac_direction"),
+            )
+            session.push_history(include_trajectory=True)
+            session.trajectory_source = None
+            session.trajectory_frames = [
+                session._copy_atoms(frame)
+                for frame in frames
+            ]
+            session.current_frame = 0
+            session.working_atoms = session._copy_atoms(session.trajectory_frames[0])
+            session.invalidate_trajectory_layout()
+            session.refresh_trajectory_identity()
+            response = session_update_to_json(session)
+            response["phonon"] = metadata
+            return response
+
+    try:
+        return await asyncio.to_thread(calculate)
+    except PhononDependencyError as exc:
+        raise _symmetry_dependency_detail(exc) from exc
+    except (TypeError, ValueError, RuntimeError) as exc:
+        raise _scientific_input_detail(exc) from exc
+
 @app.post("/api/done/{session_id}")
 async def done(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
@@ -3070,6 +3461,7 @@ async def apply_supercell(session_id: str, payload: Dict[str, Any]):
     session.push_history(include_trajectory=True)
     set_current_payload_positions(session, payload)
     apply_all_frames(session, lambda atoms: repeat_atoms_as_supercell(atoms, reps))
+    invalidate_phonon_model(session)
     session.invalidate_trajectory_layout()
     return session_update_to_json(session)
 
@@ -3084,6 +3476,7 @@ async def apply_supercell_matrix(session_id: str, payload: Dict[str, Any]):
     session.push_history(include_trajectory=True)
     set_current_payload_positions(session, payload)
     apply_all_frames(session, lambda atoms: make_supercell_atoms(atoms, P))
+    invalidate_phonon_model(session)
     session.invalidate_trajectory_layout()
     return session_update_to_json(session)
 

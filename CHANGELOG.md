@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.0a1+symmetry
+
+- Added optional spglib-based space-group, point-group, Wyckoff-position,
+  equivalent-site, tolerance-stability, and standard-cell workflows.
+- Added optional SeeK-path HPKOT reciprocal-space paths with explicit
+  crystallographic identity-basis controls.
+- Added optional Phonopy finite-displacement generation, completed-project
+  loading, q-point mode inspection, polarization projection, commensurability
+  checks, and frozen/animated mode structures.
+- Added strict phonopy-project validation with rigid Cartesian alignment,
+  scientific-state invalidation after physical edits, and undo restoration.
+- Added Analysis controls, structured agent operations, synchronized user and
+  agent documentation, literature-backed numerical regressions, and browser
+  end-to-end verification for the experimental branch.
+
 ## 0.0.120
 
 - Removed persistent application chrome from standalone HTML previews. The

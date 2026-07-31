@@ -3,6 +3,7 @@ import ast
 import asyncio
 import re
 import tomllib
+from urllib.parse import quote
 
 from ase import Atoms
 from ase.build import molecule
@@ -43,11 +44,12 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_static_version_strings_match_package_version():
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     version = pyproject["project"]["version"]
+    url_version = quote(version, safe=".")
     index_html = (ROOT / "v_ase/static/index.html").read_text(encoding="utf-8")
 
-    assert f'style.css?v={version}' in index_html
-    assert f'three.module.js?v={version}' in index_html
-    assert f'main.js?v={version}' in index_html
+    assert f'style.css?v={url_version}' in index_html
+    assert f'three.module.js?v={url_version}' in index_html
+    assert f'main.js?v={url_version}' in index_html
     assert f'<span class="version">{version}</span>' in index_html
     assert "0.0.28" not in index_html
 
@@ -1637,3 +1639,31 @@ def test_transform_panel_can_apply_an_exact_selection_rotation():
     assert "this.enterTransformMode('ROTATE')" in main_js
     assert "this.transform.buffer = String(angleDegrees)" in main_js
     assert "await this.commitTransform()" in main_js
+
+
+def test_structure_updates_invalidate_stale_symmetry_and_phonon_results():
+    source = (ROOT / "v_ase/static/main.js").read_text(encoding="utf-8")
+    assert "invalidateScientificResults()" in source
+    set_atoms = source[source.index("    setAtomsData("):]
+    set_atoms = set_atoms[:set_atoms.index("\n    hasLoadedAtoms()")]
+    assert "this.invalidateScientificResults();" in set_atoms
+    for state_field in (
+        "this.state.symmetryResult = null",
+        "this.state.symmetryPath = null",
+        "this.state.phononModes = null",
+    ):
+        assert state_field in source
+
+
+def test_ai_describe_compacts_scientific_arrays_but_keeps_result_summaries():
+    source = (ROOT / "v_ase/static/main.js").read_text(encoding="utf-8")
+
+    assert "symmetry: this.aiSymmetrySummary(this.state.symmetryResult)" in source
+    assert "symmetryPath: this.aiSymmetryPathSummary(this.state.symmetryPath)" in source
+    assert "phononModes: this.aiPhononModesSummary(this.state.phononModes)" in source
+    assert "eigenvector_real" not in source[
+        source.index("    aiPhononModesSummary("):
+        source.index("\n    setAIAxisView(", source.index("    aiPhononModesSummary("))
+    ]
+    assert "orbit_count" in source
+    assert "reciprocal_primitive_lattice" in source

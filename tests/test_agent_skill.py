@@ -67,7 +67,7 @@ def test_skill_metadata_follows_discovery_contract():
 def test_skill_uses_one_level_progressive_references():
     text = SKILL.read_text(encoding="utf-8")
     linked = re.findall(r"\]\((references/[^)]+\.md)\)", text)
-    assert len(linked) == 7
+    assert len(linked) == 8
     assert len(linked) == len(set(linked))
 
     for relative in linked:
@@ -94,8 +94,10 @@ def test_skill_covers_every_live_operation_and_export():
 def test_skill_version_install_and_environment_contract_are_current():
     skill_text = SKILL.read_text(encoding="utf-8")
     cli_text = (REFERENCES / "cli-and-environments.md").read_text(encoding="utf-8")
-    assert f'v_ase-gui=={__version__}' in skill_text
-    assert f'v_ase-gui=={__version__}' in cli_text
+    assert __version__ in skill_text
+    assert __version__ in cli_text
+    assert 'python -m pip install -e ".[symmetry,phonon]"' in skill_text
+    assert 'python -m pip install -e ".[symmetry,phonon]"' in cli_text
     for required in (
         "v_ase gui STRUCTURE --cli",
         "persistent process",
@@ -107,6 +109,19 @@ def test_skill_version_install_and_environment_contract_are_current():
         "rhino3dm",
     ):
         assert required in skill_text + cli_text
+
+
+def test_symmetry_branch_has_an_independent_nonpublished_alpha_contract():
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    documented = _documented_skill_text()
+
+    assert config["project"]["version"] == __version__
+    assert re.fullmatch(r"\d+\.\d+\.\d+a\d+\+symmetry", __version__)
+    assert not __version__.startswith("0.0.120")
+    assert "not published to PyPI" in readme
+    assert "not a PyPI release" in documented
+    assert "twine upload" not in readme + documented
 
 
 def test_skill_explains_vendor_neutral_agent_handoff():

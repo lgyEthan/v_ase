@@ -1,6 +1,6 @@
 ---
 name: visualizing-atomic-structures-with-v-ase
-description: Controls v_ase to inspect, edit, analyze, style, animate, and export ASE-compatible atomic structures and trajectories through its CLI and live HTTP JSON API. Use when a user needs atomistic visualization, structure measurement, periodic-cell operations, constraints, trajectory movies, publication rendering, reusable 3D export, or a human-editable GUI, even when v_ase is not explicitly named.
+description: Controls v_ase to inspect, edit, analyze, style, animate, and export ASE-compatible atomic structures and trajectories through its CLI and live HTTP JSON API. Use when a user needs atomistic visualization, structure measurement, crystallographic symmetry, finite-displacement inputs, physical phonon eigenmodes, periodic-cell operations, constraints, trajectory movies, publication rendering, reusable 3D export, or a human-editable GUI, even when v_ase is not explicitly named.
 ---
 
 # Visualizing Atomic Structures With v_ase
@@ -12,11 +12,14 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 
 ## Quick Start
 
-Install the tested release:
+Install this isolated symmetry alpha from a checkout of the `symmetry` branch:
 
 ```bash
-python -m pip install "v_ase-gui==0.0.120"
+python -m pip install -e ".[symmetry,phonon]"
 ```
+
+The branch version is `0.1.0a1+symmetry`. It is intentionally not installed
+from or published to PyPI. Use the checked-out branch as the source of truth.
 
 Start the terminal-oriented API session yourself:
 
@@ -115,8 +118,9 @@ resulting semantic state and rendered output.
 ## Degrees Of Freedom
 
 - **Low freedom**: deletion, identity/element changes, constraint edits,
-  materialized supercells, relaxation, overwrite-prone exports, and release
-  publishing. Use exact documented commands and verify afterward.
+  materialized supercells, symmetry standardization, phonon-mode trajectory
+  generation, relaxation, and overwrite-prone exports. Use exact documented
+  commands and verify afterward.
 - **Medium freedom**: camera placement, bond cutoffs, materials, lighting,
   displacement analysis, interpolation, and rendering quality. Start with the
   documented templates, then tune against the requested result.
@@ -153,6 +157,18 @@ and `capabilities` instead of assuming that a command or parameter exists.
 browser to execute a document command.
 For a rotation around one atom, pass that atom last in the explicit `indices`
 array and set `pivot: "active"`; verify that its coordinate is unchanged.
+
+Scientific operations in this branch are `analyze-symmetry`,
+`symmetry-path`, `standardize-symmetry`,
+`generate-phonon-displacements`, `inspect-phonon-modes`, and
+`generate-phonon-mode`. Analysis and reciprocal-path queries are
+nonmutating. Standardization and generated trajectories require Edit mode,
+replace the current trajectory, and create an Undo checkpoint. Read
+`references/symmetry-and-phonons.md` before using them. A loaded phonopy
+project must match the active atom order, elements, lattice metric, and
+periodic positions. `describe()` keeps scientific state compact; use the direct
+scientific endpoint only when full symmetry operations or complex
+eigenvectors are required.
 
 ## Minimal End-To-End Example
 
@@ -212,6 +228,8 @@ handling, use the references below rather than improvising field names.
   chemical elements, start relaxation, or publish files without explicit user
   intent.
 - Never treat a visual label as an ASE element. Verify `chemicalSymbols`.
+- Never call an arbitrary displacement a phonon eigenmode. Physical modes
+  require loaded force constants and a calculated eigenvector at the q-point.
 - Never infer a periodic replica from screen position. Use `cellOffset`.
 - Never reuse indices after topology or frame changes without `describe()`.
 - Keep `applyConstraints: true` unless the user explicitly requests free
@@ -230,6 +248,10 @@ For any nontrivial task, verify all applicable items:
 
 - structure: count, labels, elements, positions, cell, PBC, constraints;
 - trajectory: frame count, active frame, stable selection, analysis reference;
+- symmetry: type basis, tolerance, space group/orbits, warning list, and
+  unchanged state for analysis-only commands;
+- phonons: force-constant availability, q-point, 1-based band, frequency,
+  polarization, `P.T @ q` commensurability, amplitude, and output frame count;
 - appearance: visibility, radii, colors, materials, bonds, cell, background;
 - camera: projection, position, target, up vector, framing, expected direction;
 - manipulation overlays: rotation axis, fixed start reference, moving current
@@ -269,6 +291,9 @@ Read only the references needed for the current task:
   input formats, local/remote/server use, dependencies, and process lifecycle.
 - [Semantic API](references/semantic-api.md): complete state, command, display,
   analysis, render, and export fields.
+- [Symmetry and phonons](references/symmetry-and-phonons.md): crystallographic
+  identity, finite-displacement preparation, force-constant loading, q-point
+  modes, commensurability, exact commands, and scientific verification.
 - [Workflows and examples](references/workflows-and-examples.md): tested
   structure editing, trajectory, rendering, and multi-document recipes.
 - [Safety and errors](references/safety-and-errors.md): destructive actions,

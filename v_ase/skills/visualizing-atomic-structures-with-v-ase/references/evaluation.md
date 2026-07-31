@@ -22,6 +22,9 @@ The description should trigger for these requests even when v_ase is not named:
 8. `[trigger]` Analyze trajectory displacement vectors.
 9. `[trigger]` Find a clear camera angle for graphene on hBN.
 10. `[trigger]` Let an AI inspect an atomic structure without screenshot OCR.
+11. `[trigger]` Find the space group and independent Wyckoff sites of this cell.
+12. `[trigger]` Generate finite-displacement supercells for a phonon calculation.
+13. `[trigger]` Animate band 4 at q = (1/2, 0, 0) from my phonopy project.
 
 It should not trigger for these nearby but unrelated requests:
 
@@ -59,6 +62,9 @@ Current operation coverage:
 - add-atom, delete-selection, set-identity, set-constraints;
 - move-selection, rotate-selection, undo, redo, reset-coordinates;
 - start-relaxation, stop-relaxation, refresh-displacements.
+- analyze-symmetry, symmetry-path, standardize-symmetry;
+- generate-phonon-displacements, inspect-phonon-modes,
+  generate-phonon-mode.
 
 Current export coverage:
 
@@ -206,6 +212,31 @@ Run all scenarios, not only static document checks:
       color remains distinguishable over the touching-sphere substrate;
     - play the compressed-C60 FIRE trajectory and verify energy and fmax
       decrease before publishing its relaxation example.
+13. **Symmetry and phonons**
+    - analyze diamond Si as space group 227 with one crystallographic orbit;
+    - repeat at several `symprec` values and report tolerance sensitivity;
+    - verify element and element-plus-label type bases produce the documented
+      difference without mutating coordinates;
+    - generate conventional, primitive, and refined cells in Edit, verify the
+      warning list, then Undo each replacement;
+    - generate the HPKOT reciprocal path and require a nonempty path;
+    - generate finite-displacement inputs without force constants and verify
+      every frame is a valid periodic ASE structure;
+    - load a completed phonopy YAML containing force constants, inspect a
+      q-point with Cartesian polarization projection, and retain negative
+      frequencies as imaginary;
+    - reject a phonopy project whose atom order, elements, cell, or periodic
+      positions differ from the active structure;
+    - compare a nearest-neighbour monatomic-chain model with
+      `omega(q)=2 sqrt(K/M)|sin(qa/2)|`, including zero Gamma acoustic
+      frequency and the `sin(pi/4)` quarter-to-boundary frequency ratio;
+    - verify `describe()` omits full symmetry-operation and eigenvector arrays
+      while direct scientific endpoints retain them;
+    - reject an incommensurate mode supercell;
+    - generate a commensurate oscillating mode trajectory and verify q-point,
+      band, frequency, amplitude, phase sequence, atom count, and frame count
+      semantically and in the rendered movie; verify custom labels and isotope
+      masses survive every generated frame.
 
 ## Visual Assertions
 
@@ -245,11 +276,12 @@ conda run -n python311 python -m twine check dist/*
 
 Also run the optional Rhino tests in an environment containing `rhino3dm`.
 
-Do not release when:
+This isolated alpha may be committed or pushed only to the `symmetry` branch.
+Do not publish it to PyPI. Do not release when:
 
 - a skill reference is stale or missing;
 - an AI operation lacks semantic and rendered verification;
 - generated README media is outdated;
 - clean-wheel installation or `v_ase` entry point fails;
-- GitHub, PyPI, README, skill, and renderer assets would describe different
+- the `symmetry` branch, README, skill, and built artifacts describe different
   versions.

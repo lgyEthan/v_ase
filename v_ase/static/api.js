@@ -230,7 +230,10 @@ export class ASEApi {
             '/api/constraints/',
             '/api/supercell/apply/',
             '/api/supercell/matrix/',
-            '/api/translate/'
+            '/api/translate/',
+            '/api/analysis/symmetry/transform/',
+            '/api/analysis/phonon/displacements/',
+            '/api/analysis/phonon/modulate/'
         ].some(prefix => path.includes(prefix));
     }
 
@@ -245,7 +248,8 @@ export class ASEApi {
             '/api/settings/load/',
             '/api/calculator/',
             '/api/relax/start/',
-            '/api/relax/stop/'
+            '/api/relax/stop/',
+            '/api/analysis/phonon/load/'
         ].some(prefix => path.includes(prefix));
     }
 
@@ -589,6 +593,90 @@ export class ASEApi {
                 message: 'Displacement analysis requires at least two trajectory frames.',
                 frame_count: 1
             };
+        }
+        if (path.includes('/api/analysis/symmetry/path/')) {
+            return {
+                status: 'ok',
+                spacegroup_number: 221,
+                spacegroup_international: 'Pm-3m',
+                bravais_lattice: 'cP',
+                point_coords: {
+                    GAMMA: [0, 0, 0],
+                    X: [0, 0.5, 0]
+                },
+                path: [['GAMMA', 'X']]
+            };
+        }
+        if (path.includes('/api/analysis/symmetry/transform/')) {
+            return await this.mockResponse(this.mockState.atoms);
+        }
+        if (path.includes('/api/analysis/symmetry/')) {
+            return {
+                status: 'ok',
+                kind: 'space-group',
+                international: 'Pm-3m',
+                number: 221,
+                pointgroup: 'm-3m',
+                crystal_system: 'cubic',
+                operation_count: 48,
+                primitive_atom_count: 3,
+                standard_atom_count: 3,
+                orbits: [
+                    {
+                        orbit: 1,
+                        indices: [0],
+                        multiplicity: 1,
+                        wyckoff: 'a',
+                        site_symmetry: 'm-3m',
+                        element: 'O',
+                        labels: ['O']
+                    },
+                    {
+                        orbit: 2,
+                        indices: [1, 2],
+                        multiplicity: 2,
+                        wyckoff: 'e',
+                        site_symmetry: '4mm',
+                        element: 'H',
+                        labels: ['H']
+                    }
+                ],
+                warnings: []
+            };
+        }
+        if (path.includes('/api/analysis/phonon/load/')) {
+            return {
+                status: 'ok',
+                source: 'mock-phonopy.yaml',
+                unit_atoms: 3,
+                primitive_atoms: 3,
+                supercell_atoms: 24,
+                supercell_matrix: [[2, 0, 0], [0, 2, 0], [0, 0, 2]],
+                has_force_constants: true,
+                frequency_unit: 'THz'
+            };
+        }
+        if (path.includes('/api/analysis/phonon/modes/')) {
+            return {
+                status: 'ok',
+                qpoint: [0, 0, 0],
+                band_count: 9,
+                frequency_unit: 'THz',
+                bands: Array.from({ length: 9 }, (_, index) => ({
+                    band: index + 1,
+                    frequency_thz: index * 1.25,
+                    imaginary: false,
+                    dominant_axis: 'xyz'[index % 3],
+                    longitudinal_fraction: null,
+                    dominant_atom: index % 3
+                }))
+            };
+        }
+        if (
+            path.includes('/api/analysis/phonon/displacements/')
+            || path.includes('/api/analysis/phonon/modulate/')
+        ) {
+            return await this.mockResponse(this.mockState.atoms);
         }
         if (path.includes('/api/relax/start/')) {
             return { status: 'started' };
@@ -1060,6 +1148,62 @@ export class ASEApi {
         return await this.jsonPost(
             `/api/analysis/displacement/{session_id}`,
             this.framePayload(options)
+        );
+    }
+
+    async analyzeSymmetry(options = {}) {
+        return await this.jsonPost(
+            `/api/analysis/symmetry/{session_id}`,
+            this.framePayload(options)
+        );
+    }
+
+    async fetchHighSymmetryPath(options = {}) {
+        return await this.jsonPost(
+            `/api/analysis/symmetry/path/{session_id}`,
+            this.framePayload(options)
+        );
+    }
+
+    async transformBySymmetry(options = {}) {
+        return await this.jsonPost(
+            `/api/analysis/symmetry/transform/{session_id}`,
+            this.framePayload(options)
+        );
+    }
+
+    async generatePhononDisplacements(options = {}) {
+        return await this.jsonPost(
+            `/api/analysis/phonon/displacements/{session_id}`,
+            this.framePayload(options)
+        );
+    }
+
+    async loadPhonopyProject(file) {
+        const params = new URLSearchParams({
+            filename: file?.name || 'phonopy_params.yaml'
+        });
+        return await this.request(
+            `/api/analysis/phonon/load/{session_id}?${params.toString()}`,
+            {
+                method: 'POST',
+                headers: {'Content-Type': file?.type || 'application/octet-stream'},
+                body: file
+            }
+        );
+    }
+
+    async fetchPhononModes(options = {}) {
+        return await this.jsonPost(
+            `/api/analysis/phonon/modes/{session_id}`,
+            options
+        );
+    }
+
+    async generatePhononModeTrajectory(options = {}) {
+        return await this.jsonPost(
+            `/api/analysis/phonon/modulate/{session_id}`,
+            options
         );
     }
 
