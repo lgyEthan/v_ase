@@ -1,3 +1,19 @@
+# v_ase Symmetry Isolation Contract
+
+This repository is the standalone experimental symmetry build.
+
+- Perform every source, test, build, and Git operation inside
+  `/Users/glee0366/Dropbox/CMT_USYD/Projects/side_project/interactive_visualizer_symm`.
+- Never read from, write to, run commands in, or use Git metadata from the
+  sibling `interactive_visualizer` repository.
+- Work only on the `symmetry` branch unless the user explicitly creates
+  another branch inside this standalone repository.
+- Keep versions independent from the main package using a PEP 440 prerelease
+  with a symmetry marker, such as `0.1.0a2+symmetry`.
+- Never merge or push changes to the original GitHub `main` branch.
+- Never upload this experimental build to PyPI.
+- Local wheel and sdist builds plus `twine check` are allowed for validation.
+
 # v_ase Release Contract
 
 Keep implementation, user documentation, agent control documentation, and
@@ -20,7 +36,8 @@ rendered examples synchronized in every release.
   and animation with `scripts/capture_readme_screenshots.py`, then synchronize
   `docs/assets/` and `docs/assets/github/`.
 - Run the full test suite, build wheel and sdist, and run `twine check`.
-- Publish the same tested version to the GitHub `main` branch and PyPI.
-- Verify the published wheel in a clean environment.
+- Do not publish this branch to GitHub `main` or PyPI. Push a symmetry-specific
+  remote branch only when the user explicitly requests it.
+- Verify the locally built wheel in a clean environment.
 
 The complete sequence is in `docs/release_checklist.md`.

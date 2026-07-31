@@ -3,6 +3,11 @@
 Every v_ase release must keep the package, user documentation, agent contract,
 and rendered examples in sync.
 
+> **Symmetry repository override:** run this checklist only inside
+> `interactive_visualizer_symm` on the `symmetry` branch. Never access the
+> sibling `interactive_visualizer` repository, never merge or push to GitHub
+> `main`, and never upload this experimental package to PyPI.
+
 1. Update the version in `pyproject.toml`, `v_ase/_version.py`, the application
    shell, cache-busted JavaScript imports, and `CHANGELOG.md`.
 2. Update `README.md` for every user-visible behavior change.
@@ -38,7 +43,8 @@ and rendered examples in sync.
    export, verify output contents, and run alone in its own document session.
 7. Run the complete test suite, build wheel and source distribution, and run
    `twine check`.
-8. Push the release commit to GitHub and upload the same version to PyPI.
-9. Install the published wheel in a clean environment and verify
+8. Keep the tested release local unless the user explicitly requests a push
+   to a symmetry-specific remote branch. Do not upload to PyPI.
+9. Install the locally built wheel in a clean environment and verify
    `v_ase --version`, `v_ase gui`, canonical skill serving, and the documented
    end-to-end semantic workflow.
