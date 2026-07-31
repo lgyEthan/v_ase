@@ -881,6 +881,22 @@ v_ase gui FILE --format data
 </details>
 
 <details>
+<summary>Startup fails with <code>cannot import name 'read_vasp_configuration'</code></summary>
+
+This was an ASE 3.23/3.24 compatibility defect in v_ase 0.1.1 through 0.1.5.
+Upgrade v_ase in the same environment that provides the failing executable:
+
+```bash
+python -m pip install --upgrade "v_ase-gui>=0.1.6"
+v_ase --version
+```
+
+v_ase 0.1.6 and later support the declared `ase>=3.23` range without making
+ordinary structure loading depend on a newer VASP-internal helper.
+
+</details>
+
+<details>
 <summary>Replicated supercell atoms cannot be selected</summary>
 
 In **Edit**, displayed replicas are noneditable previews. Use

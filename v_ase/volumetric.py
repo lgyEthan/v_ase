@@ -19,7 +19,7 @@ import uuid
 import numpy as np
 from ase import Atoms
 from ase.io.cube import read_cube
-from ase.io.vasp import read_vasp_configuration
+from ase.io import vasp as ase_vasp
 from ase.io.xsf import iread_xsf
 
 
@@ -483,6 +483,26 @@ def _vasp_component_details(
     return f"{quantity}_component", f"component_{component_index + 1}"
 
 
+def _read_vasp_structure_configuration(handle) -> Atoms:
+    """Read a POSCAR-style header without consuming the following grid.
+
+    ASE 3.23 and 3.24 expose this operation through ``read_vasp``.  Newer ASE
+    releases split the shared POSCAR/CHGCAR parser into
+    ``read_vasp_configuration`` because their public ``read_vasp`` reader also
+    checks for optional velocity records.  Resolve the capability at call time
+    so importing v_ase never depends on that version-specific helper.
+    """
+
+    configuration_reader = getattr(
+        ase_vasp,
+        "read_vasp_configuration",
+        None,
+    )
+    if configuration_reader is not None:
+        return configuration_reader(handle)
+    return ase_vasp.read_vasp(handle)
+
+
 def _read_vasp_grids(
     path: Path,
     canonical_format: str,
@@ -507,7 +527,7 @@ def _read_vasp_grids(
     with path.open("r", encoding="utf-8", errors="strict") as handle:
         while True:
             try:
-                atoms = read_vasp_configuration(handle)
+                atoms = _read_vasp_structure_configuration(handle)
             except (AssertionError, KeyError, RuntimeError, TypeError, ValueError):
                 break
 

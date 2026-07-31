@@ -19,6 +19,7 @@ from v_ase.volumetric import (
     MAX_VOLUMETRIC_SMEARING_SIGMA,
     VolumetricData,
     _max_grid_points,
+    _read_vasp_structure_configuration,
     _smear_scalar_grid,
     _smooth_mesh_vertices,
     combine_volumetric_datasets,
@@ -52,6 +53,28 @@ def test_volumetric_format_detection_covers_vasp_and_qe_exchange_formats(tmp_pat
     assert resolve_volumetric_format(tmp_path / "density.xsf") == "xsf"
     assert resolve_volumetric_format(tmp_path / "unknown.dat") is None
     assert resolve_volumetric_format(tmp_path / "anything", "qe-cube") == "cube"
+
+
+def test_vasp_structure_reader_supports_ase_without_configuration_helper(
+    monkeypatch,
+):
+    expected = Atoms("H", positions=[[0.0, 0.0, 0.0]])
+    calls = []
+
+    monkeypatch.delattr(
+        "v_ase.volumetric.ase_vasp.read_vasp_configuration",
+        raising=False,
+    )
+
+    def legacy_reader(handle):
+        calls.append(handle)
+        return expected
+
+    monkeypatch.setattr("v_ase.volumetric.ase_vasp.read_vasp", legacy_reader)
+    handle = io.StringIO("legacy ASE input")
+
+    assert _read_vasp_structure_configuration(handle) is expected
+    assert calls == [handle]
 
 
 def test_documented_volumetric_grid_limit_environment_variable_is_authoritative(

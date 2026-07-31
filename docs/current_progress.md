@@ -28,7 +28,10 @@ and documentation use `view()`.
 
 - `v_ase/io.py`: canonical file-format aliases and structure/trajectory input.
 - `v_ase/volumetric.py`: bounded VASP/Cube/XSF scalar-grid input,
-  combinations, repetition, and marching-cubes extraction.
+  combinations, repetition, and marching-cubes extraction. Its VASP header
+  reader capability-detects ASE's configuration helper at call time and falls
+  back to the ASE 3.23/3.24 public POSCAR reader; importing this module must
+  never make ordinary structure loading depend on a newer ASE-internal name.
 - `v_ase/analysis.py`: triclinic-safe total/partial RDF and CSV.
 - `v_ase/session.py`: document state, history, calculator-preserving copies,
   trajectory sources, and workspace lifetime.
@@ -456,7 +459,9 @@ Current benchmark method and results are in [performance.md](performance.md).
    available.
 7. Rhino export tests in an environment containing `rhino3dm`.
 8. Wheel and sdist build, metadata check, clean-environment installation,
-   `v_ase --version`, and console entry-point execution.
+   `v_ase --version`, console entry-point execution, and an import plus VASP
+   scalar-grid read against the declared minimum/legacy ASE compatibility
+   range.
 9. Documentation and displayed/static version synchronization.
 10. Headless Linux installation and real browser rendering through the managed
     one-command SSH workflow, including per-frame trajectory transfer and CLI

@@ -81,6 +81,7 @@ test edit and a new filename for output.
 | unexpected constrained position | ASE projected requested movement | Trust returned backend position and report projection |
 | frame selection disappeared | Topology differs between frames | Re-describe and select valid mapped atoms |
 | unsupported volumetric format | File is not VASP scalar grid, Cube, or XSF | Convert the DFT output to Cube/XSF or pass the correct explicit format |
+| `cannot import name 'read_vasp_configuration'` | v_ase 0.1.1-0.1.5 is installed with ASE 3.23/3.24 | Upgrade the same environment to `v_ase-gui>=0.1.6`, confirm `v_ase --version`, and retry; do not require an ASE upgrade |
 | charge-density difference grids must match | Grid shape, cell, origin, PBC, endpoint convention, or units differ | Regenerate all component grids with the same calculation grid; do not force a combination |
 | requested isosurface is outside the scalar range | Absolute level has no crossing | Inspect dataset minimum/maximum and choose an in-range nonzero level |
 | requested isosurface is outside the range after smearing | Gaussian filtering changed the displayed extrema | Reduce `smearingSigma` or choose a level inside the reported displayed range; do not alter the source grid |

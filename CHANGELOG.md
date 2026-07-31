@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.6
+
+- Restored startup compatibility with ASE 3.23 and 3.24 by removing the
+  unconditional import of a newer internal VASP configuration helper.
+- Kept CHGCAR, CHG, LOCPOT, PARCHG, and ELFCAR grid parsing aligned at the
+  first scalar-grid record across both legacy and current ASE reader layouts.
+- Added an ASE 3.24 compatibility regression and verified that ordinary XYZ
+  files can start a live v_ase GUI session without importing-version failures.
+
 ## 0.1.5
 
 - Added PBC-aware Gaussian field smearing for display-only volumetric data,
