@@ -340,11 +340,11 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "2.15 A above the vacancy" in readme
     assert "three" in readme[ai:structure]
     assert "external ai agent" in normalized_readme
-    assert "v_ase itself is not an ai" in normalized_readme
-    assert "does not interpret that request" in normalized_readme
-    assert "structured cli/api operations" in normalized_readme
-    assert "same document stays open" in normalized_readme
-    assert "rather than overwriting it" in normalized_readme
+    assert "v_ase is the scientific application between you and an external ai agent" in normalized_readme
+    assert "does not interpret natural language itself" in normalized_readme
+    assert "exact, structured cli/api commands" in normalized_readme
+    assert "gui edits enter the same document" in normalized_readme
+    assert "instead of overwriting it" in normalized_readme
     assert "can reduce token use" in normalized_readme
     assert "Standard Metal and Rubber atom materials" in readme
     assert "Cu_substrate-Cu_substrate" in readme
@@ -392,6 +392,20 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
 
     with Image.open(ROOT / "docs" / "assets" / "readme_ai_collaboration.png") as figure:
         assert figure.size == (2400, 1200)
+
+    figure_source = (
+        ROOT / "docs" / "design" / "ai_collaboration_figure.html"
+    ).read_text(encoding="utf-8")
+    for required in (
+        "INTO v_ase: EXACT COMMANDS",
+        "OUT OF v_ase: STATE + REVISION",
+        "OUT OF v_ase: LIVE 3D DOCUMENT",
+        "IN: GUI EDITS",
+        "the system doing the atomistic work",
+    ):
+        assert required in figure_source
+    assert "LIVE FEEDBACK LOOP" not in figure_source
+    assert 'class="feedback"' not in figure_source
 
 
 def test_phosphorene_capture_drives_the_production_selection_and_rotation_ui():

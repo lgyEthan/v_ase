@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.3
+
+- Rebuilt the external-AI-agent figure as a compact cycle centered on v_ase:
+  natural-language requests enter the external Agent, structured commands and
+  GUI edits enter v_ase, and live GUI output plus exact state and revisions
+  leave v_ase through explicitly labeled directional arrows.
+- Removed the detached feedback-loop panel and synchronized the user guide,
+  canonical Agent Skill, technical documentation, and generated README media
+  with the clearer shared-document model.
+- Clarified that viewport and exported-image backgrounds are independent
+  settings and documented the clean CLI-session shutdown order found by a
+  fresh zero-context Agent evaluation.
+- Prevented late video-encoding events from writing the same `100%` progress
+  value repeatedly after export completion.
+
 ## 0.1.2
 
 - Reworked the external-AI-agent documentation into a visual, four-stage

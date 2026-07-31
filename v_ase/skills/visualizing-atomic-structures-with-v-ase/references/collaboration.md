@@ -13,14 +13,20 @@
 
 ## Shared-Document Model
 
-The external agent and researcher operate the same live document in v_ase:
+The external agent and researcher operate the same live document in a cycle
+centered on v_ase:
 
 ```text
-researcher request -> external agent -> semantic v_ase command
-                                      -> same live GUI
-researcher GUI edit -> CLI NDJSON event -> agent re-reads semantic state
+researcher --natural language--> external agent
+external agent --structured command--> v_ase
+v_ase --live 3D document--> researcher GUI
+researcher GUI --committed edit--> same v_ase document
+v_ase --exact state + revision--> external agent
 ```
 
+v_ase is the scientific application in this cycle, not the AI. It owns and
+validates the atomistic document, applies structured Agent commands and human
+GUI edits, renders the GUI, and emits machine-readable state and revisions.
 `human_url` is not a rendered copy or separate editor. It opens the same
 workspace controlled through the handshake's `command_url`. Human GUI edits
 are authoritative and must be reviewed before the agent continues.

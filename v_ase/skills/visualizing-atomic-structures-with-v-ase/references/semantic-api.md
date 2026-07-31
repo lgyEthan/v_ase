@@ -307,6 +307,10 @@ is disabled. Bonds update per frame and during interactive edits.
 | `sunPosition`, `sunTarget` | finite three-vectors |
 | `sunGizmo` | boolean |
 
+`viewportBackground` changes the live GUI. It does not rewrite
+`imageExport.options.backgroundColor`; set the export color explicitly when
+the rendered file must match the viewport.
+
 Transform and commensurate settings:
 
 | Setting | Values |

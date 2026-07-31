@@ -23,6 +23,9 @@ through the process and operating system.
 
 ## Human-Agent Collaboration
 
+v_ase is the scientific application in the collaboration cycle. Structured
+Agent commands and human GUI edits enter the same v_ase document; the live GUI,
+exact semantic state, and revisions leave v_ase for the researcher and Agent.
 `v_ase gui FILE --cli` controls the same workspace a researcher opens through
 `human_url`. The first stdout line is the `v_ase.ai.v1` discovery handshake;
 later lines are compact `v_ase.collaboration.v1` NDJSON events. Commands are

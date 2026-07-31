@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.1.2"
+python -m pip install "v_ase-gui==0.1.3"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.1.2"
+python -m pip install "v_ase-gui[rhino]==0.1.3"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, SciPy, scikit-image,
@@ -89,6 +89,11 @@ server command to finish before calling `v_ase api`. Retain the handle to poll
 later NDJSON events and stop it at the end. Use the runner's native
 long-running-process mechanism rather than a platform-specific shell trick
 when one is available.
+
+After final `describe`, render, and export verification, terminate the
+persistent CLI process while the human GUI is still open, then close the GUI.
+Closing the GUI first may stop its local server and make the still-running CLI
+event poller print a reconnect notice.
 
 `--cli` does not consume natural language or structured commands from stdin.
 The first stdout line is the startup handshake, later stdout lines are

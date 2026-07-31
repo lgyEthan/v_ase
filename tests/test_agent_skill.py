@@ -114,6 +114,7 @@ def test_skill_version_install_and_environment_contract_are_current():
 
 
 def test_skill_explains_vendor_neutral_agent_handoff():
+    documented = " ".join(_documented_skill_text().split())
     setup = (REFERENCES / "agent-setup.md").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     compatibility = (ROOT / "v_ase" / "skills_v_ase.md").read_text(encoding="utf-8")
@@ -146,11 +147,13 @@ def test_skill_explains_vendor_neutral_agent_handoff():
     readable_readme = " ".join(readme.split())
     assert "CAD-ready" not in readme
     assert "--for-ai" not in setup + readme + compatibility
-    assert "v_ase itself is not an AI" in readable_readme
-    assert "The agent operates v_ase" in readable_readme
-    assert "structured CLI/API operations" in readable_readme
-    assert "The same document stays open in the normal GUI" in readable_readme
+    assert "v_ase is the scientific application between you and an external AI Agent" in readable_readme
+    assert "the Agent sends exact, structured CLI/API commands" in readable_readme
+    assert "v_ase applies and validates the operations" in readable_readme
+    assert "GUI edits enter the same document" in readable_readme
     assert "There is no natural-language endpoint and no command loop on stdin." in setup
+    assert "`viewportBackground` controls the interactive GUI only" in documented
+    assert "terminate the persistent CLI process while the human GUI is still open" in documented
     assert "can reduce token use" in readme
 
 

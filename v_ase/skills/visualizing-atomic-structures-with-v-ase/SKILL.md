@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.1.2"
+python -m pip install "v_ase-gui==0.1.3"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -204,6 +204,9 @@ v_ase api "$COMMAND_URL" render --save preview.webp --params '{
 Replace `CURRENT_REVISION` with the integer returned by the first `describe`.
 Verify the second response has two selected atoms and a non-empty measurement;
 verify the saved image is 3840 x 2160 and nonblank.
+`viewportBackground` controls the interactive GUI only. Exported media uses
+`options.backgroundColor` independently, so set it explicitly when the file
+must match the viewport background.
 
 For physical editing, trajectory analysis, video, 3D scene export, and failure
 handling, use the references below rather than improvising field names.

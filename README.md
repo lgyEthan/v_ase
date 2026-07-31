@@ -98,19 +98,20 @@ browser document releases the blocking terminal process.
 
 ## Work With An AI Agent
 
-Give the bundled [v_ase Skill](#agent-setup) to the external AI agent you
-already use, then describe the scientific result in natural language. v_ase
-itself is not an AI and does not interpret that request.
+v_ase is the scientific application between you and an external AI Agent. It
+does not interpret natural language itself: the Agent learns v_ase from the
+bundled [v_ase Skill](#agent-setup), then controls the exact structure through
+the CLI/API while you see the result in the normal GUI.
 
 ![Human and external AI agent working in one live v_ase document](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.png)
 
-1. **You ask the agent.** Use ordinary language; the Skill supplies the v_ase
-   commands, safeguards, and verification workflow.
-2. **The agent operates v_ase.** It reads exact atoms and settings, then sends
-   structured CLI/API operations instead of guessing from screenshots.
-3. **You watch and refine.** The same document stays open in the normal GUI.
-   If you change it there, v_ase reports the new revision so the agent
-   continues from your work rather than overwriting it.
+1. **You → Agent:** describe the scientific result in ordinary language.
+2. **Agent → v_ase:** the Agent sends exact, structured CLI/API commands.
+3. **v_ase → you:** v_ase applies and validates the operations, then displays
+   the live 3D document in the GUI.
+4. **v_ase → Agent:** v_ase returns exact atoms, settings, and the current
+   revision. GUI edits enter the same document, so the Agent continues from
+   your latest work instead of overwriting it.
 
 For example:
 

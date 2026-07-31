@@ -209,6 +209,9 @@ and documentation use `view()`.
     a separate takeover copy. Page-main-world JavaScript access is optional.
     v_ase does not parse natural language or stdin commands; the external agent
     translates the user's request into structured semantic calls.
+    User documentation presents this as a cycle centered on v_ase: structured
+    commands and GUI edits enter v_ase, while the live GUI and exact
+    state/revision leave v_ase through separately labeled arrows.
     `v_ase api ... schema` exposes the live apply schema plus operation/export
     parameter maps without a browser round trip; `describe` reports whether a
     calculator is attached and identifies it.

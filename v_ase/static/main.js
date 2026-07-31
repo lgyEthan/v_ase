@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.1.2&rev=1';
-import { ASERenderer } from './renderer.js?v=0.1.2&rev=1';
-import { ASESelection } from './selection.js?v=0.1.2&rev=1';
-import { ASETransform } from './transform.js?v=0.1.2&rev=1';
+import { ASEApi } from './api.js?v=0.1.3&rev=1';
+import { ASERenderer } from './renderer.js?v=0.1.3&rev=1';
+import { ASESelection } from './selection.js?v=0.1.3&rev=1';
+import { ASETransform } from './transform.js?v=0.1.3&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.1.2&rev=1';
+} from './trajectory.js?v=0.1.3&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -8229,7 +8229,10 @@ class VAseApp {
         bar.dataset.mode = 'determinate';
         bar.setAttribute('aria-valuemin', '0');
         bar.setAttribute('aria-valuemax', '100');
-        bar.setAttribute('aria-valuenow', `${Math.round(next)}`);
+        const roundedNext = `${Math.round(next)}`;
+        if (bar.getAttribute('aria-valuenow') !== roundedNext) {
+            bar.setAttribute('aria-valuenow', roundedNext);
+        }
         fill.style.width = `${next}%`;
         percent.textContent = `${Math.floor(next)}%`;
         eta.textContent = complete && next >= 100
