@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.1.6&rev=1';
-import { ASERenderer } from './renderer.js?v=0.1.6&rev=1';
-import { ASESelection } from './selection.js?v=0.1.6&rev=1';
-import { ASETransform } from './transform.js?v=0.1.6&rev=1';
+import { ASEApi } from './api.js?v=0.1.7&rev=1';
+import { ASERenderer } from './renderer.js?v=0.1.7&rev=1';
+import { ASESelection } from './selection.js?v=0.1.7&rev=1';
+import { ASETransform } from './transform.js?v=0.1.7&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.1.6&rev=1';
+} from './trajectory.js?v=0.1.7&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -138,10 +138,11 @@ class VAseApp {
                 labelMaterials: {},
                 atomMaterials: {},
                 rotatePivot: 'selection',
-                commensurateGuide: true,
+                commensurateGuide: false,
                 commensurateSnap: false,
                 commensurateStrainTolerance: 0.01,
                 commensurateMaxIndex: 32,
+                commensurateMaxAreaRatio: 16,
                 commensurateSnapRangeDeg: 2.0,
                 supercell: [1, 1, 1],
                 translation: [0, 0, 0],
@@ -211,6 +212,9 @@ class VAseApp {
             commensurateReferenceDirection: null,
             commensurateGuideRadius: 4,
             commensurateSnappedCandidate: null,
+            commensurateLastAngle: null,
+            commensurateProposal: null,
+            commensurateProposalToken: 0,
             transformSubject: null,
             sunSelected: null,
             sunTransformOriginal: null,
@@ -929,6 +933,7 @@ class VAseApp {
             '#super-x', '#super-y', '#super-z',
             '#commensurate-strain',
             '#commensurate-max-index',
+            '#commensurate-max-area',
             '#commensurate-snap-range',
             '.pairwise-bond-max',
             '.label-radius-input',
@@ -3141,6 +3146,7 @@ class VAseApp {
             resetTrajectoryIdentity = false
         } = {}
     ) {
+        this.clearCommensurateSupercellProposal({ keepStatus: true });
         if (!preserveRdf) this.invalidateRdfResult();
         const previousVolumeSignature = JSON.stringify(
             this.volumetricDatasets().map(dataset => [
@@ -3463,6 +3469,7 @@ class VAseApp {
         );
         const initialStrainTolerance = Number(config.commensurate_strain_tolerance);
         const initialMaxIndex = parseInt(config.commensurate_max_index, 10);
+        const initialMaxArea = parseInt(config.commensurate_max_area_ratio, 10);
         const initialSnapRange = Number(config.commensurate_snap_range_deg);
         this.state.display.commensurateStrainTolerance = Number.isFinite(initialStrainTolerance)
             ? Math.max(0, Math.min(0.25, initialStrainTolerance))
@@ -3470,6 +3477,9 @@ class VAseApp {
         this.state.display.commensurateMaxIndex = Number.isFinite(initialMaxIndex)
             ? Math.max(2, Math.min(64, initialMaxIndex))
             : this.state.display.commensurateMaxIndex;
+        this.state.display.commensurateMaxAreaRatio = Number.isFinite(initialMaxArea)
+            ? Math.max(1, Math.min(256, initialMaxArea))
+            : this.state.display.commensurateMaxAreaRatio;
         this.state.display.commensurateSnapRangeDeg = Number.isFinite(initialSnapRange)
             ? Math.max(0, Math.min(15, initialSnapRange))
             : this.state.display.commensurateSnapRangeDeg;
@@ -3504,6 +3514,7 @@ class VAseApp {
         document.getElementById('chk-commensurate-snap').checked = this.state.display.commensurateSnap;
         document.getElementById('commensurate-strain').value = this.state.display.commensurateStrainTolerance * 100;
         document.getElementById('commensurate-max-index').value = this.state.display.commensurateMaxIndex;
+        document.getElementById('commensurate-max-area').value = this.state.display.commensurateMaxAreaRatio;
         document.getElementById('commensurate-snap-range').value = this.state.display.commensurateSnapRangeDeg;
         const projectionMode = document.getElementById('projection-mode');
         if (projectionMode) projectionMode.value = this.state.display.projectionMode;
@@ -4898,6 +4909,7 @@ class VAseApp {
             angle = this.snapCommensurateAngle(angle);
             if (!Number.isFinite(angle)) angle = 0;
             appliedRotationAngle = angle;
+            this.state.commensurateLastAngle = angle;
             const snapped = this.state.commensurateSnappedCandidate;
             this.state.transformReadout = snapped
                 ? `${this.formatRotateReadout(angle)} | MATCH e=${(snapped.strain * 100).toFixed(3)}% | N=${snapped.area}`
@@ -4996,6 +5008,15 @@ class VAseApp {
             return;
         }
         if (this.constraintTimeout) clearTimeout(this.constraintTimeout);
+        const proposalCandidate = this.transform.mode === 'ROTATE'
+            ? this.commensurateCandidateForProposal(this.state.commensurateLastAngle)
+            : null;
+        const proposalContext = proposalCandidate ? {
+            candidate: proposalCandidate,
+            selectedIndices: [...this.state.selected].filter(index => this.isEditableIndex(index)),
+            pivot: this.transform.pivot.toArray(),
+            axis: this.transform.axis
+        } : null;
         const newPositions = this.currentPositionsFromScene();
         this.state.atoms.positions = newPositions.map(p => [...p]);
         this.state.originalPositions = newPositions.map(p => [...p]);
@@ -5012,8 +5033,11 @@ class VAseApp {
         this.updateSelectionVisuals();
         this.updateUI();
 
-        this.pendingApply = this.api.applyPositions(newPositions, this.state.applyConstraints).then(data => {
+        this.pendingApply = this.api.applyPositions(newPositions, this.state.applyConstraints).then(async data => {
             this.setAtomsData(data);
+            if (proposalContext) {
+                await this.prepareCommensurateSupercellProposal(proposalContext);
+            }
             return data;
         }).catch(err => {
             this.toast(`Apply failed: ${err.message}`, 'error');
@@ -6430,6 +6454,10 @@ class VAseApp {
         this.state.display.commensurateMaxIndex = Number.isFinite(maxIndex)
             ? Math.max(2, Math.min(64, maxIndex))
             : 32;
+        const maxArea = parseInt(document.getElementById('commensurate-max-area')?.value || '16', 10);
+        this.state.display.commensurateMaxAreaRatio = Number.isFinite(maxArea)
+            ? Math.max(1, Math.min(256, maxArea))
+            : 16;
         const snapRange = parseFloat(document.getElementById('commensurate-snap-range')?.value || '2');
         this.state.display.commensurateSnapRangeDeg = Number.isFinite(snapRange)
             ? Math.max(0, Math.min(15, snapRange))
@@ -6714,6 +6742,15 @@ class VAseApp {
     observeCollaborationCamera(source = 'camera') {
         const signature = this.collaborationCameraKey();
         if (signature === null) return;
+        // Workspace activation and ordinary browser resizing change the
+        // framebuffer aspect, not the researcher's intended camera.  Adopt
+        // that layout-derived state as the new baseline without publishing a
+        // phantom human edit that can invalidate an immediately preceding
+        // describe()/expectedRevision pair.
+        if (source === 'resize') {
+            this.collaborationCameraSignature = signature;
+            return;
+        }
         if (this.collaborationCameraSignature === null) {
             this.collaborationCameraSignature = signature;
             return;
@@ -6909,6 +6946,24 @@ class VAseApp {
                     partialCurves: Object.keys(this.state.rdfResult.partial || {}),
                     warnings: [...(this.state.rdfResult.warnings || [])],
                     frame: this.state.rdfResult.frame_index
+                } : null,
+                commensurateProposal: this.state.commensurateProposal ? {
+                    candidate: this.clonePlain(this.state.commensurateProposal.data?.candidate || {}),
+                    coreAtomCount: Number(
+                        this.state.commensurateProposal.data?.preview?.core_atom_count || 0
+                    ),
+                    previewAtomCount: Number(
+                        this.state.commensurateProposal.data?.preview?.preview_atom_count || 0
+                    ),
+                    paddingCells: Number(
+                        this.state.commensurateProposal.data?.preview?.padding_cells || 0
+                    ),
+                    materializationSupported: (
+                        this.state.commensurateProposal.data?.materialization_supported !== false
+                    ),
+                    materializationReason: (
+                        this.state.commensurateProposal.data?.materialization_reason || null
+                    )
                 } : null
             },
             collaboration: {
@@ -6961,7 +7016,7 @@ class VAseApp {
                 'atoms', 'labels', 'elements', 'positions', 'cell', 'pbc',
                 'constraints', 'forces', 'charges', 'tags', 'magnetic-moments',
                 'selection', 'measurement', 'trajectory', 'camera', 'display',
-                'volumetric-data', 'rdf', 'collaboration'
+                'volumetric-data', 'rdf', 'commensurate-proposal', 'collaboration'
             ],
             apply: [
                 'expectedRevision', 'frame', 'mode', 'display', 'quality',
@@ -6970,7 +7025,8 @@ class VAseApp {
             operations: [
                 'wrap', 'translate-all', 'set-supercell', 'make-supercell',
                 'add-atom', 'delete-selection', 'set-identity', 'set-constraints',
-                'move-selection', 'rotate-selection', 'undo', 'redo',
+                'move-selection', 'rotate-selection', 'rotate-to-commensurate',
+                'apply-commensurate-cell', 'dismiss-commensurate-cell', 'undo', 'redo',
                 'reset-coordinates', 'start-relaxation', 'stop-relaxation',
                 'refresh-displacements', 'load-volumetric', 'show-volumetric',
                 'combine-volumetric', 'remove-volumetric', 'calculate-rdf'
@@ -7006,6 +7062,47 @@ class VAseApp {
             throw new Error(`Operation indices must be integers inside 0..${Math.max(0, atomCount - 1)}.`);
         }
         return indices;
+    }
+
+    aiRotationPivot(operation, indices, positions) {
+        if (Array.isArray(operation.pivot)) {
+            return new THREE.Vector3(...this.aiFiniteVector(operation.pivot, 'pivot'));
+        }
+        if (operation.pivot === 'active') {
+            return new THREE.Vector3(...positions[indices[indices.length - 1]]);
+        }
+        if (operation.pivot === 'origin') return new THREE.Vector3(0, 0, 0);
+        if (operation.pivot === 'cell') {
+            const cell = this.state.atoms?.cell || [];
+            if (cell.length !== 3) throw new Error('A cell pivot requires a defined unit cell.');
+            const pivot = new THREE.Vector3();
+            cell.forEach(row => pivot.add(new THREE.Vector3(...row).multiplyScalar(0.5)));
+            return pivot;
+        }
+        const pivot = new THREE.Vector3();
+        indices.forEach(index => pivot.add(new THREE.Vector3(...positions[index])));
+        return pivot.multiplyScalar(1 / indices.length);
+    }
+
+    aiRotatedPositions(positions, indices, axis, angleDeg, pivot) {
+        const axisVector = new THREE.Vector3(...axis);
+        if (axisVector.lengthSq() <= 1e-16) throw new Error('Rotation axis must be non-zero.');
+        axisVector.normalize();
+        const angle = Number(angleDeg);
+        if (!Number.isFinite(angle)) throw new Error('Rotation angle must be finite.');
+        const next = positions.map(position => [...position]);
+        const quaternion = new THREE.Quaternion().setFromAxisAngle(
+            axisVector,
+            THREE.MathUtils.degToRad(angle)
+        );
+        indices.forEach(index => {
+            const point = new THREE.Vector3(...next[index])
+                .sub(pivot)
+                .applyQuaternion(quaternion)
+                .add(pivot);
+            next[index] = point.toArray();
+        });
+        return next;
     }
 
     aiRequireEdit(operationName) {
@@ -7133,41 +7230,105 @@ class VAseApp {
         if (name === 'rotate-selection') {
             this.aiRequireEdit('rotate-selection');
             const axis = this.aiFiniteVector(operation.axis || [0, 0, 1], 'axis');
-            const axisVector = new THREE.Vector3(...axis);
-            if (axisVector.lengthSq() <= 1e-16) throw new Error('Rotation axis must be non-zero.');
-            axisVector.normalize();
             const angle = Number(operation.angleDeg);
             if (!Number.isFinite(angle)) throw new Error('rotate-selection requires finite angleDeg.');
             const indices = this.aiOperationIndices(operation);
-            const next = positions();
-            let pivot;
-            if (Array.isArray(operation.pivot)) {
-                pivot = new THREE.Vector3(...this.aiFiniteVector(operation.pivot, 'pivot'));
-            } else if (operation.pivot === 'active') {
-                pivot = new THREE.Vector3(...next[indices[indices.length - 1]]);
-            } else if (operation.pivot === 'origin') {
-                pivot = new THREE.Vector3(0, 0, 0);
-            } else if (operation.pivot === 'cell') {
-                const cell = this.state.atoms?.cell || [];
-                pivot = new THREE.Vector3();
-                cell.forEach(row => pivot.add(new THREE.Vector3(...row).multiplyScalar(0.5)));
-            } else {
-                pivot = new THREE.Vector3();
-                indices.forEach(index => pivot.add(new THREE.Vector3(...next[index])));
-                pivot.multiplyScalar(1 / indices.length);
-            }
-            const quaternion = new THREE.Quaternion().setFromAxisAngle(
-                axisVector,
-                THREE.MathUtils.degToRad(angle)
-            );
-            indices.forEach(index => {
-                const point = new THREE.Vector3(...next[index])
-                    .sub(pivot)
-                    .applyQuaternion(quaternion)
-                    .add(pivot);
-                next[index] = point.toArray();
-            });
+            const current = positions();
+            const pivot = this.aiRotationPivot(operation, indices, current);
+            const next = this.aiRotatedPositions(current, indices, axis, angle, pivot);
             setData(await this.api.applyPositions(next, applyConstraints));
+            return;
+        }
+        if (name === 'rotate-to-commensurate') {
+            this.aiRequireEdit('rotate-to-commensurate');
+            const axis = String(operation.axis || 'Z').trim().toUpperCase();
+            if (!['X', 'Y', 'Z'].includes(axis)) {
+                throw new Error("rotate-to-commensurate axis must be X, Y, or Z.");
+            }
+            const targetAngle = Number(operation.angleDeg);
+            if (!Number.isFinite(targetAngle)) {
+                throw new Error('rotate-to-commensurate requires finite angleDeg.');
+            }
+            const maxIndex = Math.max(2, Math.min(64, Math.round(
+                Number(operation.maxIndex ?? this.state.display.commensurateMaxIndex ?? 32)
+            )));
+            const strainTolerance = Number(
+                operation.strainTolerance
+                ?? this.state.display.commensurateStrainTolerance
+                ?? 0.01
+            );
+            if (!Number.isFinite(strainTolerance) || strainTolerance < 0 || strainTolerance > 0.25) {
+                throw new Error('strainTolerance must be a fraction from 0 through 0.25.');
+            }
+            const maxAreaRatio = Math.max(1, Math.min(256, Math.round(
+                Number(operation.maxAreaRatio ?? this.state.display.commensurateMaxAreaRatio ?? 16)
+            )));
+            const maxAngleDifference = Number(operation.maxAngleDifferenceDeg ?? 2);
+            if (!Number.isFinite(maxAngleDifference) || maxAngleDifference < 0 || maxAngleDifference > 30) {
+                throw new Error('maxAngleDifferenceDeg must be from 0 through 30 degrees.');
+            }
+            const search = await this.api.commensurateAngles(
+                axis, maxIndex, strainTolerance, maxAreaRatio
+            );
+            const ranked = (search.candidates || [])
+                .filter(candidate => (
+                    candidate.supercell_supported !== false
+                    && Number(candidate.area_ratio ?? candidate.area) <= maxAreaRatio
+                ))
+                .map(candidate => this.candidateInstanceNearAngle(candidate, targetAngle))
+                .sort((first, second) => (
+                    Math.abs(first.deltaDeg) - Math.abs(second.deltaDeg)
+                    || Number(first.area_ratio ?? first.area) - Number(second.area_ratio ?? second.area)
+                    || Number(first.strain) - Number(second.strain)
+                ));
+            const candidate = ranked[0];
+            if (!candidate || Math.abs(candidate.deltaDeg) > maxAngleDifference) {
+                const nearest = candidate
+                    ? ` The nearest bounded candidate is ${candidate.targetAngleDeg.toFixed(6)} degrees.`
+                    : '';
+                throw new Error(
+                    `No commensurate cell lies within ${maxAngleDifference} degrees of ${targetAngle}.${nearest}`
+                );
+            }
+            const indices = this.aiOperationIndices(operation);
+            const current = positions();
+            const pivot = this.aiRotationPivot(operation, indices, current);
+            const axisVector = {
+                X: [1, 0, 0],
+                Y: [0, 1, 0],
+                Z: [0, 0, 1]
+            }[axis];
+            const next = this.aiRotatedPositions(
+                current, indices, axisVector, candidate.targetAngleDeg, pivot
+            );
+            setData(await this.api.applyPositions(next, applyConstraints));
+            Object.assign(this.state.display, {
+                commensurateGuide: true,
+                commensurateSnap: true,
+                commensurateStrainTolerance: strainTolerance,
+                commensurateMaxIndex: maxIndex,
+                commensurateMaxAreaRatio: maxAreaRatio
+            });
+            this.state.commensurateSearch = search;
+            this.state.commensurateCandidates = search.candidates || [];
+            this.state.commensurateSnappedCandidate = candidate;
+            this.state.commensurateLastAngle = THREE.MathUtils.degToRad(candidate.targetAngleDeg);
+            await this.prepareCommensurateSupercellProposal({
+                candidate,
+                selectedIndices: indices,
+                pivot: pivot.toArray(),
+                axis
+            });
+            this.updateUI();
+            return;
+        }
+        if (name === 'apply-commensurate-cell') {
+            this.aiRequireEdit('apply-commensurate-cell');
+            await this.applyCommensurateSupercellProposal({ propagateErrors: true });
+            return;
+        }
+        if (name === 'dismiss-commensurate-cell') {
+            this.clearCommensurateSupercellProposal();
             return;
         }
         if (name === 'undo') {
@@ -7942,6 +8103,7 @@ class VAseApp {
         setChecked('chk-commensurate-snap', display.commensurateSnap !== false);
         setValue('commensurate-strain', (display.commensurateStrainTolerance ?? 0.01) * 100);
         setValue('commensurate-max-index', display.commensurateMaxIndex ?? 32);
+        setValue('commensurate-max-area', display.commensurateMaxAreaRatio ?? 16);
         setValue('commensurate-snap-range', display.commensurateSnapRangeDeg ?? 2);
         setValue('bond-mode', display.bondMode || 'auto');
         setValue('bond-cutoff', display.bondCutoffScale || 1.0);
@@ -8114,13 +8276,16 @@ class VAseApp {
             cellMaterial: ['unlit', 'standard', 'metal'].includes(nextDisplay.cellMaterial)
                 ? nextDisplay.cellMaterial
                 : 'unlit',
-            commensurateGuide: nextDisplay.commensurateGuide !== false,
+            commensurateGuide: Boolean(nextDisplay.commensurateGuide),
             commensurateSnap: Boolean(nextDisplay.commensurateSnap),
             commensurateStrainTolerance: finiteClamped(
                 nextDisplay.commensurateStrainTolerance, 0.01, 0, 0.25
             ),
             commensurateMaxIndex: integerClamped(
                 nextDisplay.commensurateMaxIndex, 32, 2, 64
+            ),
+            commensurateMaxAreaRatio: integerClamped(
+                nextDisplay.commensurateMaxAreaRatio, 16, 1, 256
             ),
             commensurateSnapRangeDeg: finiteClamped(
                 nextDisplay.commensurateSnapRangeDeg, 2, 0, 15
@@ -8804,12 +8969,158 @@ class VAseApp {
         else delete element.dataset.state;
     }
 
+    clearCommensurateSupercellProposal({ keepStatus = false, preserveCamera = false } = {}) {
+        this.state.commensurateProposalToken = (this.state.commensurateProposalToken || 0) + 1;
+        this.state.commensurateProposal = null;
+        this.renderer.clearCommensurateSupercellPreview?.({ restoreCamera: !preserveCamera });
+        document.getElementById('commensurate-supercell-proposal')?.classList.add('hidden');
+        if (!keepStatus && this.state.display.commensurateGuide) {
+            this.updateCommensurateStatus('Lock X, Y, or Z during R to scan periodic cell matches.');
+        }
+    }
+
+    commensurateCandidateForProposal(angle) {
+        if (!this.state.display.commensurateGuide || !Number.isFinite(angle)) return null;
+        const maxArea = Math.max(1, Number(this.state.display.commensurateMaxAreaRatio) || 16);
+        const snapped = this.state.commensurateSnappedCandidate;
+        if (snapped?.identity) return null;
+        if (snapped && Number(snapped.area_ratio ?? snapped.area) <= maxArea) return snapped;
+        const angleDeg = THREE.MathUtils.radToDeg(angle);
+        const exact = (this.state.commensurateCandidates || [])
+            .map(candidate => this.candidateInstanceNearAngle(candidate, angleDeg))
+            .filter(candidate => (
+                candidate.supercell_supported !== false
+                && Number(candidate.area_ratio ?? candidate.area) <= maxArea
+                && Math.abs(candidate.deltaDeg) <= 0.03
+            ))
+            .sort((first, second) => (
+                Number(first.area_ratio ?? first.area) - Number(second.area_ratio ?? second.area)
+                || Number(first.strain) - Number(second.strain)
+                || Math.abs(first.deltaDeg) - Math.abs(second.deltaDeg)
+            ));
+        return exact[0] || null;
+    }
+
+    commensurateProposalPayload(context, positions = this.backendPositionsPayload()) {
+        return {
+            positions,
+            selected_indices: [...context.selectedIndices],
+            pivot: [...context.pivot],
+            axis: context.axis,
+            candidate: {
+                angle_deg: Number(context.candidate.angle_deg),
+                source_matrix: context.candidate.source_matrix,
+                target_matrix: context.candidate.target_matrix
+            },
+            max_index: this.state.display.commensurateMaxIndex,
+            strain_tolerance: this.state.display.commensurateStrainTolerance,
+            max_area_ratio: this.state.display.commensurateMaxAreaRatio,
+            apply_constraint: this.state.applyConstraints
+        };
+    }
+
+    renderCommensurateSupercellProposal(proposal) {
+        const panel = document.getElementById('commensurate-supercell-proposal');
+        if (!panel || !proposal) return;
+        const candidate = proposal.data.candidate || {};
+        const preview = proposal.data.preview || {};
+        const notation = document.getElementById('commensurate-proposal-notation');
+        const metrics = document.getElementById('commensurate-proposal-metrics');
+        const matrices = document.getElementById('commensurate-proposal-matrices');
+        const applyButton = document.getElementById('btn-apply-commensurate-cell');
+        const reason = document.getElementById('commensurate-proposal-reason');
+        if (notation) {
+            notation.textContent = `${candidate.source_notation || candidate.source_matrix_text} -> ${candidate.target_notation || candidate.target_matrix_text}`;
+        }
+        if (metrics) {
+            const lengths = (candidate.cell_lengths_angstrom || []).map(value => Number(value).toFixed(3));
+            metrics.replaceChildren();
+            [
+                `Area ratio N = ${candidate.area_ratio}`,
+                `Boundary strain = ${(Number(candidate.strain) * 100).toFixed(4)}%`,
+                `Cell = ${lengths.join(' x ')} A`,
+                `gamma = ${Number(candidate.cell_angle_deg).toFixed(3)} deg`
+            ].forEach(text => {
+                const item = document.createElement('span');
+                item.textContent = text;
+                metrics.appendChild(item);
+            });
+        }
+        if (matrices) {
+            matrices.textContent = `rotating M = ${candidate.source_matrix_text}   reference N = ${candidate.target_matrix_text}`;
+        }
+        const supported = proposal.data.materialization_supported !== false;
+        if (applyButton) applyButton.disabled = !supported;
+        if (reason) {
+            reason.textContent = proposal.data.materialization_reason || '';
+            reason.classList.toggle('hidden', supported);
+        }
+        panel.classList.remove('hidden');
+        panel.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+        this.updateCommensurateStatus(
+            `Suggested ${candidate.target_notation || candidate.target_matrix_text}: ${preview.core_atom_count} atoms in the common cell plus a one-cell boundary shell.`,
+            'ready'
+        );
+    }
+
+    async prepareCommensurateSupercellProposal(context) {
+        if (!context?.candidate || !this.state.display.commensurateGuide) return;
+        const token = ++this.state.commensurateProposalToken;
+        this.updateCommensurateStatus('Building the bounded common-cell preview...', 'ready');
+        try {
+            const payload = this.commensurateProposalPayload(context);
+            const data = await this.api.previewCommensurateSupercell(payload);
+            if (token !== this.state.commensurateProposalToken) return;
+            const proposal = { context, data };
+            this.state.commensurateProposal = proposal;
+            this.renderer.setCommensurateSupercellPreview?.(data);
+            this.renderCommensurateSupercellProposal(proposal);
+        } catch (error) {
+            if (token !== this.state.commensurateProposalToken) return;
+            this.state.commensurateProposal = null;
+            this.renderer.clearCommensurateSupercellPreview?.();
+            document.getElementById('commensurate-supercell-proposal')?.classList.add('hidden');
+            this.updateCommensurateStatus(`No bounded common-cell preview: ${error.message}`, 'warning');
+        }
+    }
+
+    async applyCommensurateSupercellProposal({ propagateErrors = false } = {}) {
+        const proposal = this.state.commensurateProposal;
+        if (!proposal) {
+            this.toast('No commensurate common-cell proposal is active.', 'warning');
+            return;
+        }
+        if (!this.canEditAtoms()) {
+            this.editOnlyToast();
+            return;
+        }
+        try {
+            const data = await this.withBusy(
+                'Materializing the validated common cell...',
+                () => this.api.applyCommensurateSupercell(
+                    this.commensurateProposalPayload(proposal.context)
+                )
+            );
+            this.clearCommensurateSupercellProposal({ keepStatus: true, preserveCamera: true });
+            this.state.display.supercell = [1, 1, 1];
+            this.setSupercellInputs([1, 1, 1]);
+            this.setAtomsData(data, { clearSelection: true });
+            this.renderer.fitCameraToStructure?.();
+            this.updateCommensurateStatus('The suggested common cell is now the editable unit cell.', 'ready');
+            this.toast('Set the commensurate common cell as the editable unit cell.', 'success');
+        } catch (error) {
+            this.toast(`Commensurate cell failed: ${error.message}`, 'error');
+            if (propagateErrors) throw error;
+        }
+    }
+
     clearCommensurateRotation({ keepStatus = false } = {}) {
         this.state.commensurateRequestToken += 1;
         this.state.commensurateCandidates = [];
         this.state.commensurateSearch = null;
         this.state.commensurateReferenceDirection = null;
         this.state.commensurateSnappedCandidate = null;
+        this.state.commensurateLastAngle = null;
         this.renderer.clearCommensurateGuides?.();
         this.updateCommensurateCandidatesReadout([]);
         if (!keepStatus) {
@@ -9018,14 +9329,16 @@ class VAseApp {
             const result = await this.api.commensurateAngles(
                 this.transform.axis,
                 this.state.display.commensurateMaxIndex,
-                this.state.display.commensurateStrainTolerance
+                this.state.display.commensurateStrainTolerance,
+                this.state.display.commensurateMaxAreaRatio
             );
             if (token !== this.state.commensurateRequestToken || this.transform.mode !== 'ROTATE') return;
             this.state.commensurateSearch = result;
             this.state.commensurateCandidates = Array.isArray(result.candidates) ? result.candidates : [];
             const tolerance = (Number(result.strain_tolerance || 0) * 100).toFixed(2);
             const family = String(result.lattice_family || '2D').replace('-', ' ');
-            const summary = `${family}: ${this.state.commensurateCandidates.length} matches, boundary strain <= ${tolerance}%.`;
+            const areaLimit = Number(result.max_area_ratio || this.state.display.commensurateMaxAreaRatio || 16);
+            const summary = `${family}: ${this.state.commensurateCandidates.length} matches, boundary strain <= ${tolerance}%, proposal area <= ${areaLimit}.`;
             this.updateCommensurateStatus(result.warning ? `${summary} ${result.warning}` : summary, result.warning ? 'warning' : 'ready');
             this.applyTransformPreview();
         } catch (error) {
@@ -11734,6 +12047,9 @@ class VAseApp {
         });
         const refreshCommensurateSearch = () => {
             this.applyDisplayOptions();
+            if (!this.state.display.commensurateGuide) {
+                this.clearCommensurateSupercellProposal();
+            }
             if (this.transform.mode === 'ROTATE') {
                 this.prepareCommensurateRotation([...this.state.selected].filter(idx => this.isEditableIndex(idx)));
             }
@@ -11743,8 +12059,14 @@ class VAseApp {
             this.applyDisplayOptions();
             if (this.transform.mode === 'ROTATE') this.applyTransformPreview();
         });
-        ['commensurate-strain', 'commensurate-max-index'].forEach(id => {
+        ['commensurate-strain', 'commensurate-max-index', 'commensurate-max-area'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', refreshCommensurateSearch);
+        });
+        document.getElementById('btn-dismiss-commensurate')?.addEventListener('click', () => {
+            this.clearCommensurateSupercellProposal();
+        });
+        document.getElementById('btn-apply-commensurate-cell')?.addEventListener('click', () => {
+            this.applyCommensurateSupercellProposal();
         });
         document.getElementById('commensurate-snap-range')?.addEventListener('input', () => {
             this.applyDisplayOptions();

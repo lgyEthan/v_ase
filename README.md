@@ -228,11 +228,27 @@ Select the hBN layer, enable **Commensurate guide**, then use `R`, `Z`. The
 top view intentionally hides the world X/Y/Z axes so the neutral start line,
 amber current line, and labeled cyan cell-match candidates remain distinct.
 **Magnetic angle snap** can pull the active rotation to a candidate within the
-configured tolerance.
+configured tolerance. The guide is off by default.
+
+After an exact match is committed, v_ase proposes the smallest common periodic
+cell inside the configured boundary-strain cutoff. The proposal shows:
+
+- an opaque common cell with paper-style notation such as
+  `(sqrt(7) x sqrt(7)) R19.11 deg`;
+- a muted shell extending one primitive cell beyond the common cell, including
+  bonds across its boundary;
+- the area ratio, boundary strain, cell dimensions, and integer boundary
+  matrices;
+- **Set Suggested Cell as Unit Cell** when the proposal can be materialized.
+
+**Max area ratio** limits the proposed cell to `16` times the current cell by
+default. If no admissible match fits that bound, v_ase leaves the structure as
+rotated and does not create an unbounded preview.
 
 Normal `R` rotates selected atoms. **Cell Transform** is a separate periodic
 operation that applies an integer matrix to the cell and every trajectory
-frame. Its equations and assumptions are documented in
+frame. Display replication is separate again: it only repeats what is shown.
+The common-cell equations, limits, and assumptions are documented in
 [unit_cell_aware_rotate.md](docs/unit_cell_aware_rotate.md).
 
 ## Measurement And Analysis

@@ -54,22 +54,34 @@ orthogonal Procrustes problem:
 Q* = argmin(Q in SO(2)) ||S Q - T||_F
 ```
 
+For an entered rotation `Q(theta)`, the rotating and reference boundaries are
+
+```text
+H_rot = M A Q(theta)
+H_ref = N A
+```
+
 The remaining boundary deformation is
 
 ```text
-F = (S Q*)^-1 T
+D = H_rot^-1 H_ref
 ```
 
 and the displayed mismatch is the largest absolute principal stretch:
 
 ```text
-epsilon_boundary = max_i |sigma_i(F) - 1|
+epsilon_boundary = max_i |sigma_i(D) - 1|
 ```
 
 where `sigma_i` are the singular values of `F`. This metric measures the strain
 required at the newly matched periodic boundary. It is independent of the
 current bond list, bond cutoff, and atom count. The `Boundary strain / %`
 control filters candidates by `epsilon_boundary`.
+
+Every retained candidate already satisfies that cutoff. Within one angular
+match, v_ase ranks by integer area first and residual strain second, so the
+proposed cell is the smallest admissible physical common cell rather than a
+larger zero-strain alternative.
 
 For general oblique cells, v_ase performs a bounded search over 2D Hermite
 normal-form integer supercells, Gauss-reduces their boundaries, and compares
@@ -104,8 +116,8 @@ interlayer tunneling, relaxation, Fermi velocity, and the chosen Hamiltonian.
 
 ## Viewport Guide And Magnetic Snap
 
-`Commensurate guide` is enabled by default. Start `R`, then lock `X`, `Y`, or
-`Z`.
+`Commensurate guide` is disabled by default. Enable it, start `R`, then lock
+`X`, `Y`, or `Z`.
 
 - Thin teal rays leave the active pivot in candidate directions.
 - A fixed `CELL MATCHES` strip lists candidate angles without camera-dependent
@@ -121,6 +133,9 @@ interlayer tunneling, relaxation, Fermi velocity, and the chosen Hamiltonian.
 - `Snap range / deg` controls the angular capture distance.
 - `Max lattice index` controls the analytic search depth; the default `32`
   includes the `1.050121 deg` hexagonal candidate.
+- `Max area ratio` limits automatic common-cell proposals. Its default is
+  `16`; a larger candidate remains available as an angle guide but is not
+  expanded into an impractically large viewport structure.
 
 Turning magnetic snap off leaves every angle continuously editable while
 keeping the scientific guide visible. Unlike the removed bond-strain guard, no
@@ -132,7 +147,45 @@ geometry, not chemical species. Browser and Python regression tests verify the
 `21.786789`, `13.173551`, and `1.050121` degree candidates for both lattices
 with zero boundary strain.
 
-## Constructing The Periodic Supercell
+## Proposed Common Cell And Boundary Shell
+
+When a committed rotation exactly matches an admissible candidate, v_ase
+constructs a separate common-cell proposal. It is not the ordinary
+`Replicate cell` display setting.
+
+Let `P_M` and `P_N` be the 3 x 3 row-vector matrices obtained by embedding
+`M` and `N` into the two periodic axes. The reference component uses `P_N H`.
+The rotating component uses `P_M H`, receives the committed rigid rotation,
+and then the residual deformation `D` needed to close the common boundary.
+Both components therefore share
+
+```text
+H_common = P_N H
+```
+
+The proposed-cell atoms are opaque. For inspection only, v_ase also enumerates
+one primitive-cell layer outside every 2D boundary. That muted shell is not
+part of `H_common`; it exists so bonds crossing the proposed periodic boundary
+are visible instead of ending at the cell line. Bond inference uses the same
+active element/label cutoffs as the base structure and includes only pairs
+with at least one endpoint in the opaque core.
+
+The proposal panel reports the integer matrices, area ratio, boundary strain,
+cell lengths/angle, and symmetry-reduced crystallographic notation such as
+`(sqrt(7) x sqrt(7)) R19.11 deg`. The renderer preserves the current viewing
+direction, frames the complete core and shell, and restores the previous
+camera if the proposal is dismissed.
+
+**Set Suggested Cell as Unit Cell** materializes the validated common cell as
+an ASE `Atoms` object. Fixed atom and supported directional constraints are
+replicated. Cross-layer Hookean constraints and point/plane Hookean anchors are
+rejected rather than guessed. Materialization is currently restricted to one
+structure without volumetric grids: a trajectory requires a declared
+frame-to-frame layer mapping, and a volumetric field requires a declared
+layer-specific affine transform. The preview remains available when those
+conditions prevent materialization.
+
+## General Integer Cell Transform
 
 The exact reproducible cell operation remains
 
@@ -150,9 +203,9 @@ P = [[m, n, 0],
 ```
 
 v_ase prevents a `Cell Transform` matrix from mixing or repeating a
-non-periodic axis. The angle guide helps choose a commensurate orientation; a
-publication input should still construct and verify the intended common
-supercell for both physical layers.
+non-periodic axis. This manual operation applies one matrix to the entire
+structure; the commensurate proposal instead uses a validated pair `(M, N)`
+for two components and only becomes the unit cell after explicit confirmation.
 
 ## References
 

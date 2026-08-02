@@ -186,6 +186,9 @@ Pass `operation` as a name string or object:
 | `set-constraints` | selection/`indices`; `fixAtoms`; `kind` = `fixed_line`/`fixed_plane`; `vector`; `clearDirectional` | Edit supported constraints |
 | `move-selection` | `vector` | Translate selected atoms |
 | `rotate-selection` | `axis`, `angleDeg`, optional `pivot` | Rotate selected atoms |
+| `rotate-to-commensurate` | `angleDeg`, selection/`indices`; optional `axis`, `pivot`, `strainTolerance`, `maxIndex`, `maxAreaRatio`, `maxAngleDifferenceDeg` | Rotate to the nearest validated 2D periodic match and show its bounded common-cell proposal |
+| `apply-commensurate-cell` | active proposal | Materialize the validated common cell as the ASE unit cell |
+| `dismiss-commensurate-cell` | none | Close the proposal and restore the pre-preview camera |
 | `undo` / `redo` | none | Traverse structure or visualization-setting history |
 | `reset-coordinates` | none | Restore loaded coordinates and original cell |
 | `start-relaxation` | `fmax`, `steps`, optional `calculator` | Start optimization |
@@ -218,6 +221,39 @@ await ai.apply({
   }
 });
 ```
+
+Commensurate rotation and explicit materialization are deliberately separate:
+
+```javascript
+const proposed = await ai.apply({
+  mode: "edit",
+  selection: {clear: true, indices: [0, 1]},
+  operation: {
+    name: "rotate-to-commensurate",
+    axis: "Z",
+    angleDeg: 21.2,
+    pivot: "com",
+    strainTolerance: 0.01,
+    maxAreaRatio: 16,
+    maxAngleDifferenceDeg: 2,
+    applyConstraints: true
+  }
+});
+```
+
+Inspect `proposed.analysis.commensurateProposal` before proceeding. It reports
+the matrices, crystallographic notation, area ratio, boundary strain, opaque
+core count, one-cell shell count, and whether materialization is supported.
+Only after explicit user approval:
+
+```javascript
+await ai.apply({operation: "apply-commensurate-cell"});
+```
+
+Use `dismiss-commensurate-cell` to keep the rotated coordinates without
+materializing the proposal. Never replace this workflow with ordinary
+`display.supercell`, `set-supercell`, or one guessed integer matrix; those are
+different operations.
 
 ```javascript
 await ai.apply({
@@ -320,6 +356,7 @@ Transform and commensurate settings:
 | `commensurateSnap` | snap to a candidate |
 | `commensurateStrainTolerance` | fractional boundary strain |
 | `commensurateMaxIndex` | integer search bound |
+| `commensurateMaxAreaRatio` | maximum proposed common-cell area ratio; default `16` |
 | `commensurateSnapRangeDeg` | angular snap window |
 
 Constraint visualization includes FixAtoms, FixScaled, FixedLine, FixedPlane,

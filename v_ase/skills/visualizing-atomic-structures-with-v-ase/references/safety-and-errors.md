@@ -32,6 +32,10 @@ test edit and a new filename for output.
   movement. Keep `applyConstraints: true` unless free editing is requested.
 - A materialized supercell changes atom count and cell in every trajectory
   frame. Display repetition does not.
+- A commensurate proposal is a two-component common-cell construction, not
+  display repetition and not one guessed `make-supercell` matrix. Respect the
+  boundary-strain and `maxAreaRatio` limits; require explicit approval before
+  `apply-commensurate-cell`.
 - `display.translation` is a visual offset applied after display repetition.
   It moves atoms and their overlays but never changes ASE coordinates or the
   cell. `translate-all` is a separate physical Edit operation.
@@ -71,6 +75,8 @@ test edit and a new filename for output.
 | atom labels must match atom count | Inconsistent topology metadata | Reload/describe; do not invent missing identities |
 | wrap requires a cell | Cell is undefined | Stop and ask for a valid cell |
 | supercell rejected | Invalid repetition or integer matrix | Validate bounds and determinant |
+| no commensurate cell inside the angle/area limit | The nearest low-strain match exceeds `maxAngleDifferenceDeg` or `maxAreaRatio` | Report the nearest bounded angle or increase a limit only with user approval |
+| commensurate materialization unsupported | Trajectory, volumetric data, or an ambiguous cross-layer Hookean constraint is active | Keep/dismiss the preview; do not force an inferred topology or field transform |
 | repeated atoms cannot be selected | Edit keeps preview replicas noneditable | Use View for replica measurements or materialize with Set Supercell as Cell |
 | relaxation requires calculator | No ASE calculator is attached | Attach a supported calculator or do not relax |
 | optional 3DM export fails | `rhino3dm` is absent | Install `v_ase-gui[rhino]` |

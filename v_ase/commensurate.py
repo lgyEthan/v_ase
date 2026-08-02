@@ -8,10 +8,11 @@ boundary mismatch shown by the interactive rotate guide.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import gcd
+from math import cos, gcd, radians, sin, sqrt
 from typing import Iterable, Sequence
 
 import numpy as np
+from ase.build.supercells import lattice_points_in_supercell
 
 
 _AXES = {
@@ -153,6 +154,329 @@ def _candidate(
     }
 
 
+def _signed_angle_deg(first: np.ndarray, second: np.ndarray) -> float:
+    first = np.asarray(first, dtype=float)
+    second = np.asarray(second, dtype=float)
+    denominator = float(np.linalg.norm(first) * np.linalg.norm(second))
+    if denominator <= 1e-14:
+        return 0.0
+    cross = float(first[0] * second[1] - first[1] * second[0])
+    dot = float(np.dot(first, second))
+    return _normalize_angle(float(np.degrees(np.arctan2(cross, dot))))
+
+
+def _matrix_text(matrix: np.ndarray) -> str:
+    rows = [",".join(str(int(value)) for value in row) for row in np.asarray(matrix, dtype=int)]
+    return f"[[{rows[0]}],[{rows[1]}]]"
+
+
+def _supercell_notation(basis: np.ndarray, matrix: np.ndarray) -> str:
+    """Return compact surface-science notation when the geometry permits it."""
+
+    matrix = np.asarray(matrix, dtype=int)
+    if matrix.shape != (2, 2):
+        return _matrix_text(matrix)
+    if matrix[0, 1] == 0 and matrix[1, 0] == 0 and matrix[0, 0] > 0 and matrix[1, 1] > 0:
+        return f"{matrix[0, 0]} x {matrix[1, 1]}"
+
+    transformed = matrix @ np.asarray(basis, dtype=float)
+    original_lengths = np.linalg.norm(basis, axis=1)
+    transformed_lengths = np.linalg.norm(transformed, axis=1)
+    if np.min(original_lengths) <= 1e-12:
+        return _matrix_text(matrix)
+    length_scale = transformed_lengths / original_lengths
+    determinant = abs(int(round(np.linalg.det(matrix))))
+    root = sqrt(determinant)
+    source_cosine = float(np.dot(basis[0], basis[1]) / np.prod(original_lengths))
+    target_cosine = float(
+        np.dot(transformed[0], transformed[1])
+        / max(float(np.prod(transformed_lengths)), 1e-14)
+    )
+    if (
+        determinant > 0
+        and np.max(np.abs(length_scale - root)) <= 2e-6
+        and abs(source_cosine - target_cosine) <= 2e-6
+    ):
+        multiplier = str(int(round(root))) if abs(root - round(root)) <= 1e-8 else f"sqrt({determinant})"
+        rotation = _signed_angle_deg(basis[0], transformed[0])
+        if abs(abs(source_cosine) - 0.5) <= 2e-6:
+            rotation = (rotation + 30.0) % 60.0 - 30.0
+        elif abs(source_cosine) <= 2e-6:
+            rotation = (rotation + 45.0) % 90.0 - 45.0
+        if abs(rotation) < 5e-8:
+            rotation = 0.0
+        return f"({multiplier} x {multiplier}) R{rotation:.2f} deg"
+    return _matrix_text(matrix)
+
+
+def embed_2d_supercell_matrix(
+    matrix: Sequence[Sequence[int]],
+    periodic_axes: Sequence[int],
+) -> np.ndarray:
+    """Embed a 2 x 2 in-plane integer matrix in ASE's 3 x 3 row convention."""
+
+    in_plane = np.asarray(matrix, dtype=int)
+    axes = tuple(int(axis) for axis in periodic_axes)
+    if in_plane.shape != (2, 2) or len(axes) != 2 or len(set(axes)) != 2:
+        raise ValueError("A commensurate supercell needs a 2 x 2 matrix and two periodic axes.")
+    if any(axis < 0 or axis > 2 for axis in axes):
+        raise ValueError("Periodic cell axes must be between zero and two.")
+    embedded = np.eye(3, dtype=int)
+    for row, cell_row in enumerate(axes):
+        embedded[cell_row, :] = 0
+        for column, cell_column in enumerate(axes):
+            embedded[cell_row, cell_column] = int(in_plane[row, column])
+    return embedded
+
+
+def row_rotation_matrix(axis: Sequence[float], angle_deg: float) -> np.ndarray:
+    """Return a right-handed rotation for row-vector Cartesian coordinates."""
+
+    unit = _unit_vector(axis)
+    x, y, z = unit
+    angle = radians(float(angle_deg))
+    c = cos(angle)
+    s = sin(angle)
+    one_minus_c = 1.0 - c
+    column_rotation = np.array([
+        [c + x * x * one_minus_c, x * y * one_minus_c - z * s, x * z * one_minus_c + y * s],
+        [y * x * one_minus_c + z * s, c + y * y * one_minus_c, y * z * one_minus_c - x * s],
+        [z * x * one_minus_c - y * s, z * y * one_minus_c + x * s, c + z * z * one_minus_c],
+    ])
+    return column_rotation.T
+
+
+def enrich_supercell_candidate(
+    candidate: dict,
+    *,
+    cell: Sequence[Sequence[float]],
+    periodic_axes: Sequence[int],
+    axis: str | Sequence[float],
+    projected_basis: np.ndarray,
+    axis_alignment: float,
+) -> dict:
+    """Attach reproducible matrices, common-cell geometry, and paper notation."""
+
+    _, normal = _axis_vector(axis)
+    source_2d = np.asarray(candidate["source_matrix"], dtype=int)
+    target_2d = np.asarray(candidate["target_matrix"], dtype=int)
+    source_3d = embed_2d_supercell_matrix(source_2d, periodic_axes)
+    target_3d = embed_2d_supercell_matrix(target_2d, periodic_axes)
+    parent_cell = np.asarray(cell, dtype=float)
+    source_cell = source_3d @ parent_cell
+    target_cell = target_3d @ parent_cell
+    rotation = row_rotation_matrix(normal, float(candidate["angle_deg"]))
+    rotated_source_cell = source_cell @ rotation
+    try:
+        deformation = np.linalg.solve(rotated_source_cell, target_cell)
+        finite_deformation = bool(np.all(np.isfinite(deformation)))
+    except np.linalg.LinAlgError:
+        deformation = np.eye(3)
+        finite_deformation = False
+
+    source_area = abs(int(round(np.linalg.det(source_2d))))
+    target_area = abs(int(round(np.linalg.det(target_2d))))
+    supported = bool(
+        finite_deformation
+        and axis_alignment >= 0.985
+        and source_area > 0
+        and source_area == target_area
+    )
+    reason = None
+    if axis_alignment < 0.985:
+        reason = "The locked axis must be normal to the periodic plane before a common cell can be materialized."
+    elif source_area <= 0 or source_area != target_area:
+        reason = "The source and reference supercells must have the same positive area."
+    elif not finite_deformation:
+        reason = "The proposed common-cell deformation is singular."
+
+    periodic_vectors = target_cell[np.asarray(tuple(periodic_axes), dtype=int)]
+    lengths = np.linalg.norm(periodic_vectors, axis=1)
+    cosine = float(
+        np.dot(periodic_vectors[0], periodic_vectors[1])
+        / max(float(lengths[0] * lengths[1]), 1e-14)
+    )
+    angle = float(np.degrees(np.arccos(np.clip(cosine, -1.0, 1.0))))
+    return {
+        **candidate,
+        "area_ratio": target_area,
+        "axis": str(axis).upper() if isinstance(axis, str) else [float(value) for value in normal],
+        "periodic_axes": [int(value) for value in periodic_axes],
+        "source_matrix_3d": source_3d.tolist(),
+        "target_matrix_3d": target_3d.tolist(),
+        "source_notation": _supercell_notation(projected_basis, source_2d),
+        "target_notation": _supercell_notation(projected_basis, target_2d),
+        "source_matrix_text": _matrix_text(source_2d),
+        "target_matrix_text": _matrix_text(target_2d),
+        "suggested_cell": target_cell.tolist(),
+        "deformation_matrix": deformation.tolist(),
+        "cell_lengths_angstrom": [round(float(value), 8) for value in lengths],
+        "cell_angle_deg": round(angle, 8),
+        "supercell_supported": supported,
+        "supercell_reason": reason,
+        "preview_padding_cells": 1,
+    }
+
+
+def _integer_supercell_lattice_points(
+    cell: Sequence[Sequence[float]],
+    matrix: Sequence[Sequence[int]],
+) -> list[tuple[int, int, int]]:
+    """Return primitive-cell translations inside an integer supercell."""
+
+    parent_cell = np.asarray(cell, dtype=float)
+    transform = np.asarray(matrix, dtype=int)
+    supercell = transform @ parent_cell
+    fractional = lattice_points_in_supercell(transform)
+    cartesian = fractional @ supercell
+    try:
+        integer_points = np.rint(cartesian @ np.linalg.inv(parent_cell)).astype(int)
+    except np.linalg.LinAlgError as exc:
+        raise ValueError("Commensurate supercell requires a non-singular 3D cell.") from exc
+    if not np.allclose(integer_points @ parent_cell, cartesian, atol=2e-7):
+        raise ValueError("Could not recover integer primitive-cell translations for the proposed cell.")
+    return sorted({tuple(int(value) for value in row) for row in integer_points})
+
+
+def _primitive_halo_points(
+    core_points: Sequence[Sequence[int]],
+    periodic_axes: Sequence[int],
+    padding_cells: int,
+) -> list[tuple[tuple[int, int, int], bool]]:
+    """Add a primitive-cell shell around a supercell lattice-point set."""
+
+    core = {tuple(int(value) for value in point) for point in core_points}
+    if padding_cells <= 0:
+        return [(point, True) for point in sorted(core)]
+    axes = tuple(int(axis) for axis in periodic_axes)
+    offsets = [np.zeros(3, dtype=int)]
+    for first in range(-padding_cells, padding_cells + 1):
+        for second in range(-padding_cells, padding_cells + 1):
+            offset = np.zeros(3, dtype=int)
+            offset[axes[0]] = first
+            offset[axes[1]] = second
+            offsets.append(offset)
+    expanded = set(core)
+    for point in core:
+        source = np.asarray(point, dtype=int)
+        for offset in offsets:
+            expanded.add(tuple(int(value) for value in source + offset))
+    return [(point, point in core) for point in sorted(expanded)]
+
+
+def commensurate_supercell_geometry(
+    *,
+    cell: Sequence[Sequence[float]],
+    positions: Sequence[Sequence[float]],
+    selected_indices: Sequence[int],
+    candidate: dict,
+    pivot: Sequence[float],
+    padding_cells: int = 1,
+    max_preview_atoms: int = 120_000,
+) -> dict:
+    """Build an opaque common-cell preview plus one primitive-cell halo.
+
+    The current positions must already contain the selected layer's candidate
+    rotation.  The reference component is repeated with the target boundary;
+    the selected component is repeated with the source boundary and receives
+    only the residual deformation required to reach the common target cell.
+    """
+
+    parent_cell = np.asarray(cell, dtype=float)
+    coordinates = np.asarray(positions, dtype=float)
+    center = np.asarray(pivot, dtype=float)
+    if parent_cell.shape != (3, 3) or not np.all(np.isfinite(parent_cell)):
+        raise ValueError("Commensurate preview requires a finite 3 x 3 cell.")
+    if coordinates.ndim != 2 or coordinates.shape[1] != 3 or not np.all(np.isfinite(coordinates)):
+        raise ValueError("Commensurate preview requires finite Cartesian atom positions.")
+    if center.shape != (3,) or not np.all(np.isfinite(center)):
+        raise ValueError("Commensurate preview requires a finite rotation pivot.")
+
+    selected = sorted({int(index) for index in selected_indices})
+    if not selected or selected[0] < 0 or selected[-1] >= len(coordinates):
+        raise ValueError("Select a non-empty valid atom subset for a commensurate layer.")
+    selected_set = set(selected)
+    reference = [index for index in range(len(coordinates)) if index not in selected_set]
+    if not reference:
+        raise ValueError("A commensurate preview needs both a rotating layer and a reference layer.")
+
+    source_matrix = np.asarray(candidate.get("source_matrix_3d"), dtype=int)
+    target_matrix = np.asarray(candidate.get("target_matrix_3d"), dtype=int)
+    deformation = np.asarray(candidate.get("deformation_matrix"), dtype=float)
+    periodic_axes = tuple(int(axis) for axis in candidate.get("periodic_axes", (0, 1)))
+    if source_matrix.shape != (3, 3) or target_matrix.shape != (3, 3):
+        raise ValueError("Commensurate candidate is missing reproducible 3 x 3 supercell matrices.")
+    if deformation.shape != (3, 3) or not np.all(np.isfinite(deformation)):
+        raise ValueError("Commensurate candidate has an invalid residual deformation.")
+    source_area = int(round(np.linalg.det(source_matrix)))
+    target_area = int(round(np.linalg.det(target_matrix)))
+    if source_area <= 0 or target_area != source_area:
+        raise ValueError("Commensurate source and target cells must have the same positive area.")
+    if len(periodic_axes) != 2 or len(set(periodic_axes)) != 2:
+        raise ValueError("Commensurate preview requires two distinct periodic cell axes.")
+
+    _, normal = _axis_vector(candidate.get("axis", "Z"))
+    rotation = row_rotation_matrix(normal, float(candidate.get("angle_deg", 0.0)))
+    source_core = _integer_supercell_lattice_points(parent_cell, source_matrix)
+    target_core = _integer_supercell_lattice_points(parent_cell, target_matrix)
+    source_points = _primitive_halo_points(source_core, periodic_axes, int(padding_cells))
+    target_points = _primitive_halo_points(target_core, periodic_axes, int(padding_cells))
+    preview_count = len(source_points) * len(selected) + len(target_points) * len(reference)
+    if preview_count > int(max_preview_atoms):
+        raise ValueError(
+            f"Suggested preview would contain {preview_count:,} atoms; "
+            f"the interactive preview limit is {int(max_preview_atoms):,}."
+        )
+
+    preview_positions: list[list[float]] = []
+    atom_indices: list[int] = []
+    lattice_indices: list[list[int]] = []
+    components: list[str] = []
+    core_mask: list[bool] = []
+
+    def append_reference(point: tuple[int, int, int], core: bool) -> None:
+        shift = np.asarray(point, dtype=float) @ parent_cell
+        for index in reference:
+            preview_positions.append((coordinates[index] + shift).tolist())
+            atom_indices.append(index)
+            lattice_indices.append(list(point))
+            components.append("reference")
+            core_mask.append(bool(core))
+
+    def append_selected(point: tuple[int, int, int], core: bool) -> None:
+        primitive_shift = np.asarray(point, dtype=float) @ parent_cell
+        transformed_shift = primitive_shift @ rotation @ deformation
+        for index in selected:
+            transformed_position = center + (coordinates[index] - center) @ deformation
+            preview_positions.append((transformed_position + transformed_shift).tolist())
+            atom_indices.append(index)
+            lattice_indices.append(list(point))
+            components.append("rotating")
+            core_mask.append(bool(core))
+
+    for point, core in target_points:
+        append_reference(point, core)
+    for point, core in source_points:
+        append_selected(point, core)
+
+    return {
+        "positions": preview_positions,
+        "atom_indices": atom_indices,
+        "lattice_indices": lattice_indices,
+        "components": components,
+        "core_mask": core_mask,
+        "core_atom_count": source_area * len(coordinates),
+        "preview_atom_count": preview_count,
+        "padding_cells": int(padding_cells),
+        "cell": (target_matrix @ parent_cell).tolist(),
+        "source_cell": (source_matrix @ parent_cell).tolist(),
+        "source_matrix_3d": source_matrix.tolist(),
+        "target_matrix_3d": target_matrix.tolist(),
+        "area_ratio": source_area,
+        "deformation_matrix": deformation.tolist(),
+    }
+
+
 def _lattice_family(basis: np.ndarray) -> str:
     first, second = basis
     first_length = float(np.linalg.norm(first))
@@ -170,8 +494,22 @@ def _lattice_family(basis: np.ndarray) -> str:
 
 def _hexagonal_candidates(basis: np.ndarray, max_index: int, carbon_only: bool) -> Iterable[dict]:
     canonical = np.array(basis, copy=True)
+    canonical_transform = np.eye(2, dtype=int)
     if float(np.dot(canonical[0], canonical[1])) < 0:
-        canonical[1] *= -1.0
+        canonical_transform[1, 1] = -1
+        canonical = canonical_transform @ canonical
+
+    def restore_original_basis(*matrices: np.ndarray) -> tuple[np.ndarray, ...]:
+        """Map canonical matrices back without reversing cell handedness."""
+
+        restored = tuple(np.asarray(matrix, dtype=int) @ canonical_transform for matrix in matrices)
+        if restored and np.linalg.det(restored[0]) < 0:
+            # Apply the same unimodular row operation to every boundary.  This
+            # changes only the supercell basis, not the common lattice or the
+            # relative rotation between source and target.
+            positive_orientation = np.diag([-1, 1])
+            restored = tuple(positive_orientation @ matrix for matrix in restored)
+        return restored
 
     # The r=1 commensurate family.  m=31, n=32 gives 1.0501 degrees
     # and a 2977-fold primitive-cell area, the standard first-TBG-magic-angle
@@ -181,8 +519,9 @@ def _hexagonal_candidates(basis: np.ndarray, max_index: int, carbon_only: bool) 
         source = np.array([[m, n], [-n, m + n]], dtype=int)
         target = np.array([[n, m], [-m, m + n]], dtype=int)
         area = m * m + m * n + n * n
+        source, target = restore_original_basis(source, target)
         item = _candidate(
-            canonical,
+            basis,
             source,
             target,
             family="hexagonal-r1",
@@ -191,7 +530,7 @@ def _hexagonal_candidates(basis: np.ndarray, max_index: int, carbon_only: bool) 
         )
         yield item
         yield _candidate(
-            canonical,
+            basis,
             target,
             source,
             family="hexagonal-r1",
@@ -202,7 +541,14 @@ def _hexagonal_candidates(basis: np.ndarray, max_index: int, carbon_only: bool) 
     identity = np.eye(2, dtype=int)
     sixty = np.array([[0, 1], [-1, 1]], dtype=int)
     for source, target in ((identity, sixty), (sixty, identity)):
-        yield _candidate(canonical, source, target, family="hexagonal-symmetry", area=1)
+        source, target = restore_original_basis(source, target)
+        yield _candidate(
+            basis,
+            source,
+            target,
+            family="hexagonal-symmetry",
+            area=1,
+        )
 
 
 def _square_candidates(basis: np.ndarray, max_index: int) -> Iterable[dict]:
@@ -298,9 +644,12 @@ def _deduplicate_candidates(candidates: Iterable[dict], strain_tolerance: float)
         item = {**item, "angle_deg": round(angle, 8), "strain": round(strain, 12)}
         key = int(round(angle * 200.0))  # 0.005 degree buckets
         previous = best.get(key)
-        rank = (strain, int(item["area"]), abs(angle))
+        # Every retained candidate already satisfies the requested strain
+        # tolerance.  Prefer the smallest physical cell within that admissible
+        # set; use residual strain only as the tie-breaker.
+        rank = (int(item["area"]), strain, abs(angle))
         if previous is None or rank < (
-            float(previous["strain"]), int(previous["area"]), abs(float(previous["angle_deg"]))
+            int(previous["area"]), float(previous["strain"]), abs(float(previous["angle_deg"]))
         ):
             best[key] = item
     return sorted(best.values(), key=lambda item: (abs(item["angle_deg"]), item["strain"], item["area"]))
@@ -344,7 +693,17 @@ def find_commensurate_angles(
     else:
         raw_candidates = _generic_candidates(projected.basis, max_index, strain_tolerance)
 
-    candidates = _deduplicate_candidates(raw_candidates, strain_tolerance)
+    candidates = [
+        enrich_supercell_candidate(
+            candidate,
+            cell=cell,
+            periodic_axes=projected.periodic_axes,
+            axis=axis,
+            projected_basis=projected.basis,
+            axis_alignment=projected.axis_alignment,
+        )
+        for candidate in _deduplicate_candidates(raw_candidates, strain_tolerance)
+    ]
     warning = None
     if projected.axis_alignment < 0.985:
         warning = (

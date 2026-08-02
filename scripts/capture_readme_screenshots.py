@@ -1090,6 +1090,7 @@ def capture_commensurate_media(browser) -> None:
             "commensurateSnap": False,
             "commensurateMaxIndex": 32,
             "commensurateStrainTolerance": 0.01,
+            "commensurateMaxAreaRatio": 16,
         })
         set_selection(page, indices["hbn"])
         configure_inspector(page, "structure", ["transform"], width=440)
@@ -1114,17 +1115,18 @@ def capture_commensurate_media(browser) -> None:
         page.wait_for_function("window.__V_ASE_APP__.state.commensurateCandidates?.length > 0")
         target_angle = page.evaluate("""() => {
             const candidates = window.__V_ASE_APP__.state.commensurateCandidates || [];
-            const ranked = [...candidates].sort((left, right) =>
-                Math.abs(Math.abs(Number(left.angle_deg)) - 6)
-                - Math.abs(Math.abs(Number(right.angle_deg)) - 6)
-            );
-            return Math.abs(Number(ranked[0]?.angle_deg || 6));
+            const ranked = [...candidates]
+                .filter(candidate => Number(candidate.area_ratio || candidate.area) <= 16)
+                .sort((left, right) =>
+                    Math.abs(Math.abs(Number(left.angle_deg)) - 21.786789)
+                    - Math.abs(Math.abs(Number(right.angle_deg)) - 21.786789)
+                );
+            return Math.abs(Number(ranked[0]?.angle_deg || 21.786789));
         }""")
         rendered_frames: list[Image.Image] = []
-        count = 38
-        peak_frame = count // 2
+        count = 28
         for frame_index in range(count):
-            phase = 0.5 - 0.5 * math.cos(2 * math.pi * frame_index / (count - 1))
+            phase = 0.5 - 0.5 * math.cos(math.pi * frame_index / (count - 1))
             angle = target_angle * phase
             set_atom_rotation_angle(
                 page,
@@ -1133,12 +1135,21 @@ def capture_commensurate_media(browser) -> None:
             )
             page.wait_for_timeout(35)
             rendered_frames.append(screenshot_frame(page))
+        page.evaluate("""async () => {
+            const app = window.__V_ASE_APP__;
+            app.commitTransform();
+            await app.pendingApply;
+        }""")
+        page.wait_for_function(
+            "window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.padding_cells === 1"
+        )
+        append_hold(rendered_frames, page, 12)
         save_gif(
             rendered_frames,
             ASSET_DIR / "readme_commensurate.gif",
             duration=95,
         )
-        rendered_frames[peak_frame].save(
+        rendered_frames[-1].save(
             ASSET_DIR / "readme_commensurate.png",
             optimize=True,
         )
@@ -1575,9 +1586,22 @@ def capture_ai_collaboration_figure(browser) -> None:
         ]
         state = initial
         for command in async_commands:
-            command["expectedRevision"] = state["collaboration"]["revision"]
             state = page.evaluate(
-                "async command => await window.v_aseAI.apply(command)",
+                """async command => {
+                    for (let attempt = 0; attempt < 3; attempt += 1) {
+                        const current = await window.v_aseAI.describe({includePositions: false});
+                        try {
+                            return await window.v_aseAI.apply({
+                                ...command,
+                                expectedRevision: current.collaboration.revision
+                            });
+                        } catch (error) {
+                            if (!String(error?.message || error).includes('revision conflict')
+                                || attempt === 2) throw error;
+                            await new Promise(resolve => setTimeout(resolve, 80));
+                        }
+                    }
+                }""",
                 command,
             )
 

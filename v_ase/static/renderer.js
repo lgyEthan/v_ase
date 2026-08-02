@@ -586,6 +586,12 @@ export class ASERenderer {
         this.commensurateGuideGroup = new THREE.Group();
         this.scene.add(this.commensurateGuideGroup);
         this.commensurateGuideSignature = null;
+        this.commensurateSupercellGroup = new THREE.Group();
+        this.commensurateSupercellGroup.name = 'v_ase_commensurate_supercell_preview';
+        this.scene.add(this.commensurateSupercellGroup);
+        this.commensurateSupercellPreview = null;
+        this.commensurateBaseVisibility = null;
+        this.commensurateCameraSnapshot = null;
         this.supercellGroup = new THREE.Group();
         this.scene.add(this.supercellGroup);
         this.constraintMarkGroup = new THREE.Group();
@@ -638,10 +644,11 @@ export class ASERenderer {
             labelMaterials: {},
             atomMaterials: {},
             rotatePivot: 'selection',
-            commensurateGuide: true,
+            commensurateGuide: false,
             commensurateSnap: false,
             commensurateStrainTolerance: 0.01,
             commensurateMaxIndex: 32,
+            commensurateMaxAreaRatio: 16,
             commensurateSnapRangeDeg: 2.0,
             projectionMode: 'orthographic',
             viewportBackground: 'white',
@@ -1072,6 +1079,7 @@ export class ASERenderer {
             this.displacementGroup,
             this.volumetricGroup,
             this.commensurateGuideGroup,
+            this.commensurateSupercellGroup,
             this.constraintMarkGroup,
             this.constraintGuideGroup,
             this.constraintMotionGuideGroup,
@@ -1904,6 +1912,8 @@ export class ASERenderer {
 
     rebuildAtoms(atoms, customColors) {
         this.invalidateSunShadowBounds();
+        const commensuratePreviewToRestore = this.commensurateSupercellPreview;
+        this.clearCommensurateSupercellPreview();
         // Remove existing meshes cleanly
         while(this.atomMeshes.children.length > 0){ 
             const child = this.atomMeshes.children[0];
@@ -1913,6 +1923,7 @@ export class ASERenderer {
         this.clearGroup(this.bondGroup);
         this.clearDisplacementVectors();
         this.clearCommensurateGuides();
+        this.clearGroup(this.commensurateSupercellGroup);
         this.clearGroup(this.supercellGroup);
         this.clearGroup(this.constraintMarkGroup);
         this.clearGroup(this.constraintGuideGroup);
@@ -1952,6 +1963,9 @@ export class ASERenderer {
             }
             this.applyShadowFlags();
             this.refreshStudioSunForStructure({ invalidate: false });
+            if (commensuratePreviewToRestore) {
+                this.setCommensurateSupercellPreview(commensuratePreviewToRestore);
+            }
             this.requestRender();
             return;
         }
@@ -2001,6 +2015,9 @@ export class ASERenderer {
         }
         this.applyShadowFlags();
         this.refreshStudioSunForStructure({ invalidate: false });
+        if (commensuratePreviewToRestore) {
+            this.setCommensurateSupercellPreview(commensuratePreviewToRestore);
+        }
         this.requestRender();
     }
 
@@ -2302,46 +2319,66 @@ export class ASERenderer {
         return hasPoint && !box.isEmpty() ? box : null;
     }
 
-    fitCameraToStructure() {
-        const box = this.structureBounds();
+    fitCameraToStructure(bounds = null) {
+        const box = bounds || this.structureBounds();
         if (!box) return;
         const center = new THREE.Vector3();
-        const size = new THREE.Vector3();
         box.getCenter(center);
-        box.getSize(size);
-        const radius = Math.max(size.length() * 0.5, 1.0);
 
-        const currentDirection = new THREE.Vector3().subVectors(this.camera.position, this.controls.target);
-        if (currentDirection.lengthSq() < 1e-10) {
-            currentDirection.set(1, 1, 0.8);
+        const backward = new THREE.Vector3().subVectors(this.camera.position, this.controls.target);
+        if (backward.lengthSq() < 1e-10) {
+            backward.set(1, 1, 0.8);
         }
-        currentDirection.normalize();
+        backward.normalize();
+        const forward = backward.clone().negate();
+        const right = new THREE.Vector3().crossVectors(forward, this.camera.up);
+        if (right.lengthSq() < 1e-10) right.set(1, 0, 0);
+        right.normalize();
+        const screenUp = new THREE.Vector3().crossVectors(right, forward).normalize();
+
+        let halfWidth = 0;
+        let halfHeight = 0;
+        let halfDepth = 0;
+        this.boxCorners(box).forEach(corner => {
+            const offset = corner.sub(center);
+            halfWidth = Math.max(halfWidth, Math.abs(offset.dot(right)));
+            halfHeight = Math.max(halfHeight, Math.abs(offset.dot(screenUp)));
+            halfDepth = Math.max(halfDepth, Math.abs(offset.dot(backward)));
+        });
+        halfWidth = Math.max(halfWidth, 0.5);
+        halfHeight = Math.max(halfHeight, 0.5);
 
         const aspect = this.viewportAspect();
-        const verticalFov = THREE.MathUtils.degToRad(this.perspectiveCamera?.fov || this.camera.fov || 50);
+        const verticalFov = THREE.MathUtils.degToRad(this.perspectiveCamera?.fov || 50);
         const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * Math.max(aspect, 1e-6));
-        const fitFov = Math.max(0.1, Math.min(verticalFov, horizontalFov));
-        const distance = Math.max(4.0, (radius / Math.sin(fitFov / 2)) * 1.18);
+        const fitMargin = 1.12;
+        const perspectiveDistance = Math.max(
+            halfHeight / Math.max(Math.tan(verticalFov / 2), 1e-6),
+            halfWidth / Math.max(Math.tan(horizontalFov / 2), 1e-6)
+        ) * fitMargin + halfDepth;
+        const distance = Math.max(4.0, perspectiveDistance);
+        const near = Math.max(0.01, distance - halfDepth * 2 - 10);
+        const far = Math.max(1000, distance + halfDepth * 2 + 100);
 
         this.controls.target.copy(center);
-        this.camera.position.copy(center).addScaledVector(currentDirection, distance);
-        this.camera.near = Math.max(0.01, distance / 1000);
-        this.camera.far = Math.max(1000, distance + radius * 20);
-        this.camera.lookAt(center);
-        if (this.camera !== this.perspectiveCamera) {
-            this.perspectiveCamera.position.copy(this.camera.position);
-            this.perspectiveCamera.up.copy(this.camera.up);
-        }
-        if (this.camera !== this.orthographicCamera) {
-            this.orthographicCamera.position.copy(this.camera.position);
-            this.orthographicCamera.up.copy(this.camera.up);
-        }
-        this.perspectiveCamera.near = this.camera.near;
-        this.perspectiveCamera.far = this.camera.far;
-        this.orthographicCamera.near = this.camera.near;
-        this.orthographicCamera.far = this.camera.far;
-        this.updateCameraProjection(aspect);
+        [this.perspectiveCamera, this.orthographicCamera].forEach(camera => {
+            camera.position.copy(center).addScaledVector(backward, distance);
+            camera.up.copy(screenUp);
+            camera.near = near;
+            camera.far = far;
+            camera.lookAt(center);
+        });
+        this.perspectiveCamera.aspect = aspect;
+        this.perspectiveCamera.updateProjectionMatrix();
+        const orthographicHalfHeight = Math.max(halfHeight, halfWidth / Math.max(aspect, 1e-6)) * fitMargin;
+        this.orthographicCamera.zoom = 1;
+        this.orthographicCamera.left = -orthographicHalfHeight * aspect;
+        this.orthographicCamera.right = orthographicHalfHeight * aspect;
+        this.orthographicCamera.top = orthographicHalfHeight;
+        this.orthographicCamera.bottom = -orthographicHalfHeight;
+        this.orthographicCamera.updateProjectionMatrix();
         this.controls.update?.();
+        this.updateViewLighting();
         this.onCameraChange?.({ source: 'fit' });
     }
 
@@ -2956,7 +2993,7 @@ export class ASERenderer {
         return new THREE.MeshBasicMaterial(common);
     }
 
-    addCellEdgeInstances(group, segments, userData = {}) {
+    addCellEdgeInstances(group, segments, userData = {}, style = {}) {
         const valid = (segments || []).filter(([start, end]) => (
             start instanceof THREE.Vector3
             && end instanceof THREE.Vector3
@@ -2966,10 +3003,12 @@ export class ASERenderer {
 
         const mesh = new THREE.InstancedMesh(
             this.cellEdgeGeometry,
-            this.createCellMaterial(),
+            style.material || this.createCellMaterial(),
             valid.length
         );
-        const radius = this.normalizedCellThickness() * 0.5;
+        const radius = Number.isFinite(Number(style.radius))
+            ? Math.max(0.004, Number(style.radius))
+            : this.normalizedCellThickness() * 0.5;
         valid.forEach(([start, end], index) => {
             const delta = end.clone().sub(start);
             const length = delta.length();
@@ -3228,6 +3267,12 @@ export class ASERenderer {
         if (translationChanged) this.applyVisualTranslation();
         if ((radiusChanged || supercellChanged) && !visibilityChanged) {
             this.refreshStudioSunForStructure();
+        }
+        if (
+            this.commensurateSupercellPreview
+            && (radiusChanged || colorChanged || materialChanged || visibilityChanged || bondsChanged || cellStyleChanged)
+        ) {
+            this.setCommensurateSupercellPreview(this.commensurateSupercellPreview);
         }
         this.requestRender();
     }
@@ -4538,6 +4583,395 @@ export class ASERenderer {
             object.userData?.commensurateTexture?.dispose?.();
         });
         this.clearGroup(this.commensurateGuideGroup);
+        this.requestRender();
+    }
+
+    commensuratePreviewBaseGroups() {
+        return [
+            this.atomMeshes,
+            this.selectionOutlines,
+            this.replicaSelectionOutlines,
+            this.cellGroup,
+            this.bondGroup,
+            this.supercellGroup,
+            this.displacementGroup,
+            this.volumetricGroup,
+            this.constraintMarkGroup,
+            this.constraintGuideGroup,
+            this.constraintMotionGuideGroup,
+            this.hookeanGroup
+        ].filter(Boolean);
+    }
+
+    hideBaseSceneForCommensuratePreview() {
+        if (!this.commensurateBaseVisibility) {
+            this.commensurateBaseVisibility = new Map(
+                this.commensuratePreviewBaseGroups().map(group => [group, group.visible])
+            );
+        }
+        this.commensuratePreviewBaseGroups().forEach(group => {
+            group.visible = false;
+        });
+    }
+
+    restoreBaseSceneAfterCommensuratePreview() {
+        if (!this.commensurateBaseVisibility) return;
+        this.commensurateBaseVisibility.forEach((visible, group) => {
+            group.visible = visible;
+        });
+        this.commensurateBaseVisibility = null;
+    }
+
+    cameraSnapshot() {
+        const capture = camera => ({
+            position: camera.position.clone(),
+            quaternion: camera.quaternion.clone(),
+            up: camera.up.clone(),
+            near: camera.near,
+            far: camera.far,
+            zoom: camera.zoom,
+            left: camera.left,
+            right: camera.right,
+            top: camera.top,
+            bottom: camera.bottom,
+            aspect: camera.aspect
+        });
+        return {
+            projectionMode: this.projectionMode,
+            target: this.controls.target.clone(),
+            perspective: capture(this.perspectiveCamera),
+            orthographic: capture(this.orthographicCamera)
+        };
+    }
+
+    restoreCameraSnapshot(snapshot) {
+        if (!snapshot) return;
+        const restore = (camera, state) => {
+            camera.position.copy(state.position);
+            camera.quaternion.copy(state.quaternion);
+            camera.up.copy(state.up);
+            camera.near = state.near;
+            camera.far = state.far;
+            if (Number.isFinite(state.zoom)) camera.zoom = state.zoom;
+            if (Number.isFinite(state.left)) camera.left = state.left;
+            if (Number.isFinite(state.right)) camera.right = state.right;
+            if (Number.isFinite(state.top)) camera.top = state.top;
+            if (Number.isFinite(state.bottom)) camera.bottom = state.bottom;
+            if (Number.isFinite(state.aspect)) camera.aspect = state.aspect;
+            camera.updateProjectionMatrix();
+            camera.updateMatrixWorld(true);
+        };
+        restore(this.perspectiveCamera, snapshot.perspective);
+        restore(this.orthographicCamera, snapshot.orthographic);
+        this.projectionMode = snapshot.projectionMode === 'perspective' ? 'perspective' : 'orthographic';
+        this.camera = this.projectionMode === 'perspective'
+            ? this.perspectiveCamera
+            : this.orthographicCamera;
+        this.controls.camera = this.camera;
+        this.controls.target.copy(snapshot.target);
+        this.controls.update?.();
+        this.updateViewLighting();
+        this.onCameraChange?.({ source: 'commensurate-preview-restore' });
+    }
+
+    clearCommensurateSupercellPreview({ requestRender = true, restoreCamera = true } = {}) {
+        if (!this.commensurateSupercellGroup) return;
+        this.clearGroup(this.commensurateSupercellGroup);
+        this.commensurateSupercellPreview = null;
+        this.restoreBaseSceneAfterCommensuratePreview();
+        if (restoreCamera && this.commensurateCameraSnapshot) {
+            this.restoreCameraSnapshot(this.commensurateCameraSnapshot);
+        }
+        this.commensurateCameraSnapshot = null;
+        delete this.domElement.dataset.commensuratePreviewAtoms;
+        delete this.domElement.dataset.commensuratePreviewBonds;
+        if (requestRender) this.requestRender();
+    }
+
+    commensuratePreviewBounds(preview) {
+        const box = new THREE.Box3();
+        const positions = preview?.positions || [];
+        const atomIndices = preview?.atom_indices || [];
+        const translation = this.visualTranslationVector();
+        positions.forEach((position, row) => {
+            const index = Number(atomIndices[row]);
+            if (!Number.isInteger(index) || !this.atomLabelVisible(index)) return;
+            const center = new THREE.Vector3(...position).add(translation);
+            const radius = this.atomVisualRadius(index);
+            box.expandByPoint(center.clone().addScalar(radius));
+            box.expandByPoint(center.clone().addScalar(-radius));
+        });
+        this.commensurateCellSegments(preview?.cell).forEach(segment => {
+            segment.forEach(point => box.expandByPoint(point.clone().add(translation)));
+        });
+        return box.isEmpty() ? null : box;
+    }
+
+    commensurateCellSegments(cell) {
+        if (!Array.isArray(cell) || cell.length !== 3) return [];
+        const [a, b, c] = cell.map(values => new THREE.Vector3(...values));
+        const origin = new THREE.Vector3();
+        const corners = [
+            origin,
+            a,
+            b,
+            c,
+            a.clone().add(b),
+            a.clone().add(c),
+            b.clone().add(c),
+            a.clone().add(b).add(c)
+        ];
+        return [[0,1],[0,2],[0,3],[1,4],[1,5],[2,4],[2,6],[3,5],[3,6],[4,7],[5,7],[6,7]]
+            .map(([first, second]) => [corners[first], corners[second]]);
+    }
+
+    buildCommensuratePreviewAtoms(preview) {
+        const positions = preview.positions || [];
+        const atomIndices = preview.atom_indices || [];
+        const coreMask = preview.core_mask || [];
+        const fixed = this.fixedAtomDisplayEnabled()
+            ? new Set(this.atomsData?.constraints?.fixed_indices || [])
+            : new Set();
+        const segmentCount = this.sphereQualitySegments(positions.length);
+        const groups = new Map();
+        positions.forEach((position, row) => {
+            const index = Number(atomIndices[row]);
+            if (!Number.isInteger(index) || !this.atomLabelVisible(index)) return;
+            const isFixed = fixed.has(index);
+            const materialPreset = this.atomMaterialPreset(index);
+            const atomSegments = isFixed ? this.fixedAtomSegments(segmentCount) : segmentCount;
+            const core = coreMask[row] !== false;
+            const key = `${core ? 'core' : 'halo'}:${isFixed ? 'fixed' : 'normal'}:${materialPreset}:${atomSegments}`;
+            if (!groups.has(key)) {
+                groups.set(key, { core, isFixed, materialPreset, atomSegments, rows: [] });
+            }
+            groups.get(key).rows.push(row);
+        });
+
+        groups.forEach(group => {
+            const geometryKey = `unit-sphere:${group.isFixed ? 'fixed' : 'normal'}:${group.atomSegments}`;
+            if (!this.geometryCache.has(geometryKey)) {
+                this.geometryCache.set(
+                    geometryKey,
+                    new THREE.SphereGeometry(
+                        1,
+                        group.atomSegments,
+                        Math.max(8, Math.floor(group.atomSegments * 0.65))
+                    )
+                );
+            }
+            const material = this.createInstancedAtomMaterial(group.isFixed, group.materialPreset);
+            if (!group.core) {
+                material.transparent = true;
+                material.opacity = 0.30;
+                material.depthWrite = false;
+            }
+            const mesh = new THREE.InstancedMesh(
+                this.geometryCache.get(geometryKey),
+                material,
+                group.rows.length
+            );
+            mesh.frustumCulled = false;
+            mesh.renderOrder = group.core ? 1 : 0;
+            mesh.userData = {
+                commensuratePreviewAtoms: true,
+                commensurateCore: group.core,
+                sharedGeometry: true
+            };
+            group.rows.forEach((row, instanceId) => {
+                const index = Number(atomIndices[row]);
+                const radius = this.atomVisualRadius(index);
+                this.instanceDummy.position.set(...positions[row]);
+                this.instanceDummy.quaternion.identity();
+                this.instanceDummy.scale.setScalar(radius);
+                this.instanceDummy.updateMatrix();
+                mesh.setMatrixAt(instanceId, this.instanceDummy.matrix);
+                mesh.setColorAt(
+                    instanceId,
+                    this.fixedAdjustedColor(
+                        this.atomVisualColor(index, this.customColors[index]),
+                        group.isFixed,
+                        group.materialPreset
+                    )
+                );
+            });
+            mesh.instanceMatrix.needsUpdate = true;
+            if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+            this.commensurateSupercellGroup.add(mesh);
+        });
+    }
+
+    commensuratePreviewBondPairs(preview) {
+        if (!this.displayOptions.showBonds) return [];
+        const positions = preview.positions || [];
+        const atomIndices = preview.atom_indices || [];
+        const coreMask = preview.core_mask || [];
+        if (!positions.length) return [];
+        const maxCutoff = Math.max(0, Number(this.buildBondSearchContext()?.maxCutoff) || 0);
+        if (maxCutoff <= 0) return [];
+        const inverseBucket = 1 / maxCutoff;
+        const buckets = new Map();
+        const keyFor = (x, y, z) => `${x},${y},${z}`;
+        positions.forEach((position, row) => {
+            const index = Number(atomIndices[row]);
+            if (!Number.isInteger(index) || !this.atomLabelVisible(index)) return;
+            const bucket = position.map(value => Math.floor(Number(value) * inverseBucket));
+            const key = keyFor(bucket[0], bucket[1], bucket[2]);
+            if (!buckets.has(key)) buckets.set(key, []);
+            buckets.get(key).push(row);
+        });
+        const manual = new Set((this.displayOptions.manualBondPairs || []).map(([first, second]) => (
+            `${Math.min(first, second)}:${Math.max(first, second)}`
+        )));
+        const hookeanExcluded = this.hookeanBondExclusions();
+        const pairs = [];
+        const maxPairs = 300000;
+        positions.forEach((position, firstRow) => {
+            if (pairs.length >= maxPairs) return;
+            const firstIndex = Number(atomIndices[firstRow]);
+            if (!Number.isInteger(firstIndex) || !this.atomLabelVisible(firstIndex)) return;
+            const center = position.map(value => Math.floor(Number(value) * inverseBucket));
+            for (let dx = -1; dx <= 1; dx++) {
+                if (pairs.length >= maxPairs) break;
+                for (let dy = -1; dy <= 1; dy++) {
+                    if (pairs.length >= maxPairs) break;
+                    for (let dz = -1; dz <= 1; dz++) {
+                        if (pairs.length >= maxPairs) break;
+                        const rows = buckets.get(keyFor(center[0] + dx, center[1] + dy, center[2] + dz)) || [];
+                        for (const secondRow of rows) {
+                            if (secondRow <= firstRow) continue;
+                            if (coreMask[firstRow] === false && coreMask[secondRow] === false) continue;
+                            const secondIndex = Number(atomIndices[secondRow]);
+                            const pairKey = `${Math.min(firstIndex, secondIndex)}:${Math.max(firstIndex, secondIndex)}`;
+                            if (hookeanExcluded.has(pairKey)) continue;
+                            if (this.displayOptions.bondMode === 'manual' && !manual.has(pairKey)) continue;
+                            const range = this.displayOptions.bondMode === 'manual'
+                                ? { min: 0, max: maxCutoff }
+                                : this.bondRangeForPair(firstIndex, secondIndex);
+                            if (!range) continue;
+                            const second = positions[secondRow];
+                            const deltaX = Number(second[0]) - Number(position[0]);
+                            const deltaY = Number(second[1]) - Number(position[1]);
+                            const deltaZ = Number(second[2]) - Number(position[2]);
+                            const distanceSquared = deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ;
+                            if (
+                                distanceSquared <= 0.0225
+                                || distanceSquared < range.min * range.min
+                                || distanceSquared > range.max * range.max
+                            ) continue;
+                            pairs.push([firstRow, secondRow]);
+                            if (pairs.length >= maxPairs) break;
+                        }
+                    }
+                }
+            }
+        });
+        return pairs;
+    }
+
+    buildCommensuratePreviewBonds(preview) {
+        const positions = preview.positions || [];
+        const atomIndices = preview.atom_indices || [];
+        const pairs = this.commensuratePreviewBondPairs(preview);
+        const split = this.displayOptions.bondColorMode !== 'custom';
+        const segmentsByColor = new Map();
+        pairs.forEach(([firstRow, secondRow]) => {
+            const firstIndex = Number(atomIndices[firstRow]);
+            const secondIndex = Number(atomIndices[secondRow]);
+            const segments = split
+                ? [
+                    { firstRow, secondRow, t0: 0, t1: 0.5, colorIndex: firstIndex },
+                    { firstRow, secondRow, t0: 0.5, t1: 1, colorIndex: secondIndex }
+                ]
+                : [{ firstRow, secondRow, t0: 0, t1: 1, colorIndex: null }];
+            segments.forEach(segment => {
+                const color = this.bondSegmentColor(segment);
+                if (!segmentsByColor.has(color)) segmentsByColor.set(color, []);
+                segmentsByColor.get(color).push(segment);
+            });
+        });
+        const flat = this.effectiveBondStyle() === 'flat';
+        const thickness = this.bondThickness();
+        segmentsByColor.forEach((segments, color) => {
+            const mesh = new THREE.InstancedMesh(
+                flat ? this.bondFlatGeometry : this.bondCylinderGeometry,
+                this.bondMaterial(flat ? 'flat' : 'cylinder', color),
+                segments.length
+            );
+            mesh.frustumCulled = false;
+            mesh.renderOrder = -1;
+            mesh.userData = {
+                commensuratePreviewBonds: true,
+                sharedGeometry: true,
+                sharedMaterial: true
+            };
+            segments.forEach((segment, instanceId) => {
+                const start = new THREE.Vector3(...positions[segment.firstRow]);
+                const end = new THREE.Vector3(...positions[segment.secondRow]);
+                const fullDelta = end.clone().sub(start);
+                const fullLength = fullDelta.length();
+                const segmentStart = start.clone().addScaledVector(fullDelta, segment.t0);
+                const segmentEnd = start.clone().addScaledVector(fullDelta, segment.t1);
+                const segmentDelta = segmentEnd.clone().sub(segmentStart);
+                const segmentLength = segmentDelta.length();
+                const center = segmentStart.add(segmentEnd).multiplyScalar(0.5);
+                this.writeCylinderBondInstance(
+                    mesh,
+                    instanceId,
+                    segmentDelta,
+                    segmentLength,
+                    segmentLength,
+                    thickness,
+                    center.x,
+                    center.y,
+                    center.z
+                );
+            });
+            mesh.instanceMatrix.needsUpdate = true;
+            this.commensurateSupercellGroup.add(mesh);
+        });
+        return pairs.length;
+    }
+
+    setCommensurateSupercellPreview(payload) {
+        const preview = payload?.preview;
+        const updatingExistingPreview = Boolean(this.commensurateSupercellPreview);
+        const cameraSnapshot = updatingExistingPreview
+            ? this.commensurateCameraSnapshot
+            : this.cameraSnapshot();
+        this.clearCommensurateSupercellPreview({ requestRender: false, restoreCamera: false });
+        if (!preview?.positions?.length) {
+            if (cameraSnapshot) this.restoreCameraSnapshot(cameraSnapshot);
+            this.requestRender();
+            return;
+        }
+        this.commensurateCameraSnapshot = cameraSnapshot;
+        this.hideBaseSceneForCommensuratePreview();
+        this.commensurateSupercellPreview = payload;
+        this.buildCommensuratePreviewAtoms(preview);
+        const bondCount = this.buildCommensuratePreviewBonds(preview);
+        const cellMaterial = new THREE.MeshBasicMaterial({
+            color: 0x16a88f,
+            transparent: true,
+            opacity: 0.96,
+            depthTest: true,
+            depthWrite: false,
+            toneMapped: false
+        });
+        this.addCellEdgeInstances(
+            this.commensurateSupercellGroup,
+            this.commensurateCellSegments(preview.cell),
+            { commensurateSuggestedCell: true },
+            { material: cellMaterial, radius: Math.max(0.025, this.normalizedCellThickness() * 0.82) }
+        );
+        this.commensurateSupercellGroup.position.copy(this.visualTranslationVector());
+        this.domElement.dataset.commensuratePreviewAtoms = String(preview.preview_atom_count || preview.positions.length);
+        this.domElement.dataset.commensuratePreviewBonds = String(bondCount);
+        this.applyShadowFlags();
+        if (!updatingExistingPreview) {
+            const bounds = this.commensuratePreviewBounds(preview);
+            if (bounds) this.fitCameraToStructure(bounds);
+        }
         this.requestRender();
     }
 

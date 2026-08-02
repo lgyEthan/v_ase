@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.7
+
+- Added bounded commensurate common-cell proposals after exact periodic 2D
+  layer rotations. The smallest candidate inside the boundary-strain and area
+  limits is shown as an opaque core plus a one-primitive-cell inspection shell
+  with boundary-crossing bonds.
+- Added crystallographic supercell notation, integer source/reference
+  matrices, area and strain metrics, a default maximum area ratio of `16`, and
+  explicit materialization of a validated proposal as the ASE unit cell.
+- Kept commensurate proposals distinct from ordinary display replication and
+  manual integer cell transforms, and exposed the complete workflow through
+  the semantic API and canonical Agent Skill.
+- Added numerical, backend, GUI, semantic-agent, camera-framing, constraint,
+  and generated-media regressions for the proposal and materialization paths.
+- Prevented workspace activation and browser resize events from creating
+  phantom camera revisions between an Agent's `describe()` and guarded edit.
+
 ## 0.1.6
 
 - Restored startup compatibility with ASE 3.23 and 3.24 by removing the

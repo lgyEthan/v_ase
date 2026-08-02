@@ -31,7 +31,11 @@ from .repulsion import (
     is_vase_repulsion_calculator,
     repulsion_metadata,
 )
-from .commensurate import find_commensurate_angles
+from .commensurate import (
+    commensurate_supercell_geometry,
+    find_commensurate_angles,
+    row_rotation_matrix,
+)
 from .analysis import calculate_rdf, rdf_csv
 from .ai import AI_PROTOCOL, COLLABORATION_PROTOCOL, ai_skill_path
 from .project import (
@@ -55,7 +59,7 @@ from .volumetric import (
     volumetric_structure,
 )
 import numpy as np
-from ase import Atom
+from ase import Atom, Atoms
 from ase.build import make_supercell
 from ase.build.supercells import lattice_points_in_supercell
 from ase.constraints import FixAtoms, FixCartesian, FixedLine, FixedPlane, FixScaled, Hookean
@@ -294,7 +298,8 @@ AI_CONTROL_SCHEMA = {
                 "One semantic structure operation. Supported names are wrap, "
                 "translate-all, set-supercell, make-supercell, add-atom, "
                 "delete-selection, set-identity, set-constraints, "
-                "move-selection, rotate-selection, undo, redo, "
+                "move-selection, rotate-selection, rotate-to-commensurate, "
+                "apply-commensurate-cell, dismiss-commensurate-cell, undo, redo, "
                 "reset-coordinates, start-relaxation, stop-relaxation, and "
                 "refresh-displacements, load-volumetric, show-volumetric, "
                 "combine-volumetric, remove-volumetric, and calculate-rdf."
@@ -305,6 +310,7 @@ AI_CONTROL_SCHEMA = {
                     "enum": [
                         "wrap", "undo", "redo", "reset-coordinates",
                         "stop-relaxation", "refresh-displacements",
+                        "apply-commensurate-cell", "dismiss-commensurate-cell",
                         "calculate-rdf",
                     ],
                 },
@@ -318,7 +324,9 @@ AI_CONTROL_SCHEMA = {
                                 "make-supercell", "add-atom",
                                 "delete-selection", "set-identity",
                                 "set-constraints", "move-selection",
-                                "rotate-selection", "undo", "redo",
+                                "rotate-selection", "rotate-to-commensurate",
+                                "apply-commensurate-cell",
+                                "dismiss-commensurate-cell", "undo", "redo",
                                 "reset-coordinates", "start-relaxation",
                                 "stop-relaxation", "refresh-displacements",
                                 "load-volumetric", "show-volumetric",
@@ -537,6 +545,32 @@ AI_OPERATION_PARAMETERS = {
             "axis defaults to [0,0,1]. pivot is com, active, origin, cell, "
             "or an explicit three-number position."
         ),
+    },
+    "rotate-to-commensurate": {
+        "mode": "edit",
+        "required": ["angleDeg", "selection-or-indices"],
+        "optional": [
+            "indices", "axis", "pivot", "maxAngleDifferenceDeg",
+            "strainTolerance", "maxIndex", "maxAreaRatio", "applyConstraints",
+        ],
+        "notes": (
+            "Finds the nearest validated periodic 2D lattice match, rotates the "
+            "selected layer to that exact angle, and opens the opaque common-cell "
+            "proposal with a one-primitive-cell boundary shell. axis is X, Y, or Z; "
+            "maxAreaRatio defaults to 16. No proposal is made above that limit."
+        ),
+    },
+    "apply-commensurate-cell": {
+        "mode": "edit",
+        "required": ["active-commensurate-proposal"],
+        "optional": [],
+        "notes": "Materializes the active validated proposal as the ASE unit cell.",
+    },
+    "dismiss-commensurate-cell": {
+        "mode": "view-or-edit",
+        "required": [],
+        "optional": [],
+        "notes": "Closes the active proposal and restores the pre-preview camera.",
     },
     "undo": {"mode": "view-or-edit", "required": [], "optional": []},
     "redo": {"mode": "view-or-edit", "required": [], "optional": []},
@@ -1145,6 +1179,205 @@ def make_supercell_atoms(atoms, matrix):
     transformed = make_supercell(source, P, wrap=True, order="cell-major")
     if new_constraints:
         transformed.set_constraint(new_constraints)
+    if atoms.calc:
+        transformed.calc = copy_calculator(atoms.calc)
+    return transformed
+
+
+def _commensurate_angular_distance(first: float, second: float) -> float:
+    return abs((float(first) - float(second) + 180.0) % 360.0 - 180.0)
+
+
+def resolve_commensurate_candidate(atoms, payload: Dict[str, Any]):
+    """Recompute and validate a client-selected common-cell candidate."""
+
+    axis = payload.get("axis", "Z")
+    max_index = int(payload.get("max_index", 32))
+    strain_tolerance = float(payload.get("strain_tolerance", 0.01))
+    max_area_ratio = int(payload.get("max_area_ratio", 16))
+    if max_area_ratio < 1 or max_area_ratio > 256:
+        raise HTTPException(
+            status_code=400,
+            detail="Maximum commensurate area ratio must be between 1 and 256.",
+        )
+    requested = payload.get("candidate") or {}
+    try:
+        requested_source = np.asarray(requested.get("source_matrix"), dtype=int)
+        requested_target = np.asarray(requested.get("target_matrix"), dtype=int)
+        requested_angle = float(requested.get("angle_deg"))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid commensurate candidate payload.") from exc
+    if requested_source.shape != (2, 2) or requested_target.shape != (2, 2):
+        raise HTTPException(status_code=400, detail="Commensurate candidate needs two 2 x 2 integer matrices.")
+
+    result = find_commensurate_angles(
+        atoms.cell.array,
+        atoms.pbc,
+        axis,
+        max_index=max_index,
+        strain_tolerance=strain_tolerance,
+        chemical_symbols=atoms.get_chemical_symbols(),
+    )
+    matches = [
+        candidate
+        for candidate in result["candidates"]
+        if np.array_equal(np.asarray(candidate["source_matrix"], dtype=int), requested_source)
+        and np.array_equal(np.asarray(candidate["target_matrix"], dtype=int), requested_target)
+        and _commensurate_angular_distance(candidate["angle_deg"], requested_angle) <= 2e-5
+    ]
+    if not matches:
+        raise HTTPException(
+            status_code=400,
+            detail="The proposed commensurate cell is not a current low-strain lattice match.",
+        )
+    candidate = matches[0]
+    if int(candidate["area_ratio"]) > max_area_ratio:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"The smallest matching cell has area ratio {candidate['area_ratio']}, "
+                f"above the configured maximum of {max_area_ratio}."
+            ),
+        )
+    if not candidate.get("supercell_supported", False):
+        raise HTTPException(
+            status_code=400,
+            detail=candidate.get("supercell_reason") or "This match cannot be materialized as a common cell.",
+        )
+    return candidate, result
+
+
+def _commensurate_constraint_indices(constraint, natoms: int) -> list[int]:
+    return [int(index) for index in _constraint_indices(constraint, natoms)]
+
+
+def materialize_commensurate_atoms(
+    atoms: Atoms,
+    geometry: Dict[str, Any],
+    candidate: Dict[str, Any],
+    selected_indices: List[int],
+    pivot,
+) -> Atoms:
+    """Create one editable common cell while preserving supported constraints."""
+
+    core_rows = [index for index, core in enumerate(geometry["core_mask"]) if core]
+    source_indices = [int(geometry["atom_indices"][row]) for row in core_rows]
+    source = atoms.copy()
+    source.set_constraint()
+    transformed = source[source_indices]
+    transformed.set_positions(np.asarray([geometry["positions"][row] for row in core_rows], dtype=float))
+    transformed.set_cell(np.asarray(geometry["cell"], dtype=float), scale_atoms=False)
+    transformed.set_pbc(atoms.pbc)
+    transformed.wrap(eps=1e-9)
+
+    row_metadata = [
+        (
+            int(geometry["atom_indices"][row]),
+            tuple(int(value) for value in geometry["lattice_indices"][row]),
+            str(geometry["components"][row]),
+        )
+        for row in core_rows
+    ]
+    index_map: Dict[tuple[int, tuple[int, int, int], str], int] = {
+        metadata: new_index for new_index, metadata in enumerate(row_metadata)
+    }
+    by_atom_component: Dict[tuple[int, str], List[int]] = {}
+    for new_index, (old_index, _, component) in enumerate(row_metadata):
+        by_atom_component.setdefault((old_index, component), []).append(new_index)
+
+    selected = set(int(index) for index in selected_indices)
+    rotation = row_rotation_matrix(
+        [1.0 if str(candidate.get("axis", "Z")).upper() == "X" else 0.0,
+         1.0 if str(candidate.get("axis", "Z")).upper() == "Y" else 0.0,
+         1.0 if str(candidate.get("axis", "Z")).upper() == "Z" else 0.0],
+        float(candidate["angle_deg"]),
+    )
+    deformation = np.asarray(candidate["deformation_matrix"], dtype=float)
+
+    def transformed_direction(values, component: str):
+        direction = np.asarray(values, dtype=float)
+        if component == "rotating":
+            direction = direction @ rotation @ deformation
+        length = float(np.linalg.norm(direction))
+        if length <= 1e-12:
+            raise HTTPException(status_code=400, detail="A directional constraint became singular.")
+        return (direction / length).tolist()
+
+    constraints = []
+    for constraint in atoms.constraints or []:
+        old_indices = _commensurate_constraint_indices(constraint, len(atoms))
+        if isinstance(constraint, FixAtoms):
+            mapped = [
+                new_index
+                for old_index in old_indices
+                for component in (("rotating",) if old_index in selected else ("reference",))
+                for new_index in by_atom_component.get((old_index, component), [])
+            ]
+            if mapped:
+                constraints.append(FixAtoms(indices=mapped))
+        elif isinstance(constraint, FixCartesian):
+            for component in ("reference", "rotating"):
+                mapped = [
+                    new_index
+                    for old_index in old_indices
+                    for new_index in by_atom_component.get((old_index, component), [])
+                ]
+                if mapped:
+                    constraints.append(FixCartesian(mapped, mask=constraint.mask.tolist()))
+        elif isinstance(constraint, FixScaled):
+            for component in ("reference", "rotating"):
+                mapped = [
+                    new_index
+                    for old_index in old_indices
+                    for new_index in by_atom_component.get((old_index, component), [])
+                ]
+                if mapped:
+                    constraints.append(FixScaled(mapped, mask=constraint.mask.tolist()))
+        elif isinstance(constraint, (FixedLine, FixedPlane)):
+            constraint_type = FixedLine if isinstance(constraint, FixedLine) else FixedPlane
+            for component in ("reference", "rotating"):
+                mapped = [
+                    new_index
+                    for old_index in old_indices
+                    for new_index in by_atom_component.get((old_index, component), [])
+                ]
+                if mapped:
+                    constraints.append(constraint_type(
+                        mapped,
+                        transformed_direction(constraint.dir, component),
+                    ))
+        elif isinstance(constraint, Hookean):
+            if constraint._type != "two atoms":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Hookean point/plane constraints must be removed before applying a commensurate cell.",
+                )
+            first, second = [int(value) for value in constraint.indices]
+            first_component = "rotating" if first in selected else "reference"
+            second_component = "rotating" if second in selected else "reference"
+            if first_component != second_component:
+                raise HTTPException(
+                    status_code=400,
+                    detail="A Hookean constraint crossing the two commensurate layers cannot be replicated unambiguously.",
+                )
+            component = first_component
+            lattice_points = sorted({
+                lattice
+                for old_index, lattice, row_component in row_metadata
+                if old_index == first and row_component == component
+            })
+            for lattice in lattice_points:
+                first_new = index_map.get((first, lattice, component))
+                second_new = index_map.get((second, lattice, component))
+                if first_new is not None and second_new is not None:
+                    constraints.append(Hookean(
+                        first_new,
+                        second_new,
+                        rt=constraint.threshold,
+                        k=constraint.spring,
+                    ))
+    if constraints:
+        transformed.set_constraint(constraints)
     if atoms.calc:
         transformed.calc = copy_calculator(atoms.calc)
     return transformed
@@ -2899,7 +3132,7 @@ async def commensurate_rotation_candidates(session_id: str, payload: Dict[str, A
     session = get_session(session_id)
     sync_session_frame_from_payload(session, payload)
     atoms = session.working_atoms
-    return await asyncio.to_thread(
+    result = await asyncio.to_thread(
         find_commensurate_angles,
         atoms.cell.array,
         atoms.pbc,
@@ -2908,6 +3141,120 @@ async def commensurate_rotation_candidates(session_id: str, payload: Dict[str, A
         strain_tolerance=payload.get("strain_tolerance", 0.01),
         chemical_symbols=atoms.get_chemical_symbols(),
     )
+    max_area_ratio = int(payload.get("max_area_ratio", 16))
+    if max_area_ratio < 1 or max_area_ratio > 256:
+        raise HTTPException(
+            status_code=400,
+            detail="Maximum commensurate area ratio must be between 1 and 256.",
+        )
+    result["max_area_ratio"] = max_area_ratio
+    result["suggestion_count"] = sum(
+        1
+        for candidate in result["candidates"]
+        if candidate.get("supercell_supported")
+        and int(candidate.get("area_ratio", 0)) <= max_area_ratio
+    )
+    return result
+
+
+@app.post("/api/commensurate/preview/{session_id}")
+async def preview_commensurate_supercell(session_id: str, payload: Dict[str, Any]):
+    """Build a separate common-cell preview without mutating ASE state."""
+
+    session = get_session(session_id)
+    sync_session_frame_from_payload(session, payload)
+    atoms = session.working_atoms.copy()
+    if payload.get("positions") is not None:
+        positions = np.asarray(payload["positions"], dtype=float)
+        if positions.shape != (len(atoms), 3) or not np.all(np.isfinite(positions)):
+            raise HTTPException(status_code=400, detail="Preview positions must match the current atom count.")
+        atoms.set_positions(positions, apply_constraint=False)
+    candidate, search = resolve_commensurate_candidate(atoms, payload)
+    selected = [int(value) for value in payload.get("selected_indices", [])]
+    pivot = payload.get("pivot", [0.0, 0.0, 0.0])
+    try:
+        geometry = await asyncio.to_thread(
+            commensurate_supercell_geometry,
+            cell=atoms.cell.array,
+            positions=atoms.get_positions(),
+            selected_indices=selected,
+            candidate=candidate,
+            pivot=pivot,
+            padding_cells=1,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    materialization_reason = None
+    if session.frame_count > 1 or session.trajectory_source is not None:
+        materialization_reason = (
+            "Preview is available, but materialization is disabled for trajectories because "
+            "each frame may require an independently validated layer mapping."
+        )
+    elif session.volumetric_datasets:
+        materialization_reason = (
+            "Remove volumetric datasets before materializing a layer-specific commensurate cell."
+        )
+    return {
+        "status": "ok",
+        "candidate": candidate,
+        "search": {
+            "axis": search["axis"],
+            "lattice_family": search["lattice_family"],
+            "strain_tolerance": search["strain_tolerance"],
+            "max_area_ratio": int(payload.get("max_area_ratio", 16)),
+        },
+        "preview": geometry,
+        "materialization_supported": materialization_reason is None,
+        "materialization_reason": materialization_reason,
+    }
+
+
+@app.post("/api/commensurate/apply/{session_id}")
+async def apply_commensurate_supercell(session_id: str, payload: Dict[str, Any]):
+    """Materialize a validated two-component common cell as editable ASE atoms."""
+
+    session = get_session(session_id)
+    require_editable(session, "Applying a commensurate common cell")
+    if session.frame_count > 1 or session.trajectory_source is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Commensurate cell materialization currently requires a single structure; "
+                "the opaque preview remains available for trajectories."
+            ),
+        )
+    if session.volumetric_datasets:
+        raise HTTPException(
+            status_code=400,
+            detail="Remove volumetric datasets before applying a layer-specific commensurate cell.",
+        )
+    sync_session_frame_from_payload(session, payload)
+    set_current_payload_positions(session, payload)
+    atoms = session.working_atoms
+    candidate, _ = resolve_commensurate_candidate(atoms, payload)
+    selected = [int(value) for value in payload.get("selected_indices", [])]
+    pivot = payload.get("pivot", [0.0, 0.0, 0.0])
+    try:
+        geometry = await asyncio.to_thread(
+            commensurate_supercell_geometry,
+            cell=atoms.cell.array,
+            positions=atoms.get_positions(),
+            selected_indices=selected,
+            candidate=candidate,
+            pivot=pivot,
+            padding_cells=0,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    session.push_history(include_trajectory=True)
+    transformed = materialize_commensurate_atoms(atoms, geometry, candidate, selected, pivot)
+    session.working_atoms = transformed
+    session.sync_current_frame()
+    session.invalidate_trajectory_layout()
+    session.refresh_trajectory_identity()
+    return session_update_to_json(session)
 
 @app.post("/api/apply/{session_id}")
 async def apply_positions(session_id: str, payload: Dict[str, Any]):

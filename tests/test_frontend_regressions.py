@@ -799,12 +799,18 @@ def test_new_scientific_defaults_and_ai_control_contract_are_wired():
     ])
 
     assert 'id="chk-bonds" checked' in index_html
-    assert 'id="chk-commensurate-guide" checked' in index_html
+    assert 'id="chk-commensurate-guide">' in index_html
+    assert 'id="chk-commensurate-guide" checked' not in index_html
+    assert 'id="commensurate-max-area" value="16"' in index_html
+    assert 'id="commensurate-supercell-proposal"' in index_html
     assert 'id="chk-commensurate-snap">' in index_html
     assert 'id="calc-cutoff-scale" value="0.70"' in index_html
     assert 'id="calc-strength" value="1.0"' in index_html
     assert "showBonds: true" in main_js
-    assert "commensurateGuide: true" in main_js
+    assert "commensurateGuide: false" in main_js
+    assert "commensurateMaxAreaRatio: 16" in main_js
+    assert "prepareCommensurateSupercellProposal" in main_js
+    assert "applyCommensurateSupercellProposal" in main_js
     assert "commensurateSnap: false" in main_js
     assert "camera.getWorldQuaternion" in main_js
     assert "kindSelect.dataset.draftKind" in main_js
@@ -824,6 +830,9 @@ def test_new_scientific_defaults_and_ai_control_contract_are_wired():
         "set-constraints",
         "move-selection",
         "rotate-selection",
+        "rotate-to-commensurate",
+        "apply-commensurate-cell",
+        "dismiss-commensurate-cell",
         "undo",
         "redo",
         "reset-coordinates",

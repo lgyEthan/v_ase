@@ -1235,7 +1235,7 @@ def test_ai_bridge_screen_relative_camera_and_constraint_vector_workflow():
                 guide: document.getElementById('chk-commensurate-guide').checked,
                 snap: document.getElementById('chk-commensurate-snap').checked
             })""")
-            assert defaults == {"bonds": True, "guide": True, "snap": False}
+            assert defaults == {"bonds": True, "guide": False, "snap": False}
             helix = editor_page.evaluate("""() => {
                 const renderer = window.__ASE_APP__.renderer;
                 const points = renderer.makeHelicalSpringPoints(0, 3, 0.2, 7, 98);
@@ -2428,6 +2428,227 @@ def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
             page.wait_for_function("document.getElementById('lighting-widget').dataset.mode === 'studio-shadow'")
             assert page.locator('.render-sphere-on').evaluate("element => getComputedStyle(element).display") == 'block'
             assert page.locator('.render-sphere-shadow').evaluate("element => getComputedStyle(element).display") == 'block'
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_be_applied():
+    lattice = 2.46
+    atoms = Atoms(
+        "C4",
+        scaled_positions=[
+            [0.0, 0.0, 0.25],
+            [1 / 3, 2 / 3, 0.25],
+            [0.0, 0.0, 0.75],
+            [2 / 3, 1 / 3, 0.75],
+        ],
+        cell=[
+            [lattice, 0.0, 0.0],
+            [0.5 * lattice, 0.5 * 3 ** 0.5 * lattice, 0.0],
+            [0.0, 0.0, 18.0],
+        ],
+        pbc=[True, True, False],
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 4")
+
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection();
+                app.addSelectionReference(0);
+                app.addSelectionReference(1);
+                app.updateSelectionVisuals();
+                app.updateUI();
+            }""")
+            _expand_inspector(page)
+            _select_structure_section(page, "transform")
+            assert not page.is_checked('#chk-commensurate-guide')
+            page.check('#chk-commensurate-guide')
+            page.check('#chk-commensurate-snap')
+            page.fill('#commensurate-max-area', '16')
+            page.keyboard.press('Escape')
+
+            canvas = page.locator('#app-viewport canvas')
+            canvas.focus()
+            page.keyboard.press('r')
+            page.keyboard.press('z')
+            page.wait_for_function("window.__ASE_APP__.state.commensurateCandidates.length >= 60")
+            page.keyboard.type('21.2')
+            page.wait_for_function("Math.abs(window.__ASE_APP__.state.commensurateSnappedCandidate?.targetAngleDeg - 21.78678931) < 1e-5")
+            page.keyboard.press('Enter')
+            page.wait_for_function("window.__ASE_APP__.state.commensurateProposal?.data?.preview?.core_atom_count === 28")
+
+            preview = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const proposal = app.state.commensurateProposal.data;
+                const atomMeshes = app.renderer.commensurateSupercellGroup.children
+                    .filter(child => child.userData?.commensuratePreviewAtoms);
+                const coreMeshes = atomMeshes.filter(child => child.userData.commensurateCore);
+                const haloMeshes = atomMeshes.filter(child => !child.userData.commensurateCore);
+                const bounds = app.renderer.commensuratePreviewBounds(proposal.preview);
+                const projected = app.renderer.boxCorners(bounds)
+                    .map(point => point.project(app.renderer.camera));
+                return {
+                    baseAtomsVisible: app.renderer.atomMeshes.visible,
+                    area: proposal.candidate.area_ratio,
+                    notation: proposal.candidate.target_notation,
+                    coreAtomCount: proposal.preview.core_atom_count,
+                    previewAtomCount: proposal.preview.preview_atom_count,
+                    padding: proposal.preview.padding_cells,
+                    renderedAtoms: Number(app.renderer.domElement.dataset.commensuratePreviewAtoms),
+                    renderedBonds: Number(app.renderer.domElement.dataset.commensuratePreviewBonds),
+                    coreMeshes: coreMeshes.length,
+                    haloMeshes: haloMeshes.length,
+                    coreOpacity: coreMeshes[0]?.material?.opacity,
+                    haloOpacity: haloMeshes[0]?.material?.opacity,
+                    suggestedCellEdges: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateSuggestedCell).length,
+                    maxNdcX: Math.max(...projected.map(point => Math.abs(point.x))),
+                    maxNdcY: Math.max(...projected.map(point => Math.abs(point.y))),
+                    cameraSnapshot: Boolean(app.renderer.commensurateCameraSnapshot),
+                    atomCountBeforeApply: app.state.atoms.positions.length
+                };
+            }""")
+            assert preview["baseAtomsVisible"] is False
+            assert preview["area"] == 7
+            assert "sqrt(7)" in preview["notation"]
+            assert preview["coreAtomCount"] == 28
+            assert preview["previewAtomCount"] > preview["coreAtomCount"]
+            assert preview["padding"] == 1
+            assert preview["renderedAtoms"] == preview["previewAtomCount"]
+            assert preview["renderedBonds"] > 0
+            assert preview["coreMeshes"] > 0
+            assert preview["haloMeshes"] > 0
+            assert preview["coreOpacity"] == pytest.approx(1.0)
+            assert preview["haloOpacity"] == pytest.approx(0.30)
+            assert preview["suggestedCellEdges"] == 1
+            assert preview["maxNdcX"] < 0.96
+            assert preview["maxNdcY"] < 0.96
+            assert preview["cameraSnapshot"] is True
+            assert preview["atomCountBeforeApply"] == 4
+
+            page.keyboard.press('Escape')
+            page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
+            _select_structure_section(page, "transform")
+            assert page.locator('#commensurate-supercell-proposal').is_visible()
+            assert not page.locator('#btn-apply-commensurate-cell').is_disabled()
+            page.click('#btn-apply-commensurate-cell')
+            page.wait_for_function("window.__ASE_APP__.state.atoms.positions.length === 28")
+            page.wait_for_function("window.__ASE_APP__.renderer.atomMeshByIndex.size === 28")
+            applied = page.evaluate("""() => ({
+                preview: window.__ASE_APP__.state.commensurateProposal,
+                atomCount: window.__ASE_APP__.state.atoms.positions.length,
+                cell: window.__ASE_APP__.state.atoms.cell,
+                baseVisible: window.__ASE_APP__.renderer.atomMeshes.visible,
+                supercell: window.__ASE_APP__.state.display.supercell
+            })""")
+            assert applied["preview"] is None
+            assert applied["atomCount"] == 28
+            assert applied["baseVisible"] is True
+            assert applied["supercell"] == [1, 1, 1]
+            assert abs(np.linalg.det(np.asarray(applied["cell"]))) == pytest.approx(
+                7 * abs(np.linalg.det(np.asarray(atoms.cell.array))),
+                rel=1e-7,
+            )
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_ai_can_rotate_to_preview_and_materialize_a_bounded_commensurate_cell():
+    lattice = 2.46
+    atoms = Atoms(
+        "C4",
+        scaled_positions=[
+            [0.0, 0.0, 0.25],
+            [1 / 3, 2 / 3, 0.25],
+            [0.0, 0.0, 0.75],
+            [2 / 3, 1 / 3, 0.75],
+        ],
+        cell=[
+            [lattice, 0.0, 0.0],
+            [0.5 * lattice, 0.5 * 3 ** 0.5 * lattice, 0.0],
+            [0.0, 0.0, 18.0],
+        ],
+        pbc=[True, True, False],
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.v_aseAI && window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 4")
+
+            proposal = page.evaluate("""async () => {
+                const capabilities = await window.v_aseAI.capabilities();
+                const state = await window.v_aseAI.apply({
+                    operation: {
+                        name: 'rotate-to-commensurate',
+                        indices: [0, 1],
+                        axis: 'Z',
+                        angleDeg: 21.2,
+                        pivot: 'com',
+                        strainTolerance: 0.01,
+                        maxIndex: 32,
+                        maxAreaRatio: 16,
+                        maxAngleDifferenceDeg: 2,
+                        applyConstraints: true
+                    }
+                });
+                return {capabilities, state};
+            }""")
+            assert {
+                "rotate-to-commensurate",
+                "apply-commensurate-cell",
+                "dismiss-commensurate-cell",
+            }.issubset(proposal["capabilities"]["operations"])
+            commensurate = proposal["state"]["analysis"]["commensurateProposal"]
+            assert commensurate["candidate"]["area_ratio"] == 7
+            assert "sqrt(7)" in commensurate["candidate"]["target_notation"]
+            assert commensurate["coreAtomCount"] == 28
+            assert commensurate["previewAtomCount"] > 28
+            assert commensurate["paddingCells"] == 1
+            assert commensurate["materializationSupported"] is True
+
+            applied = page.evaluate("""async () => await window.v_aseAI.apply({
+                operation: 'apply-commensurate-cell'
+            })""")
+            assert applied["atomCount"] == 28
+            assert applied["analysis"]["commensurateProposal"] is None
+            assert abs(np.linalg.det(np.asarray(applied["cell"]))) == pytest.approx(
+                7 * abs(np.linalg.det(np.asarray(atoms.cell.array))),
+                rel=1e-7,
+            )
             browser.close()
     finally:
         editor.close()

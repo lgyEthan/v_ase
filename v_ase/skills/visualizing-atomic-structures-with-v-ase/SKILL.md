@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.1.6"
+python -m pip install "v_ase-gui==0.1.7"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -246,6 +246,11 @@ For any nontrivial task, verify all applicable items:
 - camera: projection, position, target, up vector, framing, expected direction;
 - manipulation overlays: rotation axis, fixed start reference, moving current
   reference, and separate commensurate candidates when a human is editing;
+- commensurate proposal: candidate angle, smallest admissible area ratio,
+  boundary strain, integer source/target matrices, paper-style notation,
+  opaque core, one-primitive-cell shell, visible boundary bonds, camera fit,
+  and materialization support; never call `apply-commensurate-cell` without
+  explicit user intent;
 - constraints: persistent per-atom FixedLine/FixedPlane markers, one long
   original-position FixedLine direction guide during `G`, and one
   original-position FixedPlane motion guide per selected atom during `G`;

@@ -11,9 +11,10 @@
 7. Trajectory Analysis And Video
 8. Volumetric Difference And Isosurface
 9. RDF And CSV
-10. Periodic Supercell Measurement
-11. Multi-Document Live Collaboration
-12. Offline View-Only Handoff
+10. Bounded Commensurate Common Cell
+11. Periodic Supercell Measurement
+12. Multi-Document Live Collaboration
+13. Offline View-Only Handoff
 
 These templates are starting points. Preserve the plan, validate, execute, and
 verify sequence even when parameters change.
@@ -595,6 +596,48 @@ Validation:
 5. a homogeneous periodic test system approaches `g(r) = 1` away from the
    first few bins across several cutoffs, including beyond the unique-MIC
    reference.
+
+## Bounded Commensurate Common Cell
+
+Use this only for a selected 2D layer in a cell with two periodic in-plane
+vectors. The first command rotates to the nearest validated match and opens a
+proposal; it does not silently change the unit cell:
+
+```javascript
+const proposed = await applyCurrent({
+  mode: "edit",
+  selection: {clear: true, indices: [0, 1]},
+  operation: {
+    name: "rotate-to-commensurate",
+    axis: "Z",
+    angleDeg: 21.2,
+    pivot: "com",
+    strainTolerance: 0.01,
+    maxIndex: 32,
+    maxAreaRatio: 16,
+    maxAngleDifferenceDeg: 2,
+    applyConstraints: true
+  }
+});
+```
+
+Validate `proposed.analysis.commensurateProposal`: it must report the intended
+angle, the smallest area ratio inside the strain cutoff, source/target integer
+matrices, opaque core atoms, `paddingCells: 1`, and boundary-shell atoms and
+bonds. If `materializationSupported` is false, report
+`materializationReason`; do not bypass it with `make-supercell`.
+
+After explicit approval:
+
+```javascript
+const materialized = await applyCurrent({
+  operation: "apply-commensurate-cell"
+});
+```
+
+Re-describe and verify atom count, cell determinant, PBC, constraints, and that
+`analysis.commensurateProposal` is null. If the user wants only the rotated
+coordinates, use `dismiss-commensurate-cell` instead.
 
 ## Periodic Supercell Measurement
 

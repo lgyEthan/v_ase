@@ -235,6 +235,7 @@ export class ASEApi {
             '/api/constraints/',
             '/api/supercell/apply/',
             '/api/supercell/matrix/',
+            '/api/commensurate/apply/',
             '/api/translate/'
         ].some(prefix => path.includes(prefix));
     }
@@ -368,8 +369,97 @@ export class ASEApi {
                 body: JSON.stringify({ ...payload, reps })
             }, { expect });
         }
+        if (path.includes('/api/commensurate/preview/')) {
+            const payload = JSON.parse(options.body || '{}');
+            const angle = Number(payload.candidate?.angle_deg || 21.7867893);
+            const positive = angle >= 0;
+            const sourceMatrix = payload.candidate?.source_matrix
+                || (positive ? [[2, 1], [-1, 3]] : [[1, 2], [-2, 3]]);
+            const targetMatrix = payload.candidate?.target_matrix
+                || (positive ? [[1, 2], [-2, 3]] : [[2, 1], [-1, 3]]);
+            const positions = payload.positions || this.mockState.atoms.positions;
+            const atomIndices = positions.map((_, index) => index);
+            const cell = this.mockState.atoms.cell || [[8, 0, 0], [0, 8, 0], [0, 0, 8]];
+            const suggestedCell = [
+                cell[0].map((value, index) => (
+                    targetMatrix[0][0] * value + targetMatrix[0][1] * cell[1][index]
+                )),
+                cell[0].map((value, index) => (
+                    targetMatrix[1][0] * value + targetMatrix[1][1] * cell[1][index]
+                )),
+                [...cell[2]]
+            ];
+            const matrixText = matrix => `[[${matrix[0].join(',')}],[${matrix[1].join(',')}]]`;
+            return {
+                status: 'ok',
+                candidate: {
+                    angle_deg: angle,
+                    strain: 0,
+                    area: 7,
+                    area_ratio: 7,
+                    source_matrix: sourceMatrix,
+                    target_matrix: targetMatrix,
+                    source_matrix_text: matrixText(sourceMatrix),
+                    target_matrix_text: matrixText(targetMatrix),
+                    source_notation: '(sqrt(7) x sqrt(7))',
+                    target_notation: '(sqrt(7) x sqrt(7))',
+                    cell_lengths_angstrom: [21.166, 21.166],
+                    cell_angle_deg: 60,
+                    supercell_supported: true
+                },
+                search: {
+                    axis: payload.axis || 'Z',
+                    lattice_family: 'hexagonal',
+                    strain_tolerance: payload.strain_tolerance ?? 0.01,
+                    max_area_ratio: payload.max_area_ratio ?? 16
+                },
+                preview: {
+                    positions: positions.map(position => [...position]),
+                    atom_indices: atomIndices,
+                    lattice_indices: positions.map(() => [0, 0, 0]),
+                    components: atomIndices.map(index => (
+                        (payload.selected_indices || []).includes(index) ? 'rotating' : 'reference'
+                    )),
+                    core_mask: positions.map(() => true),
+                    core_atom_count: positions.length,
+                    preview_atom_count: positions.length,
+                    padding_cells: 1,
+                    cell: suggestedCell,
+                    area_ratio: 7
+                },
+                materialization_supported: true,
+                materialization_reason: null
+            };
+        }
+        if (path.includes('/api/commensurate/apply/')) {
+            const payload = JSON.parse(options.body || '{}');
+            this.mockPushHistory();
+            if (Array.isArray(payload.positions)) {
+                this.mockState.atoms.positions = payload.positions.map(position => [...position]);
+            }
+            return await this.mockResponse(this.mockState.atoms);
+        }
         if (path.includes('/api/commensurate/')) {
             const payload = JSON.parse(options.body || '{}');
+            const candidate = (angle, source, target, area, magic = false) => ({
+                angle_deg: angle,
+                strain: 0,
+                area,
+                area_ratio: area,
+                source_matrix: source,
+                target_matrix: target,
+                source_notation: area === 7 ? '(sqrt(7) x sqrt(7))' : `${area} primitive cells`,
+                target_notation: area === 7 ? '(sqrt(7) x sqrt(7))' : `${area} primitive cells`,
+                source_matrix_text: `[[${source[0].join(',')}],[${source[1].join(',')}]]`,
+                target_matrix_text: `[[${target[0].join(',')}],[${target[1].join(',')}]]`,
+                family: 'hexagonal-r1',
+                magic_reference: magic,
+                supercell_supported: true
+            });
+            const negativeSource = [[1, 2], [-2, 3]];
+            const negativeTarget = [[2, 1], [-1, 3]];
+            const positiveSource = negativeTarget;
+            const positiveTarget = negativeSource;
             return {
                 axis: payload.axis || 'Z',
                 lattice_family: 'hexagonal',
@@ -377,14 +467,16 @@ export class ASEApi {
                 axis_alignment: 1,
                 strain_tolerance: payload.strain_tolerance ?? 0.01,
                 max_index: payload.max_index ?? 32,
+                max_area_ratio: payload.max_area_ratio ?? 16,
+                suggestion_count: 2,
                 warning: null,
                 candidates: [
-                    { angle_deg: -21.7867893, strain: 0, area: 7, family: 'hexagonal-r1', magic_reference: false },
-                    { angle_deg: -13.1735511, strain: 0, area: 19, family: 'hexagonal-r1', magic_reference: false },
-                    { angle_deg: -1.0501209, strain: 0, area: 2977, family: 'hexagonal-r1', magic_reference: true },
-                    { angle_deg: 1.0501209, strain: 0, area: 2977, family: 'hexagonal-r1', magic_reference: true },
-                    { angle_deg: 13.1735511, strain: 0, area: 19, family: 'hexagonal-r1', magic_reference: false },
-                    { angle_deg: 21.7867893, strain: 0, area: 7, family: 'hexagonal-r1', magic_reference: false }
+                    candidate(-21.7867893, negativeSource, negativeTarget, 7),
+                    candidate(-13.1735511, [[2, 3], [-3, 5]], [[3, 2], [-2, 5]], 19),
+                    candidate(-1.0501209, [[31, 32], [-32, 63]], [[32, 31], [-31, 63]], 2977, true),
+                    candidate(1.0501209, [[32, 31], [-31, 63]], [[31, 32], [-32, 63]], 2977, true),
+                    candidate(13.1735511, [[3, 2], [-2, 5]], [[2, 3], [-3, 5]], 19),
+                    candidate(21.7867893, positiveSource, positiveTarget, 7)
                 ]
             };
         }
@@ -819,12 +911,27 @@ export class ASEApi {
         }));
     }
 
-    async commensurateAngles(axis, maxIndex = 32, strainTolerance = 0.01) {
+    async commensurateAngles(axis, maxIndex = 32, strainTolerance = 0.01, maxAreaRatio = 16) {
         return await this.jsonPost(`/api/commensurate/{session_id}`, this.framePayload({
             axis,
             max_index: maxIndex,
-            strain_tolerance: strainTolerance
+            strain_tolerance: strainTolerance,
+            max_area_ratio: maxAreaRatio
         }));
+    }
+
+    async previewCommensurateSupercell(payload) {
+        return await this.jsonPost(
+            `/api/commensurate/preview/{session_id}`,
+            this.framePayload(payload)
+        );
+    }
+
+    async applyCommensurateSupercell(payload) {
+        return await this.jsonPost(
+            `/api/commensurate/apply/{session_id}`,
+            this.framePayload(payload)
+        );
     }
 
     async setFrame(index) {

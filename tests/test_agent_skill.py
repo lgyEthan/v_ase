@@ -332,6 +332,18 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         "pairMode",
         "activePairs",
     }.issubset(schema["operation_parameters"]["calculate-rdf"]["optional"])
+    assert schema["operation_parameters"]["rotate-to-commensurate"]["required"] == [
+        "angleDeg",
+        "selection-or-indices",
+    ]
+    assert {
+        "maxAreaRatio",
+        "strainTolerance",
+        "maxAngleDifferenceDeg",
+    }.issubset(
+        schema["operation_parameters"]["rotate-to-commensurate"]["optional"]
+    )
+    assert schema["operation_parameters"]["apply-commensurate-cell"]["mode"] == "edit"
     assert schema["export_parameters"]["rdf-csv"]["optional"] == [
         "cutoff",
         "bins",

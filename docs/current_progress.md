@@ -33,6 +33,8 @@ and documentation use `view()`.
   back to the ASE 3.23/3.24 public POSCAR reader; importing this module must
   never make ordinary structure loading depend on a newer ASE-internal name.
 - `v_ase/analysis.py`: triclinic-safe total/partial RDF and CSV.
+- `v_ase/commensurate.py`: bounded 2D coincidence-cell search, scientific
+  notation, common-cell geometry, and one-primitive-cell boundary shells.
 - `v_ase/session.py`: document state, history, calculator-preserving copies,
   trajectory sources, and workspace lifetime.
 - `v_ase/server.py`: local FastAPI and WebSocket contract.
@@ -326,6 +328,18 @@ and documentation use `view()`.
     volumetric dataset IDs, RDF cutoffs/warnings, and partial curve names.
     Agents never receive the complete scalar grid or infer analysis from
     screenshots.
+63. Commensurate matching is opt-in and defaults off. A committed exact match
+    proposes the smallest common cell inside the configured boundary-strain
+    cutoff and area ratio (default `16`). The opaque common-cell core is
+    surrounded by one muted primitive-cell shell so boundary bonds remain
+    inspectable. This proposal is independent of display replication and the
+    manual integer Cell Transform, and it becomes ASE state only after an
+    explicit **Set Suggested Cell as Unit Cell** action. The server recomputes
+    the integer source/reference matrices before preview or materialization.
+64. Workspace activation and browser resizing update the camera-signature
+    baseline but are not collaboration edits. A `describe()` revision is not
+    invalidated by iframe activation or framebuffer aspect changes; deliberate
+    human camera controls continue to publish revisioned camera events.
 
 ## Canonical Names And Compatibility
 

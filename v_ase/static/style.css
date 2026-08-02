@@ -1667,6 +1667,87 @@ body.inspector-wide #inspector .supercell-row {
     color: var(--amber-contrast);
 }
 
+.commensurate-proposal {
+    display: grid;
+    gap: 9px;
+    margin-top: 10px;
+    padding: 11px;
+    border: 1px solid var(--teal-border);
+    border-radius: 6px;
+    background: linear-gradient(180deg, var(--teal-faint), var(--surface-subtle));
+}
+
+.commensurate-proposal-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.commensurate-proposal-heading > div {
+    display: grid;
+    min-width: 0;
+    gap: 3px;
+}
+
+.commensurate-proposal-heading strong {
+    overflow-wrap: anywhere;
+    color: var(--text);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.78rem;
+    letter-spacing: 0;
+}
+
+.commensurate-proposal-kicker {
+    color: var(--teal-contrast);
+    font-size: 0.56rem;
+    font-weight: 820;
+}
+
+.commensurate-proposal-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+}
+
+.commensurate-proposal-metrics span {
+    min-width: 0;
+    padding: 6px 7px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--surface-faint);
+    color: var(--text-soft);
+    font-size: 0.62rem;
+    line-height: 1.35;
+}
+
+.commensurate-proposal-matrices {
+    overflow-x: auto;
+    padding: 7px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--field);
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.59rem;
+    line-height: 1.45;
+    white-space: nowrap;
+}
+
+.commensurate-proposal-note,
+.commensurate-proposal-reason {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.62rem;
+    line-height: 1.45;
+}
+
+.commensurate-proposal-reason {
+    padding-left: 8px;
+    border-left: 2px solid var(--amber);
+    color: var(--amber-contrast);
+}
+
 .constraint-actions {
     display: grid;
     gap: 7px;

@@ -24,6 +24,7 @@ The description should trigger for these requests even when v_ase is not named:
 10. `[trigger]` Let an AI inspect an atomic structure without screenshot OCR.
 11. `[trigger]` Plot a signed charge-density-difference isosurface from three CHGCAR files.
 12. `[trigger]` Calculate total and Cu-O partial RDF curves and export CSV.
+13. `[trigger]` Twist this 2D layer to the nearest commensurate cell below 16x area.
 
 It should not trigger for these nearby but unrelated requests:
 
@@ -59,7 +60,9 @@ Current operation coverage:
 
 - wrap, translate-all, set-supercell, make-supercell;
 - add-atom, delete-selection, set-identity, set-constraints;
-- move-selection, rotate-selection, undo, redo, reset-coordinates;
+- move-selection, rotate-selection, rotate-to-commensurate,
+  apply-commensurate-cell, dismiss-commensurate-cell, undo, redo,
+  reset-coordinates;
 - start-relaxation, stop-relaxation, refresh-displacements;
 - load-volumetric, show-volumetric, combine-volumetric, remove-volumetric;
 - calculate-rdf.
@@ -109,6 +112,15 @@ Run all scenarios, not only static document checks:
    - verify View replicas remain selectable while Edit replicas do not;
    - materialize repetitions and an integer cell transform;
    - verify every trajectory frame gets its own transformed cell.
+   - rotate a selected graphene layer near `21.2` degrees with
+     `rotate-to-commensurate`; verify exact `21.786789` degrees, area ratio 7,
+     zero boundary strain, positive-determinant source/target matrices,
+     `(sqrt(7) x sqrt(7))` notation, opaque core, and one-cell shell;
+   - project the complete proposal bounds through the live camera and verify
+     they remain inside the viewport, then dismiss and verify camera restore;
+   - set `maxAreaRatio` to 6 and verify the area-7 proposal is rejected;
+   - materialize only after explicit approval and verify atom count, cell
+     determinant, PBC, constraints, and cleared proposal state.
 6. **Appearance**
    - change radius, color, visibility, and material;
    - verify standard, metal, rubber, 2D, and 3D;
@@ -270,6 +282,9 @@ Every browser render test must check:
 - selected atoms use a yellow sphere outline with no billboard RingGeometry;
 - rotation axis, fixed start, moving current, and commensurate candidate guides
   remain visually distinguishable;
+- a commensurate common-cell preview shows an opaque core, a muted
+  one-primitive-cell shell, boundary-crossing bonds, paper-style notation, and
+  the highlighted target cell without clipping;
 - live View checkboxes hide and restore world axes and the unit cell without
   affecting the orientation gizmo;
 - Hookean spring has X and Z span around its axis and wire radius smaller than
