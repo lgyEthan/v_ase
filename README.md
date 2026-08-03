@@ -5,16 +5,16 @@
 # v_ase
 
 [![Symmetry branch](https://img.shields.io/badge/branch-symmetry_alpha-19a89d.svg)](https://github.com/lgyEthan/v_ase/tree/symmetry)
-[![Version](https://img.shields.io/badge/version-0.0.120a6%2Bsymmetry-d2a84a.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.0.120a7%2Bsymmetry-d2a84a.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 > **Experimental symmetry build:** this branch is isolated from `main`, uses
-> the independent version `0.0.120a6+symmetry`, and is not published to PyPI.
+> the independent version `0.0.120a7+symmetry`, and is not published to PyPI.
 > Install it from the `symmetry` branch as shown below.
 
 The version format is `MAIN_BASEaSYMMETRY_ITERATION+symmetry`. Therefore,
-`0.0.120a6+symmetry` means this build was forked from the v_ase `0.0.120`
-viewer state and is the sixth symmetry-branch alpha iteration.
+`0.0.120a7+symmetry` means this build was forked from the v_ase `0.0.120`
+viewer state and is the seventh symmetry-branch alpha iteration.
 
 `v_ase` brings ASE's convenient terminal and Python workflow together with
 direct, Blender-style 3D structure editing. Open a structure or trajectory
@@ -170,20 +170,22 @@ Calculate forces for every generated frame with the intended scientific
 calculator, build force constants in Phonopy, then save a completed phonopy
 YAML project.
 
-### 4. Calculate A Band Structure And Animate A Physical Eigenmode
+### 4. Select And Animate Modes At Different q-Points
 
-![Interactive Al phonon band selection and X-point mode animation](https://raw.githubusercontent.com/lgyEthan/v_ase/symmetry/docs/assets/github/readme_phonon_mode.gif)
+![Interactive Al phonon band selection with distinct L-point and X-point mode animations](https://raw.githubusercontent.com/lgyEthan/v_ase/symmetry/docs/assets/github/readme_phonon_mode.gif)
 
 The final example calculates finite-displacement forces for fcc Al with ASE
 EMT, builds force constants in Phonopy, and loads the completed YAML into
 v_ase. Loading the project automatically calculates the SeeK-path HPKOT phonon
-dispersion. The GIF first points at L and then clicks X: the locked marker,
-highlighted branch, exact q-point, band index, frequency, and commensurate cell
-all change before the selected mode is animated. In the Phonopy primitive
-basis, X is `q=(0.5, 0, 0.5)`; the selected band 3 mode is `7.9914 THz` and
-Y-dominant. Its 24-frame oscillation uses a commensurate `4 x 4 x 2` mode cell.
-Thin Al-Al nearest-neighbor connections within `3.05 A` show the fcc topology
-without treating the connectors as localized chemical bonds.
+dispersion. The GIF clicks L, generates its band-3 trajectory, and plays the
+blue-vector oscillation. It then clicks X, generates a second trajectory, and
+plays the different orange-vector oscillation. The locked marker, highlighted
+branch, exact q-point, frequency, and commensurate-cell suggestion update at
+each selection. L is `q=(0.5, 0.5, 0.5)` at `7.9188 THz`; X is
+`q=(0.5, 0, 0.5)` at `7.9914 THz`. Both underlying trajectories contain 24
+frames in a commensurate `4 x 4 x 2` mode cell, and the GIF renders every
+physical phase frame from both cycles. Thin Al-Al nearest-neighbor connections
+within `3.05 A` keep the fcc topology readable during both animations.
 
 The horizontal axis is cumulative distance along the reciprocal-space
 wavevector path `Γ-X-U|K-Γ-L-W-X`, not a Cartesian atomic-motion axis. A

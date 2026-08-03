@@ -239,12 +239,13 @@ Run all scenarios, not only static document checks:
     - verify `describe()` omits full symmetry-operation and eigenvector arrays
       while direct scientific endpoints retain them;
     - reject an incommensurate mode supercell;
-    - generate a commensurate oscillating mode trajectory and verify q-point,
-      band, frequency, amplitude, phase sequence, atom count, and frame count
-      semantically and in the rendered 24-frame mode sequence; verify the GIF
-      first demonstrates L-to-X interaction, the selected state stays visible,
-      Al-Al context bonds render, and custom labels and isotope masses survive
-      every frame.
+    - generate separate commensurate L and X oscillating mode trajectories and
+      verify q-point, band, frequency, amplitude, phase sequence, atom count,
+      and frame count semantically; verify motion within each cycle and prove
+      the two first-frame coordinate patterns differ; verify the GIF plays both
+      physical modes with the correct locked selection, Al-Al context bonds,
+      and displacement vectors; verify custom labels and isotope masses survive
+      every generated frame.
 
 ## Visual Assertions
 

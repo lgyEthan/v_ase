@@ -394,7 +394,7 @@ def capture_physical_mode(browser, examples: dict[str, object]) -> None:
             page,
             {
                 "showBonds": True,
-                "showPeriodicBonds": False,
+                "showPeriodicBonds": True,
                 "bondMode": "pairwise",
                 "pairwiseBondRanges": {
                     al_pair: {"enabled": True, "min": 0, "max": 3.05},
@@ -462,127 +462,143 @@ def capture_physical_mode(browser, examples: dict[str, object]) -> None:
             )
 
         frames = []
-        append_hold(frames, page, 3)
-        l_point = band_point("L", int(metadata["band"]))
-        page.mouse.move(l_point["x"], l_point["y"])
-        page.wait_for_timeout(140)
-        append_hold(frames, page, 4)
-        page.mouse.click(l_point["x"], l_point["y"])
-        page.wait_for_function(
-            "window.__V_ASE_APP__.state.phononBandSelection?.pathLabel === 'L'"
-        )
-        append_hold(frames, page, 5)
 
-        x_point = band_point("X", int(metadata["band"]))
-        page.mouse.move(x_point["x"], x_point["y"])
-        page.wait_for_timeout(140)
-        append_hold(frames, page, 4)
-        page.mouse.click(x_point["x"], x_point["y"])
-        page.wait_for_function(
-            """({ band }) => window.__V_ASE_APP__.state.phononBandSelection?.pathLabel === 'X'
-                && window.__V_ASE_APP__.state.phononBandSelection?.band === band""",
-            arg={"band": int(metadata["band"])},
-        )
-        append_hold(frames, page, 5)
-        page.wait_for_function(
-            "window.__V_ASE_APP__.state.phononModes?.band_count === 3"
-        )
-        page.fill("#phonon-mode-amplitude", "2.00")
-        page.fill("#phonon-mode-frames", "24")
-        page.fill("#phonon-mode-super-x", "4")
-        page.fill("#phonon-mode-super-y", "4")
-        page.fill("#phonon-mode-super-z", "2")
-        set_display(page, {"supercell": [1, 1, 1]})
-        page.click("#btn-phonon-modulate")
-        page.click("#modal-confirm-action")
-        page.wait_for_function(
-            "window.__V_ASE_APP__.loadedFrameCount() === 24"
-        )
-        page.evaluate(
-            """async () => {
-                const app = window.__V_ASE_APP__;
-                Object.assign(app.state.display, {
-                    showDisplacements: true,
-                    displacementReferenceMode: 'frame',
-                    displacementReferenceFrame: 12,
-                    displacementMic: true,
-                    displacementStyle: '3d',
-                    displacementScale: 8.0,
-                    displacementThickness: 0.12,
-                    displacementColor: '#dc6b35'
-                });
-                app.syncDisplacementControls();
-                app.renderer.setDisplayOptions(app.state.display);
-                await app.loadFrame(0);
-                await app.refreshDisplacementAnalysis({ suppressBusy: true });
-            }"""
-        )
-        page.wait_for_function(
-            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.displacementCount || 0) > 0"
-        )
-        page.wait_for_function(
-            "document.querySelectorAll('.phonon-mode-row').length === 3"
-        )
-        set_display(
-            page,
-            {
-                "atomRadiusScale": 0.48,
-                "showBonds": True,
-                "bondMode": "pairwise",
-                "pairwiseBondRanges": {
-                    al_pair: {"enabled": True, "min": 0, "max": 3.05},
+        def select_mode(label: str, band: int) -> None:
+            point = band_point(label, band)
+            page.mouse.move(point["x"], point["y"])
+            page.wait_for_timeout(140)
+            append_hold(frames, page, 4)
+            page.mouse.click(point["x"], point["y"])
+            page.wait_for_function(
+                """({ label, band }) => {
+                    const selected = window.__V_ASE_APP__.state.phononBandSelection;
+                    return selected?.pathLabel === label && selected?.band === band
+                        && window.__V_ASE_APP__.state.phononModes?.band_count === 3;
+                }""",
+                arg={"label": label, "band": band},
+            )
+            append_hold(frames, page, 5)
+
+        def generate_selected_mode(
+            displacement_color: str,
+            expected_qpoint: list[float],
+        ) -> None:
+            page.fill("#phonon-mode-amplitude", "2.00")
+            page.fill("#phonon-mode-frames", "24")
+            page.fill("#phonon-mode-super-x", "4")
+            page.fill("#phonon-mode-super-y", "4")
+            page.fill("#phonon-mode-super-z", "2")
+            set_display(page, {"supercell": [1, 1, 1]})
+            page.click("#btn-phonon-modulate")
+            page.click("#modal-confirm-action")
+            page.wait_for_function(
+                """(expected) => {
+                    const app = window.__V_ASE_APP__;
+                    const actual = app.state.phononTrajectoryMetadata?.qpoint;
+                    return app.loadedFrameCount() === 24
+                        && Array.isArray(actual)
+                        && actual.every((value, index) => (
+                            Math.abs(Number(value) - Number(expected[index])) < 1e-10
+                        ));
+                }""",
+                arg=expected_qpoint,
+            )
+            page.evaluate(
+                """async (color) => {
+                    const app = window.__V_ASE_APP__;
+                    Object.assign(app.state.display, {
+                        showDisplacements: true,
+                        displacementReferenceMode: 'frame',
+                        displacementReferenceFrame: 12,
+                        displacementMic: true,
+                        displacementStyle: '3d',
+                        displacementScale: 8.0,
+                        displacementThickness: 0.12,
+                        displacementColor: color
+                    });
+                    app.syncDisplacementControls();
+                    app.renderer.setDisplayOptions(app.state.display);
+                    await app.loadFrame(0);
+                    await app.refreshDisplacementAnalysis({ suppressBusy: true });
+                }""",
+                displacement_color,
+            )
+            page.wait_for_function(
+                "Number(window.__V_ASE_APP__.renderer.domElement.dataset.displacementCount || 0) > 0"
+            )
+            set_display(
+                page,
+                {
+                    "atomRadiusScale": 0.48,
+                    "showBonds": True,
+                    "showPeriodicBonds": False,
+                    "bondMode": "pairwise",
+                    "pairwiseBondRanges": {
+                        al_pair: {"enabled": True, "min": 0, "max": 3.05},
+                    },
+                    "pairwiseBondCutoffs": {al_pair: 3.05},
+                    "bondThickness": 0.11,
+                    "bondColorMode": "custom",
+                    "bondCustomColor": "#746d69",
                 },
-                "pairwiseBondCutoffs": {al_pair: 3.05},
-                "bondThickness": 0.11,
-                "bondColorMode": "custom",
-                "bondCustomColor": "#746d69",
-            },
-        )
-        page.wait_for_function(
-            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.bondCount || 0) > 0"
-        )
-        positions = np.asarray(
-            page.evaluate("window.__V_ASE_APP__.state.atoms.positions"),
-            dtype=float,
-        )
-        center = np.mean(positions, axis=0)
-        settle_view(
-            page,
-            target=center.tolist(),
-            position=(center + np.array([3.0, -4.0, 22.0])).tolist(),
-            fov=36,
-        )
-        set_atomic_scale(page, 53.0)
-        set_readme_lighting(
-            page,
-            center.tolist(),
-            intensity=2.85,
-            position_offset=(-12.0, -15.0, 20.0),
-        )
-        _focus_element(page, "#phonon-model-status")
-        page.evaluate(
-            "window.__V_ASE_APP__.refreshDisplacementAnalysis({ suppressBusy: true })"
-        )
-        page.wait_for_function(
-            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.displacementCount || 0) > 0"
-        )
+            )
+            page.wait_for_function(
+                "Number(window.__V_ASE_APP__.renderer.domElement.dataset.bondCount || 0) > 0"
+            )
+            positions = np.asarray(
+                page.evaluate("window.__V_ASE_APP__.state.atoms.positions"),
+                dtype=float,
+            )
+            center = np.mean(positions, axis=0)
+            settle_view(
+                page,
+                target=center.tolist(),
+                position=(center + np.array([3.0, -4.0, 22.0])).tolist(),
+                fov=36,
+            )
+            set_atomic_scale(page, 53.0)
+            set_readme_lighting(
+                page,
+                center.tolist(),
+                intensity=2.85,
+                position_offset=(-12.0, -15.0, 20.0),
+            )
+            _focus_element(page, "#phonon-model-status")
+            page.evaluate(
+                "window.__V_ASE_APP__.refreshDisplacementAnalysis({ suppressBusy: true })"
+            )
+            page.wait_for_function(
+                "Number(window.__V_ASE_APP__.renderer.domElement.dataset.displacementCount || 0) > 0"
+            )
+        def append_mode_cycle() -> None:
+            append_hold(frames, page, 3)
+            for frame_index in range(24):
+                page.evaluate(
+                    """async (frameIndex) => {
+                        const app = window.__V_ASE_APP__;
+                        await app.loadFrame(frameIndex);
+                        await app.refreshDisplacementAnalysis({ suppressBusy: true });
+                        app.renderer.renderer.render(app.renderer.scene, app.renderer.camera);
+                    }""",
+                    frame_index,
+                )
+                page.wait_for_timeout(35)
+                frames.append(screenshot_frame(page))
+
+        append_hold(frames, page, 3)
+        selected_band = int(metadata["band"])
+        select_mode("L", selected_band)
+        generate_selected_mode("#2f8fbf", [0.5, 0.5, 0.5])
+        append_mode_cycle()
+
+        page.locator("#phonon-band-plot").scroll_into_view_if_needed()
+        select_mode("X", selected_band)
+        generate_selected_mode("#dc6b35", [0.5, 0.0, 0.5])
         screenshot_frame(page).save(
             ASSET_DIR / "readme_phonon_mode.png",
             optimize=True,
         )
-        append_hold(frames, page, 3)
-        for frame_index in range(24):
-            page.evaluate(
-                """async (frameIndex) => {
-                    const app = window.__V_ASE_APP__;
-                    await app.loadFrame(frameIndex);
-                    await app.refreshDisplacementAnalysis({ suppressBusy: true });
-                    app.renderer.renderer.render(app.renderer.scene, app.renderer.camera);
-                }""",
-                frame_index,
-            )
-            page.wait_for_timeout(35)
-            frames.append(screenshot_frame(page))
+        append_mode_cycle()
         save_gif(
             frames,
             ASSET_DIR / "readme_phonon_mode.gif",

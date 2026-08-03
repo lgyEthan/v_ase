@@ -238,9 +238,9 @@ conda run -n python311 python scripts/capture_symmetry_readme_assets.py
 ```
 
 It recreates the files under `examples/symmetry_branch/`, opens those exact
-structures in v_ase, and captures three Analysis-panel figures plus the
-interactive-selection and 24-frame phonon-mode GIF under `docs/assets/` and
-`docs/assets/github/`.
+structures in v_ase, and captures three Analysis-panel figures plus an
+interactive GIF that generates and animates separate 24-frame L and X phonon
+modes under `docs/assets/` and `docs/assets/github/`.
 
 The examples cover separate scientific states:
 
@@ -249,7 +249,7 @@ The examples cover separate scientific states:
 | Diamond-Si primitive cell | `Fd-3m` No. 227, `m-3m`, 48 operations, one site, HPKOT cF path |
 | Diamond-Si conventional cell | explicit 2-to-8 atom standardization, 192 conventional-cell operations |
 | NaCl 2 x 2 x 2 finite displacements | two 16-atom force-calculation inputs at 0.01 A; no force constants |
-| fcc-Al X-point mode | automatic HPKOT band plot, visible L-to-X selection change, exact X at q=(0.5, 0, 0.5), ASE EMT band 3 at 7.9914 THz, 3.05 A nearest-neighbor context, commensurate 4 x 4 x 2 GIF |
+| fcc-Al L/X modes | automatic HPKOT band plot; L band 3 at q=(0.5, 0.5, 0.5), 7.9188 THz; X band 3 at q=(0.5, 0, 0.5), 7.9914 THz; two visibly distinct 24-frame trajectories; 3.05 A nearest-neighbor context; commensurate 4 x 4 x 2 GIF |
 
 The Al example uses a real dynamical-matrix eigenvector produced from the
 included force constants. EMT is selected to make the example fast and fully

@@ -1,15 +1,15 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.120a6%2Bsymmetry&rev=6';
-import { ASERenderer } from './renderer.js?v=0.0.120a6%2Bsymmetry&rev=6';
-import { ASESelection } from './selection.js?v=0.0.120a6%2Bsymmetry&rev=6';
-import { ASETransform } from './transform.js?v=0.0.120a6%2Bsymmetry&rev=6';
+import { ASEApi } from './api.js?v=0.0.120a7%2Bsymmetry&rev=7';
+import { ASERenderer } from './renderer.js?v=0.0.120a7%2Bsymmetry&rev=7';
+import { ASESelection } from './selection.js?v=0.0.120a7%2Bsymmetry&rev=7';
+import { ASETransform } from './transform.js?v=0.0.120a7%2Bsymmetry&rev=7';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.120a6%2Bsymmetry&rev=6';
+} from './trajectory.js?v=0.0.120a7%2Bsymmetry&rev=7';
 
-const V_ASE_BUILD_VERSION = '0.0.120a6+symmetry';
+const V_ASE_BUILD_VERSION = '0.0.120a7+symmetry';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -242,6 +242,7 @@ class VAseApp {
             phononBandRequestToken: 0,
             phononBandCalculationPending: false,
             phononModes: null,
+            phononTrajectoryMetadata: null,
             videoExportId: null,
             videoExportStartedAt: null
         };
@@ -1589,6 +1590,7 @@ class VAseApp {
         this.state.phononBandSelection = null;
         this.state.phononSelectedNacDirection = null;
         this.state.phononModes = null;
+        this.state.phononTrajectoryMetadata = null;
         this.state.phononBandRequestToken += 1;
         this.state.phononBandCalculationPending = false;
         document.getElementById('symmetry-result')?.classList.add('hidden');
@@ -1651,6 +1653,8 @@ class VAseApp {
             confirmText: `Create ${mode}`
         });
         if (!accepted) return;
+        const previousPhononTrajectoryMetadata = this.state.phononTrajectoryMetadata;
+        this.state.phononTrajectoryMetadata = null;
         try {
             const result = await this.withBusy(
                 `Creating ${mode} structure...`,
@@ -1722,6 +1726,7 @@ class VAseApp {
             this.state.phononBandSelection = null;
             this.state.phononSelectedNacDirection = null;
             this.state.phononModes = null;
+            this.state.phononTrajectoryMetadata = null;
             this.setAtomsData(result, { clearSelection: true });
             this.renderPhononModelSummary(metadata);
             this.setScienceStatus(
@@ -1752,6 +1757,7 @@ class VAseApp {
             this.state.phononBandSelection = null;
             this.state.phononSelectedNacDirection = null;
             this.state.phononModes = null;
+            this.state.phononTrajectoryMetadata = null;
             this.renderPhononModelSummary(result);
             document.getElementById('phonon-mode-result')?.classList.add('hidden');
             this.toast(
@@ -2391,6 +2397,7 @@ class VAseApp {
             const metadata = result.phonon || {};
             this.setAtomsData(result, { clearSelection: true });
             Object.assign(this.state, scientificState);
+            this.state.phononTrajectoryMetadata = { ...metadata };
             this.renderPhononModelSummary(scientificState.phononModelSummary);
             if (scientificState.phononBandStructure) {
                 this.renderPhononBandStructure(scientificState.phononBandStructure);
@@ -2410,6 +2417,7 @@ class VAseApp {
                 metadata.imaginary ? 'warning' : 'success'
             );
         } catch (error) {
+            this.state.phononTrajectoryMetadata = previousPhononTrajectoryMetadata;
             this.toast(`Phonon trajectory failed: ${error.message}`, 'error');
         }
     }

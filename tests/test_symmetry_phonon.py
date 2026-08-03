@@ -525,6 +525,42 @@ def test_browser_selects_a_band_point_and_animates_the_physical_mode():
                     {"label": label, "band": band},
                 )
 
+            def generate_selected_mode(
+                expected_qpoint: list[float],
+            ) -> tuple[np.ndarray, np.ndarray]:
+                page.locator(".phonon-mode-row").nth(2).click()
+                page.fill("#phonon-mode-amplitude", "2")
+                page.fill("#phonon-mode-frames", "24")
+                for axis, value in zip("xyz", (4, 4, 2), strict=True):
+                    page.fill(f"#phonon-mode-super-{axis}", str(value))
+                page.click("#btn-phonon-modulate")
+                page.click("#modal-confirm-action")
+                page.wait_for_function(
+                    """(expected) => {
+                        const app = window.__V_ASE_APP__;
+                        const actual = app.state.phononTrajectoryMetadata?.qpoint;
+                        return app.loadedFrameCount() === 24
+                            && Array.isArray(actual)
+                            && actual.every((value, index) => (
+                                Math.abs(Number(value) - Number(expected[index])) < 1e-10
+                            ));
+                    }""",
+                    arg=expected_qpoint,
+                )
+                first = np.asarray(
+                    page.evaluate("window.__V_ASE_APP__.state.atoms.positions")
+                )
+                page.evaluate(
+                    """async () => {
+                        await window.__V_ASE_APP__.loadFrame(12);
+                    }"""
+                )
+                opposite = np.asarray(
+                    page.evaluate("window.__V_ASE_APP__.state.atoms.positions")
+                )
+                assert not np.allclose(first, opposite)
+                return first, opposite
+
             l_point = plot_point("L", 3)
             page.mouse.move(l_point["x"], l_point["y"])
             page.wait_for_function(
@@ -544,7 +580,15 @@ def test_browser_selects_a_band_point_and_animates_the_physical_mode():
                 page.locator(".phonon-band-selected-point").get_attribute("cx")
             )
             assert "Selected L · ν3" in page.locator("#phonon-band-selection").inner_text()
+            assert [
+                page.input_value(f"#phonon-mode-super-{axis}")
+                for axis in "xyz"
+            ] == ["2", "2", "2"]
+            l_first, l_opposite = generate_selected_mode([0.5, 0.5, 0.5])
+            assert page.locator("#phonon-band-result").is_visible()
+            assert "Selected L · ν3" in page.locator("#phonon-band-selection").inner_text()
 
+            page.locator("#phonon-band-plot").scroll_into_view_if_needed()
             click_point = plot_point("X", 3)
             page.mouse.move(click_point["x"], click_point["y"])
             assert page.locator(".phonon-band-selected-point").get_attribute("visibility") == "visible"
@@ -571,14 +615,8 @@ def test_browser_selects_a_band_point_and_animates_the_physical_mode():
                 page.input_value(f"#phonon-mode-super-{axis}")
                 for axis in "xyz"
             ] == ["2", "1", "2"]
-
-            page.fill("#phonon-mode-amplitude", "2")
-            page.fill("#phonon-mode-frames", "24")
-            for axis, value in zip("xyz", (4, 4, 2), strict=True):
-                page.fill(f"#phonon-mode-super-{axis}", str(value))
-            page.click("#btn-phonon-modulate")
-            page.click("#modal-confirm-action")
-            page.wait_for_function("window.__V_ASE_APP__.loadedFrameCount() === 24")
+            x_first, x_opposite = generate_selected_mode([0.5, 0.0, 0.5])
+            assert not np.allclose(l_first, x_first)
             page.wait_for_function(
                 """() => document.querySelectorAll('.phonon-band-branch').length === 18
                     && window.__V_ASE_APP__.state.phononBandSelection?.band === 3"""
@@ -607,13 +645,6 @@ def test_browser_selects_a_band_point_and_animates_the_physical_mode():
             page.wait_for_function(
                 "Number(window.__V_ASE_APP__.renderer.domElement.dataset.bondCount || 0) > 0"
             )
-            first = np.asarray(page.evaluate("window.__V_ASE_APP__.state.atoms.positions"))
-            page.evaluate("window.__V_ASE_APP__.loadFrame(12)")
-            page.wait_for_function(
-                "window.__V_ASE_APP__.state.atoms.metadata.current_frame === 12"
-            )
-            opposite = np.asarray(page.evaluate("window.__V_ASE_APP__.state.atoms.positions"))
-            assert not np.allclose(first, opposite)
             assert page.locator("#phonon-band-result").is_visible()
             assert page.locator("#phonon-band-status .analysis-status-title").inner_text() == (
                 "cF phonon dispersion"
@@ -778,10 +809,9 @@ def test_symmetry_readme_uses_actual_synchronized_application_captures():
             pixels = np.asarray(image.convert("RGB"), dtype=float)
             assert pixels.std() > 20
             if filename.endswith(".gif"):
-                # Pillow coalesces repeated hold frames. The output still
-                # contains the L hover/select, X hover/select, and all 24
-                # distinct physical-mode frames.
-                assert getattr(image, "n_frames", 1) >= 29
+                # Pillow coalesces repeated hold frames. Every one of the 24
+                # physical phase frames from both generated modes remains.
+                assert getattr(image, "n_frames", 1) >= 48
         if filename != "readme_phonon_mode.png":
             assert filename in readme
 
@@ -799,8 +829,11 @@ def test_symmetry_readme_uses_actual_synchronized_application_captures():
     assert "ASE EMT" in script
     assert "generate_finite_displacements" in script
     assert "generate_mode_trajectory" in script
-    assert 'band_point("L", int(metadata["band"]))' in script
-    assert 'band_point("X", int(metadata["band"]))' in script
+    assert 'select_mode("L", selected_band)' in script
+    assert 'generate_selected_mode("#2f8fbf", [0.5, 0.5, 0.5])' in script
+    assert 'select_mode("X", selected_band)' in script
+    assert 'generate_selected_mode("#dc6b35", [0.5, 0.0, 0.5])' in script
+    assert "phononTrajectoryMetadata?.qpoint" in script
     assert '"max": 3.05' in script
     assert 'background: transparent;' in css
     for extension in ("*.cif", "*.extxyz", "*.yaml", "*.json"):

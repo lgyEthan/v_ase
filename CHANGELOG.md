@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.0.120a7+symmetry
+
+- Rebuilt the phonon-band GIF as two complete physical workflows: select L,
+  generate and animate its band-3 eigenmode, then select X and generate and
+  animate the distinct band-3 eigenmode.
+- Added separate blue L-mode and orange X-mode displacement vectors while
+  retaining Al-Al nearest-neighbor context throughout both oscillations.
+- Extended the real-browser regression to create both 24-frame trajectories,
+  verify motion within each cycle, and prove their first-frame eigenmode
+  patterns differ.
+- Kept this release on the GitHub `symmetry` branch only. It is not published
+  to PyPI and does not modify GitHub `main`.
+
 ## 0.0.120a6+symmetry
 
 - Made phonon-band interaction visually explicit with independent hover and
