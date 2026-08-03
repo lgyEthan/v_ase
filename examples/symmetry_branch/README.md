@@ -28,11 +28,13 @@ These are force-calculation inputs, not phonon modes.
 - `al_emt_phonopy_params.yaml`: completed Phonopy project containing force
   constants calculated from 2 x 2 x 2 finite-displacement supercells with ASE
   EMT.
-- `al_x_mode_peak.cif`: one frame of the selected X-point mode.
 - `al_x_mode_trajectory.extxyz`: 24-frame `4 x 4 x 2` commensurate mode movie.
 - `manifest.json`: exact analysis, generation, frequency, and provenance
   values checked by the test suite.
 
-The selected demonstration mode is band 3 at `q=(0.5, 0, 0)`, approximately
-7.9188 THz with the included calculator. It validates the v_ase workflow and
-is not a converged reference calculation for aluminum.
+Loading the completed project calculates the HPKOT band structure. The selected
+demonstration mode is band 3 at the X point, `q=(0.5, 0, 0.5)` in the Phonopy
+primitive reciprocal basis, approximately 7.9914 THz with the included
+calculator. The animated result is the extxyz trajectory and README GIF, not a
+single frozen-mode CIF. It validates the v_ase workflow and is not a converged
+reference calculation for aluminum.

@@ -5,16 +5,16 @@
 # v_ase
 
 [![Symmetry branch](https://img.shields.io/badge/branch-symmetry_alpha-19a89d.svg)](https://github.com/lgyEthan/v_ase/tree/symmetry)
-[![Version](https://img.shields.io/badge/version-0.0.120a4%2Bsymmetry-d2a84a.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.0.120a5%2Bsymmetry-d2a84a.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 > **Experimental symmetry build:** this branch is isolated from `main`, uses
-> the independent version `0.0.120a4+symmetry`, and is not published to PyPI.
+> the independent version `0.0.120a5+symmetry`, and is not published to PyPI.
 > Install it from the `symmetry` branch as shown below.
 
 The version format is `MAIN_BASEaSYMMETRY_ITERATION+symmetry`. Therefore,
-`0.0.120a4+symmetry` means this build was forked from the v_ase `0.0.120`
-viewer state and is the fourth symmetry-branch alpha iteration.
+`0.0.120a5+symmetry` means this build was forked from the v_ase `0.0.120`
+viewer state and is the fifth symmetry-branch alpha iteration.
 
 `v_ase` brings ASE's convenient terminal and Python workflow together with
 direct, Blender-style 3D structure editing. Open a structure or trajectory
@@ -34,7 +34,7 @@ completed structure is inspected from above and below.
 | --- | --- |
 | Structures and trajectories | ASE-supported formats, live timeline, per-frame bonds |
 | Geometry editing | Ordered selection, `G` move, `R` rotate, axis locks, numeric input |
-| Scientific inspection | Distances, angles, torsions, displacement vectors, constraints, space-group and phonon-mode analysis |
+| Scientific inspection | Distances, angles, torsions, displacement vectors, constraints, space groups, phonon bands, and physical modes |
 | Figure preparation | Appearance, bonds, lighting, exact preview, image/video export |
 | Reproducible sessions | Self-contained `.vase` projects and reusable visual settings |
 | Agent workflows | Semantic state/command API and a vendor-neutral AI skill |
@@ -86,7 +86,7 @@ browser document releases the blocking terminal process.
 | Inspect a structure | Middle-drag to orbit, wheel to zoom, left-click to select |
 | Analyze crystal symmetry | Open **Analysis > Crystal Symmetry**, choose the atomic identity basis, then **Analyze** |
 | Prepare phonon calculations | Enter **Edit**, open **Analysis > Phonons**, and generate finite-displacement inputs |
-| Visualize a phonon eigenmode | Load a completed phonopy YAML, inspect a q-point, select a band, and create a mode trajectory |
+| Visualize a phonon eigenmode | Load a completed phonopy YAML, click a branch in the calculated band structure, then create a mode trajectory |
 | Edit coordinates | Enter **Edit**, select atoms, press `Esc` to focus the viewport, then use `G` or `R` |
 | Measure geometry | Select 2, 3, or 4 atoms in the required order |
 | Play a trajectory | Use the bottom timeline or `Space`; FPS and Skip update live |
@@ -170,19 +170,22 @@ Calculate forces for every generated frame with the intended scientific
 calculator, build force constants in Phonopy, then save a completed phonopy
 YAML project.
 
-### 4. Inspect And Animate A Physical Eigenmode
+### 4. Calculate A Band Structure And Animate A Physical Eigenmode
 
-![Al force-constant mode at the X point](https://raw.githubusercontent.com/lgyEthan/v_ase/symmetry/docs/assets/github/readme_phonon_mode.png)
+![Interactive Al phonon band selection and X-point mode animation](https://raw.githubusercontent.com/lgyEthan/v_ase/symmetry/docs/assets/github/readme_phonon_mode.gif)
 
 The final example calculates finite-displacement forces for fcc Al with ASE
 EMT, builds force constants in Phonopy, and loads the completed YAML into
-v_ase. At `q=(0.5, 0, 0)`, the selected band 3 mode is `7.9188 THz` and
-Y-dominant. The screenshot shows its alternating displacement vectors in a
-commensurate `4 x 4 x 2` mode supercell and the 24-frame trajectory timeline.
+v_ase. Loading the project automatically calculates the SeeK-path HPKOT phonon
+dispersion. Clicking the X point transfers its exact reciprocal coordinate,
+selected branch, NAC direction when applicable, and a commensurate mode-cell
+suggestion into the mode controls. In the Phonopy primitive basis, this X point
+is `q=(0.5, 0, 0.5)`; the selected band 3 mode is `7.9914 THz` and Y-dominant.
+The GIF shows the live band selection and its 24-frame oscillation in a
+commensurate `4 x 4 x 2` display supercell.
 
 - [Al primitive CIF](examples/symmetry_branch/al_fcc_primitive.cif)
 - [completed phonopy YAML with force constants](examples/symmetry_branch/al_emt_phonopy_params.yaml)
-- [selected X-point mode peak CIF](examples/symmetry_branch/al_x_mode_peak.cif)
 - [24-frame mode trajectory](examples/symmetry_branch/al_x_mode_trajectory.extxyz)
 - [machine-readable validation manifest](examples/symmetry_branch/manifest.json)
 

@@ -34,6 +34,50 @@
   "phonon_mode": {
     "amplitude": 2.0,
     "band": 3,
+    "band_structure": {
+      "band_count": 3,
+      "bravais_lattice": "cF",
+      "convention": "HPKOT",
+      "path_source": "SeeK-path",
+      "qpoint_count": 83,
+      "selected_label": "X",
+      "selected_qpoint": [
+        0.5,
+        0.0,
+        0.5
+      ],
+      "spacegroup_number": 225,
+      "ticks": [
+        {
+          "distance": 0.0,
+          "label": "GAMMA"
+        },
+        {
+          "distance": 1.5514037795505156,
+          "label": "X"
+        },
+        {
+          "distance": 2.0999078459898204,
+          "label": "U|K"
+        },
+        {
+          "distance": 3.7454200453077346,
+          "label": "GAMMA"
+        },
+        {
+          "distance": 5.088975129925674,
+          "label": "L"
+        },
+        {
+          "distance": 6.1859832628042835,
+          "label": "W"
+        },
+        {
+          "distance": 6.961685152579541,
+          "label": "X"
+        }
+      ]
+    },
     "commensurability": {
       "commensurate": true,
       "dimension": [
@@ -56,12 +100,12 @@
       "nearest_integer": [
         2,
         0,
-        0
+        1
       ],
       "qpoint": [
         0.5,
         0.0,
-        0.0
+        0.5
       ],
       "residual": [
         0.0,
@@ -72,7 +116,7 @@
       "transformed": [
         2.0,
         0.0,
-        0.0
+        1.0
       ]
     },
     "coordinates_unwrapped": true,
@@ -101,7 +145,7 @@
       2
     ],
     "frame_count": 24,
-    "frequency_thz": 7.918781883704656,
+    "frequency_thz": 7.991390301367275,
     "imaginary": false,
     "normalization": "phonopy modulation convention",
     "phase_degrees": [
@@ -133,32 +177,32 @@
     "qpoint": [
       0.5,
       0.0,
-      0.0
+      0.5
     ],
     "selected_mode": {
       "band": 3,
-      "directional_fraction": 0.33333333333333376,
+      "directional_fraction": 1.0,
       "dominant_atom": 0,
       "dominant_axis": "y",
       "eigenvector_imag": [
         [
           0.0,
-          2.589157691184748e-51,
-          8.261205126901488e-51
+          0.0,
+          0.0
         ]
       ],
       "eigenvector_real": [
         [
-          -0.5773502691896255,
-          0.5773502691896262,
-          0.5773502691896257
+          0.0,
+          1.0,
+          7.459490135179767e-17
         ]
       ],
-      "frequency_thz": 7.918781883704656,
+      "frequency_thz": 7.991390301367275,
       "imaginary": false,
-      "longitudinal_fraction": 1.0000000000000002,
+      "longitudinal_fraction": 1.0,
       "participation": [
-        1.0000000000000002
+        1.0
       ]
     },
     "status": "ok"

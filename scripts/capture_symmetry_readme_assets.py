@@ -23,6 +23,7 @@ from capture_readme_screenshots import (  # noqa: E402
     collapse_inspector,
     configure_inspector,
     open_scene,
+    save_gif,
     screenshot_frame,
     set_atomic_scale,
     set_camera,
@@ -35,6 +36,7 @@ from v_ase.phonon import (  # noqa: E402
     create_phonon_model,
     generate_finite_displacements,
     generate_mode_trajectory,
+    phonon_band_structure,
     phonon_modes_at_q,
     phonopy_to_ase,
 )
@@ -102,7 +104,16 @@ def generate_examples() -> dict[str, object]:
         settings={"force_constants": True},
     )
 
-    qpoint = [0.5, 0.0, 0.0]
+    band_structure = phonon_band_structure(
+        phonon_model,
+        reference_distance=0.08,
+    )
+    x_segment = next(
+        segment
+        for segment in band_structure["segments"]
+        if segment["end_label"] == "X"
+    )
+    qpoint = x_segment["qpoints"][-1]
     modes = phonon_modes_at_q(
         phonon_model,
         qpoint,
@@ -118,7 +129,6 @@ def generate_examples() -> dict[str, object]:
         frames=24,
         oscillation=True,
     )
-    _write_cif(EXAMPLE_DIR / "al_x_mode_peak.cif", mode_trajectory[0])
     write(
         EXAMPLE_DIR / "al_x_mode_trajectory.extxyz",
         mode_trajectory,
@@ -148,6 +158,17 @@ def generate_examples() -> dict[str, object]:
             "force_constant_supercell": [2, 2, 2],
             "finite_displacement_angstrom": 0.01,
             "selected_mode": selected_mode,
+            "band_structure": {
+                "convention": band_structure["convention"],
+                "path_source": band_structure["path_source"],
+                "spacegroup_number": band_structure["spacegroup_number"],
+                "bravais_lattice": band_structure["bravais_lattice"],
+                "qpoint_count": band_structure["qpoint_count"],
+                "band_count": band_structure["band_count"],
+                "ticks": band_structure["ticks"],
+                "selected_label": "X",
+                "selected_qpoint": qpoint,
+            },
         },
     }
     (EXAMPLE_DIR / "manifest.json").write_text(
@@ -163,6 +184,7 @@ def generate_examples() -> dict[str, object]:
         "phonopy_project": phonopy_project,
         "mode_trajectory": mode_trajectory,
         "mode_metadata": mode_metadata,
+        "band_structure": band_structure,
     }
 
 
@@ -372,37 +394,59 @@ def capture_physical_mode(browser, examples: dict[str, object]) -> None:
         page.wait_for_function(
             "window.__V_ASE_APP__.state.phononModelSummary?.has_force_constants === true"
         )
-        page.fill("#phonon-q-x", "0.5")
-        page.fill("#phonon-q-y", "0")
-        page.fill("#phonon-q-z", "0")
-        page.select_option("#phonon-projection-axis", "y")
-        page.click("#btn-phonon-modes")
         page.wait_for_function(
-            "window.__V_ASE_APP__.state.phononModes?.band_count === 3"
+            "window.__V_ASE_APP__.state.phononBandStructure?.convention === 'HPKOT'"
         )
-        page.fill("#phonon-mode-band", str(metadata["band"]))
+        page.wait_for_function(
+            "document.querySelectorAll('.phonon-band-branch').length === 18"
+        )
+        page.select_option("#phonon-projection-axis", "y")
         page.evaluate(
             """async ({ band }) => {
                 const app = window.__V_ASE_APP__;
-                const inspectedModes = app.state.phononModes;
-                const modelSummary = app.state.phononModelSummary;
-                const result = await app.api.generatePhononModeTrajectory({
-                    qpoint: [0.5, 0, 0],
+                const result = app.state.phononBandStructure;
+                const segmentIndex = result.segments.findIndex(
+                    segment => segment.end_label === 'X'
+                );
+                if (segmentIndex < 0) throw new Error('HPKOT X point is missing.');
+                const segment = result.segments[segmentIndex];
+                const pointIndex = segment.qpoints.length - 1;
+                const geometry = document.getElementById('phonon-band-plot').__vAseBandGeometry;
+                await app.selectPhononBandPoint({
+                    segmentIndex,
+                    pointIndex,
                     band,
-                    amplitude: 2.0,
-                    phase_degrees: 0,
-                    frames: 24,
-                    dimension: [4, 4, 2],
-                    oscillation: true
+                    distance: Number(segment.distances[pointIndex]),
+                    qpoint: [...segment.qpoints[pointIndex]],
+                    frequency: Number(segment.frequencies[pointIndex][band - 1]),
+                    nacDirection: segment.nac_directions[pointIndex]
+                        ? [...segment.nac_directions[pointIndex]]
+                        : null,
+                    dimension: segment.suggested_dimensions[pointIndex]
+                        ? [...segment.suggested_dimensions[pointIndex]]
+                        : null,
+                    x: geometry.x(Number(segment.distances[pointIndex])),
+                    y: geometry.y(Number(segment.frequencies[pointIndex][band - 1]))
                 });
-                app.setAtomsData(result, { clearSelection: true });
-                app.state.phononModelSummary = modelSummary;
-                app.state.phononModes = inspectedModes;
-                app.renderPhononModelSummary(modelSummary);
-                app.renderPhononModes(inspectedModes);
-                document.querySelectorAll('.phonon-mode-row').forEach((row, index) => {
-                    row.setAttribute('aria-selected', index + 1 === band ? 'true' : 'false');
-                });
+            }""",
+            {"band": int(metadata["band"])},
+        )
+        page.wait_for_function(
+            "window.__V_ASE_APP__.state.phononModes?.band_count === 3"
+        )
+        page.fill("#phonon-mode-amplitude", "2.00")
+        page.fill("#phonon-mode-frames", "24")
+        page.fill("#phonon-mode-super-x", "4")
+        page.fill("#phonon-mode-super-y", "4")
+        page.fill("#phonon-mode-super-z", "2")
+        page.click("#btn-phonon-modulate")
+        page.click("#modal-confirm-action")
+        page.wait_for_function(
+            "window.__V_ASE_APP__.loadedFrameCount() === 24"
+        )
+        page.evaluate(
+            """async () => {
+                const app = window.__V_ASE_APP__;
                 Object.assign(app.state.display, {
                     showDisplacements: true,
                     displacementReferenceMode: 'frame',
@@ -417,14 +461,8 @@ def capture_physical_mode(browser, examples: dict[str, object]) -> None:
                 app.renderer.setDisplayOptions(app.state.display);
                 await app.loadFrame(0);
                 await app.refreshDisplacementAnalysis({ suppressBusy: true });
-            }""",
-            {"band": int(metadata["band"])},
+            }"""
         )
-        page.fill("#phonon-mode-amplitude", "2.00")
-        page.fill("#phonon-mode-frames", "24")
-        page.fill("#phonon-mode-super-x", "4")
-        page.fill("#phonon-mode-super-y", "4")
-        page.fill("#phonon-mode-super-z", "2")
         page.wait_for_function(
             "Number(window.__V_ASE_APP__.renderer.domElement.dataset.displacementCount || 0) > 0"
         )
@@ -461,6 +499,24 @@ def capture_physical_mode(browser, examples: dict[str, object]) -> None:
             ASSET_DIR / "readme_phonon_mode.png",
             optimize=True,
         )
+        frames = []
+        for frame_index in range(24):
+            page.evaluate(
+                """async (frameIndex) => {
+                    const app = window.__V_ASE_APP__;
+                    await app.loadFrame(frameIndex);
+                    await app.refreshDisplacementAnalysis({ suppressBusy: true });
+                    app.renderer.renderer.render(app.renderer.scene, app.renderer.camera);
+                }""",
+                frame_index,
+            )
+            page.wait_for_timeout(35)
+            frames.append(screenshot_frame(page))
+        save_gif(
+            frames,
+            ASSET_DIR / "readme_phonon_mode.gif",
+            duration=85,
+        )
     finally:
         page.close()
         editor.close()
@@ -489,6 +545,7 @@ def capture_all(examples: dict[str, object]) -> None:
         "readme_symmetry_standard_cell.png",
         "readme_phonon_displacements.png",
         "readme_phonon_mode.png",
+        "readme_phonon_mode.gif",
     ):
         shutil.copy2(ASSET_DIR / name, GITHUB_ASSET_DIR / name)
 

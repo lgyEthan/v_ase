@@ -9,6 +9,8 @@ from ase.build import bulk
 from ase.io import read
 from fastapi import HTTPException
 from PIL import Image
+from playwright._impl._errors import Error as PlaywrightError
+from playwright.sync_api import sync_playwright
 
 from v_ase.io import atom_labels, set_atom_labels
 from v_ase.phonon import (
@@ -17,6 +19,7 @@ from v_ase.phonon import (
     generate_finite_displacements,
     generate_mode_trajectory,
     load_phonon_model,
+    phonon_band_structure,
     phonon_modes_at_q,
     phonopy_to_ase,
     qpoint_commensurability,
@@ -29,13 +32,16 @@ from v_ase.symmetry import (
     transform_by_symmetry,
 )
 from v_ase.server import (
+    ai_schema_payload,
     apply_positions,
+    phonon_bands,
     phonon_displacements,
     phonon_modes,
     symmetry_analysis,
     symmetry_transform,
 )
 from v_ase.session import EditorSession, sessions
+from v_ase.viewer import find_free_port, view
 
 
 pytest.importorskip("spglib")
@@ -123,6 +129,48 @@ def test_seekpath_returns_standard_primitive_reciprocal_path():
         ["L", "W"],
         ["W", "X"],
     ]
+
+
+def test_phonon_band_structure_maps_hpkot_path_into_phonopy_basis():
+    pytest.importorskip("phonopy")
+    model = load_phonon_model(
+        ROOT / "examples" / "symmetry_branch" / "al_emt_phonopy_params.yaml"
+    )
+    result = phonon_band_structure(model, reference_distance=0.15)
+
+    assert result["spacegroup_international"] == "Fm-3m"
+    assert result["spacegroup_number"] == 225
+    assert result["bravais_lattice"] == "cF"
+    assert result["band_count"] == 3
+    assert [(segment["start_label"], segment["end_label"]) for segment in result["segments"]] == [
+        ("GAMMA", "X"),
+        ("X", "U"),
+        ("K", "GAMMA"),
+        ("GAMMA", "L"),
+        ("L", "W"),
+        ("W", "X"),
+    ]
+    x_point = result["segments"][0]
+    qpoint = x_point["qpoints"][-1]
+    assert qpoint == pytest.approx([0.5, 0.0, 0.5], abs=1e-12)
+    assert x_point["suggested_dimensions"][-1] == [2, 1, 2]
+    assert qpoint_commensurability(
+        qpoint,
+        x_point["suggested_dimensions"][-1],
+    )["commensurate"] is True
+    direct = phonon_modes_at_q(model, qpoint)
+    assert x_point["frequencies"][-1] == pytest.approx(
+        [mode["frequency_thz"] for mode in direct["bands"]],
+        abs=1e-10,
+    )
+    assert x_point["nac_directions"][0] is not None
+    assert any(tick["label"] == "U|K" for tick in result["ticks"])
+
+
+def test_phonon_band_structure_requires_force_constants():
+    model = create_phonon_model(bulk("Al", "fcc", a=4.05), supercell_matrix=(1, 1, 1))
+    with pytest.raises(ValueError, match="force constants"):
+        phonon_band_structure(model)
 
 
 def _synthetic_phonopy_model() -> PhononModel:
@@ -376,6 +424,150 @@ def test_server_symmetry_analysis_is_available_in_view_mode_without_mutation():
     assert session.history == []
 
 
+def test_server_phonon_band_plot_is_read_only_and_available_in_view_mode():
+    model = load_phonon_model(
+        ROOT / "examples" / "symmetry_branch" / "al_emt_phonopy_params.yaml"
+    )
+    atoms = phonopy_to_ase(model.phonon.unitcell)
+    session = _editor_session("phonon-band-view", atoms, viz_only=True)
+    session.phonon_model = model
+    before = session.working_atoms.positions.copy()
+    try:
+        result = asyncio.run(phonon_bands(session.session_id, {
+            "reference_distance": 0.15,
+            "symprec": 1e-5,
+        }))
+    finally:
+        sessions.pop(session.session_id, None)
+
+    assert result["status"] == "ok"
+    assert result["band_count"] == 3
+    assert result["segments"][0]["end_label"] == "X"
+    assert np.allclose(session.working_atoms.positions, before)
+    assert session.history == []
+
+
+def test_phonon_band_operation_is_discoverable_to_agents_and_the_gui():
+    discovery = ai_schema_payload()
+    assert discovery["operation_parameters"]["phonon-band-structure"]["mode"] == "view-or-edit"
+    assert discovery["scientific_endpoints"]["phonon_band_structure"].endswith(
+        "/api/analysis/phonon/band-structure/{session_id}"
+    )
+    index = (ROOT / "v_ase" / "static" / "index.html").read_text(encoding="utf-8")
+    main = (ROOT / "v_ase" / "static" / "main.js").read_text(encoding="utf-8")
+    assert 'id="phonon-band-plot"' in index
+    assert 'id="btn-phonon-bands"' in index
+    assert "'phonon-band-structure'" in main
+
+
+def test_browser_selects_a_band_point_and_animates_the_physical_mode():
+    pytest.importorskip("phonopy")
+    project = ROOT / "examples" / "symmetry_branch" / "al_emt_phonopy_params.yaml"
+    model = load_phonon_model(project)
+    atoms = phonopy_to_ase(model.phonon.unitcell)
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+        allow_relax=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__V_ASE_APP__?.state?.atoms")
+            page.evaluate(
+                """() => {
+                    const app = window.__V_ASE_APP__;
+                    app.setInspectorCollapsed(false, false);
+                    app.setInspectorGroup('analysis', false);
+                    const panel = document.querySelector('[data-panel="phonons"]');
+                    if (panel) panel.open = true;
+                }"""
+            )
+            page.set_input_files("#phonopy-project-file", str(project))
+            page.wait_for_function(
+                "window.__V_ASE_APP__.state.phononBandStructure?.convention === 'HPKOT'"
+            )
+            page.wait_for_function(
+                "document.querySelectorAll('.phonon-band-branch').length === 18"
+            )
+
+            labels = page.locator("#phonon-band-plot .phonon-band-label").all_text_contents()
+            assert labels == ["Γ", "X", "U|K", "Γ", "L", "W", "X"]
+            page.locator("#phonon-band-plot").scroll_into_view_if_needed()
+            click_point = page.evaluate(
+                """() => {
+                    const app = window.__V_ASE_APP__;
+                    const result = app.state.phononBandStructure;
+                    const segment = result.segments.find(item => item.end_label === 'X');
+                    const pointIndex = segment.qpoints.length - 1;
+                    const plot = document.getElementById('phonon-band-plot');
+                    const rect = plot.getBoundingClientRect();
+                    const geometry = plot.__vAseBandGeometry;
+                    const x = geometry.x(Number(segment.distances[pointIndex]));
+                    const y = geometry.y(Number(segment.frequencies[pointIndex][2]));
+                    return {
+                        x: rect.left + x * rect.width / 640,
+                        y: rect.top + y * rect.height / 330
+                    };
+                }"""
+            )
+            page.mouse.click(click_point["x"], click_point["y"])
+            page.wait_for_function(
+                """() => {
+                    const q = ['phonon-q-x', 'phonon-q-y', 'phonon-q-z']
+                        .map(id => Number(document.getElementById(id).value));
+                    return Math.abs(q[0] - 0.5) < 1e-10
+                        && Math.abs(q[1]) < 1e-10
+                        && Math.abs(q[2] - 0.5) < 1e-10
+                        && window.__V_ASE_APP__.state.phononModes?.band_count === 3;
+                }"""
+            )
+            page.locator(".phonon-mode-row").nth(2).click()
+            page.wait_for_function(
+                "window.__V_ASE_APP__.state.phononBandSelection?.band === 3"
+            )
+            assert [
+                page.input_value(f"#phonon-mode-super-{axis}")
+                for axis in "xyz"
+            ] == ["2", "1", "2"]
+
+            page.fill("#phonon-mode-amplitude", "2")
+            page.fill("#phonon-mode-frames", "24")
+            for axis, value in zip("xyz", (4, 4, 2), strict=True):
+                page.fill(f"#phonon-mode-super-{axis}", str(value))
+            page.click("#btn-phonon-modulate")
+            page.click("#modal-confirm-action")
+            page.wait_for_function("window.__V_ASE_APP__.loadedFrameCount() === 24")
+            page.wait_for_function(
+                """() => document.querySelectorAll('.phonon-band-branch').length === 18
+                    && window.__V_ASE_APP__.state.phononBandSelection?.band === 3"""
+            )
+            first = np.asarray(page.evaluate("window.__V_ASE_APP__.state.atoms.positions"))
+            page.evaluate("window.__V_ASE_APP__.loadFrame(12)")
+            page.wait_for_function(
+                "window.__V_ASE_APP__.state.atoms.metadata.current_frame === 12"
+            )
+            opposite = np.asarray(page.evaluate("window.__V_ASE_APP__.state.atoms.positions"))
+            assert not np.allclose(first, opposite)
+            assert page.locator("#phonon-band-result").is_visible()
+            assert page.locator("#phonon-band-status .analysis-status-title").inner_text() == (
+                "cF phonon dispersion"
+            )
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_server_symmetry_transform_replaces_trajectory_and_can_undo():
     atoms = bulk("Si", "diamond", a=5.43)
     session = _editor_session("symmetry-transform-edit", atoms)
@@ -497,11 +689,14 @@ def test_reproducible_symmetry_readme_structures_match_the_manifest():
 
     model = load_phonon_model(example_dir / "al_emt_phonopy_params.yaml")
     assert model.has_force_constants
-    modes = phonon_modes_at_q(model, [0.5, 0, 0], projection_direction=[0, 1, 0])
+    qpoint = manifest["phonon_mode"]["band_structure"]["selected_qpoint"]
+    assert qpoint == pytest.approx([0.5, 0.0, 0.5], abs=1e-12)
+    modes = phonon_modes_at_q(model, qpoint, projection_direction=[0, 1, 0])
     documented = manifest["phonon_mode"]["selected_mode"]
     actual = next(mode for mode in modes["bands"] if mode["band"] == documented["band"])
     assert actual["frequency_thz"] == pytest.approx(documented["frequency_thz"], rel=2e-8)
-    assert actual["frequency_thz"] == pytest.approx(7.9187818837, rel=1e-8)
+    assert actual["frequency_thz"] == pytest.approx(7.9913903014, rel=1e-8)
+    assert not (example_dir / "al_x_mode_peak.cif").exists()
 
 
 def test_symmetry_readme_uses_actual_synchronized_application_captures():
@@ -517,6 +712,7 @@ def test_symmetry_readme_uses_actual_synchronized_application_captures():
         "readme_symmetry_standard_cell.png",
         "readme_phonon_displacements.png",
         "readme_phonon_mode.png",
+        "readme_phonon_mode.gif",
     )
     for filename in required_media:
         canonical = ROOT / "docs" / "assets" / filename
@@ -526,7 +722,10 @@ def test_symmetry_readme_uses_actual_synchronized_application_captures():
             assert image.size == (1920, 1080)
             pixels = np.asarray(image.convert("RGB"), dtype=float)
             assert pixels.std() > 20
-        assert filename in readme
+            if filename.endswith(".gif"):
+                assert getattr(image, "n_frames", 1) == 24
+        if filename != "readme_phonon_mode.png":
+            assert filename in readme
 
     for filename in (
         "si_diamond_primitive.cif",
@@ -534,7 +733,6 @@ def test_symmetry_readme_uses_actual_synchronized_application_captures():
         "nacl_2x2x2_displacement_001.cif",
         "nacl_2x2x2_finite_displacements.extxyz",
         "al_emt_phonopy_params.yaml",
-        "al_x_mode_peak.cif",
         "al_x_mode_trajectory.extxyz",
         "manifest.json",
     ):

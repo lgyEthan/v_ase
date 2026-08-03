@@ -18,8 +18,8 @@ Install this isolated symmetry alpha from a checkout of the `symmetry` branch:
 python -m pip install -e ".[symmetry,phonon]"
 ```
 
-The branch version is `0.0.120a4+symmetry`: it identifies main viewer state
-`0.0.120` as the fork base and alpha iteration 4 as symmetry-only work. It is
+The branch version is `0.0.120a5+symmetry`: it identifies main viewer state
+`0.0.120` as the fork base and alpha iteration 5 as symmetry-only work. It is
 intentionally not installed
 from or published to PyPI. Use the checked-out branch as the source of truth.
 
@@ -162,10 +162,11 @@ array and set `pivot: "active"`; verify that its coordinate is unchanged.
 
 Scientific operations in this branch are `analyze-symmetry`,
 `symmetry-path`, `standardize-symmetry`,
-`generate-phonon-displacements`, `inspect-phonon-modes`, and
-`generate-phonon-mode`. Analysis and reciprocal-path queries are
-nonmutating. Standardization and generated trajectories require Edit mode,
-replace the current trajectory, and create an Undo checkpoint. Read
+`generate-phonon-displacements`, `phonon-band-structure`,
+`inspect-phonon-modes`, and `generate-phonon-mode`. Symmetry analysis,
+reciprocal-path queries, and phonon-band calculation are nonmutating.
+Standardization and generated trajectories require Edit mode, replace the
+current trajectory, and create an Undo checkpoint. Read
 `references/symmetry-and-phonons.md` before using them. A loaded phonopy
 project must match the active atom order, elements, lattice metric, and
 periodic positions. `describe()` keeps scientific state compact; use the direct

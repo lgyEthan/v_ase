@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.120a5+symmetry
+
+- Added automatic SeeK-path HPKOT phonon-band calculation after loading a
+  matching Phonopy project with force constants.
+- Added an interactive SVG dispersion plot whose sampled branches select the
+  exact Phonopy-basis q-point, sorted mode, Gamma NAC direction, and a small
+  commensurate diagonal mode-cell suggestion.
+- Kept the selected band plot and exact mode state visible after generating an
+  oscillating trajectory, including through the external-agent operation.
+- Replaced the static Al mode-peak CIF documentation with a reproducible
+  1920 x 1080, 24-frame GIF captured from the real browser workflow at fcc-Al
+  X, `q=(0.5, 0, 0.5)`, band 3, 7.9914 THz for the bundled ASE EMT fixture.
+- Added backend, browser-click, reciprocal-basis, commensurability, README
+  media, and agent-discovery regressions. This branch remains excluded from
+  PyPI and from GitHub `main`.
+
 ## 0.0.120a4+symmetry
 
 - Added reproducible symmetry-branch README examples for diamond-Si analysis,

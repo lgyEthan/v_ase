@@ -25,6 +25,7 @@ The description should trigger for these requests even when v_ase is not named:
 11. `[trigger]` Find the space group and independent Wyckoff sites of this cell.
 12. `[trigger]` Generate finite-displacement supercells for a phonon calculation.
 13. `[trigger]` Animate band 4 at q = (1/2, 0, 0) from my phonopy project.
+14. `[trigger]` Plot the phonon band structure and let me choose a mode from it.
 
 It should not trigger for these nearby but unrelated requests:
 
@@ -63,8 +64,8 @@ Current operation coverage:
 - move-selection, rotate-selection, undo, redo, reset-coordinates;
 - start-relaxation, stop-relaxation, refresh-displacements.
 - analyze-symmetry, symmetry-path, standardize-symmetry;
-- generate-phonon-displacements, inspect-phonon-modes,
-  generate-phonon-mode.
+- generate-phonon-displacements, phonon-band-structure,
+  inspect-phonon-modes, generate-phonon-mode.
 
 Current export coverage:
 
@@ -222,9 +223,13 @@ Run all scenarios, not only static document checks:
     - generate the HPKOT reciprocal path and require a nonempty path;
     - generate finite-displacement inputs without force constants and verify
       every frame is a valid periodic ASE structure;
-    - load a completed phonopy YAML containing force constants, inspect a
-      q-point with Cartesian polarization projection, and retain negative
-      frequencies as imaginary;
+    - load a completed phonopy YAML containing force constants and calculate
+      the full HPKOT band plot automatically;
+    - click an actual sampled branch point in the browser, verify the reduced
+      q-point in the Phonopy primitive basis, choose a degenerate mode row, and
+      apply the suggested commensurate mode cell;
+    - inspect the selected q-point with Cartesian polarization projection and
+      retain negative frequencies as imaginary;
     - reject a phonopy project whose atom order, elements, cell, or periodic
       positions differ from the active structure;
     - compare a nearest-neighbour monatomic-chain model with
@@ -235,8 +240,8 @@ Run all scenarios, not only static document checks:
     - reject an incommensurate mode supercell;
     - generate a commensurate oscillating mode trajectory and verify q-point,
       band, frequency, amplitude, phase sequence, atom count, and frame count
-      semantically and in the rendered movie; verify custom labels and isotope
-      masses survive every generated frame.
+      semantically and in the rendered 24-frame GIF; verify the band selection
+      stays visible and custom labels and isotope masses survive every frame.
 
 ## Visual Assertions
 

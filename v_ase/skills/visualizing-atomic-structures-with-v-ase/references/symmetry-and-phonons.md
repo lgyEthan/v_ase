@@ -9,10 +9,11 @@
 5. Standardized structures
 6. Finite-displacement inputs
 7. Loading force constants
-8. Inspecting physical modes
-9. Generating a mode trajectory
-10. Reproducible branch examples
-11. Verification and errors
+8. Automatic phonon band structure
+9. Inspecting physical modes
+10. Generating a mode trajectory
+11. Reproducible branch examples
+12. Verification and errors
 
 ## Scientific Boundary
 
@@ -22,8 +23,9 @@ rigid translation. A physical mode at q requires force constants, the
 q-dependent dynamical matrix, and its mass-weighted eigenvector.
 
 Use `generate-phonon-displacements` to prepare external force calculations.
-Use `inspect-phonon-modes` and `generate-phonon-mode` only after loading a
-completed Phonopy YAML containing force constants.
+Use `phonon-band-structure`, `inspect-phonon-modes`, and
+`generate-phonon-mode` only after loading a completed Phonopy YAML containing
+force constants.
 
 ## Dependencies And Discovery
 
@@ -152,14 +154,44 @@ automatically; a non-rigid lattice-basis change is rejected. The loaded model
 is document-local runtime state and is not serialized into a normal `.vase`
 project in this alpha.
 
+## Automatic Phonon Band Structure
+
+Request the full HPKOT dispersion before selecting a q-point by name or from a
+plot:
+
+```bash
+v_ase api "$COMMAND_URL" apply --params '{
+  "operation":{
+    "name":"phonon-band-structure",
+    "referenceDistance":0.08,
+    "symprec":1e-5,
+    "angleTolerance":-1
+  }
+}'
+```
+
+This operation is nonmutating and valid in View or Edit mode. It returns the
+sampled SeeK-path segments, HPKOT labels, q-points transformed into the loaded
+Phonopy primitive reciprocal basis, sorted THz frequencies, Gamma NAC
+directions, and suggested small diagonal mode cells. Verify
+`describe().analysis.phononBandStructure` reports the convention, space group,
+frequency range, tick labels, point count, and band count. The compact state
+omits all sampled frequency arrays; use the operation response or the direct
+`phonon_band_structure` endpoint from `schema.scientific_endpoints` when exact
+plot data is required.
+
+Never infer reduced q coordinates from a point label alone. Select an exact
+q-point from the returned segment. At a degeneracy, explicitly choose the
+desired 1-based mode after `inspect-phonon-modes` recalculates that q-point.
+
 ## Inspecting Physical Modes
 
 ```bash
 v_ase api "$COMMAND_URL" apply --params '{
   "operation":{
     "name":"inspect-phonon-modes",
-    "qpoint":[0.5,0,0],
-    "projectionDirection":[1,0,0]
+    "qpoint":[0.5,0,0.5],
+    "projectionDirection":[0,1,0]
   }
 }'
 ```
@@ -185,11 +217,11 @@ v_ase api "$COMMAND_URL" apply --params '{
   "mode":"edit",
   "operation":{
     "name":"generate-phonon-mode",
-    "qpoint":[0.5,0,0],
-    "band":4,
+    "qpoint":[0.5,0,0.5],
+    "band":3,
     "amplitude":0.10,
     "phaseDegrees":0,
-    "dimension":[2,1,1],
+    "dimension":[2,1,2],
     "frames":24,
     "oscillation":true
   }
@@ -231,8 +263,8 @@ files:
 - `examples/symmetry_branch/nacl_2x2x2_finite_displacements.extxyz`: expect two
   16-atom calculation-input frames at 0.01 A and `forces_required: true`;
 - `examples/symmetry_branch/al_emt_phonopy_params.yaml`: expect force constants,
-  then at `q=[0.5,0,0]` a 7.9188 THz band-3 mode for the bundled ASE EMT
-  regression;
+  an automatically calculated HPKOT path, then at X `q=[0.5,0,0.5]` a
+  7.9914 THz band-3 mode for the bundled ASE EMT regression;
 - `examples/symmetry_branch/al_x_mode_trajectory.extxyz`: expect 24 frames,
   32 Al atoms, a `4 x 4 x 2` commensurate cell, continuous coordinates, and
   nonzero alternating displacement.

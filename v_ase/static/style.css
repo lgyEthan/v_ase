@@ -1929,6 +1929,155 @@ body.inspector-wide #inspector .supercell-row {
     color: var(--red-contrast);
 }
 
+.phonon-band-result {
+    margin-top: 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--field);
+}
+
+.phonon-band-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 10px 6px;
+    border-bottom: 1px solid var(--line);
+}
+
+.phonon-band-head strong {
+    color: var(--text);
+    font-size: 0.67rem;
+}
+
+.phonon-band-head span {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.58rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.phonon-band-plot {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 640 / 330;
+    background: var(--neutral-950);
+    cursor: crosshair;
+    touch-action: none;
+}
+
+.phonon-band-grid,
+.phonon-band-tick-line {
+    stroke: var(--line);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+}
+
+.phonon-band-zero {
+    stroke: var(--red-border);
+    stroke-width: 1;
+    stroke-dasharray: 4 4;
+    vector-effect: non-scaling-stroke;
+}
+
+.phonon-band-branch {
+    fill: none;
+    stroke: var(--renderer-rim);
+    stroke-width: 1.35;
+    vector-effect: non-scaling-stroke;
+}
+
+.phonon-band-branch:hover,
+.phonon-band-branch.is-selected {
+    stroke: var(--teal);
+    stroke-width: 2.2;
+}
+
+.phonon-band-label,
+.phonon-band-axis-label {
+    fill: var(--text-soft);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 18px;
+    letter-spacing: 0;
+    pointer-events: none;
+}
+
+.phonon-band-axis-label {
+    fill: var(--muted);
+    font-size: 15px;
+}
+
+.phonon-band-cursor-line {
+    stroke: var(--teal-border-strong);
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
+    vector-effect: non-scaling-stroke;
+    pointer-events: none;
+}
+
+.phonon-band-cursor-point {
+    fill: var(--amber);
+    stroke: var(--neutral-950);
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+    pointer-events: none;
+}
+
+.phonon-band-selection {
+    min-height: 38px;
+    padding: 7px 10px 8px;
+    border-top: 1px solid var(--line);
+    color: var(--text-soft);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.6rem;
+    line-height: 1.45;
+}
+
+.phonon-band-actions {
+    align-items: stretch;
+    margin-top: 8px;
+}
+
+.compact-number-field {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    padding: 0 8px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--field);
+    color: var(--muted);
+    font-size: 0.61rem;
+}
+
+.compact-number-field input {
+    min-width: 0;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    text-align: right;
+}
+
+.phonon-manual-q {
+    margin-top: 8px;
+    border-top: 1px solid var(--line);
+}
+
+.phonon-manual-q summary {
+    padding: 8px 0 3px;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 0.63rem;
+}
+
 @media (max-width: 390px) {
     .science-control-grid {
         grid-template-columns: 1fr;

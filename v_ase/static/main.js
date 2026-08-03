@@ -1,15 +1,15 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.120a4%2Bsymmetry&rev=4';
-import { ASERenderer } from './renderer.js?v=0.0.120a4%2Bsymmetry&rev=4';
-import { ASESelection } from './selection.js?v=0.0.120a4%2Bsymmetry&rev=4';
-import { ASETransform } from './transform.js?v=0.0.120a4%2Bsymmetry&rev=4';
+import { ASEApi } from './api.js?v=0.0.120a5%2Bsymmetry&rev=5';
+import { ASERenderer } from './renderer.js?v=0.0.120a5%2Bsymmetry&rev=5';
+import { ASESelection } from './selection.js?v=0.0.120a5%2Bsymmetry&rev=5';
+import { ASETransform } from './transform.js?v=0.0.120a5%2Bsymmetry&rev=5';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.120a4%2Bsymmetry&rev=4';
+} from './trajectory.js?v=0.0.120a5%2Bsymmetry&rev=5';
 
-const V_ASE_BUILD_VERSION = '0.0.120a4+symmetry';
+const V_ASE_BUILD_VERSION = '0.0.120a5+symmetry';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -236,6 +236,11 @@ class VAseApp {
             symmetryResult: null,
             symmetryPath: null,
             phononModelSummary: null,
+            phononBandStructure: null,
+            phononBandSelection: null,
+            phononSelectedNacDirection: null,
+            phononBandRequestToken: 0,
+            phononBandCalculationPending: false,
             phononModes: null,
             videoExportId: null,
             videoExportStartedAt: null
@@ -1419,6 +1424,17 @@ class VAseApp {
             'click',
             () => this.calculatePhononModes()
         );
+        document.getElementById('btn-phonon-bands')?.addEventListener(
+            'click',
+            () => this.calculatePhononBandStructure()
+        );
+        ['phonon-q-x', 'phonon-q-y', 'phonon-q-z'].forEach(id => {
+            document.getElementById(id)?.addEventListener('input', () => {
+                this.state.phononSelectedNacDirection = null;
+                this.state.phononBandSelection = null;
+                this.updatePhononBandSelectionUI();
+            });
+        });
         document.getElementById('btn-phonon-modulate')?.addEventListener(
             'click',
             () => this.createPhononModeTrajectory()
@@ -1569,16 +1585,28 @@ class VAseApp {
     invalidateScientificResults() {
         this.state.symmetryResult = null;
         this.state.symmetryPath = null;
+        this.state.phononBandStructure = null;
+        this.state.phononBandSelection = null;
+        this.state.phononSelectedNacDirection = null;
         this.state.phononModes = null;
+        this.state.phononBandRequestToken += 1;
+        this.state.phononBandCalculationPending = false;
         document.getElementById('symmetry-result')?.classList.add('hidden');
         document.getElementById('symmetry-orbits')?.replaceChildren();
         document.getElementById('symmetry-path-result')?.classList.add('hidden');
         document.getElementById('phonon-mode-result')?.classList.add('hidden');
+        document.getElementById('phonon-band-result')?.classList.add('hidden');
         this.setScienceStatus(
             'symmetry-status',
             'idle',
             'Not analyzed',
             'Inspect the current frame with spglib.'
+        );
+        this.setScienceStatus(
+            'phonon-band-status',
+            'idle',
+            'Band structure unavailable',
+            'Load force constants to calculate the HPKOT path.'
         );
     }
 
@@ -1690,9 +1718,19 @@ class VAseApp {
             );
             const metadata = result.phonon || {};
             this.state.phononModelSummary = metadata;
+            this.state.phononBandStructure = null;
+            this.state.phononBandSelection = null;
+            this.state.phononSelectedNacDirection = null;
             this.state.phononModes = null;
             this.setAtomsData(result, { clearSelection: true });
             this.renderPhononModelSummary(metadata);
+            this.setScienceStatus(
+                'phonon-band-status',
+                'warning',
+                'Force constants required',
+                'Calculate forces for every displaced frame, then load the completed project.'
+            );
+            document.getElementById('phonon-band-result')?.classList.add('hidden');
             document.getElementById('phonon-mode-result')?.classList.add('hidden');
             this.toast(
                 `Generated ${metadata.displacement_count || result.metadata?.frame_count || 0} finite-displacement inputs. Forces are still required.`,
@@ -1710,6 +1748,9 @@ class VAseApp {
                 () => this.api.loadPhonopyProject(file)
             );
             this.state.phononModelSummary = result;
+            this.state.phononBandStructure = null;
+            this.state.phononBandSelection = null;
+            this.state.phononSelectedNacDirection = null;
             this.state.phononModes = null;
             this.renderPhononModelSummary(result);
             document.getElementById('phonon-mode-result')?.classList.add('hidden');
@@ -1719,6 +1760,16 @@ class VAseApp {
                     : 'Loaded phonopy project, but it does not contain force constants.',
                 result.has_force_constants ? 'success' : 'warning'
             );
+            if (result.has_force_constants) {
+                await this.calculatePhononBandStructure({ silent: true });
+            } else {
+                this.setScienceStatus(
+                    'phonon-band-status',
+                    'warning',
+                    'Force constants required',
+                    'This project contains calculation inputs but no physical dispersion.'
+                );
+            }
         } catch (error) {
             this.setScienceStatus(
                 'phonon-model-status',
@@ -1751,6 +1802,325 @@ class VAseApp {
         );
     }
 
+    async calculatePhononBandStructure({ silent = false } = {}) {
+        if (this.state.phononBandCalculationPending) return null;
+        this.state.phononBandCalculationPending = true;
+        const token = ++this.state.phononBandRequestToken;
+        let referenceDistance;
+        try {
+            referenceDistance = this.finiteScienceNumber(
+                'phonon-band-spacing',
+                'Band spacing',
+                { minimum: 0.005, maximum: 1 }
+            );
+        } catch (error) {
+            this.toast(error.message, 'error');
+            this.state.phononBandCalculationPending = false;
+            return null;
+        }
+        this.setScienceStatus(
+            'phonon-band-status',
+            'loading',
+            'Calculating band structure',
+            `SeeK-path HPKOT spacing ${referenceDistance} 1/A`
+        );
+        try {
+            const request = () => this.api.fetchPhononBandStructure({
+                reference_distance: referenceDistance,
+                symprec: this.finiteScienceNumber(
+                    'symmetry-symprec',
+                    'Position tolerance',
+                    { minimum: 1e-8, maximum: 1 }
+                ),
+                angle_tolerance: this.finiteScienceNumber(
+                    'symmetry-angle-tolerance',
+                    'Angle tolerance',
+                    { minimum: -1, maximum: 180 }
+                )
+            });
+            const result = silent
+                ? await request()
+                : await this.withBusy('Calculating the phonon band structure...', request);
+            if (token !== this.state.phononBandRequestToken) return null;
+            this.state.phononBandStructure = result;
+            this.state.phononBandSelection = null;
+            this.state.phononSelectedNacDirection = null;
+            this.renderPhononBandStructure(result);
+            this.setScienceStatus(
+                'phonon-band-status',
+                result.has_imaginary ? 'warning' : 'ready',
+                `${result.bravais_lattice} phonon dispersion`,
+                `${result.qpoint_count} q-points; ${result.band_count} bands; ${result.convention} path.`
+            );
+            if (!silent) this.toast('Calculated the interactive phonon band structure.', 'success');
+            return result;
+        } catch (error) {
+            if (token !== this.state.phononBandRequestToken) return null;
+            this.state.phononBandStructure = null;
+            this.state.phononBandSelection = null;
+            document.getElementById('phonon-band-result')?.classList.add('hidden');
+            this.setScienceStatus(
+                'phonon-band-status',
+                'warning',
+                'Band structure unavailable',
+                error.message
+            );
+            this.toast(`Phonon band structure failed: ${error.message}`, 'error');
+            return null;
+        } finally {
+            if (token === this.state.phononBandRequestToken) {
+                this.state.phononBandCalculationPending = false;
+            }
+        }
+    }
+
+    phononBandLabel(label) {
+        return String(label || '').replaceAll('GAMMA', 'Γ');
+    }
+
+    phononBandPointText(point) {
+        if (!point) return 'Click a band point to select its q-point and mode.';
+        const q = point.qpoint.map(value => Number(value).toFixed(4)).join(', ');
+        const frequency = Number(point.frequency).toFixed(4);
+        const dimension = Array.isArray(point.dimension)
+            ? ` | mode cell ${point.dimension.join(' x ')}`
+            : ' | no small diagonal mode cell found';
+        const imaginary = point.frequency < -1e-8 ? ' (imaginary)' : '';
+        return `Band ${point.band} | q=(${q}) | ${frequency} THz${imaginary}${dimension}`;
+    }
+
+    phononBandNearestPoint(event) {
+        const plot = document.getElementById('phonon-band-plot');
+        const result = this.state.phononBandStructure;
+        const geometry = plot?.__vAseBandGeometry;
+        if (!plot || !result || !geometry) return null;
+        const rect = plot.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return null;
+        const px = (event.clientX - rect.left) * 640 / rect.width;
+        const py = (event.clientY - rect.top) * 330 / rect.height;
+        let nearest = null;
+        let nearestDistance = Infinity;
+        (result.segments || []).forEach((segment, segmentIndex) => {
+            (segment.distances || []).forEach((distance, pointIndex) => {
+                const x = geometry.x(Number(distance));
+                (segment.frequencies?.[pointIndex] || []).forEach((frequency, bandIndex) => {
+                    const y = geometry.y(Number(frequency));
+                    const metric = (x - px) ** 2 + (y - py) ** 2;
+                    if (metric >= nearestDistance) return;
+                    nearestDistance = metric;
+                    nearest = {
+                        segmentIndex,
+                        pointIndex,
+                        band: bandIndex + 1,
+                        distance: Number(distance),
+                        qpoint: [...segment.qpoints[pointIndex]],
+                        frequency: Number(frequency),
+                        nacDirection: segment.nac_directions?.[pointIndex]
+                            ? [...segment.nac_directions[pointIndex]]
+                            : null,
+                        dimension: segment.suggested_dimensions?.[pointIndex]
+                            ? [...segment.suggested_dimensions[pointIndex]]
+                            : null,
+                        x,
+                        y
+                    };
+                });
+            });
+        });
+        return nearest;
+    }
+
+    updatePhononBandCursor(point, { selected = false } = {}) {
+        const plot = document.getElementById('phonon-band-plot');
+        if (!plot) return;
+        const line = plot.querySelector('.phonon-band-cursor-line');
+        const marker = plot.querySelector('.phonon-band-cursor-point');
+        if (!line || !marker) return;
+        if (!point) {
+            line.setAttribute('visibility', 'hidden');
+            marker.setAttribute('visibility', 'hidden');
+            return;
+        }
+        line.setAttribute('x1', `${point.x}`);
+        line.setAttribute('x2', `${point.x}`);
+        line.setAttribute('visibility', 'visible');
+        marker.setAttribute('cx', `${point.x}`);
+        marker.setAttribute('cy', `${point.y}`);
+        marker.setAttribute('r', selected ? '6.5' : '4.5');
+        marker.setAttribute('visibility', 'visible');
+    }
+
+    updatePhononBandSelectionUI(point = this.state.phononBandSelection) {
+        const output = document.getElementById('phonon-band-selection');
+        if (output) output.textContent = this.phononBandPointText(point);
+        const plot = document.getElementById('phonon-band-plot');
+        plot?.querySelectorAll('.phonon-band-branch').forEach(path => {
+            path.classList.toggle(
+                'is-selected',
+                Boolean(point) && Number(path.dataset.band) === Number(point.band)
+            );
+        });
+        this.updatePhononBandCursor(point, { selected: Boolean(point) });
+    }
+
+    renderPhononBandStructure(result) {
+        const container = document.getElementById('phonon-band-result');
+        const plot = document.getElementById('phonon-band-plot');
+        if (!container || !plot || !result?.segments?.length) return;
+        container.classList.remove('hidden');
+        const title = document.getElementById('phonon-band-title');
+        const meta = document.getElementById('phonon-band-meta');
+        if (title) title.textContent = `${result.spacegroup_international} phonons`;
+        if (meta) meta.textContent = `${result.convention} · ${result.frequency_unit}`;
+
+        const svg = (name, attributes = {}, text = '') => {
+            const element = document.createElementNS('http://www.w3.org/2000/svg', name);
+            Object.entries(attributes).forEach(([key, value]) => {
+                element.setAttribute(key, `${value}`);
+            });
+            if (text) element.textContent = text;
+            return element;
+        };
+        const margin = { left: 62, right: 17, top: 17, bottom: 48 };
+        const width = 640;
+        const height = 330;
+        const xMin = Number(result.ticks?.[0]?.distance ?? result.segments[0].distances[0]);
+        const xMax = Number(
+            result.ticks?.[result.ticks.length - 1]?.distance
+            ?? result.segments[result.segments.length - 1].distances.at(-1)
+        );
+        const rawMin = Math.min(0, Number(result.frequency_min));
+        const rawMax = Math.max(0, Number(result.frequency_max));
+        const frequencySpan = Math.max(1e-6, rawMax - rawMin);
+        const yMin = rawMin - frequencySpan * 0.07;
+        const yMax = rawMax + frequencySpan * 0.07;
+        const x = value => margin.left + (Number(value) - xMin) / Math.max(1e-12, xMax - xMin)
+            * (width - margin.left - margin.right);
+        const y = value => height - margin.bottom - (Number(value) - yMin) / (yMax - yMin)
+            * (height - margin.top - margin.bottom);
+        plot.__vAseBandGeometry = { x, y, yMin, yMax };
+        plot.replaceChildren();
+
+        const yTicks = 5;
+        for (let index = 0; index <= yTicks; index += 1) {
+            const frequency = yMin + (yMax - yMin) * index / yTicks;
+            const py = y(frequency);
+            plot.append(
+                svg('line', {
+                    x1: margin.left,
+                    y1: py,
+                    x2: width - margin.right,
+                    y2: py,
+                    class: 'phonon-band-grid'
+                }),
+                svg('text', {
+                    x: margin.left - 8,
+                    y: py + 5,
+                    'text-anchor': 'end',
+                    class: 'phonon-band-axis-label'
+                }, frequency.toFixed(1))
+            );
+        }
+        if (yMin < 0 && yMax > 0) {
+            plot.append(svg('line', {
+                x1: margin.left,
+                y1: y(0),
+                x2: width - margin.right,
+                y2: y(0),
+                class: 'phonon-band-zero'
+            }));
+        }
+        (result.ticks || []).forEach(tick => {
+            const px = x(tick.distance);
+            plot.append(
+                svg('line', {
+                    x1: px,
+                    y1: margin.top,
+                    x2: px,
+                    y2: height - margin.bottom,
+                    class: 'phonon-band-tick-line'
+                }),
+                svg('text', {
+                    x: px,
+                    y: height - 18,
+                    'text-anchor': 'middle',
+                    class: 'phonon-band-label'
+                }, this.phononBandLabel(tick.label))
+            );
+        });
+        plot.append(svg('text', {
+            x: 17,
+            y: (margin.top + height - margin.bottom) / 2,
+            transform: `rotate(-90 17 ${(margin.top + height - margin.bottom) / 2})`,
+            'text-anchor': 'middle',
+            class: 'phonon-band-axis-label'
+        }, 'Frequency (THz)'));
+
+        for (let bandIndex = 0; bandIndex < Number(result.band_count); bandIndex += 1) {
+            result.segments.forEach(segment => {
+                const commands = (segment.distances || []).map((distance, pointIndex) => {
+                    const frequency = segment.frequencies?.[pointIndex]?.[bandIndex];
+                    return `${pointIndex === 0 ? 'M' : 'L'} ${x(distance).toFixed(3)} ${y(frequency).toFixed(3)}`;
+                }).join(' ');
+                plot.append(svg('path', {
+                    d: commands,
+                    class: 'phonon-band-branch',
+                    'data-band': bandIndex + 1
+                }));
+            });
+        }
+        plot.append(
+            svg('line', {
+                x1: 0,
+                y1: margin.top,
+                x2: 0,
+                y2: height - margin.bottom,
+                visibility: 'hidden',
+                class: 'phonon-band-cursor-line'
+            }),
+            svg('circle', {
+                cx: 0,
+                cy: 0,
+                r: 4.5,
+                visibility: 'hidden',
+                class: 'phonon-band-cursor-point'
+            })
+        );
+        plot.onpointermove = event => {
+            const point = this.phononBandNearestPoint(event);
+            this.updatePhononBandCursor(point);
+            const output = document.getElementById('phonon-band-selection');
+            if (output && point) output.textContent = this.phononBandPointText(point);
+        };
+        plot.onpointerleave = () => this.updatePhononBandSelectionUI();
+        plot.onclick = event => {
+            const point = this.phononBandNearestPoint(event);
+            if (point) this.selectPhononBandPoint(point);
+        };
+        this.updatePhononBandSelectionUI();
+    }
+
+    async selectPhononBandPoint(point) {
+        this.state.phononBandSelection = { ...point };
+        this.state.phononSelectedNacDirection = point.nacDirection
+            ? [...point.nacDirection]
+            : null;
+        ['phonon-q-x', 'phonon-q-y', 'phonon-q-z'].forEach((id, index) => {
+            const input = document.getElementById(id);
+            if (input) input.value = Number(point.qpoint[index]).toPrecision(10).replace(/\.?0+$/, '');
+        });
+        const bandInput = document.getElementById('phonon-mode-band');
+        if (bandInput) bandInput.value = `${point.band}`;
+        if (Array.isArray(point.dimension)) {
+            ['phonon-mode-super-x', 'phonon-mode-super-y', 'phonon-mode-super-z'].forEach((id, index) => {
+                const input = document.getElementById(id);
+                if (input) input.value = `${point.dimension[index]}`;
+            });
+        }
+        this.updatePhononBandSelectionUI();
+        await this.calculatePhononModes({ preferredBand: point.band, silent: true });
+    }
+
     phononQPoint() {
         return this.scienceVector(
             ['phonon-q-x', 'phonon-q-y', 'phonon-q-z'],
@@ -1758,7 +2128,7 @@ class VAseApp {
         );
     }
 
-    async calculatePhononModes() {
+    async calculatePhononModes({ preferredBand = null, silent = false } = {}) {
         try {
             const axis = document.getElementById('phonon-projection-axis')?.value;
             const projection = {
@@ -1766,30 +2136,38 @@ class VAseApp {
                 y: [0, 1, 0],
                 z: [0, 0, 1]
             }[axis] || null;
-            const result = await this.withBusy(
-                'Diagonalizing the dynamical matrix...',
-                () => this.api.fetchPhononModes({
+            const request = () => this.api.fetchPhononModes({
                     qpoint: this.phononQPoint(),
+                    nac_direction: this.state.phononSelectedNacDirection,
                     projection_direction: projection
-                })
-            );
+                });
+            const result = silent
+                ? await request()
+                : await this.withBusy('Diagonalizing the dynamical matrix...', request);
             this.state.phononModes = result;
-            this.renderPhononModes(result);
-            this.toast(`Calculated ${result.band_count} modes at q=(${result.qpoint.join(', ')}).`, 'success');
+            this.renderPhononModes(result, preferredBand);
+            if (!silent) {
+                this.toast(`Calculated ${result.band_count} modes at q=(${result.qpoint.join(', ')}).`, 'success');
+            }
+            return result;
         } catch (error) {
             this.toast(`Phonon mode calculation failed: ${error.message}`, 'error');
+            return null;
         }
     }
 
-    renderPhononModes(result) {
+    renderPhononModes(result, preferredBand = null) {
         const container = document.getElementById('phonon-mode-result');
         if (!container) return;
+        const requestedBand = Number(
+            preferredBand ?? document.getElementById('phonon-mode-band')?.value ?? 1
+        );
         container.classList.remove('hidden');
         container.replaceChildren(...(result.bands || []).map(mode => {
             const row = document.createElement('button');
             row.type = 'button';
             row.className = 'phonon-mode-row';
-            row.setAttribute('aria-selected', 'false');
+            row.setAttribute('aria-selected', mode.band === requestedBand ? 'true' : 'false');
             const band = document.createElement('strong');
             band.textContent = `${mode.band}`;
             const frequency = document.createElement('span');
@@ -1806,6 +2184,13 @@ class VAseApp {
             row.append(band, frequency, character);
             row.addEventListener('click', () => {
                 document.getElementById('phonon-mode-band').value = `${mode.band}`;
+                if (this.state.phononBandSelection) {
+                    this.state.phononBandSelection.band = mode.band;
+                    this.state.phononBandSelection.frequency = mode.frequency_thz;
+                    const geometry = document.getElementById('phonon-band-plot')?.__vAseBandGeometry;
+                    if (geometry) this.state.phononBandSelection.y = geometry.y(mode.frequency_thz);
+                    this.updatePhononBandSelectionUI();
+                }
                 container.querySelectorAll('.phonon-mode-row').forEach(item => {
                     item.setAttribute('aria-selected', item === row ? 'true' : 'false');
                 });
@@ -1850,7 +2235,8 @@ class VAseApp {
                     'Mode supercell',
                     { minimum: 1, maximum: 50, integer: true }
                 ),
-                oscillation: Boolean(document.getElementById('chk-phonon-oscillation')?.checked)
+                oscillation: Boolean(document.getElementById('chk-phonon-oscillation')?.checked),
+                nac_direction: this.state.phononSelectedNacDirection
             };
         } catch (error) {
             this.toast(error.message, 'error');
@@ -1868,12 +2254,38 @@ class VAseApp {
         });
         if (!accepted) return;
         try {
+            const scientificState = {
+                phononModelSummary: this.state.phononModelSummary,
+                phononBandStructure: this.state.phononBandStructure,
+                phononBandSelection: this.state.phononBandSelection
+                    ? { ...this.state.phononBandSelection }
+                    : null,
+                phononSelectedNacDirection: this.state.phononSelectedNacDirection
+                    ? [...this.state.phononSelectedNacDirection]
+                    : null,
+                phononModes: this.state.phononModes
+            };
             const result = await this.withBusy(
                 'Generating the phonon-mode trajectory...',
                 () => this.api.generatePhononModeTrajectory(options)
             );
             const metadata = result.phonon || {};
             this.setAtomsData(result, { clearSelection: true });
+            Object.assign(this.state, scientificState);
+            this.renderPhononModelSummary(scientificState.phononModelSummary);
+            if (scientificState.phononBandStructure) {
+                this.renderPhononBandStructure(scientificState.phononBandStructure);
+                const bands = scientificState.phononBandStructure;
+                this.setScienceStatus(
+                    'phonon-band-status',
+                    bands.has_imaginary ? 'warning' : 'ready',
+                    `${bands.bravais_lattice} phonon dispersion`,
+                    `${bands.qpoint_count} q-points; ${bands.band_count} bands; ${bands.convention} path.`
+                );
+            }
+            if (scientificState.phononModes) {
+                this.renderPhononModes(scientificState.phononModes, options.band);
+            }
             this.toast(
                 `Created ${metadata.frame_count || 1} frame${metadata.frame_count === 1 ? '' : 's'} for band ${metadata.band}; ${Number(metadata.frequency_thz).toFixed(4)} THz.`,
                 metadata.imaginary ? 'warning' : 'success'
@@ -2409,6 +2821,13 @@ class VAseApp {
             this.applyInitialDisplayConfig(data);
             this.state.phononModelSummary = data.metadata?.phonon_model || null;
             this.renderPhononModelSummary(this.state.phononModelSummary);
+            if (
+                this.state.phononModelSummary?.has_force_constants
+                && !this.state.phononBandStructure
+                && !this.state.phononBandCalculationPending
+            ) {
+                queueMicrotask(() => this.calculatePhononBandStructure({ silent: true }));
+            }
             this.renderPairwiseBondControls();
             this.renderAppearanceRows();
             this.updateEditingAvailability();
@@ -6455,6 +6874,7 @@ class VAseApp {
                 operation === 'refresh-displacements'
                 || operation === 'analyze-symmetry'
                 || operation === 'symmetry-path'
+                || operation === 'phonon-band-structure'
                 || operation === 'inspect-phonon-modes'
             ) {
                 categories.add('analysis');
@@ -6547,6 +6967,10 @@ class VAseApp {
                 symmetry: this.aiSymmetrySummary(this.state.symmetryResult),
                 symmetryPath: this.aiSymmetryPathSummary(this.state.symmetryPath),
                 phononModel: this.clonePlain(this.state.phononModelSummary),
+                phononBandStructure: this.aiPhononBandSummary(
+                    this.state.phononBandStructure,
+                    this.state.phononBandSelection
+                ),
                 phononModes: this.aiPhononModesSummary(this.state.phononModes)
             },
             collaboration: {
@@ -6635,6 +7059,26 @@ class VAseApp {
         };
     }
 
+    aiPhononBandSummary(result, selection = null) {
+        if (!result) return null;
+        return {
+            status: result.status,
+            convention: result.convention,
+            path_source: result.path_source,
+            spacegroup_number: result.spacegroup_number,
+            spacegroup_international: result.spacegroup_international,
+            bravais_lattice: result.bravais_lattice,
+            frequency_unit: result.frequency_unit,
+            band_count: result.band_count,
+            qpoint_count: result.qpoint_count,
+            frequency_min: result.frequency_min,
+            frequency_max: result.frequency_max,
+            has_imaginary: result.has_imaginary,
+            ticks: this.clonePlain(result.ticks || []),
+            selected: this.clonePlain(selection)
+        };
+    }
+
     setAIAxisView(axis) {
         const normalized = String(axis || '').trim().toUpperCase();
         const match = /^([+-])([XYZ])$/.exec(normalized);
@@ -6688,7 +7132,8 @@ class VAseApp {
                 'reset-coordinates', 'start-relaxation', 'stop-relaxation',
                 'refresh-displacements', 'analyze-symmetry', 'symmetry-path',
                 'standardize-symmetry', 'generate-phonon-displacements',
-                'inspect-phonon-modes', 'generate-phonon-mode'
+                'phonon-band-structure', 'inspect-phonon-modes',
+                'generate-phonon-mode'
             ],
             exports: [
                 'image', 'video', 'poscar', 'pickle', 'blender', '3dm', 'obj',
@@ -7041,6 +7486,35 @@ class VAseApp {
             setData(result, true);
             return result.phonon;
         }
+        if (name === 'phonon-band-structure') {
+            const result = await this.api.fetchPhononBandStructure({
+                reference_distance: this.aiFiniteNumber(
+                    operation.referenceDistance,
+                    'referenceDistance',
+                    { minimum: 0.005, maximum: 1, defaultValue: 0.08 }
+                ),
+                symprec: this.aiFiniteNumber(
+                    operation.symprec,
+                    'symprec',
+                    { minimum: 1e-8, maximum: 1, defaultValue: 1e-5 }
+                ),
+                angle_tolerance: this.aiFiniteNumber(
+                    operation.angleTolerance,
+                    'angleTolerance',
+                    { minimum: -1, maximum: 180, defaultValue: -1 }
+                )
+            });
+            this.state.phononBandStructure = result;
+            this.state.phononBandSelection = null;
+            this.renderPhononBandStructure(result);
+            this.setScienceStatus(
+                'phonon-band-status',
+                result.has_imaginary ? 'warning' : 'ready',
+                `${result.bravais_lattice} phonon dispersion`,
+                `${result.qpoint_count} q-points; ${result.band_count} bands; ${result.convention} path.`
+            );
+            return result;
+        }
         if (name === 'inspect-phonon-modes') {
             const result = await this.api.fetchPhononModes({
                 qpoint: this.aiFiniteVector(operation.qpoint, 'qpoint'),
@@ -7057,6 +7531,17 @@ class VAseApp {
         }
         if (name === 'generate-phonon-mode') {
             this.aiRequireEdit('generate-phonon-mode');
+            const scientificState = {
+                phononModelSummary: this.state.phononModelSummary,
+                phononBandStructure: this.state.phononBandStructure,
+                phononBandSelection: this.state.phononBandSelection
+                    ? { ...this.state.phononBandSelection }
+                    : null,
+                phononSelectedNacDirection: this.state.phononSelectedNacDirection
+                    ? [...this.state.phononSelectedNacDirection]
+                    : null,
+                phononModes: this.state.phononModes
+            };
             const result = await this.api.generatePhononModeTrajectory({
                 qpoint: this.aiFiniteVector(operation.qpoint, 'qpoint'),
                 band: this.aiFiniteNumber(
@@ -7090,6 +7575,21 @@ class VAseApp {
                     : this.aiFiniteVector(operation.nacDirection, 'nacDirection')
             });
             setData(result, true);
+            Object.assign(this.state, scientificState);
+            this.renderPhononModelSummary(scientificState.phononModelSummary);
+            if (scientificState.phononBandStructure) {
+                const bands = scientificState.phononBandStructure;
+                this.renderPhononBandStructure(bands);
+                this.setScienceStatus(
+                    'phonon-band-status',
+                    bands.has_imaginary ? 'warning' : 'ready',
+                    `${bands.bravais_lattice} phonon dispersion`,
+                    `${bands.qpoint_count} q-points; ${bands.band_count} bands; ${bands.convention} path.`
+                );
+            }
+            if (scientificState.phononModes) {
+                this.renderPhononModes(scientificState.phononModes, result.phonon?.band);
+            }
             return result.phonon;
         }
         throw new Error(`Unsupported AI operation '${name}'.`);

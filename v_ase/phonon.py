@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -27,6 +28,17 @@ def _phonopy_api():
             '`python -m pip install -e ".[phonon]"`.'
         ) from exc
     return phonopy, Phonopy, PhonopyAtoms
+
+
+def _seekpath_api():
+    try:
+        import seekpath
+    except ModuleNotFoundError as exc:
+        raise PhononDependencyError(
+            "Automatic phonon band paths require seekpath. Install with "
+            '`python -m pip install -e ".[phonon]"`.'
+        ) from exc
+    return seekpath
 
 
 def _integer_matrix(value: Sequence[int] | Sequence[Sequence[int]]) -> np.ndarray:
@@ -398,6 +410,190 @@ def qpoint_commensurability(
     }
 
 
+def _suggest_diagonal_supercell(
+    qpoint: Sequence[float],
+    *,
+    max_repeat: int = 50,
+    tolerance: float = 1e-8,
+) -> list[int] | None:
+    """Return small diagonal repeats satisfying diag(n).T @ q = integer."""
+    q = np.asarray(qpoint, dtype=float)
+    if q.shape != (3,) or not np.isfinite(q).all():
+        raise ValueError("qpoint must contain three finite reciprocal coordinates.")
+    if max_repeat < 1:
+        raise ValueError("max_repeat must be a positive integer.")
+    repeats: list[int] = []
+    for value in q:
+        reduced = float(value - np.rint(value))
+        if abs(reduced) <= tolerance:
+            repeats.append(1)
+            continue
+        fraction = Fraction(reduced).limit_denominator(int(max_repeat))
+        if abs(float(fraction) - reduced) > tolerance:
+            return None
+        repeats.append(int(fraction.denominator))
+    if not qpoint_commensurability(q, repeats, tolerance=tolerance)["commensurate"]:
+        return None
+    return repeats
+
+
+def _gamma_nac_directions(qpoints: np.ndarray, tolerance: float = 1e-10):
+    """Return an adjacent path direction for each reciprocal-lattice Gamma point."""
+    directions: list[list[float] | None] = [None] * len(qpoints)
+    for index, qpoint in enumerate(qpoints):
+        reduced = qpoint - np.rint(qpoint)
+        if float(np.linalg.norm(reduced)) > tolerance:
+            continue
+        direction = None
+        if index + 1 < len(qpoints):
+            candidate = qpoints[index + 1] - qpoint
+            if float(np.linalg.norm(candidate)) > tolerance:
+                direction = candidate
+        if direction is None and index > 0:
+            candidate = qpoint - qpoints[index - 1]
+            if float(np.linalg.norm(candidate)) > tolerance:
+                direction = candidate
+        if direction is not None:
+            directions[index] = np.asarray(direction, dtype=float).tolist()
+    return directions
+
+
+def phonon_band_structure(
+    model: PhononModel,
+    *,
+    reference_distance: float = 0.08,
+    symprec: float = 1e-5,
+    angle_tolerance: float = -1.0,
+    with_time_reversal: bool = True,
+    max_frequency_values: int = 500_000,
+) -> dict[str, Any]:
+    """Calculate an HPKOT phonon dispersion in the model primitive basis."""
+    if not model.has_force_constants:
+        raise ValueError(
+            "A phonon band structure requires loaded force constants. Generate "
+            "finite-displacement forces and load the completed phonopy project first."
+        )
+    if not np.isfinite(reference_distance) or not 0.005 <= reference_distance <= 1.0:
+        raise ValueError("reference_distance must be between 0.005 and 1.0 1/Angstrom.")
+    if not np.isfinite(symprec) or symprec <= 0:
+        raise ValueError("symprec must be a positive finite length in Angstrom.")
+    if int(max_frequency_values) < 1:
+        raise ValueError("max_frequency_values must be positive.")
+
+    seekpath = _seekpath_api()
+    primitive = model.phonon.primitive
+    primitive_cell = np.asarray(primitive.cell, dtype=float)
+    structure = (
+        primitive_cell,
+        np.asarray(primitive.scaled_positions, dtype=float),
+        np.asarray(primitive.numbers, dtype=int),
+    )
+
+    spacing = float(reference_distance)
+    explicit = None
+    band_count = 3 * len(primitive)
+    for _ in range(4):
+        explicit = seekpath.get_explicit_k_path(
+            structure,
+            with_time_reversal=bool(with_time_reversal),
+            reference_distance=spacing,
+            symprec=float(symprec),
+            angle_tolerance=float(angle_tolerance),
+        )
+        qpoint_count = len(explicit["explicit_kpoints_abs"])
+        value_count = qpoint_count * band_count
+        if value_count <= int(max_frequency_values):
+            break
+        spacing = min(1.0, spacing * value_count / int(max_frequency_values))
+    else:  # pragma: no cover - defensive; the final explicit path is checked below
+        explicit = None
+    if explicit is None:
+        raise ValueError("SeeK-path could not construct an explicit reciprocal path.")
+    if len(explicit["explicit_kpoints_abs"]) * band_count > int(max_frequency_values):
+        raise ValueError(
+            "The requested band plot is too large for an interactive response. "
+            "Increase reference_distance or use a smaller primitive cell."
+        )
+
+    reciprocal_model = 2.0 * np.pi * np.linalg.inv(primitive_cell).T
+    qpoints_absolute = np.asarray(explicit["explicit_kpoints_abs"], dtype=float)
+    qpoints_model = qpoints_absolute @ np.linalg.inv(reciprocal_model)
+    qpoints_model[np.abs(qpoints_model) < 1e-13] = 0.0
+    linear_coordinates = np.asarray(
+        explicit["explicit_kpoints_linearcoord"], dtype=float
+    )
+    labels = [str(value) for value in explicit["explicit_kpoints_labels"]]
+    explicit_segments = [
+        (int(start), int(stop))
+        for start, stop in explicit["explicit_segments"]
+    ]
+    paths = [qpoints_model[start:stop] for start, stop in explicit_segments]
+    band_structure = model.phonon.run_band_structure(
+        paths,
+        with_eigenvectors=False,
+        is_band_connection=False,
+    )
+
+    segments = []
+    all_frequencies = []
+    for segment_index, ((start, stop), frequencies) in enumerate(
+        zip(explicit_segments, band_structure.frequencies, strict=True)
+    ):
+        segment_qpoints = qpoints_model[start:stop]
+        segment_frequencies = np.asarray(frequencies, dtype=float)
+        if segment_frequencies.shape != (len(segment_qpoints), band_count):
+            raise RuntimeError("Phonopy returned an inconsistent band-structure shape.")
+        all_frequencies.append(segment_frequencies)
+        segments.append(
+            {
+                "index": segment_index,
+                "start_label": labels[start],
+                "end_label": labels[stop - 1],
+                "distances": linear_coordinates[start:stop].tolist(),
+                "qpoints": segment_qpoints.tolist(),
+                "frequencies": segment_frequencies.tolist(),
+                "nac_directions": _gamma_nac_directions(segment_qpoints),
+                "suggested_dimensions": [
+                    _suggest_diagonal_supercell(qpoint)
+                    for qpoint in segment_qpoints
+                ],
+            }
+        )
+
+    ticks: list[dict[str, Any]] = []
+    for segment in segments:
+        for distance, label in (
+            (segment["distances"][0], segment["start_label"]),
+            (segment["distances"][-1], segment["end_label"]),
+        ):
+            if ticks and abs(float(ticks[-1]["distance"]) - float(distance)) <= 1e-10:
+                current = str(ticks[-1]["label"])
+                if label and label not in current.split("|"):
+                    ticks[-1]["label"] = f"{current}|{label}" if current else label
+            else:
+                ticks.append({"distance": float(distance), "label": str(label)})
+
+    frequency_array = np.concatenate(all_frequencies, axis=0)
+    return {
+        "status": "ok",
+        "convention": "HPKOT",
+        "path_source": "SeeK-path",
+        "spacegroup_number": int(explicit["spacegroup_number"]),
+        "spacegroup_international": str(explicit["spacegroup_international"]),
+        "bravais_lattice": str(explicit["bravais_lattice"]),
+        "reference_distance": spacing,
+        "distance_unit": "1/Angstrom",
+        "frequency_unit": "THz",
+        "band_count": band_count,
+        "qpoint_count": int(sum(len(segment["qpoints"]) for segment in segments)),
+        "frequency_min": float(np.min(frequency_array)),
+        "frequency_max": float(np.max(frequency_array)),
+        "has_imaginary": bool(np.any(frequency_array < -1e-8)),
+        "ticks": ticks,
+        "segments": segments,
+    }
+
+
 def phonon_modes_at_q(
     model: PhononModel,
     qpoint: Sequence[float],
@@ -573,6 +769,7 @@ __all__ = [
     "generate_finite_displacements",
     "generate_mode_trajectory",
     "load_phonon_model",
+    "phonon_band_structure",
     "phonon_modes_at_q",
     "phonopy_to_ase",
     "qpoint_commensurability",

@@ -6,6 +6,7 @@
 - [Crystallographic identity](#crystallographic-identity)
 - [Symmetry analysis](#symmetry-analysis)
 - [Finite-displacement preparation](#finite-displacement-preparation)
+- [Automatic phonon band structure](#automatic-phonon-band-structure)
 - [Physical phonon modes](#physical-phonon-modes)
 - [Mode modulation](#mode-modulation)
 - [Commensurability](#commensurability)
@@ -81,6 +82,35 @@ The workflow is:
 
 No frequency or physical eigenmode is inferred from the uncalculated
 displacement inputs.
+
+## Automatic Phonon Band Structure
+
+After a matching Phonopy project with force constants is loaded, v_ase asks
+SeeK-path for the explicit crystallographic HPKOT path of the Phonopy primitive
+cell and evaluates every sampled q-point with Phonopy. SeeK-path supplies
+absolute reciprocal vectors. They are converted into the reduced reciprocal
+basis used by the active Phonopy model as
+
+```text
+B_model = 2 pi H_model^(-T)
+q_model = k_absolute B_model^(-1),
+```
+
+where `H_model` is the row-vector primitive lattice. This conversion is
+required because a named HPKOT point must not be assumed to have the same
+reduced coordinates in an arbitrary input basis.
+
+The plot stores exact sampled q-points, sorted 1-based mode indices,
+frequencies, path-direction NAC limits at Gamma, and a small diagonal mode-cell
+suggestion when one can be represented within the configured denominator
+limit. Clicking a curve selects an actual sampled point; the mode list is then
+recalculated at that exact q-point. No eigenvector is inferred by drawing or by
+interpolating screen pixels. At degeneracies, the user can choose the desired
+row from the exact mode list.
+
+Band spacing controls plot sampling density. If the requested response would
+contain more than 500,000 frequency values, v_ase coarsens the path or asks for
+a larger spacing instead of returning an unbounded browser payload.
 
 ## Physical Phonon Modes
 
@@ -169,7 +199,10 @@ canonical reference cases:
   Wyckoff letter may be `a` or `b` under the two accepted origin choices.
 - The fcc reciprocal path is checked against the crystallography-derived HPKOT
   convention implemented by SeeK-path: `GAMMA-X`, `X-U`, `K-GAMMA`,
-  `GAMMA-L`, `L-W`, and `W-X`.
+  `GAMMA-L`, `L-W`, and `W-X`. The explicit absolute path is transformed into
+  the Phonopy primitive reciprocal basis; fcc X becomes `q=(0.5, 0, 0.5)` in
+  the bundled Al model. Plot frequencies at X are compared directly with an
+  independent q-point diagonalization.
 - A nearest-neighbour monatomic chain is checked against
   `omega(q) = 2 sqrt(K/M) |sin(qa/2)|`. The Gamma acoustic frequency is zero,
   the zone-boundary mode is longitudinal, and the frequency ratio at one
@@ -192,8 +225,8 @@ conda run -n python311 python scripts/capture_symmetry_readme_assets.py
 ```
 
 It recreates the files under `examples/symmetry_branch/`, opens those exact
-structures in v_ase, and captures the four Analysis-panel figures under
-`docs/assets/` and `docs/assets/github/`.
+structures in v_ase, and captures three Analysis-panel figures plus the
+24-frame phonon-mode GIF under `docs/assets/` and `docs/assets/github/`.
 
 The examples cover separate scientific states:
 
@@ -202,7 +235,7 @@ The examples cover separate scientific states:
 | Diamond-Si primitive cell | `Fd-3m` No. 227, `m-3m`, 48 operations, one site, HPKOT cF path |
 | Diamond-Si conventional cell | explicit 2-to-8 atom standardization, 192 conventional-cell operations |
 | NaCl 2 x 2 x 2 finite displacements | two 16-atom force-calculation inputs at 0.01 A; no force constants |
-| fcc-Al X-point mode | ASE EMT forces, Phonopy force constants, band 3 at 7.9188 THz, commensurate 4 x 4 x 2 movie |
+| fcc-Al X-point mode | automatic HPKOT band plot, exact X selection at q=(0.5, 0, 0.5), ASE EMT band 3 at 7.9914 THz, commensurate 4 x 4 x 2 GIF |
 
 The Al example uses a real dynamical-matrix eigenvector produced from the
 included force constants. EMT is selected to make the example fast and fully
@@ -211,7 +244,8 @@ reference-quality prediction for aluminum.
 
 ## Data Handling
 
-- Symmetry analysis and reciprocal-path queries do not mutate the structure.
+- Symmetry analysis, reciprocal-path queries, and phonon-band calculation do
+  not mutate the structure.
 - Standardization and generated trajectories require Edit mode and create an
   Undo checkpoint.
 - A newly opened document clears the document's loaded phonopy model.

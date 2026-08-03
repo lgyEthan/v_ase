@@ -42,9 +42,9 @@ test edit and a new filename for output.
 - Angle and torsion measurements preserve selection order and do not use MIC.
 - Never claim a result is physically relaxed unless an actual calculator and
   optimizer completed.
-- Finite-displacement structures are force-calculation inputs, not phonon
-  eigenmodes. A physical mode requires force constants and a q-point
-  eigenvector.
+- Finite-displacement structures are force-calculation inputs, not a phonon
+  band structure or eigenmodes. A physical dispersion and mode require force
+  constants and a q-point dynamical matrix.
 - A phonon modulation supercell must satisfy `P.T @ q` being integer within
   tolerance. Never bypass an incommensurability error.
 - Treat a one-cell coordinate jump between neighboring phonon frames as a
@@ -75,6 +75,7 @@ test edit and a new filename for output.
 | frame selection disappeared | Topology differs between frames | Re-describe and select valid mapped atoms |
 | HTTP 424 for symmetry/phonons | Optional scientific backend is absent | Install the checked-out branch with `python -m pip install -e ".[symmetry,phonon]"` |
 | physical modes require force constants | Only a unit cell or displacement inputs are loaded | Compute forces, build force constants in Phonopy, and upload a completed phonopy YAML |
+| phonon band structure unavailable | No matching force-constant model is loaded, or the path payload is too large | Load a matching completed Phonopy YAML; for a large primitive cell increase band spacing |
 | q-point is not commensurate | Requested mode supercell cannot represent the Bloch phase periodically | Choose a matrix for which `P.T @ q` is integer |
 
 Do not suppress an error and report success. Return the specific failed command,

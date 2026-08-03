@@ -368,15 +368,17 @@ The symmetry alpha exposes these operations through `apply()`:
 - `symmetry-path`
 - `standardize-symmetry`
 - `generate-phonon-displacements`
+- `phonon-band-structure`
 - `inspect-phonon-modes`
 - `generate-phonon-mode`
 
 Use the exact parameters and verification rules in
-`references/symmetry-and-phonons.md`. The first two are nonmutating.
-Standardization and generated trajectories require Edit mode and replace the
-current trajectory after creating an Undo checkpoint. A completed phonopy YAML
-is uploaded to the direct endpoint reported by `schema.scientific_endpoints`;
-binary file upload is deliberately not embedded in an `apply()` JSON object.
+`references/symmetry-and-phonons.md`. Symmetry analysis, reciprocal-path
+queries, and phonon-band calculation are nonmutating. Standardization and
+generated trajectories require Edit mode and replace the current trajectory
+after creating an Undo checkpoint. A completed phonopy YAML is uploaded to the
+direct endpoint reported by `schema.scientific_endpoints`; binary file upload
+is deliberately not embedded in an `apply()` JSON object.
 
 ## Rendering
 

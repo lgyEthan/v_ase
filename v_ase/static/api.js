@@ -672,6 +672,42 @@ export class ASEApi {
                 }))
             };
         }
+        if (path.includes('/api/analysis/phonon/band-structure/')) {
+            const qpoints = [[0, 0, 0], [0.25, 0, 0], [0.5, 0, 0]];
+            return {
+                status: 'ok',
+                convention: 'HPKOT',
+                path_source: 'SeeK-path',
+                spacegroup_number: 221,
+                spacegroup_international: 'Pm-3m',
+                bravais_lattice: 'cP',
+                reference_distance: 0.08,
+                distance_unit: '1/Angstrom',
+                frequency_unit: 'THz',
+                band_count: 9,
+                qpoint_count: qpoints.length,
+                frequency_min: 0,
+                frequency_max: 10,
+                has_imaginary: false,
+                ticks: [
+                    { distance: 0, label: 'GAMMA' },
+                    { distance: 1, label: 'X' }
+                ],
+                segments: [{
+                    index: 0,
+                    start_label: 'GAMMA',
+                    end_label: 'X',
+                    distances: [0, 0.5, 1],
+                    qpoints,
+                    frequencies: qpoints.map((_, point) => Array.from(
+                        { length: 9 },
+                        (unused, band) => band * 1.1 + point * 0.15
+                    )),
+                    nac_directions: [[1, 0, 0], null, null],
+                    suggested_dimensions: [[1, 1, 1], [4, 1, 1], [2, 1, 1]]
+                }]
+            };
+        }
         if (
             path.includes('/api/analysis/phonon/displacements/')
             || path.includes('/api/analysis/phonon/modulate/')
@@ -1196,6 +1232,13 @@ export class ASEApi {
     async fetchPhononModes(options = {}) {
         return await this.jsonPost(
             `/api/analysis/phonon/modes/{session_id}`,
+            options
+        );
+    }
+
+    async fetchPhononBandStructure(options = {}) {
+        return await this.jsonPost(
+            `/api/analysis/phonon/band-structure/{session_id}`,
             options
         );
     }

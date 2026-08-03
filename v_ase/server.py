@@ -37,6 +37,7 @@ from .phonon import (
     generate_finite_displacements,
     generate_mode_trajectory,
     load_phonon_model,
+    phonon_band_structure,
     phonon_modes_at_q,
     validate_phonon_model_for_atoms,
 )
@@ -281,7 +282,8 @@ AI_CONTROL_SCHEMA = {
                 "reset-coordinates, start-relaxation, stop-relaxation, and "
                 "refresh-displacements, analyze-symmetry, symmetry-path, "
                 "standardize-symmetry, generate-phonon-displacements, "
-                "inspect-phonon-modes, and generate-phonon-mode."
+                "phonon-band-structure, inspect-phonon-modes, and "
+                "generate-phonon-mode."
             ),
             "oneOf": [
                 {
@@ -308,6 +310,7 @@ AI_CONTROL_SCHEMA = {
                                 "analyze-symmetry", "symmetry-path",
                                 "standardize-symmetry",
                                 "generate-phonon-displacements",
+                                "phonon-band-structure",
                                 "inspect-phonon-modes",
                                 "generate-phonon-mode",
                             ],
@@ -492,6 +495,15 @@ AI_OPERATION_PARAMETERS = {
             "produce physical modes before forces and force constants exist."
         ),
     },
+    "phonon-band-structure": {
+        "mode": "view-or-edit",
+        "required": ["loaded-phonopy-force-constants"],
+        "optional": ["referenceDistance", "symprec", "angleTolerance"],
+        "notes": (
+            "Calculates the SeeK-path HPKOT dispersion and returns clickable "
+            "q-points, frequencies, NAC directions, and commensurate mode-cell suggestions."
+        ),
+    },
     "inspect-phonon-modes": {
         "mode": "view-or-edit",
         "required": ["qpoint", "loaded-phonopy-force-constants"],
@@ -591,6 +603,7 @@ def ai_schema_payload() -> Dict[str, Any]:
             "symmetry_transform": "/api/analysis/symmetry/transform/{session_id}",
             "phonon_displacements": "/api/analysis/phonon/displacements/{session_id}",
             "phonopy_upload": "/api/analysis/phonon/load/{session_id}?filename=phonopy_params.yaml",
+            "phonon_band_structure": "/api/analysis/phonon/band-structure/{session_id}",
             "phonon_modes": "/api/analysis/phonon/modes/{session_id}",
             "phonon_modulation": "/api/analysis/phonon/modulate/{session_id}",
         },
@@ -3385,6 +3398,29 @@ async def phonon_modes(session_id: str, payload: Dict[str, Any]):
                 payload.get("qpoint", [0, 0, 0]),
                 nac_direction=payload.get("nac_direction"),
                 projection_direction=payload.get("projection_direction"),
+            )
+
+    try:
+        return await asyncio.to_thread(calculate)
+    except PhononDependencyError as exc:
+        raise _symmetry_dependency_detail(exc) from exc
+    except (TypeError, ValueError, RuntimeError) as exc:
+        raise _scientific_input_detail(exc) from exc
+
+
+@app.post("/api/analysis/phonon/band-structure/{session_id}")
+async def phonon_bands(session_id: str, payload: Dict[str, Any]):
+    """Calculate a SeeK-path HPKOT phonon dispersion for interactive selection."""
+    session = get_session(session_id)
+
+    def calculate():
+        with session.mode_transition_lock:
+            return phonon_band_structure(
+                _require_session_phonon_model(session),
+                reference_distance=float(payload.get("reference_distance", 0.08)),
+                symprec=float(payload.get("symprec", 1e-5)),
+                angle_tolerance=float(payload.get("angle_tolerance", -1.0)),
+                with_time_reversal=bool(payload.get("with_time_reversal", True)),
             )
 
     try:
