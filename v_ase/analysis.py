@@ -123,7 +123,7 @@ def calculate_rdf(
     active_pairs: Iterable[Any] | None = None,
     frame_index: int = 0,
 ) -> RdfResult:
-    """Compute an OVITO-style total and label-resolved instantaneous RDF.
+    """Compute a periodic total and label-resolved instantaneous RDF.
 
     The histogram uses directed neighbors and the simulation-cell number
     density.  Partial curves follow the concentration weighting convention

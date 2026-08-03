@@ -802,6 +802,7 @@ def test_new_scientific_defaults_and_ai_control_contract_are_wired():
     assert 'id="chk-commensurate-guide">' in index_html
     assert 'id="chk-commensurate-guide" checked' not in index_html
     assert 'id="commensurate-max-area" value="16"' in index_html
+    assert 'id="commensurate-max-area" value="16" min="1" max="128"' in index_html
     assert 'id="commensurate-supercell-proposal"' in index_html
     assert 'id="chk-commensurate-snap">' in index_html
     assert 'id="calc-cutoff-scale" value="0.70"' in index_html

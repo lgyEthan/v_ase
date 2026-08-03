@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.9
+
+- Added separate graphene-host and Cu(111)-guest validation inputs with exact
+  matrices, angle, strain, and atom-count references for manual and automated
+  commensurate-cell testing.
+- Split the commensurate analysis graph into a conservative 3D
+  angle-area-principal-strain overview and a Stradi-style mean-strain versus
+  atom-count projection without changing the accepted candidate set.
+- Added paper-value, full TBG integer-series, equivalent-basis,
+  vectorized-versus-SVD, and accelerated-versus-complete-search regressions.
+- Reworked the bounded host/guest search with descriptor-tree screening and
+  batched closed-form 2D kinematics; the default area bound now completes in
+  milliseconds while the exhaustive interactive limit is explicit at `128`.
+- Synchronized the user guide, scientific validation notes, semantic Agent
+  Skill, analysis CSV fields, and browser workflow with both strain metrics
+  and actual host/guest atom counts.
+
 ## 0.1.8
 
 - Added a bounded host/guest commensurate workspace for same-lattice twists
@@ -584,7 +601,7 @@
 ## 0.0.90
 
 - Redrew the four 3D camera-orbit controls with continuous hooked silhouettes,
-  direction-specific tails, volumetric shading, and the established VESTA
+  direction-specific tails, volumetric shading, and a consistent toolbar
   order; corrected the actual up/down camera directions.
 - Consolidated Appearance and Bonds into a scroll-linked Structure workspace
   alongside Cell, Transform, Constraints, and Relaxation.
@@ -599,8 +616,8 @@
 
 - Redrew the first four camera controls as depth-coded orbit arrows with a
   shaded rear tail, front face, overlap seam, and highlight. Their start and
-  end geometry now follows the vertical and horizontal VESTA-style paths
-  instead of rotating one flat glyph for every direction.
+  end geometry now follows distinct vertical and horizontal paths instead of
+  rotating one flat glyph for every direction.
 - Corrected the upward and downward view actions to follow the visible arrow
   direction and retained exact inverse-operation camera recovery.
 - Added Chromium coverage for every volumetric icon layer, the distinct

@@ -23,6 +23,20 @@ _AXES = {
     "Z": np.array([0.0, 0.0, 1.0]),
 }
 
+_ORIENTED_BASIS_TRANSFORMS = (
+    np.array([[1, 0], [0, 1]], dtype=int),
+    np.array([[-1, 0], [0, -1]], dtype=int),
+    # Signed row swaps cover square reduced bases.
+    np.array([[0, 1], [-1, 0]], dtype=int),
+    np.array([[0, -1], [1, 0]], dtype=int),
+    # Gauss-reduced hexagonal cells can use 60- or 120-degree bases.  These
+    # determinant-one shears and their negatives span both descriptions.
+    np.array([[1, 0], [1, 1]], dtype=int),
+    np.array([[-1, 0], [-1, -1]], dtype=int),
+    np.array([[1, 1], [0, 1]], dtype=int),
+    np.array([[-1, -1], [0, -1]], dtype=int),
+)
+
 
 @dataclass(frozen=True)
 class ProjectedLattice:
@@ -44,6 +58,14 @@ COMMENSURATE_REFERENCES = (
         "arxiv": "1702.00933",
     },
 )
+
+TBG_COMMENSURATE_REFERENCE = {
+    "title": "Continuum model of the twisted graphene bilayer",
+    "authors": "Lopes dos Santos, Peres, and Castro Neto",
+    "doi": "10.1103/PhysRevB.86.155449",
+}
+
+MAX_LATTICE_MATCH_AREA_RATIO = 128
 
 
 ProgressCallback = Callable[[float, str], None]
@@ -249,6 +271,38 @@ def _optimal_rotation_deformation(
     return angle, strain, rotation, deformation
 
 
+def _deformation_strain_metrics(deformation: np.ndarray) -> dict:
+    """Return conservative and paper-compatible in-plane strain measures.
+
+    ``max_principal_strain`` is the largest absolute change in a principal
+    stretch and remains the conservative acceptance criterion.  Stradi et al.
+    plot the mean absolute small-strain components
+    ``(|eps_xx| + |eps_yy| + |eps_xy|) / 3``; that value is retained separately
+    so the paper-style projection never changes the cutoff semantics.
+    """
+
+    matrix = np.asarray(deformation, dtype=float)
+    if matrix.shape != (2, 2) or not np.all(np.isfinite(matrix)):
+        raise ValueError("In-plane deformation must be a finite 2 x 2 matrix.")
+    principal_stretches = np.linalg.svd(matrix, compute_uv=False)
+    linear_strain = 0.5 * (matrix + matrix.T) - np.eye(2)
+    max_principal = float(np.max(np.abs(principal_stretches - 1.0)))
+    mean_absolute = float(
+        (
+            abs(linear_strain[0, 0])
+            + abs(linear_strain[1, 1])
+            + abs(linear_strain[0, 1])
+        )
+        / 3.0
+    )
+    return {
+        "max_principal_strain": max_principal,
+        "mean_absolute_strain": mean_absolute,
+        "principal_stretches": principal_stretches.tolist(),
+        "linear_strain_tensor_2d": linear_strain.tolist(),
+    }
+
+
 def _normalize_angle(angle: float) -> float:
     normalized = (float(angle) + 180.0) % 360.0 - 180.0
     if normalized <= -180.0 + 1e-10:
@@ -265,10 +319,15 @@ def _candidate(
     area: int,
     magic_reference: bool = False,
 ) -> dict:
-    angle, strain = _optimal_rotation_and_strain(source_matrix @ basis, target_matrix @ basis)
+    angle, strain, _, deformation = _optimal_rotation_deformation(
+        source_matrix @ basis,
+        target_matrix @ basis,
+    )
+    metrics = _deformation_strain_metrics(deformation)
     return {
         "angle_deg": angle,
         "strain": strain,
+        **metrics,
         "area": int(area),
         "source_matrix": np.asarray(source_matrix, dtype=int).tolist(),
         "target_matrix": np.asarray(target_matrix, dtype=int).tolist(),
@@ -877,14 +936,19 @@ def _supercell_records(basis: np.ndarray, max_area_ratio: int) -> list[dict]:
             lengths = np.linalg.norm(reduced, axis=1)
             if np.min(lengths) <= 1e-12:
                 continue
-            cosine = float(np.dot(reduced[0], reduced[1]) / (lengths[0] * lengths[1]))
+            # The same oriented 2D sublattice can be represented by acute or
+            # obtuse reduced bases.  Shape screening must therefore use the
+            # unsigned inter-vector cosine; the subsequent Procrustes solve
+            # recovers the actual proper rotation from the full vectors.
+            cosine = abs(float(np.dot(reduced[0], reduced[1]) / (lengths[0] * lengths[1])))
+            sorted_lengths = np.sort(lengths)
             records.append({
                 "area": int(area),
                 "basis": reduced,
                 "matrix": reduced_matrix,
                 "descriptor": np.array([
-                    float(np.log(lengths[0])),
-                    float(np.log(lengths[1])),
+                    float(np.log(sorted_lengths[0])),
+                    float(np.log(sorted_lengths[1])),
                     cosine,
                 ]),
             })
@@ -921,9 +985,16 @@ def _lattice_match_candidate(
     host_record: dict,
     guest_record: dict,
     strain_target: str,
+    guest_orientation_transform: np.ndarray | None = None,
 ) -> dict:
     host_boundary = np.asarray(host_record["basis"], dtype=float)
-    guest_boundary = np.asarray(guest_record["basis"], dtype=float)
+    orientation_transform = np.asarray(
+        guest_orientation_transform
+        if guest_orientation_transform is not None
+        else _ORIENTED_BASIS_TRANSFORMS[0],
+        dtype=int,
+    )
+    guest_boundary = orientation_transform @ np.asarray(guest_record["basis"], dtype=float)
     angle, guest_strain, _, guest_deformation_2d = _optimal_rotation_deformation(
         guest_boundary,
         host_boundary,
@@ -933,12 +1004,15 @@ def _lattice_match_candidate(
         [-sin(radians(angle)), cos(radians(angle))],
     ])
     host_deformation_2d = np.linalg.solve(host_boundary, rotated_guest_boundary)
-    host_stretches = np.linalg.svd(host_deformation_2d, compute_uv=False)
-    host_strain = float(np.max(np.abs(host_stretches - 1.0)))
+    guest_metrics = _deformation_strain_metrics(guest_deformation_2d)
+    host_metrics = _deformation_strain_metrics(host_deformation_2d)
+    guest_strain = float(guest_metrics["max_principal_strain"])
+    host_strain = float(host_metrics["max_principal_strain"])
     active_strain = guest_strain if strain_target == "guest" else host_strain
+    active_metrics = guest_metrics if strain_target == "guest" else host_metrics
 
     host_matrix_2d = np.asarray(host_record["matrix"], dtype=int)
-    guest_matrix_2d = np.asarray(guest_record["matrix"], dtype=int)
+    guest_matrix_2d = orientation_transform @ np.asarray(guest_record["matrix"], dtype=int)
     host_matrix_3d = embed_2d_supercell_matrix(
         host_matrix_2d,
         host_projected.periodic_axes,
@@ -1003,8 +1077,25 @@ def _lattice_match_candidate(
     return {
         "angle_deg": round(float(angle), 8),
         "strain": round(float(active_strain), 12),
+        "max_principal_strain": round(float(active_strain), 12),
+        "mean_absolute_strain": round(
+            float(active_metrics["mean_absolute_strain"]),
+            12,
+        ),
+        "linear_strain_tensor_2d": active_metrics["linear_strain_tensor_2d"],
+        "principal_stretches": active_metrics["principal_stretches"],
         "guest_strain": round(float(guest_strain), 12),
         "host_strain": round(float(host_strain), 12),
+        "guest_mean_absolute_strain": round(
+            float(guest_metrics["mean_absolute_strain"]),
+            12,
+        ),
+        "host_mean_absolute_strain": round(
+            float(host_metrics["mean_absolute_strain"]),
+            12,
+        ),
+        "guest_linear_strain_tensor_2d": guest_metrics["linear_strain_tensor_2d"],
+        "host_linear_strain_tensor_2d": host_metrics["linear_strain_tensor_2d"],
         "strain_target": strain_target,
         "area": max(host_area, guest_area),
         "area_ratio": max(host_area, guest_area),
@@ -1082,6 +1173,106 @@ def _deduplicate_lattice_matches(candidates: Iterable[dict]) -> list[dict]:
     )
 
 
+def _batch_lattice_match_kinematics(
+    host_boundaries: np.ndarray,
+    guest_boundaries: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Vectorize proper rotations and strains for all oriented basis variants.
+
+    The leading dimension of each returned array indexes
+    ``_ORIENTED_BASIS_TRANSFORMS``.  Testing these determinant-one signed row
+    permutations makes the result invariant to acute versus obtuse reduced
+    basis representations of the same physical sublattice.
+    """
+
+    host = np.asarray(host_boundaries, dtype=float)
+    guest = np.asarray(guest_boundaries, dtype=float)
+    if host.ndim != 3 or host.shape[1:] != (2, 2) or guest.shape != host.shape:
+        raise ValueError("Batched lattice boundaries must have shape (N, 2, 2).")
+    if len(host) == 0:
+        empty = np.empty((len(_ORIENTED_BASIS_TRANSFORMS), 0), dtype=float)
+        return empty, empty, empty
+
+    angle_variants: list[np.ndarray] = []
+    guest_strain_variants: list[np.ndarray] = []
+    host_strain_variants: list[np.ndarray] = []
+
+    def principal_stretches(deformation: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        # Closed-form singular values of a 2 x 2 matrix avoid hundreds of
+        # thousands of tiny LAPACK calls during a large bounded search.  The
+        # two hypot expressions are stable for identity and nearly isotropic
+        # matrices, where trace/determinant formulas lose enough precision to
+        # reject an exact match at a strict zero-strain tolerance.
+        a = deformation[:, 0, 0]
+        b = deformation[:, 0, 1]
+        c = deformation[:, 1, 0]
+        d = deformation[:, 1, 1]
+        sum_term = np.hypot(a + d, b - c)
+        difference_term = np.hypot(a - d, b + c)
+        largest = 0.5 * (sum_term + difference_term)
+        smallest = 0.5 * np.abs(sum_term - difference_term)
+        return largest, smallest
+
+    def solve_2x2(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+        """Return ``left^-1 @ right`` without batched LAPACK dispatch."""
+
+        a = left[:, 0, 0]
+        b = left[:, 0, 1]
+        c = left[:, 1, 0]
+        d = left[:, 1, 1]
+        determinant = a * d - b * c
+        if np.any(np.abs(determinant) <= 1e-24):
+            raise ValueError("Commensurate boundary matrix is singular.")
+        e = right[:, 0, 0]
+        f = right[:, 0, 1]
+        g = right[:, 1, 0]
+        h = right[:, 1, 1]
+        result = np.empty_like(left)
+        result[:, 0, 0] = (d * e - b * g) / determinant
+        result[:, 0, 1] = (d * f - b * h) / determinant
+        result[:, 1, 0] = (-c * e + a * g) / determinant
+        result[:, 1, 1] = (-c * f + a * h) / determinant
+        return result
+
+    for transform in _ORIENTED_BASIS_TRANSFORMS:
+        oriented_guest = transform @ guest
+        covariance = np.swapaxes(oriented_guest, 1, 2) @ host
+        cosine_numerator = covariance[:, 0, 0] + covariance[:, 1, 1]
+        sine_numerator = covariance[:, 0, 1] - covariance[:, 1, 0]
+        normalization = np.hypot(cosine_numerator, sine_numerator)
+        normalization = np.maximum(normalization, 1e-30)
+        cosine_values = cosine_numerator / normalization
+        sine_values = sine_numerator / normalization
+        rotation = np.empty_like(covariance)
+        rotation[:, 0, 0] = cosine_values
+        rotation[:, 0, 1] = sine_values
+        rotation[:, 1, 0] = -sine_values
+        rotation[:, 1, 1] = cosine_values
+
+        rotated_guest = oriented_guest @ rotation
+        guest_deformation = solve_2x2(rotated_guest, host)
+        largest, smallest = principal_stretches(guest_deformation)
+        guest_strain_variants.append(np.maximum(
+            np.abs(largest - 1.0),
+            np.abs(smallest - 1.0),
+        ))
+        # The host deformation is the exact inverse.  Reciprocal principal
+        # stretches avoid a second matrix solve and preserve the same metric.
+        host_strain_variants.append(np.maximum(
+            np.abs(np.reciprocal(smallest) - 1.0),
+            np.abs(np.reciprocal(largest) - 1.0),
+        ))
+        angles = np.degrees(np.arctan2(rotation[:, 0, 1], rotation[:, 0, 0]))
+        angles = (angles + 180.0) % 360.0 - 180.0
+        angles[np.isclose(angles, -180.0, atol=1e-10)] = 180.0
+        angle_variants.append(angles)
+    return (
+        np.stack(angle_variants),
+        np.stack(guest_strain_variants),
+        np.stack(host_strain_variants),
+    )
+
+
 def find_lattice_matches(
     host_cell: Sequence[Sequence[float]],
     host_pbc: Sequence[bool],
@@ -1101,8 +1292,11 @@ def find_lattice_matches(
     """
 
     maximum = int(max_area_ratio)
-    if maximum < 1 or maximum > 256:
-        raise ValueError("Maximum commensurate area ratio must be between 1 and 256.")
+    if maximum < 1 or maximum > MAX_LATTICE_MATCH_AREA_RATIO:
+        raise ValueError(
+            "Maximum commensurate area ratio must be between 1 and "
+            f"{MAX_LATTICE_MATCH_AREA_RATIO}."
+        )
     tolerance = float(strain_tolerance)
     if not np.isfinite(tolerance) or tolerance < 0 or tolerance > 0.25:
         raise ValueError("Boundary strain tolerance must be between 0 and 0.25.")
@@ -1135,49 +1329,113 @@ def find_lattice_matches(
 
     length_limit = max(0.0125, tolerance * 3.5)
     cosine_limit = max(0.025, tolerance * 5.0)
-    bucket_width = np.array([length_limit, length_limit, cosine_limit])
-    guest_buckets: dict[tuple[int, int, int], list[dict]] = {}
-    for record in guest_records:
-        key = tuple(np.floor(record["descriptor"] / bucket_width).astype(int))
-        guest_buckets.setdefault(key, []).append(record)
+    descriptor_scale = np.array([length_limit, length_limit, cosine_limit])
+    host_descriptors = np.stack([record["descriptor"] for record in host_records])
+    guest_descriptors = np.stack([record["descriptor"] for record in guest_records])
 
-    matches: list[dict] = []
+    # A Chebyshev KD-tree query reproduces the three independent descriptor
+    # cutoffs without the Python-level 27-bucket loop.  Exact rotations and
+    # principal stretches are then evaluated in NumPy batches.  Only the best
+    # pair per plotted angle bucket is enriched into a full candidate object.
+    from scipy.spatial import cKDTree
+
+    guest_tree = cKDTree(guest_descriptors / descriptor_scale)
+    scaled_host = host_descriptors / descriptor_scale
+    best_pairs: dict[int, tuple[int, int, int, tuple[float, ...]]] = {}
     evaluated = 0
     host_total = max(1, len(host_records))
     host_cell_array = np.asarray(host_cell, dtype=float)
     guest_cell_array = np.asarray(guest_cell, dtype=float)
-    for host_index, host_record in enumerate(host_records):
-        base_key = np.floor(host_record["descriptor"] / bucket_width).astype(int)
-        nearby: list[dict] = []
-        for first in (-1, 0, 1):
-            for second in (-1, 0, 1):
-                for third in (-1, 0, 1):
-                    nearby.extend(guest_buckets.get(tuple(base_key + [first, second, third]), ()))
-        for guest_record in nearby:
-            difference = np.abs(host_record["descriptor"] - guest_record["descriptor"])
-            if difference[0] > length_limit or difference[1] > length_limit:
-                continue
-            if difference[2] > cosine_limit:
-                continue
-            evaluated += 1
-            candidate = _lattice_match_candidate(
-                host_cell=host_cell_array,
-                guest_cell=guest_cell_array,
-                host_projected=host_projected,
-                guest_projected=guest_projected,
-                normal=normal,
-                host_record=host_record,
-                guest_record=guest_record,
-                strain_target=target,
-            )
-            if candidate["strain"] <= tolerance + 1e-12:
-                matches.append(candidate)
-        if host_index % max(1, host_total // 80) == 0:
-            report(
-                0.24 + 0.70 * (host_index + 1) / host_total,
-                "Comparing integer host/guest boundaries",
-            )
+    query_batch_size = 64
+    kinematics_batch_size = 50_000
+    for host_start in range(0, host_total, query_batch_size):
+        host_end = min(host_total, host_start + query_batch_size)
+        nearby_lists = guest_tree.query_ball_point(
+            scaled_host[host_start:host_end],
+            r=1.0 + 1e-12,
+            p=np.inf,
+        )
+        counts = np.fromiter((len(values) for values in nearby_lists), dtype=int)
+        pair_count = int(np.sum(counts))
+        if pair_count:
+            host_indices = np.repeat(np.arange(host_start, host_end, dtype=int), counts)
+            guest_indices = np.concatenate([
+                np.asarray(values, dtype=int)
+                for values in nearby_lists
+                if values
+            ])
+            evaluated += pair_count
+            for pair_start in range(0, pair_count, kinematics_batch_size):
+                pair_end = min(pair_count, pair_start + kinematics_batch_size)
+                host_batch_indices = host_indices[pair_start:pair_end]
+                guest_batch_indices = guest_indices[pair_start:pair_end]
+                host_boundaries = np.stack([
+                    host_records[index]["basis"]
+                    for index in host_batch_indices
+                ])
+                guest_boundaries = np.stack([
+                    guest_records[index]["basis"]
+                    for index in guest_batch_indices
+                ])
+                angles, guest_strains, host_strains = _batch_lattice_match_kinematics(
+                    host_boundaries,
+                    guest_boundaries,
+                )
+                strain_variants = guest_strains if target == "guest" else host_strains
+                columns = np.arange(strain_variants.shape[1])
+                minimum_strains = np.min(strain_variants, axis=0)
+                equivalent = np.isclose(
+                    strain_variants,
+                    minimum_strains[None, :],
+                    rtol=1e-9,
+                    atol=1e-11,
+                )
+                angle_rank = np.where(equivalent, np.abs(angles), np.inf)
+                orientation_indices = np.argmin(angle_rank, axis=0)
+                active_strains = strain_variants[orientation_indices, columns]
+                active_angles = angles[orientation_indices, columns]
+                for local_index in np.flatnonzero(active_strains <= tolerance + 1e-12):
+                    host_index = int(host_batch_indices[local_index])
+                    guest_index = int(guest_batch_indices[local_index])
+                    orientation_index = int(orientation_indices[local_index])
+                    angle = float(active_angles[local_index])
+                    active_strain = float(active_strains[local_index])
+                    host_area = int(host_records[host_index]["area"])
+                    guest_area = int(guest_records[guest_index]["area"])
+                    key = int(round(angle * 100.0))
+                    rank = (
+                        float(max(host_area, guest_area)),
+                        float(host_area + guest_area),
+                        active_strain,
+                        abs(angle),
+                    )
+                    previous = best_pairs.get(key)
+                    if previous is None or rank < previous[3]:
+                        best_pairs[key] = (
+                            host_index,
+                            guest_index,
+                            orientation_index,
+                            rank,
+                        )
+        report(
+            0.24 + 0.70 * host_end / host_total,
+            "Comparing integer host/guest boundaries",
+        )
 
+    matches = [
+        _lattice_match_candidate(
+            host_cell=host_cell_array,
+            guest_cell=guest_cell_array,
+            host_projected=host_projected,
+            guest_projected=guest_projected,
+            normal=normal,
+            host_record=host_records[host_index],
+            guest_record=guest_records[guest_index],
+            strain_target=target,
+            guest_orientation_transform=_ORIENTED_BASIS_TRANSFORMS[orientation_index],
+        )
+        for host_index, guest_index, orientation_index, _ in best_pairs.values()
+    ]
     candidates = _deduplicate_lattice_matches(matches)
     report(1.0, "Ranking valid commensurate matches")
     return {
@@ -1219,11 +1477,18 @@ def commensurate_csv(search: dict) -> bytes:
     writer.writerow([
         "angle_deg",
         "strain",
+        "max_principal_strain",
+        "mean_absolute_strain",
         "host_strain",
         "guest_strain",
+        "host_mean_absolute_strain",
+        "guest_mean_absolute_strain",
         "area_ratio",
         "host_area_ratio",
         "guest_area_ratio",
+        "total_atom_count",
+        "host_atom_count",
+        "guest_atom_count",
         "host_notation",
         "guest_notation",
         "host_matrix",
@@ -1234,11 +1499,18 @@ def commensurate_csv(search: dict) -> bytes:
         writer.writerow([
             f"{float(candidate.get('angle_deg', 0.0)):.12g}",
             f"{float(candidate.get('strain', 0.0)):.12g}",
+            f"{float(candidate.get('max_principal_strain', candidate.get('strain', 0.0))):.12g}",
+            f"{float(candidate.get('mean_absolute_strain', candidate.get('strain', 0.0))):.12g}",
             f"{float(candidate.get('host_strain', candidate.get('strain', 0.0))):.12g}",
             f"{float(candidate.get('guest_strain', candidate.get('strain', 0.0))):.12g}",
+            f"{float(candidate.get('host_mean_absolute_strain', candidate.get('mean_absolute_strain', 0.0))):.12g}",
+            f"{float(candidate.get('guest_mean_absolute_strain', candidate.get('mean_absolute_strain', 0.0))):.12g}",
             int(candidate.get("area_ratio", candidate.get("area", 0)) or 0),
             int(candidate.get("host_area_ratio", candidate.get("area", 0)) or 0),
             int(candidate.get("guest_area_ratio", candidate.get("area", 0)) or 0),
+            int(candidate.get("total_atom_count", 0) or 0),
+            int(candidate.get("host_atom_count", 0) or 0),
+            int(candidate.get("guest_atom_count", 0) or 0),
             str(candidate.get("host_notation", candidate.get("target_notation", ""))),
             str(candidate.get("guest_notation", candidate.get("source_notation", ""))),
             str(candidate.get("host_matrix", candidate.get("target_matrix", ""))),
@@ -1259,7 +1531,10 @@ def _generic_candidates(basis: np.ndarray, max_index: int, strain_tolerance: flo
         for matrix in _hnf_matrices(area):
             reduced, reduced_matrix = _gauss_reduce(matrix @ basis, matrix)
             lengths = np.linalg.norm(reduced, axis=1)
-            cosine = float(np.dot(reduced[0], reduced[1]) / max(lengths[0] * lengths[1], 1e-14))
+            cosine = abs(float(
+                np.dot(reduced[0], reduced[1])
+                / max(lengths[0] * lengths[1], 1e-14)
+            ))
             descriptor = np.array([np.log(lengths[0]), np.log(lengths[1]), cosine])
             reduced_cells.append((reduced, reduced_matrix, descriptor))
         for first_index, (first_cell, first_matrix, first_descriptor) in enumerate(reduced_cells):
@@ -1364,6 +1639,10 @@ def find_commensurate_angles(
             "strain_target": "guest",
             "host_strain": 0.0,
             "guest_strain": candidate["strain"],
+            "host_mean_absolute_strain": 0.0,
+            "guest_mean_absolute_strain": candidate["mean_absolute_strain"],
+            "host_linear_strain_tensor_2d": [[0.0, 0.0], [0.0, 0.0]],
+            "guest_linear_strain_tensor_2d": candidate["linear_strain_tensor_2d"],
             "host_area_ratio": candidate["area_ratio"],
             "guest_area_ratio": candidate["area_ratio"],
             "host_matrix": candidate["target_matrix"],
@@ -1387,7 +1666,10 @@ def find_commensurate_angles(
         "axis_alignment": round(float(projected.axis_alignment), 8),
         "strain_tolerance": strain_tolerance,
         "max_index": max_index,
-        "references": [dict(reference) for reference in COMMENSURATE_REFERENCES],
+        "references": [
+            *[dict(reference) for reference in COMMENSURATE_REFERENCES],
+            dict(TBG_COMMENSURATE_REFERENCE),
+        ],
         "warning": warning,
         "candidates": candidates,
     }

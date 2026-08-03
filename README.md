@@ -230,20 +230,21 @@ geometry editing and is not an energy-minimized final structure.
 
 Enable **Structure > Transform > Commensurate atoms** to search bounded integer
 supercells immediately. The search runs behind a staged progress display and
-opens an interactive Plotly graph with:
+opens an interactive Plotly graph with two views:
 
-- rotation angle on X;
-- common-cell area ratio on Y;
-- residual in-plane strain on Z;
-- every valid bounded match as a point;
-- a live plane and marker following the current guest rotation.
+| Graph | Meaning |
+| --- | --- |
+| **3D overview** | Rotation angle, common-cell area ratio, and maximum principal strain; a live plane follows the current rotation |
+| **Paper strain projection** | Mean absolute strain versus the actual host-plus-guest atom count, with angle shown by color |
 
 The graph's save icon exports the plotted angle, strain, host/guest integer
-matrices, surface notation, and method citations as CSV. **Maximum area ratio**
-defaults to `16`; **Maximum strain** rejects larger boundary mismatch instead
-of creating an unbounded cell.
+matrices, atom counts, surface notation, and method citations as CSV.
+**Maximum strain** always uses the conservative maximum principal stretch;
+switching graphs does not change accepted candidates. **Maximum area ratio**
+defaults to `16` and is explicitly bounded at `128` so the interactive search
+remains exhaustive instead of silently sampling a larger space.
 
-Two workflows use the same independently implemented integer-boundary search:
+Two workflows use the same bounded integer-boundary search:
 
 | Workflow | Host | Guest / rotating component |
 | --- | --- | --- |
@@ -275,9 +276,33 @@ The boundary-matching method follows the published integer-supercell and
 minimal-strain formulations in
 [CellMatch](https://doi.org/10.1016/j.cpc.2015.08.038) and the
 [optimal interface-supercell method](https://doi.org/10.1088/1361-648X/aa66f3).
-v_ase implements the search independently; no source code from those projects
-is copied. A suggested cell is a geometric periodic match, not an electronic
-energy minimum.
+A full same-lattice hexagonal regression follows the commensurate integer-cell
+family in the
+[twisted-bilayer graphene geometry](https://doi.org/10.1103/PhysRevB.86.155449).
+A suggested cell is a geometric periodic match, not an electronic energy
+minimum.
+
+### Try A Separate Host And Guest
+
+The repository includes a deterministic graphene/Cu(111) validation pair:
+
+```bash
+v_ase gui examples/commensurate_host_guest/graphene_host.extxyz
+```
+
+In **Structure > Transform > Commensurate atoms**, choose **Host / guest
+interface**, load
+[`cu111_guest.extxyz`](examples/commensurate_host_guest/cu111_guest.extxyz),
+and keep guest strain `1%` with maximum area ratio `16`. The smallest match is
+graphene `sqrt(13)` against Cu(111) `sqrt(12)` at `|16.10211375|` degrees.
+The common cell contains 26 graphene atoms plus 12 Cu atoms. The
+[example guide](examples/commensurate_host_guest/README.md) and
+[`expected.json`](examples/commensurate_host_guest/expected.json) give the
+exact maximum-principal and paper-style mean-strain values used by the tests.
+
+The equations, numerical references, basis-invariance check, and measured
+search bounds are collected in
+[Commensurate Cell Scientific Validation](docs/commensurate_validation.md).
 
 Normal `R` rotates selected atoms. **Cell Transform** is a separate periodic
 operation that applies an integer matrix to the cell and every trajectory
@@ -1048,6 +1073,4 @@ python -m pip install v_ase-gui
 
 Run `v_ase --help` or `v_ase gui --help` for all CLI options. Report
 reproducible problems at
-[GitHub Issues](https://github.com/lgyEthan/v_ase/issues). Security and
-third-party details are in [SECURITY.md](SECURITY.md) and
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+[GitHub Issues](https://github.com/lgyEthan/v_ase/issues).

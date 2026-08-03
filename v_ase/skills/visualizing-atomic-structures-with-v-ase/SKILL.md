@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.1.8"
+python -m pip install "v_ase-gui==0.1.9"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -252,8 +252,11 @@ For any nontrivial task, verify all applicable items:
   ratio, chosen strain target, host/guest integer matrices, paper-style
   notation, distinct host/guest/common cells, cells-only default, optional
   one-primitive-cell atom/bond halo, live angle plane, graph CSV, and
-  materialization support; never call `apply-commensurate-cell` without
-  explicit user intent;
+  materialization support. Confirm that the conservative max principal strain
+  controls acceptance, while the Paper strain projection reports mean
+  absolute strain against actual host-plus-guest atom count. `maxAreaRatio`
+  defaults to 16 and accepts only 1 through 128. Never call
+  `apply-commensurate-cell` without explicit user intent;
 - XY registry map: selected moving component, periodic axes, grid dimensions,
   geometry metric, optimum and current fractional coordinates, lower-is-better
   warning, live XY move marker, and exported CSV; never call a geometry score

@@ -925,6 +925,9 @@ export class ASEApi {
             max_area_ratio: maxAreaRatio,
             mode: options.mode || 'same-lattice',
             strain_target: options.strainTarget || 'guest',
+            selected_indices: Array.isArray(options.selectedIndices)
+                ? options.selectedIndices
+                : [],
             job_id: options.jobId || undefined
         }));
     }

@@ -1,20 +1,32 @@
 import asyncio
+import json
 import math
+from pathlib import Path
+import time
 
 import numpy as np
 import pytest
 from ase import Atoms
 from ase.constraints import FixAtoms, FixedLine, FixedPlane
-from ase.io import write
+from ase.io import read, write
 from fastapi import HTTPException
 
 from v_ase.commensurate import (
+    _ORIENTED_BASIS_TRANSFORMS,
+    _batch_lattice_match_kinematics,
     _deduplicate_candidates,
+    _deduplicate_lattice_matches,
+    _deformation_strain_metrics,
+    _lattice_match_candidate,
+    _optimal_rotation_deformation,
+    _plane_frame,
+    _supercell_records,
     commensurate_csv,
     commensurate_supercell_geometry,
     find_commensurate_angles,
     find_lattice_matches,
     host_guest_supercell_geometry,
+    project_periodic_lattice_in_frame,
     row_rotation_matrix,
 )
 from v_ase.server import (
@@ -45,6 +57,278 @@ def candidate_near(result, angle, tolerance=1e-5):
         for candidate in result["candidates"]
         if abs(candidate["angle_deg"] - angle) <= tolerance
     )
+
+
+def commensurate_fixture_directory():
+    return Path(__file__).resolve().parents[1] / "examples" / "commensurate_host_guest"
+
+
+def test_stradi_mean_absolute_strain_uses_the_published_component_definition():
+    deformation = np.array([
+        [1.01, 0.004],
+        [0.004, 0.98],
+    ])
+
+    metrics = _deformation_strain_metrics(deformation)
+
+    np.testing.assert_allclose(
+        np.asarray(metrics["linear_strain_tensor_2d"]),
+        np.array([[0.01, 0.004], [0.004, -0.02]]),
+        atol=1e-15,
+    )
+    assert metrics["mean_absolute_strain"] == pytest.approx(
+        (0.01 + 0.02 + 0.004) / 3.0
+    )
+    assert metrics["max_principal_strain"] == pytest.approx(
+        np.max(np.abs(np.linalg.svd(deformation, compute_uv=False) - 1.0))
+    )
+
+
+@pytest.mark.parametrize(
+    ("epsilon_xx_percent", "epsilon_yy_percent", "epsilon_xy_percent", "paper_mean_percent"),
+    [
+        (-0.26, -0.27, 0.0, 0.18),
+        (-0.26, -1.79, 0.0, 0.68),
+        (-0.27, -2.06, 0.0, 0.78),
+        (-0.26, -0.26, 0.0, 0.18),
+        (-2.06, -2.06, 0.0, 1.37),
+        (-0.27, 5.79, 0.0, 2.02),
+    ],
+)
+def test_stradi_table_3_mean_strain_values_are_reproduced(
+    epsilon_xx_percent,
+    epsilon_yy_percent,
+    epsilon_xy_percent,
+    paper_mean_percent,
+):
+    """Reproduce the published Al/InAs mean-strain column from Table 3.
+
+    The component values printed by the paper are themselves rounded to two
+    decimals, so their reconstructed means are compared within one final-table
+    rounding unit rather than treated as hidden full-precision source data.
+    """
+
+    deformation = np.array([
+        [1.0 + epsilon_xx_percent / 100.0, epsilon_xy_percent / 100.0],
+        [epsilon_xy_percent / 100.0, 1.0 + epsilon_yy_percent / 100.0],
+    ])
+    reconstructed_percent = (
+        _deformation_strain_metrics(deformation)["mean_absolute_strain"] * 100.0
+    )
+
+    assert reconstructed_percent == pytest.approx(paper_mean_percent, abs=0.011)
+
+
+def test_graphene_cu111_host_guest_fixture_matches_its_independent_reference():
+    directory = commensurate_fixture_directory()
+    expected = json.loads((directory / "expected.json").read_text())
+    host = read(directory / expected["host_file"])
+    guest = read(directory / expected["guest_file"])
+    settings = expected["settings"]
+    reference = expected["expected_smallest_match"]
+
+    graphene_lattice = expected["primitive_lattices_angstrom"]["graphene"]
+    cu111_lattice = expected["primitive_lattices_angstrom"]["cu111_from_fcc_3.615"]
+    graphene_boundary = math.sqrt(13.0) * graphene_lattice
+    cu111_boundary = math.sqrt(12.0) * cu111_lattice
+    analytic_stretch = graphene_boundary / cu111_boundary
+    graphene_boundary_angle = math.degrees(math.atan2(math.sqrt(3.0) / 2.0, 3.5))
+    analytic_angle = 30.0 - graphene_boundary_angle
+    assert reference["absolute_angle_deg"] == pytest.approx(analytic_angle, abs=1e-8)
+    assert reference["maximum_principal_strain"] == pytest.approx(
+        analytic_stretch - 1.0,
+        abs=1e-12,
+    )
+    assert reference["mean_absolute_strain"] == pytest.approx(
+        2.0 * (analytic_stretch - 1.0) / 3.0,
+        abs=1e-12,
+    )
+    assert reference["total_atom_count"] == (
+        len(host) * reference["host_area_ratio"]
+        + len(guest) * reference["guest_area_ratio"]
+    )
+
+    result = find_lattice_matches(
+        host.cell.array,
+        host.pbc,
+        guest.cell.array,
+        guest.pbc,
+        max_area_ratio=settings["maximum_area_ratio"],
+        strain_tolerance=settings["maximum_strain_fraction"],
+        strain_target=settings["strain_target"],
+    )
+
+    candidate = min(
+        result["candidates"],
+        key=lambda item: (
+            max(item["host_area_ratio"], item["guest_area_ratio"]),
+            abs(item["angle_deg"]),
+        ),
+    )
+    assert abs(candidate["angle_deg"]) == pytest.approx(reference["absolute_angle_deg"], abs=1e-8)
+    assert candidate["host_area_ratio"] == reference["host_area_ratio"]
+    assert candidate["guest_area_ratio"] == reference["guest_area_ratio"]
+    assert candidate["max_principal_strain"] == pytest.approx(
+        reference["maximum_principal_strain"], abs=1e-12
+    )
+    assert candidate["mean_absolute_strain"] == pytest.approx(
+        reference["mean_absolute_strain"], abs=1e-12
+    )
+    assert candidate["host_notation"].startswith(reference["host_notation_prefix"])
+    assert candidate["guest_notation"].startswith(reference["guest_notation_prefix"])
+    assert candidate["host_matrix"] == reference["host_matrix"]
+    assert candidate["guest_matrix"] == reference["guest_matrix"]
+
+
+def test_host_guest_search_is_invariant_to_an_equivalent_integer_cell_basis():
+    host = np.array([
+        [3.1, 0.2, 0.0],
+        [0.8, 4.2, 0.0],
+        [0.0, 0.0, 17.0],
+    ])
+    equivalent_basis = np.array([[3, 2], [-2, -1]], dtype=int)
+    assert round(np.linalg.det(equivalent_basis)) == 1
+    guest = host.copy()
+    guest[:2] = equivalent_basis @ host[:2]
+
+    result = find_lattice_matches(
+        host,
+        [True, True, False],
+        guest,
+        [True, True, False],
+        max_area_ratio=1,
+        strain_tolerance=1e-10,
+    )
+
+    assert result["suggestion_count"] >= 1
+    candidate = min(result["candidates"], key=lambda item: item["strain"])
+    assert candidate["host_area_ratio"] == 1
+    assert candidate["guest_area_ratio"] == 1
+    assert candidate["strain"] == pytest.approx(0.0, abs=1e-12)
+
+
+def test_vectorized_kinematics_matches_svd_for_general_oblique_boundaries():
+    generator = np.random.default_rng(20260803)
+    host = generator.normal(size=(64, 2, 2))
+    guest = generator.normal(size=(64, 2, 2))
+    host += np.eye(2)[None, :, :] * 2.5
+    guest += np.eye(2)[None, :, :] * 2.5
+
+    angles, guest_strains, host_strains = _batch_lattice_match_kinematics(host, guest)
+
+    for index in range(len(host)):
+        angle, guest_strain, rotation, _ = _optimal_rotation_deformation(
+            guest[index],
+            host[index],
+        )
+        host_deformation = np.linalg.solve(host[index], guest[index] @ rotation)
+        host_strain = np.max(np.abs(np.linalg.svd(host_deformation, compute_uv=False) - 1.0))
+        assert angles[0, index] == pytest.approx(angle, abs=1e-10)
+        assert guest_strains[0, index] == pytest.approx(guest_strain, abs=1e-10)
+        assert host_strains[0, index] == pytest.approx(host_strain, abs=1e-10)
+
+
+def test_accelerated_host_guest_search_matches_exhaustive_small_search():
+    host = np.array([
+        [3.1, 0.25, 0.0],
+        [0.65, 4.05, 0.0],
+        [0.0, 0.0, 18.0],
+    ])
+    guest = np.array([
+        [3.04, -0.12, 0.0],
+        [0.48, 4.09, 0.0],
+        [0.0, 0.0, 19.0],
+    ])
+    pbc = [True, True, False]
+    maximum = 5
+    tolerance = 0.08
+
+    accelerated = find_lattice_matches(
+        host,
+        pbc,
+        guest,
+        pbc,
+        max_area_ratio=maximum,
+        strain_tolerance=tolerance,
+        strain_target="guest",
+    )
+
+    frame, normal, host_projected = _plane_frame(host, pbc, "Z")
+    guest_projected = project_periodic_lattice_in_frame(guest, pbc, normal, frame)
+    exhaustive = []
+    for host_record in _supercell_records(host_projected.basis, maximum):
+        for guest_record in _supercell_records(guest_projected.basis, maximum):
+            orientation_candidates = []
+            for transform in _ORIENTED_BASIS_TRANSFORMS:
+                orientation_candidates.append(_lattice_match_candidate(
+                    host_cell=host,
+                    guest_cell=guest,
+                    host_projected=host_projected,
+                    guest_projected=guest_projected,
+                    normal=normal,
+                    host_record=host_record,
+                    guest_record=guest_record,
+                    strain_target="guest",
+                    guest_orientation_transform=transform,
+                ))
+            minimum_strain = min(
+                float(candidate["strain"])
+                for candidate in orientation_candidates
+            )
+            canonical = min(
+                (
+                    candidate
+                    for candidate in orientation_candidates
+                    if float(candidate["strain"]) <= minimum_strain + 1e-11
+                ),
+                key=lambda candidate: abs(float(candidate["angle_deg"])),
+            )
+            if canonical["strain"] <= tolerance + 1e-12:
+                exhaustive.append(canonical)
+    expected = _deduplicate_lattice_matches(exhaustive)
+
+    def projected(candidates):
+        return {
+            round(float(candidate["angle_deg"]), 2): (
+                int(candidate["host_area_ratio"]),
+                int(candidate["guest_area_ratio"]),
+                round(float(candidate["strain"]), 10),
+            )
+            for candidate in candidates
+        }
+
+    assert projected(accelerated["candidates"]) == projected(expected)
+
+
+def test_vectorized_host_guest_search_keeps_large_interactive_bounds_responsive():
+    host = graphene_cell()
+    guest = graphene_cell() * np.array([[2.504 / 2.46], [2.504 / 2.46], [1.0]])
+
+    started = time.perf_counter()
+    result = find_lattice_matches(
+        host,
+        [True, True, False],
+        guest,
+        [True, True, False],
+        max_area_ratio=64,
+        strain_tolerance=0.03,
+    )
+    elapsed = time.perf_counter() - started
+
+    assert result["evaluated_pair_count"] > 250_000
+    assert result["suggestion_count"] > 100
+    assert elapsed < 12.0
+
+
+def test_host_guest_search_rejects_noninteractive_area_bounds_explicitly():
+    with pytest.raises(ValueError, match="between 1 and 128"):
+        find_lattice_matches(
+            graphene_cell(),
+            [True, True, False],
+            graphene_cell(),
+            [True, True, False],
+            max_area_ratio=129,
+        )
 
 
 def test_host_guest_lattice_match_uses_the_smallest_valid_boundary_and_guest_strain():
@@ -119,6 +403,9 @@ def test_commensurate_csv_carries_candidate_matrices_and_citations():
     assert "10.1088/1361-648X/aa66f3" in text
     assert "10.1016/j.cpc.2017.05.007" not in text
     assert "host_matrix" in text
+    assert "max_principal_strain" in text
+    assert "mean_absolute_strain" in text
+    assert "total_atom_count" in text
 
 
 def test_host_guest_preview_keeps_cells_independent_and_can_hide_atoms():
@@ -187,6 +474,9 @@ def test_host_guest_api_previews_cells_then_materializes_one_editable_structure(
     }
     result = asyncio.run(commensurate_rotation_candidates(session.session_id, search_payload))
     candidate = result["candidates"][0]
+    assert candidate["host_atom_count"] == 2
+    assert candidate["guest_atom_count"] == 2
+    assert candidate["total_atom_count"] == 4
     payload = {
         **search_payload,
         "candidate": candidate,
@@ -315,6 +605,33 @@ def test_hexagonal_commensurate_series_reaches_the_tbg_reference_angle():
     assert first["source_notation"].startswith("(sqrt(7) x sqrt(7))")
     assert first["target_notation"].startswith("(sqrt(7) x sqrt(7))")
     assert first["supercell_supported"] is True
+
+
+def test_hexagonal_commensurate_curve_matches_the_analytic_tbg_series():
+    """Validate every available m,m+1 point, not only three named angles."""
+
+    result = find_commensurate_angles(
+        graphene_cell(),
+        [True, True, False],
+        "Z",
+        max_index=32,
+        strain_tolerance=1e-8,
+        chemical_symbols=["C", "C", "C", "C"],
+    )
+    assert any(
+        reference.get("doi") == "10.1103/PhysRevB.86.155449"
+        for reference in result["references"]
+    )
+
+    for m in range(1, 32):
+        n = m + 1
+        area = m * m + m * n + n * n
+        cosine = (m * m + n * n + 4 * m * n) / (2 * area)
+        angle = math.degrees(math.acos(np.clip(cosine, -1.0, 1.0)))
+        candidate = candidate_near(result, angle, tolerance=1e-5)
+        assert candidate["area"] == area
+        assert candidate["strain"] == pytest.approx(0.0, abs=1e-10)
+        assert candidate["mean_absolute_strain"] == pytest.approx(0.0, abs=1e-10)
 
 
 def test_magic_reference_is_not_claimed_for_non_carbon_hexagonal_cells():

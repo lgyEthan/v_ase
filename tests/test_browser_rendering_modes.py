@@ -15,7 +15,7 @@ import pytest
 from ase import Atoms
 from ase.build import molecule
 from ase.constraints import FixAtoms, FixedLine, FixedPlane, FixScaled
-from ase.io import write
+from ase.io import read, write
 from PIL import Image
 from playwright._impl._errors import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
@@ -2744,13 +2744,40 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
             assert cells_only["proposal"]["preview"]["include_atoms"] is False
             assert cells_only["proposal"]["candidate"]["host_area_ratio"] == 1
             assert cells_only["proposal"]["candidate"]["guest_area_ratio"] == 1
+            assert cells_only["proposal"]["candidate"]["total_atom_count"] == 4
             assert cells_only["hostCells"] == 1
             assert cells_only["guestCells"] == 1
             assert cells_only["commonCells"] == 1
             assert cells_only["plotReady"] is True
+            assert page.locator("#commensurate-plot-view").is_visible()
             assert page.locator("#btn-analysis-export").get_attribute("aria-label") == (
                 "Save graph data as CSV"
             )
+
+            page.select_option("#commensurate-plot-view", "stradi-2d")
+            page.wait_for_function("""() => {
+                const plot = document.querySelector('#commensurate-plot');
+                return plot?.data?.[0]?.type === 'scatter';
+            }""")
+            paper_projection = page.evaluate("""() => {
+                const plot = document.querySelector('#commensurate-plot');
+                return {
+                    x: plot.data[0].x[0],
+                    y: plot.data[0].y[0],
+                    view: document.getElementById('commensurate-plot-view').value,
+                    xTitle: typeof plot.layout.xaxis?.title === 'string'
+                        ? plot.layout.xaxis.title
+                        : plot.layout.xaxis?.title?.text,
+                    yTitle: typeof plot.layout.yaxis?.title === 'string'
+                        ? plot.layout.yaxis.title
+                        : plot.layout.yaxis?.title?.text
+                };
+            }""")
+            assert paper_projection["view"] == "stradi-2d"
+            assert paper_projection["xTitle"] == "mean |strain| / %"
+            assert paper_projection["yTitle"] == "atoms in common cell"
+            assert paper_projection["x"] >= 0
+            assert paper_projection["y"] == 4
 
             atom_preview = page.evaluate("""async () => {
                 await window.v_aseAI.apply({
@@ -2775,6 +2802,8 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
             assert atom_preview["previewBonds"] > 0
             assert "10.1016/j.cpc.2015.08.038" in atom_preview["csv"]
             assert "host_matrix" in atom_preview["csv"]
+            assert "mean_absolute_strain" in atom_preview["csv"]
+            assert "total_atom_count" in atom_preview["csv"]
 
             analyzed = page.evaluate("""async () => {
                 await window.v_aseAI.apply({mode: 'edit'});
@@ -2815,6 +2844,102 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
                 "x_fractional,y_fractional,dx_angstrom,dy_angstrom,dz_angstrom,value"
                 in analyzed["csv"]
             )
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_repository_host_guest_fixture_matches_in_the_live_browser(monkeypatch):
+    fixture = Path(__file__).resolve().parents[1] / "examples" / "commensurate_host_guest"
+    expected = json.loads((fixture / "expected.json").read_text())
+    reference = expected["expected_smallest_match"]
+    host = read(fixture / expected["host_file"])
+    monkeypatch.chdir(fixture)
+
+    port = find_free_port()
+    editor = view(
+        host,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.v_aseAI && window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2"
+            )
+
+            result = page.evaluate("""async () => {
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'load-commensurate-guest',
+                        path: 'cu111_guest.extxyz',
+                        strainTolerance: 0.01,
+                        maxAreaRatio: 16,
+                        angleDeg: 0,
+                        showAtoms: false
+                    }
+                });
+                const app = window.__ASE_APP__;
+                const proposal = app.state.commensurateProposal?.data;
+                document.getElementById('commensurate-plot-view').value = 'stradi-2d';
+                document.getElementById('commensurate-plot-view').dispatchEvent(
+                    new Event('change', {bubbles: true})
+                );
+                await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                const plot = document.querySelector('#commensurate-plot');
+                return {
+                    candidate: proposal?.candidate,
+                    guestAtoms: (await window.v_aseAI.describe()).analysis.commensurate.guest.natoms,
+                    plotType: plot?.data?.[0]?.type,
+                    plotX: plot?.data?.[0]?.x || [],
+                    plotY: plot?.data?.[0]?.y || [],
+                    hostCells: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateHostCell).length,
+                    guestCells: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateGuestCell).length,
+                    commonCells: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateSuggestedCell).length
+                };
+            }""")
+            candidate = result["candidate"]
+            assert result["guestAtoms"] == 1
+            assert abs(candidate["angle_deg"]) == pytest.approx(
+                reference["absolute_angle_deg"], abs=1e-8
+            )
+            assert candidate["host_matrix"] == reference["host_matrix"]
+            assert candidate["guest_matrix"] == reference["guest_matrix"]
+            assert candidate["max_principal_strain"] == pytest.approx(
+                reference["maximum_principal_strain"], abs=1e-12
+            )
+            assert candidate["mean_absolute_strain"] == pytest.approx(
+                reference["mean_absolute_strain"], abs=1e-12
+            )
+            assert candidate["total_atom_count"] == reference["total_atom_count"]
+            assert result["plotType"] == "scatter"
+            matching_plot_rows = [
+                x
+                for x, y in zip(result["plotX"], result["plotY"])
+                if int(y) == reference["total_atom_count"]
+            ]
+            assert any(
+                float(value) == pytest.approx(
+                    reference["mean_absolute_strain"] * 100.0,
+                    abs=1e-8,
+                )
+                for value in matching_plot_rows
+            )
+            assert result["hostCells"] == 1
+            assert result["guestCells"] == 1
+            assert result["commonCells"] == 1
             browser.close()
     finally:
         editor.close()

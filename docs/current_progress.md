@@ -332,7 +332,8 @@ and documentation use `view()`.
 63. Commensurate matching is opt-in and defaults off. It is restricted to two
     in-plane periodic vectors and global-Z guest rotation. Enabling it searches
     integer host/guest supercells up to the configured area ratio (default
-    `16`) and strain cutoff, then proposes the smallest admissible common cell.
+    `16`, explicit maximum `128`) and maximum-principal-strain cutoff, then
+    proposes the smallest admissible common cell.
     Same-lattice twist uses a selected rotating layer; host/guest mode loads an
     independent guest structure and can place residual in-plane strain on the
     guest (default) or host. Cells-only preview is the default. Optional atoms
@@ -342,14 +343,20 @@ and documentation use `view()`.
     **Set Suggested Cell as Structure** action. Trajectories and active
     volumetric fields remain preview-only. The server recomputes integer
     matrices, affine maps, and constraint remapping before materialization.
-64. The commensurate Plotly surface uses angle, maximum host/guest area ratio,
-    and active-target residual strain. A live angle plane and nearest-candidate
-    marker follow guest rotation. Its icon-only CSV export retains both integer
-    matrices and paper metadata. The XY registry map scans a selected layer over
-    one fractional in-plane cell with either a short-contact or enabled-pair
-    bond-strain geometry score. It constrains live `G` motion to XY, tracks the
-    current periodic translation, and exports the complete plotted grid. These
-    scores are geometry screens, not energies.
+64. The commensurate Plotly drawer provides a 3D overview using angle, maximum
+    host/guest area ratio, and active-target maximum principal strain, plus a
+    paper projection using mean absolute strain versus actual common-cell atom
+    count. Both views share one accepted candidate set. A live angle plane and
+    nearest-candidate marker follow guest rotation. Its icon-only CSV export
+    retains both strain definitions, atom counts, integer matrices, and paper
+    metadata. A deterministic graphene/Cu(111) host/guest fixture and complete
+    numerical validation are provided under `examples/commensurate_host_guest`
+    and `docs/commensurate_validation.md`.
+    The XY registry map scans a selected layer over one fractional in-plane
+    cell with either a short-contact or enabled-pair bond-strain geometry
+    score. It constrains live `G` motion to XY, tracks the current periodic
+    translation, and exports the complete plotted grid. These scores are
+    geometry screens, not energies.
 65. Workspace activation and browser resizing update the camera-signature
     baseline but are not collaboration edits. A `describe()` revision is not
     invalidated by iframe activation or framebuffer aspect changes; deliberate

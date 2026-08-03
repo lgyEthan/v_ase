@@ -36,6 +36,10 @@ test edit and a new filename for output.
   display repetition and not one guessed `make-supercell` matrix. Respect the
   boundary-strain and `maxAreaRatio` limits; require explicit approval before
   `apply-commensurate-cell`.
+- Commensurate candidate acceptance uses max principal strain. The paper graph
+  uses mean absolute small-strain components only for comparison; never apply
+  that plotted mean as the acceptance cutoff. `maxAreaRatio` is exhaustive and
+  bounded from 1 through 128, with 16 as the interactive default.
 - Commensurate atoms supports only two periodic vectors in global XY and guest
   rotation about global Z. Treat same-lattice selected-layer twist and an
   independently loaded host/guest interface as separate workflows. Report
@@ -68,7 +72,7 @@ test edit and a new filename for output.
   periodic image inside the requested sphere. Do not replace that search with
   a fixed `2 x 2 x 2` supercell or present an uncorrected finite/partial-PBC
   histogram as bulk `g(r)`.
-- Partial RDF curves follow the OVITO concentration relation. Reconstruct the
+- Partial RDF curves follow the concentration-weighted relation. Reconstruct the
   total with `c_a^2 g_aa`, `2 c_a c_b g_ab`, and `c_b^2 g_bb`; do not sum the
   unweighted curves directly.
 - Never claim a result is physically relaxed unless an actual calculator and

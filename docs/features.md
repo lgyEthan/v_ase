@@ -378,15 +378,12 @@ a shrinkage-reducing two-pass Laplacian fairing stage after marching cubes;
 zero passes returns the original extracted vertices. Extracted meshes use
 indexed float32 geometry.
 
-The control split follows published behavior, not copied source code: the
-[VESTA manual](https://jp-minerals.org/vesta/en/doc/VESTAch6.html) documents
-volumetric interpolation as a resolution control, while the
-[OVITO manual](https://www.ovito.org/manual/reference/pipelines/modifiers/create_isosurface.html)
-documents iterative post-extraction mesh fairing. Boundary modes use the
-documented `wrap` and `reflect` semantics of
+Volumetric refinement separates pre-extraction field filtering from
+post-extraction mesh fairing so each control has one explicit numerical
+meaning. Boundary modes use the documented `wrap` and `reflect` semantics of
 [SciPy `gaussian_filter`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.gaussian_filter.html).
-v_ase's implementation and parameter contract are original and independently
-tested against its own periodic-grid representation.
+The implementation and parameter contract are independently tested against
+v_ase's periodic-grid representation.
 The semantic state keeps source dataset descriptors separate from a generated
 surface summary containing rendered levels, post-smearing range, mesh counts,
 and refinement settings. Invalid semantic refinement values are rejected;
@@ -399,8 +396,8 @@ periodic cell shift contributing a pair inside the requested sphere is
 enumerated, including shifts beyond a fixed `2 x 2 x 2` repetition. Partial
 or finite PBC is rejected rather than shown with an invalid bulk normalization.
 The total curve is always returned. Optional visual-label pair curves use the
-conventional OVITO relation
-`g = sum(c_a c_b g_ab)`, with a factor of two for mixed pairs. Pair selection
+concentration-weighted relation `g = sum(c_a c_b g_ab)`, with a factor of two
+for mixed pairs. Pair selection
 can follow enabled bond labels, include all label pairs, or be disabled.
 
 The Analysis drawer uses the locally installed Plotly bundle and remains

@@ -125,8 +125,18 @@ Run all scenarios, not only static document checks:
    - set `maxAreaRatio` to 6 and verify the area-7 proposal is rejected;
    - enable the commensurate workspace before rotating and verify cells-only
      preview, monotonic progress, the smallest valid proposal, and a live
-     current-angle plane on the angle/area/strain graph;
-   - load an independent hBN guest from the launch directory, verify absolute
+     current-angle plane on the 3D overview;
+   - switch to Paper strain projection and verify mean absolute strain, actual
+     common-cell atom count, angle color, and an unchanged accepted candidate;
+   - reconstruct the six published Stradi Table 3 mean-strain values from its
+     printed tensor components within one final-table rounding unit;
+   - compare the accelerated search against complete enumeration through area
+     ratio 5, and verify the full analytic `(m,m+1)` TBG series through
+     `(31,32)` plus an equivalent oblique integer basis;
+   - load the independent graphene/Cu(111) fixture from
+     `examples/commensurate_host_guest`, verify the `sqrt(13)` / `sqrt(12)`
+     result at `|16.10211375|` degrees, both documented strain values, and 38
+     atoms; verify absolute
      and parent-traversal paths are rejected, and compare guest-strain and
      host-strain matches without conflating their integer matrices;
    - enable atom preview and verify opaque host/guest cores, one-cell shells,
@@ -134,7 +144,8 @@ Run all scenarios, not only static document checks:
      distinct;
    - verify non-Z commensurate rotation is rejected, global-Z rotation updates
      only the current marker until a new bounded search is required, and CSV
-     contains angle, matrices, area, strain, and references;
+     contains angle, matrices, area, both strain definitions, atom counts, and
+     references;
    - materialize only after explicit approval and verify atom count, cell
      determinant, PBC, constraints, and cleared proposal state.
    - reject materialization for trajectories and volumetric documents instead

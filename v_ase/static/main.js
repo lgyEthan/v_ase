@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.1.8&rev=1';
-import { ASERenderer } from './renderer.js?v=0.1.8&rev=1';
-import { ASESelection } from './selection.js?v=0.1.8&rev=1';
-import { ASETransform } from './transform.js?v=0.1.8&rev=1';
+import { ASEApi } from './api.js?v=0.1.9&rev=1';
+import { ASERenderer } from './renderer.js?v=0.1.9&rev=1';
+import { ASESelection } from './selection.js?v=0.1.9&rev=1';
+import { ASETransform } from './transform.js?v=0.1.9&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.1.8&rev=1';
+} from './trajectory.js?v=0.1.9&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -31,6 +31,7 @@ const LEGACY_LABEL_DISPLAY_KEYS = Object.freeze({
     elementVisible: 'labelVisible'
 });
 const ATOM_MATERIAL_PRESETS = Object.freeze(['standard', 'metal', 'rubber']);
+const MAX_COMMENSURATE_AREA_RATIO = 128;
 
 class VAseApp {
     constructor() {
@@ -2040,6 +2041,10 @@ class VAseApp {
         if (titleElement) titleElement.textContent = title;
         const exportButton = document.getElementById('btn-analysis-export');
         if (exportButton) exportButton.disabled = false;
+        document.getElementById('commensurate-plot-view')?.classList.toggle(
+            'hidden',
+            type !== 'commensurate'
+        );
         drawer.classList.remove('hidden');
         return this.analysisPlotElement(type);
     }
@@ -2049,6 +2054,7 @@ class VAseApp {
         this.state.activeAnalysisPlot = null;
         const exportButton = document.getElementById('btn-analysis-export');
         if (exportButton) exportButton.disabled = true;
+        document.getElementById('commensurate-plot-view')?.classList.add('hidden');
     }
 
     plotTheme() {
@@ -2146,7 +2152,9 @@ class VAseApp {
             Number(candidate.area_ratio ?? candidate.area) <= Number(result.max_area_ratio || 16)
         ));
         const areas = candidates.map(candidate => Number(candidate.area_ratio ?? candidate.area));
-        const strains = candidates.map(candidate => Number(candidate.strain) * 100);
+        const strains = candidates.map(candidate => (
+            Number(candidate.max_principal_strain ?? candidate.strain) * 100
+        ));
         const areaMinimum = Math.min(...areas, 1);
         const areaMaximum = Math.max(...areas, 1);
         const strainMaximum = Math.max(...strains, Number(result?.strain_tolerance || 0.01) * 100, 0.1);
@@ -2166,7 +2174,7 @@ class VAseApp {
 
     async plotCommensurateSearch(result, angle = 0) {
         const Plotly = await this.ensurePlotly();
-        const plot = this.showAnalysisDrawer('commensurate', 'Commensurate Angle · Area · Strain');
+        const plot = this.showAnalysisDrawer('commensurate', 'Commensurate Cell Analysis');
         if (!plot) return;
         const angleDeg = Math.abs(Number(angle)) <= Math.PI * 4
             ? THREE.MathUtils.radToDeg(Number(angle) || 0)
@@ -2176,11 +2184,73 @@ class VAseApp {
         const hover = geometry.candidates.map(candidate => (
             `angle ${Number(candidate.angle_deg).toFixed(5)}°<br>`
             + `area ${Number(candidate.area_ratio ?? candidate.area)}×<br>`
-            + `strain ${(Number(candidate.strain) * 100).toFixed(5)}%<br>`
+            + `max principal strain ${(Number(candidate.max_principal_strain ?? candidate.strain) * 100).toFixed(5)}%<br>`
+            + `mean |strain| ${(Number(candidate.mean_absolute_strain ?? candidate.strain) * 100).toFixed(5)}%<br>`
+            + `atoms ${Number(candidate.total_atom_count || 0).toLocaleString()}<br>`
             + `host ${candidate.host_notation || candidate.target_notation || ''}<br>`
             + `guest ${candidate.guest_notation || candidate.source_notation || ''}`
         ));
         const nearest = geometry.nearest;
+        const graphView = document.getElementById('commensurate-plot-view')?.value || 'overview-3d';
+        if (graphView === 'stradi-2d') {
+            await Plotly.react(plot, [
+                {
+                    type: 'scatter',
+                    mode: 'markers',
+                    name: 'Valid common cells',
+                    x: geometry.candidates.map(candidate => (
+                        Number(candidate.mean_absolute_strain ?? candidate.strain) * 100
+                    )),
+                    y: geometry.candidates.map(candidate => Number(
+                        candidate.total_atom_count || candidate.area_ratio || candidate.area
+                    )),
+                    text: hover,
+                    hovertemplate: '%{text}<extra></extra>',
+                    marker: {
+                        size: 7,
+                        color: geometry.candidates.map(candidate => Number(candidate.angle_deg)),
+                        colorscale: 'Viridis',
+                        colorbar: { title: 'angle / deg', thickness: 10 },
+                        line: { color: theme.text, width: 0.45 }
+                    }
+                },
+                {
+                    type: 'scatter',
+                    mode: 'markers',
+                    name: 'Nearest angle',
+                    x: nearest ? [Number(nearest.mean_absolute_strain ?? nearest.strain) * 100] : [],
+                    y: nearest ? [Number(nearest.total_atom_count || nearest.area_ratio || nearest.area)] : [],
+                    marker: { size: 11, color: theme.blue, symbol: 'diamond-open', line: { width: 2 } },
+                    hoverinfo: 'skip'
+                }
+            ], {
+                autosize: true,
+                margin: { l: 62, r: 18, t: 12, b: 48 },
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: theme.text, family: 'Inter, system-ui, sans-serif', size: 10 },
+                xaxis: {
+                    title: 'mean |strain| / %',
+                    gridcolor: theme.line,
+                    zeroline: false,
+                    color: theme.muted
+                },
+                yaxis: {
+                    title: 'atoms in common cell',
+                    gridcolor: theme.line,
+                    zeroline: false,
+                    color: theme.muted
+                },
+                showlegend: false,
+                uirevision: 'commensurate-paper-projection'
+            }, {
+                responsive: true,
+                displaylogo: false,
+                scrollZoom: true,
+                modeBarButtonsToRemove: ['lasso2d', 'select2d']
+            });
+            return;
+        }
         await Plotly.react(plot, [
             {
                 type: 'scatter3d',
@@ -2188,14 +2258,18 @@ class VAseApp {
                 name: 'Valid common cells',
                 x: geometry.candidates.map(candidate => Number(candidate.angle_deg)),
                 y: geometry.candidates.map(candidate => Number(candidate.area_ratio ?? candidate.area)),
-                z: geometry.candidates.map(candidate => Number(candidate.strain) * 100),
+                z: geometry.candidates.map(candidate => (
+                    Number(candidate.max_principal_strain ?? candidate.strain) * 100
+                )),
                 text: hover,
                 hovertemplate: '%{text}<extra></extra>',
                 marker: {
                     size: 4.5,
-                    color: geometry.candidates.map(candidate => Number(candidate.strain) * 100),
+                    color: geometry.candidates.map(candidate => (
+                        Number(candidate.max_principal_strain ?? candidate.strain) * 100
+                    )),
                     colorscale: [[0, theme.teal], [1, theme.amber]],
-                    colorbar: { title: 'strain / %', thickness: 10 },
+                    colorbar: { title: 'max strain / %', thickness: 10 },
                     line: { color: theme.text, width: 0.35 }
                 }
             },
@@ -2217,7 +2291,7 @@ class VAseApp {
                 name: 'Nearest suggestion',
                 x: nearest ? [angleDeg] : [],
                 y: nearest ? [Number(nearest.area_ratio ?? nearest.area)] : [],
-                z: nearest ? [Number(nearest.strain) * 100] : [],
+                z: nearest ? [Number(nearest.max_principal_strain ?? nearest.strain) * 100] : [],
                 text: nearest ? [`${Number(nearest.targetAngleDeg).toFixed(3)}°`] : [],
                 textposition: 'top center',
                 marker: { size: 7, color: theme.blue, symbol: 'diamond' }
@@ -2231,7 +2305,7 @@ class VAseApp {
                 bgcolor: 'rgba(0,0,0,0)',
                 xaxis: { title: 'rotation / deg', gridcolor: theme.line, color: theme.muted },
                 yaxis: { title: 'area ratio', gridcolor: theme.line, color: theme.muted },
-                zaxis: { title: 'strain / %', gridcolor: theme.line, color: theme.muted },
+                zaxis: { title: 'max principal strain / %', gridcolor: theme.line, color: theme.muted },
                 camera: { eye: { x: 1.35, y: 1.4, z: 0.9 } }
             },
             showlegend: false,
@@ -2256,6 +2330,13 @@ class VAseApp {
                 this.state.commensuratePlotPendingAngle
             );
             const nearest = geometry.nearest;
+            if (document.getElementById('commensurate-plot-view')?.value === 'stradi-2d') {
+                window.Plotly.restyle(plot, {
+                    x: [nearest ? [Number(nearest.mean_absolute_strain ?? nearest.strain) * 100] : []],
+                    y: [nearest ? [Number(nearest.total_atom_count || nearest.area_ratio || nearest.area)] : []]
+                }, [1]);
+                return;
+            }
             window.Plotly.restyle(plot, {
                 x: [geometry.plane.x],
                 y: [geometry.plane.y],
@@ -2264,7 +2345,7 @@ class VAseApp {
             window.Plotly.restyle(plot, {
                 x: [nearest ? [this.state.commensuratePlotPendingAngle] : []],
                 y: [nearest ? [Number(nearest.area_ratio ?? nearest.area)] : []],
-                z: [nearest ? [Number(nearest.strain) * 100] : []],
+                z: [nearest ? [Number(nearest.max_principal_strain ?? nearest.strain) * 100] : []],
                 text: [nearest ? [`${Number(nearest.targetAngleDeg).toFixed(3)}°`] : []]
             }, [2]);
         });
@@ -2360,6 +2441,16 @@ class VAseApp {
             this.exportActiveAnalysisData().catch(error => {
                 this.toast(`Analysis export failed: ${error.message}`, 'error');
             });
+        });
+        document.getElementById('commensurate-plot-view')?.addEventListener('change', () => {
+            if (!this.state.commensurateSearch) return;
+            const currentDeg = this.commensurateMode() === 'host-guest'
+                ? Number(this.state.display.commensurateGuestAngleDeg || 0)
+                : THREE.MathUtils.radToDeg(this.state.commensurateLastAngle || 0);
+            this.plotCommensurateSearch(
+                this.state.commensurateSearch,
+                THREE.MathUtils.degToRad(currentDeg)
+            ).catch(error => this.toast(`Commensurate plot failed: ${error.message}`, 'error'));
         });
         this.setupAnalysisDrawerResize();
     }
@@ -3968,7 +4059,7 @@ class VAseApp {
             ? Math.max(2, Math.min(64, initialMaxIndex))
             : this.state.display.commensurateMaxIndex;
         this.state.display.commensurateMaxAreaRatio = Number.isFinite(initialMaxArea)
-            ? Math.max(1, Math.min(256, initialMaxArea))
+            ? Math.max(1, Math.min(MAX_COMMENSURATE_AREA_RATIO, initialMaxArea))
             : this.state.display.commensurateMaxAreaRatio;
         this.state.display.commensurateSnapRangeDeg = Number.isFinite(initialSnapRange)
             ? Math.max(0, Math.min(15, initialSnapRange))
@@ -6996,7 +7087,7 @@ class VAseApp {
             : 32;
         const maxArea = parseInt(document.getElementById('commensurate-max-area')?.value || '16', 10);
         this.state.display.commensurateMaxAreaRatio = Number.isFinite(maxArea)
-            ? Math.max(1, Math.min(256, maxArea))
+            ? Math.max(1, Math.min(MAX_COMMENSURATE_AREA_RATIO, maxArea))
             : 16;
         const snapRange = parseFloat(document.getElementById('commensurate-snap-range')?.value || '2');
         this.state.display.commensurateSnapRangeDeg = Number.isFinite(snapRange)
@@ -7666,7 +7757,7 @@ class VAseApp {
         const maxIndex = Math.max(2, Math.min(64, Math.round(
             Number(operation.maxIndex ?? this.state.display.commensurateMaxIndex ?? 32)
         )));
-        const maxAreaRatio = Math.max(1, Math.min(256, Math.round(
+        const maxAreaRatio = Math.max(1, Math.min(MAX_COMMENSURATE_AREA_RATIO, Math.round(
             Number(operation.maxAreaRatio ?? this.state.display.commensurateMaxAreaRatio ?? 16)
         )));
         const angleDeg = Number(
@@ -7967,7 +8058,7 @@ class VAseApp {
             if (!Number.isFinite(strainTolerance) || strainTolerance < 0 || strainTolerance > 0.25) {
                 throw new Error('strainTolerance must be a fraction from 0 through 0.25.');
             }
-            const maxAreaRatio = Math.max(1, Math.min(256, Math.round(
+            const maxAreaRatio = Math.max(1, Math.min(MAX_COMMENSURATE_AREA_RATIO, Math.round(
                 Number(operation.maxAreaRatio ?? this.state.display.commensurateMaxAreaRatio ?? 16)
             )));
             const showAtoms = operation.showAtoms === undefined
@@ -9083,7 +9174,7 @@ class VAseApp {
                 nextDisplay.commensurateMaxIndex, 32, 2, 64
             ),
             commensurateMaxAreaRatio: integerClamped(
-                nextDisplay.commensurateMaxAreaRatio, 16, 1, 256
+                nextDisplay.commensurateMaxAreaRatio, 16, 1, MAX_COMMENSURATE_AREA_RATIO
             ),
             commensurateSnapRangeDeg: finiteClamped(
                 nextDisplay.commensurateSnapRangeDeg, 2, 0, 15
@@ -9798,6 +9889,7 @@ class VAseApp {
         return {
             mode: this.commensurateMode(),
             strainTarget: this.state.display.commensurateStrainTarget,
+            selectedIndices: [...this.state.selected].filter(index => this.isEditableIndex(index)),
             jobId
         };
     }

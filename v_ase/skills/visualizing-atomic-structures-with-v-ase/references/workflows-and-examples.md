@@ -605,7 +605,8 @@ commensurate rotation axis is global Z and the lattice search is restricted to
 the XY plane. Enabling the workspace calculates a bounded family of integer
 host/guest supercells immediately. It previews the smallest valid match under
 the strain cutoff and the default `maxAreaRatio` of 16; it never silently
-materializes the proposal.
+materializes the proposal. The interactive area bound is `1..128`; do not
+silently clamp or sample a larger request.
 
 ### Same-lattice twist
 
@@ -631,11 +632,13 @@ const analyzed = await applyCurrent({
 ```
 
 Validate `analyzed.analysis.commensurate`: it must contain the candidate table,
-positive-determinant host/guest integer matrices, area ratios, residual strain,
-the current-angle marker, and the smallest valid proposal. The Plotly graph
-uses angle, area ratio, and residual strain as its three axes. Its moving angle
-plane and current marker must follow rotation without repeating the bounded
-search.
+positive-determinant host/guest integer matrices, area ratios, max principal
+strain, mean absolute strain, actual atom counts, the current-angle marker, and
+the smallest valid proposal. **3D overview** uses angle, area ratio, and max
+principal strain. **Paper strain projection** uses mean absolute strain on x,
+actual host-plus-guest atom count on y, and angle as marker color. Both views
+must use the same accepted candidate set. The moving angle plane and current
+marker must follow rotation without repeating the bounded search.
 
 `rotate-to-commensurate` is the stricter Edit-mode shortcut for rotating the
 selected layer to the nearest validated angle:
@@ -687,6 +690,13 @@ integer matrices. With `showAtoms: true`, require opaque core atoms, a
 one-primitive-cell boundary shell, and all preview bonds across the proposed
 supercell. Remove a guest with `remove-commensurate-guest`.
 
+For a deterministic independent-lattice check, launch
+`examples/commensurate_host_guest/graphene_host.extxyz` and load
+`examples/commensurate_host_guest/cu111_guest.extxyz`. With guest strain `1%`
+and `maxAreaRatio:16`, require the smallest graphene `sqrt(13)` / Cu(111)
+`sqrt(12)` match at `|16.10211375|` degrees, max principal strain
+`0.001665824397`, mean absolute strain `0.001110549598`, and 38 total atoms.
+
 The preview is scientific state, not an ASE topology change. A trajectory or a
 document containing volumetric grids remains preview-only. For one editable
 structure, materialize only after explicit approval:
@@ -713,8 +723,9 @@ v_ase api "$COMMAND_URL" export --save commensurate.csv --params '{
 }'
 ```
 
-The CSV must include angle, matrices, area, strain, and the CellMatch and Stradi
-et al. references carried by the independent bounded-search implementation.
+The CSV must include angle, matrices, area, max principal strain, mean absolute
+strain, host/guest/total atom counts, and the CellMatch and Stradi et al.
+references carried by the independent bounded-search implementation.
 
 ## XY Registry Map
 

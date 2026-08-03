@@ -88,6 +88,17 @@ The active residual is independent of the current bond list, bond cutoff, and
 atom count. The `Boundary strain / %` control filters candidates by the
 selected target's principal stretch.
 
+For comparison with the interface-search plot of Stradi et al., v_ase also
+reports the small-strain tensor and its mean absolute component value:
+
+```text
+epsilon = (D + D^T) / 2 - I
+epsilon_mean = (|epsilon_11| + |epsilon_22| + |epsilon_12|) / 3
+```
+
+This second value is used only by **Paper strain projection**. It does not
+replace the maximum-principal-strain cutoff above.
+
 Every retained candidate already satisfies that cutoff. Within one angular
 match, v_ase ranks by the larger host/guest area ratio first, the sum of both
 areas second, and residual strain third. The proposed cell is therefore the
@@ -136,6 +147,9 @@ global Z; normal free rotation remains available when the workspace is off.
   rotates.
 - The Plotly graph places rotation angle, area ratio, and residual strain on
   separate axes; a live angle plane and nearest-candidate marker track motion.
+- The graph selector switches to **Paper strain projection**, which plots mean
+  absolute strain against the actual host-plus-guest atom count and colors
+  points by rotation angle.
 - The current magnetic match is amber and its ray is prefixed with `SNAP`.
 - The Structure panel reports both integer matrices, crystallographic notation,
   active-target strain, and separate host/guest area multipliers.
@@ -148,7 +162,8 @@ global Z; normal free rotation remains available when the workspace is off.
 - `Max lattice index` controls the analytic search depth; the default `32`
   includes the `1.050121 deg` hexagonal candidate.
 - `Max area ratio` bounds both host and guest integer cells. Its default is
-  `16`; no larger candidate is generated or expanded.
+  `16` and its explicit interactive maximum is `128`; no candidate above the
+  requested limit is proposed or expanded.
 - Cells-only preview is the default. Optional atom preview adds opaque core
   atoms, one primitive-cell halo, and bonds that cross the proposed boundary.
 - Same-lattice mode requires selected rotating atoms. Host/guest mode loads an
@@ -158,11 +173,21 @@ Turning magnetic snap off leaves every angle continuously editable while
 keeping the scientific guide visible. Unlike the removed bond-strain guard, no
 rotation is colored invalid or blocked at commit.
 
-The analytic same-lattice hexagonal candidates are identical for graphene and an ideal
-hexagonal h-BN primitive cell because the angle family depends on lattice
-geometry, not chemical species. Browser and Python regression tests verify the
-`21.786789`, `13.173551`, and `1.050121` degree candidates for both lattices
-with zero boundary strain.
+The analytic same-lattice hexagonal candidates are identical for graphene and
+an ideal hexagonal h-BN primitive cell because the angle family depends on
+lattice geometry, not chemical species. Python regression tests verify every
+`(m,m+1)` point through `(31,32)`, including `21.786789`, `13.173551`, and
+`1.050121` degrees, with zero boundary strain. A second basis-invariance test
+rewrites an oblique lattice with a determinant-one integer transform and
+requires the same zero-strain result.
+For bounded host/guest search, another regression compares the accelerated
+descriptor/tree path with complete enumeration through area ratio 5 and
+requires identical canonical angle, area, and strain candidates.
+
+The separate graphene/Cu(111) files and machine-readable expected values are
+in [`examples/commensurate_host_guest`](../examples/commensurate_host_guest/README.md).
+The complete equations, validation scope, and measured search bounds are in
+[`commensurate_validation.md`](commensurate_validation.md).
 
 ## Proposed Common Cell And Boundary Shell
 
@@ -245,6 +270,7 @@ materialize action.
 
 - P. Lazic, ["CellMatch: Combining two unit cells into a common supercell with minimal strain"](https://doi.org/10.1016/j.cpc.2015.08.038), Computer Physics Communications 197, 324-334 (2015).
 - D. S. Koda et al., ["Coincidence Lattices of 2D Crystals: Heterostructure Predictions and Applications"](https://doi.org/10.1021/acs.jpcc.6b01496), Journal of Physical Chemistry C 120, 10895-10908 (2016).
+- D. Stradi et al., ["Method for determining optimal supercell representation of interfaces"](https://doi.org/10.1088/1361-648X/aa66f3), Journal of Physics: Condensed Matter 29, 185901 (2017).
 - J. M. B. Lopes dos Santos, N. M. R. Peres, and A. H. Castro Neto, ["Continuum model of the twisted graphene bilayer"](https://doi.org/10.1103/PhysRevB.86.155449), Physical Review B 86, 155449 (2012).
 - R. Bistritzer and A. H. MacDonald, ["Moiré bands in twisted double-layer graphene"](https://doi.org/10.1073/pnas.1108174108), PNAS 108, 12233-12237 (2011).
 - J. S. Dai, ["An historical review of the theoretical development of rigid body displacements from Rodrigues parameters to the finite twist"](https://doi.org/10.1016/j.mechmachtheory.2005.04.004), Mechanism and Machine Theory 41, 41-52 (2006).

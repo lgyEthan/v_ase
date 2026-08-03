@@ -34,6 +34,7 @@ from .repulsion import (
 )
 from .commensurate import (
     COMMENSURATE_REFERENCES,
+    MAX_LATTICE_MATCH_AREA_RATIO,
     commensurate_csv,
     commensurate_supercell_geometry,
     find_commensurate_angles,
@@ -383,7 +384,9 @@ AI_CONTROL_SCHEMA = {
                                         "type": "integer", "minimum": 2, "maximum": 64
                                     },
                                     "maxAreaRatio": {
-                                        "type": "integer", "minimum": 1, "maximum": 256
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "maximum": MAX_LATTICE_MATCH_AREA_RATIO,
                                     },
                                     "angleDeg": {"type": "number"},
                                     "showAtoms": {"type": "boolean"},
@@ -645,7 +648,8 @@ AI_OPERATION_PARAMETERS = {
             "selected layer to that exact angle, and opens the common-cell proposal. "
             "The default is cells-only; showAtoms=true adds the opaque core and muted "
             "one-primitive-cell boundary shell. axis is strictly Z; maxAreaRatio "
-            "defaults to 16. No proposal is made above that limit."
+            "defaults to 16 and is explicitly limited to 128. No proposal is made "
+            "above the requested limit."
         ),
     },
     "load-commensurate-guest": {
@@ -676,7 +680,9 @@ AI_OPERATION_PARAMETERS = {
             "Searches bounded integer common cells about global Z. Same-lattice "
             "mode requires a selected rotating layer before atom preview or "
             "materialization; host-guest mode requires a loaded guest. Cells-only "
-            "preview is the default and maxAreaRatio defaults to 16."
+            "preview is the default. maxAreaRatio defaults to 16 and accepts 1..128. "
+            "Candidate acceptance uses maximum principal strain; the paper projection "
+            "reports mean absolute strain and actual host-plus-guest atom counts."
         ),
     },
     "apply-commensurate-cell": {
@@ -1352,6 +1358,11 @@ def _commensurate_search_signature(session: EditorSession, payload: Dict[str, An
         "max_area_ratio": int(payload.get("max_area_ratio", 16)),
         "strain_tolerance": round(float(payload.get("strain_tolerance", 0.01)), 12),
         "strain_target": str(payload.get("strain_target", "guest")).lower(),
+        "selected_indices": sorted(
+            int(index)
+            for index in payload.get("selected_indices", payload.get("indices", []))
+            if isinstance(index, (int, np.integer))
+        ),
         "host_cell": np.round(np.asarray(session.working_atoms.cell.array, dtype=float), 10).tolist(),
         "host_pbc": np.asarray(session.working_atoms.pbc, dtype=bool).tolist(),
         "guest_cell": (
@@ -1381,9 +1392,10 @@ def _run_commensurate_search(
     max_index = int(payload.get("max_index", 32))
     strain_tolerance = float(payload.get("strain_tolerance", 0.01))
     max_area_ratio = int(payload.get("max_area_ratio", 16))
-    if max_area_ratio < 1 or max_area_ratio > 256:
+    if max_area_ratio < 1 or max_area_ratio > MAX_LATTICE_MATCH_AREA_RATIO:
         raise ValueError(
-            "Maximum commensurate area ratio must be between 1 and 256."
+            "Maximum commensurate area ratio must be between 1 and "
+            f"{MAX_LATTICE_MATCH_AREA_RATIO}."
         )
     mode = "host-guest" if payload.get("mode") == "host-guest" else "same-lattice"
     atoms = session.working_atoms
@@ -1401,6 +1413,16 @@ def _run_commensurate_search(
             strain_target=payload.get("strain_target", "guest"),
             progress_callback=progress_callback,
         )
+        for candidate in result["candidates"]:
+            candidate["host_atom_count"] = (
+                len(atoms) * int(candidate.get("host_area_ratio", 0))
+            )
+            candidate["guest_atom_count"] = (
+                len(guest) * int(candidate.get("guest_area_ratio", 0))
+            )
+            candidate["total_atom_count"] = (
+                candidate["host_atom_count"] + candidate["guest_atom_count"]
+            )
     else:
         if progress_callback:
             progress_callback(0.08, "Projecting the periodic host cell")
@@ -1413,6 +1435,16 @@ def _run_commensurate_search(
             chemical_symbols=atoms.get_chemical_symbols(),
         )
         result["max_area_ratio"] = max_area_ratio
+        selected = {
+            int(index)
+            for index in payload.get("selected_indices", payload.get("indices", []))
+            if isinstance(index, (int, np.integer)) and 0 <= int(index) < len(atoms)
+        }
+        for candidate in result["candidates"]:
+            area = int(candidate.get("area_ratio", 0))
+            candidate["host_atom_count"] = (len(atoms) - len(selected)) * area
+            candidate["guest_atom_count"] = len(selected) * area
+            candidate["total_atom_count"] = len(atoms) * area
         result["suggestion_count"] = sum(
             1
             for candidate in result["candidates"]

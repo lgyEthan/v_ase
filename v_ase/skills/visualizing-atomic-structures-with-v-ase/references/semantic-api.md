@@ -189,7 +189,7 @@ Pass `operation` as a name string or object:
 | `rotate-to-commensurate` | `angleDeg`, selection/`indices`; optional `axis`, `pivot`, `strainTolerance`, `maxIndex`, `maxAreaRatio`, `maxAngleDifferenceDeg`, `showAtoms` | Rotate to the nearest validated 2D periodic match and show its bounded common-cell proposal; preview atoms remain off unless requested |
 | `load-commensurate-guest` | `path`; optional `format` | Load one independent guest structure from inside the CLI launch directory |
 | `remove-commensurate-guest` | none | Remove the pending independent guest without changing the host |
-| `calculate-commensurate` | optional `mode`, `axis`, `angleDeg`, `strainTarget`, `strainTolerance`, `maxIndex`, `maxAreaRatio`, `showAtoms` | Search bounded same-lattice or host/guest integer common cells and open the 3D angle/area/strain graph |
+| `calculate-commensurate` | optional `mode`, `axis`, `angleDeg`, `strainTarget`, `strainTolerance`, `maxIndex`, `maxAreaRatio`, `showAtoms` | Search bounded same-lattice or host/guest integer common cells and open the 3D overview plus paper strain projection |
 | `apply-commensurate-cell` | active proposal | Materialize the validated common cell as the ASE unit cell |
 | `dismiss-commensurate-cell` | none | Close the proposal and restore the pre-preview camera |
 | `calculate-registry-map` | selection/`indices`; optional `metric`, `gridX`, `gridY` | Scan one periodic XY cell of selected-component translations and open the heatmap |
@@ -273,12 +273,18 @@ Inspect `searched.analysis.commensurate` and
 `searched.analysis.commensurateProposal`. They report the guest, mode, current
 angle, references, host/guest matrices and area ratios, crystallographic
 notation, selected strain target, cells-only/atom preview counts, and whether
-materialization is supported. Use `rotate-to-commensurate` only after choosing
-a particular same-lattice candidate angle. Set `showAtoms:true` only when the
-human needs the atom/bond halo; cells-only is clearer and cheaper.
+materialization is supported. Candidate rows also expose max principal strain,
+mean absolute strain, and host/guest/total atom counts. Use
+`rotate-to-commensurate` only after choosing a particular same-lattice
+candidate angle. Set `showAtoms:true` only when the human needs the atom/bond
+halo; cells-only is clearer and cheaper.
 
-The 3D plot uses angle, area ratio, and strain; its live plane follows the
-current guest angle. Export its semantic data without reading pixels:
+The **3D overview** uses angle, area ratio, and max principal strain; its live
+plane follows the current guest angle. **Paper strain projection** plots the
+Stradi mean absolute strain against actual common-cell atom count and colors
+markers by angle. Candidate acceptance always uses max principal strain, so
+switching views cannot change the proposal. Export semantic data without
+reading pixels:
 
 ```bash
 v_ase api "$COMMAND_URL" export --save common-cells.csv --params '{
@@ -436,7 +442,7 @@ Transform and commensurate settings:
 | `commensurateStrainTarget` | `"guest"` (default) or `"host"` |
 | `commensurateStrainTolerance` | fractional boundary strain |
 | `commensurateMaxIndex` | integer search bound |
-| `commensurateMaxAreaRatio` | maximum proposed common-cell area ratio; default `16` |
+| `commensurateMaxAreaRatio` | maximum proposed common-cell area ratio; default `16`, valid range `1..128` |
 | `commensurateSnapRangeDeg` | angular snap window |
 | `commensurateShowAtoms` | include preview atoms and one-cell boundary-bond halo; default false |
 | `commensurateGuestAngleDeg` | independent guest rotation about global Z |
@@ -699,7 +705,7 @@ Supported formats:
 | `project` | self-contained `.vase` project |
 | `settings` | reusable visual settings without coordinates |
 | `rdf-csv` | total RDF and requested partial curves as CSV |
-| `commensurate-csv` | angle/area/strain candidates, integer matrices, notation, and citations |
+| `commensurate-csv` | angle/area candidates, both strain definitions, atom counts, integer matrices, notation, and citations |
 | `registry-csv` | complete fractional XY registry grid and metric metadata |
 
 Standalone HTML:
