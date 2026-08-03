@@ -1,15 +1,15 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/v_ase-logo.png" width="720" alt="v_ase logo">
+  <img src="https://raw.githubusercontent.com/lgyEthan/v_ase/symmetry/docs/assets/v_ase-logo.png" width="720" alt="v_ase logo">
 </p>
 
 # v_ase
 
 [![Symmetry branch](https://img.shields.io/badge/branch-symmetry_alpha-19a89d.svg)](https://github.com/lgyEthan/v_ase/tree/symmetry)
-[![Version](https://img.shields.io/badge/version-0.1.0a1%2Bsymmetry-d2a84a.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.1.0a2%2Bsymmetry-d2a84a.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 > **Experimental symmetry build:** this branch is isolated from `main`, uses
-> the independent version `0.1.0a1+symmetry`, and is not published to PyPI.
+> the independent version `0.1.0a2+symmetry`, and is not published to PyPI.
 > Install it from the `symmetry` branch as shown below.
 
 `v_ase` brings ASE's convenient terminal and Python workflow together with
@@ -19,7 +19,7 @@ or let an external AI agent translate a natural-language request into verified
 structure operations, then export publication images, videos, and reusable 3D
 scenes.
 
-![Phosphorene nanoribbon manipulation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_phosphorene_twist.gif)
+![Phosphorene nanoribbon manipulation](https://raw.githubusercontent.com/lgyEthan/v_ase/symmetry/docs/assets/github/readme_phosphorene_twist.gif)
 
 The animation builds a phosphorene nanoribbon twist one ridge at a time. Each
 amber box selects the remaining ridges, the Transform controls apply an exact
@@ -148,6 +148,10 @@ requested direction, but it does not replace the eigenvector calculation.
 6. Create a frozen structure or oscillating mode trajectory. The selected
    supercell must satisfy the q-point commensurability condition.
 
+Mode trajectories stay continuous across periodic boundaries; v_ase displays
+the nearest periodic image around each unmodulated reference atom instead of
+introducing a one-cell jump between neighboring frames.
+
 The loaded phonopy unit cell must match the current atom order, elements,
 lattice metric, and periodic positions. A rigid Cartesian orientation change
 is aligned automatically; v_ase rejects a physically mismatched project.
@@ -162,7 +166,7 @@ language. With the bundled [v_ase Skill](#agent-setup), the agent can inspect
 the actual atomistic state, operate v_ase through its structured CLI, and show
 the result in the normal GUI while it works.
 
-![Human and external AI agent working in one live v_ase document](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.png)
+![Human and external AI agent working in one live v_ase document](https://raw.githubusercontent.com/lgyEthan/v_ase/symmetry/docs/assets/github/readme_ai_collaboration.png)
 
 1. **You ask:** describe the scientific goal to Codex, Claude Code, or another
    external agent.
@@ -187,7 +191,7 @@ For example:
 The agent preserves the three substituted sites as distinct `N_pyridinic` labels
 and reports every committed edit to the same GUI session.
 
-![Natural-language pyridinic N3 graphene edit](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_edit.gif)
+![Natural-language pyridinic N3 graphene edit](https://raw.githubusercontent.com/lgyEthan/v_ase/symmetry/docs/assets/github/readme_ai_edit.gif)
 
 The agent reads atom identities and coordinates directly instead of repeatedly
 guessing from screenshots. This can reduce token use while preserving exact
@@ -236,7 +240,7 @@ constraint and undo settings. Every active rotation shows:
 
 #### Ferrocene: Use Fe As The Active Pivot
 
-![Ferrocene pivot rotation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ferrocene_pivot.gif)
+![Ferrocene pivot rotation](https://raw.githubusercontent.com/lgyEthan/v_ase/symmetry/docs/assets/github/readme_ferrocene_pivot.gif)
 
 Select the upper cyclopentadienyl ring first, then Shift-select Fe last. With
 **Active atom (last selected)** enabled, Fe remains fixed at the exact rotation
@@ -250,7 +254,7 @@ global origin or the selection center.
 
 #### Phosphorene: Build The Twist One Edit At A Time
 
-![Cumulative phosphorene manipulation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_phosphorene_twist.gif)
+![Cumulative phosphorene manipulation](https://raw.githubusercontent.com/lgyEthan/v_ase/symmetry/docs/assets/github/readme_phosphorene_twist.gif)
 
 The animation records a sequence of normal v_ase edits:
 
@@ -286,7 +290,7 @@ geometry editing and is not an energy-minimized final structure.
 
 #### Graphene/hBN: Find A Commensurate Rotation
 
-![Graphene hBN commensurate rotation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_commensurate.gif)
+![Graphene hBN commensurate rotation](https://raw.githubusercontent.com/lgyEthan/v_ase/symmetry/docs/assets/github/readme_commensurate.gif)
 
 Select the hBN layer, enable **Commensurate guide**, then use `R`, `Z`. The
 top view intentionally hides the world X/Y/Z axes so the neutral start line,
@@ -301,7 +305,7 @@ frame. Its equations and assumptions are documented in
 
 ## Measurement And Analysis
 
-![Ordered distance angle and torsion measurement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_measurement.gif)
+![Ordered distance angle and torsion measurement](https://raw.githubusercontent.com/lgyEthan/v_ase/symmetry/docs/assets/github/readme_measurement.gif)
 
 The numbered `a1` to `a4` markers record selection order and are deliberately
 different from atom indices.
@@ -318,7 +322,7 @@ The connector, angle arc, torsion axis, and compact value badge stay attached
 to the selected atoms. Hover information is independent, so moving the pointer
 does not replace a saved measurement.
 
-![Trajectory displacement analysis](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_displacement.png)
+![Trajectory displacement analysis](https://raw.githubusercontent.com/lgyEthan/v_ase/symmetry/docs/assets/github/readme_displacement.png)
 
 For trajectories, **Analysis > Displacement** compares the current frame with
 the previous frame or a chosen reference. Minimum-image correction, vector
@@ -338,7 +342,7 @@ without selection. Starting `G` displays a longer guide through the atom's
 original position while ASE restricts movement to that direction. FixedLine
 does not use a ring or plane disc.
 
-![FixedLine movement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedline.gif)
+![FixedLine movement](https://raw.githubusercontent.com/lgyEthan/v_ase/symmetry/docs/assets/github/readme_fixedline.gif)
 
 ```bash
 v_ase gui examples/readme_scene_assets/fixedline.traj --interactive
@@ -355,7 +359,7 @@ plane is substituted.
 VASP selective dynamics read as `FixScaled` are displayed from their allowed
 fractional directions.
 
-![FixedPlane movement and guide plane](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedplane.gif)
+![FixedPlane movement and guide plane](https://raw.githubusercontent.com/lgyEthan/v_ase/symmetry/docs/assets/github/readme_fixedplane.gif)
 
 ```bash
 v_ase gui examples/readme_scene_assets/fixedplane.traj --interactive
@@ -372,9 +376,9 @@ Hookean constraints show their inactive cutoff and engaged state separately.
 After the constrained distance passes `rt`, a shaded 3D helical spring appears
 between the constrained atoms.
 
-![Hookean constraint](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_hookean.png)
+![Hookean constraint](https://raw.githubusercontent.com/lgyEthan/v_ase/symmetry/docs/assets/github/readme_hookean.png)
 
-![Hookean motion](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_hookean.gif)
+![Hookean motion](https://raw.githubusercontent.com/lgyEthan/v_ase/symmetry/docs/assets/github/readme_hookean.gif)
 
 ```bash
 v_ase gui examples/readme_scene_assets/hookean.traj --interactive
@@ -382,7 +386,7 @@ v_ase gui examples/readme_scene_assets/hookean.traj --interactive
 
 ## Relaxation
 
-![Repulsive relaxation trajectory](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_relaxation.gif)
+![Repulsive relaxation trajectory](https://raw.githubusercontent.com/lgyEthan/v_ase/symmetry/docs/assets/github/readme_relaxation.gif)
 
 **Structure > Relaxation** places every optimization step on a dedicated
 timeline. A single loaded structure gains a relaxation movie after the first
@@ -435,7 +439,7 @@ View mode applies appearance by label. Edit mode can keep per-atom material
 overrides. Relabeling does not reorder the table or merge otherwise distinct
 atom types accidentally.
 
-![Standard Metal and Rubber atom materials](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_materials.png)
+![Standard Metal and Rubber atom materials](https://raw.githubusercontent.com/lgyEthan/v_ase/symmetry/docs/assets/github/readme_materials.png)
 
 The comparison uses three identical Cu13 clusters with the same element color
 and radius, so only the optical material changes:
@@ -449,7 +453,7 @@ and radius, so only the optical material changes:
 Materials affect rendering only. ASE elements, coordinates, calculators, and
 constraints are unchanged.
 
-![Pairwise Cu O bonds in a Cu2O(111) film on Cu(111)](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_bonds.png)
+![Pairwise Cu O bonds in a Cu2O(111) film on Cu(111)](https://raw.githubusercontent.com/lgyEthan/v_ase/symmetry/docs/assets/github/readme_bonds.png)
 
 **Structure > Bonding** provides automatic inference, explicit label-pair
 cutoffs, and manual index pairs. A pair cutoff of zero disables that pair.

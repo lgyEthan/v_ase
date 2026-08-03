@@ -30,7 +30,18 @@ def _phonopy_api():
 
 
 def _integer_matrix(value: Sequence[int] | Sequence[Sequence[int]]) -> np.ndarray:
-    array = np.asarray(value, dtype=int)
+    try:
+        numeric = np.asarray(value, dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("The phonon supercell matrix must contain integers.") from exc
+    if not np.isfinite(numeric).all() or not np.allclose(
+        numeric,
+        np.rint(numeric),
+        rtol=0.0,
+        atol=1e-12,
+    ):
+        raise ValueError("The phonon supercell matrix must contain finite integers.")
+    array = np.rint(numeric).astype(np.int64)
     if array.shape == (3,):
         if np.any(array < 1):
             raise ValueError("Supercell repeats must be positive integers.")
@@ -101,6 +112,7 @@ def phonopy_to_ase(
     unit_indices: Sequence[int] | None = None,
     cartesian_transform: Sequence[Sequence[float]] | None = None,
     cartesian_shift: Sequence[float] | None = None,
+    reference_scaled_positions: Sequence[Sequence[float]] | None = None,
 ) -> Atoms:
     """Convert PhonopyAtoms to ASE and preserve labels when a map is available."""
     masses = getattr(structure, "masses", None)
@@ -110,9 +122,21 @@ def phonopy_to_ase(
         if transform.shape != (3, 3) or not np.isfinite(transform).all():
             raise ValueError("Cartesian phonon alignment must be a finite 3 x 3 matrix.")
         cell = cell @ transform
+    scaled_positions = np.asarray(structure.scaled_positions, dtype=float)
+    if reference_scaled_positions is None:
+        scaled_positions = np.mod(scaled_positions, 1.0)
+    else:
+        reference = np.asarray(reference_scaled_positions, dtype=float)
+        if reference.shape != scaled_positions.shape or not np.isfinite(reference).all():
+            raise ValueError(
+                "Reference phonon positions must match the generated supercell."
+            )
+        periodic_delta = scaled_positions - reference
+        periodic_delta -= np.rint(periodic_delta)
+        scaled_positions = reference + periodic_delta
     atoms = Atoms(
         symbols=list(structure.symbols),
-        scaled_positions=np.mod(np.asarray(structure.scaled_positions, dtype=float), 1.0),
+        scaled_positions=scaled_positions,
         cell=cell,
         pbc=True,
         masses=(np.asarray(masses, dtype=float) if masses is not None else None),
@@ -357,6 +381,8 @@ def qpoint_commensurability(
     q = np.asarray(qpoint, dtype=float)
     if q.shape != (3,) or not np.isfinite(q).all():
         raise ValueError("qpoint must contain three finite reciprocal coordinates.")
+    if not np.isfinite(tolerance) or tolerance <= 0:
+        raise ValueError("Commensurability tolerance must be positive and finite.")
     matrix = _integer_matrix(dimension)
     transformed = matrix.T @ q
     nearest = np.rint(transformed)
@@ -501,12 +527,17 @@ def generate_mode_trajectory(
             nac_q_direction=nac_direction,
         )
         structure = modulation.modulated_supercells[0]
+        reference_scaled_positions = np.asarray(
+            modulation.supercell.scaled_positions,
+            dtype=float,
+        )
         frame = phonopy_to_ase(
             structure,
             labels=model.unit_labels,
             unit_indices=_supercell_unit_indices(modulation),
             cartesian_transform=model.cartesian_transform,
             cartesian_shift=model.cartesian_shift,
+            reference_scaled_positions=reference_scaled_positions,
         )
         frame.info["v_ase_phonon_mode"] = {
             "qpoint": q.tolist(),
@@ -515,6 +546,7 @@ def generate_mode_trajectory(
             "amplitude": float(amplitude),
             "phase_degrees": float(phase),
             "dimension": matrix.tolist(),
+            "coordinates_unwrapped": True,
         }
         output.append(frame)
     return output, {
@@ -529,6 +561,7 @@ def generate_mode_trajectory(
         "dimension": matrix.tolist(),
         "commensurability": commensurability,
         "normalization": "phonopy modulation convention",
+        "coordinates_unwrapped": True,
     }
 
 

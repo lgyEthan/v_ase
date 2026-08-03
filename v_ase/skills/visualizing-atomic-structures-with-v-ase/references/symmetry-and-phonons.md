@@ -211,6 +211,11 @@ commensurability residual, frame count, atom count, cell, and a nonzero
 displacement. For one frozen structure set `frames: 1` and
 `oscillation: false`. Verify `undo` restores the prior trajectory.
 
+Generated mode coordinates are unwrapped around the corresponding
+unmodulated-supercell atom. Consecutive frames must remain continuous when an
+atom crosses a cell boundary; a jump by one lattice vector is a failed
+trajectory even though the two coordinates are periodically equivalent.
+
 ## Verification And Errors
 
 Use this low-freedom sequence:

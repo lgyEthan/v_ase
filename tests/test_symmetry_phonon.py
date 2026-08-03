@@ -39,7 +39,7 @@ pytest.importorskip("spglib")
 
 
 def test_spacegroup_orbits_and_tolerance_scan_for_diamond_silicon():
-    atoms = bulk("Si", "diamond", a=5.43)
+    atoms = bulk("Si", "diamond", a=5.4304)
     result = analyze_symmetry(atoms)
 
     assert result["number"] == 227
@@ -51,6 +51,7 @@ def test_spacegroup_orbits_and_tolerance_scan_for_diamond_silicon():
     assert len(result["orbits"]) == 1
     assert result["orbits"][0]["multiplicity"] == 2
     assert result["orbits"][0]["site_symmetry"] == "-43m"
+    assert result["orbits"][0]["wyckoff"] in {"a", "b"}
 
     scan = symmetry_tolerance_scan(atoms, tolerances=[1e-6, 1e-5, 1e-4])
     assert [entry["number"] for entry in scan] == [227, 227, 227]
@@ -190,6 +191,12 @@ def test_mode_generation_requires_force_constants_and_commensurate_qpoint():
     assert check["commensurate"] is True
     assert qpoint_commensurability([1 / 3, 0, 0], [2, 1, 1])["commensurate"] is False
 
+    non_diagonal = [[2, 1, 0], [0, 1, 0], [0, 0, 1]]
+    assert qpoint_commensurability([0.5, 0.5, 0], non_diagonal)["commensurate"] is True
+    assert qpoint_commensurability([0.5, 0, 0], non_diagonal)["commensurate"] is False
+    with pytest.raises(ValueError, match="finite integers"):
+        qpoint_commensurability([0, 0, 0], [1.5, 1, 1])
+
 
 def test_frozen_mode_trajectory_uses_frequency_band_phase_and_amplitude():
     model = _synthetic_phonopy_model()
@@ -211,10 +218,19 @@ def test_frozen_mode_trajectory_uses_frequency_band_phase_and_amplitude():
     assert metadata["frame_count"] == 8
     assert metadata["frequency_thz"] == pytest.approx(modes["bands"][0]["frequency_thz"])
     displacement = trajectory[0].positions - trajectory[4].positions
-    assert np.linalg.norm(displacement) > 0.05
+    expected_peak_to_peak = 2 * 0.1 / np.sqrt(2 * 28.0)
+    assert np.linalg.norm(displacement) == pytest.approx(expected_peak_to_peak)
     assert trajectory[0].info["v_ase_phonon_mode"]["band"] == 1
     assert atom_labels(trajectory[0]) == ["Si_framework", "Si_guest"]
     assert trajectory[0].get_masses() == pytest.approx([28.0, 30.0])
+    assert metadata["coordinates_unwrapped"] is True
+
+    # Preserve the nearest periodic image around the reference atom so a
+    # boundary atom oscillates continuously instead of jumping by one cell.
+    boundary_motion = np.asarray([frame.positions[0] for frame in trajectory])
+    assert np.max(np.linalg.norm(boundary_motion, axis=1)) < 0.1
+    closed_cycle = np.vstack([boundary_motion, boundary_motion[0]])
+    assert np.max(np.linalg.norm(np.diff(closed_cycle, axis=0), axis=1)) < 0.1
 
     with pytest.raises(ValueError, match="not commensurate"):
         generate_mode_trajectory(

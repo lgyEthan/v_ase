@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0a2+symmetry
+
+- Kept phonon-mode trajectories continuous when atoms oscillate across a
+  periodic boundary by resolving every frame around its unmodulated reference.
+- Tightened supercell-matrix and q-point commensurability validation, including
+  non-diagonal integer matrices and invalid fractional matrix entries.
+- Added physical amplitude, periodic-boundary continuity, and non-diagonal
+  commensurability regressions, then reverified the complete browser workflow.
+- Kept this prerelease isolated to the `symmetry` branch with branch-local
+  documentation assets and no PyPI publication.
+
 ## 0.1.0a1+symmetry
 
 - Added optional spglib-based space-group, point-group, Wyckoff-position,

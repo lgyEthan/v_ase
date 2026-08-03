@@ -47,6 +47,9 @@ test edit and a new filename for output.
   eigenvector.
 - A phonon modulation supercell must satisfy `P.T @ q` being integer within
   tolerance. Never bypass an incommensurability error.
+- Treat a one-cell coordinate jump between neighboring phonon frames as a
+  visualization failure; mode trajectories must stay unwrapped around their
+  unmodulated-supercell reference atoms.
 - Symmetry standardization can change atom count and ordering. Constraints,
   calculators, and per-atom arrays without an exact map must be removed rather
   than silently reassigned.
