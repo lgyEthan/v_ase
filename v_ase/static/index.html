@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.9&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.10&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.1.9';
+            : '/static/vendor/three.module.js?v=0.1.10';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -68,7 +68,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.1.9</span>
+            <span class="version">0.1.10</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -333,7 +333,7 @@
                     <option value="appearance">Atoms &amp; Appearance</option>
                     <option value="cell-replication">Cell &amp; Replication</option>
                     <option value="cell-transform" data-edit-only>Cell Transform</option>
-                    <option value="transform" data-edit-only>Atom Transform</option>
+                    <option value="transform">Transform &amp; Cell Match</option>
                     <option value="constraints" data-edit-only>Constraints</option>
                     <option value="bonding">Bonding</option>
                     <option value="scientific-tools" data-edit-only>Relaxation</option>
@@ -737,9 +737,9 @@
             <button id="btn-apply-supercell-matrix" class="btn-block">Apply make_supercell Matrix</button>
         </details>
 
-        <details class="panel-section" open data-panel="transform" data-panel-group="structure" data-edit-only>
-            <summary class="section-header">Transform</summary>
-            <div class="prop-row">
+        <details class="panel-section" open data-panel="transform" data-panel-group="structure">
+            <summary class="section-header">Transform &amp; Cell Match</summary>
+            <div class="prop-row" data-edit-only>
                 <label for="rotate-pivot">Rotate pivot</label>
                 <select id="rotate-pivot">
                     <option value="selection">Selection COM</option>
@@ -748,15 +748,15 @@
                     <option value="cell">Unit-cell center</option>
                 </select>
             </div>
-            <div class="prop-row">
+            <div class="prop-row" data-edit-only>
                 <label for="move-increment">Move increment / A</label>
                 <input type="number" id="move-increment" value="0" min="0" step="0.01" placeholder="0 = continuous">
             </div>
-            <div class="prop-row">
+            <div class="prop-row" data-edit-only>
                 <label for="rotate-increment">Rotate increment / deg</label>
                 <input type="number" id="rotate-increment" value="0" min="0" step="1" placeholder="0 = continuous">
             </div>
-            <div class="selection-rotation-command" aria-label="Rotate selected atoms by an exact angle">
+            <div class="selection-rotation-command" data-edit-only aria-label="Rotate selected atoms by an exact angle">
                 <div class="panel-subhead">Exact selection rotation</div>
                 <div class="selection-rotation-fields">
                     <label for="selection-rotate-axis">Axis</label>
@@ -781,28 +781,36 @@
                 <input type="checkbox" id="chk-commensurate-guide">
             </div>
             <section id="commensurate-workspace" class="commensurate-workspace hidden" aria-live="polite">
-                <div class="prop-row">
-                    <label for="commensurate-mode">Match</label>
-                    <select id="commensurate-mode">
-                        <option value="same-lattice" selected>Selected layer / host</option>
-                        <option value="host-guest">Independent host + guest</option>
-                    </select>
+                <input id="commensurate-mode" type="hidden" value="same-lattice">
+                <div class="commensurate-components" aria-label="Commensurate lattice components">
+                    <div class="commensurate-component host">
+                        <span>HOST</span>
+                        <strong>Current structure</strong>
+                    </div>
+                    <div class="commensurate-component guest">
+                        <span>GUEST</span>
+                        <strong id="commensurate-guest-summary">Select a layer or load a structure</strong>
+                    </div>
                 </div>
-                <div id="commensurate-guest-controls" class="commensurate-guest-controls hidden">
+                <div id="commensurate-guest-controls" class="commensurate-guest-controls">
                     <input id="commensurate-guest-file" class="hidden" type="file">
-                    <button id="btn-load-commensurate-guest" class="btn-block" type="button">Load Guest Structure</button>
-                    <div id="commensurate-guest-summary" class="commensurate-guest-summary">No guest structure loaded.</div>
+                    <button id="btn-load-commensurate-guest" class="btn-block" type="button">Load or Replace Guest Structure</button>
                     <button id="btn-remove-commensurate-guest" class="text-action hidden" type="button">Remove guest</button>
                     <div class="prop-row">
                         <label for="commensurate-guest-angle">Guest rotation / deg</label>
                         <input id="commensurate-guest-angle" type="number" value="0" step="0.1">
                     </div>
+                    <div class="prop-row" data-commensurate-external-guest>
+                        <label for="commensurate-guest-gap">Interlayer gap / Å</label>
+                        <input id="commensurate-guest-gap" type="number" value="3.0" min="0" max="20" step="0.1">
+                    </div>
+                    <p class="panel-note" data-commensurate-external-guest>Guest minimum z minus host maximum z.</p>
                 </div>
                 <div class="prop-row">
                     <label for="commensurate-strain-target">Apply residual strain to</label>
                     <select id="commensurate-strain-target">
-                        <option value="guest" selected>Guest / selected layer</option>
-                        <option value="host">Host structure</option>
+                        <option value="guest" selected>Guest</option>
+                        <option value="host">Host</option>
                     </select>
                 </div>
                 <div class="prop-row">
@@ -846,7 +854,7 @@
                 <div id="commensurate-proposal-metrics" class="commensurate-proposal-metrics"></div>
                 <div id="commensurate-proposal-matrices" class="commensurate-proposal-matrices"></div>
                 <p class="commensurate-proposal-note">Host, guest, and suggested common-cell vectors remain distinct while the guest rotates. Preview atoms and their boundary bonds are optional.</p>
-                <button id="btn-apply-commensurate-cell" class="btn-block" type="button">
+                <button id="btn-apply-commensurate-cell" class="btn-block" type="button" data-edit-only>
                     Set Suggested Cell as Structure
                 </button>
                 <div id="commensurate-proposal-reason" class="commensurate-proposal-reason hidden"></div>
@@ -1123,8 +1131,8 @@
             <div class="analysis-drawer-actions">
                 <select id="commensurate-plot-view" class="analysis-view-select hidden"
                         aria-label="Commensurate graph view" title="Commensurate graph view">
-                    <option value="overview-3d">3D overview</option>
-                    <option value="stradi-2d">Paper strain projection</option>
+                    <option value="overview-3d">Angle × cell size × strain</option>
+                    <option value="stradi-2d">Strain × atom count</option>
                 </select>
                 <button id="btn-analysis-export" class="btn icon-btn" type="button" disabled
                         aria-label="Save graph data as CSV" title="Save graph data as CSV">
@@ -1251,7 +1259,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.1.9&rev=1';
+            : './static/main.js?v=0.1.10&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

@@ -335,7 +335,7 @@ and documentation use `view()`.
     `16`, explicit maximum `128`) and maximum-principal-strain cutoff, then
     proposes the smallest admissible common cell.
     Same-lattice twist uses a selected rotating layer; host/guest mode loads an
-    independent guest structure and can place residual in-plane strain on the
+    separately loaded guest structure and can place residual in-plane strain on the
     guest (default) or host. Cells-only preview is the default. Optional atoms
     use opaque common-cell cores plus one primitive-cell shell so boundary bonds
     remain inspectable. The proposal is independent of display replication and

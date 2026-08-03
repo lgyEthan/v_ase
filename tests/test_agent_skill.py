@@ -7,6 +7,8 @@ import re
 import tomllib
 from pathlib import Path
 
+from ase.io import read
+
 from v_ase import __version__
 from v_ase.ai import ai_skill_path
 from v_ase.server import ai_control_schema, ai_skill
@@ -148,10 +150,10 @@ def test_skill_explains_vendor_neutral_agent_handoff():
     readable_readme = " ".join(readme.split())
     assert "CAD-ready" not in readme
     assert "--for-ai" not in setup + readme + compatibility
-    assert "v_ase is the scientific application between you and an external AI Agent" in readable_readme
-    assert "the Agent sends exact, structured CLI/API commands" in readable_readme
-    assert "v_ase applies and validates the operations" in readable_readme
-    assert "GUI edits enter the same document" in readable_readme
+    assert "You describe the scientific result to an external AI Agent" in readable_readme
+    assert "the Agent uses the Skill and structured CLI/API" in readable_readme
+    assert "the result appears in the same live GUI" in readable_readme
+    assert "A manual GUI edit becomes the next document revision" in readable_readme
     assert "There is no natural-language endpoint and no command loop on stdin." in setup
     assert "`viewportBackground` controls the interactive GUI only" in documented
     assert "terminate the persistent CLI process while the human GUI is still open" in documented
@@ -233,6 +235,15 @@ def test_skill_trigger_evaluation_has_positive_and_negative_boundaries():
         "Live collaboration and documents",
     ):
         assert required in evaluation
+
+
+def test_skill_trajectory_workflow_names_a_real_multiframe_fixture():
+    relative = Path("examples/readme_scene_assets/crowded_c60_relaxation.traj")
+    documented = _documented_skill_text()
+
+    assert relative.as_posix() in documented
+    frames = read(ROOT / relative, index=":")
+    assert len(frames) == 42
 
 
 def test_skill_has_explicit_safety_and_verify_loops():
@@ -357,6 +368,7 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         "strainTolerance",
         "maxAreaRatio",
         "angleDeg",
+        "gap",
         "showAtoms",
     }.issubset(
         schema["operation_parameters"]["load-commensurate-guest"]["optional"]
@@ -367,6 +379,7 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         "strainTolerance",
         "maxAreaRatio",
         "angleDeg",
+        "gap",
         "showAtoms",
         "snap",
     }.issubset(

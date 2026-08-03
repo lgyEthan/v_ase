@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.1.9"
+python -m pip install "v_ase-gui==0.1.10"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -247,12 +247,17 @@ For any nontrivial task, verify all applicable items:
 - camera: projection, position, target, up vector, framing, expected direction;
 - manipulation overlays: rotation axis, fixed start reference, moving current
   reference, and separate commensurate candidates when a human is editing;
-- commensurate workspace: global-Z/XY restriction, same-lattice versus
-  host/guest mode, guest identity, candidate angle, smallest admissible area
-  ratio, chosen strain target, host/guest integer matrices, paper-style
-  notation, distinct host/guest/common cells, cells-only default, optional
-  one-primitive-cell atom/bond halo, live angle plane, graph CSV, and
-  materialization support. Confirm that the conservative max principal strain
+- commensurate workspace: global-Z/XY restriction, no-selection host-only
+  state, selected same-lattice guest versus loaded guest structure, 3 Angstrom
+  default loaded-guest gap, direct guest angle, preserved camera, candidate
+  angle, smallest admissible area ratio, Host/Guest strain target,
+  host/guest integer matrices, readable square-root notation, black/orange/teal
+  host/guest/common cells, cells-only default, primitive lattices tiled through
+  the proposal, optional one-primitive-cell atom/bond halo, horizontal rotation
+  graph axis, live angle plane, graph CSV, and materialization support. With no
+  explicit angle, require the smallest-area admissible proposal; with an
+  explicit angle, require the nearest admissible candidate. Confirm
+  that the conservative max principal strain
   controls acceptance, while the Paper strain projection reports mean
   absolute strain against actual host-plus-guest atom count. `maxAreaRatio`
   defaults to 16 and accepts only 1 through 128. Never call

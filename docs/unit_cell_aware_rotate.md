@@ -15,7 +15,7 @@ coordinate is the rotation pivot.
 The opt-in commensurate workspace connects these operations. It searches
 integer combinations of two in-plane periodic boundaries immediately, shows
 low-strain angular matches, and can magnetically snap a selected layer or an
-independent guest structure to a candidate. It does not infer strain from
+separately loaded guest structure to a candidate. It does not infer strain from
 bonds. To keep the periodic construction unambiguous, commensurate rotation is
 restricted to global Z and the matched lattice vectors must lie in XY.
 
@@ -46,7 +46,7 @@ G = M_g A_g
 ```
 
 For same-lattice twist, `A_h = A_g` and the selected atoms are the guest layer.
-For independent host/guest matching, the two bases and primitive areas may
+For different host/guest lattices, the two bases and primitive areas may
 differ. This follows the CellMatch principle of searching combinations of
 unit-cell vectors and ranking common cells by the strain needed to fit one
 boundary to the other. v_ase removes the best rigid rotation first by solving
@@ -143,8 +143,11 @@ interlayer tunneling, relaxation, Fermi velocity, and the chosen Hamiltonian.
 search and opens the angle/area/strain graph. Commensurate rotation is always
 global Z; normal free rotation remains available when the workspace is off.
 
-- Distinct host, guest, and common-cell outlines remain visible while the guest
-  rotates.
+- With no selected or loaded guest, only the host cell is shown. Selecting a
+  layer adds a separate same-lattice guest; loading a guest file replaces it.
+- Black host and orange guest primitive grids are tiled through the proposed
+  integer supercells. Two arrowheads at each origin identify the primitive
+  vectors; the suggested common-cell boundary is teal.
 - The Plotly graph places rotation angle, area ratio, and residual strain on
   separate axes; a live angle plane and nearest-candidate marker track motion.
 - The graph selector switches to **Paper strain projection**, which plots mean
@@ -166,8 +169,10 @@ global Z; normal free rotation remains available when the workspace is off.
   requested limit is proposed or expanded.
 - Cells-only preview is the default. Optional atom preview adds opaque core
   atoms, one primitive-cell halo, and bonds that cross the proposed boundary.
-- Same-lattice mode requires selected rotating atoms. Host/guest mode loads an
-  independent guest whose angle and offset move the full guest structure.
+- Same-lattice preview requires selected rotating atoms. A separately loaded
+  guest replaces that selection. Its angle moves the full guest structure and
+  cell, while the interlayer-gap control enforces guest minimum z minus host
+  maximum z (3 Å by default).
 
 Turning magnetic snap off leaves every angle continuously editable while
 keeping the scientific guide visible. Unlike the removed bond-strain guard, no
@@ -214,9 +219,9 @@ pairs with at least one endpoint in the opaque core.
 
 The proposal panel reports both integer matrices, area ratios, boundary strain,
 cell lengths/angle, and symmetry-reduced crystallographic notation such as
-`(sqrt(7) x sqrt(7)) R19.11 deg`. The renderer preserves the current viewing
-direction, frames the complete core and shell, and restores the previous
-camera if the proposal is dismissed.
+`(√7 × √7) R19.11°`. The renderer preserves the current camera throughout
+preview, dismissal, and materialization; it never reframes the structure merely
+because the commensurate workspace changed state.
 
 **Set Suggested Cell as Structure** materializes the validated common cell as
 an ASE `Atoms` object. Fixed atom and supported directional constraints are

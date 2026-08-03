@@ -4778,6 +4778,39 @@ export class ASERenderer {
             .map(([first, second]) => [corners[first], corners[second]]);
     }
 
+    commensuratePlanarCellSegments(cell, originValues = [0, 0, 0]) {
+        if (!Array.isArray(cell) || cell.length !== 3) return [];
+        const origin = new THREE.Vector3(...originValues);
+        const a = new THREE.Vector3(...cell[0]);
+        const b = new THREE.Vector3(...cell[1]);
+        const aCorner = origin.clone().add(a);
+        const bCorner = origin.clone().add(b);
+        const abCorner = origin.clone().add(a).add(b);
+        return [
+            [origin, aCorner],
+            [origin, bCorner],
+            [aCorner, abCorner],
+            [bCorner, abCorner]
+        ];
+    }
+
+    commensuratePrimitiveSegments(origins, vectors) {
+        if (!Array.isArray(origins) || !Array.isArray(vectors) || vectors.length < 2) return [];
+        const primitive = [vectors[0], vectors[1], [0, 0, 0]];
+        const unique = new Map();
+        const pointKey = point => [point.x, point.y, point.z]
+            .map(value => Math.round(value * 1e7))
+            .join(',');
+        origins.forEach(origin => {
+            this.commensuratePlanarCellSegments(primitive, origin).forEach(segment => {
+                const endpoints = segment.map(pointKey).sort();
+                const key = endpoints.join('|');
+                if (!unique.has(key)) unique.set(key, segment);
+            });
+        });
+        return [...unique.values()];
+    }
+
     buildCommensuratePreviewAtoms(preview) {
         const positions = preview.positions || [];
         const atomIndices = preview.atom_indices || [];
@@ -5053,7 +5086,7 @@ export class ASERenderer {
             });
             this.addCellEdgeInstances(
                 this.commensurateSupercellGroup,
-                this.commensurateCellSegments(cell, origin),
+                this.commensuratePlanarCellSegments(cell, origin),
                 metadata,
                 {
                     material,
@@ -5061,41 +5094,149 @@ export class ASERenderer {
                 }
             );
         };
+        const addPrimitiveGrid = (origins, vectors, color, metadata) => {
+            const segments = this.commensuratePrimitiveSegments(origins, vectors);
+            if (!segments.length) return;
+            const material = new THREE.MeshBasicMaterial({
+                color,
+                transparent: true,
+                opacity: 1,
+                depthTest: true,
+                depthWrite: false,
+                toneMapped: false
+            });
+            this.addCellEdgeInstances(
+                this.commensurateSupercellGroup,
+                segments,
+                metadata,
+                {
+                    material,
+                    radius: Math.max(0.018, this.normalizedCellThickness() * 0.48)
+                }
+            );
+        };
+        const addPrimitiveVectors = (origins, vectors, color, metadata) => {
+            if (!Array.isArray(origins) || !origins.length || !Array.isArray(vectors)) return;
+            const originValues = origins.reduce((nearest, candidate) => {
+                const candidateLength = new THREE.Vector3(...candidate).lengthSq();
+                const nearestLength = new THREE.Vector3(...nearest).lengthSq();
+                return candidateLength < nearestLength ? candidate : nearest;
+            }, origins[0]);
+            const origin = new THREE.Vector3(...originValues);
+            vectors.slice(0, 2).forEach((values, vectorIndex) => {
+                const direction = new THREE.Vector3(...values);
+                const length = direction.length();
+                if (!Number.isFinite(length) || length <= 1e-9) return;
+                direction.normalize();
+                const shaftRadius = Math.max(
+                    0.045,
+                    this.normalizedCellThickness() * 0.82
+                );
+                const headLength = Math.min(
+                    length * 0.24,
+                    Math.max(0.18, length * 0.17)
+                );
+                const shaftLength = Math.max(length - headLength * 0.72, length * 0.62);
+                const shaftEnd = origin.clone().addScaledVector(direction, shaftLength);
+                const arrow = new THREE.Group();
+                arrow.userData = { ...metadata, commensurateVectorIndex: vectorIndex };
+                const material = new THREE.MeshBasicMaterial({
+                    color,
+                    transparent: true,
+                    opacity: 1,
+                    depthTest: true,
+                    depthWrite: false,
+                    toneMapped: false
+                });
+                const shaft = this.addCellEdgeInstances(
+                    arrow,
+                    [[origin, shaftEnd]],
+                    { ...metadata, commensurateVectorShaft: true },
+                    { material, radius: shaftRadius }
+                );
+                if (shaft) shaft.renderOrder = 5;
+                const cone = new THREE.Mesh(
+                    new THREE.ConeGeometry(1, 1, 18, 1, false),
+                    material
+                );
+                cone.position.copy(origin).addScaledVector(
+                    direction,
+                    length - headLength * 0.5
+                );
+                cone.quaternion.setFromUnitVectors(this.yAxis, direction);
+                const headRadius = shaftRadius * 2.35;
+                cone.scale.set(headRadius, headLength, headRadius);
+                cone.renderOrder = 5;
+                cone.userData = {
+                    ...metadata,
+                    commensurateVectorHead: true,
+                    commensurateVectorIndex: vectorIndex
+                };
+                arrow.add(cone);
+                this.commensurateSupercellGroup.add(arrow);
+            });
+        };
         const guestOrigin = preview.mode === 'host-guest'
             ? (preview.guest_offset || [0, 0, 0])
             : [0, 0, 0];
+        const hostColor = this.displayOptions.viewportBackground === 'dark'
+            ? 0xf2f5f4
+            : 0x161a1d;
+        const guestColor = 0xf58220;
+        addPrimitiveGrid(
+            preview.host_lattice_origins,
+            preview.host_primitive_vectors,
+            hostColor,
+            { commensurateHostPrimitiveGrid: true }
+        );
+        addPrimitiveGrid(
+            preview.guest_lattice_origins,
+            preview.guest_primitive_vectors,
+            guestColor,
+            { commensurateGuestPrimitiveGrid: true }
+        );
+        addPrimitiveVectors(
+            preview.host_lattice_origins,
+            preview.host_primitive_vectors,
+            hostColor,
+            { commensurateHostPrimitiveVector: true }
+        );
+        addPrimitiveVectors(
+            preview.guest_lattice_origins,
+            preview.guest_primitive_vectors,
+            guestColor,
+            { commensurateGuestPrimitiveVector: true }
+        );
         addBoundary(
             preview.host_cell,
-            0xd6bd67,
-            0.92,
+            hostColor,
+            1,
             { commensurateHostCell: true },
             [0, 0, 0],
-            0.68
+            1.18
         );
         addBoundary(
             preview.guest_cell,
-            0x6aa7ff,
-            0.92,
+            guestColor,
+            1,
             { commensurateGuestCell: true },
             guestOrigin,
-            0.68
+            1.18
         );
-        addBoundary(
-            preview.common_cell || preview.cell,
-            0x16a88f,
-            1,
-            { commensurateSuggestedCell: true },
-            [0, 0, 0],
-            1.05
-        );
+        if (preview.has_suggestion !== false && (preview.common_cell || preview.cell)) {
+            addBoundary(
+                preview.common_cell || preview.cell,
+                0x159b8c,
+                1,
+                { commensurateSuggestedCell: true },
+                [0, 0, 0],
+                1.75
+            );
+        }
         this.commensurateSupercellGroup.position.copy(this.visualTranslationVector());
         this.domElement.dataset.commensuratePreviewAtoms = String(preview.preview_atom_count || preview.positions.length);
         this.domElement.dataset.commensuratePreviewBonds = String(bondCount);
         this.applyShadowFlags();
-        if (!updatingExistingPreview) {
-            const bounds = this.commensuratePreviewBounds(preview);
-            if (bounds) this.fitCameraToStructure(bounds);
-        }
         this.requestRender();
     }
 

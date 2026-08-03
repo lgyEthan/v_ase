@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.1.9&rev=1';
-import { ASERenderer } from './renderer.js?v=0.1.9&rev=1';
-import { ASESelection } from './selection.js?v=0.1.9&rev=1';
-import { ASETransform } from './transform.js?v=0.1.9&rev=1';
+import { ASEApi } from './api.js?v=0.1.10&rev=1';
+import { ASERenderer } from './renderer.js?v=0.1.10&rev=1';
+import { ASESelection } from './selection.js?v=0.1.10&rev=1';
+import { ASETransform } from './transform.js?v=0.1.10&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.1.9&rev=1';
+} from './trajectory.js?v=0.1.10&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -144,7 +144,8 @@ class VAseApp {
                 commensurateMode: 'same-lattice',
                 commensurateStrainTarget: 'guest',
                 commensurateShowAtoms: false,
-                commensurateGuestOffset: [0, 0, 3.35],
+                commensurateGuestGap: 3.0,
+                commensurateGuestOffset: [0, 0, 3.0],
                 commensurateGuestAngleDeg: 0,
                 commensurateStrainTolerance: 0.01,
                 commensurateMaxIndex: 32,
@@ -2045,6 +2046,7 @@ class VAseApp {
             'hidden',
             type !== 'commensurate'
         );
+        drawer.dataset.analysisType = type;
         drawer.classList.remove('hidden');
         return this.analysisPlotElement(type);
     }
@@ -2052,6 +2054,8 @@ class VAseApp {
     closeAnalysisDrawer() {
         document.getElementById('analysis-drawer')?.classList.add('hidden');
         this.state.activeAnalysisPlot = null;
+        const drawer = document.getElementById('analysis-drawer');
+        if (drawer) delete drawer.dataset.analysisType;
         const exportButton = document.getElementById('btn-analysis-export');
         if (exportButton) exportButton.disabled = true;
         document.getElementById('commensurate-plot-view')?.classList.add('hidden');
@@ -2150,31 +2154,80 @@ class VAseApp {
     commensuratePlotGeometry(result, angleDeg = 0) {
         const candidates = (result?.candidates || []).filter(candidate => (
             Number(candidate.area_ratio ?? candidate.area) <= Number(result.max_area_ratio || 16)
+        )).map(candidate => {
+            const instance = this.candidateInstanceNearAngle(candidate, angleDeg);
+            return { ...instance, plotAngleDeg: instance.targetAngleDeg };
+        });
+        const areas = candidates.map(candidate => Number(
+            candidate.host_area_ratio ?? candidate.area_ratio ?? candidate.area
         ));
-        const areas = candidates.map(candidate => Number(candidate.area_ratio ?? candidate.area));
         const strains = candidates.map(candidate => (
             Number(candidate.max_principal_strain ?? candidate.strain) * 100
         ));
         const areaMinimum = Math.min(...areas, 1);
         const areaMaximum = Math.max(...areas, 1);
-        const strainMaximum = Math.max(...strains, Number(result?.strain_tolerance || 0.01) * 100, 0.1);
+        const candidateAngles = candidates.map(candidate => Number(candidate.plotAngleDeg));
+        const rawAngleMinimum = Math.min(...candidateAngles, angleDeg, 0);
+        const rawAngleMaximum = Math.max(...candidateAngles, angleDeg, 0);
+        const anglePadding = Math.max(1.5, (rawAngleMaximum - rawAngleMinimum) * 0.055);
+        const angleMinimum = rawAngleMinimum - anglePadding;
+        const angleMaximum = rawAngleMaximum + anglePadding;
+        const strainMaximum = Math.max(...strains, 0);
+        const strainRangeMaximum = strainMaximum > 1e-9
+            ? strainMaximum * 1.24
+            : 0.05;
+        const areaPadding = areaMaximum > areaMinimum
+            ? Math.max(0.5, (areaMaximum - areaMinimum) * 0.08)
+            : 0.65;
         const nearest = candidates
-            .map(candidate => this.candidateInstanceNearAngle(candidate, angleDeg))
             .sort((first, second) => Math.abs(first.deltaDeg) - Math.abs(second.deltaDeg))[0] || null;
+        const layers = new Map();
+        candidates.forEach(candidate => {
+            const area = Number(candidate.host_area_ratio ?? candidate.area_ratio ?? candidate.area);
+            if (!layers.has(area)) layers.set(area, []);
+            layers.get(area).push(candidate);
+        });
+        const areaLayers = [...layers.entries()]
+            .sort(([first], [second]) => first - second)
+            .map(([area, entries]) => ({
+                area,
+                candidates: entries.sort((first, second) => (
+                    Number(first.plotAngleDeg) - Number(second.plotAngleDeg)
+                    || Number(first.max_principal_strain ?? first.strain)
+                        - Number(second.max_principal_strain ?? second.strain)
+                ))
+            }));
         return {
             candidates,
+            areaLayers,
             nearest,
+            axis: {
+                x: [angleMinimum, angleMaximum],
+                y: [areaMinimum, areaMinimum],
+                z: [0, 0],
+                areaX: [angleMinimum, angleMinimum],
+                areaY: [areaMinimum, areaMaximum],
+                areaZ: [0, 0],
+                strainX: [angleMinimum, angleMinimum],
+                strainY: [areaMinimum, areaMinimum],
+                strainZ: [0, strainRangeMaximum],
+                yRange: [Math.max(0, areaMinimum - areaPadding), areaMaximum + areaPadding],
+                zRange: [0, strainRangeMaximum]
+            },
             plane: {
                 x: [[angleDeg, angleDeg], [angleDeg, angleDeg]],
                 y: [[areaMinimum, areaMaximum], [areaMinimum, areaMaximum]],
-                z: [[0, 0], [strainMaximum, strainMaximum]]
+                z: [[0, 0], [strainRangeMaximum, strainRangeMaximum]]
             }
         };
     }
 
     async plotCommensurateSearch(result, angle = 0) {
         const Plotly = await this.ensurePlotly();
-        const plot = this.showAnalysisDrawer('commensurate', 'Commensurate Cell Analysis');
+        const plot = this.showAnalysisDrawer(
+            'commensurate',
+            'Commensurate Angle–Area–Strain Landscape'
+        );
         if (!plot) return;
         const angleDeg = Math.abs(Number(angle)) <= Math.PI * 4
             ? THREE.MathUtils.radToDeg(Number(angle) || 0)
@@ -2182,8 +2235,9 @@ class VAseApp {
         const geometry = this.commensuratePlotGeometry(result, angleDeg);
         const theme = this.plotTheme();
         const hover = geometry.candidates.map(candidate => (
-            `angle ${Number(candidate.angle_deg).toFixed(5)}°<br>`
-            + `area ${Number(candidate.area_ratio ?? candidate.area)}×<br>`
+            `rotation ${Number(candidate.plotAngleDeg).toFixed(5)}°<br>`
+            + `host area ${Number(candidate.host_area_ratio ?? candidate.area_ratio ?? candidate.area)} × primitive<br>`
+            + `guest area ${Number(candidate.guest_area_ratio ?? candidate.area_ratio ?? candidate.area)} × primitive<br>`
             + `max principal strain ${(Number(candidate.max_principal_strain ?? candidate.strain) * 100).toFixed(5)}%<br>`
             + `mean |strain| ${(Number(candidate.mean_absolute_strain ?? candidate.strain) * 100).toFixed(5)}%<br>`
             + `atoms ${Number(candidate.total_atom_count || 0).toLocaleString()}<br>`
@@ -2197,6 +2251,7 @@ class VAseApp {
                 {
                     type: 'scatter',
                     mode: 'markers',
+                    meta: { role: 'commensurate-candidates' },
                     name: 'Valid common cells',
                     x: geometry.candidates.map(candidate => (
                         Number(candidate.mean_absolute_strain ?? candidate.strain) * 100
@@ -2217,6 +2272,7 @@ class VAseApp {
                 {
                     type: 'scatter',
                     mode: 'markers',
+                    meta: { role: 'nearest-angle' },
                     name: 'Nearest angle',
                     x: nearest ? [Number(nearest.mean_absolute_strain ?? nearest.strain) * 100] : [],
                     y: nearest ? [Number(nearest.total_atom_count || nearest.area_ratio || nearest.area)] : [],
@@ -2251,31 +2307,131 @@ class VAseApp {
             });
             return;
         }
+        const layerBaseX = [];
+        const layerBaseY = [];
+        const layerBaseZ = [];
+        const layerCurveX = [];
+        const layerCurveY = [];
+        const layerCurveZ = [];
+        geometry.areaLayers.forEach(layer => {
+            layerBaseX.push(geometry.axis.x[0], geometry.axis.x[1], null);
+            layerBaseY.push(layer.area, layer.area, null);
+            layerBaseZ.push(0, 0, null);
+            if (layer.candidates.length > 1) {
+                layer.candidates.forEach(candidate => {
+                    layerCurveX.push(Number(candidate.plotAngleDeg));
+                    layerCurveY.push(layer.area);
+                    layerCurveZ.push(Number(candidate.max_principal_strain ?? candidate.strain) * 100);
+                });
+                layerCurveX.push(null);
+                layerCurveY.push(null);
+                layerCurveZ.push(null);
+            }
+        });
+        const stemX = [];
+        const stemY = [];
+        const stemZ = [];
+        geometry.candidates.forEach(candidate => {
+            const area = Number(candidate.host_area_ratio ?? candidate.area_ratio ?? candidate.area);
+            const strain = Number(candidate.max_principal_strain ?? candidate.strain) * 100;
+            stemX.push(candidate.plotAngleDeg, candidate.plotAngleDeg, null);
+            stemY.push(area, area, null);
+            stemZ.push(0, strain, null);
+        });
+        const layerTrace = {
+            type: 'scatter3d',
+            mode: 'lines',
+            meta: { role: 'area-layer' },
+            name: 'Host area layers',
+            x: layerBaseX,
+            y: layerBaseY,
+            z: layerBaseZ,
+            line: { color: theme.line, width: 2.2 },
+            hoverinfo: 'skip'
+        };
         await Plotly.react(plot, [
             {
                 type: 'scatter3d',
+                mode: 'lines',
+                name: 'Rotation axis',
+                meta: { role: 'rotation-axis' },
+                x: geometry.axis.x,
+                y: geometry.axis.y,
+                z: geometry.axis.z,
+                line: { color: theme.text, width: 7 },
+                hoverinfo: 'skip'
+            },
+            {
+                type: 'scatter3d',
+                mode: 'lines',
+                name: 'Area axis',
+                meta: { role: 'area-axis' },
+                x: geometry.axis.areaX,
+                y: geometry.axis.areaY,
+                z: geometry.axis.areaZ,
+                line: { color: theme.text, width: 6 },
+                hoverinfo: 'skip'
+            },
+            {
+                type: 'scatter3d',
+                mode: 'lines',
+                name: 'Strain axis',
+                meta: { role: 'strain-axis' },
+                x: geometry.axis.strainX,
+                y: geometry.axis.strainY,
+                z: geometry.axis.strainZ,
+                line: { color: theme.text, width: 6 },
+                hoverinfo: 'skip'
+            },
+            layerTrace,
+            {
+                type: 'scatter3d',
+                mode: 'lines',
+                meta: { role: 'candidate-curves' },
+                name: 'Candidate curves',
+                x: layerCurveX,
+                y: layerCurveY,
+                z: layerCurveZ,
+                line: { color: theme.teal, width: 4.5 },
+                hoverinfo: 'skip'
+            },
+            {
+                type: 'scatter3d',
+                mode: 'lines',
+                meta: { role: 'candidate-stems' },
+                name: 'Residual strain',
+                x: stemX,
+                y: stemY,
+                z: stemZ,
+                line: { color: theme.teal, width: 3 },
+                hoverinfo: 'skip'
+            },
+            {
+                type: 'scatter3d',
                 mode: 'markers',
+                meta: { role: 'commensurate-candidates' },
                 name: 'Valid common cells',
-                x: geometry.candidates.map(candidate => Number(candidate.angle_deg)),
-                y: geometry.candidates.map(candidate => Number(candidate.area_ratio ?? candidate.area)),
+                x: geometry.candidates.map(candidate => Number(candidate.plotAngleDeg)),
+                y: geometry.candidates.map(candidate => Number(
+                    candidate.host_area_ratio ?? candidate.area_ratio ?? candidate.area
+                )),
                 z: geometry.candidates.map(candidate => (
                     Number(candidate.max_principal_strain ?? candidate.strain) * 100
                 )),
                 text: hover,
                 hovertemplate: '%{text}<extra></extra>',
                 marker: {
-                    size: 4.5,
+                    size: 5.5,
                     color: geometry.candidates.map(candidate => (
-                        Number(candidate.max_principal_strain ?? candidate.strain) * 100
+                        candidate.magic_reference ? theme.amber : theme.teal
                     )),
-                    colorscale: [[0, theme.teal], [1, theme.amber]],
-                    colorbar: { title: 'max strain / %', thickness: 10 },
-                    line: { color: theme.text, width: 0.35 }
+                    line: { color: theme.text, width: 0.55 }
                 }
             },
             {
                 type: 'surface',
                 name: 'Current angle',
+                meta: { role: 'current-angle-plane' },
                 showscale: false,
                 hoverinfo: 'skip',
                 opacity: 0.16,
@@ -2289,24 +2445,65 @@ class VAseApp {
                 type: 'scatter3d',
                 mode: 'markers+text',
                 name: 'Nearest suggestion',
-                x: nearest ? [angleDeg] : [],
-                y: nearest ? [Number(nearest.area_ratio ?? nearest.area)] : [],
+                meta: { role: 'nearest-angle' },
+                x: nearest ? [Number(nearest.targetAngleDeg)] : [],
+                y: nearest ? [Number(nearest.host_area_ratio ?? nearest.area_ratio ?? nearest.area)] : [],
                 z: nearest ? [Number(nearest.max_principal_strain ?? nearest.strain) * 100] : [],
                 text: nearest ? [`${Number(nearest.targetAngleDeg).toFixed(3)}°`] : [],
                 textposition: 'top center',
-                marker: { size: 7, color: theme.blue, symbol: 'diamond' }
+                marker: { size: 8, color: theme.amber, symbol: 'diamond' }
             }
         ], {
             autosize: true,
-            margin: { l: 0, r: 0, t: 4, b: 0 },
+            margin: { l: 4, r: 4, t: 12, b: 2 },
             paper_bgcolor: 'rgba(0,0,0,0)',
-            font: { color: theme.text, family: 'Inter, system-ui, sans-serif', size: 10 },
+            font: { color: theme.text, family: 'Inter, system-ui, sans-serif', size: 12 },
             scene: {
                 bgcolor: 'rgba(0,0,0,0)',
-                xaxis: { title: 'rotation / deg', gridcolor: theme.line, color: theme.muted },
-                yaxis: { title: 'area ratio', gridcolor: theme.line, color: theme.muted },
-                zaxis: { title: 'max principal strain / %', gridcolor: theme.line, color: theme.muted },
-                camera: { eye: { x: 1.35, y: 1.4, z: 0.9 } }
+                xaxis: {
+                    title: { text: 'rotation θ / °', font: { size: 13 } },
+                    gridcolor: theme.line,
+                    zerolinecolor: theme.line,
+                    color: theme.text,
+                    tickfont: { size: 11 },
+                    showline: true,
+                    linecolor: theme.text,
+                    linewidth: 5,
+                    showspikes: false,
+                    range: geometry.axis.x
+                },
+                yaxis: {
+                    title: { text: 'host area / A₀', font: { size: 12 } },
+                    gridcolor: theme.line,
+                    zerolinecolor: theme.line,
+                    color: theme.text,
+                    tickfont: { size: 11 },
+                    showline: true,
+                    linecolor: theme.line,
+                    showspikes: false,
+                    tickmode: 'array',
+                    tickvals: geometry.areaLayers.map(layer => layer.area),
+                    range: geometry.axis.yRange
+                },
+                zaxis: {
+                    title: { text: 'max strain / %', font: { size: 12 } },
+                    gridcolor: theme.line,
+                    zerolinecolor: theme.line,
+                    color: theme.text,
+                    tickfont: { size: 11 },
+                    showline: true,
+                    linecolor: theme.line,
+                    showspikes: false,
+                    range: geometry.axis.zRange
+                },
+                aspectmode: 'manual',
+                aspectratio: { x: 3.1, y: 1.25, z: 1.12 },
+                camera: {
+                    projection: { type: 'orthographic' },
+                    eye: { x: 0.18, y: -2.30, z: 1.18 },
+                    center: { x: 0, y: 0, z: -0.05 },
+                    up: { x: 0, y: 0, z: 1 }
+                }
             },
             showlegend: false,
             uirevision: 'commensurate-search'
@@ -2331,23 +2528,33 @@ class VAseApp {
             );
             const nearest = geometry.nearest;
             if (document.getElementById('commensurate-plot-view')?.value === 'stradi-2d') {
+                const nearestIndex = Array.from(plot.data || []).findIndex(
+                    trace => trace.meta?.role === 'nearest-angle'
+                );
+                if (nearestIndex < 0) return;
                 window.Plotly.restyle(plot, {
                     x: [nearest ? [Number(nearest.mean_absolute_strain ?? nearest.strain) * 100] : []],
                     y: [nearest ? [Number(nearest.total_atom_count || nearest.area_ratio || nearest.area)] : []]
-                }, [1]);
+                }, [nearestIndex]);
                 return;
             }
+            const traces = Array.from(plot.data || []);
+            const planeIndex = traces.findIndex(trace => trace.meta?.role === 'current-angle-plane');
+            const nearestIndex = traces.findIndex(trace => trace.meta?.role === 'nearest-angle');
+            if (planeIndex < 0 || nearestIndex < 0) return;
             window.Plotly.restyle(plot, {
                 x: [geometry.plane.x],
                 y: [geometry.plane.y],
                 z: [geometry.plane.z]
-            }, [1]);
+            }, [planeIndex]);
             window.Plotly.restyle(plot, {
-                x: [nearest ? [this.state.commensuratePlotPendingAngle] : []],
-                y: [nearest ? [Number(nearest.area_ratio ?? nearest.area)] : []],
+                x: [nearest ? [Number(nearest.targetAngleDeg)] : []],
+                y: [nearest ? [Number(
+                    nearest.host_area_ratio ?? nearest.area_ratio ?? nearest.area
+                )] : []],
                 z: [nearest ? [Number(nearest.max_principal_strain ?? nearest.strain) * 100] : []],
                 text: [nearest ? [`${Number(nearest.targetAngleDeg).toFixed(3)}°`] : []]
-            }, [2]);
+            }, [nearestIndex]);
         });
     }
 
@@ -2444,9 +2651,7 @@ class VAseApp {
         });
         document.getElementById('commensurate-plot-view')?.addEventListener('change', () => {
             if (!this.state.commensurateSearch) return;
-            const currentDeg = this.commensurateMode() === 'host-guest'
-                ? Number(this.state.display.commensurateGuestAngleDeg || 0)
-                : THREE.MathUtils.radToDeg(this.state.commensurateLastAngle || 0);
+            const currentDeg = Number(this.state.display.commensurateGuestAngleDeg || 0);
             this.plotCommensurateSearch(
                 this.state.commensurateSearch,
                 THREE.MathUtils.degToRad(currentDeg)
@@ -3330,6 +3535,7 @@ class VAseApp {
         this.updateLabelSelectionControls();
         this.updateSelectedAppearanceControls();
         this.updateSelectionConstraintControls();
+        this.syncCommensurateSelectionPreview();
 
         this.updateCalculatorControls(meta);
 
@@ -4045,6 +4251,10 @@ class VAseApp {
             ? 'host'
             : 'guest';
         this.state.display.commensurateShowAtoms = Boolean(config.commensurate_show_atoms);
+        const initialGuestGap = Number(config.commensurate_guest_gap);
+        this.state.display.commensurateGuestGap = Number.isFinite(initialGuestGap)
+            ? Math.max(0, Math.min(20, initialGuestGap))
+            : this.state.display.commensurateGuestGap;
         this.state.display.commensurateGuestAngleDeg = Number.isFinite(Number(config.commensurate_guest_angle_deg))
             ? Number(config.commensurate_guest_angle_deg)
             : 0;
@@ -4097,6 +4307,7 @@ class VAseApp {
         document.getElementById('commensurate-strain-target').value = this.state.display.commensurateStrainTarget;
         document.getElementById('chk-commensurate-show-atoms').checked = this.state.display.commensurateShowAtoms;
         document.getElementById('commensurate-guest-angle').value = this.state.display.commensurateGuestAngleDeg;
+        document.getElementById('commensurate-guest-gap').value = this.state.display.commensurateGuestGap;
         document.getElementById('commensurate-strain').value = this.state.display.commensurateStrainTolerance * 100;
         document.getElementById('commensurate-max-index').value = this.state.display.commensurateMaxIndex;
         document.getElementById('commensurate-max-area').value = this.state.display.commensurateMaxAreaRatio;
@@ -5517,6 +5728,14 @@ class VAseApp {
             if (!Number.isFinite(angle)) angle = 0;
             appliedRotationAngle = angle;
             this.state.commensurateLastAngle = angle;
+            if (this.state.display.commensurateGuide) {
+                const angleDeg = THREE.MathUtils.radToDeg(angle);
+                this.state.display.commensurateGuestAngleDeg = angleDeg;
+                const angleInput = document.getElementById('commensurate-guest-angle');
+                if (angleInput && document.activeElement !== angleInput) {
+                    angleInput.value = Number(angleDeg.toFixed(8)).toString();
+                }
+            }
             const snapped = this.state.commensurateSnappedCandidate;
             this.state.transformReadout = snapped
                 ? `${this.formatRotateReadout(angle)} | MATCH e=${(snapped.strain * 100).toFixed(3)}% | N=${snapped.area}`
@@ -5624,7 +5843,8 @@ class VAseApp {
             selectedIndices: [...this.state.selected].filter(index => this.isEditableIndex(index)),
             pivot: this.transform.pivot.toArray(),
             axis: 'Z',
-            displayAngleDeg: THREE.MathUtils.radToDeg(this.state.commensurateLastAngle || 0)
+            displayAngleDeg: THREE.MathUtils.radToDeg(this.state.commensurateLastAngle || 0),
+            positionsIncludeDisplayRotation: true
         } : null;
         const newPositions = this.currentPositionsFromScene();
         this.state.atoms.positions = newPositions.map(p => [...p]);
@@ -7075,6 +7295,10 @@ class VAseApp {
         this.state.display.commensurateShowAtoms = Boolean(
             document.getElementById('chk-commensurate-show-atoms')?.checked
         );
+        const guestGap = Number(document.getElementById('commensurate-guest-gap')?.value ?? 3);
+        this.state.display.commensurateGuestGap = Number.isFinite(guestGap)
+            ? Math.max(0, Math.min(20, guestGap))
+            : 3.0;
         const guestAngle = Number(document.getElementById('commensurate-guest-angle')?.value || 0);
         this.state.display.commensurateGuestAngleDeg = Number.isFinite(guestAngle) ? guestAngle : 0;
         const strainPercent = parseFloat(document.getElementById('commensurate-strain')?.value || '1');
@@ -7583,9 +7807,7 @@ class VAseApp {
                     mode: this.commensurateMode(),
                     axis: 'Z',
                     guest: this.clonePlain(this.commensurateGuestMetadata()),
-                    currentAngleDeg: this.commensurateMode() === 'host-guest'
-                        ? Number(this.state.display.commensurateGuestAngleDeg || 0)
-                        : THREE.MathUtils.radToDeg(Number(this.state.commensurateLastAngle) || 0),
+                    currentAngleDeg: Number(this.state.display.commensurateGuestAngleDeg || 0),
                     strainTarget: this.state.display.commensurateStrainTarget || 'guest',
                     strainTolerance: Number(this.state.display.commensurateStrainTolerance || 0.01),
                     maxAreaRatio: Number(this.state.display.commensurateMaxAreaRatio || 16),
@@ -7762,12 +7984,19 @@ class VAseApp {
         )));
         const angleDeg = Number(
             operation.angleDeg
-            ?? (mode === 'host-guest'
-                ? this.state.display.commensurateGuestAngleDeg
-                : THREE.MathUtils.radToDeg(Number(this.state.commensurateLastAngle) || 0))
+            ?? this.state.display.commensurateGuestAngleDeg
             ?? 0
         );
         if (!Number.isFinite(angleDeg)) throw new Error('angleDeg must be finite.');
+        const guestGap = Number(
+            operation.gap
+            ?? operation.guestGap
+            ?? this.state.display.commensurateGuestGap
+            ?? 3.0
+        );
+        if (!Number.isFinite(guestGap) || guestGap < 0 || guestGap > 20) {
+            throw new Error('gap must be an angstrom value from 0 through 20.');
+        }
         return {
             axis,
             mode,
@@ -7776,6 +8005,7 @@ class VAseApp {
             maxIndex,
             maxAreaRatio,
             angleDeg,
+            guestGap,
             showAtoms: operation.showAtoms === undefined
                 ? Boolean(this.state.display.commensurateShowAtoms)
                 : operation.showAtoms === true
@@ -7791,6 +8021,7 @@ class VAseApp {
             commensurateMaxIndex: config.maxIndex,
             commensurateMaxAreaRatio: config.maxAreaRatio,
             commensurateGuestAngleDeg: config.angleDeg,
+            commensurateGuestGap: config.guestGap,
             commensurateShowAtoms: config.showAtoms
         });
         this.state.commensurateLastAngle = THREE.MathUtils.degToRad(config.angleDeg);
@@ -7800,7 +8031,8 @@ class VAseApp {
             'commensurate-strain': `${config.strainTolerance * 100}`,
             'commensurate-max-index': `${config.maxIndex}`,
             'commensurate-max-area': `${config.maxAreaRatio}`,
-            'commensurate-guest-angle': `${config.angleDeg}`
+            'commensurate-guest-angle': `${config.angleDeg}`,
+            'commensurate-guest-gap': `${config.guestGap}`
         };
         Object.entries(values).forEach(([id, value]) => {
             const element = document.getElementById(id);
@@ -8005,7 +8237,10 @@ class VAseApp {
             });
             this.applyAICommensurateConfig(config);
             if (operation.calculate !== false) {
-                await this.refreshCommensurateWorkspace({ showBusy: true });
+                await this.refreshCommensurateWorkspace({
+                    showBusy: true,
+                    preferSmallest: operation.angleDeg === undefined
+                });
             }
             return;
         }
@@ -8019,7 +8254,7 @@ class VAseApp {
             this.clearCommensurateSupercellProposal({ keepStatus: true });
             this.syncCommensurateWorkspaceControls();
             if (this.state.display.commensurateGuide) {
-                await this.refreshCommensurateWorkspace({ showBusy: true });
+                await this.refreshCommensurateWorkspace({ showBusy: true, preferSmallest: true });
             }
             return;
         }
@@ -8034,7 +8269,10 @@ class VAseApp {
                 const snap = document.getElementById('chk-commensurate-snap');
                 if (snap) snap.checked = this.state.display.commensurateSnap;
             }
-            await this.refreshCommensurateWorkspace({ showBusy: true });
+            await this.refreshCommensurateWorkspace({
+                showBusy: true,
+                preferSmallest: operation.angleDeg === undefined
+            });
             return;
         }
         if (name === 'rotate-to-commensurate') {
@@ -8121,7 +8359,9 @@ class VAseApp {
                 candidate,
                 selectedIndices: indices,
                 pivot: pivot.toArray(),
-                axis
+                axis,
+                displayAngleDeg: candidate.targetAngleDeg,
+                positionsIncludeDisplayRotation: true
             });
             this.updateUI();
             return;
@@ -8974,6 +9214,9 @@ class VAseApp {
         setValue('commensurate-mode', display.commensurateMode === 'host-guest' ? 'host-guest' : 'same-lattice');
         setValue('commensurate-strain-target', display.commensurateStrainTarget === 'host' ? 'host' : 'guest');
         setValue('commensurate-guest-angle', Number(display.commensurateGuestAngleDeg) || 0);
+        setValue('commensurate-guest-gap', Number.isFinite(Number(display.commensurateGuestGap))
+            ? Number(display.commensurateGuestGap)
+            : 3.0);
         setValue('commensurate-strain', (display.commensurateStrainTolerance ?? 0.01) * 100);
         setValue('commensurate-max-index', display.commensurateMaxIndex ?? 32);
         setValue('commensurate-max-area', display.commensurateMaxAreaRatio ?? 16);
@@ -9159,11 +9402,14 @@ class VAseApp {
                 ? 'host'
                 : 'guest',
             commensurateShowAtoms: Boolean(nextDisplay.commensurateShowAtoms),
+            commensurateGuestGap: finiteClamped(
+                nextDisplay.commensurateGuestGap, 3.0, 0, 20
+            ),
             commensurateGuestOffset: Array.isArray(nextDisplay.commensurateGuestOffset)
                 && nextDisplay.commensurateGuestOffset.length === 3
                 && nextDisplay.commensurateGuestOffset.every(value => Number.isFinite(Number(value)))
                 ? nextDisplay.commensurateGuestOffset.map(Number)
-                : [0, 0, 3.35],
+                : [0, 0, 3.0],
             commensurateGuestAngleDeg: Number.isFinite(Number(nextDisplay.commensurateGuestAngleDeg))
                 ? Number(nextDisplay.commensurateGuestAngleDeg)
                 : 0,
@@ -9865,22 +10111,66 @@ class VAseApp {
         return this.state.atoms?.metadata?.commensurate_guest || null;
     }
 
+    commensurateGuestGap() {
+        const value = Number(this.state.display.commensurateGuestGap);
+        return Number.isFinite(value) ? Math.max(0, Math.min(20, value)) : 3.0;
+    }
+
+    commensurateGuestOffsetForGap(metadata = this.commensurateGuestMetadata()) {
+        if (!metadata) return [0, 0, 0];
+        const positions = this.backendPositionsPayload() || this.state.atoms?.positions || [];
+        const hostMaxZ = positions.length
+            ? Math.max(...positions.map(position => Number(position?.[2]) || 0))
+            : 0;
+        const guestMinZ = Number(metadata.min_z);
+        const safeGuestMinZ = Number.isFinite(guestMinZ) ? guestMinZ : 0;
+        return [0, 0, hostMaxZ - safeGuestMinZ + this.commensurateGuestGap()];
+    }
+
+    commensurateSelectedGuestIndices() {
+        return this.selectedAtomIndices();
+    }
+
+    syncCommensurateSelectionPreview() {
+        this.syncCommensurateWorkspaceControls();
+        if (!this.state.display.commensurateGuide || this.commensurateMode() !== 'same-lattice') return;
+        const selected = this.commensurateSelectedGuestIndices();
+        const signature = selected.join(',');
+        if (signature === this.state.commensurateSelectionSignature) return;
+        this.state.commensurateSelectionSignature = signature;
+        const candidate = selected.length ? this.commensurateSmallestCandidate() : null;
+        if (!candidate) {
+            this.renderPrimitiveCommensurateCells();
+            return;
+        }
+        const currentDeg = this.useCommensurateSuggestedAngle(candidate);
+        this.prepareCommensurateSupercellProposal(
+            this.commensuratePreviewContext(candidate, currentDeg)
+        ).catch(error => {
+            this.updateCommensurateStatus(`Preview unavailable: ${error.message}`, 'warning');
+        });
+    }
+
     syncCommensurateWorkspaceControls() {
         const enabled = Boolean(this.state.display.commensurateGuide);
         const mode = this.commensurateMode();
         document.getElementById('commensurate-workspace')?.classList.toggle('hidden', !enabled);
-        document.getElementById('commensurate-guest-controls')?.classList.toggle(
-            'hidden', mode !== 'host-guest'
-        );
+        document.getElementById('commensurate-guest-controls')?.classList.toggle('hidden', !enabled);
+        document.querySelectorAll('[data-commensurate-external-guest]').forEach(element => {
+            element.classList.toggle('hidden', mode !== 'host-guest');
+        });
         document.querySelectorAll('[data-commensurate-same-lattice]').forEach(element => {
             element.classList.toggle('hidden', mode !== 'same-lattice');
         });
         const guest = this.commensurateGuestMetadata();
+        const selectedCount = this.commensurateSelectedGuestIndices().length;
         const summary = document.getElementById('commensurate-guest-summary');
         if (summary) {
             summary.textContent = guest
-                ? `${guest.name || 'Guest structure'} · ${Number(guest.natoms || 0).toLocaleString()} atoms`
-                : 'No guest structure loaded.';
+                ? `Loaded guest: ${guest.name || 'Guest structure'} · ${Number(guest.natoms || 0).toLocaleString()} atoms`
+                : selectedCount
+                    ? `Selected guest layer · ${selectedCount.toLocaleString()} atoms · host lattice inherited`
+                    : 'Host cell only · select a guest layer or load a separate structure';
         }
         document.getElementById('btn-remove-commensurate-guest')?.classList.toggle('hidden', !guest);
     }
@@ -9889,7 +10179,7 @@ class VAseApp {
         return {
             mode: this.commensurateMode(),
             strainTarget: this.state.display.commensurateStrainTarget,
-            selectedIndices: [...this.state.selected].filter(index => this.isEditableIndex(index)),
+            selectedIndices: this.commensurateSelectedGuestIndices(),
             jobId
         };
     }
@@ -9908,7 +10198,12 @@ class VAseApp {
             strain_tolerance: this.state.display.commensurateStrainTolerance,
             max_area_ratio: this.state.display.commensurateMaxAreaRatio,
             show_atoms: Boolean(this.state.display.commensurateShowAtoms),
-            guest_offset: [...(this.state.display.commensurateGuestOffset || [0, 0, 3.35])],
+            positions_include_display_rotation: Boolean(
+                context?.positionsIncludeDisplayRotation
+            ),
+            guest_offset: this.commensurateMode() === 'host-guest'
+                ? this.commensurateGuestOffsetForGap()
+                : [0, 0, 0],
             apply_constraint: this.state.applyConstraints
         };
     }
@@ -9928,9 +10223,45 @@ class VAseApp {
             ))[0] || null;
     }
 
-    commensuratePreviewContext(candidate, displayAngleDeg = 0) {
-        const selectedIndices = [...this.state.selected].filter(index => this.isEditableIndex(index));
-        const pivot = this.transform.mode === 'ROTATE' && this.state.transformSubject === 'atoms'
+    commensurateSmallestCandidate() {
+        const maxArea = Math.max(1, Number(this.state.display.commensurateMaxAreaRatio) || 16);
+        return (this.state.commensurateCandidates || [])
+            .filter(candidate => (
+                candidate.supercell_supported !== false
+                && Number(candidate.area_ratio ?? candidate.area) <= maxArea
+            ))
+            .map(candidate => this.candidateInstanceNearAngle(candidate, 0))
+            .sort((first, second) => (
+                Number(first.area_ratio ?? first.area) - Number(second.area_ratio ?? second.area)
+                || (
+                    Number(first.host_area_ratio ?? first.area_ratio ?? first.area)
+                    + Number(first.guest_area_ratio ?? first.area_ratio ?? first.area)
+                    - Number(second.host_area_ratio ?? second.area_ratio ?? second.area)
+                    - Number(second.guest_area_ratio ?? second.area_ratio ?? second.area)
+                )
+                || Number(first.strain) - Number(second.strain)
+                || Math.abs(Number(first.targetAngleDeg)) - Math.abs(Number(second.targetAngleDeg))
+            ))[0] || null;
+    }
+
+    useCommensurateSuggestedAngle(candidate) {
+        const angle = Number(candidate?.targetAngleDeg ?? candidate?.angle_deg ?? 0);
+        const safeAngle = Number.isFinite(angle) ? angle : 0;
+        this.state.display.commensurateGuestAngleDeg = safeAngle;
+        this.state.commensuratePreviewAngle = safeAngle;
+        this.state.commensurateLastAngle = THREE.MathUtils.degToRad(safeAngle);
+        const input = document.getElementById('commensurate-guest-angle');
+        if (input) input.value = Number(safeAngle.toFixed(8)).toString();
+        return safeAngle;
+    }
+
+    commensuratePreviewContext(candidate, displayAngleDeg = 0, options = {}) {
+        const selectedIndices = this.commensurateSelectedGuestIndices();
+        const transformAlreadyRotated = (
+            this.transform.mode === 'ROTATE'
+            && this.state.transformSubject === 'atoms'
+        );
+        const pivot = transformAlreadyRotated
             ? this.transform.pivot.toArray()
             : this.rotationPivotPosition(selectedIndices).toArray();
         return {
@@ -9938,17 +10269,19 @@ class VAseApp {
             selectedIndices,
             pivot,
             axis: 'Z',
-            displayAngleDeg
+            displayAngleDeg,
+            positionsIncludeDisplayRotation: options.positionsIncludeDisplayRotation
+                ?? transformAlreadyRotated
         };
     }
 
     renderPrimitiveCommensurateCells() {
         const cell = this.state.atoms?.cell;
         if (!this.state.display.commensurateGuide || !Array.isArray(cell) || cell.length !== 3) return;
-        if (this.commensurateMode() === 'same-lattice' && this.state.selected.size === 0) {
-            this.renderer.clearCommensurateSupercellPreview?.();
-            return;
-        }
+        const guest = this.commensurateGuestMetadata();
+        const hasSelectedGuest = this.commensurateSelectedGuestIndices().length > 0;
+        const guestCell = guest?.cell || (hasSelectedGuest ? cell : null);
+        const guestOffset = guest ? this.commensurateGuestOffsetForGap(guest) : [0, 0, 0];
         this.renderer.setCommensurateSupercellPreview?.({
             preview: {
                 mode: this.commensurateMode(),
@@ -9956,10 +10289,15 @@ class VAseApp {
                 atom_indices: [],
                 core_mask: [],
                 cell,
-                common_cell: cell,
+                common_cell: null,
                 host_cell: cell,
-                guest_cell: this.commensurateGuestMetadata()?.cell || cell,
-                guest_offset: this.state.display.commensurateGuestOffset || [0, 0, 3.35],
+                guest_cell: guestCell,
+                host_lattice_origins: [[0, 0, 0]],
+                host_primitive_vectors: cell.slice(0, 2),
+                guest_lattice_origins: guestCell ? [guestOffset] : [],
+                guest_primitive_vectors: guestCell ? guestCell.slice(0, 2) : [],
+                guest_offset: guestOffset,
+                has_suggestion: false,
                 include_atoms: false,
                 preview_atom_count: 0
             }
@@ -9972,15 +10310,14 @@ class VAseApp {
             `Loading guest lattice from ${file.name}...`,
             () => this.api.loadCommensurateGuest(file)
         );
-        if (Array.isArray(data?.guest?.suggested_offset)) {
-            this.state.display.commensurateGuestOffset = data.guest.suggested_offset.map(Number);
-        }
+        this.state.display.commensurateGuestGap = 3.0;
         await this.refresh({ preserveSelection: true });
         this.state.display.commensurateMode = 'host-guest';
+        this.state.display.commensurateGuestOffset = this.commensurateGuestOffsetForGap();
         const mode = document.getElementById('commensurate-mode');
         if (mode) mode.value = 'host-guest';
         this.syncCommensurateWorkspaceControls();
-        await this.refreshCommensurateWorkspace({ showBusy: true });
+        await this.refreshCommensurateWorkspace({ showBusy: true, preferSmallest: true });
     }
 
     async removeCommensurateGuest() {
@@ -9990,10 +10327,10 @@ class VAseApp {
         const mode = document.getElementById('commensurate-mode');
         if (mode) mode.value = 'same-lattice';
         this.syncCommensurateWorkspaceControls();
-        await this.refreshCommensurateWorkspace({ showBusy: true });
+        await this.refreshCommensurateWorkspace({ showBusy: true, preferSmallest: true });
     }
 
-    async refreshCommensurateWorkspace({ showBusy = true } = {}) {
+    async refreshCommensurateWorkspace({ showBusy = true, preferSmallest = false } = {}) {
         this.applyDisplayOptions();
         this.syncCommensurateWorkspaceControls();
         if (!this.state.display.commensurateGuide) {
@@ -10042,21 +10379,27 @@ class VAseApp {
                 });
             }
             if (Array.isArray(result?.guest?.suggested_offset)) {
-                this.state.display.commensurateGuestOffset = result.guest.suggested_offset.map(Number);
+                this.state.display.commensurateGuestOffset = this.commensurateGuestOffsetForGap();
             }
-            const currentDeg = this.commensurateMode() === 'host-guest'
-                ? Number(this.state.display.commensurateGuestAngleDeg || 0)
-                : THREE.MathUtils.radToDeg(this.state.commensurateLastAngle || 0);
+            let currentDeg = Number(this.state.display.commensurateGuestAngleDeg || 0);
+            const hasGuestComponent = (
+                this.commensurateMode() === 'host-guest'
+                || this.commensurateSelectedGuestIndices().length > 0
+            );
+            const suggested = preferSmallest && hasGuestComponent
+                ? this.commensurateSmallestCandidate()
+                : null;
+            if (suggested) currentDeg = this.useCommensurateSuggestedAngle(suggested);
             await this.plotCommensurateSearch(result, THREE.MathUtils.degToRad(currentDeg));
-            const candidate = this.commensurateCandidateAtAngle(currentDeg);
+            const candidate = suggested || this.commensurateCandidateAtAngle(currentDeg);
             if (candidate && (this.commensurateMode() === 'host-guest' || this.state.selected.size > 0)) {
                 await this.prepareCommensurateSupercellProposal(
                     this.commensuratePreviewContext(candidate, currentDeg)
                 );
             } else if (candidate) {
-                this.renderer.clearCommensurateSupercellPreview?.();
+                this.renderPrimitiveCommensurateCells();
                 this.updateCommensurateStatus(
-                    'Select the layer that should rotate, then the suggested cell will appear.',
+                    'Host cell shown. Select the guest layer to preview a same-lattice match, or load a separate guest structure.',
                     'warning'
                 );
             } else {
@@ -10229,11 +10572,14 @@ class VAseApp {
                     this.commensurateProposalPayload(proposal.context)
                 )
             );
+            this.state.display.commensurateGuide = false;
+            const guideToggle = document.getElementById('chk-commensurate-guide');
+            if (guideToggle) guideToggle.checked = false;
             this.clearCommensurateSupercellProposal({ keepStatus: true, preserveCamera: true });
+            this.clearCommensurateRotation({ keepStatus: true, clearSearch: true });
             this.state.display.supercell = [1, 1, 1];
             this.setSupercellInputs([1, 1, 1]);
             this.setAtomsData(data, { clearSelection: true });
-            this.renderer.fitCameraToStructure?.();
             this.updateCommensurateStatus('The suggested common cell is now the editable unit cell.', 'ready');
             this.toast('Set the commensurate common cell as the editable unit cell.', 'success');
         } catch (error) {
@@ -13189,7 +13535,7 @@ class VAseApp {
                 .catch(err => this.toast(`Rotation failed: ${err.message}`, 'error'));
         });
         const refreshCommensurateSearch = ({ showBusy = true } = {}) => {
-            this.refreshCommensurateWorkspace({ showBusy }).catch(error => {
+            this.refreshCommensurateWorkspace({ showBusy, preferSmallest: true }).catch(error => {
                 this.toast(`Commensurate search failed: ${error.message}`, 'error');
             });
         };
@@ -13219,8 +13565,27 @@ class VAseApp {
                 const angle = Number(event.currentTarget.value || 0);
                 if (!Number.isFinite(angle)) return;
                 this.state.display.commensurateGuestAngleDeg = angle;
+                this.state.commensurateLastAngle = THREE.MathUtils.degToRad(angle);
                 this.scheduleVisualHistoryCommit('commensurate-guest-angle');
                 this.scheduleCommensurateLivePreview(THREE.MathUtils.degToRad(angle));
+            });
+        });
+        ['input', 'change'].forEach(type => {
+            document.getElementById('commensurate-guest-gap')?.addEventListener(type, event => {
+                const gap = Number(event.currentTarget.value);
+                if (!Number.isFinite(gap)) return;
+                this.state.display.commensurateGuestGap = Math.max(0, Math.min(20, gap));
+                this.state.display.commensurateGuestOffset = this.commensurateGuestOffsetForGap();
+                this.scheduleVisualHistoryCommit('commensurate-guest-gap');
+                const angle = Number(this.state.display.commensurateGuestAngleDeg || 0);
+                const candidate = this.commensurateCandidateAtAngle(angle);
+                if (candidate) {
+                    this.prepareCommensurateSupercellProposal(
+                        this.commensuratePreviewContext(candidate, angle)
+                    ).catch(error => this.toast(`Preview failed: ${error.message}`, 'error'));
+                } else {
+                    this.renderPrimitiveCommensurateCells();
+                }
             });
         });
         const guestInput = document.getElementById('commensurate-guest-file');

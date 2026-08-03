@@ -187,9 +187,9 @@ Pass `operation` as a name string or object:
 | `move-selection` | `vector` | Translate selected atoms |
 | `rotate-selection` | `axis`, `angleDeg`, optional `pivot` | Rotate selected atoms |
 | `rotate-to-commensurate` | `angleDeg`, selection/`indices`; optional `axis`, `pivot`, `strainTolerance`, `maxIndex`, `maxAreaRatio`, `maxAngleDifferenceDeg`, `showAtoms` | Rotate to the nearest validated 2D periodic match and show its bounded common-cell proposal; preview atoms remain off unless requested |
-| `load-commensurate-guest` | `path`; optional `format` | Load one independent guest structure from inside the CLI launch directory |
-| `remove-commensurate-guest` | none | Remove the pending independent guest without changing the host |
-| `calculate-commensurate` | optional `mode`, `axis`, `angleDeg`, `strainTarget`, `strainTolerance`, `maxIndex`, `maxAreaRatio`, `showAtoms` | Search bounded same-lattice or host/guest integer common cells and open the 3D overview plus paper strain projection |
+| `load-commensurate-guest` | `path`; optional `format`, `gap`, search controls | Load or replace the guest structure from inside the CLI launch directory; its minimum z is placed 3 Angstrom above host maximum z unless `gap` is supplied |
+| `remove-commensurate-guest` | none | Remove the loaded guest without changing the host; a current atom selection can then act as a same-lattice guest |
+| `calculate-commensurate` | optional `mode`, `axis`, `angleDeg`, `strainTarget`, `strainTolerance`, `maxIndex`, `maxAreaRatio`, `showAtoms` | Search bounded same-lattice or host/guest integer common cells and open the 3D overview plus paper strain projection; omitting `angleDeg` selects the smallest admissible cell, while supplying it selects the nearest admissible angle |
 | `apply-commensurate-cell` | active proposal | Materialize the validated common cell as the ASE unit cell |
 | `dismiss-commensurate-cell` | none | Close the proposal and restore the pre-preview camera |
 | `calculate-registry-map` | selection/`indices`; optional `metric`, `gridX`, `gridY` | Scan one periodic XY cell of selected-component translations and open the heatmap |
@@ -230,8 +230,9 @@ Commensurate search, rotation, and explicit materialization are deliberately
 separate. The rigorously supported plane is global XY with rotation about
 global Z.
 
-For a same-lattice twist, select the rotating component and search its
-independent copy of the current cell:
+Enabling the workspace without a selection shows only the host primitive cell
+and vectors. For a same-lattice twist, select the rotating component; v_ase
+then gives that component a separate, rotatable copy of the current cell:
 
 ```javascript
 const proposed = await ai.apply({
@@ -249,13 +250,15 @@ const proposed = await ai.apply({
 });
 ```
 
-For different lattices, first load the guest from a path confined to the
-directory in which `v_ase gui ... --cli` was launched:
+For different lattices, first load or replace the guest from a path confined to
+the directory in which `v_ase gui ... --cli` was launched. The default `gap`
+is 3 Angstrom, defined as guest minimum z minus host maximum z:
 
 ```javascript
 await ai.apply({operation: {
   name: "load-commensurate-guest",
-  path: "layers/hbn.cif"
+  path: "layers/hbn.cif",
+  gap: 3.0
 }});
 const searched = await ai.apply({operation: {
   name: "calculate-commensurate",
@@ -276,11 +279,15 @@ notation, selected strain target, cells-only/atom preview counts, and whether
 materialization is supported. Candidate rows also expose max principal strain,
 mean absolute strain, and host/guest/total atom counts. Use
 `rotate-to-commensurate` only after choosing a particular same-lattice
-candidate angle. Set `showAtoms:true` only when the human needs the atom/bond
-halo; cells-only is clearer and cheaper.
+candidate angle. A loaded guest replaces any selected same-lattice guest for
+the search. Set `showAtoms:true` only when the human needs the atom/bond halo;
+cells-only is clearer and cheaper. Host primitive cells/vectors are black,
+guest cells/vectors are orange, and the proposed common cell is teal. Changing
+the direct guest angle must not move or reframe the camera.
 
-The **3D overview** uses angle, area ratio, and max principal strain; its live
-plane follows the current guest angle. **Paper strain projection** plots the
+The **3D overview** puts rotation on the explicit horizontal x axis, common-cell
+area ratio on depth layers, and max principal strain on the vertical axis; its
+live plane follows the current guest angle. **Paper strain projection** plots the
 Stradi mean absolute strain against actual common-cell atom count and colors
 markers by angle. Candidate acceptance always uses max principal strain, so
 switching views cannot change the proposal. Export semantic data without
@@ -445,7 +452,7 @@ Transform and commensurate settings:
 | `commensurateMaxAreaRatio` | maximum proposed common-cell area ratio; default `16`, valid range `1..128` |
 | `commensurateSnapRangeDeg` | angular snap window |
 | `commensurateShowAtoms` | include preview atoms and one-cell boundary-bond halo; default false |
-| `commensurateGuestAngleDeg` | independent guest rotation about global Z |
+| `commensurateGuestAngleDeg` | selected or loaded guest rotation about global Z |
 | `commensurateGuestOffset` | guest Cartesian display/materialization offset |
 | `registryMetric` | `"short-contact"` or `"bond-strain"` |
 | `registryGridX`, `registryGridY` | fractional XY grid dimensions, 4 through 160 |

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.1.10
+
+- Corrected the canonical agent trajectory validation workflow to use the
+  real 42-frame C60 relaxation fixture instead of an ambiguous single-frame
+  scene, with a regression that verifies the documented frame count.
+
+- Rebuilt the commensurate workspace as a cells-first host/guest workflow:
+  host-only startup, selected same-lattice guest or separately loaded guest,
+  editable 3 Angstrom gap, tiled primitive vectors, optional boundary atoms
+  and bonds, and preserved camera state.
+- Replaced the opaque angle-area-strain chart with a layered 3D landscape
+  whose horizontal rotation axis, area-depth layers, vertical strain axis,
+  current-angle plane, and CSV action remain readable in the live workspace.
+- Made the initial proposal the smallest admissible common cell regardless of
+  a larger search ceiling, while explicit angle input continues to track the
+  nearest admissible candidate; added graphene/Cu(111) browser and numerical
+  regressions through area ratio 64.
+- Rebuilt the external-Agent README figure around a readable Human → Agent
+  Skill/CLI → v_ase → same-GUI refinement cycle with a source structure,
+  explicit camera request, recognizable compatible-client marks, and a
+  verified camera-aligned rendered result.
+- Synchronized the user guide, canonical Agent Skill, scientific validation
+  notes, examples, browser workflows, and generated README media.
+
 ## 0.1.9
 
 - Added separate graphene-host and Cu(111)-guest validation inputs with exact

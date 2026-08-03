@@ -434,6 +434,8 @@ def test_host_guest_preview_keeps_cells_independent_and_can_hide_atoms():
     assert np.asarray(geometry["host_cell"]) == pytest.approx(np.asarray(geometry["cell"]))
     assert np.asarray(geometry["guest_cell"]) == pytest.approx(np.asarray(geometry["cell"]))
     assert geometry["guest_offset"] == [0.0, 0.0, 3.35]
+    assert len(geometry["host_lattice_origins"]) == candidate["host_area_ratio"]
+    assert len(geometry["guest_lattice_origins"]) == candidate["guest_area_ratio"]
 
     cells_only = host_guest_supercell_geometry(
         host_cell=host_cell,
@@ -519,6 +521,8 @@ def test_agent_guest_path_is_confined_to_the_launch_directory(tmp_path):
         "path": "guest.extxyz",
     }))
     assert loaded["guest"]["name"] == "guest.extxyz"
+    assert loaded["guest"]["default_gap"] == pytest.approx(3.0)
+    assert loaded["guest"]["suggested_offset"] == pytest.approx([0.0, 0.0, 3.0])
     assert session.commensurate_guest_atoms.get_chemical_symbols() == ["B", "N"]
 
     with pytest.raises(HTTPException, match="outside the terminal launch directory"):
@@ -578,6 +582,27 @@ def test_commensurate_candidate_prefers_the_smallest_cell_within_the_strain_cuto
     assert retained[0]["strain"] == pytest.approx(0.009)
 
 
+def test_host_guest_default_order_keeps_the_smallest_cell_when_area_limit_grows():
+    directory = commensurate_fixture_directory()
+    host = read(directory / "graphene_host.extxyz")
+    guest = read(directory / "cu111_guest.extxyz")
+
+    result = find_lattice_matches(
+        host.cell.array,
+        host.pbc,
+        guest.cell.array,
+        guest.pbc,
+        max_area_ratio=64,
+        strain_tolerance=0.01,
+        strain_target="guest",
+    )
+
+    suggested = result["candidates"][0]
+    assert suggested["host_area_ratio"] == 13
+    assert suggested["guest_area_ratio"] == 12
+    assert abs(suggested["angle_deg"]) == pytest.approx(16.10211375, abs=1e-8)
+
+
 def test_hexagonal_commensurate_series_reaches_the_tbg_reference_angle():
     result = find_commensurate_angles(
         graphene_cell(),
@@ -602,8 +627,8 @@ def test_hexagonal_commensurate_series_reaches_the_tbg_reference_angle():
     assert magic["magic_reference"] is True
     assert np.linalg.det(np.asarray(first["source_matrix_3d"])) == pytest.approx(7.0)
     assert np.linalg.det(np.asarray(first["target_matrix_3d"])) == pytest.approx(7.0)
-    assert first["source_notation"].startswith("(sqrt(7) x sqrt(7))")
-    assert first["target_notation"].startswith("(sqrt(7) x sqrt(7))")
+    assert first["source_notation"].startswith("(√7 × √7)")
+    assert first["target_notation"].startswith("(√7 × √7)")
     assert first["supercell_supported"] is True
 
 
@@ -754,8 +779,61 @@ def test_commensurate_geometry_has_exact_core_and_one_primitive_cell_halo():
     assert sum(geometry["core_mask"]) == 28
     assert geometry["preview_atom_count"] > geometry["core_atom_count"]
     assert set(geometry["components"]) == {"reference", "rotating"}
+    assert len(geometry["host_lattice_origins"]) == geometry["area_ratio"]
+    assert len(geometry["guest_lattice_origins"]) == geometry["area_ratio"]
+    assert np.asarray(geometry["host_primitive_vectors"]).shape == (2, 3)
+    assert np.asarray(geometry["guest_primitive_vectors"]).shape == (2, 3)
     assert np.asarray(geometry["cell"]) == pytest.approx(
         np.asarray(candidate["target_matrix_3d"]) @ atoms.cell.array
+    )
+
+
+def test_direct_angle_preview_matches_already_rotated_transform_positions():
+    atoms = bilayer_atoms()
+    result = find_commensurate_angles(
+        atoms.cell.array,
+        atoms.pbc,
+        "Z",
+        max_index=4,
+        strain_tolerance=1e-6,
+        chemical_symbols=atoms.get_chemical_symbols(),
+    )
+    candidate = candidate_near(result, 21.7867893)
+    rotated_positions, pivot = rotated_first_layer(atoms, candidate)
+
+    transform_preview = commensurate_supercell_geometry(
+        cell=atoms.cell.array,
+        positions=rotated_positions,
+        selected_indices=[0, 1],
+        candidate=candidate,
+        pivot=pivot,
+        padding_cells=1,
+        display_angle_deg=candidate["angle_deg"],
+        positions_include_display_rotation=True,
+    )
+    direct_input_preview = commensurate_supercell_geometry(
+        cell=atoms.cell.array,
+        positions=atoms.get_positions(),
+        selected_indices=[0, 1],
+        candidate=candidate,
+        pivot=pivot,
+        padding_cells=1,
+        display_angle_deg=candidate["angle_deg"],
+        positions_include_display_rotation=False,
+    )
+
+    assert direct_input_preview["atom_indices"] == transform_preview["atom_indices"]
+    assert direct_input_preview["lattice_indices"] == transform_preview["lattice_indices"]
+    assert direct_input_preview["components"] == transform_preview["components"]
+    np.testing.assert_allclose(
+        np.asarray(direct_input_preview["positions"]),
+        np.asarray(transform_preview["positions"]),
+        atol=1e-11,
+    )
+    np.testing.assert_allclose(
+        np.asarray(direct_input_preview["guest_cell"]),
+        np.asarray(transform_preview["guest_cell"]),
+        atol=1e-12,
     )
 
 

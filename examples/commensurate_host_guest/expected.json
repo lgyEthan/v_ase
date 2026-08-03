@@ -22,8 +22,8 @@
     "host_atom_count": 26,
     "guest_atom_count": 12,
     "total_atom_count": 38,
-    "host_notation_prefix": "(sqrt(13) x sqrt(13))",
-    "guest_notation_prefix": "(sqrt(12) x sqrt(12))"
+    "host_notation_prefix": "(√13 × √13)",
+    "guest_notation_prefix": "(√12 × √12)"
   },
   "validation_scope": "Integer-cell geometry only; no interface relaxation or energy ranking."
 }

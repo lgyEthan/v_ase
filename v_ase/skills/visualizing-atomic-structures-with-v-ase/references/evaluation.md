@@ -119,7 +119,7 @@ Run all scenarios, not only static document checks:
    - rotate a selected graphene layer near `21.2` degrees with
      `rotate-to-commensurate`; verify exact `21.786789` degrees, area ratio 7,
      zero boundary strain, positive-determinant source/target matrices,
-     `(sqrt(7) x sqrt(7))` notation, opaque core, and one-cell shell;
+     `(√7 × √7)` notation, opaque core, and one-cell shell;
    - project the complete proposal bounds through the live camera and verify
      they remain inside the viewport, then dismiss and verify camera restore;
    - set `maxAreaRatio` to 6 and verify the area-7 proposal is rejected;
@@ -133,8 +133,8 @@ Run all scenarios, not only static document checks:
    - compare the accelerated search against complete enumeration through area
      ratio 5, and verify the full analytic `(m,m+1)` TBG series through
      `(31,32)` plus an equivalent oblique integer basis;
-   - load the independent graphene/Cu(111) fixture from
-     `examples/commensurate_host_guest`, verify the `sqrt(13)` / `sqrt(12)`
+   - load the graphene/Cu(111) different-lattice fixture from
+     `examples/commensurate_host_guest`, verify the `√13` / `√12`
      result at `|16.10211375|` degrees, both documented strain values, and 38
      atoms; verify absolute
      and parent-traversal paths are rejected, and compare guest-strain and
@@ -163,6 +163,8 @@ Run all scenarios, not only static document checks:
      motion-only plane remains readable above the moving atom scene;
    - verify the active Hookean spring has nonzero depth and visible coil pitch.
 8. **Trajectory**
+   - open `examples/readme_scene_assets/crowded_c60_relaxation.traj` with
+     `--index :` and assert `frameCount == 42` before testing frame controls;
    - step frames, retain selection, play, change FPS/skip;
    - compute displacement with and without MIC;
    - verify current-position vector anchors, supercell repetition, and equal

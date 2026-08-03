@@ -362,6 +362,9 @@ AI_CONTROL_SCHEMA = {
                                     "path": {"type": "string", "minLength": 1},
                                     "format": {"type": "string"},
                                     "calculate": {"type": "boolean"},
+                                    "gap": {
+                                        "type": "number", "minimum": 0, "maximum": 20
+                                    },
                                 },
                             },
                         },
@@ -389,6 +392,9 @@ AI_CONTROL_SCHEMA = {
                                         "maximum": MAX_LATTICE_MATCH_AREA_RATIO,
                                     },
                                     "angleDeg": {"type": "number"},
+                                    "gap": {
+                                        "type": "number", "minimum": 0, "maximum": 20
+                                    },
                                     "showAtoms": {"type": "boolean"},
                                     "snap": {"type": "boolean"},
                                     "indices": {
@@ -657,11 +663,12 @@ AI_OPERATION_PARAMETERS = {
         "required": ["path"],
         "optional": [
             "format", "calculate", "strainTarget", "strainTolerance",
-            "maxAreaRatio", "maxIndex", "angleDeg", "showAtoms",
+            "maxAreaRatio", "maxIndex", "angleDeg", "gap", "showAtoms",
         ],
         "notes": (
-            "Loads an independent guest structure from inside the GUI launch "
-            "directory. Absolute paths and parent-directory traversal are rejected."
+            "Loads a separate guest structure from inside the GUI launch directory. "
+            "gap is guest minimum z minus host maximum z in angstrom and defaults "
+            "to 3. Absolute paths and parent-directory traversal are rejected."
         ),
     },
     "remove-commensurate-guest": {
@@ -674,7 +681,7 @@ AI_OPERATION_PARAMETERS = {
         "required": [],
         "optional": [
             "indices", "axis", "mode", "strainTarget", "strainTolerance",
-            "maxAreaRatio", "maxIndex", "angleDeg", "showAtoms", "snap",
+            "maxAreaRatio", "maxIndex", "angleDeg", "gap", "showAtoms", "snap",
         ],
         "notes": (
             "Searches bounded integer common cells about global Z. Same-lattice "
@@ -990,6 +997,9 @@ def session_atoms_to_json(session: EditorSession, include_inline_trajectory: boo
             "pbc": np.asarray(guest.pbc, dtype=bool).tolist(),
             "labels": atom_labels(guest),
             "chemical_symbols": guest.get_chemical_symbols(),
+            "min_z": float(np.min(guest.positions[:, 2])) if len(guest) else 0.0,
+            "max_z": float(np.max(guest.positions[:, 2])) if len(guest) else 0.0,
+            "default_gap": 3.0,
         }
         if isinstance(guest, Atoms)
         else None
@@ -3600,10 +3610,14 @@ async def constrain_positions(session_id: str, payload: Dict[str, Any]):
     return {"positions": temp_atoms.get_positions().tolist()}
 
 
-def _suggested_guest_offset(host: Atoms, guest: Atoms) -> list[float]:
+def _suggested_guest_offset(
+    host: Atoms,
+    guest: Atoms,
+    separation: float = 3.0,
+) -> list[float]:
     if not len(host) or not len(guest):
         return [0.0, 0.0, 0.0]
-    separation = 3.35
+    separation = max(0.0, float(separation))
     return [
         0.0,
         0.0,
@@ -3652,6 +3666,9 @@ def _set_commensurate_guest(
         "guest": {
             "name": display_name,
             "atoms": atoms_to_json(session.commensurate_guest_atoms),
+            "min_z": float(np.min(session.commensurate_guest_atoms.positions[:, 2])),
+            "max_z": float(np.max(session.commensurate_guest_atoms.positions[:, 2])),
+            "default_gap": 3.0,
             "suggested_offset": _suggested_guest_offset(
                 session.working_atoms,
                 session.commensurate_guest_atoms,
@@ -3782,6 +3799,9 @@ async def commensurate_rotation_candidates(session_id: str, payload: Dict[str, A
         {
             "name": session.commensurate_guest_name or "Guest structure",
             "natoms": len(session.commensurate_guest_atoms),
+            "min_z": float(np.min(session.commensurate_guest_atoms.positions[:, 2])),
+            "max_z": float(np.max(session.commensurate_guest_atoms.positions[:, 2])),
+            "default_gap": 3.0,
             "suggested_offset": _suggested_guest_offset(
                 session.working_atoms,
                 session.commensurate_guest_atoms,
@@ -3845,6 +3865,9 @@ async def preview_commensurate_supercell(session_id: str, payload: Dict[str, Any
                 padding_cells=1,
                 include_atoms=bool(payload.get("show_atoms", False)),
                 display_angle_deg=payload.get("display_angle_deg"),
+                positions_include_display_rotation=bool(
+                    payload.get("positions_include_display_rotation", True)
+                ),
             )
             geometry = _enrich_commensurate_preview_visuals(geometry, atoms)
     except ValueError as exc:
@@ -3926,6 +3949,10 @@ async def apply_commensurate_supercell(session_id: str, payload: Dict[str, Any])
                 pivot=pivot,
                 padding_cells=0,
                 include_atoms=True,
+                display_angle_deg=payload.get("display_angle_deg"),
+                positions_include_display_rotation=bool(
+                    payload.get("positions_include_display_rotation", True)
+                ),
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

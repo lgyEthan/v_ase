@@ -60,6 +60,8 @@
     --measure-leader: rgba(255, 216, 77, 0.82);
     --measure-badge: rgba(18, 22, 23, 0.94);
     --measure-badge-border: rgba(255, 196, 76, 0.94);
+    --commensurate-host: #f2f5f4;
+    --commensurate-guest: #ff922b;
     --red: #ff7269;
     --red-soft: rgba(255, 114, 105, 0.08);
     --red-border: rgba(255, 114, 105, 0.32);
@@ -1683,6 +1685,45 @@ body.inspector-wide #inspector .supercell-row {
     margin: 0;
 }
 
+.commensurate-components {
+    display: grid;
+    grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr);
+    gap: 6px;
+}
+
+.commensurate-component {
+    display: grid;
+    min-width: 0;
+    gap: 3px;
+    padding: 8px 9px;
+    border: 1px solid var(--line-strong);
+    border-left-width: 3px;
+    border-radius: 4px;
+    background: var(--surface-faint);
+}
+
+.commensurate-component.host {
+    border-left-color: var(--commensurate-host);
+}
+
+.commensurate-component.guest {
+    border-left-color: var(--commensurate-guest);
+}
+
+.commensurate-component span {
+    color: var(--muted);
+    font-size: 0.54rem;
+    font-weight: 820;
+}
+
+.commensurate-component strong {
+    overflow-wrap: anywhere;
+    color: var(--text-soft);
+    font-size: 0.64rem;
+    font-weight: 690;
+    line-height: 1.35;
+}
+
 .commensurate-guest-controls {
     display: grid;
     gap: 6px;
@@ -1971,6 +2012,10 @@ body.inspector-wide #inspector .supercell-row {
     box-shadow: 0 18px 54px rgb(0 0 0 / 0.2);
     backdrop-filter: blur(18px);
     transition: right 160ms ease, opacity 120ms ease, transform 120ms ease;
+}
+
+.analysis-drawer[data-analysis-type="commensurate"] {
+    height: min(430px, 54vh);
 }
 
 body.inspector-collapsed .analysis-drawer {

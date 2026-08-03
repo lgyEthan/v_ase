@@ -9,7 +9,7 @@ The validated workflow matches two periodic vectors in the global XY plane and
 rotates the guest about global Z. It supports either:
 
 - a selected component copied from the host cell for a same-lattice twist; or
-- an independently loaded host and guest lattice.
+- a separately loaded host and guest lattice.
 
 It does not claim an energy minimum. The result is a geometrically periodic,
 bounded integer-cell match that should be relaxed with an appropriate physical
@@ -81,7 +81,7 @@ The test suite checks every `(m, m + 1)` point through `(31, 32)`, including
 `21.786789 deg` (`N=7`), `13.173551 deg` (`N=19`), and `1.050121 deg`
 (`N=2977`), with zero residual boundary strain.
 
-### Independent graphene/Cu(111) fixture
+### Separate graphene/Cu(111) fixture
 
 The user-facing fixture in
 [`examples/commensurate_host_guest`](../examples/commensurate_host_guest/README.md)
@@ -89,8 +89,8 @@ uses separate graphene and ideal Cu(111) primitive cells. Under a one-percent
 guest-strain cutoff and area limit 16, its smallest match is:
 
 ```text
-host:  graphene sqrt(13)
-guest: Cu(111) sqrt(12)
+host:  graphene √13
+guest: Cu(111) √12
 |rotation|: 16.10211375 deg
 maximum principal guest strain: 0.1665824397 %
 mean absolute guest strain:     0.1110549598 %
@@ -99,17 +99,48 @@ mean absolute guest strain:     0.1110549598 %
 `expected.json` is read directly by the regression suite. The fixture validates
 lattice matching and visualization; it is not a relaxed interface model.
 
+The default proposal is sorted by the larger host/guest area ratio, then total
+area, residual strain, and angle magnitude. Increasing the area ceiling to 64
+therefore keeps this `√13/√12` cell as the initial proposal instead of replacing
+it with a larger cell closer to zero rotation. Once the user supplies an angle,
+the viewport deliberately follows the admissible candidate nearest that angle.
+
 The reference values are also reconstructed independently in the tests:
 
 ```text
-L_h = sqrt(13) * 2.46 Angstrom
-L_g = sqrt(12) * (3.615 / sqrt(2)) Angstrom
+L_h = √13 * 2.46 Angstrom
+L_g = √12 * (3.615 / √2) Angstrom
 epsilon_max = L_h / L_g - 1
 epsilon_mean = 2 * epsilon_max / 3
-theta = 30 deg - atan((sqrt(3)/2) / 3.5)
+theta = 30 deg - atan((√3/2) / 3.5)
 ```
 
-The expected common cell contains 26 graphene atoms and 12 Cu atoms.
+The expected common cell contains 26 graphene atoms and 12 Cu atoms. The
+external guest placement is independently validated using
+
+```text
+guest minimum z - host maximum z = 3 Angstrom
+```
+
+before the guest rotation and in-plane residual deformation are applied.
+
+## Viewport State Validation
+
+The browser regression verifies the complete user workflow rather than only
+the search result:
+
+1. enabling the workspace without a selection shows only the host primitive
+   grid and its two vectors;
+2. selecting a same-cell layer adds a separately colored guest grid and two
+   guest vectors without moving the camera;
+3. loading an external guest replaces the selected guest, preserves the 3 Å
+   gap, and keeps separate host/guest integer matrices;
+4. cells-only is the default; optional atom mode adds an opaque core, a
+   one-cell halo, and boundary-crossing bonds;
+5. the graph uses rotation angle, area ratio, and maximum principal strain as
+   distinct dimensions and moves only the current-angle plane during rotation;
+6. materialization requires an explicit Edit-mode action and preserves the
+   camera instead of reframing the result.
 
 ### Accelerated-versus-complete search
 

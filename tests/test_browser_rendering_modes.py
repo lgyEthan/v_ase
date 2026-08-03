@@ -2475,6 +2475,49 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 4")
 
+            _expand_inspector(page)
+            _select_structure_section(page, "transform")
+            assert not page.is_checked('#chk-commensurate-guide')
+            camera_before = page.evaluate("""() => ({
+                position: window.__ASE_APP__.renderer.camera.position.toArray(),
+                target: window.__ASE_APP__.renderer.controls.target.toArray(),
+                zoom: window.__ASE_APP__.renderer.camera.zoom
+            })""")
+            page.check('#chk-commensurate-guide')
+            page.wait_for_function("window.__ASE_APP__.state.commensurateCandidates.length >= 60")
+            page.wait_for_function("document.getElementById('commensurate-status').textContent.includes('Select the guest layer')")
+            host_only = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const group = app.renderer.commensurateSupercellGroup.children;
+                return {
+                    atoms: Number(app.renderer.domElement.dataset.commensuratePreviewAtoms),
+                    hostGrid: group.filter(child => child.userData?.commensurateHostPrimitiveGrid).length,
+                    guestGrid: group.filter(child => child.userData?.commensurateGuestPrimitiveGrid).length,
+                    hostVectors: group.filter(child => child.userData?.commensurateHostPrimitiveVector).length,
+                    guestVectors: group.filter(child => child.userData?.commensurateGuestPrimitiveVector).length,
+                    hostColor: group.find(child => child.userData?.commensurateHostPrimitiveGrid)
+                        ?.material?.color?.getHexString(),
+                    commonCell: group.filter(child => child.userData?.commensurateSuggestedCell).length,
+                    status: document.getElementById('commensurate-status').textContent,
+                    camera: {
+                        position: app.renderer.camera.position.toArray(),
+                        target: app.renderer.controls.target.toArray(),
+                        zoom: app.renderer.camera.zoom
+                    }
+                };
+            }""")
+            assert host_only["atoms"] == 0
+            assert host_only["hostGrid"] == 1
+            assert host_only["guestGrid"] == 0
+            assert host_only["hostVectors"] == 2
+            assert host_only["guestVectors"] == 0
+            assert host_only["hostColor"] == "161a1d"
+            assert host_only["commonCell"] == 0
+            assert "Select the guest layer" in host_only["status"]
+            np.testing.assert_allclose(host_only["camera"]["position"], camera_before["position"])
+            np.testing.assert_allclose(host_only["camera"]["target"], camera_before["target"])
+            assert host_only["camera"]["zoom"] == pytest.approx(camera_before["zoom"])
+
             page.evaluate("""() => {
                 const app = window.__ASE_APP__;
                 app.clearAtomSelection();
@@ -2483,10 +2526,38 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
                 app.updateSelectionVisuals();
                 app.updateUI();
             }""")
-            _expand_inspector(page)
-            _select_structure_section(page, "transform")
-            assert not page.is_checked('#chk-commensurate-guide')
-            page.check('#chk-commensurate-guide')
+            page.wait_for_function("window.__ASE_APP__.state.commensurateProposal?.data?.preview")
+            cells_only = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const group = app.renderer.commensurateSupercellGroup.children;
+                return {
+                    atoms: Number(app.renderer.domElement.dataset.commensuratePreviewAtoms),
+                    hostGrid: group.filter(child => child.userData?.commensurateHostPrimitiveGrid).length,
+                    guestGrid: group.filter(child => child.userData?.commensurateGuestPrimitiveGrid).length,
+                    hostVectors: group.filter(child => child.userData?.commensurateHostPrimitiveVector).length,
+                    guestVectors: group.filter(child => child.userData?.commensurateGuestPrimitiveVector).length,
+                    guestColor: group.find(child => child.userData?.commensurateGuestPrimitiveGrid)
+                        ?.material?.color?.getHexString(),
+                    hostCell: group.filter(child => child.userData?.commensurateHostCell).length,
+                    guestCell: group.filter(child => child.userData?.commensurateGuestCell).length,
+                    camera: {
+                        position: app.renderer.camera.position.toArray(),
+                        target: app.renderer.controls.target.toArray(),
+                        zoom: app.renderer.camera.zoom
+                    }
+                };
+            }""")
+            assert cells_only["atoms"] == 0
+            assert cells_only["hostGrid"] == 1
+            assert cells_only["guestGrid"] == 1
+            assert cells_only["hostVectors"] == 2
+            assert cells_only["guestVectors"] == 2
+            assert cells_only["guestColor"] == "f58220"
+            assert cells_only["hostCell"] == 1
+            assert cells_only["guestCell"] == 1
+            np.testing.assert_allclose(cells_only["camera"]["position"], camera_before["position"])
+            np.testing.assert_allclose(cells_only["camera"]["target"], camera_before["target"])
+            assert cells_only["camera"]["zoom"] == pytest.approx(camera_before["zoom"])
             page.locator('details.commensurate-advanced').evaluate(
                 "element => { element.open = true; }"
             )
@@ -2539,7 +2610,7 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
             }""")
             assert preview["baseAtomsVisible"] is False
             assert preview["area"] == 7
-            assert "sqrt(7)" in preview["notation"]
+            assert "√7 × √7" in preview["notation"]
             assert preview["coreAtomCount"] == 28
             assert preview["previewAtomCount"] > preview["coreAtomCount"]
             assert preview["padding"] == 1
@@ -2550,8 +2621,6 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
             assert preview["coreOpacity"] == pytest.approx(1.0)
             assert preview["haloOpacity"] == pytest.approx(0.30)
             assert preview["suggestedCellEdges"] == 1
-            assert preview["maxNdcX"] < 0.96
-            assert preview["maxNdcY"] < 0.96
             assert preview["cameraSnapshot"] is True
             assert preview["atomCountBeforeApply"] == 4
 
@@ -2568,12 +2637,20 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
                 atomCount: window.__ASE_APP__.state.atoms.positions.length,
                 cell: window.__ASE_APP__.state.atoms.cell,
                 baseVisible: window.__ASE_APP__.renderer.atomMeshes.visible,
-                supercell: window.__ASE_APP__.state.display.supercell
+                supercell: window.__ASE_APP__.state.display.supercell,
+                camera: {
+                    position: window.__ASE_APP__.renderer.camera.position.toArray(),
+                    target: window.__ASE_APP__.renderer.controls.target.toArray(),
+                    zoom: window.__ASE_APP__.renderer.camera.zoom
+                }
             })""")
             assert applied["preview"] is None
             assert applied["atomCount"] == 28
             assert applied["baseVisible"] is True
             assert applied["supercell"] == [1, 1, 1]
+            np.testing.assert_allclose(applied["camera"]["position"], camera_before["position"])
+            np.testing.assert_allclose(applied["camera"]["target"], camera_before["target"])
+            assert applied["camera"]["zoom"] == pytest.approx(camera_before["zoom"])
             assert abs(np.linalg.det(np.asarray(applied["cell"]))) == pytest.approx(
                 7 * abs(np.linalg.det(np.asarray(atoms.cell.array))),
                 rel=1e-7,
@@ -2645,7 +2722,7 @@ def test_ai_can_rotate_to_preview_and_materialize_a_bounded_commensurate_cell():
             }.issubset(proposal["capabilities"]["operations"])
             commensurate = proposal["state"]["analysis"]["commensurateProposal"]
             assert commensurate["candidate"]["area_ratio"] == 7
-            assert "sqrt(7)" in commensurate["candidate"]["target_notation"]
+            assert "√7 × √7" in commensurate["candidate"]["target_notation"]
             assert commensurate["coreAtomCount"] == 28
             assert commensurate["previewAtomCount"] > 28
             assert commensurate["paddingCells"] == 1
@@ -2736,7 +2813,32 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
                         .filter(child => child.userData?.commensurateGuestCell).length,
                     commonCells: app.renderer.commensurateSupercellGroup.children
                         .filter(child => child.userData?.commensurateSuggestedCell).length,
-                    plotReady: Boolean(document.querySelector('#commensurate-plot .plotly'))
+                    hostGrid: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateHostPrimitiveGrid).length,
+                    guestGrid: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateGuestPrimitiveGrid).length,
+                    hostVectors: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateHostPrimitiveVector).length,
+                    guestVectors: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateGuestPrimitiveVector).length,
+                    gap: Number(document.getElementById('commensurate-guest-gap').value),
+                    modeControlType: document.getElementById('commensurate-mode').type,
+                    plotReady: Boolean(document.querySelector('#commensurate-plot .plotly')),
+                    plot: (() => {
+                        const plot = document.querySelector('#commensurate-plot');
+                        return {
+                            type: plot?.data?.[0]?.type,
+                            layers: (plot?.data || []).filter(
+                                trace => trace.meta?.role === 'area-layer'
+                            ).length,
+                            roles: (plot?.data || [])
+                                .map(trace => trace.meta?.role)
+                                .filter(Boolean),
+                            projection: plot?.layout?.scene?.camera?.projection?.type,
+                            eye: plot?.layout?.scene?.camera?.eye,
+                            aspect: plot?.layout?.scene?.aspectratio
+                        };
+                    })()
                 };
             }""")
             assert cells_only["state"]["analysis"]["commensurate"]["mode"] == "host-guest"
@@ -2748,7 +2850,22 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
             assert cells_only["hostCells"] == 1
             assert cells_only["guestCells"] == 1
             assert cells_only["commonCells"] == 1
+            assert cells_only["hostGrid"] == 1
+            assert cells_only["guestGrid"] == 1
+            assert cells_only["hostVectors"] == 2
+            assert cells_only["guestVectors"] == 2
+            assert cells_only["gap"] == pytest.approx(3.0)
+            assert cells_only["proposal"]["preview"]["guest_offset"][2] == pytest.approx(3.0)
+            assert cells_only["modeControlType"] == "hidden"
             assert cells_only["plotReady"] is True
+            assert cells_only["plot"]["type"] == "scatter3d"
+            assert cells_only["plot"]["layers"] >= 1
+            assert "rotation-axis" in cells_only["plot"]["roles"]
+            assert "area-axis" in cells_only["plot"]["roles"]
+            assert "strain-axis" in cells_only["plot"]["roles"]
+            assert cells_only["plot"]["projection"] == "orthographic"
+            assert 0.0 < cells_only["plot"]["eye"]["x"] < 0.5
+            assert cells_only["plot"]["aspect"]["x"] > cells_only["plot"]["aspect"]["y"]
             assert page.locator("#commensurate-plot-view").is_visible()
             assert page.locator("#btn-analysis-export").get_attribute("aria-label") == (
                 "Save graph data as CSV"
@@ -2787,6 +2904,7 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
                         strainTolerance: 0.02,
                         maxAreaRatio: 4,
                         angleDeg: 0,
+                        gap: 4.25,
                         showAtoms: true
                     }
                 });
@@ -2795,11 +2913,15 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
                 return {
                     previewAtoms: Number(app.renderer.domElement.dataset.commensuratePreviewAtoms),
                     previewBonds: Number(app.renderer.domElement.dataset.commensuratePreviewBonds),
+                    gap: Number(document.getElementById('commensurate-guest-gap').value),
+                    guestOffset: app.state.commensurateProposal?.data?.preview?.guest_offset,
                     csv: atob(csv.dataUrl.split(',')[1])
                 };
             }""")
             assert atom_preview["previewAtoms"] > 4
             assert atom_preview["previewBonds"] > 0
+            assert atom_preview["gap"] == pytest.approx(4.25)
+            assert atom_preview["guestOffset"][2] == pytest.approx(4.25)
             assert "10.1016/j.cpc.2015.08.038" in atom_preview["csv"]
             assert "host_matrix" in atom_preview["csv"]
             assert "mean_absolute_strain" in atom_preview["csv"]
@@ -2849,6 +2971,103 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
         editor.close()
 
 
+def test_view_mode_loads_a_guest_with_an_editable_three_angstrom_gap(
+    tmp_path,
+    monkeypatch,
+):
+    lattice = 2.46
+    cell = np.asarray([
+        [lattice, 0.0, 0.0],
+        [0.5 * lattice, 0.5 * 3 ** 0.5 * lattice, 0.0],
+        [0.0, 0.0, 18.0],
+    ])
+    host = Atoms(
+        "C2",
+        positions=[[0, 0, 1.0], [1.23, 0.71014083, 1.0]],
+        cell=cell,
+        pbc=[True, True, False],
+    )
+    guest = Atoms(
+        "BN",
+        positions=[[0, 0, -0.4], [1.23, 0.71014083, 0.6]],
+        cell=cell,
+        pbc=[True, True, False],
+    )
+    write(tmp_path / "guest.extxyz", guest)
+    monkeypatch.chdir(tmp_path)
+
+    port = find_free_port()
+    editor = view(
+        host,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.v_aseAI && window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2"
+            )
+            _expand_inspector(page)
+            _select_structure_section(page, "transform")
+            assert page.locator('details[data-panel="transform"]').is_visible()
+            assert page.locator('#chk-commensurate-guide').is_visible()
+            assert not page.locator('#btn-rotate-selection-exact').is_visible()
+
+            result = page.evaluate("""async () => {
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'load-commensurate-guest',
+                        path: 'guest.extxyz',
+                        strainTolerance: 0.01,
+                        maxAreaRatio: 4,
+                        angleDeg: 0,
+                        showAtoms: false
+                    }
+                });
+                const app = window.__ASE_APP__;
+                const initial = {
+                    gap: Number(document.getElementById('commensurate-guest-gap').value),
+                    offset: app.state.commensurateProposal.data.preview.guest_offset,
+                    vizOnly: app.state.vizOnly,
+                    angleVisible: Boolean(document.getElementById('commensurate-guest-angle')?.offsetParent)
+                };
+                const gap = document.getElementById('commensurate-guest-gap');
+                gap.value = '4.5';
+                gap.dispatchEvent(new Event('input', {bubbles: true}));
+                return initial;
+            }""")
+            page.wait_for_function("""() => {
+                const offset = window.__ASE_APP__.state.commensurateProposal?.data?.preview?.guest_offset;
+                return Array.isArray(offset) && Math.abs(Number(offset[2]) - 5.9) < 1e-8;
+            }""")
+            updated = page.evaluate("""() => ({
+                gap: Number(document.getElementById('commensurate-guest-gap').value),
+                offset: window.__ASE_APP__.state.commensurateProposal.data.preview.guest_offset,
+                errorToasts: [...document.querySelectorAll('.toast.error')]
+                    .map(node => node.textContent)
+            })""")
+            assert result["vizOnly"] is True
+            assert result["gap"] == pytest.approx(3.0)
+            # host max z=1.0, guest min z=-0.4: offset z=1.0-(-0.4)+gap
+            assert result["offset"][2] == pytest.approx(4.4)
+            assert result["angleVisible"] is True
+            assert updated["gap"] == pytest.approx(4.5)
+            assert updated["offset"][2] == pytest.approx(5.9)
+            assert updated["errorToasts"] == []
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_repository_host_guest_fixture_matches_in_the_live_browser(monkeypatch):
     fixture = Path(__file__).resolve().parents[1] / "examples" / "commensurate_host_guest"
     expected = json.loads((fixture / "expected.json").read_text())
@@ -2883,8 +3102,7 @@ def test_repository_host_guest_fixture_matches_in_the_live_browser(monkeypatch):
                         name: 'load-commensurate-guest',
                         path: 'cu111_guest.extxyz',
                         strainTolerance: 0.01,
-                        maxAreaRatio: 16,
-                        angleDeg: 0,
+                        maxAreaRatio: 64,
                         showAtoms: false
                     }
                 });

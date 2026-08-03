@@ -359,7 +359,7 @@ def _supercell_notation(basis: np.ndarray, matrix: np.ndarray) -> str:
     if matrix.shape != (2, 2):
         return _matrix_text(matrix)
     if matrix[0, 1] == 0 and matrix[1, 0] == 0 and matrix[0, 0] > 0 and matrix[1, 1] > 0:
-        return f"{matrix[0, 0]} x {matrix[1, 1]}"
+        return f"{matrix[0, 0]} × {matrix[1, 1]}"
 
     transformed = matrix @ np.asarray(basis, dtype=float)
     original_lengths = np.linalg.norm(basis, axis=1)
@@ -379,7 +379,7 @@ def _supercell_notation(basis: np.ndarray, matrix: np.ndarray) -> str:
         and np.max(np.abs(length_scale - root)) <= 2e-6
         and abs(source_cosine - target_cosine) <= 2e-6
     ):
-        multiplier = str(int(round(root))) if abs(root - round(root)) <= 1e-8 else f"sqrt({determinant})"
+        multiplier = str(int(round(root))) if abs(root - round(root)) <= 1e-8 else f"√{determinant}"
         rotation = _signed_angle_deg(basis[0], transformed[0])
         if abs(abs(source_cosine) - 0.5) <= 2e-6:
             rotation = (rotation + 30.0) % 60.0 - 30.0
@@ -387,7 +387,7 @@ def _supercell_notation(basis: np.ndarray, matrix: np.ndarray) -> str:
             rotation = (rotation + 45.0) % 90.0 - 45.0
         if abs(rotation) < 5e-8:
             rotation = 0.0
-        return f"({multiplier} x {multiplier}) R{rotation:.2f} deg"
+        return f"({multiplier} × {multiplier}) R{rotation:.2f}°"
     return _matrix_text(matrix)
 
 
@@ -556,14 +556,15 @@ def commensurate_supercell_geometry(
     padding_cells: int = 1,
     include_atoms: bool = True,
     display_angle_deg: float | None = None,
+    positions_include_display_rotation: bool = True,
     max_preview_atoms: int = 120_000,
 ) -> dict:
     """Build an opaque common-cell preview plus one primitive-cell halo.
 
-    The current positions must already contain the selected layer's candidate
-    rotation.  The reference component is repeated with the target boundary;
-    the selected component is repeated with the source boundary and receives
-    only the residual deformation required to reach the common target cell.
+    The reference component is repeated with the target boundary.  The selected
+    component is repeated with the source boundary and receives the displayed
+    rotation unless the supplied positions already contain it, followed by the
+    residual deformation required to reach the common target cell.
     """
 
     parent_cell = np.asarray(cell, dtype=float)
@@ -640,7 +641,10 @@ def commensurate_supercell_geometry(
         primitive_shift = np.asarray(point, dtype=float) @ parent_cell
         transformed_shift = primitive_shift @ rotation @ deformation
         for index in selected:
-            transformed_position = center + (coordinates[index] - center) @ deformation
+            relative = coordinates[index] - center
+            if not positions_include_display_rotation:
+                relative = relative @ rotation
+            transformed_position = center + relative @ deformation
             preview_positions.append((transformed_position + transformed_shift).tolist())
             atom_indices.append(index)
             lattice_indices.append(list(point))
@@ -655,6 +659,16 @@ def commensurate_supercell_geometry(
 
     host_cell = target_matrix @ parent_cell
     guest_cell = source_matrix @ parent_cell @ rotation @ deformation
+    host_primitive = parent_cell
+    guest_primitive = parent_cell @ rotation @ deformation
+    host_lattice_origins = [
+        (np.asarray(point, dtype=float) @ parent_cell).tolist()
+        for point in target_core
+    ]
+    guest_lattice_origins = [
+        (np.asarray(point, dtype=float) @ guest_primitive).tolist()
+        for point in source_core
+    ]
 
     return {
         "mode": "same-lattice",
@@ -672,6 +686,11 @@ def commensurate_supercell_geometry(
         "common_cell": host_cell.tolist(),
         "host_cell": host_cell.tolist(),
         "guest_cell": guest_cell.tolist(),
+        "host_lattice_origins": host_lattice_origins,
+        "guest_lattice_origins": guest_lattice_origins,
+        "host_primitive_vectors": host_primitive[list(periodic_axes)].tolist(),
+        "guest_primitive_vectors": guest_primitive[list(periodic_axes)].tolist(),
+        "has_suggestion": True,
         "source_cell": (source_matrix @ parent_cell).tolist(),
         "source_matrix_3d": source_matrix.tolist(),
         "target_matrix_3d": target_matrix.tolist(),
@@ -776,6 +795,16 @@ def host_guest_supercell_geometry(
         @ rotation
         @ guest_deformation
     )
+    host_primitive = host_parent @ host_deformation
+    guest_primitive = guest_parent @ rotation @ guest_deformation
+    host_lattice_origins = [
+        (np.asarray(point, dtype=float) @ host_primitive).tolist()
+        for point in host_core
+    ]
+    guest_lattice_origins = [
+        (np.asarray(point, dtype=float) @ guest_primitive + offset).tolist()
+        for point in guest_core
+    ]
     return {
         "mode": "host-guest",
         "positions": positions,
@@ -795,6 +824,11 @@ def host_guest_supercell_geometry(
         "common_cell": common_cell.tolist(),
         "host_cell": host_boundary.tolist(),
         "guest_cell": guest_boundary.tolist(),
+        "host_lattice_origins": host_lattice_origins,
+        "guest_lattice_origins": guest_lattice_origins,
+        "host_primitive_vectors": host_primitive[list(host_axes)].tolist(),
+        "guest_primitive_vectors": guest_primitive[list(guest_axes)].tolist(),
+        "has_suggestion": True,
         "host_matrix_3d": host_matrix.tolist(),
         "guest_matrix_3d": guest_matrix.tolist(),
         "host_area_ratio": int(candidate.get("host_area_ratio", len(host_core))),
@@ -1166,9 +1200,10 @@ def _deduplicate_lattice_matches(candidates: Iterable[dict]) -> list[dict]:
     return sorted(
         best.values(),
         key=lambda item: (
-            abs(float(item["angle_deg"])),
             int(item["area_ratio"]),
+            int(item["host_area_ratio"]) + int(item["guest_area_ratio"]),
             float(item["strain"]),
+            abs(float(item["angle_deg"])),
         ),
     )
 

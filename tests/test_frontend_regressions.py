@@ -1422,7 +1422,10 @@ def test_control_panel_uses_collapsible_default_hierarchy():
     assert 'data-panel="selection" data-panel-group="inspect"' in index_html
     assert 'data-panel="view" data-panel-group="view"' in index_html
     assert 'data-panel="cell-replication" data-panel-group="structure"' in index_html
-    assert 'data-panel="transform" data-panel-group="structure" data-edit-only' in index_html
+    assert 'data-panel="transform" data-panel-group="structure">' in index_html
+    assert '<option value="transform">Transform &amp; Cell Match</option>' in index_html
+    assert '<div class="prop-row" data-edit-only>' in index_html
+    assert 'id="chk-commensurate-guide"' in index_html
     assert 'data-panel="appearance" data-panel-group="structure"' in index_html
     assert 'data-panel="bonding" data-panel-group="structure"' in index_html
     assert 'data-panel="export" data-panel-group="export"' in index_html

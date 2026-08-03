@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 from ase import Atoms
 from ase.build import fcc111
+from ase.io import read
 from ase.io.cube import write_cube
 from PIL import Image
 from playwright.sync_api import sync_playwright
@@ -828,11 +829,11 @@ def capture_animation(
     save_gif(frames, path, duration=duration)
 
 
-def open_scene(browser, atoms_or_frames, *, show_bonds=False):
+def open_scene(browser, atoms_or_frames, *, show_bonds=False, viz_only=False):
     editor = view(
         atoms_or_frames,
         block=False,
-        viz_only=False,
+        viz_only=viz_only,
         show_cell=True,
         show_axes=True,
         show_bonds=show_bonds,
@@ -1076,7 +1077,7 @@ def capture_ferrocene_media(browser) -> None:
 
 def capture_commensurate_media(browser) -> None:
     atoms, indices = make_graphene_hbn_commensurate_scene()
-    editor, page = open_scene(browser, atoms, show_bonds=True)
+    editor, page = open_scene(browser, atoms, show_bonds=True, viz_only=True)
     try:
         set_display(page, {
             "atomRadiusScale": 0.52,
@@ -1086,34 +1087,40 @@ def capture_commensurate_media(browser) -> None:
             "showAxes": False,
             "viewportBackground": "white",
             "labelColors": {"C": "#46545b", "B": "#d89a4a", "N": "#3f72c9"},
-            "commensurateGuide": True,
+            "commensurateGuide": False,
             "commensurateSnap": False,
             "commensurateMaxIndex": 32,
             "commensurateStrainTolerance": 0.01,
             "commensurateMaxAreaRatio": 16,
-            "commensurateShowAtoms": True,
+            "commensurateShowAtoms": False,
         })
-        set_selection(page, indices["hbn"])
-        configure_inspector(page, "structure", ["transform"], width=440)
+        configure_inspector(page, "structure", ["transform"], width=470)
+        page.add_style_tag(content="""
+            #measurement-overlay,
+            #selection-measure-readout,
+            #hover-readout,
+            #coord-readout { display: none !important; }
+        """)
         center = np.mean(atoms.positions, axis=0)
-        camera_target = center + np.array([-2.2, 0.0, 0.45])
-        set_camera(
-            page,
-            target=camera_target.tolist(),
-            position=(camera_target + np.array([0.0, 0.0, 31.0])).tolist(),
-            up=(0.0, 1.0, 0.0),
-            fov=32,
-        )
         set_readme_lighting(page, center.tolist(), intensity=3.0, position_offset=(-10.0, -13.0, 18.0))
-        set_atomic_scale(page, 59.0)
-        start_atom_rotation(
-            page,
-            indices["hbn"],
-            axis="Z",
-            pivot_mode="selection",
-        )
-        set_view_toggles(page, grid=False, axes=False, cell=True)
+        page.locator("#chk-commensurate-guide").set_checked(True)
         page.wait_for_function("window.__V_ASE_APP__.state.commensurateCandidates?.length > 0")
+        page.wait_for_function(
+            "document.getElementById('commensurate-status').textContent.includes('Host cell shown')"
+        )
+
+        # Resolve the initial proposal once so every recorded stage uses one
+        # fixed camera.  Clearing the selection then restores the actual
+        # host-only state shown immediately after enabling the workspace.
+        set_selection(page, indices["hbn"])
+        page.wait_for_function("""() => {
+            const preview = window.__V_ASE_APP__.state.commensurateProposal?.data?.preview;
+            return preview && preview.include_atoms === false
+                && window.__V_ASE_APP__.renderer.commensurateSupercellGroup.children
+                    .some(child => child.userData?.commensurateHostPrimitiveGrid)
+                && window.__V_ASE_APP__.renderer.commensurateSupercellGroup.children
+                    .some(child => child.userData?.commensurateGuestPrimitiveGrid);
+        }""")
         target_angle = page.evaluate("""() => {
             const candidates = window.__V_ASE_APP__.state.commensurateCandidates || [];
             const ranked = [...candidates]
@@ -1124,25 +1131,117 @@ def capture_commensurate_media(browser) -> None:
                 );
             return Math.abs(Number(ranked[0]?.angle_deg || 21.786789));
         }""")
+        page.evaluate("""angle => {
+            const input = document.getElementById('commensurate-guest-angle');
+            input.value = Number(angle).toFixed(8);
+            input.dispatchEvent(new Event('input', {bubbles: true}));
+        }""", target_angle)
+        page.wait_for_function(
+            """angle => Math.abs(
+                Number(window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.display_angle_deg)
+                - Number(angle)
+            ) < 1e-5""",
+            arg=target_angle,
+        )
+        preview_bounds = page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            const preview = app.state.commensurateProposal.data.preview;
+            const bounds = app.renderer.commensuratePreviewBounds(preview);
+            const minimum = bounds.min.toArray();
+            const maximum = bounds.max.toArray();
+            return {
+                center: minimum.map((value, index) => 0.5 * (value + maximum[index])),
+                size: minimum.map((value, index) => maximum[index] - value)
+            };
+        }""")
+        preview_center = preview_bounds["center"]
+        camera_distance = max(24.0, max(preview_bounds["size"][:2]) * 2.4)
+        set_camera(
+            page,
+            target=preview_center,
+            position=[preview_center[0], preview_center[1], preview_center[2] + camera_distance],
+            up=(0.0, 1.0, 0.0),
+            fov=32,
+        )
+        page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            const bounds = app.renderer.commensuratePreviewBounds(
+                app.state.commensurateProposal.data.preview
+            );
+            app.renderer.fitCameraToStructure(bounds);
+            app.renderer.renderNow();
+        }""")
+        set_view_toggles(page, grid=False, axes=False, cell=True)
+        page.evaluate("window.__V_ASE_APP__.closeAnalysisDrawer()")
+        page.evaluate("""() => {
+            const input = document.getElementById('commensurate-guest-angle');
+            input.value = '0';
+            input.dispatchEvent(new Event('input', {bubbles: true}));
+        }""")
+        page.wait_for_function("""() => Math.abs(
+            Number(window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.display_angle_deg)
+        ) < 1e-7""")
+        set_selection(page, [])
+        page.wait_for_function("""() => {
+            const app = window.__V_ASE_APP__;
+            return app.state.selected.size === 0
+                && Number(app.renderer.domElement.dataset.commensuratePreviewAtoms) === 0
+                && !app.renderer.commensurateSupercellGroup.children
+                    .some(child => child.userData?.commensurateGuestPrimitiveGrid);
+        }""")
+        set_camera(
+            page,
+            target=preview_center,
+            position=[preview_center[0], preview_center[1], preview_center[2] + camera_distance],
+            up=(0.0, 1.0, 0.0),
+            fov=32,
+        )
+        set_atomic_scale(page, 55.0)
         rendered_frames: list[Image.Image] = []
-        count = 28
+        append_hold(rendered_frames, page, 8)
+
+        set_selection(page, indices["hbn"])
+        page.wait_for_function("window.__V_ASE_APP__.state.commensurateProposal?.data?.preview")
+        page.evaluate("""() => {
+            const input = document.getElementById('commensurate-guest-angle');
+            input.value = '0';
+            input.dispatchEvent(new Event('input', {bubbles: true}));
+        }""")
+        page.wait_for_function("""() => Math.abs(
+            Number(window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.display_angle_deg)
+        ) < 1e-7""")
+        append_hold(rendered_frames, page, 8)
+        count = 24
         for frame_index in range(count):
             phase = 0.5 - 0.5 * math.cos(math.pi * frame_index / (count - 1))
             angle = target_angle * phase
-            set_atom_rotation_angle(
-                page,
+            page.evaluate(
+                """(angle) => {
+                    const input = document.getElementById('commensurate-guest-angle');
+                    input.value = Number(angle).toFixed(8);
+                    input.dispatchEvent(new Event('input', {bubbles: true}));
+                }""",
                 angle,
-                f"cell match: {target_angle:.2f} deg",
             )
-            page.wait_for_timeout(35)
+            page.wait_for_function(
+                """angle => Math.abs(
+                    Number(window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.display_angle_deg)
+                    - Number(angle)
+                ) < 1e-5""",
+                arg=angle,
+            )
             rendered_frames.append(screenshot_frame(page))
-        page.evaluate("""async () => {
-            const app = window.__V_ASE_APP__;
-            app.commitTransform();
-            await app.pendingApply;
-        }""")
+        cells_only_frame = rendered_frames[-1].copy()
         page.wait_for_function(
             "window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.padding_cells === 1"
+        )
+        page.locator("details.commensurate-advanced").evaluate("element => { element.open = true; }")
+        page.locator("#chk-commensurate-show-atoms").set_checked(True)
+        page.wait_for_function(
+            "window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.include_atoms === true"
+        )
+        page.wait_for_function(
+            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewBonds) > 0"
         )
         append_hold(rendered_frames, page, 12)
         save_gif(
@@ -1150,8 +1249,116 @@ def capture_commensurate_media(browser) -> None:
             ASSET_DIR / "readme_commensurate.gif",
             duration=95,
         )
-        rendered_frames[-1].save(
+        cells_only_frame.save(
             ASSET_DIR / "readme_commensurate.png",
+            optimize=True,
+        )
+    finally:
+        page.close()
+        editor.close()
+
+    fixture = ROOT / "examples" / "commensurate_host_guest"
+    host = read(fixture / "graphene_host.extxyz")
+    editor, page = open_scene(browser, host, show_bonds=True, viz_only=True)
+    try:
+        set_display(page, {
+            "atomRadiusScale": 0.52,
+            "showBonds": True,
+            "showGrid": False,
+            "showCell": True,
+            "showAxes": False,
+            "viewportBackground": "white",
+            "commensurateGuide": False,
+            "commensurateSnap": False,
+            "commensurateStrainTolerance": 0.01,
+            "commensurateMaxAreaRatio": 32,
+            "commensurateShowAtoms": False,
+        })
+        configure_inspector(page, "structure", ["transform"], width=470)
+        page.add_style_tag(content="""
+            #measurement-overlay,
+            #selection-measure-readout,
+            #hover-readout,
+            #coord-readout { display: none !important; }
+        """)
+        center = np.mean(host.positions, axis=0)
+        set_camera(
+            page,
+            target=center.tolist(),
+            position=(center + np.array([0.0, 0.0, 26.0])).tolist(),
+            up=(0.0, 1.0, 0.0),
+            fov=32,
+        )
+        set_view_toggles(page, grid=False, axes=False, cell=True)
+        page.locator("#chk-commensurate-guide").set_checked(True)
+        page.wait_for_function("window.__V_ASE_APP__.state.commensurateCandidates?.length > 0")
+        page.locator("#commensurate-guest-file").set_input_files(
+            str(fixture / "cu111_guest.extxyz")
+        )
+        page.wait_for_function(
+            "window.__V_ASE_APP__.state.display.commensurateMode === 'host-guest'"
+        )
+        page.wait_for_function(
+            "window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.mode === 'host-guest'"
+        )
+        angle_input = page.locator("#commensurate-guest-angle")
+        angle_input.fill("16.10211375")
+        angle_input.press("Tab")
+        page.wait_for_function("""() => {
+            const app = window.__V_ASE_APP__;
+            return Math.abs(Number(app.state.commensurateProposal?.data?.preview?.display_angle_deg) - 16.10211375) < 1e-5;
+        }""")
+        preview_bounds = page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            const bounds = app.renderer.commensuratePreviewBounds(
+                app.state.commensurateProposal.data.preview
+            );
+            const minimum = bounds.min.toArray();
+            const maximum = bounds.max.toArray();
+            return {
+                center: minimum.map((value, index) => 0.5 * (value + maximum[index])),
+                size: minimum.map((value, index) => maximum[index] - value)
+            };
+        }""")
+        preview_center = preview_bounds["center"]
+        camera_distance = max(24.0, max(preview_bounds["size"][:2]) * 2.4)
+        set_camera(
+            page,
+            target=preview_center,
+            position=[preview_center[0], preview_center[1], preview_center[2] + camera_distance],
+            up=(0.0, 1.0, 0.0),
+            fov=32,
+        )
+        page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            const bounds = app.renderer.commensuratePreviewBounds(
+                app.state.commensurateProposal.data.preview
+            );
+            app.renderer.fitCameraToStructure(bounds);
+            app.renderer.renderNow();
+        }""")
+        page.wait_for_function("document.getElementById('commensurate-plot').data?.some(trace => trace.meta?.role === 'area-layer')")
+        page.evaluate("""() => {
+            const drawer = document.getElementById('analysis-drawer');
+            drawer.style.height = '455px';
+            window.Plotly?.Plots?.resize?.(document.getElementById('commensurate-plot'));
+        }""")
+        graph_target = [
+            preview_center[0],
+            preview_center[1] - max(preview_bounds["size"][:2]) * 0.62,
+            preview_center[2],
+        ]
+        set_camera(
+            page,
+            target=graph_target,
+            position=[graph_target[0], graph_target[1], graph_target[2] + camera_distance],
+            up=(0.0, 1.0, 0.0),
+            fov=32,
+        )
+        set_atomic_scale(page, 32.0)
+        page.wait_for_timeout(350)
+        screenshot_frame(page).save(
+            ASSET_DIR / "readme_commensurate_host_guest.png",
             optimize=True,
         )
     finally:
@@ -1622,7 +1829,6 @@ def capture_ai_collaboration_figure(browser) -> None:
             radius.value = '0.68';
             radius.dispatchEvent(new Event('input', {bubbles: true}));
             radius.dispatchEvent(new Event('change', {bubbles: true}));
-            document.querySelector('[data-view-rotate="right"]').click();
         }""")
         child.wait_for_function(
             "revision => window.__ASE_APP__.collaborationRevision > revision",
@@ -1646,7 +1852,7 @@ def capture_ai_collaboration_figure(browser) -> None:
         ]
         if not human_events:
             raise AssertionError("The collaboration demo did not emit a human GUI event.")
-        required_categories = {"camera", "display"}
+        required_categories = {"display"}
         observed_categories = {
             category
             for event in human_events
@@ -1664,6 +1870,14 @@ def capture_ai_collaboration_figure(browser) -> None:
             raise AssertionError("Collaboration example changed the verified coordinates.")
         if final_state["chemicalSymbols"] != expected_final.get_chemical_symbols():
             raise AssertionError("Collaboration example changed the verified elements.")
+        camera_position = np.asarray(final_state["camera"]["position"], dtype=float)
+        camera_target = np.asarray(final_state["camera"]["target"], dtype=float)
+        camera_direction = camera_position - camera_target
+        camera_direction /= np.linalg.norm(camera_direction)
+        if not np.allclose(camera_direction, [0.0, 0.0, 1.0], atol=1e-7):
+            raise AssertionError("Collaboration result is not the requested +Z top view.")
+        if not np.allclose(final_state["camera"]["up"], [0.0, 1.0, 0.0], atol=1e-7):
+            raise AssertionError("Collaboration result does not keep +Y pointing upward.")
 
         live_path = ASSET_DIR / "readme_ai_collaboration_live.png"
         live_image = Image.open(BytesIO(page.screenshot(type="png"))).convert("RGB")

@@ -364,17 +364,17 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     normalized_readme = " ".join(
         line.lstrip("> ").strip() for line in readme.lower().splitlines()
     )
-    assert "remove the carbon nearest the cell center" in normalized_readme
-    assert "`N_pyridinic` labels" in readme
+    assert "from pristine 6 × 6 graphene, create a pyridinic n3 vacancy" in normalized_readme
+    assert "`N_pyridinic`" in readme
     assert "`Li_site`" in readme
-    assert "2.15 A above the vacancy" in readme
+    assert "Li 2.15 Å" in readme
+    assert "+Z top view with +Y up at 4K" in readme
     assert "three" in readme[ai:structure]
     assert "external ai agent" in normalized_readme
-    assert "v_ase is the scientific application between you and an external ai agent" in normalized_readme
-    assert "does not interpret natural language itself" in normalized_readme
-    assert "exact, structured cli/api commands" in normalized_readme
-    assert "gui edits enter the same document" in normalized_readme
-    assert "instead of overwriting it" in normalized_readme
+    assert "same document remains visible and editable in the normal gui" in normalized_readme
+    assert "does not interpret the natural-language request or embed an llm" in normalized_readme
+    assert "exact, structured cli/api operations" in normalized_readme
+    assert "a manual gui edit becomes the next document revision" in normalized_readme
     assert "can reduce token use" in normalized_readme
     assert "Standard Metal and Rubber atom materials" in readme
     assert "Cu_substrate-Cu_substrate" in readme
@@ -432,13 +432,15 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
         ROOT / "docs" / "design" / "ai_collaboration_figure.html"
     ).read_text(encoding="utf-8")
     for required in (
-        "EXACT CLI / API COMMANDS",
-        "EXACT STATE + REVISION",
-        "LIVE 3D DOCUMENT",
-        "GUI REFINEMENT",
-        "scientific workspace in the cycle",
+        "SKILL + CLI",
+        "APPLY + VALIDATE",
+        "The same live v_ase GUI",
+        "INSPECT + REFINE",
+        "Reads the v_ase Skill",
+        "+Z top view with +Y up",
     ):
         assert required in figure_source
+    assert 'class="vase-logo"' in figure_source
     assert "LIVE FEEDBACK LOOP" not in figure_source
     assert 'class="feedback"' not in figure_source
 

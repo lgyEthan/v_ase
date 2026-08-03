@@ -166,8 +166,11 @@ def make_ferrocene_scene() -> tuple[Atoms, dict[str, list[int]]]:
 
 
 def make_graphene_hbn_commensurate_scene() -> tuple[Atoms, dict[str, list[int]]]:
-    graphene_layer = graphene(formula="C2", a=2.46, size=(6, 6, 1), vacuum=8.0)
-    hbn_layer = graphene(formula="BN", a=2.46, size=(6, 6, 1), vacuum=8.0)
+    # The commensurate search operates on primitive periodic cells.  Keeping
+    # the README fixture primitive makes every displayed repetition a result
+    # of the proposed integer common cell rather than a pre-repeated input.
+    graphene_layer = graphene(formula="C2", a=2.46, size=(1, 1, 1), vacuum=8.0)
+    hbn_layer = graphene(formula="BN", a=2.46, size=(1, 1, 1), vacuum=8.0)
     hbn_layer.positions[:, 2] += 3.35
     atoms = graphene_layer + hbn_layer
     atoms.set_cell(graphene_layer.cell)

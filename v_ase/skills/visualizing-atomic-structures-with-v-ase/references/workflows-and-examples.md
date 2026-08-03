@@ -400,7 +400,10 @@ three use `a1-a2-a3`, and four use the signed `a1-a2-a3-a4` torsion.
 
 ## Trajectory Analysis And Video
 
-Input: a trajectory with stable topology.
+Input: a trajectory with stable topology. For repository validation, use
+`examples/readme_scene_assets/crowded_c60_relaxation.traj`; it contains 42
+frames and is the canonical multi-frame fixture. Do not use a single-frame
+README scene to validate frame stepping or movie export.
 
 ```javascript
 const initial = await ai.describe({includePositions: false});
@@ -661,7 +664,7 @@ await applyCurrent({
 });
 ```
 
-### Independent host and guest
+### Different host and guest lattices
 
 Load the guest from inside the directory where the GUI was launched. The
 operation preserves the current host and calculates a separate guest lattice;
@@ -690,11 +693,11 @@ integer matrices. With `showAtoms: true`, require opaque core atoms, a
 one-primitive-cell boundary shell, and all preview bonds across the proposed
 supercell. Remove a guest with `remove-commensurate-guest`.
 
-For a deterministic independent-lattice check, launch
+For a deterministic different-lattice check, launch
 `examples/commensurate_host_guest/graphene_host.extxyz` and load
 `examples/commensurate_host_guest/cu111_guest.extxyz`. With guest strain `1%`
-and `maxAreaRatio:16`, require the smallest graphene `sqrt(13)` / Cu(111)
-`sqrt(12)` match at `|16.10211375|` degrees, max principal strain
+and `maxAreaRatio:16`, require the smallest graphene `√13` / Cu(111)
+`√12` match at `|16.10211375|` degrees, max principal strain
 `0.001665824397`, mean absolute strain `0.001110549598`, and 38 total atoms.
 
 The preview is scientific state, not an ASE topology change. A trajectory or a
@@ -725,7 +728,7 @@ v_ase api "$COMMAND_URL" export --save commensurate.csv --params '{
 
 The CSV must include angle, matrices, area, max principal strain, mean absolute
 strain, host/guest/total atom counts, and the CellMatch and Stradi et al.
-references carried by the independent bounded-search implementation.
+references carried by the bounded-search implementation.
 
 ## XY Registry Map
 

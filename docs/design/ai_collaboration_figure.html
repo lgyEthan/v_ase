@@ -11,35 +11,41 @@
     height: 1200px;
     margin: 0;
     overflow: hidden;
-    background: #f7faf9;
+    background: #ffffff;
     color: #172124;
     font-family: Inter, "SF Pro Display", "Segoe UI", Arial, sans-serif;
     letter-spacing: 0;
   }
-  body { padding: 52px 72px 42px; }
-  header { max-width: 2050px; }
+  body { padding: 50px 70px 28px; }
+  header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 64px;
+  }
   .eyebrow {
     color: #137d70;
-    font-size: 19px;
+    font-size: 20px;
     font-weight: 850;
     text-transform: uppercase;
   }
   h1 {
+    max-width: 1460px;
     margin: 8px 0 0;
-    font-size: 50px;
-    line-height: 1.08;
+    font-size: 54px;
+    line-height: 1.04;
   }
   .subtitle {
-    max-width: 1840px;
-    margin: 12px 0 0;
-    color: #536164;
-    font-size: 21px;
+    width: 610px;
+    margin: 0 0 4px;
+    color: #526064;
+    font-size: 22px;
     line-height: 1.38;
   }
   .workflow {
     position: relative;
-    height: 890px;
-    margin-top: 14px;
+    height: 920px;
+    margin-top: 18px;
   }
   .connectors {
     position: absolute;
@@ -47,438 +53,296 @@
     inset: 0;
     width: 100%;
     height: 100%;
-    overflow: visible;
   }
   .flow {
     fill: none;
     stroke-linecap: round;
     stroke-linejoin: round;
-    stroke-width: 6;
+    stroke-width: 7;
   }
-  .request { stroke: #65716f; }
-  .command { stroke: #249787; }
-  .result { stroke: #db9d31; }
-  .state {
-    stroke: #667e89;
-    stroke-width: 4;
-    stroke-dasharray: 13 11;
-  }
-  .label rect {
-    fill: #f7faf9;
-    stroke-width: 1.5;
-  }
-  .label text {
+  .prompt-flow { stroke: #344346; }
+  .command-flow { stroke: #168e80; }
+  .result-flow { stroke: #bd801d; }
+  .feedback-flow { stroke: #5f7074; }
+  .flow-label {
+    fill: #344346;
     font-size: 17px;
     font-weight: 850;
     text-anchor: middle;
+    paint-order: stroke;
+    stroke: #ffffff;
+    stroke-width: 12px;
+    stroke-linejoin: round;
   }
-  .label.request-label rect { stroke: #a0aaa8; }
-  .label.request-label text { fill: #52615f; }
-  .label.command-label rect { stroke: #66b9ae; }
-  .label.command-label text { fill: #126f64; }
-  .label.result-label rect { stroke: #dfb96d; }
-  .label.result-label text { fill: #8f6110; }
-  .label.state-label rect { stroke: #9caeb6; }
-  .label.state-label text { fill: #506a75; }
   .node {
     position: absolute;
     z-index: 2;
-    border: 1px solid #c7d1d0;
-    background: #fff;
-    box-shadow: 0 18px 40px rgba(24, 42, 44, 0.10);
   }
-  .node-tag {
-    color: #607073;
+  .node-label {
+    color: #647174;
     font-size: 16px;
     font-weight: 850;
     text-transform: uppercase;
   }
-  .human {
-    left: 0;
-    top: 260px;
-    width: 400px;
-    height: 410px;
-    padding: 26px 28px;
-    border-top: 6px solid #dda33b;
-    border-radius: 10px;
+  h2 {
+    margin: 5px 0 0;
+    font-size: 31px;
+    line-height: 1.12;
   }
-  .person-row {
+  .human {
+    left: 12px;
+    top: 208px;
+    width: 590px;
+    padding-left: 28px;
+    border-left: 7px solid #c58b28;
+  }
+  .human-head {
     display: flex;
     align-items: center;
     gap: 18px;
   }
   .person-icon {
-    display: grid;
-    flex: 0 0 auto;
-    place-items: center;
-    width: 74px;
-    height: 74px;
-    border: 2px solid #9eb0ae;
-    border-radius: 50%;
-    background: #f1f6f5;
-    color: #1b625a;
+    width: 66px;
+    height: 66px;
+    color: #16766b;
   }
-  .person-icon svg { width: 48px; height: 48px; }
-  .human h2 {
-    margin: 6px 0 0;
-    font-size: 29px;
-    line-height: 1.14;
+  .person-icon svg { width: 66px; height: 66px; }
+  .prompt-label {
+    margin-top: 24px;
+    color: #8d6115;
+    font-size: 16px;
+    font-weight: 850;
+    text-transform: uppercase;
   }
   .speech {
-    position: relative;
-    margin-top: 26px;
-    padding: 19px 20px;
-    border: 1px solid #dfb864;
-    border-radius: 8px;
-    background: #fff8e8;
-    color: #283436;
-    font-size: 19px;
-    line-height: 1.4;
+    margin-top: 8px;
+    color: #202b2d;
+    font-size: 24px;
+    line-height: 1.43;
   }
-  .speech::before {
-    content: "";
-    position: absolute;
-    top: -9px;
-    left: 46px;
-    width: 17px;
-    height: 17px;
-    border-top: 1px solid #dfb864;
-    border-left: 1px solid #dfb864;
-    background: #fff8e8;
-    transform: rotate(45deg);
-  }
+  .speech strong { color: #0d786c; }
   .human-note {
-    margin: 15px 0 0;
-    color: #657376;
+    margin: 18px 0 0;
+    color: #647174;
     font-size: 16px;
-    line-height: 1.38;
   }
   .agent {
-    left: 520px;
-    top: 0;
-    width: 700px;
-    height: 350px;
-    padding: 25px 29px;
-    border-top: 6px solid #4bc5b4;
-    border-radius: 10px;
-    background: #182124;
-    color: #edf5f4;
+    left: 760px;
+    top: 70px;
+    width: 730px;
   }
-  .agent .node-tag { color: #6bd4c6; }
-  .agent h2 {
-    margin: 5px 0 0;
-    font-size: 30px;
-    line-height: 1.12;
-  }
+  .agent h2 { font-size: 34px; }
   .agents {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
-    margin-top: 20px;
+    gap: 34px;
+    margin-top: 24px;
   }
-  .agent-badge {
+  .agent-id {
     display: grid;
-    grid-template-columns: 42px minmax(0, 1fr);
+    grid-template-columns: 88px minmax(0, 1fr);
     align-items: center;
-    gap: 11px;
-    min-height: 62px;
-    padding: 9px 12px;
-    border: 1px solid #3d5b5d;
-    border-radius: 8px;
-    background: #10191b;
+    gap: 14px;
   }
-  .agent-logo {
-    display: grid;
-    place-items: center;
-    width: 42px;
-    height: 42px;
-    border-radius: 8px;
-    background: #f7faf9;
-  }
-  .agent-logo img {
-    width: 27px;
-    height: 27px;
+  .agent-id img {
+    width: 82px;
+    height: 82px;
     object-fit: contain;
   }
-  .agent-badge strong {
+  .agent-id strong {
     display: block;
-    font-size: 17px;
-    line-height: 1.1;
+    font-size: 22px;
+    line-height: 1.06;
   }
-  .agent-badge span {
+  .skill-line {
+    display: grid;
+    grid-template-columns: 50px minmax(0, 1fr);
+    align-items: center;
+    gap: 14px;
+    margin-top: 25px;
+    padding-top: 18px;
+    border-top: 3px solid #3bb6a7;
+  }
+  .skill-line svg { width: 44px; height: 44px; color: #168e80; }
+  .skill-line strong { display: block; font-size: 21px; }
+  .skill-line span {
     display: block;
     margin-top: 3px;
-    color: #9fb0b1;
-    font-size: 13px;
-  }
-  .skill {
-    display: grid;
-    grid-template-columns: 38px minmax(0, 1fr);
-    gap: 12px;
-    align-items: center;
-    margin-top: 15px;
-    padding: 12px 15px;
-    border: 1px solid #438f86;
-    border-radius: 7px;
-    background: #112527;
-  }
-  .skill svg { width: 34px; height: 34px; color: #72dece; }
-  .skill strong { display: block; font-size: 18px; }
-  .skill span {
-    display: block;
-    margin-top: 2px;
-    color: #aebdbd;
-    font-size: 14px;
+    color: #5e6c6f;
+    font-size: 16px;
   }
   .vase {
-    left: 1604px;
-    top: 185px;
-    width: 644px;
-    height: 500px;
-    padding: 44px 64px 38px;
-    border: 3px solid #34ad9e;
-    border-radius: 48% 48% 44% 44% / 43% 43% 49% 49%;
-    background: radial-gradient(circle at 34% 22%, #194248 0%, #102c30 52%, #0c2023 100%);
-    color: #edf6f5;
+    left: 1660px;
+    top: 72px;
+    width: 570px;
     text-align: center;
-    box-shadow: 0 24px 56px rgba(14, 65, 62, 0.20);
   }
-  .vase .node-tag { color: #72ddce; }
-  .vase-logo-shell {
-    display: grid;
-    place-items: center;
-    width: 335px;
-    height: 96px;
-    margin: 11px auto 0;
-    overflow: hidden;
-    border-radius: 50%;
-    background: rgba(6, 15, 17, 0.42);
-  }
-  .vase-logo-shell img {
-    width: 315px;
-    height: 90px;
+  .vase-logo {
+    display: block;
+    width: 560px;
+    height: 168px;
+    margin: 0 auto;
     object-fit: contain;
   }
-  .vase-role {
-    margin: 14px auto 0;
-    max-width: 500px;
-    color: #cbdad9;
+  .vase h2 { margin-top: 0; }
+  .vase p {
+    margin: 10px auto 0;
+    max-width: 540px;
+    color: #586669;
     font-size: 18px;
     line-height: 1.38;
   }
-  .engine {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
-    margin-top: 22px;
-  }
-  .engine-row {
-    min-height: 105px;
-    padding: 13px 10px;
-    border: 1px solid #376064;
-    border-radius: 14px;
-    background: rgba(24, 58, 62, 0.78);
-  }
-  .engine-row b {
-    display: block;
-    color: #75dbcd;
-    font-size: 14px;
-    text-transform: uppercase;
-  }
-  .engine-row span {
-    display: block;
-    margin-top: 7px;
-    color: #e3eceb;
-    font-size: 15px;
-    line-height: 1.27;
-  }
   .gui {
-    left: 550px;
-    top: 552px;
-    width: 830px;
-    height: 320px;
+    left: 665px;
+    top: 505px;
+    width: 1390px;
+    height: 405px;
     overflow: hidden;
-    border-top: 6px solid #dda33b;
-    border-radius: 10px;
+    border: 2px solid #334245;
+    border-radius: 6px;
     background: #111719;
+    box-shadow: 0 16px 38px rgba(20, 32, 35, 0.14);
   }
   .gui-bar {
     display: flex;
     align-items: center;
-    height: 48px;
+    height: 50px;
     gap: 8px;
-    padding: 0 15px;
+    padding: 0 16px;
     border-bottom: 1px solid #394347;
     color: #dce7e8;
-    font-size: 16px;
+    font-size: 17px;
     font-weight: 750;
   }
   .dot { width: 10px; height: 10px; border-radius: 50%; background: #df645d; }
   .dot.amber { background: #d7a13b; }
   .dot.green { background: #45aa72; }
   .gui-title { margin-left: 7px; }
-  .human-view {
+  .view-badge {
     margin-left: auto;
-    padding: 5px 9px;
-    border: 1px solid #a07d39;
+    padding: 6px 11px;
+    border: 1px solid #5ccdbd;
     border-radius: 4px;
-    color: #f0c86f;
-    font-size: 12px;
+    color: #87e1d4;
+    font-size: 14px;
     text-transform: uppercase;
   }
   .gui img {
     display: block;
     width: 100%;
-    height: 272px;
+    height: 355px;
     object-fit: cover;
     object-position: center;
   }
   .marks-note {
     position: absolute;
-    right: 8px;
-    bottom: 0;
+    right: 0;
+    bottom: -4px;
     z-index: 2;
-    color: #778486;
+    color: #7b8688;
     font-size: 12px;
-    text-align: right;
   }
 </style>
 </head>
 <body>
   <header>
-    <div class="eyebrow">Work with an AI Agent</div>
-    <h1>Ask naturally. The Agent operates v_ase precisely. You inspect the live result.</h1>
+    <div>
+      <div class="eyebrow">Work with an AI Agent</div>
+      <h1>Describe the result. The Agent operates v_ase. You inspect the same live document.</h1>
+    </div>
     <p class="subtitle">
-      v_ase is the scientific workspace in the cycle: it validates atomistic operations,
-      renders the shared GUI, and returns exact document state to the Agent.
+      The v_ase Skill teaches compatible external Agents the exact CLI operations.
+      The verified result remains visible and editable in the normal GUI.
     </p>
   </header>
 
   <main class="workflow">
-    <svg class="connectors" viewBox="0 0 2256 890" aria-hidden="true">
+    <svg class="connectors" viewBox="0 0 2260 920" aria-hidden="true">
       <defs>
-        <marker id="arrow-request" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto">
-          <path d="M1 1L11 6L1 11" fill="none" stroke="#65716f" stroke-width="2.2"></path>
+        <marker id="arrow-dark" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto">
+          <path d="M1 1L11 6L1 11" fill="none" stroke="#344346" stroke-width="2.2"></path>
         </marker>
-        <marker id="arrow-command" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto">
-          <path d="M1 1L11 6L1 11" fill="none" stroke="#249787" stroke-width="2.2"></path>
+        <marker id="arrow-teal" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto">
+          <path d="M1 1L11 6L1 11" fill="none" stroke="#168e80" stroke-width="2.2"></path>
         </marker>
-        <marker id="arrow-result" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto">
-          <path d="M1 1L11 6L1 11" fill="none" stroke="#db9d31" stroke-width="2.2"></path>
-        </marker>
-        <marker id="arrow-state" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto">
-          <path d="M1 1L11 6L1 11" fill="none" stroke="#667e89" stroke-width="2.2"></path>
+        <marker id="arrow-amber" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto">
+          <path d="M1 1L11 6L1 11" fill="none" stroke="#bd801d" stroke-width="2.2"></path>
         </marker>
       </defs>
 
-      <path class="flow request" marker-end="url(#arrow-request)" d="M400 360 C456 332 470 266 512 236"></path>
-      <g class="label request-label" transform="translate(414 196)">
-        <rect x="-104" y="-18" width="208" height="36" rx="5"></rect>
-        <text y="6">NATURAL LANGUAGE</text>
-      </g>
+      <path class="flow prompt-flow" marker-end="url(#arrow-dark)" d="M600 330 C665 300 700 255 760 235"></path>
+      <text class="flow-label" x="674" y="267">NATURAL LANGUAGE</text>
 
-      <path class="flow command" marker-end="url(#arrow-command)" d="M1220 132 C1400 74 1535 112 1628 244"></path>
-      <g class="label command-label" transform="translate(1420 75)">
-        <rect x="-131" y="-18" width="262" height="36" rx="5"></rect>
-        <text y="6">EXACT CLI / API COMMANDS</text>
-      </g>
+      <path class="flow command-flow" marker-end="url(#arrow-teal)" d="M1490 230 C1555 205 1605 207 1660 233"></path>
+      <text class="flow-label" x="1573" y="188">SKILL + CLI</text>
 
-      <path class="flow state" marker-end="url(#arrow-state)" d="M1602 418 C1450 424 1358 372 1222 306"></path>
-      <g class="label state-label" transform="translate(1410 410)">
-        <rect x="-128" y="-18" width="256" height="36" rx="5"></rect>
-        <text y="6">EXACT STATE + REVISION</text>
-      </g>
+      <path class="flow result-flow" marker-end="url(#arrow-amber)" d="M1955 385 C1944 455 1894 493 1810 528"></path>
+      <text class="flow-label" x="1986" y="454">APPLY + VALIDATE</text>
 
-      <path class="flow result" marker-end="url(#arrow-result)" d="M1618 586 C1517 696 1454 720 1390 704"></path>
-      <g class="label result-label" transform="translate(1586 764)">
-        <rect x="-112" y="-18" width="224" height="36" rx="5"></rect>
-        <text y="6">LIVE 3D DOCUMENT</text>
-      </g>
-
-      <path class="flow command" marker-end="url(#arrow-command)" d="M1390 590 C1467 536 1524 505 1598 493"></path>
-      <g class="label command-label" transform="translate(1491 548)">
-        <rect x="-74" y="-18" width="148" height="36" rx="5"></rect>
-        <text y="6">GUI REFINEMENT</text>
-      </g>
-
-      <path class="flow request" marker-end="url(#arrow-request)" d="M550 706 C486 751 431 702 401 611"></path>
-      <g class="label request-label" transform="translate(445 785)">
-        <rect x="-109" y="-18" width="218" height="36" rx="5"></rect>
-        <text y="6">INSPECT AND REFINE</text>
-      </g>
+      <path class="flow feedback-flow" marker-end="url(#arrow-dark)" d="M665 820 C585 844 537 766 523 657"></path>
+      <text class="flow-label" x="579" y="858">INSPECT + REFINE</text>
     </svg>
 
     <section class="node human">
-      <div class="person-row">
+      <div class="human-head">
         <div class="person-icon" aria-hidden="true">
           <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3">
-            <circle cx="32" cy="20" r="10"></circle>
-            <path d="M14 53c2-12 9-18 18-18s16 6 18 18"></path>
+            <circle cx="32" cy="19" r="10"></circle>
+            <path d="M13 54c2-13 10-19 19-19s17 6 19 19"></path>
           </svg>
         </div>
-        <div>
-          <div class="node-tag">Human</div>
-          <h2>Describe the result</h2>
-        </div>
+        <div><div class="node-label">Human</div><h2>Ask for a scientific result</h2></div>
       </div>
+      <div class="prompt-label">Example request</div>
       <div class="speech">
-        “Starting from a pristine 6 x 6 graphene sheet, create an N<sub>3</sub>
-        vacancy, add Li 2.15 Å above it, and render a clear 4K view.”
+        “Starting from pristine <strong>6 × 6 graphene</strong>, create a pyridinic
+        N<sub>3</sub> vacancy, place Li <strong>2.15 Å</strong> above it, then render a
+        <strong>+Z top view with +Y up</strong> at 4K.”
       </div>
-      <p class="human-note">The human does not need to write v_ase command syntax.</p>
+      <p class="human-note">No v_ase command syntax is required from the human.</p>
     </section>
 
     <section class="node agent">
-      <div class="node-tag">Compatible external AI Agents</div>
-      <h2>The Agent reads the bundled v_ase Skill</h2>
+      <div class="node-label">External AI Agent</div>
+      <h2>Reads the v_ase Skill</h2>
       <div class="agents">
-        <div class="agent-badge">
-          <span class="agent-logo"><img src="brand_assets/openai-symbol.svg" alt="OpenAI mark"></span>
-          <div><strong>Codex</strong><span>Agent Skill</span></div>
+        <div class="agent-id">
+          <img src="brand_assets/openai-symbol.svg" alt="OpenAI mark">
+          <strong>Codex</strong>
         </div>
-        <div class="agent-badge">
-          <span class="agent-logo"><img src="brand_assets/anthropic.svg" alt="Anthropic mark"></span>
-          <div><strong>Claude Code</strong><span>Agent Skill</span></div>
+        <div class="agent-id">
+          <img src="brand_assets/anthropic.svg" alt="Anthropic mark">
+          <strong>Claude<br>Code</strong>
         </div>
-        <div class="agent-badge">
-          <span class="agent-logo"><img src="brand_assets/github-copilot.svg" alt="GitHub Copilot mark"></span>
-          <div><strong>GitHub Copilot</strong><span>Agent Skill</span></div>
+        <div class="agent-id">
+          <img src="brand_assets/github-copilot.svg" alt="GitHub Copilot mark">
+          <strong>GitHub<br>Copilot</strong>
         </div>
       </div>
-      <div class="skill">
+      <div class="skill-line">
         <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
-          <path d="M12 5h17l8 8v30H12z"></path>
-          <path d="M29 5v9h8M18 23h13M18 30h13M18 37h8"></path>
+          <path d="M12 5h17l8 8v30H12z"></path><path d="M29 5v9h8M18 23h13M18 30h13M18 37h8"></path>
         </svg>
-        <div><strong>v_ase Skill</strong><span>operations, safeguards, state checks, and exports</span></div>
+        <div><strong>v_ase Skill</strong><span>Maps the request to exact, verifiable CLI operations.</span></div>
       </div>
     </section>
 
     <section class="node vase">
-      <div class="node-tag">Scientific workspace</div>
-      <div class="vase-logo-shell"><img src="../assets/v_ase-logo.png" alt="v_ase"></div>
-      <p class="vase-role">
-        Owns the live atoms, trajectories, settings, analyses, and document revision.
-      </p>
-      <div class="engine">
-        <div class="engine-row"><b>Apply</b><span>atomistic and visual operations</span></div>
-        <div class="engine-row"><b>Validate</b><span>indices, cells, constraints, revisions</span></div>
-        <div class="engine-row"><b>Return</b><span>GUI result and exact machine state</span></div>
-      </div>
+      <img class="vase-logo" src="../assets/v_ase-logo.png" alt="v_ase">
+      <h2>Applies and validates the changes</h2>
+      <p>Structure · settings · analysis · camera · export</p>
     </section>
 
     <section class="node gui">
       <div class="gui-bar">
         <span class="dot"></span><span class="dot amber"></span><span class="dot green"></span>
-        <span class="gui-title">v_ase GUI</span>
-        <span class="human-view">what the human sees</span>
+        <span class="gui-title">The same live v_ase GUI</span>
+        <span class="view-badge">+Z top view · +Y up</span>
       </div>
-      <img src="../assets/readme_ai_collaboration_live.png" alt="Live v_ase GUI showing the verified result">
+      <img src="../assets/readme_ai_collaboration_live.png" alt="Verified v_ase result rendered from +Z with +Y up">
     </section>
 
-    <div class="marks-note">
-      Product names and marks identify compatible clients only; no affiliation or endorsement is implied.
-    </div>
+    <div class="marks-note">Product marks identify compatible clients only; no affiliation or endorsement is implied.</div>
   </main>
 </body>
 </html>

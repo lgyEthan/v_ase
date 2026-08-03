@@ -98,37 +98,39 @@ browser document releases the blocking terminal process.
 
 ## Work With An AI Agent
 
-v_ase is the scientific application between you and an external AI Agent. It
-does not interpret natural language itself: the Agent learns v_ase from the
-bundled [v_ase Skill](#agent-setup), then controls the exact structure through
-the CLI/API while you see the result in the normal GUI.
+You describe the scientific result to an external AI Agent. The bundled
+[v_ase Skill](#agent-setup) teaches that Agent the exact CLI operations,
+validation checks, and export steps. The Agent works through v_ase while the
+same document remains visible and editable in the normal GUI.
 
 ![Human and external AI agent working in one live v_ase document](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.png)
 
-1. **You → Agent:** describe the scientific result in ordinary language.
-2. **Agent → v_ase:** the Agent sends exact, structured CLI/API commands.
-3. **v_ase → you:** v_ase applies and validates the operations, then displays
-   the live 3D document in the GUI.
-4. **v_ase → Agent:** v_ase returns exact atoms, settings, and the current
-   revision. GUI edits enter the same document, so the Agent continues from
-   your latest work instead of overwriting it.
+1. **You → Agent:** describe the source system, requested scientific change,
+   and final camera in ordinary language.
+2. **Agent → v_ase:** the Agent uses the Skill and structured CLI/API to read,
+   modify, validate, and render exact atom data.
+3. **v_ase → you:** the result appears in the same live GUI. A manual GUI edit
+   becomes the next document revision seen by the Agent.
 
-For example:
+v_ase does not interpret the natural-language request or embed an LLM. The
+external Agent translates it into exact, structured CLI/API operations.
 
-> From this pristine 6 x 6 graphene sheet, remove the carbon nearest the cell
-> center, convert its three nearest neighbors to pyridinic nitrogen, add a
-> `Li_site` atom 2.15 A above the vacancy, use a clean
-> oblique studio-shadow view, and render a 4K image.
+For example, a human can ask:
 
-The agent preserves the three substituted sites as distinct `N_pyridinic` labels
-and reports every committed edit to the same GUI session.
+> From pristine 6 × 6 graphene, create a pyridinic N3 vacancy, place Li 2.15 Å
+> above it, and render a +Z top view with +Y up at 4K.
+
+The Agent identifies atoms from structured state rather than estimating them
+from screenshots, preserves the three substituted sites as `N_pyridinic`, and
+labels the adsorbate `Li_site`. It sets the requested `+Z` view and `+Y` up
+direction before rendering.
+Reading structured atom state instead of repeatedly interpreting screenshots
+can reduce token use while keeping coordinates, labels, and camera settings
+directly verifiable.
 
 ![Natural-language pyridinic N3 graphene edit](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_edit.gif)
 
-The agent reads atom identities and coordinates directly instead of repeatedly
-guessing from screenshots. This can reduce token use while preserving exact
-indices, coordinates, and labels. The example assets are generated from
-`ase.build.graphene`:
+The example assets are generated from `ase.build.graphene`:
 
 - [source graphene CIF](examples/readme_scene_assets/ai_graphene_source.cif)
 - [intermediate pyridinic N3 CIF](examples/readme_scene_assets/ai_pyridinic_n3_graphene.cif)
@@ -228,13 +230,28 @@ geometry editing and is not an energy-minimized final structure.
 
 ![Graphene hBN commensurate rotation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_commensurate.gif)
 
-Enable **Structure > Transform > Commensurate atoms** to search bounded integer
-supercells immediately. The search runs behind a staged progress display and
-opens an interactive Plotly graph with two views:
+**Commensurate atoms** finds periodic in-plane common cells without changing the
+ASE structure until a proposal is explicitly accepted. It is off by default.
+When enabled, the first preview is cells-only:
+
+- with no selected atoms, only the host primitive cell and vectors are shown;
+- with a selected layer, those atoms become the guest and inherit a separate
+  copy of the host cell;
+- loading a guest structure replaces the selected guest with its own atoms and
+  periodic cell.
+
+Host primitive cells and vectors are black on the default white background,
+guest cells are orange, and the suggested common-cell boundary is teal. As a
+candidate or guest angle changes, both primitive lattices remain tiled through
+their proposed supercells in real time. The current camera is preserved.
+**Show preview atoms** optionally adds opaque supercell atoms, a
+one-primitive-cell halo, and all enabled bonds across the preview boundary.
+
+The bounded search reports progress and opens an interactive graph:
 
 | Graph | Meaning |
 | --- | --- |
-| **3D overview** | Rotation angle, common-cell area ratio, and maximum principal strain; a live plane follows the current rotation |
+| **Angle × cell size × strain** | Rotation is the explicit horizontal axis; common-cell area forms depth layers and maximum principal strain is vertical; a live plane follows the current angle |
 | **Paper strain projection** | Mean absolute strain versus the actual host-plus-guest atom count, with angle shown by color |
 
 The graph's save icon exports the plotted angle, strain, host/guest integer
@@ -248,21 +265,23 @@ Two workflows use the same bounded integer-boundary search:
 
 | Workflow | Host | Guest / rotating component |
 | --- | --- | --- |
-| Same-lattice twist | Unselected atoms and the current periodic cell | Selected atoms using an independent copy of the same cell |
-| Host/guest interface | The open structure | A second structure loaded with **Load guest structure** |
+| Same-lattice twist | Unselected atoms and the current periodic cell | Selected atoms using a separate copy of that cell |
+| Host/guest interface | The open structure and its cell | A second structure loaded with **Load or Replace Guest Structure** |
 
-For the same-lattice graphene/hBN example, select the hBN layer before enabling
-the workspace. For a separate host/guest calculation, v_ase rotates the entire
-guest structure and its own cell together; it never silently substitutes the
-host cell. **Apply residual strain to** chooses which lattice receives the
-remaining in-plane deformation and defaults to the guest.
+For a same-lattice graphene/hBN twist, select the hBN layer before enabling the
+workspace. For a separate interface, load the guest file after enabling it.
+The loaded guest is positioned so `guest min z − host max z = 3 Å` by default;
+the **Interlayer gap / Å** field changes that separation. v_ase rotates the guest
+atoms and guest cell together and never substitutes the host cell. **Apply
+residual strain to** chooses whether the host or guest receives the remaining
+in-plane deformation and defaults to the guest.
 
-Cells-only preview is the default so the host cell, guest cell, and suggested
-common cell remain readable while the guest rotates. Their vectors use
-distinct colors. **Show preview atoms** adds the bounded supercell atoms plus
-one primitive-cell halo, including bonds crossing the common-cell boundary.
 The proposal reports both integer matrices, both area ratios, residual strain,
-and notation such as `(sqrt(7) x sqrt(7)) R19.11 deg`.
+and readable surface notation such as `(√7 × √7) R19.11°`. The default maximum
+area ratio is `16`. On first selection or guest load, v_ase proposes the
+smallest-area cell that satisfies the strain bound. Moving the guest angle then
+tracks the valid candidate nearest that angle. No proposal is made when every
+valid cell exceeds the chosen area or strain bound.
 
 Commensurate matching is deliberately restricted to two periodic vectors in
 the global XY plane and rotation about global Z. This is the rigorously defined
@@ -282,7 +301,9 @@ family in the
 A suggested cell is a geometric periodic match, not an electronic energy
 minimum.
 
-### Try A Separate Host And Guest
+### Separate Host And Guest Example
+
+![Graphene and Cu(111) host/guest common-cell search](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_commensurate_host_guest.png)
 
 The repository includes a deterministic graphene/Cu(111) validation pair:
 
@@ -290,11 +311,11 @@ The repository includes a deterministic graphene/Cu(111) validation pair:
 v_ase gui examples/commensurate_host_guest/graphene_host.extxyz
 ```
 
-In **Structure > Transform > Commensurate atoms**, choose **Host / guest
-interface**, load
-[`cu111_guest.extxyz`](examples/commensurate_host_guest/cu111_guest.extxyz),
-and keep guest strain `1%` with maximum area ratio `16`. The smallest match is
-graphene `sqrt(13)` against Cu(111) `sqrt(12)` at `|16.10211375|` degrees.
+Enable **Structure > Transform > Commensurate atoms**, then load
+[`cu111_guest.extxyz`](examples/commensurate_host_guest/cu111_guest.extxyz)
+with **Load or Replace Guest Structure**. Keep guest strain `1%`, interlayer gap
+`3 Å`, and maximum area ratio `16`. The smallest match is graphene `√13`
+against Cu(111) `√12` at `|16.10211375|°`.
 The common cell contains 26 graphene atoms plus 12 Cu atoms. The
 [example guide](examples/commensurate_host_guest/README.md) and
 [`expected.json`](examples/commensurate_host_guest/expected.json) give the
