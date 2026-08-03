@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.120a5%2Bsymmetry&amp;rev=5">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.120a6%2Bsymmetry&amp;rev=6">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.120a5%2Bsymmetry';
+            : '/static/vendor/three.module.js?v=0.0.120a6%2Bsymmetry';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -68,7 +68,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.120a5+symmetry</span>
+            <span class="version">0.0.120a6+symmetry</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -535,11 +535,17 @@
                 </div>
                 <div id="phonon-band-result" class="phonon-band-result hidden">
                     <div class="phonon-band-head">
-                        <strong id="phonon-band-title">Phonon dispersion</strong>
+                        <div>
+                            <strong id="phonon-band-title">Phonon dispersion</strong>
+                            <span>reciprocal-space wavevector path</span>
+                        </div>
                         <span id="phonon-band-meta">-</span>
                     </div>
-                    <svg id="phonon-band-plot" class="phonon-band-plot" viewBox="0 0 640 330" role="img" aria-label="Interactive phonon band structure"></svg>
-                    <div id="phonon-band-selection" class="phonon-band-selection" aria-live="polite">Click a band point to select its q-point and mode.</div>
+                    <svg id="phonon-band-plot" class="phonon-band-plot" viewBox="0 0 640 350" role="img" aria-label="Phonon frequency versus reciprocal-space wavevector path. Point at a branch and click to select a q-point and mode."></svg>
+                    <div class="phonon-band-selection" data-state="idle">
+                        <span class="phonon-band-selection-state">Mode</span>
+                        <strong id="phonon-band-selection" aria-live="polite">Point at a branch, then click to select q and ν.</strong>
+                    </div>
                 </div>
                 <div class="btn-stack-row two phonon-band-actions">
                     <button id="btn-phonon-bands" type="button">Recalculate Bands</button>
@@ -1201,7 +1207,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.120a5%2Bsymmetry&rev=5';
+            : './static/main.js?v=0.0.120a6%2Bsymmetry&rev=6';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

@@ -20,6 +20,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from capture_readme_screenshots import (  # noqa: E402
+    append_hold,
     collapse_inspector,
     configure_inspector,
     open_scene,
@@ -383,10 +384,29 @@ def capture_finite_displacements(browser, atoms) -> None:
 def capture_physical_mode(browser, examples: dict[str, object]) -> None:
     aluminum = examples["aluminum"]
     metadata = examples["mode_metadata"]
-    editor, page = open_scene(browser, aluminum, show_bonds=False)
+    editor, page = open_scene(browser, aluminum, show_bonds=True)
     try:
-        _science_display(page, bonds=False)
+        _science_display(page, bonds=True)
         configure_inspector(page, "analysis", ["phonons"], width=520)
+        al_label = page.evaluate("window.__V_ASE_APP__.state.atoms.symbols[0]")
+        al_pair = f"{al_label}-{al_label}"
+        set_display(
+            page,
+            {
+                "showBonds": True,
+                "showPeriodicBonds": False,
+                "bondMode": "pairwise",
+                "pairwiseBondRanges": {
+                    al_pair: {"enabled": True, "min": 0, "max": 3.05},
+                },
+                "pairwiseBondCutoffs": {al_pair: 3.05},
+                "bondStyle": "cylinder",
+                "bondThickness": 0.11,
+                "bondColorMode": "custom",
+                "bondCustomColor": "#746d69",
+                "supercell": [4, 4, 2],
+            },
+        )
         page.set_input_files(
             "#phonopy-project-file",
             str(examples["phonopy_project"]),
@@ -401,36 +421,69 @@ def capture_physical_mode(browser, examples: dict[str, object]) -> None:
             "document.querySelectorAll('.phonon-band-branch').length === 18"
         )
         page.select_option("#phonon-projection-axis", "y")
-        page.evaluate(
-            """async ({ band }) => {
-                const app = window.__V_ASE_APP__;
-                const result = app.state.phononBandStructure;
-                const segmentIndex = result.segments.findIndex(
-                    segment => segment.end_label === 'X'
-                );
-                if (segmentIndex < 0) throw new Error('HPKOT X point is missing.');
-                const segment = result.segments[segmentIndex];
-                const pointIndex = segment.qpoints.length - 1;
-                const geometry = document.getElementById('phonon-band-plot').__vAseBandGeometry;
-                await app.selectPhononBandPoint({
-                    segmentIndex,
-                    pointIndex,
-                    band,
-                    distance: Number(segment.distances[pointIndex]),
-                    qpoint: [...segment.qpoints[pointIndex]],
-                    frequency: Number(segment.frequencies[pointIndex][band - 1]),
-                    nacDirection: segment.nac_directions[pointIndex]
-                        ? [...segment.nac_directions[pointIndex]]
-                        : null,
-                    dimension: segment.suggested_dimensions[pointIndex]
-                        ? [...segment.suggested_dimensions[pointIndex]]
-                        : null,
-                    x: geometry.x(Number(segment.distances[pointIndex])),
-                    y: geometry.y(Number(segment.frequencies[pointIndex][band - 1]))
-                });
-            }""",
-            {"band": int(metadata["band"])},
+
+        preview_atoms = aluminum.repeat((4, 4, 2))
+        preview_center = np.mean(preview_atoms.positions, axis=0)
+        settle_view(
+            page,
+            target=preview_center.tolist(),
+            position=(preview_center + np.array([3.0, -4.0, 22.0])).tolist(),
+            fov=36,
         )
+        set_atomic_scale(page, 53.0)
+        set_readme_lighting(
+            page,
+            preview_center.tolist(),
+            intensity=2.85,
+            position_offset=(-12.0, -15.0, 20.0),
+        )
+        _focus_element(page, "#phonon-model-status")
+        page.locator("#phonon-band-plot").scroll_into_view_if_needed()
+
+        def band_point(label: str, band: int) -> dict[str, float]:
+            return page.evaluate(
+                """({ label, band }) => {
+                    const app = window.__V_ASE_APP__;
+                    const result = app.state.phononBandStructure;
+                    const segment = result.segments.find(item => item.end_label === label);
+                    if (!segment) throw new Error(`HPKOT ${label} point is missing.`);
+                    const pointIndex = segment.qpoints.length - 1;
+                    const plot = document.getElementById('phonon-band-plot');
+                    const rect = plot.getBoundingClientRect();
+                    const geometry = plot.__vAseBandGeometry;
+                    const x = geometry.x(Number(segment.distances[pointIndex]));
+                    const y = geometry.y(Number(segment.frequencies[pointIndex][band - 1]));
+                    return {
+                        x: rect.left + x * rect.width / geometry.width,
+                        y: rect.top + y * rect.height / geometry.height
+                    };
+                }""",
+                {"label": label, "band": band},
+            )
+
+        frames = []
+        append_hold(frames, page, 3)
+        l_point = band_point("L", int(metadata["band"]))
+        page.mouse.move(l_point["x"], l_point["y"])
+        page.wait_for_timeout(140)
+        append_hold(frames, page, 4)
+        page.mouse.click(l_point["x"], l_point["y"])
+        page.wait_for_function(
+            "window.__V_ASE_APP__.state.phononBandSelection?.pathLabel === 'L'"
+        )
+        append_hold(frames, page, 5)
+
+        x_point = band_point("X", int(metadata["band"]))
+        page.mouse.move(x_point["x"], x_point["y"])
+        page.wait_for_timeout(140)
+        append_hold(frames, page, 4)
+        page.mouse.click(x_point["x"], x_point["y"])
+        page.wait_for_function(
+            """({ band }) => window.__V_ASE_APP__.state.phononBandSelection?.pathLabel === 'X'
+                && window.__V_ASE_APP__.state.phononBandSelection?.band === band""",
+            arg={"band": int(metadata["band"])},
+        )
+        append_hold(frames, page, 5)
         page.wait_for_function(
             "window.__V_ASE_APP__.state.phononModes?.band_count === 3"
         )
@@ -439,6 +492,7 @@ def capture_physical_mode(browser, examples: dict[str, object]) -> None:
         page.fill("#phonon-mode-super-x", "4")
         page.fill("#phonon-mode-super-y", "4")
         page.fill("#phonon-mode-super-z", "2")
+        set_display(page, {"supercell": [1, 1, 1]})
         page.click("#btn-phonon-modulate")
         page.click("#modal-confirm-action")
         page.wait_for_function(
@@ -469,7 +523,24 @@ def capture_physical_mode(browser, examples: dict[str, object]) -> None:
         page.wait_for_function(
             "document.querySelectorAll('.phonon-mode-row').length === 3"
         )
-        set_display(page, {"atomRadiusScale": 0.52})
+        set_display(
+            page,
+            {
+                "atomRadiusScale": 0.48,
+                "showBonds": True,
+                "bondMode": "pairwise",
+                "pairwiseBondRanges": {
+                    al_pair: {"enabled": True, "min": 0, "max": 3.05},
+                },
+                "pairwiseBondCutoffs": {al_pair: 3.05},
+                "bondThickness": 0.11,
+                "bondColorMode": "custom",
+                "bondCustomColor": "#746d69",
+            },
+        )
+        page.wait_for_function(
+            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.bondCount || 0) > 0"
+        )
         positions = np.asarray(
             page.evaluate("window.__V_ASE_APP__.state.atoms.positions"),
             dtype=float,
@@ -499,7 +570,7 @@ def capture_physical_mode(browser, examples: dict[str, object]) -> None:
             ASSET_DIR / "readme_phonon_mode.png",
             optimize=True,
         )
-        frames = []
+        append_hold(frames, page, 3)
         for frame_index in range(24):
             page.evaluate(
                 """async (frameIndex) => {

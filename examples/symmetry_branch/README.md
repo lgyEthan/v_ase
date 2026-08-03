@@ -35,6 +35,8 @@ These are force-calculation inputs, not phonon modes.
 Loading the completed project calculates the HPKOT band structure. The selected
 demonstration mode is band 3 at the X point, `q=(0.5, 0, 0.5)` in the Phonopy
 primitive reciprocal basis, approximately 7.9914 THz with the included
-calculator. The animated result is the extxyz trajectory and README GIF, not a
-single frozen-mode CIF. It validates the v_ase workflow and is not a converged
-reference calculation for aluminum.
+calculator. The README GIF visibly moves the graph selection from L to X before
+animating the selected eigenmode. Al-Al nearest-neighbor connections up to
+3.05 A provide lattice context. The animated result is the extxyz trajectory
+and GIF. It validates the v_ase workflow and is not a converged reference
+calculation for aluminum.

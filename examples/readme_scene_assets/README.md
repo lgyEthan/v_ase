@@ -38,7 +38,6 @@ AI-generated Li site over a pyridinic N3 vacancy in a 6 x 6 ASE graphene sheet.
 
 - Static: `ai_pyridinic_n3_li_graphene.cif`
 - Suggested selected indices: `29, 42, 31, 71`
-- Source generated with ase.build.graphene; no external coordinates are copied.
 - The central C is deleted, its three nearest neighbors become N_pyridinic, and Li is added above the vacancy.
 - Additional: `ai_graphene_source.cif`
 - Additional: `ai_pyridinic_n3_graphene.cif`

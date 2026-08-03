@@ -504,23 +504,50 @@ def test_browser_selects_a_band_point_and_animates_the_physical_mode():
             labels = page.locator("#phonon-band-plot .phonon-band-label").all_text_contents()
             assert labels == ["Γ", "X", "U|K", "Γ", "L", "W", "X"]
             page.locator("#phonon-band-plot").scroll_into_view_if_needed()
-            click_point = page.evaluate(
-                """() => {
+
+            def plot_point(label: str, band: int) -> dict[str, float]:
+                return page.evaluate(
+                    """({ label, band }) => {
                     const app = window.__V_ASE_APP__;
                     const result = app.state.phononBandStructure;
-                    const segment = result.segments.find(item => item.end_label === 'X');
+                    const segment = result.segments.find(item => item.end_label === label);
                     const pointIndex = segment.qpoints.length - 1;
                     const plot = document.getElementById('phonon-band-plot');
                     const rect = plot.getBoundingClientRect();
                     const geometry = plot.__vAseBandGeometry;
                     const x = geometry.x(Number(segment.distances[pointIndex]));
-                    const y = geometry.y(Number(segment.frequencies[pointIndex][2]));
+                    const y = geometry.y(Number(segment.frequencies[pointIndex][band - 1]));
                     return {
-                        x: rect.left + x * rect.width / 640,
-                        y: rect.top + y * rect.height / 330
+                        x: rect.left + x * rect.width / geometry.width,
+                        y: rect.top + y * rect.height / geometry.height
                     };
-                }"""
+                }""",
+                    {"label": label, "band": band},
+                )
+
+            l_point = plot_point("L", 3)
+            page.mouse.move(l_point["x"], l_point["y"])
+            page.wait_for_function(
+                "document.querySelector('.phonon-band-hover-point').getAttribute('visibility') === 'visible'"
             )
+            page.mouse.click(l_point["x"], l_point["y"])
+            page.wait_for_function(
+                "window.__V_ASE_APP__.state.phononBandSelection !== null"
+            )
+            l_selection = page.evaluate(
+                "window.__V_ASE_APP__.state.phononBandSelection"
+            )
+            assert l_selection["pathLabel"] == "L"
+            assert l_selection["band"] == 3
+            assert l_selection["qpoint"] == pytest.approx([0.5, 0.5, 0.5])
+            l_selected_x = float(
+                page.locator(".phonon-band-selected-point").get_attribute("cx")
+            )
+            assert "Selected L · ν3" in page.locator("#phonon-band-selection").inner_text()
+
+            click_point = plot_point("X", 3)
+            page.mouse.move(click_point["x"], click_point["y"])
+            assert page.locator(".phonon-band-selected-point").get_attribute("visibility") == "visible"
             page.mouse.click(click_point["x"], click_point["y"])
             page.wait_for_function(
                 """() => {
@@ -532,6 +559,10 @@ def test_browser_selects_a_band_point_and_animates_the_physical_mode():
                         && window.__V_ASE_APP__.state.phononModes?.band_count === 3;
                 }"""
             )
+            assert float(
+                page.locator(".phonon-band-selected-point").get_attribute("cx")
+            ) != pytest.approx(l_selected_x)
+            assert "Selected X · ν3" in page.locator("#phonon-band-selection").inner_text()
             page.locator(".phonon-mode-row").nth(2).click()
             page.wait_for_function(
                 "window.__V_ASE_APP__.state.phononBandSelection?.band === 3"
@@ -551,6 +582,30 @@ def test_browser_selects_a_band_point_and_animates_the_physical_mode():
             page.wait_for_function(
                 """() => document.querySelectorAll('.phonon-band-branch').length === 18
                     && window.__V_ASE_APP__.state.phononBandSelection?.band === 3"""
+            )
+            page.evaluate(
+                """() => {
+                    const app = window.__V_ASE_APP__;
+                    const label = app.state.atoms.symbols[0];
+                    const key = app.labelPairKey(label, label);
+                    Object.assign(app.state.display, {
+                        showBonds: true,
+                        showPeriodicBonds: false,
+                        bondMode: 'pairwise',
+                        pairwiseBondRanges: {
+                            [key]: { enabled: true, min: 0, max: 3.05 }
+                        },
+                        pairwiseBondCutoffs: { [key]: 3.05 },
+                        bondThickness: 0.11,
+                        bondColorMode: 'custom',
+                        bondCustomColor: '#746d69'
+                    });
+                    app.renderer.setDisplayOptions(app.state.display);
+                    app.renderer.renderNow();
+                }"""
+            )
+            page.wait_for_function(
+                "Number(window.__V_ASE_APP__.renderer.domElement.dataset.bondCount || 0) > 0"
             )
             first = np.asarray(page.evaluate("window.__V_ASE_APP__.state.atoms.positions"))
             page.evaluate("window.__V_ASE_APP__.loadFrame(12)")
@@ -723,7 +778,10 @@ def test_symmetry_readme_uses_actual_synchronized_application_captures():
             pixels = np.asarray(image.convert("RGB"), dtype=float)
             assert pixels.std() > 20
             if filename.endswith(".gif"):
-                assert getattr(image, "n_frames", 1) == 24
+                # Pillow coalesces repeated hold frames. The output still
+                # contains the L hover/select, X hover/select, and all 24
+                # distinct physical-mode frames.
+                assert getattr(image, "n_frames", 1) >= 29
         if filename != "readme_phonon_mode.png":
             assert filename in readme
 
@@ -741,6 +799,9 @@ def test_symmetry_readme_uses_actual_synchronized_application_captures():
     assert "ASE EMT" in script
     assert "generate_finite_displacements" in script
     assert "generate_mode_trajectory" in script
+    assert 'band_point("L", int(metadata["band"]))' in script
+    assert 'band_point("X", int(metadata["band"]))' in script
+    assert '"max": 3.05' in script
     assert 'background: transparent;' in css
     for extension in ("*.cif", "*.extxyz", "*.yaml", "*.json"):
         assert extension in source_manifest

@@ -1,15 +1,15 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.120a5%2Bsymmetry&rev=5';
-import { ASERenderer } from './renderer.js?v=0.0.120a5%2Bsymmetry&rev=5';
-import { ASESelection } from './selection.js?v=0.0.120a5%2Bsymmetry&rev=5';
-import { ASETransform } from './transform.js?v=0.0.120a5%2Bsymmetry&rev=5';
+import { ASEApi } from './api.js?v=0.0.120a6%2Bsymmetry&rev=6';
+import { ASERenderer } from './renderer.js?v=0.0.120a6%2Bsymmetry&rev=6';
+import { ASESelection } from './selection.js?v=0.0.120a6%2Bsymmetry&rev=6';
+import { ASETransform } from './transform.js?v=0.0.120a6%2Bsymmetry&rev=6';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.120a5%2Bsymmetry&rev=5';
+} from './trajectory.js?v=0.0.120a6%2Bsymmetry&rev=6';
 
-const V_ASE_BUILD_VERSION = '0.0.120a5+symmetry';
+const V_ASE_BUILD_VERSION = '0.0.120a6+symmetry';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -1878,15 +1878,33 @@ class VAseApp {
         return String(label || '').replaceAll('GAMMA', 'Γ');
     }
 
+    phononBandPointLabel(point) {
+        if (!point) return '';
+        if (point.pathLabel) return this.phononBandLabel(point.pathLabel);
+        const tick = (this.state.phononBandStructure?.ticks || []).find(item => (
+            Math.abs(Number(item.distance) - Number(point.distance)) <= 1e-9
+        ));
+        return this.phononBandLabel(tick?.label || '');
+    }
+
+    phononBandPointShortText(point) {
+        if (!point) return '';
+        const label = this.phononBandPointLabel(point);
+        const location = label ? `${label} · ` : '';
+        return `${location}ν${point.band} · ${Number(point.frequency).toFixed(3)} THz`;
+    }
+
     phononBandPointText(point) {
-        if (!point) return 'Click a band point to select its q-point and mode.';
+        if (!point) return 'Point at a branch, then click to select q and ν.';
+        const label = this.phononBandPointLabel(point);
+        const location = label ? `${label} · ` : '';
         const q = point.qpoint.map(value => Number(value).toFixed(4)).join(', ');
         const frequency = Number(point.frequency).toFixed(4);
         const dimension = Array.isArray(point.dimension)
             ? ` | mode cell ${point.dimension.join(' x ')}`
             : ' | no small diagonal mode cell found';
         const imaginary = point.frequency < -1e-8 ? ' (imaginary)' : '';
-        return `Band ${point.band} | q=(${q}) | ${frequency} THz${imaginary}${dimension}`;
+        return `Selected ${location}ν${point.band} | q=(${q}) | ${frequency} THz${imaginary}${dimension}`;
     }
 
     phononBandNearestPoint(event) {
@@ -1896,8 +1914,8 @@ class VAseApp {
         if (!plot || !result || !geometry) return null;
         const rect = plot.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) return null;
-        const px = (event.clientX - rect.left) * 640 / rect.width;
-        const py = (event.clientY - rect.top) * 330 / rect.height;
+        const px = (event.clientX - rect.left) * geometry.width / rect.width;
+        const py = (event.clientY - rect.top) * geometry.height / rect.height;
         let nearest = null;
         let nearestDistance = Infinity;
         (result.segments || []).forEach((segment, segmentIndex) => {
@@ -1921,6 +1939,9 @@ class VAseApp {
                         dimension: segment.suggested_dimensions?.[pointIndex]
                             ? [...segment.suggested_dimensions[pointIndex]]
                             : null,
+                        pathLabel: (result.ticks || []).find(item => (
+                            Math.abs(Number(item.distance) - Number(distance)) <= 1e-9
+                        ))?.label || '',
                         x,
                         y
                     };
@@ -1933,26 +1954,75 @@ class VAseApp {
     updatePhononBandCursor(point, { selected = false } = {}) {
         const plot = document.getElementById('phonon-band-plot');
         if (!plot) return;
-        const line = plot.querySelector('.phonon-band-cursor-line');
-        const marker = plot.querySelector('.phonon-band-cursor-point');
-        if (!line || !marker) return;
+        const prefix = selected ? 'selected' : 'hover';
+        const line = plot.querySelector(`.phonon-band-${prefix}-line`);
+        const horizontal = plot.querySelector(`.phonon-band-${prefix}-horizontal`);
+        const halo = plot.querySelector(`.phonon-band-${prefix}-halo`);
+        const marker = plot.querySelector(`.phonon-band-${prefix}-point`);
+        const tag = plot.querySelector(`.phonon-band-${prefix}-tag`);
+        const tagText = tag?.querySelector('text');
+        if (!marker || !tag) return;
         if (!point) {
-            line.setAttribute('visibility', 'hidden');
+            line?.setAttribute('visibility', 'hidden');
+            horizontal?.setAttribute('visibility', 'hidden');
+            halo?.setAttribute('visibility', 'hidden');
             marker.setAttribute('visibility', 'hidden');
+            tag.setAttribute('visibility', 'hidden');
             return;
         }
-        line.setAttribute('x1', `${point.x}`);
-        line.setAttribute('x2', `${point.x}`);
-        line.setAttribute('visibility', 'visible');
+        const geometry = plot.__vAseBandGeometry;
+        if (line) {
+            line.setAttribute('x1', `${point.x}`);
+            line.setAttribute('x2', `${point.x}`);
+            line.setAttribute('visibility', 'visible');
+        }
+        if (horizontal) {
+            horizontal.setAttribute('x1', `${geometry?.margin?.left ?? 0}`);
+            horizontal.setAttribute('x2', `${point.x}`);
+            horizontal.setAttribute('y1', `${point.y}`);
+            horizontal.setAttribute('y2', `${point.y}`);
+            horizontal.setAttribute('visibility', 'visible');
+        }
+        if (halo) {
+            halo.setAttribute('cx', `${point.x}`);
+            halo.setAttribute('cy', `${point.y}`);
+            halo.setAttribute('visibility', 'visible');
+        }
         marker.setAttribute('cx', `${point.x}`);
         marker.setAttribute('cy', `${point.y}`);
-        marker.setAttribute('r', selected ? '6.5' : '4.5');
         marker.setAttribute('visibility', 'visible');
+        const tagWidth = selected ? 92 : 138;
+        const tagHeight = 25;
+        const width = geometry?.width || 640;
+        const height = geometry?.height || 350;
+        const tagX = point.x + tagWidth + 18 > width
+            ? point.x - tagWidth - 10
+            : point.x + 10;
+        const tagY = point.y < 44
+            ? point.y + 10
+            : Math.min(height - tagHeight - 5, point.y - tagHeight - 9);
+        tag.setAttribute('transform', `translate(${tagX} ${tagY})`);
+        tag.setAttribute('visibility', 'visible');
+        if (tagText) {
+            const pointLabel = this.phononBandPointLabel(point) || 'q';
+            tagText.textContent = selected
+                ? `${pointLabel} · ν${point.band}`
+                : this.phononBandPointShortText(point);
+        }
     }
 
     updatePhononBandSelectionUI(point = this.state.phononBandSelection) {
         const output = document.getElementById('phonon-band-selection');
         if (output) output.textContent = this.phononBandPointText(point);
+        const selection = output?.closest('.phonon-band-selection');
+        if (selection) selection.dataset.state = point ? 'selected' : 'idle';
+        const meta = document.getElementById('phonon-band-meta');
+        if (meta) {
+            const result = this.state.phononBandStructure;
+            meta.textContent = point
+                ? this.phononBandPointShortText(point)
+                : `${result?.convention || '-'} · q path · ${result?.frequency_unit || 'THz'}`;
+        }
         const plot = document.getElementById('phonon-band-plot');
         plot?.querySelectorAll('.phonon-band-branch').forEach(path => {
             path.classList.toggle(
@@ -1960,7 +2030,7 @@ class VAseApp {
                 Boolean(point) && Number(path.dataset.band) === Number(point.band)
             );
         });
-        this.updatePhononBandCursor(point, { selected: Boolean(point) });
+        this.updatePhononBandCursor(point, { selected: true });
     }
 
     renderPhononBandStructure(result) {
@@ -1981,9 +2051,9 @@ class VAseApp {
             if (text) element.textContent = text;
             return element;
         };
-        const margin = { left: 62, right: 17, top: 17, bottom: 48 };
+        const margin = { left: 62, right: 17, top: 17, bottom: 66 };
         const width = 640;
-        const height = 330;
+        const height = 350;
         const xMin = Number(result.ticks?.[0]?.distance ?? result.segments[0].distances[0]);
         const xMax = Number(
             result.ticks?.[result.ticks.length - 1]?.distance
@@ -1998,7 +2068,8 @@ class VAseApp {
             * (width - margin.left - margin.right);
         const y = value => height - margin.bottom - (Number(value) - yMin) / (yMax - yMin)
             * (height - margin.top - margin.bottom);
-        plot.__vAseBandGeometry = { x, y, yMin, yMax };
+        plot.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        plot.__vAseBandGeometry = { x, y, yMin, yMax, width, height, margin };
         plot.replaceChildren();
 
         const yTicks = 5;
@@ -2042,12 +2113,18 @@ class VAseApp {
                 }),
                 svg('text', {
                     x: px,
-                    y: height - 18,
+                    y: height - 35,
                     'text-anchor': 'middle',
                     class: 'phonon-band-label'
                 }, this.phononBandLabel(tick.label))
             );
         });
+        plot.append(svg('text', {
+            x: (margin.left + width - margin.right) / 2,
+            y: height - 9,
+            'text-anchor': 'middle',
+            class: 'phonon-band-axis-title'
+        }, 'Wavevector path q'));
         plot.append(svg('text', {
             x: 17,
             y: (margin.top + height - margin.bottom) / 2,
@@ -2076,23 +2153,65 @@ class VAseApp {
                 x2: 0,
                 y2: height - margin.bottom,
                 visibility: 'hidden',
-                class: 'phonon-band-cursor-line'
+                class: 'phonon-band-selected-line'
+            }),
+            svg('line', {
+                x1: margin.left,
+                y1: 0,
+                x2: margin.left,
+                y2: 0,
+                visibility: 'hidden',
+                class: 'phonon-band-selected-horizontal'
             }),
             svg('circle', {
                 cx: 0,
                 cy: 0,
-                r: 4.5,
+                r: 10,
                 visibility: 'hidden',
-                class: 'phonon-band-cursor-point'
-            })
+                class: 'phonon-band-selected-halo'
+            }),
+            svg('circle', {
+                cx: 0,
+                cy: 0,
+                r: 6.5,
+                visibility: 'hidden',
+                class: 'phonon-band-selected-point'
+            }),
+            (() => {
+                const group = svg('g', {
+                    visibility: 'hidden',
+                    class: 'phonon-band-selected-tag'
+                });
+                group.append(
+                    svg('rect', { width: 92, height: 25, rx: 4 }),
+                    svg('text', { x: 8, y: 17 })
+                );
+                return group;
+            })(),
+            svg('circle', {
+                cx: 0,
+                cy: 0,
+                r: 5,
+                visibility: 'hidden',
+                class: 'phonon-band-hover-point'
+            }),
+            (() => {
+                const group = svg('g', {
+                    visibility: 'hidden',
+                    class: 'phonon-band-hover-tag'
+                });
+                group.append(
+                    svg('rect', { width: 138, height: 25, rx: 4 }),
+                    svg('text', { x: 8, y: 17 })
+                );
+                return group;
+            })()
         );
         plot.onpointermove = event => {
             const point = this.phononBandNearestPoint(event);
             this.updatePhononBandCursor(point);
-            const output = document.getElementById('phonon-band-selection');
-            if (output && point) output.textContent = this.phononBandPointText(point);
         };
-        plot.onpointerleave = () => this.updatePhononBandSelectionUI();
+        plot.onpointerleave = () => this.updatePhononBandCursor(null);
         plot.onclick = event => {
             const point = this.phononBandNearestPoint(event);
             if (point) this.selectPhononBandPoint(point);

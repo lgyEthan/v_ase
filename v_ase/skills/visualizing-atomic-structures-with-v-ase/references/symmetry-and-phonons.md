@@ -180,6 +180,14 @@ omits all sampled frequency arrays; use the operation response or the direct
 `phonon_band_structure` endpoint from `schema.scientific_endpoints` when exact
 plot data is required.
 
+Interpret the horizontal plot coordinate as cumulative distance along the
+piecewise reciprocal-space q path, never as Cartesian x or as an atom-motion
+direction. A horizontal location selects q, a vertical branch selects the
+1-based mode `nu`, and the exact dynamical-matrix eigenvector at `(q, nu)`
+determines the real-space displacement directions and phases. Animating that
+eigenvector does not alter the harmonic dispersion. Recalculate force
+constants before claiming a changed structure has a changed band structure.
+
 Never infer reduced q coordinates from a point label alone. Select an exact
 q-point from the returned segment. At a degeneracy, explicitly choose the
 desired 1-based mode after `inspect-phonon-modes` recalculates that q-point.

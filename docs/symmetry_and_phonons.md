@@ -100,6 +100,14 @@ where `H_model` is the row-vector primitive lattice. This conversion is
 required because a named HPKOT point must not be assumed to have the same
 reduced coordinates in an arbitrary input basis.
 
+The horizontal plot coordinate is cumulative distance along the piecewise
+reciprocal-space path, with labels such as Gamma, X, and L marking
+crystallographically defined q-points. It is not Cartesian x, y, or z and does
+not directly specify an atom's displacement direction. At one horizontal
+position, each vertical branch is a mode index `nu`; diagonalizing
+`D(q)` supplies both `omega(q, nu)` and the mass-weighted eigenvector that sets
+the atoms' directions, relative amplitudes, and phases.
+
 The plot stores exact sampled q-points, sorted 1-based mode indices,
 frequencies, path-direction NAC limits at Gamma, and a small diagonal mode-cell
 suggestion when one can be represented within the configured denominator
@@ -107,6 +115,11 @@ limit. Clicking a curve selects an actual sampled point; the mode list is then
 recalculated at that exact q-point. No eigenvector is inferred by drawing or by
 interpolating screen pixels. At degeneracies, the user can choose the desired
 row from the exact mode list.
+
+Animating a selected mode changes the displayed real-space coordinates only.
+It does not recalculate or move the harmonic dispersion because the reference
+structure and force constants have not changed. A deformed structure has a new
+phonon band structure only after its force constants are calculated again.
 
 Band spacing controls plot sampling density. If the requested response would
 contain more than 500,000 frequency values, v_ase coarsens the path or asks for
@@ -226,7 +239,8 @@ conda run -n python311 python scripts/capture_symmetry_readme_assets.py
 
 It recreates the files under `examples/symmetry_branch/`, opens those exact
 structures in v_ase, and captures three Analysis-panel figures plus the
-24-frame phonon-mode GIF under `docs/assets/` and `docs/assets/github/`.
+interactive-selection and 24-frame phonon-mode GIF under `docs/assets/` and
+`docs/assets/github/`.
 
 The examples cover separate scientific states:
 
@@ -235,7 +249,7 @@ The examples cover separate scientific states:
 | Diamond-Si primitive cell | `Fd-3m` No. 227, `m-3m`, 48 operations, one site, HPKOT cF path |
 | Diamond-Si conventional cell | explicit 2-to-8 atom standardization, 192 conventional-cell operations |
 | NaCl 2 x 2 x 2 finite displacements | two 16-atom force-calculation inputs at 0.01 A; no force constants |
-| fcc-Al X-point mode | automatic HPKOT band plot, exact X selection at q=(0.5, 0, 0.5), ASE EMT band 3 at 7.9914 THz, commensurate 4 x 4 x 2 GIF |
+| fcc-Al X-point mode | automatic HPKOT band plot, visible L-to-X selection change, exact X at q=(0.5, 0, 0.5), ASE EMT band 3 at 7.9914 THz, 3.05 A nearest-neighbor context, commensurate 4 x 4 x 2 GIF |
 
 The Al example uses a real dynamical-matrix eigenvector produced from the
 included force constants. EMT is selected to make the example fast and fully
@@ -287,6 +301,3 @@ Primary implementations and methodology:
 - [Togo and Tanaka, First-principles phonon calculations in materials science,
   Scripta Materialia 108, 1-5
   (2015)](https://doi.org/10.1016/j.scriptamat.2015.07.021)
-
-v_ase calls these open-source Python APIs. It does not copy another
-application's UI assets or proprietary implementation.

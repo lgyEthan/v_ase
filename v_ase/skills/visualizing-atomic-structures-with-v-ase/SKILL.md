@@ -18,8 +18,8 @@ Install this isolated symmetry alpha from a checkout of the `symmetry` branch:
 python -m pip install -e ".[symmetry,phonon]"
 ```
 
-The branch version is `0.0.120a5+symmetry`: it identifies main viewer state
-`0.0.120` as the fork base and alpha iteration 5 as symmetry-only work. It is
+The branch version is `0.0.120a6+symmetry`: it identifies main viewer state
+`0.0.120` as the fork base and alpha iteration 6 as symmetry-only work. It is
 intentionally not installed
 from or published to PyPI. Use the checked-out branch as the source of truth.
 
@@ -171,7 +171,9 @@ current trajectory, and create an Undo checkpoint. Read
 project must match the active atom order, elements, lattice metric, and
 periodic positions. `describe()` keeps scientific state compact; use the direct
 scientific endpoint only when full symmetry operations or complex
-eigenvectors are required.
+eigenvectors are required. Never interpret a band plot's horizontal coordinate
+as an atom-motion direction: it is distance along a reciprocal q path, while
+the selected `(q, mode)` eigenvector defines the real-space motion.
 
 ## Minimal End-To-End Example
 

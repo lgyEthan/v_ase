@@ -209,8 +209,8 @@ if (Math.abs(final.positions[liIndex][2] - liPosition[2]) > 1e-8) {
 Render with the Publication Image request above and verify exact dimensions,
 nonblank decoded pixels, three blue nitrogen atoms around one vacancy, and the
 purple Li site above the plane. Save to a new filename. The README source,
-intermediate, and expected final structures are generated from
-`ase.build.graphene`; no external coordinates or private data are used:
+intermediate, and expected final structures are generated with
+`ase.build.graphene`:
 
 - `examples/readme_scene_assets/ai_graphene_source.cif`;
 - `examples/readme_scene_assets/ai_pyridinic_n3_graphene.cif`;

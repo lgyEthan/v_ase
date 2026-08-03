@@ -5,16 +5,16 @@
 # v_ase
 
 [![Symmetry branch](https://img.shields.io/badge/branch-symmetry_alpha-19a89d.svg)](https://github.com/lgyEthan/v_ase/tree/symmetry)
-[![Version](https://img.shields.io/badge/version-0.0.120a5%2Bsymmetry-d2a84a.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.0.120a6%2Bsymmetry-d2a84a.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 > **Experimental symmetry build:** this branch is isolated from `main`, uses
-> the independent version `0.0.120a5+symmetry`, and is not published to PyPI.
+> the independent version `0.0.120a6+symmetry`, and is not published to PyPI.
 > Install it from the `symmetry` branch as shown below.
 
 The version format is `MAIN_BASEaSYMMETRY_ITERATION+symmetry`. Therefore,
-`0.0.120a5+symmetry` means this build was forked from the v_ase `0.0.120`
-viewer state and is the fifth symmetry-branch alpha iteration.
+`0.0.120a6+symmetry` means this build was forked from the v_ase `0.0.120`
+viewer state and is the sixth symmetry-branch alpha iteration.
 
 `v_ase` brings ASE's convenient terminal and Python workflow together with
 direct, Blender-style 3D structure editing. Open a structure or trajectory
@@ -177,12 +177,21 @@ YAML project.
 The final example calculates finite-displacement forces for fcc Al with ASE
 EMT, builds force constants in Phonopy, and loads the completed YAML into
 v_ase. Loading the project automatically calculates the SeeK-path HPKOT phonon
-dispersion. Clicking the X point transfers its exact reciprocal coordinate,
-selected branch, NAC direction when applicable, and a commensurate mode-cell
-suggestion into the mode controls. In the Phonopy primitive basis, this X point
-is `q=(0.5, 0, 0.5)`; the selected band 3 mode is `7.9914 THz` and Y-dominant.
-The GIF shows the live band selection and its 24-frame oscillation in a
-commensurate `4 x 4 x 2` display supercell.
+dispersion. The GIF first points at L and then clicks X: the locked marker,
+highlighted branch, exact q-point, band index, frequency, and commensurate cell
+all change before the selected mode is animated. In the Phonopy primitive
+basis, X is `q=(0.5, 0, 0.5)`; the selected band 3 mode is `7.9914 THz` and
+Y-dominant. Its 24-frame oscillation uses a commensurate `4 x 4 x 2` mode cell.
+Thin Al-Al nearest-neighbor connections within `3.05 A` show the fcc topology
+without treating the connectors as localized chemical bonds.
+
+The horizontal axis is cumulative distance along the reciprocal-space
+wavevector path `Γ-X-U|K-Γ-L-W-X`, not a Cartesian atomic-motion axis. A
+clicked x position selects a wavevector `q`; choosing one vertical branch
+selects mode `ν`. The eigenvector of the pair `(q, ν)` determines the actual
+atomic directions and relative phases. Playing that harmonic mode does not
+move the dispersion curve. A physically changed structure needs newly
+calculated force constants before its band structure can change.
 
 - [Al primitive CIF](examples/symmetry_branch/al_fcc_primitive.cif)
 - [completed phonopy YAML with force constants](examples/symmetry_branch/al_emt_phonopy_params.yaml)

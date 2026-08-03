@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.120a6+symmetry
+
+- Made phonon-band interaction visually explicit with independent hover and
+  locked-selection markers, selected-branch emphasis, reciprocal-wavevector
+  axis labeling, and structured q-point, mode, frequency, and mode-cell state.
+- Added an actual L-to-X browser-click regression so selection at distinct
+  horizontal positions must update the exact q-point and mode controls.
+- Added thin 3.05 A Al-Al nearest-neighbor connections to the fcc-Al mode
+  example and regenerated its GIF to show graph interaction before the
+  physical eigenmode animation.
+- Documented that the horizontal coordinate is cumulative distance along a
+  reciprocal-space q path, while the eigenvector at `(q, nu)` determines atom
+  motion. Harmonic mode playback does not recalculate the dispersion.
+- Kept this release on the GitHub `symmetry` branch only. It is not published
+  to PyPI and does not modify GitHub `main`.
+
 ## 0.0.120a5+symmetry
 
 - Added automatic SeeK-path HPKOT phonon-band calculation after loading a
@@ -520,7 +536,7 @@
 ## 0.0.90
 
 - Redrew the four 3D camera-orbit controls with continuous hooked silhouettes,
-  direction-specific tails, volumetric shading, and the established VESTA
+  direction-specific tails, volumetric shading, and a consistent toolbar
   order; corrected the actual up/down camera directions.
 - Consolidated Appearance and Bonds into a scroll-linked Structure workspace
   alongside Cell, Transform, Constraints, and Relaxation.
@@ -535,8 +551,8 @@
 
 - Redrew the first four camera controls as depth-coded orbit arrows with a
   shaded rear tail, front face, overlap seam, and highlight. Their start and
-  end geometry now follows the vertical and horizontal VESTA-style paths
-  instead of rotating one flat glyph for every direction.
+  end geometry now follows distinct vertical and horizontal paths instead of
+  rotating one flat glyph for every direction.
 - Corrected the upward and downward view actions to follow the visible arrow
   direction and retained exact inverse-operation camera recovery.
 - Added Chromium coverage for every volumetric icon layer, the distinct

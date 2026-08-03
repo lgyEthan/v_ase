@@ -225,9 +225,10 @@ Run all scenarios, not only static document checks:
       every frame is a valid periodic ASE structure;
     - load a completed phonopy YAML containing force constants and calculate
       the full HPKOT band plot automatically;
-    - click an actual sampled branch point in the browser, verify the reduced
-      q-point in the Phonopy primitive basis, choose a degenerate mode row, and
-      apply the suggested commensurate mode cell;
+    - click distinct sampled L and X branch points in the browser, verify the
+      locked marker, highlighted branch, reduced q-point, and frequency all
+      update, choose a degenerate mode row, and apply the suggested
+      commensurate mode cell;
     - inspect the selected q-point with Cartesian polarization projection and
       retain negative frequencies as imaginary;
     - reject a phonopy project whose atom order, elements, cell, or periodic
@@ -240,8 +241,10 @@ Run all scenarios, not only static document checks:
     - reject an incommensurate mode supercell;
     - generate a commensurate oscillating mode trajectory and verify q-point,
       band, frequency, amplitude, phase sequence, atom count, and frame count
-      semantically and in the rendered 24-frame GIF; verify the band selection
-      stays visible and custom labels and isotope masses survive every frame.
+      semantically and in the rendered 24-frame mode sequence; verify the GIF
+      first demonstrates L-to-X interaction, the selected state stays visible,
+      Al-Al context bonds render, and custom labels and isotope masses survive
+      every frame.
 
 ## Visual Assertions
 

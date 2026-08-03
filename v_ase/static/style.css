@@ -1939,11 +1939,17 @@ body.inspector-wide #inspector .supercell-row {
 
 .phonon-band-head {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
     gap: 10px;
     padding: 8px 10px 6px;
     border-bottom: 1px solid var(--line);
+}
+
+.phonon-band-head > div {
+    display: grid;
+    gap: 1px;
+    min-width: 0;
 }
 
 .phonon-band-head strong {
@@ -1961,11 +1967,21 @@ body.inspector-wide #inspector .supercell-row {
     white-space: nowrap;
 }
 
+.phonon-band-head > div span {
+    font-size: 0.54rem;
+}
+
+.phonon-band-head > span {
+    max-width: 52%;
+    color: var(--teal-contrast);
+    text-align: right;
+}
+
 .phonon-band-plot {
     display: block;
     width: 100%;
     height: auto;
-    aspect-ratio: 640 / 330;
+    aspect-ratio: 640 / 350;
     background: var(--neutral-950);
     cursor: crosshair;
     touch-action: none;
@@ -1999,7 +2015,8 @@ body.inspector-wide #inspector .supercell-row {
 }
 
 .phonon-band-label,
-.phonon-band-axis-label {
+.phonon-band-axis-label,
+.phonon-band-axis-title {
     fill: var(--text-soft);
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     font-size: 18px;
@@ -2012,7 +2029,13 @@ body.inspector-wide #inspector .supercell-row {
     font-size: 15px;
 }
 
-.phonon-band-cursor-line {
+.phonon-band-axis-title {
+    fill: var(--muted);
+    font-size: 15px;
+}
+
+.phonon-band-selected-line,
+.phonon-band-selected-horizontal {
     stroke: var(--teal-border-strong);
     stroke-width: 1;
     stroke-dasharray: 3 3;
@@ -2020,7 +2043,20 @@ body.inspector-wide #inspector .supercell-row {
     pointer-events: none;
 }
 
-.phonon-band-cursor-point {
+.phonon-band-selected-horizontal {
+    opacity: 0.62;
+}
+
+.phonon-band-selected-halo {
+    fill: none;
+    stroke: var(--amber);
+    stroke-width: 1.5;
+    opacity: 0.42;
+    vector-effect: non-scaling-stroke;
+    pointer-events: none;
+}
+
+.phonon-band-selected-point {
     fill: var(--amber);
     stroke: var(--neutral-950);
     stroke-width: 2;
@@ -2028,13 +2064,76 @@ body.inspector-wide #inspector .supercell-row {
     pointer-events: none;
 }
 
+.phonon-band-hover-point {
+    fill: var(--neutral-950);
+    stroke: var(--teal);
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+    pointer-events: none;
+}
+
+.phonon-band-selected-tag,
+.phonon-band-hover-tag {
+    pointer-events: none;
+}
+
+.phonon-band-selected-tag rect {
+    fill: var(--amber-soft);
+    stroke: var(--amber-border);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+}
+
+.phonon-band-hover-tag rect {
+    fill: var(--neutral-900);
+    stroke: var(--teal-border-strong);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+}
+
+.phonon-band-selected-tag text,
+.phonon-band-hover-tag text {
+    fill: var(--text);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+    letter-spacing: 0;
+}
+
 .phonon-band-selection {
-    min-height: 38px;
-    padding: 7px 10px 8px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: 8px;
+    min-height: 42px;
+    padding: 8px 10px 9px;
     border-top: 1px solid var(--line);
     color: var(--text-soft);
+}
+
+.phonon-band-selection-state {
+    margin-top: 1px;
+    padding: 2px 5px;
+    border: 1px solid var(--line-strong);
+    border-radius: 3px;
+    color: var(--muted);
+    font-size: 0.51rem;
+    font-weight: 700;
+    line-height: 1.3;
+    text-transform: uppercase;
+}
+
+.phonon-band-selection[data-state="selected"] .phonon-band-selection-state {
+    border-color: var(--teal-border-strong);
+    background: var(--teal-soft);
+    color: var(--teal-contrast);
+}
+
+.phonon-band-selection strong {
+    min-width: 0;
+    color: inherit;
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     font-size: 0.6rem;
+    font-weight: 500;
     line-height: 1.45;
 }
 
