@@ -31,8 +31,10 @@ Pillow. Symmetry analysis adds spglib and SeeK-path; physical phonon mode
 workflows add Phonopy. No Node.js runtime, API key, or hosted account is
 required.
 
-The tested branch version is `0.1.0a2+symmetry`. It is not a PyPI release;
-never substitute a `v_ase-gui==...` registry install for this checkout.
+The tested branch version is `0.0.120a3+symmetry`. The `0.0.120` prefix records
+the main viewer state from which this repository was forked, while `a3` is the
+independent symmetry iteration. It is not a PyPI release; never substitute a
+`v_ase-gui==...` registry install for this checkout.
 
 Verify the active executable and import:
 

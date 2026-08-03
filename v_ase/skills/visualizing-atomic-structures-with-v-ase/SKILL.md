@@ -18,7 +18,9 @@ Install this isolated symmetry alpha from a checkout of the `symmetry` branch:
 python -m pip install -e ".[symmetry,phonon]"
 ```
 
-The branch version is `0.1.0a2+symmetry`. It is intentionally not installed
+The branch version is `0.0.120a3+symmetry`: it identifies main viewer state
+`0.0.120` as the fork base and alpha iteration 3 as symmetry-only work. It is
+intentionally not installed
 from or published to PyPI. Use the checked-out branch as the source of truth.
 
 Start the terminal-oriented API session yourself:

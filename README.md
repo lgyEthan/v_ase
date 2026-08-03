@@ -5,12 +5,16 @@
 # v_ase
 
 [![Symmetry branch](https://img.shields.io/badge/branch-symmetry_alpha-19a89d.svg)](https://github.com/lgyEthan/v_ase/tree/symmetry)
-[![Version](https://img.shields.io/badge/version-0.1.0a2%2Bsymmetry-d2a84a.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.0.120a3%2Bsymmetry-d2a84a.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 > **Experimental symmetry build:** this branch is isolated from `main`, uses
-> the independent version `0.1.0a2+symmetry`, and is not published to PyPI.
+> the independent version `0.0.120a3+symmetry`, and is not published to PyPI.
 > Install it from the `symmetry` branch as shown below.
+
+The version format is `MAIN_BASEaSYMMETRY_ITERATION+symmetry`. Therefore,
+`0.0.120a3+symmetry` means this build was forked from the v_ase `0.0.120`
+viewer state and is the third symmetry-branch alpha iteration.
 
 `v_ase` brings ASE's convenient terminal and Python workflow together with
 direct, Blender-style 3D structure editing. Open a structure or trajectory

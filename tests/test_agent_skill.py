@@ -117,8 +117,9 @@ def test_symmetry_branch_has_an_independent_nonpublished_alpha_contract():
     documented = _documented_skill_text()
 
     assert config["project"]["version"] == __version__
-    assert re.fullmatch(r"\d+\.\d+\.\d+a\d+\+symmetry", __version__)
-    assert not __version__.startswith("0.0.120")
+    assert re.fullmatch(r"0\.0\.120a\d+\+symmetry", __version__)
+    assert "MAIN_BASEaSYMMETRY_ITERATION+symmetry" in readme
+    assert "forked from the v_ase `0.0.120`" in readme
     assert "not published to PyPI" in readme
     assert "not a PyPI release" in documented
     assert "twine upload" not in readme + documented

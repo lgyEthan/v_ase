@@ -8,8 +8,10 @@ This repository is the standalone experimental symmetry build.
   sibling `interactive_visualizer` repository.
 - Work only on the `symmetry` branch unless the user explicitly creates
   another branch inside this standalone repository.
-- Keep versions independent from the main package using a PEP 440 prerelease
-  with a symmetry marker, such as `0.1.0a2+symmetry`.
+- Keep versions independent from the main package using
+  `MAIN_BASEaSYMMETRY_ITERATION+symmetry`, for example
+  `0.0.120a3+symmetry`. The first three fields identify the main release whose
+  viewer state was forked; the alpha number advances only on this branch.
 - Never merge or push changes to the original GitHub `main` branch.
 - Never upload this experimental build to PyPI.
 - Local wheel and sdist builds plus `twine check` are allowed for validation.

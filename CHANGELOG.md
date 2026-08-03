@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.0.120a3+symmetry
+
+- Changed the experimental version convention to
+  `MAIN_BASEaSYMMETRY_ITERATION+symmetry` so the originating main viewer
+  release is visible directly in every package, UI, and documentation version.
+- Recorded `0.0.120` as the forked viewer state and retained an independent
+  symmetry-only alpha sequence. No main-branch merge or PyPI release is part
+  of this version change.
+
 ## 0.1.0a2+symmetry
 
 - Kept phonon-mode trajectories continuous when atoms oscillate across a

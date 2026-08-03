@@ -8,8 +8,11 @@ and rendered examples in sync.
 > sibling `interactive_visualizer` repository, never merge or push to GitHub
 > `main`, and never upload this experimental package to PyPI.
 
-1. Update the version in `pyproject.toml`, `v_ase/_version.py`, the application
-   shell, cache-busted JavaScript imports, and `CHANGELOG.md`.
+1. Advance `MAIN_BASEaSYMMETRY_ITERATION+symmetry` and update it in
+   `pyproject.toml`, `v_ase/_version.py`, the application shell, cache-busted
+   JavaScript imports, and `CHANGELOG.md`. Keep `MAIN_BASE` at the main release
+   from which this standalone repository was forked unless a deliberate new
+   fork is created.
 2. Update `README.md` for every user-visible behavior change.
 3. Update the canonical
    `v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md` and its

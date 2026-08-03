@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "v_ase-gui"
-version = "0.1.0a2+symmetry"
+version = "0.0.120a3+symmetry"
 description = "A local 3D viewer and editor for atomic structures and trajectories."
 readme = "README.md"
 license = "MIT"
