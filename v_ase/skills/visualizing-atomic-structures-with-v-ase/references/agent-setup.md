@@ -58,16 +58,17 @@ cp -R v_ase/skills/visualizing-atomic-structures-with-v-ase \
   .claude/skills/
 ```
 
-For another client with a `SKILL.md` loader, copy the complete directory to
-that client's documented local skill directory. Do not invent a vendor
-directory name when the client does not document one.
+GitHub Copilot agents that support Agent Skills can use the same complete
+directory through the client's documented skill location. For any other client
+with a `SKILL.md` loader, copy the directory only to that client's documented
+location. Do not invent a vendor directory name.
 
 ## Any Other AI Agent
 
 ChatGPT desktop agents, Gemini-based agents, agentic IDEs, and other local
-models can use the same contract without native skill installation:
+models can use the same contract without claiming native skill discovery:
 
-1. attach or expose `SKILL.md` and the relevant references;
+1. attach or explicitly reference `SKILL.md` and the relevant references;
 2. ensure the agent can run local shell commands and can open a loopback URL;
 3. give it the bootstrap instruction below;
 4. let the agent start and parse the CLI/API session itself.

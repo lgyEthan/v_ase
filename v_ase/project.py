@@ -64,6 +64,8 @@ class VaseProject:
     current_frame: int
     manifest: dict[str, Any]
     volumetric_datasets: list[VolumetricData] = field(default_factory=list)
+    commensurate_guest_atoms: Atoms | None = None
+    commensurate_guest_name: str | None = None
 
 
 def _json_copy(value: Any) -> Any:
@@ -454,6 +456,7 @@ def write_project_archive(
         arrays_path = Path(tmp_dir) / "atom_arrays.npz"
         calculator_path = Path(tmp_dir) / "calculator_results.npz"
         volumetric_paths: list[tuple[Path, str]] = []
+        guest_path: Path | None = None
         _write_frames(trajectory_path, frames)
         arrays_manifest = _write_array_sidecar(arrays_path, frames)
         calculator_manifest = _write_calculator_sidecar(calculator_path, frames)
@@ -484,6 +487,14 @@ def write_project_archive(
             volumetric_manifest.append(entry)
             volumetric_paths.append((dataset_path, archive_name))
         manifest["volumetric_datasets"] = volumetric_manifest
+        if session.commensurate_guest_atoms is not None:
+            guest_path = Path(tmp_dir) / "commensurate_guest.traj"
+            _write_frames(guest_path, [session.commensurate_guest_atoms])
+            manifest["commensurate_guest"] = {
+                "path": "commensurate_guest.traj",
+                "labels_path": "commensurate_guest_labels.json",
+                "name": session.commensurate_guest_name or "Guest structure",
+            }
         with zipfile.ZipFile(destination, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
             archive.writestr(
                 "manifest.json",
@@ -500,6 +511,16 @@ def write_project_archive(
             archive.write(trajectory_path, arcname="structure.traj")
             archive.write(arrays_path, arcname="atom_arrays.npz")
             archive.write(calculator_path, arcname="calculator_results.npz")
+            if guest_path is not None:
+                archive.write(guest_path, arcname="commensurate_guest.traj")
+                archive.writestr(
+                    "commensurate_guest_labels.json",
+                    json.dumps(
+                        _label_payload([session.commensurate_guest_atoms]),
+                        ensure_ascii=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8"),
+                )
             for dataset_path, archive_name in volumetric_paths:
                 archive.write(dataset_path, arcname=archive_name)
     return destination
@@ -533,6 +554,8 @@ def _validate_archive(archive: zipfile.ZipFile) -> None:
 
 def read_project_archive(path: str | Path) -> VaseProject:
     source = Path(path)
+    guest_atoms: Atoms | None = None
+    guest_name: str | None = None
     try:
         with zipfile.ZipFile(source, mode="r") as archive:
             _validate_archive(archive)
@@ -550,6 +573,9 @@ def read_project_archive(path: str | Path) -> VaseProject:
                 raise ValueError("Every .vase volumetric dataset requires a non-empty id.")
             if len(dataset_ids) != len(set(dataset_ids)):
                 raise ValueError("A .vase project contains duplicate volumetric dataset ids.")
+            guest_manifest = manifest.get("commensurate_guest")
+            if guest_manifest is not None and not isinstance(guest_manifest, dict):
+                raise ValueError("Invalid .vase commensurate guest manifest.")
             with tempfile.TemporaryDirectory(prefix="v_ase_project_load_") as tmp_dir:
                 trajectory_path = Path(tmp_dir) / "structure.traj"
                 arrays_path = Path(tmp_dir) / "atom_arrays.npz"
@@ -642,6 +668,28 @@ def read_project_archive(path: str | Path) -> VaseProject:
                                 dataset_id=str(entry.get("id") or ""),
                             )
                         )
+                if guest_manifest:
+                    guest_archive_name = str(guest_manifest.get("path") or "")
+                    if guest_archive_name != "commensurate_guest.traj":
+                        raise ValueError("Invalid .vase commensurate guest path.")
+                    if guest_archive_name not in archive.namelist():
+                        raise ValueError("Invalid .vase project: missing commensurate guest structure.")
+                    guest_path = Path(tmp_dir) / "commensurate_guest.traj"
+                    with archive.open(guest_archive_name) as incoming, guest_path.open("wb") as outgoing:
+                        while chunk := incoming.read(1024 * 1024):
+                            outgoing.write(chunk)
+                    loaded_guest = read(guest_path, index=0, format="traj")
+                    if not isinstance(loaded_guest, Atoms) or len(loaded_guest) < 1:
+                        raise ValueError("The .vase commensurate guest structure is empty.")
+                    guest_labels_path = str(
+                        guest_manifest.get("labels_path")
+                        or "commensurate_guest_labels.json"
+                    )
+                    if guest_labels_path in archive.namelist():
+                        guest_labels = json.loads(archive.read(guest_labels_path).decode("utf-8"))
+                        _restore_labels([loaded_guest], guest_labels)
+                    guest_atoms = loaded_guest
+                    guest_name = str(guest_manifest.get("name") or "Guest structure")
             labels_payload = json.loads(archive.read("labels.json").decode("utf-8")) if "labels.json" in archive.namelist() else None
             info_payload = json.loads(archive.read("frame_info.json").decode("utf-8")) if "frame_info.json" in archive.namelist() else None
     except zipfile.BadZipFile as exc:
@@ -673,6 +721,12 @@ def read_project_archive(path: str | Path) -> VaseProject:
         current_frame=current_frame,
         manifest=manifest,
         volumetric_datasets=volumetric_datasets,
+        commensurate_guest_atoms=(
+            _copy_with_cached_results(guest_atoms)
+            if guest_atoms is not None
+            else None
+        ),
+        commensurate_guest_name=guest_name,
     )
 
 
@@ -806,3 +860,10 @@ def replace_session_from_project(session: EditorSession, project: VaseProject) -
         initial_design_settings=_json_copy(project.settings),
         volumetric_datasets=project.volumetric_datasets,
     )
+    session.commensurate_guest_atoms = (
+        copy_atoms_with_calc(project.commensurate_guest_atoms, attach_default=False)
+        if project.commensurate_guest_atoms is not None
+        else None
+    )
+    session.commensurate_guest_name = project.commensurate_guest_name
+    session.commensurate_search_cache = None

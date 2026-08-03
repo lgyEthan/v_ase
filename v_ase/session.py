@@ -37,6 +37,14 @@ class EditorSession:
     # for operations that replace them, avoiding copies of large arrays.
     volumetric_datasets: List[Any] = field(default_factory=list)
     original_volumetric_datasets: List[Any] = field(default_factory=list)
+    # Optional second structure used only by the commensurate host/guest
+    # workspace until a validated common cell is materialized.
+    commensurate_guest_atoms: Optional[Atoms] = None
+    commensurate_guest_name: Optional[str] = None
+    commensurate_search_cache: Optional[Dict[str, Any]] = field(
+        default=None,
+        repr=False,
+    )
     
     # History
     history: List[SessionHistoryState] = field(default_factory=list)
@@ -619,6 +627,9 @@ def replace_session_frames(
     session.trajectory_source = trajectory_source
     session.volumetric_datasets = list(volumetric_datasets or [])
     session.original_volumetric_datasets = list(volumetric_datasets or [])
+    session.commensurate_guest_atoms = None
+    session.commensurate_guest_name = None
+    session.commensurate_search_cache = None
     session.current_frame = frame_index
     session.original_atoms = copy_atoms_with_calc(original_frames[0], attach_default=attach_default)
     session.working_atoms = copy_atoms_with_calc(working_frames[frame_index], attach_default=attach_default)

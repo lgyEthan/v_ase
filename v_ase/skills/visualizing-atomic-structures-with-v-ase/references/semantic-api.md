@@ -186,9 +186,13 @@ Pass `operation` as a name string or object:
 | `set-constraints` | selection/`indices`; `fixAtoms`; `kind` = `fixed_line`/`fixed_plane`; `vector`; `clearDirectional` | Edit supported constraints |
 | `move-selection` | `vector` | Translate selected atoms |
 | `rotate-selection` | `axis`, `angleDeg`, optional `pivot` | Rotate selected atoms |
-| `rotate-to-commensurate` | `angleDeg`, selection/`indices`; optional `axis`, `pivot`, `strainTolerance`, `maxIndex`, `maxAreaRatio`, `maxAngleDifferenceDeg` | Rotate to the nearest validated 2D periodic match and show its bounded common-cell proposal |
+| `rotate-to-commensurate` | `angleDeg`, selection/`indices`; optional `axis`, `pivot`, `strainTolerance`, `maxIndex`, `maxAreaRatio`, `maxAngleDifferenceDeg`, `showAtoms` | Rotate to the nearest validated 2D periodic match and show its bounded common-cell proposal; preview atoms remain off unless requested |
+| `load-commensurate-guest` | `path`; optional `format` | Load one independent guest structure from inside the CLI launch directory |
+| `remove-commensurate-guest` | none | Remove the pending independent guest without changing the host |
+| `calculate-commensurate` | optional `mode`, `axis`, `angleDeg`, `strainTarget`, `strainTolerance`, `maxIndex`, `maxAreaRatio`, `showAtoms` | Search bounded same-lattice or host/guest integer common cells and open the 3D angle/area/strain graph |
 | `apply-commensurate-cell` | active proposal | Materialize the validated common cell as the ASE unit cell |
 | `dismiss-commensurate-cell` | none | Close the proposal and restore the pre-preview camera |
+| `calculate-registry-map` | selection/`indices`; optional `metric`, `gridX`, `gridY` | Scan one periodic XY cell of selected-component translations and open the heatmap |
 | `undo` / `redo` | none | Traverse structure or visualization-setting history |
 | `reset-coordinates` | none | Restore loaded coordinates and original cell |
 | `start-relaxation` | `fmax`, `steps`, optional `calculator` | Start optimization |
@@ -222,38 +226,112 @@ await ai.apply({
 });
 ```
 
-Commensurate rotation and explicit materialization are deliberately separate:
+Commensurate search, rotation, and explicit materialization are deliberately
+separate. The rigorously supported plane is global XY with rotation about
+global Z.
+
+For a same-lattice twist, select the rotating component and search its
+independent copy of the current cell:
 
 ```javascript
 const proposed = await ai.apply({
   mode: "edit",
   selection: {clear: true, indices: [0, 1]},
   operation: {
-    name: "rotate-to-commensurate",
+    name: "calculate-commensurate",
+    mode: "same-lattice",
     axis: "Z",
-    angleDeg: 21.2,
-    pivot: "com",
+    angleDeg: 0,
     strainTolerance: 0.01,
     maxAreaRatio: 16,
-    maxAngleDifferenceDeg: 2,
-    applyConstraints: true
+    showAtoms: false
   }
 });
 ```
 
-Inspect `proposed.analysis.commensurateProposal` before proceeding. It reports
-the matrices, crystallographic notation, area ratio, boundary strain, opaque
-core count, one-cell shell count, and whether materialization is supported.
-Only after explicit user approval:
+For different lattices, first load the guest from a path confined to the
+directory in which `v_ase gui ... --cli` was launched:
+
+```javascript
+await ai.apply({operation: {
+  name: "load-commensurate-guest",
+  path: "layers/hbn.cif"
+}});
+const searched = await ai.apply({operation: {
+  name: "calculate-commensurate",
+  mode: "host-guest",
+  axis: "Z",
+  angleDeg: 0,
+  strainTarget: "guest",
+  strainTolerance: 0.01,
+  maxAreaRatio: 16,
+  showAtoms: false
+}});
+```
+
+Inspect `searched.analysis.commensurate` and
+`searched.analysis.commensurateProposal`. They report the guest, mode, current
+angle, references, host/guest matrices and area ratios, crystallographic
+notation, selected strain target, cells-only/atom preview counts, and whether
+materialization is supported. Use `rotate-to-commensurate` only after choosing
+a particular same-lattice candidate angle. Set `showAtoms:true` only when the
+human needs the atom/bond halo; cells-only is clearer and cheaper.
+
+The 3D plot uses angle, area ratio, and strain; its live plane follows the
+current guest angle. Export its semantic data without reading pixels:
+
+```bash
+v_ase api "$COMMAND_URL" export --save common-cells.csv --params '{
+  "format":"commensurate-csv",
+  "mode":"host-guest",
+  "strainTarget":"guest",
+  "strainTolerance":0.01,
+  "maxAreaRatio":16
+}'
+```
+
+Only after explicit user approval and a supported single-structure proposal:
 
 ```javascript
 await ai.apply({operation: "apply-commensurate-cell"});
 ```
 
 Use `dismiss-commensurate-cell` to keep the rotated coordinates without
-materializing the proposal. Never replace this workflow with ordinary
+materializing the proposal. Use `remove-commensurate-guest` to discard an
+unmaterialized external guest. Never replace this workflow with ordinary
 `display.supercell`, `set-supercell`, or one guessed integer matrix; those are
-different operations.
+different operations. A match minimizes a bounded cell-boundary mismatch, not
+an electronic energy.
+
+Registry-map scan after selecting the moving interface component:
+
+```javascript
+const registry = await ai.apply({
+  selection: {clear: true, indices: [40, 41, 42, 43]},
+  operation: {
+    name: "calculate-registry-map",
+    metric: "short-contact",
+    gridX: 48,
+    gridY: 48
+  }
+});
+```
+
+`metric` is `"short-contact"` or `"bond-strain"`. Bond strain requires at
+least one enabled selected-to-host pairwise cutoff. Inspect
+`registry.analysis.registryMap`: the optimum and current coordinates are
+fractional in the two periodic in-plane cell vectors and lower is better.
+While the map is active, GUI `G` movement is restricted to XY and updates the
+current map marker. Export the calculated grid directly:
+
+```bash
+v_ase api "$COMMAND_URL" export --save registry.csv --params '{
+  "format":"registry-csv",
+  "metric":"short-contact",
+  "gridX":48,
+  "gridY":48
+}'
+```
 
 ```javascript
 await ai.apply({
@@ -353,11 +431,18 @@ Transform and commensurate settings:
 | --- | --- |
 | `rotatePivot` | `"selection"`, `"active"`, `"origin"`, or `"cell"` |
 | `commensurateGuide` | show periodic 2D match candidates |
+| `commensurateMode` | `"same-lattice"` or `"host-guest"` |
 | `commensurateSnap` | snap to a candidate |
+| `commensurateStrainTarget` | `"guest"` (default) or `"host"` |
 | `commensurateStrainTolerance` | fractional boundary strain |
 | `commensurateMaxIndex` | integer search bound |
 | `commensurateMaxAreaRatio` | maximum proposed common-cell area ratio; default `16` |
 | `commensurateSnapRangeDeg` | angular snap window |
+| `commensurateShowAtoms` | include preview atoms and one-cell boundary-bond halo; default false |
+| `commensurateGuestAngleDeg` | independent guest rotation about global Z |
+| `commensurateGuestOffset` | guest Cartesian display/materialization offset |
+| `registryMetric` | `"short-contact"` or `"bond-strain"` |
+| `registryGridX`, `registryGridY` | fractional XY grid dimensions, 4 through 160 |
 
 Constraint visualization includes FixAtoms, FixScaled, FixedLine, FixedPlane,
 and Hookean. FixedLine uses one straight axis through the atom center and never
@@ -614,6 +699,8 @@ Supported formats:
 | `project` | self-contained `.vase` project |
 | `settings` | reusable visual settings without coordinates |
 | `rdf-csv` | total RDF and requested partial curves as CSV |
+| `commensurate-csv` | angle/area/strain candidates, integer matrices, notation, and citations |
+| `registry-csv` | complete fractional XY registry grid and metric metadata |
 
 Standalone HTML:
 

@@ -911,13 +911,45 @@ export class ASEApi {
         }));
     }
 
-    async commensurateAngles(axis, maxIndex = 32, strainTolerance = 0.01, maxAreaRatio = 16) {
+    async commensurateAngles(
+        axis,
+        maxIndex = 32,
+        strainTolerance = 0.01,
+        maxAreaRatio = 16,
+        options = {}
+    ) {
         return await this.jsonPost(`/api/commensurate/{session_id}`, this.framePayload({
             axis,
             max_index: maxIndex,
             strain_tolerance: strainTolerance,
-            max_area_ratio: maxAreaRatio
+            max_area_ratio: maxAreaRatio,
+            mode: options.mode || 'same-lattice',
+            strain_target: options.strainTarget || 'guest',
+            job_id: options.jobId || undefined
         }));
+    }
+
+    async loadCommensurateGuest(file, inputFormat = '') {
+        const params = new URLSearchParams({
+            filename: file?.name || 'guest.xyz'
+        });
+        if (inputFormat) params.set('input_format', inputFormat);
+        return await this.request(`/api/commensurate/guest/{session_id}?${params.toString()}`, {
+            method: 'POST',
+            headers: {'Content-Type': file?.type || 'application/octet-stream'},
+            body: file
+        });
+    }
+
+    async loadCommensurateGuestPath(path, inputFormat = '') {
+        return await this.jsonPost(`/api/commensurate/guest-path/{session_id}`, {
+            path,
+            input_format: inputFormat || undefined
+        });
+    }
+
+    async removeCommensurateGuest() {
+        return await this.post(`/api/commensurate/guest/remove/{session_id}`);
     }
 
     async previewCommensurateSupercell(payload) {
@@ -932,6 +964,29 @@ export class ASEApi {
             `/api/commensurate/apply/{session_id}`,
             this.framePayload(payload)
         );
+    }
+
+    async exportCommensurateCsv(options = {}) {
+        return await this.request(`/api/analysis/commensurate-csv/{session_id}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(this.framePayload(options))
+        }, { expect: 'blob' });
+    }
+
+    async fetchRegistryMap(options = {}) {
+        return await this.jsonPost(
+            `/api/analysis/registry/{session_id}`,
+            this.framePayload(options)
+        );
+    }
+
+    async exportRegistryCsv(options = {}) {
+        return await this.request(`/api/analysis/registry-csv/{session_id}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(this.framePayload(options))
+        }, { expect: 'blob' });
     }
 
     async setFrame(index) {

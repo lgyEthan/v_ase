@@ -354,7 +354,10 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     rotate = readme.index("### Rotate", move)
     ferrocene = readme.index("#### Ferrocene: Use Fe As The Active Pivot", rotate)
     phosphorene = readme.index("#### Phosphorene: Build The Twist One Edit At A Time", ferrocene)
-    commensurate = readme.index("#### Graphene/hBN: Find A Commensurate Rotation", phosphorene)
+    commensurate = readme.index(
+        "#### Commensurate Atoms: Match Periodic 2D Cells",
+        phosphorene,
+    )
     measurement = readme.index("## Measurement And Analysis", commensurate)
 
     assert ai < structure < select < move < rotate < ferrocene < phosphorene < commensurate < measurement
@@ -429,11 +432,11 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
         ROOT / "docs" / "design" / "ai_collaboration_figure.html"
     ).read_text(encoding="utf-8")
     for required in (
-        "INTO v_ase: EXACT COMMANDS",
-        "OUT OF v_ase: STATE + REVISION",
-        "OUT OF v_ase: LIVE 3D DOCUMENT",
-        "IN: GUI EDITS",
-        "the system doing the atomistic work",
+        "EXACT CLI / API COMMANDS",
+        "EXACT STATE + REVISION",
+        "LIVE 3D DOCUMENT",
+        "GUI REFINEMENT",
+        "scientific workspace in the cycle",
     ):
         assert required in figure_source
     assert "LIVE FEEDBACK LOOP" not in figure_source

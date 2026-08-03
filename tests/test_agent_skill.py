@@ -122,6 +122,7 @@ def test_skill_explains_vendor_neutral_agent_handoff():
     for required in (
         "Codex",
         "Claude Code",
+        "GitHub Copilot",
         "ChatGPT desktop agents",
         "Gemini-based agents",
         "SKILL.md",
@@ -180,6 +181,9 @@ def test_skill_documents_bidirectional_same_document_collaboration():
         assert required.lower() in (
             collaboration + readme + evaluation
         ).lower(), required
+
+    assert "pristine 6 x 6 graphene" in collaboration
+    assert "preserve PBC" not in collaboration
 
 
 def test_skill_documents_offline_html_handoff_contract():
@@ -340,15 +344,57 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         "maxAreaRatio",
         "strainTolerance",
         "maxAngleDifferenceDeg",
+        "showAtoms",
     }.issubset(
         schema["operation_parameters"]["rotate-to-commensurate"]["optional"]
     )
     assert schema["operation_parameters"]["apply-commensurate-cell"]["mode"] == "edit"
+    assert schema["operation_parameters"]["load-commensurate-guest"]["required"] == [
+        "path"
+    ]
+    assert {
+        "strainTarget",
+        "strainTolerance",
+        "maxAreaRatio",
+        "angleDeg",
+        "showAtoms",
+    }.issubset(
+        schema["operation_parameters"]["load-commensurate-guest"]["optional"]
+    )
+    assert {
+        "mode",
+        "strainTarget",
+        "strainTolerance",
+        "maxAreaRatio",
+        "angleDeg",
+        "showAtoms",
+        "snap",
+    }.issubset(
+        schema["operation_parameters"]["calculate-commensurate"]["optional"]
+    )
+    assert schema["operation_parameters"]["calculate-registry-map"]["required"] == [
+        "selection-or-indices"
+    ]
+    assert schema["operation_parameters"]["calculate-registry-map"]["optional"] == [
+        "indices",
+        "metric",
+        "gridX",
+        "gridY",
+        "pairCutoffs",
+    ]
     assert schema["export_parameters"]["rdf-csv"]["optional"] == [
         "cutoff",
         "bins",
         "pairMode",
         "activePairs",
+    ]
+    assert "maxAreaRatio" in schema["export_parameters"]["commensurate-csv"]["optional"]
+    assert schema["export_parameters"]["registry-csv"]["optional"] == [
+        "indices",
+        "metric",
+        "gridX",
+        "gridY",
+        "pairCutoffs",
     ]
     assert schema["accepts_natural_language"] is False
     assert schema["stdin_commands"] is False
@@ -387,6 +433,32 @@ def test_skill_documents_volumetric_and_rdf_end_to_end_contracts():
         "V_ASE_MAX_VOLUMETRIC_POINTS",
     ):
         assert required in documented, required
+
+
+def test_skill_documents_commensurate_and_registry_end_to_end_contracts():
+    documented = _documented_skill_text()
+    normalized = " ".join(documented.split())
+    for required in (
+        "`load-commensurate-guest`",
+        "`remove-commensurate-guest`",
+        "`calculate-commensurate`",
+        "`rotate-to-commensurate`",
+        "`apply-commensurate-cell`",
+        "`dismiss-commensurate-cell`",
+        "`calculate-registry-map`",
+        "`commensurate-csv`",
+        "`registry-csv`",
+        "maxAreaRatio",
+        "default `maxAreaRatio` of 16",
+        "global Z",
+        "cells-only",
+        "one-primitive-cell boundary shell",
+        "geometry scores, not energies",
+        "icon-only CSV",
+        "CellMatch",
+        "Stradi",
+    ):
+        assert required in documented or required in normalized, required
 
 
 def test_legacy_guide_is_a_resolving_compatibility_link():

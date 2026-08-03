@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.1.7"
+python -m pip install "v_ase-gui==0.1.8"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -119,9 +119,10 @@ resulting semantic state and rendered output.
   overwrite-prone exports, and release publishing. Use exact documented
   commands and verify afterward.
 - **Medium freedom**: camera placement, bond cutoffs, materials, lighting,
-  displacement/RDF parameters, isovalue and surface styling, interpolation,
-  and rendering quality. Start with the documented templates, then tune
-  against the requested result.
+  displacement/RDF parameters, bounded commensurate search limits, XY registry
+  grid/metric selection, isovalue and surface styling, interpolation, and
+  rendering quality. Start with the documented templates, then tune against
+  the requested result.
 - **High freedom**: choosing a visually clear viewpoint, palette, or
   composition when the user has not specified one. Preserve scientific
   identity and disclose aesthetic choices.
@@ -246,11 +247,17 @@ For any nontrivial task, verify all applicable items:
 - camera: projection, position, target, up vector, framing, expected direction;
 - manipulation overlays: rotation axis, fixed start reference, moving current
   reference, and separate commensurate candidates when a human is editing;
-- commensurate proposal: candidate angle, smallest admissible area ratio,
-  boundary strain, integer source/target matrices, paper-style notation,
-  opaque core, one-primitive-cell shell, visible boundary bonds, camera fit,
-  and materialization support; never call `apply-commensurate-cell` without
+- commensurate workspace: global-Z/XY restriction, same-lattice versus
+  host/guest mode, guest identity, candidate angle, smallest admissible area
+  ratio, chosen strain target, host/guest integer matrices, paper-style
+  notation, distinct host/guest/common cells, cells-only default, optional
+  one-primitive-cell atom/bond halo, live angle plane, graph CSV, and
+  materialization support; never call `apply-commensurate-cell` without
   explicit user intent;
+- XY registry map: selected moving component, periodic axes, grid dimensions,
+  geometry metric, optimum and current fractional coordinates, lower-is-better
+  warning, live XY move marker, and exported CSV; never call a geometry score
+  an energy minimum;
 - constraints: persistent per-atom FixedLine/FixedPlane markers, one long
   original-position FixedLine direction guide during `G`, and one
   original-position FixedPlane motion guide per selected atom during `G`;

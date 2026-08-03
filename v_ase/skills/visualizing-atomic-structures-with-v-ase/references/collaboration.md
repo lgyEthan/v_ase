@@ -175,8 +175,8 @@ across tabs; each tab's `collaboration.revision` guards its own mutations.
 Researcher request:
 
 ```text
-Create a pyridinic N3 vacancy, place Li 2.15 A above it, preserve PBC,
-and prepare a clear rendered view.
+Starting from a pristine 6 x 6 graphene sheet, create a pyridinic N3
+vacancy, place Li 2.15 A above it, and prepare a clear rendered view.
 ```
 
 Agent sequence:

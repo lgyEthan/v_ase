@@ -7,9 +7,11 @@ boundary mismatch shown by the interactive rotate guide.
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
+import io
 from math import cos, gcd, radians, sin, sqrt
-from typing import Iterable, Sequence
+from typing import Callable, Iterable, Sequence
 
 import numpy as np
 from ase.build.supercells import lattice_points_in_supercell
@@ -27,6 +29,24 @@ class ProjectedLattice:
     basis: np.ndarray
     periodic_axes: tuple[int, int]
     axis_alignment: float
+
+
+COMMENSURATE_REFERENCES = (
+    {
+        "title": "CellMatch: Combining two unit cells into a common supercell with minimal strain",
+        "authors": "Lazic",
+        "doi": "10.1016/j.cpc.2015.08.038",
+    },
+    {
+        "title": "Method for determining optimal supercell representation of interfaces",
+        "authors": "Stradi et al.",
+        "doi": "10.1088/1361-648X/aa66f3",
+        "arxiv": "1702.00933",
+    },
+)
+
+
+ProgressCallback = Callable[[float, str], None]
 
 
 def _unit_vector(values: Sequence[float]) -> np.ndarray:
@@ -109,6 +129,89 @@ def project_periodic_lattice(
     )
 
 
+def _plane_frame(
+    cell: Sequence[Sequence[float]],
+    pbc: Sequence[bool],
+    axis: str | Sequence[float],
+) -> tuple[np.ndarray, np.ndarray, ProjectedLattice]:
+    """Return a shared Cartesian frame and the host lattice projected into it."""
+
+    _, normal = _axis_vector(axis)
+    projected = project_periodic_lattice(cell, pbc, axis)
+    matrix = np.asarray(cell, dtype=float)
+    first = matrix[projected.periodic_axes[0]]
+    first = first - normal * float(np.dot(first, normal))
+    e1 = first / np.linalg.norm(first)
+    e2 = np.cross(normal, e1)
+    e2 /= np.linalg.norm(e2)
+    frame = np.vstack([e1, e2, normal])
+    return frame, normal, projected
+
+
+def project_periodic_lattice_in_frame(
+    cell: Sequence[Sequence[float]],
+    pbc: Sequence[bool],
+    normal: Sequence[float],
+    frame: Sequence[Sequence[float]],
+) -> ProjectedLattice:
+    """Project a second lattice into an existing host-oriented plane frame."""
+
+    matrix = np.asarray(cell, dtype=float)
+    periodic = np.asarray(pbc, dtype=bool)
+    unit_normal = _unit_vector(normal)
+    axes = np.asarray(frame, dtype=float)
+    if matrix.shape != (3, 3) or axes.shape != (3, 3):
+        raise ValueError("Lattice matching requires finite 3 x 3 cells and a shared frame.")
+    e1, e2 = axes[:2]
+    candidates: list[tuple[float, int, int, np.ndarray, np.ndarray, float]] = []
+    periodic_indices = np.flatnonzero(periodic)
+    for offset, first_index in enumerate(periodic_indices):
+        for second_index in periodic_indices[offset + 1 :]:
+            first = matrix[first_index]
+            second = matrix[second_index]
+            first_projected = first - unit_normal * float(np.dot(first, unit_normal))
+            second_projected = second - unit_normal * float(np.dot(second, unit_normal))
+            projected_area = abs(float(np.dot(
+                np.cross(first_projected, second_projected), unit_normal
+            )))
+            original_cross = np.cross(first, second)
+            original_area = float(np.linalg.norm(original_cross))
+            if projected_area <= 1e-10 or original_area <= 1e-10:
+                continue
+            alignment = abs(float(np.dot(original_cross / original_area, unit_normal)))
+            candidates.append((
+                projected_area,
+                int(first_index),
+                int(second_index),
+                first_projected,
+                second_projected,
+                alignment,
+            ))
+    if not candidates:
+        raise ValueError(
+            "Guest lattice matching needs two independent periodic cell vectors "
+            "in the host in-plane frame."
+        )
+
+    _, first_index, second_index, first, second, alignment = max(
+        candidates,
+        key=lambda item: item[0],
+    )
+    basis = np.array([
+        [float(np.dot(first, e1)), float(np.dot(first, e2))],
+        [float(np.dot(second, e1)), float(np.dot(second, e2))],
+    ])
+    periodic_axes = (first_index, second_index)
+    if np.linalg.det(basis) < 0:
+        basis = basis[[1, 0]]
+        periodic_axes = (second_index, first_index)
+    return ProjectedLattice(
+        basis=basis,
+        periodic_axes=periodic_axes,
+        axis_alignment=alignment,
+    )
+
+
 def _optimal_rotation_and_strain(source: np.ndarray, target: np.ndarray) -> tuple[float, float]:
     """Return signed row-vector rotation angle and maximum principal stretch."""
 
@@ -124,6 +227,26 @@ def _optimal_rotation_and_strain(source: np.ndarray, target: np.ndarray) -> tupl
     strain = float(np.max(np.abs(principal_stretches - 1.0)))
     angle = float(np.degrees(np.arctan2(rotation[0, 1], rotation[0, 0])))
     return _normalize_angle(angle), strain
+
+
+def _optimal_rotation_deformation(
+    source: np.ndarray,
+    target: np.ndarray,
+) -> tuple[float, float, np.ndarray, np.ndarray]:
+    """Return the proper rotation, principal strain, and row deformation."""
+
+    covariance = source.T @ target
+    left, _, right_t = np.linalg.svd(covariance)
+    rotation = left @ right_t
+    if np.linalg.det(rotation) < 0:
+        left[:, -1] *= -1.0
+        rotation = left @ right_t
+    rotated = source @ rotation
+    deformation = np.linalg.solve(rotated, target)
+    principal_stretches = np.linalg.svd(deformation, compute_uv=False)
+    strain = float(np.max(np.abs(principal_stretches - 1.0)))
+    angle = _normalize_angle(float(np.degrees(np.arctan2(rotation[0, 1], rotation[0, 0]))))
+    return angle, strain, rotation, deformation
 
 
 def _normalize_angle(angle: float) -> float:
@@ -372,6 +495,8 @@ def commensurate_supercell_geometry(
     candidate: dict,
     pivot: Sequence[float],
     padding_cells: int = 1,
+    include_atoms: bool = True,
+    display_angle_deg: float | None = None,
     max_preview_atoms: int = 120_000,
 ) -> dict:
     """Build an opaque common-cell preview plus one primitive-cell halo.
@@ -416,12 +541,21 @@ def commensurate_supercell_geometry(
         raise ValueError("Commensurate preview requires two distinct periodic cell axes.")
 
     _, normal = _axis_vector(candidate.get("axis", "Z"))
-    rotation = row_rotation_matrix(normal, float(candidate.get("angle_deg", 0.0)))
+    display_angle = (
+        float(candidate.get("angle_deg", 0.0))
+        if display_angle_deg is None
+        else float(display_angle_deg)
+    )
+    if not np.isfinite(display_angle):
+        raise ValueError("Commensurate preview angle must be finite.")
+    rotation = row_rotation_matrix(normal, display_angle)
     source_core = _integer_supercell_lattice_points(parent_cell, source_matrix)
     target_core = _integer_supercell_lattice_points(parent_cell, target_matrix)
     source_points = _primitive_halo_points(source_core, periodic_axes, int(padding_cells))
     target_points = _primitive_halo_points(target_core, periodic_axes, int(padding_cells))
-    preview_count = len(source_points) * len(selected) + len(target_points) * len(reference)
+    preview_count = (
+        len(source_points) * len(selected) + len(target_points) * len(reference)
+    ) if include_atoms else 0
     if preview_count > int(max_preview_atoms):
         raise ValueError(
             f"Suggested preview would contain {preview_count:,} atoms; "
@@ -454,12 +588,17 @@ def commensurate_supercell_geometry(
             components.append("rotating")
             core_mask.append(bool(core))
 
-    for point, core in target_points:
-        append_reference(point, core)
-    for point, core in source_points:
-        append_selected(point, core)
+    if include_atoms:
+        for point, core in target_points:
+            append_reference(point, core)
+        for point, core in source_points:
+            append_selected(point, core)
+
+    host_cell = target_matrix @ parent_cell
+    guest_cell = source_matrix @ parent_cell @ rotation @ deformation
 
     return {
+        "mode": "same-lattice",
         "positions": preview_positions,
         "atom_indices": atom_indices,
         "lattice_indices": lattice_indices,
@@ -468,12 +607,140 @@ def commensurate_supercell_geometry(
         "core_atom_count": source_area * len(coordinates),
         "preview_atom_count": preview_count,
         "padding_cells": int(padding_cells),
-        "cell": (target_matrix @ parent_cell).tolist(),
+        "include_atoms": bool(include_atoms),
+        "display_angle_deg": display_angle,
+        "cell": host_cell.tolist(),
+        "common_cell": host_cell.tolist(),
+        "host_cell": host_cell.tolist(),
+        "guest_cell": guest_cell.tolist(),
         "source_cell": (source_matrix @ parent_cell).tolist(),
         "source_matrix_3d": source_matrix.tolist(),
         "target_matrix_3d": target_matrix.tolist(),
         "area_ratio": source_area,
         "deformation_matrix": deformation.tolist(),
+    }
+
+
+def host_guest_supercell_geometry(
+    *,
+    host_cell: Sequence[Sequence[float]],
+    host_positions: Sequence[Sequence[float]],
+    guest_cell: Sequence[Sequence[float]],
+    guest_positions: Sequence[Sequence[float]],
+    candidate: dict,
+    guest_offset: Sequence[float] = (0.0, 0.0, 0.0),
+    padding_cells: int = 1,
+    include_atoms: bool = True,
+    display_angle_deg: float | None = None,
+    max_preview_atoms: int = 120_000,
+) -> dict:
+    """Build independent host and guest common-cell preview geometry."""
+
+    host_parent = np.asarray(host_cell, dtype=float)
+    guest_parent = np.asarray(guest_cell, dtype=float)
+    host_coordinates = np.asarray(host_positions, dtype=float)
+    guest_coordinates = np.asarray(guest_positions, dtype=float)
+    offset = np.asarray(guest_offset, dtype=float)
+    for name, cell in (("host", host_parent), ("guest", guest_parent)):
+        if cell.shape != (3, 3) or not np.all(np.isfinite(cell)):
+            raise ValueError(f"Commensurate {name} preview requires a finite 3 x 3 cell.")
+    for name, positions in (("host", host_coordinates), ("guest", guest_coordinates)):
+        if positions.ndim != 2 or positions.shape[1] != 3 or not np.all(np.isfinite(positions)):
+            raise ValueError(f"Commensurate {name} preview requires finite Cartesian atom positions.")
+    if offset.shape != (3,) or not np.all(np.isfinite(offset)):
+        raise ValueError("Commensurate guest offset must be a finite three-vector.")
+
+    host_matrix = np.asarray(candidate.get("host_matrix_3d"), dtype=int)
+    guest_matrix = np.asarray(candidate.get("guest_matrix_3d"), dtype=int)
+    host_deformation = np.asarray(candidate.get("host_deformation_matrix"), dtype=float)
+    guest_deformation = np.asarray(candidate.get("guest_deformation_matrix"), dtype=float)
+    if host_matrix.shape != (3, 3) or guest_matrix.shape != (3, 3):
+        raise ValueError("Host/guest match is missing reproducible 3 x 3 supercell matrices.")
+    if host_deformation.shape != (3, 3) or guest_deformation.shape != (3, 3):
+        raise ValueError("Host/guest match is missing finite deformation matrices.")
+    if not np.all(np.isfinite(host_deformation)) or not np.all(np.isfinite(guest_deformation)):
+        raise ValueError("Host/guest match contains a non-finite deformation matrix.")
+
+    host_axes = tuple(int(value) for value in candidate.get("host_periodic_axes", (0, 1)))
+    guest_axes = tuple(int(value) for value in candidate.get("guest_periodic_axes", (0, 1)))
+    host_core = _integer_supercell_lattice_points(host_parent, host_matrix)
+    guest_core = _integer_supercell_lattice_points(guest_parent, guest_matrix)
+    host_points = _primitive_halo_points(host_core, host_axes, int(padding_cells))
+    guest_points = _primitive_halo_points(guest_core, guest_axes, int(padding_cells))
+    preview_count = (
+        len(host_points) * len(host_coordinates)
+        + len(guest_points) * len(guest_coordinates)
+    ) if include_atoms else 0
+    if preview_count > int(max_preview_atoms):
+        raise ValueError(
+            f"Suggested host/guest preview would contain {preview_count:,} atoms; "
+            f"the interactive preview limit is {int(max_preview_atoms):,}."
+        )
+
+    display_angle = (
+        float(candidate.get("angle_deg", 0.0))
+        if display_angle_deg is None
+        else float(display_angle_deg)
+    )
+    if not np.isfinite(display_angle):
+        raise ValueError("Commensurate preview angle must be finite.")
+    rotation = row_rotation_matrix([0.0, 0.0, 1.0], display_angle)
+    positions: list[list[float]] = []
+    atom_indices: list[int] = []
+    lattice_indices: list[list[int]] = []
+    components: list[str] = []
+    core_mask: list[bool] = []
+
+    if include_atoms:
+        for point, core in host_points:
+            shift = np.asarray(point, dtype=float) @ host_parent
+            for index, position in enumerate(host_coordinates):
+                positions.append(((position + shift) @ host_deformation).tolist())
+                atom_indices.append(index)
+                lattice_indices.append(list(point))
+                components.append("host")
+                core_mask.append(bool(core))
+        for point, core in guest_points:
+            shift = np.asarray(point, dtype=float) @ guest_parent
+            for index, position in enumerate(guest_coordinates):
+                transformed = (position + shift) @ rotation @ guest_deformation + offset
+                positions.append(transformed.tolist())
+                atom_indices.append(index)
+                lattice_indices.append(list(point))
+                components.append("guest")
+                core_mask.append(bool(core))
+
+    common_cell = np.asarray(candidate.get("suggested_cell"), dtype=float)
+    host_boundary = np.asarray(candidate.get("host_supercell"), dtype=float) @ host_deformation
+    guest_boundary = (
+        np.asarray(candidate.get("guest_supercell"), dtype=float)
+        @ rotation
+        @ guest_deformation
+    )
+    return {
+        "mode": "host-guest",
+        "positions": positions,
+        "atom_indices": atom_indices,
+        "lattice_indices": lattice_indices,
+        "components": components,
+        "core_mask": core_mask,
+        "core_atom_count": (
+            len(host_core) * len(host_coordinates)
+            + len(guest_core) * len(guest_coordinates)
+        ) if include_atoms else 0,
+        "preview_atom_count": preview_count,
+        "padding_cells": int(padding_cells),
+        "include_atoms": bool(include_atoms),
+        "display_angle_deg": display_angle,
+        "cell": common_cell.tolist(),
+        "common_cell": common_cell.tolist(),
+        "host_cell": host_boundary.tolist(),
+        "guest_cell": guest_boundary.tolist(),
+        "host_matrix_3d": host_matrix.tolist(),
+        "guest_matrix_3d": guest_matrix.tolist(),
+        "host_area_ratio": int(candidate.get("host_area_ratio", len(host_core))),
+        "guest_area_ratio": int(candidate.get("guest_area_ratio", len(guest_core))),
+        "guest_offset": offset.tolist(),
     }
 
 
@@ -594,6 +861,393 @@ def _hnf_matrices(determinant: int) -> Iterable[np.ndarray]:
             yield np.array([[first, offset], [0, second]], dtype=int)
 
 
+def _supercell_records(basis: np.ndarray, max_area_ratio: int) -> list[dict]:
+    records: list[dict] = []
+    seen: set[tuple[int, tuple[int, ...]]] = set()
+    for area in range(1, max_area_ratio + 1):
+        for matrix in _hnf_matrices(area):
+            reduced, reduced_matrix = _gauss_reduce(matrix @ basis, matrix)
+            key = (
+                area,
+                tuple(int(value) for value in reduced_matrix.reshape(-1)),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            lengths = np.linalg.norm(reduced, axis=1)
+            if np.min(lengths) <= 1e-12:
+                continue
+            cosine = float(np.dot(reduced[0], reduced[1]) / (lengths[0] * lengths[1]))
+            records.append({
+                "area": int(area),
+                "basis": reduced,
+                "matrix": reduced_matrix,
+                "descriptor": np.array([
+                    float(np.log(lengths[0])),
+                    float(np.log(lengths[1])),
+                    cosine,
+                ]),
+            })
+    return records
+
+
+def _plane_deformation(
+    source_cell: np.ndarray,
+    source_axes: Sequence[int],
+    target_cell: np.ndarray,
+    target_axes: Sequence[int],
+    normal: np.ndarray,
+) -> np.ndarray:
+    source_frame = np.vstack([
+        source_cell[int(source_axes[0])],
+        source_cell[int(source_axes[1])],
+        normal,
+    ])
+    target_frame = np.vstack([
+        target_cell[int(target_axes[0])],
+        target_cell[int(target_axes[1])],
+        normal,
+    ])
+    return np.linalg.solve(source_frame, target_frame)
+
+
+def _lattice_match_candidate(
+    *,
+    host_cell: np.ndarray,
+    guest_cell: np.ndarray,
+    host_projected: ProjectedLattice,
+    guest_projected: ProjectedLattice,
+    normal: np.ndarray,
+    host_record: dict,
+    guest_record: dict,
+    strain_target: str,
+) -> dict:
+    host_boundary = np.asarray(host_record["basis"], dtype=float)
+    guest_boundary = np.asarray(guest_record["basis"], dtype=float)
+    angle, guest_strain, _, guest_deformation_2d = _optimal_rotation_deformation(
+        guest_boundary,
+        host_boundary,
+    )
+    rotated_guest_boundary = guest_boundary @ np.array([
+        [cos(radians(angle)), sin(radians(angle))],
+        [-sin(radians(angle)), cos(radians(angle))],
+    ])
+    host_deformation_2d = np.linalg.solve(host_boundary, rotated_guest_boundary)
+    host_stretches = np.linalg.svd(host_deformation_2d, compute_uv=False)
+    host_strain = float(np.max(np.abs(host_stretches - 1.0)))
+    active_strain = guest_strain if strain_target == "guest" else host_strain
+
+    host_matrix_2d = np.asarray(host_record["matrix"], dtype=int)
+    guest_matrix_2d = np.asarray(guest_record["matrix"], dtype=int)
+    host_matrix_3d = embed_2d_supercell_matrix(
+        host_matrix_2d,
+        host_projected.periodic_axes,
+    )
+    guest_matrix_3d = embed_2d_supercell_matrix(
+        guest_matrix_2d,
+        guest_projected.periodic_axes,
+    )
+    host_supercell = host_matrix_3d @ host_cell
+    guest_supercell = guest_matrix_3d @ guest_cell
+    rotation_3d = row_rotation_matrix(normal, angle)
+    rotated_guest_cell = guest_supercell @ rotation_3d
+
+    if strain_target == "guest":
+        common_cell = host_supercell.copy()
+        host_deformation = np.eye(3)
+        guest_deformation = _plane_deformation(
+            rotated_guest_cell,
+            guest_projected.periodic_axes,
+            host_supercell,
+            host_projected.periodic_axes,
+            normal,
+        )
+    else:
+        common_cell = host_supercell.copy()
+        for host_axis, guest_axis in zip(
+            host_projected.periodic_axes,
+            guest_projected.periodic_axes,
+        ):
+            common_cell[int(host_axis)] = rotated_guest_cell[int(guest_axis)]
+        host_deformation = _plane_deformation(
+            host_supercell,
+            host_projected.periodic_axes,
+            common_cell,
+            host_projected.periodic_axes,
+            normal,
+        )
+        guest_deformation = np.eye(3)
+
+    host_area = abs(int(round(np.linalg.det(host_matrix_2d))))
+    guest_area = abs(int(round(np.linalg.det(guest_matrix_2d))))
+    periodic_vectors = common_cell[np.asarray(host_projected.periodic_axes, dtype=int)]
+    lengths = np.linalg.norm(periodic_vectors, axis=1)
+    cosine = float(np.dot(periodic_vectors[0], periodic_vectors[1]) / max(
+        float(lengths[0] * lengths[1]),
+        1e-14,
+    ))
+    cell_angle = float(np.degrees(np.arccos(np.clip(cosine, -1.0, 1.0))))
+    supported = bool(
+        host_projected.axis_alignment >= 0.985
+        and guest_projected.axis_alignment >= 0.985
+        and host_area > 0
+        and guest_area > 0
+        and np.all(np.isfinite(common_cell))
+        and np.all(np.isfinite(host_deformation))
+        and np.all(np.isfinite(guest_deformation))
+    )
+    reason = None if supported else (
+        "Both host and guest cells must define two in-plane periodic vectors "
+        "whose normals align with the Z rotation axis."
+    )
+    return {
+        "angle_deg": round(float(angle), 8),
+        "strain": round(float(active_strain), 12),
+        "guest_strain": round(float(guest_strain), 12),
+        "host_strain": round(float(host_strain), 12),
+        "strain_target": strain_target,
+        "area": max(host_area, guest_area),
+        "area_ratio": max(host_area, guest_area),
+        "host_area_ratio": host_area,
+        "guest_area_ratio": guest_area,
+        "host_matrix": host_matrix_2d.tolist(),
+        "guest_matrix": guest_matrix_2d.tolist(),
+        "host_matrix_3d": host_matrix_3d.tolist(),
+        "guest_matrix_3d": guest_matrix_3d.tolist(),
+        # Compatibility aliases used by the existing same-lattice UI.
+        "source_matrix": guest_matrix_2d.tolist(),
+        "target_matrix": host_matrix_2d.tolist(),
+        "source_matrix_3d": guest_matrix_3d.tolist(),
+        "target_matrix_3d": host_matrix_3d.tolist(),
+        "host_matrix_text": _matrix_text(host_matrix_2d),
+        "guest_matrix_text": _matrix_text(guest_matrix_2d),
+        "source_matrix_text": _matrix_text(guest_matrix_2d),
+        "target_matrix_text": _matrix_text(host_matrix_2d),
+        "host_notation": _supercell_notation(host_projected.basis, host_matrix_2d),
+        "guest_notation": _supercell_notation(guest_projected.basis, guest_matrix_2d),
+        "source_notation": _supercell_notation(guest_projected.basis, guest_matrix_2d),
+        "target_notation": _supercell_notation(host_projected.basis, host_matrix_2d),
+        "suggested_cell": common_cell.tolist(),
+        "host_supercell": host_supercell.tolist(),
+        "guest_supercell": guest_supercell.tolist(),
+        "rotated_guest_cell": rotated_guest_cell.tolist(),
+        "host_deformation_matrix": host_deformation.tolist(),
+        "guest_deformation_matrix": guest_deformation.tolist(),
+        "deformation_matrix": guest_deformation.tolist(),
+        "guest_deformation_2d": guest_deformation_2d.tolist(),
+        "cell_lengths_angstrom": [round(float(value), 8) for value in lengths],
+        "cell_angle_deg": round(cell_angle, 8),
+        "host_periodic_axes": [int(value) for value in host_projected.periodic_axes],
+        "guest_periodic_axes": [int(value) for value in guest_projected.periodic_axes],
+        "periodic_axes": [int(value) for value in host_projected.periodic_axes],
+        "axis": "Z",
+        "family": "host-guest-integer-boundary",
+        "magic_reference": False,
+        "supercell_supported": supported,
+        "supercell_reason": reason,
+        "preview_padding_cells": 1,
+    }
+
+
+def _deduplicate_lattice_matches(candidates: Iterable[dict]) -> list[dict]:
+    best: dict[int, dict] = {}
+    for candidate in candidates:
+        angle = float(candidate["angle_deg"])
+        key = int(round(angle * 100.0))
+        rank = (
+            int(candidate["area_ratio"]),
+            int(candidate["host_area_ratio"]) + int(candidate["guest_area_ratio"]),
+            float(candidate["strain"]),
+            abs(angle),
+        )
+        previous = best.get(key)
+        if previous is None:
+            best[key] = candidate
+            continue
+        previous_rank = (
+            int(previous["area_ratio"]),
+            int(previous["host_area_ratio"]) + int(previous["guest_area_ratio"]),
+            float(previous["strain"]),
+            abs(float(previous["angle_deg"])),
+        )
+        if rank < previous_rank:
+            best[key] = candidate
+    return sorted(
+        best.values(),
+        key=lambda item: (
+            abs(float(item["angle_deg"])),
+            int(item["area_ratio"]),
+            float(item["strain"]),
+        ),
+    )
+
+
+def find_lattice_matches(
+    host_cell: Sequence[Sequence[float]],
+    host_pbc: Sequence[bool],
+    guest_cell: Sequence[Sequence[float]],
+    guest_pbc: Sequence[bool],
+    *,
+    max_area_ratio: int = 16,
+    strain_tolerance: float = 0.01,
+    strain_target: str = "guest",
+    progress_callback: ProgressCallback | None = None,
+) -> dict:
+    """Find bounded common cells for different 2D host and guest lattices.
+
+    The guest cell is rigidly rotated about global Z.  The selected target
+    lattice then receives the residual in-plane deformation.  No out-of-plane
+    strain is introduced.
+    """
+
+    maximum = int(max_area_ratio)
+    if maximum < 1 or maximum > 256:
+        raise ValueError("Maximum commensurate area ratio must be between 1 and 256.")
+    tolerance = float(strain_tolerance)
+    if not np.isfinite(tolerance) or tolerance < 0 or tolerance > 0.25:
+        raise ValueError("Boundary strain tolerance must be between 0 and 0.25.")
+    target = str(strain_target or "guest").strip().lower()
+    if target not in {"host", "guest"}:
+        raise ValueError("Strain target must be either 'host' or 'guest'.")
+
+    def report(progress: float, stage: str) -> None:
+        if progress_callback is not None:
+            progress_callback(max(0.0, min(1.0, float(progress))), stage)
+
+    report(0.02, "Projecting host and guest periodic cells")
+    frame, normal, host_projected = _plane_frame(host_cell, host_pbc, "Z")
+    guest_projected = project_periodic_lattice_in_frame(
+        guest_cell,
+        guest_pbc,
+        normal,
+        frame,
+    )
+    if host_projected.axis_alignment < 0.985 or guest_projected.axis_alignment < 0.985:
+        raise ValueError(
+            "Commensurate host/guest matching is restricted to cells whose two "
+            "periodic vectors lie in the XY plane."
+        )
+
+    report(0.08, "Enumerating host integer supercells")
+    host_records = _supercell_records(host_projected.basis, maximum)
+    report(0.20, "Enumerating guest integer supercells")
+    guest_records = _supercell_records(guest_projected.basis, maximum)
+
+    length_limit = max(0.0125, tolerance * 3.5)
+    cosine_limit = max(0.025, tolerance * 5.0)
+    bucket_width = np.array([length_limit, length_limit, cosine_limit])
+    guest_buckets: dict[tuple[int, int, int], list[dict]] = {}
+    for record in guest_records:
+        key = tuple(np.floor(record["descriptor"] / bucket_width).astype(int))
+        guest_buckets.setdefault(key, []).append(record)
+
+    matches: list[dict] = []
+    evaluated = 0
+    host_total = max(1, len(host_records))
+    host_cell_array = np.asarray(host_cell, dtype=float)
+    guest_cell_array = np.asarray(guest_cell, dtype=float)
+    for host_index, host_record in enumerate(host_records):
+        base_key = np.floor(host_record["descriptor"] / bucket_width).astype(int)
+        nearby: list[dict] = []
+        for first in (-1, 0, 1):
+            for second in (-1, 0, 1):
+                for third in (-1, 0, 1):
+                    nearby.extend(guest_buckets.get(tuple(base_key + [first, second, third]), ()))
+        for guest_record in nearby:
+            difference = np.abs(host_record["descriptor"] - guest_record["descriptor"])
+            if difference[0] > length_limit or difference[1] > length_limit:
+                continue
+            if difference[2] > cosine_limit:
+                continue
+            evaluated += 1
+            candidate = _lattice_match_candidate(
+                host_cell=host_cell_array,
+                guest_cell=guest_cell_array,
+                host_projected=host_projected,
+                guest_projected=guest_projected,
+                normal=normal,
+                host_record=host_record,
+                guest_record=guest_record,
+                strain_target=target,
+            )
+            if candidate["strain"] <= tolerance + 1e-12:
+                matches.append(candidate)
+        if host_index % max(1, host_total // 80) == 0:
+            report(
+                0.24 + 0.70 * (host_index + 1) / host_total,
+                "Comparing integer host/guest boundaries",
+            )
+
+    candidates = _deduplicate_lattice_matches(matches)
+    report(1.0, "Ranking valid commensurate matches")
+    return {
+        "axis": "Z",
+        "mode": "host-guest",
+        "lattice_family": "host-guest",
+        "host_periodic_axes": list(host_projected.periodic_axes),
+        "guest_periodic_axes": list(guest_projected.periodic_axes),
+        "host_axis_alignment": round(float(host_projected.axis_alignment), 8),
+        "guest_axis_alignment": round(float(guest_projected.axis_alignment), 8),
+        "strain_tolerance": tolerance,
+        "strain_target": target,
+        "max_area_ratio": maximum,
+        "evaluated_pair_count": evaluated,
+        "suggestion_count": len(candidates),
+        "references": [dict(reference) for reference in COMMENSURATE_REFERENCES],
+        "warning": None if candidates else (
+            "No host/guest common cell satisfies the current strain and area limits."
+        ),
+        "candidates": candidates,
+    }
+
+
+def commensurate_csv(search: dict) -> bytes:
+    """Serialize plotted common-cell candidates with reproducibility metadata."""
+
+    stream = io.StringIO(newline="")
+    writer = csv.writer(stream)
+    writer.writerow(["# schema", "v_ase.commensurate.v1"])
+    writer.writerow(["# mode", str(search.get("mode") or "same-lattice")])
+    writer.writerow(["# axis", str(search.get("axis") or "Z")])
+    writer.writerow(["# strain_tolerance", f"{float(search.get('strain_tolerance', 0.0)):.12g}"])
+    writer.writerow(["# max_area_ratio", int(search.get("max_area_ratio", 0) or 0)])
+    for reference in search.get("references") or COMMENSURATE_REFERENCES:
+        citation = str(reference.get("title") or "").strip()
+        doi = str(reference.get("doi") or "").strip()
+        if citation:
+            writer.writerow(["# reference", citation, f"doi:{doi}" if doi else ""])
+    writer.writerow([
+        "angle_deg",
+        "strain",
+        "host_strain",
+        "guest_strain",
+        "area_ratio",
+        "host_area_ratio",
+        "guest_area_ratio",
+        "host_notation",
+        "guest_notation",
+        "host_matrix",
+        "guest_matrix",
+        "strain_target",
+    ])
+    for candidate in search.get("candidates") or []:
+        writer.writerow([
+            f"{float(candidate.get('angle_deg', 0.0)):.12g}",
+            f"{float(candidate.get('strain', 0.0)):.12g}",
+            f"{float(candidate.get('host_strain', candidate.get('strain', 0.0))):.12g}",
+            f"{float(candidate.get('guest_strain', candidate.get('strain', 0.0))):.12g}",
+            int(candidate.get("area_ratio", candidate.get("area", 0)) or 0),
+            int(candidate.get("host_area_ratio", candidate.get("area", 0)) or 0),
+            int(candidate.get("guest_area_ratio", candidate.get("area", 0)) or 0),
+            str(candidate.get("host_notation", candidate.get("target_notation", ""))),
+            str(candidate.get("guest_notation", candidate.get("source_notation", ""))),
+            str(candidate.get("host_matrix", candidate.get("target_matrix", ""))),
+            str(candidate.get("guest_matrix", candidate.get("source_matrix", ""))),
+            str(candidate.get("strain_target", "guest")),
+        ])
+    return stream.getvalue().encode("utf-8")
+
+
 def _generic_candidates(basis: np.ndarray, max_index: int, strain_tolerance: float) -> Iterable[dict]:
     # A bounded CellMatch-style search over inequivalent integer boundary
     # matrices.  Symmetric lattices use the analytic paths above so this
@@ -704,6 +1358,21 @@ def find_commensurate_angles(
         )
         for candidate in _deduplicate_candidates(raw_candidates, strain_tolerance)
     ]
+    for candidate in candidates:
+        candidate.update({
+            "mode": "same-lattice",
+            "strain_target": "guest",
+            "host_strain": 0.0,
+            "guest_strain": candidate["strain"],
+            "host_area_ratio": candidate["area_ratio"],
+            "guest_area_ratio": candidate["area_ratio"],
+            "host_matrix": candidate["target_matrix"],
+            "guest_matrix": candidate["source_matrix"],
+            "host_matrix_3d": candidate["target_matrix_3d"],
+            "guest_matrix_3d": candidate["source_matrix_3d"],
+            "host_notation": candidate["target_notation"],
+            "guest_notation": candidate["source_notation"],
+        })
     warning = None
     if projected.axis_alignment < 0.985:
         warning = (
@@ -712,11 +1381,13 @@ def find_commensurate_angles(
         )
     return {
         "axis": axis_name,
+        "mode": "same-lattice",
         "lattice_family": family,
         "periodic_axes": list(projected.periodic_axes),
         "axis_alignment": round(float(projected.axis_alignment), 8),
         "strain_tolerance": strain_tolerance,
         "max_index": max_index,
+        "references": [dict(reference) for reference in COMMENSURATE_REFERENCES],
         "warning": warning,
         "candidates": candidates,
     }

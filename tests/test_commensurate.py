@@ -4,19 +4,29 @@ import math
 import numpy as np
 import pytest
 from ase import Atoms
-from ase.constraints import FixAtoms, FixedLine
+from ase.constraints import FixAtoms, FixedLine, FixedPlane
+from ase.io import write
+from fastapi import HTTPException
 
 from v_ase.commensurate import (
     _deduplicate_candidates,
+    commensurate_csv,
     commensurate_supercell_geometry,
     find_commensurate_angles,
+    find_lattice_matches,
+    host_guest_supercell_geometry,
     row_rotation_matrix,
 )
 from v_ase.server import (
+    _normalized_affine_line_direction,
+    _normalized_affine_plane_normal,
     apply_commensurate_supercell,
     commensurate_rotation_candidates,
+    load_commensurate_guest_path,
     preview_commensurate_supercell,
 )
+from v_ase.project import read_project_archive, replace_session_from_project, write_project_archive
+from v_ase.io import atom_labels, set_atom_labels
 from v_ase.session import EditorSession, sessions
 
 
@@ -35,6 +45,234 @@ def candidate_near(result, angle, tolerance=1e-5):
         for candidate in result["candidates"]
         if abs(candidate["angle_deg"] - angle) <= tolerance
     )
+
+
+def test_host_guest_lattice_match_uses_the_smallest_valid_boundary_and_guest_strain():
+    host = graphene_cell()
+    guest = graphene_cell() * np.array([[2.50 / 2.46], [2.50 / 2.46], [1.0]])
+    progress = []
+
+    result = find_lattice_matches(
+        host,
+        [True, True, False],
+        guest,
+        [True, True, False],
+        max_area_ratio=16,
+        strain_tolerance=0.02,
+        strain_target="guest",
+        progress_callback=lambda value, stage: progress.append((value, stage)),
+    )
+
+    candidate = result["candidates"][0]
+    assert result["mode"] == "host-guest"
+    assert candidate["host_area_ratio"] == 1
+    assert candidate["guest_area_ratio"] == 1
+    assert candidate["strain"] == pytest.approx(0.016, abs=1e-10)
+    assert candidate["strain_target"] == "guest"
+    assert progress[0][0] > 0
+    assert progress[-1] == (1.0, "Ranking valid commensurate matches")
+
+    rotation = row_rotation_matrix([0, 0, 1], candidate["angle_deg"])
+    transformed_guest = (
+        np.asarray(candidate["guest_supercell"])
+        @ rotation
+        @ np.asarray(candidate["guest_deformation_matrix"])
+    )
+    assert transformed_guest == pytest.approx(np.asarray(candidate["suggested_cell"]), abs=1e-9)
+
+
+def test_host_guest_lattice_match_can_put_the_residual_strain_on_the_host():
+    host = graphene_cell()
+    guest = graphene_cell() * np.array([[2.50 / 2.46], [2.50 / 2.46], [1.0]])
+    candidate = find_lattice_matches(
+        host,
+        [True, True, False],
+        guest,
+        [True, True, False],
+        max_area_ratio=4,
+        strain_tolerance=0.02,
+        strain_target="host",
+    )["candidates"][0]
+
+    assert candidate["strain_target"] == "host"
+    assert np.asarray(candidate["guest_deformation_matrix"]) == pytest.approx(np.eye(3))
+    transformed_host = (
+        np.asarray(candidate["host_supercell"])
+        @ np.asarray(candidate["host_deformation_matrix"])
+    )
+    assert transformed_host == pytest.approx(np.asarray(candidate["suggested_cell"]), abs=1e-9)
+
+
+def test_commensurate_csv_carries_candidate_matrices_and_citations():
+    result = find_lattice_matches(
+        graphene_cell(),
+        [True, True, False],
+        graphene_cell(),
+        [True, True, False],
+        max_area_ratio=2,
+        strain_tolerance=1e-8,
+    )
+    text = commensurate_csv(result).decode("utf-8")
+
+    assert "v_ase.commensurate.v1" in text
+    assert "10.1016/j.cpc.2015.08.038" in text
+    assert "10.1088/1361-648X/aa66f3" in text
+    assert "10.1016/j.cpc.2017.05.007" not in text
+    assert "host_matrix" in text
+
+
+def test_host_guest_preview_keeps_cells_independent_and_can_hide_atoms():
+    host_cell = graphene_cell()
+    guest_cell = graphene_cell() * np.array([[2.50 / 2.46], [2.50 / 2.46], [1.0]])
+    candidate = find_lattice_matches(
+        host_cell,
+        [True, True, False],
+        guest_cell,
+        [True, True, False],
+        max_area_ratio=4,
+        strain_tolerance=0.02,
+    )["candidates"][0]
+    geometry = host_guest_supercell_geometry(
+        host_cell=host_cell,
+        host_positions=[[0, 0, 0], [1.23, 0.71, 0]],
+        guest_cell=guest_cell,
+        guest_positions=[[0, 0, 0], [1.25, 0.72, 0]],
+        candidate=candidate,
+        guest_offset=[0, 0, 3.35],
+        padding_cells=1,
+    )
+
+    assert geometry["mode"] == "host-guest"
+    assert set(geometry["components"]) == {"host", "guest"}
+    assert np.asarray(geometry["host_cell"]) == pytest.approx(np.asarray(geometry["cell"]))
+    assert np.asarray(geometry["guest_cell"]) == pytest.approx(np.asarray(geometry["cell"]))
+    assert geometry["guest_offset"] == [0.0, 0.0, 3.35]
+
+    cells_only = host_guest_supercell_geometry(
+        host_cell=host_cell,
+        host_positions=[[0, 0, 0]],
+        guest_cell=guest_cell,
+        guest_positions=[[0, 0, 0]],
+        candidate=candidate,
+        include_atoms=False,
+    )
+    assert cells_only["positions"] == []
+    assert cells_only["preview_atom_count"] == 0
+
+
+def test_host_guest_api_previews_cells_then_materializes_one_editable_structure():
+    host = Atoms(
+        "C2",
+        positions=[[0, 0, 0], [1.23, 0.71, 0]],
+        cell=graphene_cell(),
+        pbc=[True, True, False],
+    )
+    guest_cell = graphene_cell() * np.array([[2.50 / 2.46], [2.50 / 2.46], [1.0]])
+    guest = Atoms(
+        "BN",
+        positions=[[0, 0, 0], [1.25, 0.72, 0]],
+        cell=guest_cell,
+        pbc=[True, True, False],
+    )
+    session = EditorSession("host-guest-api", host.copy(), host.copy())
+    session.commensurate_guest_atoms = guest.copy()
+    session.commensurate_guest_name = "hbn.xyz"
+    sessions[session.session_id] = session
+    search_payload = {
+        "mode": "host-guest",
+        "axis": "Z",
+        "max_area_ratio": 4,
+        "strain_tolerance": 0.02,
+        "strain_target": "guest",
+    }
+    result = asyncio.run(commensurate_rotation_candidates(session.session_id, search_payload))
+    candidate = result["candidates"][0]
+    payload = {
+        **search_payload,
+        "candidate": candidate,
+        "show_atoms": False,
+        "guest_offset": [0, 0, 3.35],
+        "frame_index": 0,
+    }
+    preview = asyncio.run(preview_commensurate_supercell(session.session_id, payload))
+    assert preview["search"]["mode"] == "host-guest"
+    assert preview["preview"]["include_atoms"] is False
+    assert np.asarray(preview["preview"]["host_cell"]) == pytest.approx(
+        np.asarray(preview["preview"]["guest_cell"])
+    )
+
+    payload["show_atoms"] = True
+    response = asyncio.run(apply_commensurate_supercell(session.session_id, payload))
+    assert response["metadata"]["natoms"] == 4
+    assert session.commensurate_guest_atoms is None
+    assert session.working_atoms.get_chemical_symbols() == ["C", "C", "B", "N"]
+
+
+def test_agent_guest_path_is_confined_to_the_launch_directory(tmp_path):
+    host = Atoms("C", positions=[[0, 0, 0]], cell=graphene_cell(), pbc=[1, 1, 0])
+    guest = Atoms(
+        "BN",
+        positions=[[0, 0, 0], [1.25, 0.72, 0]],
+        cell=graphene_cell() * np.array([[2.50 / 2.46], [2.50 / 2.46], [1.0]]),
+        pbc=[1, 1, 0],
+    )
+    write(tmp_path / "guest.extxyz", guest)
+    session = EditorSession(
+        "guest-agent-path",
+        host.copy(),
+        host.copy(),
+        config={"launch_directory": str(tmp_path)},
+    )
+    sessions[session.session_id] = session
+
+    loaded = asyncio.run(load_commensurate_guest_path(session.session_id, {
+        "path": "guest.extxyz",
+    }))
+    assert loaded["guest"]["name"] == "guest.extxyz"
+    assert session.commensurate_guest_atoms.get_chemical_symbols() == ["B", "N"]
+
+    with pytest.raises(HTTPException, match="outside the terminal launch directory"):
+        asyncio.run(load_commensurate_guest_path(session.session_id, {
+            "path": "../guest.extxyz",
+        }))
+
+
+def test_commensurate_affine_transform_distinguishes_lines_from_plane_normals():
+    affine = np.array([
+        [1.8, 0.35, 0.0],
+        [0.0, 0.9, 0.0],
+        [0.0, 0.0, 1.0],
+    ])
+    line = np.asarray(_normalized_affine_line_direction([1, 1, 0], affine))
+    plane = np.asarray(_normalized_affine_plane_normal([1, 1, 0], affine))
+    expected_line = np.asarray([1, 1, 0]) @ affine
+    expected_line /= np.linalg.norm(expected_line)
+    assert line == pytest.approx(expected_line)
+
+    original_tangent = np.asarray([1.0, -1.0, 0.0])
+    transformed_tangent = original_tangent @ affine
+    assert np.dot(transformed_tangent, plane) == pytest.approx(0.0, abs=1e-12)
+    assert abs(np.dot(transformed_tangent, line)) > 1e-3
+
+
+def test_vase_project_roundtrips_the_pending_guest_workspace(tmp_path):
+    host = Atoms("C", positions=[[0, 0, 0]], cell=graphene_cell(), pbc=[1, 1, 0])
+    guest = Atoms("BN", positions=[[0, 0, 0], [1.2, 0.7, 0]], cell=graphene_cell(), pbc=[1, 1, 0])
+    set_atom_labels(guest, ["B_top", "N_top"])
+    session = EditorSession("guest-project", host.copy(), host.copy())
+    session.commensurate_guest_atoms = guest.copy()
+    session.commensurate_guest_name = "guest-layer.xyz"
+    destination = tmp_path / "guest.vase"
+
+    write_project_archive(destination, session, {"display": {"commensurateGuide": True}})
+    project = read_project_archive(destination)
+    assert project.commensurate_guest_name == "guest-layer.xyz"
+    assert atom_labels(project.commensurate_guest_atoms) == ["B_top", "N_top"]
+
+    restored = EditorSession("guest-restored", host.copy(), host.copy())
+    replace_session_from_project(restored, project)
+    assert restored.commensurate_guest_name == "guest-layer.xyz"
+    assert atom_labels(restored.commensurate_guest_atoms) == ["B_top", "N_top"]
 
 
 def test_commensurate_candidate_prefers_the_smallest_cell_within_the_strain_cutoff():

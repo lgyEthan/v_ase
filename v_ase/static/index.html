@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.7&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.8&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.1.7';
+            : '/static/vendor/three.module.js?v=0.1.8';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -68,7 +68,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.1.7</span>
+            <span class="version">0.1.8</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -538,13 +538,34 @@
                     <option value="none">Total only</option>
                 </select>
             </div>
-            <div class="btn-stack-row two">
-                <button id="btn-rdf-calculate" type="button">Calculate &amp; Plot</button>
-                <button id="btn-rdf-export" type="button" disabled>Export CSV</button>
-            </div>
+            <button id="btn-rdf-calculate" class="btn-block" type="button">Calculate &amp; Plot</button>
             <div id="rdf-status" class="analysis-status" data-state="idle">
                 <span class="analysis-status-title">Total RDF</span>
                 <span class="analysis-status-detail">Requires a fully periodic 3D cell.</span>
+            </div>
+        </details>
+
+        <details class="panel-section" open data-panel="registry-map" data-panel-group="analysis">
+            <summary class="section-header">XY Translation Map</summary>
+            <p class="panel-note">Scans the selected atoms over one periodic XY cell. Lower values indicate less geometric mismatch; the map is not an energy surface.</p>
+            <div class="prop-row">
+                <label for="registry-metric">Metric</label>
+                <select id="registry-metric">
+                    <option value="short-contact" selected>Short-contact score</option>
+                    <option value="bond-strain">Interfacial bond strain</option>
+                </select>
+            </div>
+            <div class="prop-row registry-grid-row">
+                <label>Grid</label>
+                <div class="num-group">
+                    <input id="registry-grid-x" type="number" min="4" max="160" step="1" value="32" aria-label="Registry map x samples">
+                    <input id="registry-grid-y" type="number" min="4" max="160" step="1" value="32" aria-label="Registry map y samples">
+                </div>
+            </div>
+            <button id="btn-registry-calculate" class="btn-block" type="button">Calculate Translation Map</button>
+            <div id="registry-status" class="analysis-status" data-state="idle">
+                <span class="analysis-status-title">Select a movable layer</span>
+                <span class="analysis-status-detail">The active map constrains G movement to the periodic XY plane.</span>
             </div>
         </details>
 
@@ -752,31 +773,67 @@
                     Rotate Selection
                 </button>
             </div>
-            <div class="prop-row">
-                <label for="chk-commensurate-guide">Commensurate guide</label>
+            <div class="prop-row commensurate-master-row">
+                <div>
+                    <label for="chk-commensurate-guide">Commensurate atoms</label>
+                    <span>Periodic in-plane matching about global Z</span>
+                </div>
                 <input type="checkbox" id="chk-commensurate-guide">
             </div>
-            <div class="prop-row">
-                <label for="chk-commensurate-snap">Magnetic angle snap</label>
-                <input type="checkbox" id="chk-commensurate-snap">
-            </div>
-            <div class="prop-row">
-                <label for="commensurate-strain">Boundary strain / %</label>
-                <input type="number" id="commensurate-strain" value="1.0" min="0" max="25" step="0.1">
-            </div>
-            <div class="prop-row">
-                <label for="commensurate-max-index">Max lattice index</label>
-                <input type="number" id="commensurate-max-index" value="32" min="2" max="64" step="1">
-            </div>
-            <div class="prop-row">
-                <label for="commensurate-max-area">Max area ratio</label>
-                <input type="number" id="commensurate-max-area" value="16" min="1" max="256" step="1">
-            </div>
-            <div class="prop-row">
-                <label for="commensurate-snap-range">Snap range / deg</label>
-                <input type="number" id="commensurate-snap-range" value="2" min="0" max="15" step="0.1">
-            </div>
-            <div id="commensurate-status" class="commensurate-status">Lock X, Y, or Z during R to scan periodic cell matches.</div>
+            <section id="commensurate-workspace" class="commensurate-workspace hidden" aria-live="polite">
+                <div class="prop-row">
+                    <label for="commensurate-mode">Match</label>
+                    <select id="commensurate-mode">
+                        <option value="same-lattice" selected>Selected layer / host</option>
+                        <option value="host-guest">Independent host + guest</option>
+                    </select>
+                </div>
+                <div id="commensurate-guest-controls" class="commensurate-guest-controls hidden">
+                    <input id="commensurate-guest-file" class="hidden" type="file">
+                    <button id="btn-load-commensurate-guest" class="btn-block" type="button">Load Guest Structure</button>
+                    <div id="commensurate-guest-summary" class="commensurate-guest-summary">No guest structure loaded.</div>
+                    <button id="btn-remove-commensurate-guest" class="text-action hidden" type="button">Remove guest</button>
+                    <div class="prop-row">
+                        <label for="commensurate-guest-angle">Guest rotation / deg</label>
+                        <input id="commensurate-guest-angle" type="number" value="0" step="0.1">
+                    </div>
+                </div>
+                <div class="prop-row">
+                    <label for="commensurate-strain-target">Apply residual strain to</label>
+                    <select id="commensurate-strain-target">
+                        <option value="guest" selected>Guest / selected layer</option>
+                        <option value="host">Host structure</option>
+                    </select>
+                </div>
+                <div class="prop-row">
+                    <label for="commensurate-strain">Maximum strain / %</label>
+                    <input type="number" id="commensurate-strain" value="1.0" min="0" max="25" step="0.1">
+                </div>
+                <div class="prop-row">
+                    <label for="commensurate-max-area">Maximum area ratio</label>
+                    <input type="number" id="commensurate-max-area" value="16" min="1" max="256" step="1">
+                </div>
+                <details class="inline-subpanel commensurate-advanced">
+                    <summary>Search &amp; display</summary>
+                    <div class="prop-row" data-commensurate-same-lattice>
+                        <label for="commensurate-max-index">Maximum lattice index</label>
+                        <input type="number" id="commensurate-max-index" value="32" min="2" max="64" step="1">
+                    </div>
+                    <div class="prop-row">
+                        <label for="chk-commensurate-show-atoms">Show preview atoms</label>
+                        <input type="checkbox" id="chk-commensurate-show-atoms">
+                    </div>
+                    <div class="prop-row">
+                        <label for="chk-commensurate-snap">Magnetic angle snap</label>
+                        <input type="checkbox" id="chk-commensurate-snap">
+                    </div>
+                    <div class="prop-row">
+                        <label for="commensurate-snap-range">Snap range / deg</label>
+                        <input type="number" id="commensurate-snap-range" value="2" min="0" max="15" step="0.1">
+                    </div>
+                </details>
+                <div id="commensurate-status" class="commensurate-status">Enable the workspace to search periodic in-plane matches.</div>
+            </section>
             <section id="commensurate-supercell-proposal" class="commensurate-proposal hidden" aria-live="polite">
                 <div class="commensurate-proposal-heading">
                     <div>
@@ -788,9 +845,9 @@
                 </div>
                 <div id="commensurate-proposal-metrics" class="commensurate-proposal-metrics"></div>
                 <div id="commensurate-proposal-matrices" class="commensurate-proposal-matrices"></div>
-                <p class="commensurate-proposal-note">Opaque atoms are inside the proposed periodic cell. The muted outer shell is one primitive cell wide so boundary bonds remain visible.</p>
+                <p class="commensurate-proposal-note">Host, guest, and suggested common-cell vectors remain distinct while the guest rotates. Preview atoms and their boundary bonds are optional.</p>
                 <button id="btn-apply-commensurate-cell" class="btn-block" type="button">
-                    Set Suggested Cell as Unit Cell
+                    Set Suggested Cell as Structure
                 </button>
                 <div id="commensurate-proposal-reason" class="commensurate-proposal-reason hidden"></div>
             </section>
@@ -1063,10 +1120,22 @@
                 <span class="analysis-drawer-kicker">ANALYSIS</span>
                 <strong id="analysis-drawer-title">Radial Distribution Function</strong>
             </div>
-            <button id="btn-analysis-drawer-close" class="btn icon-btn" type="button"
-                    aria-label="Close analysis graph" title="Close graph">×</button>
+            <div class="analysis-drawer-actions">
+                <button id="btn-analysis-export" class="btn icon-btn" type="button" disabled
+                        aria-label="Save graph data as CSV" title="Save graph data as CSV">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M12 3v11"></path>
+                        <path d="m7.5 10 4.5 4.5 4.5-4.5"></path>
+                        <path d="M5 20h14"></path>
+                    </svg>
+                </button>
+                <button id="btn-analysis-drawer-close" class="btn icon-btn" type="button"
+                        aria-label="Close analysis graph" title="Close graph">×</button>
+            </div>
         </header>
-        <div id="rdf-plot" class="analysis-plot" aria-label="Radial distribution function plot"></div>
+        <div id="rdf-plot" class="analysis-plot hidden" aria-label="Radial distribution function plot"></div>
+        <div id="commensurate-plot" class="analysis-plot hidden" aria-label="Commensurate angle, area, and strain plot"></div>
+        <div id="registry-plot" class="analysis-plot hidden" aria-label="XY translation registry map"></div>
     </section>
 
     <!-- Bottom Command Overlay -->
@@ -1177,7 +1246,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.1.7&rev=1';
+            : './static/main.js?v=0.1.8&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

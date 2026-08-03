@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>External AI agent collaboration with v_ase</title>
+<title>Work with an AI Agent in v_ase</title>
 <style>
   * { box-sizing: border-box; }
   html, body {
@@ -16,30 +16,30 @@
     font-family: Inter, "SF Pro Display", "Segoe UI", Arial, sans-serif;
     letter-spacing: 0;
   }
-  body { padding: 58px 76px 50px; }
-  header { max-width: 1960px; }
+  body { padding: 52px 72px 42px; }
+  header { max-width: 2050px; }
   .eyebrow {
-    color: #177f72;
-    font-size: 20px;
+    color: #137d70;
+    font-size: 19px;
     font-weight: 850;
     text-transform: uppercase;
   }
   h1 {
-    margin: 10px 0 0;
-    font-size: 52px;
+    margin: 8px 0 0;
+    font-size: 50px;
     line-height: 1.08;
   }
   .subtitle {
-    max-width: 1740px;
-    margin: 14px 0 0;
-    color: #516064;
-    font-size: 22px;
-    line-height: 1.4;
+    max-width: 1840px;
+    margin: 12px 0 0;
+    color: #536164;
+    font-size: 21px;
+    line-height: 1.38;
   }
   .workflow {
     position: relative;
-    height: 870px;
-    margin-top: 20px;
+    height: 890px;
+    margin-top: 14px;
   }
   .connectors {
     position: absolute;
@@ -49,58 +49,58 @@
     height: 100%;
     overflow: visible;
   }
-  .flow-line {
+  .flow {
     fill: none;
     stroke-linecap: round;
     stroke-linejoin: round;
-    stroke-width: 5;
+    stroke-width: 6;
   }
-  .flow-request { stroke: #516563; }
-  .flow-in { stroke: #279f90; }
-  .flow-out { stroke: #e1a43a; }
-  .flow-state {
-    stroke: #687f8b;
-    stroke-dasharray: 12 10;
+  .request { stroke: #65716f; }
+  .command { stroke: #249787; }
+  .result { stroke: #db9d31; }
+  .state {
+    stroke: #667e89;
+    stroke-width: 4;
+    stroke-dasharray: 13 11;
   }
-  .connector-label rect {
+  .label rect {
     fill: #f7faf9;
     stroke-width: 1.5;
   }
-  .connector-label text {
+  .label text {
     font-size: 17px;
     font-weight: 850;
     text-anchor: middle;
   }
-  .label-request rect { stroke: #9aa9a7; }
-  .label-request text { fill: #4e625f; }
-  .label-in rect { stroke: #65bbae; }
-  .label-in text { fill: #16786d; }
-  .label-out rect { stroke: #e0bc74; }
-  .label-out text { fill: #986812; }
-  .label-state rect { stroke: #9aadb6; }
-  .label-state text { fill: #526b76; }
+  .label.request-label rect { stroke: #a0aaa8; }
+  .label.request-label text { fill: #52615f; }
+  .label.command-label rect { stroke: #66b9ae; }
+  .label.command-label text { fill: #126f64; }
+  .label.result-label rect { stroke: #dfb96d; }
+  .label.result-label text { fill: #8f6110; }
+  .label.state-label rect { stroke: #9caeb6; }
+  .label.state-label text { fill: #506a75; }
   .node {
     position: absolute;
     z-index: 2;
-    overflow: hidden;
-    border: 1px solid #c8d3d2;
-    border-radius: 8px;
+    border: 1px solid #c7d1d0;
     background: #fff;
-    box-shadow: 0 15px 34px rgba(26, 43, 46, 0.09);
+    box-shadow: 0 18px 40px rgba(24, 42, 44, 0.10);
   }
   .node-tag {
     color: #607073;
-    font-size: 17px;
+    font-size: 16px;
     font-weight: 850;
     text-transform: uppercase;
   }
   .human {
     left: 0;
-    top: 270px;
-    width: 380px;
-    height: 390px;
-    padding: 28px 30px;
-    border-top: 6px solid #e3aa3d;
+    top: 260px;
+    width: 400px;
+    height: 410px;
+    padding: 26px 28px;
+    border-top: 6px solid #dda33b;
+    border-radius: 10px;
   }
   .person-row {
     display: flex;
@@ -111,192 +111,210 @@
     display: grid;
     flex: 0 0 auto;
     place-items: center;
-    width: 78px;
-    height: 78px;
+    width: 74px;
+    height: 74px;
     border: 2px solid #9eb0ae;
     border-radius: 50%;
     background: #f1f6f5;
     color: #1b625a;
   }
-  .person-icon svg { width: 50px; height: 50px; }
+  .person-icon svg { width: 48px; height: 48px; }
   .human h2 {
-    margin: 7px 0 0;
+    margin: 6px 0 0;
     font-size: 29px;
-    line-height: 1.16;
+    line-height: 1.14;
   }
   .speech {
     position: relative;
-    margin-top: 28px;
-    padding: 20px;
-    border: 1px solid #e2bd6c;
-    border-radius: 7px;
+    margin-top: 26px;
+    padding: 19px 20px;
+    border: 1px solid #dfb864;
+    border-radius: 8px;
     background: #fff8e8;
-    color: #2d383b;
-    font-size: 21px;
-    line-height: 1.42;
+    color: #283436;
+    font-size: 19px;
+    line-height: 1.4;
   }
   .speech::before {
     content: "";
     position: absolute;
-    top: -10px;
-    left: 48px;
-    width: 18px;
-    height: 18px;
-    border-top: 1px solid #e2bd6c;
-    border-left: 1px solid #e2bd6c;
+    top: -9px;
+    left: 46px;
+    width: 17px;
+    height: 17px;
+    border-top: 1px solid #dfb864;
+    border-left: 1px solid #dfb864;
     background: #fff8e8;
     transform: rotate(45deg);
   }
   .human-note {
-    margin: 17px 0 0;
-    color: #667477;
-    font-size: 17px;
-    line-height: 1.4;
+    margin: 15px 0 0;
+    color: #657376;
+    font-size: 16px;
+    line-height: 1.38;
   }
   .agent {
     left: 520px;
-    top: 8px;
-    width: 600px;
+    top: 0;
+    width: 700px;
     height: 350px;
-    padding: 28px 32px;
-    border-top: 6px solid #4dc9b7;
+    padding: 25px 29px;
+    border-top: 6px solid #4bc5b4;
+    border-radius: 10px;
     background: #182124;
     color: #edf5f4;
   }
-  .agent .node-tag { color: #70dacc; }
-  .agent-head {
-    display: grid;
-    grid-template-columns: 74px minmax(0, 1fr);
-    gap: 20px;
-    align-items: center;
+  .agent .node-tag { color: #6bd4c6; }
+  .agent h2 {
+    margin: 5px 0 0;
+    font-size: 30px;
+    line-height: 1.12;
   }
-  .agent-icon {
+  .agents {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 20px;
+  }
+  .agent-badge {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    align-items: center;
+    gap: 11px;
+    min-height: 62px;
+    padding: 9px 12px;
+    border: 1px solid #3d5b5d;
+    border-radius: 8px;
+    background: #10191b;
+  }
+  .agent-logo {
     display: grid;
     place-items: center;
-    width: 74px;
-    height: 74px;
-    border: 2px solid #3a8f84;
-    border-radius: 50%;
-    background: #202d30;
-    color: #72dece;
+    width: 42px;
+    height: 42px;
+    border-radius: 8px;
+    background: #f7faf9;
   }
-  .agent-icon svg { width: 48px; height: 48px; }
-  .agent h2 {
-    margin: 7px 0 0;
-    font-size: 31px;
-    line-height: 1.12;
+  .agent-logo img {
+    width: 27px;
+    height: 27px;
+    object-fit: contain;
+  }
+  .agent-badge strong {
+    display: block;
+    font-size: 17px;
+    line-height: 1.1;
+  }
+  .agent-badge span {
+    display: block;
+    margin-top: 3px;
+    color: #9fb0b1;
+    font-size: 13px;
   }
   .skill {
     display: grid;
-    grid-template-columns: 44px minmax(0, 1fr);
-    gap: 14px;
+    grid-template-columns: 38px minmax(0, 1fr);
+    gap: 12px;
     align-items: center;
-    margin-top: 24px;
-    padding: 15px 17px;
+    margin-top: 15px;
+    padding: 12px 15px;
     border: 1px solid #438f86;
-    border-radius: 6px;
-    background: #11191b;
+    border-radius: 7px;
+    background: #112527;
   }
-  .skill svg { width: 40px; height: 40px; color: #72dece; }
-  .skill strong { display: block; font-size: 20px; }
+  .skill svg { width: 34px; height: 34px; color: #72dece; }
+  .skill strong { display: block; font-size: 18px; }
   .skill span {
     display: block;
-    margin-top: 3px;
-    color: #aababb;
-    font-size: 16px;
-  }
-  .agent-copy {
-    margin: 20px 0 0;
-    color: #c2cece;
-    font-size: 19px;
-    line-height: 1.42;
+    margin-top: 2px;
+    color: #aebdbd;
+    font-size: 14px;
   }
   .vase {
-    left: 1580px;
-    top: 220px;
-    width: 668px;
-    height: 450px;
-    padding: 28px 32px 30px;
-    border: 2px solid #3db9a8;
-    border-top-width: 7px;
-    background: #10282b;
+    left: 1604px;
+    top: 185px;
+    width: 644px;
+    height: 500px;
+    padding: 44px 64px 38px;
+    border: 3px solid #34ad9e;
+    border-radius: 48% 48% 44% 44% / 43% 43% 49% 49%;
+    background: radial-gradient(circle at 34% 22%, #194248 0%, #102c30 52%, #0c2023 100%);
     color: #edf6f5;
+    text-align: center;
+    box-shadow: 0 24px 56px rgba(14, 65, 62, 0.20);
   }
-  .vase .node-tag { color: #74ddcf; }
-  .vase-title {
-    display: flex;
-    align-items: baseline;
-    gap: 17px;
-    margin-top: 6px;
+  .vase .node-tag { color: #72ddce; }
+  .vase-logo-shell {
+    display: grid;
+    place-items: center;
+    width: 335px;
+    height: 96px;
+    margin: 11px auto 0;
+    overflow: hidden;
+    border-radius: 50%;
+    background: rgba(6, 15, 17, 0.42);
   }
-  .vase-title strong {
-    color: #f4fbfa;
-    font-size: 58px;
-    line-height: 1;
-  }
-  .vase-title span {
-    color: #b7c8c8;
-    font-size: 21px;
-    font-weight: 700;
+  .vase-logo-shell img {
+    width: 315px;
+    height: 90px;
+    object-fit: contain;
   }
   .vase-role {
-    margin: 17px 0 0;
-    color: #c8d6d5;
-    font-size: 19px;
-    line-height: 1.42;
+    margin: 14px auto 0;
+    max-width: 500px;
+    color: #cbdad9;
+    font-size: 18px;
+    line-height: 1.38;
   }
   .engine {
     display: grid;
+    grid-template-columns: repeat(3, 1fr);
     gap: 10px;
-    margin-top: 21px;
+    margin-top: 22px;
   }
   .engine-row {
-    display: grid;
-    grid-template-columns: 98px minmax(0, 1fr);
-    gap: 15px;
-    align-items: center;
-    min-height: 64px;
-    padding: 10px 14px;
-    border: 1px solid #35575a;
-    border-radius: 6px;
-    background: #162f32;
+    min-height: 105px;
+    padding: 13px 10px;
+    border: 1px solid #376064;
+    border-radius: 14px;
+    background: rgba(24, 58, 62, 0.78);
   }
   .engine-row b {
-    color: #76dbcd;
-    font-size: 15px;
+    display: block;
+    color: #75dbcd;
+    font-size: 14px;
     text-transform: uppercase;
   }
   .engine-row span {
+    display: block;
+    margin-top: 7px;
     color: #e3eceb;
-    font-size: 18px;
-    line-height: 1.3;
+    font-size: 15px;
+    line-height: 1.27;
   }
   .gui {
-    left: 560px;
-    top: 540px;
-    width: 800px;
+    left: 550px;
+    top: 552px;
+    width: 830px;
     height: 320px;
-    border-top: 6px solid #e3aa3d;
+    overflow: hidden;
+    border-top: 6px solid #dda33b;
+    border-radius: 10px;
     background: #111719;
   }
   .gui-bar {
     display: flex;
     align-items: center;
-    height: 49px;
+    height: 48px;
     gap: 8px;
     padding: 0 15px;
     border-bottom: 1px solid #394347;
     color: #dce7e8;
-    font-size: 17px;
+    font-size: 16px;
     font-weight: 750;
   }
-  .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: #e0645d;
-  }
-  .dot.amber { background: #dba83c; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #df645d; }
+  .dot.amber { background: #d7a13b; }
   .dot.green { background: #45aa72; }
   .gui-title { margin-left: 7px; }
   .human-view {
@@ -305,89 +323,88 @@
     border: 1px solid #a07d39;
     border-radius: 4px;
     color: #f0c86f;
-    font-size: 13px;
+    font-size: 12px;
     text-transform: uppercase;
   }
   .gui img {
     display: block;
     width: 100%;
-    height: 271px;
+    height: 272px;
     object-fit: cover;
     object-position: center;
+  }
+  .marks-note {
+    position: absolute;
+    right: 8px;
+    bottom: 0;
+    z-index: 2;
+    color: #778486;
+    font-size: 12px;
+    text-align: right;
   }
 </style>
 </head>
 <body>
   <header>
-    <div class="eyebrow">External AI agent + v_ase</div>
-    <h1>Your Agent sends exact instructions into v_ase. v_ase returns the live result.</h1>
+    <div class="eyebrow">Work with an AI Agent</div>
+    <h1>Ask naturally. The Agent operates v_ase precisely. You inspect the live result.</h1>
     <p class="subtitle">
-      v_ase is the scientific workspace in the cycle: it applies atomistic operations,
-      validates the document, renders the GUI, and reports exact state back to the Agent.
+      v_ase is the scientific workspace in the cycle: it validates atomistic operations,
+      renders the shared GUI, and returns exact document state to the Agent.
     </p>
   </header>
 
   <main class="workflow">
-    <svg class="connectors" viewBox="0 0 2248 870" aria-hidden="true">
+    <svg class="connectors" viewBox="0 0 2256 890" aria-hidden="true">
       <defs>
-        <marker id="arrow-request" viewBox="0 0 12 12" refX="10" refY="6"
-                markerWidth="10" markerHeight="10" orient="auto">
-          <path d="M1 1L11 6L1 11" fill="none" stroke="#516563" stroke-width="2.2"></path>
+        <marker id="arrow-request" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto">
+          <path d="M1 1L11 6L1 11" fill="none" stroke="#65716f" stroke-width="2.2"></path>
         </marker>
-        <marker id="arrow-in" viewBox="0 0 12 12" refX="10" refY="6"
-                markerWidth="10" markerHeight="10" orient="auto">
-          <path d="M1 1L11 6L1 11" fill="none" stroke="#279f90" stroke-width="2.2"></path>
+        <marker id="arrow-command" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto">
+          <path d="M1 1L11 6L1 11" fill="none" stroke="#249787" stroke-width="2.2"></path>
         </marker>
-        <marker id="arrow-out" viewBox="0 0 12 12" refX="10" refY="6"
-                markerWidth="10" markerHeight="10" orient="auto">
-          <path d="M1 1L11 6L1 11" fill="none" stroke="#e1a43a" stroke-width="2.2"></path>
+        <marker id="arrow-result" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto">
+          <path d="M1 1L11 6L1 11" fill="none" stroke="#db9d31" stroke-width="2.2"></path>
         </marker>
-        <marker id="arrow-state" viewBox="0 0 12 12" refX="10" refY="6"
-                markerWidth="10" markerHeight="10" orient="auto">
-          <path d="M1 1L11 6L1 11" fill="none" stroke="#687f8b" stroke-width="2.2"></path>
+        <marker id="arrow-state" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto">
+          <path d="M1 1L11 6L1 11" fill="none" stroke="#667e89" stroke-width="2.2"></path>
         </marker>
       </defs>
 
-      <path class="flow-line flow-request" marker-end="url(#arrow-request)"
-            d="M380 365 C445 350 460 282 510 258"></path>
-      <g class="connector-label label-request" transform="translate(399 206)">
-        <rect x="-111" y="-18" width="222" height="36" rx="4"></rect>
+      <path class="flow request" marker-end="url(#arrow-request)" d="M400 360 C456 332 470 266 512 236"></path>
+      <g class="label request-label" transform="translate(414 196)">
+        <rect x="-104" y="-18" width="208" height="36" rx="5"></rect>
         <text y="6">NATURAL LANGUAGE</text>
       </g>
 
-      <path class="flow-line flow-in" marker-end="url(#arrow-in)"
-            d="M1120 145 C1310 78 1492 112 1570 286"></path>
-      <g class="connector-label label-in" transform="translate(1330 78)">
-        <rect x="-142" y="-18" width="284" height="36" rx="4"></rect>
-        <text y="6">INTO v_ase: EXACT COMMANDS</text>
+      <path class="flow command" marker-end="url(#arrow-command)" d="M1220 132 C1400 74 1535 112 1628 244"></path>
+      <g class="label command-label" transform="translate(1420 75)">
+        <rect x="-131" y="-18" width="262" height="36" rx="5"></rect>
+        <text y="6">EXACT CLI / API COMMANDS</text>
       </g>
 
-      <path class="flow-line flow-state" marker-end="url(#arrow-state)"
-            d="M1570 438 C1410 458 1260 408 1130 322"></path>
-      <g class="connector-label label-state" transform="translate(1332 425)">
-        <rect x="-157" y="-18" width="314" height="36" rx="4"></rect>
-        <text y="6">OUT OF v_ase: STATE + REVISION</text>
+      <path class="flow state" marker-end="url(#arrow-state)" d="M1602 418 C1450 424 1358 372 1222 306"></path>
+      <g class="label state-label" transform="translate(1410 410)">
+        <rect x="-128" y="-18" width="256" height="36" rx="5"></rect>
+        <text y="6">EXACT STATE + REVISION</text>
       </g>
 
-      <path class="flow-line flow-out" marker-end="url(#arrow-out)"
-            d="M1580 585 C1505 675 1434 705 1370 700"></path>
-      <g class="connector-label label-out" transform="translate(1587 764)">
-        <rect x="-154" y="-18" width="308" height="36" rx="4"></rect>
-        <text y="6">OUT OF v_ase: LIVE 3D DOCUMENT</text>
+      <path class="flow result" marker-end="url(#arrow-result)" d="M1618 586 C1517 696 1454 720 1390 704"></path>
+      <g class="label result-label" transform="translate(1586 764)">
+        <rect x="-112" y="-18" width="224" height="36" rx="5"></rect>
+        <text y="6">LIVE 3D DOCUMENT</text>
       </g>
 
-      <path class="flow-line flow-in" marker-end="url(#arrow-in)"
-            d="M1370 585 C1440 535 1502 510 1570 502"></path>
-      <g class="connector-label label-in" transform="translate(1470 541)">
-        <rect x="-82" y="-18" width="164" height="36" rx="4"></rect>
-        <text y="6">IN: GUI EDITS</text>
+      <path class="flow command" marker-end="url(#arrow-command)" d="M1390 590 C1467 536 1524 505 1598 493"></path>
+      <g class="label command-label" transform="translate(1491 548)">
+        <rect x="-74" y="-18" width="148" height="36" rx="5"></rect>
+        <text y="6">GUI REFINEMENT</text>
       </g>
 
-      <path class="flow-line flow-request" marker-end="url(#arrow-request)"
-            d="M550 704 C475 748 420 705 390 612"></path>
-      <g class="connector-label label-request" transform="translate(439 782)">
-        <rect x="-114" y="-18" width="228" height="36" rx="4"></rect>
-        <text y="6">WATCH, INSPECT, REFINE</text>
+      <path class="flow request" marker-end="url(#arrow-request)" d="M550 706 C486 751 431 702 401 611"></path>
+      <g class="label request-label" transform="translate(445 785)">
+        <rect x="-109" y="-18" width="218" height="36" rx="5"></rect>
+        <text y="6">INSPECT AND REFINE</text>
       </g>
     </svg>
 
@@ -401,53 +418,52 @@
         </div>
         <div>
           <div class="node-tag">Human</div>
-          <h2>Ask in ordinary language</h2>
+          <h2>Describe the result</h2>
         </div>
       </div>
       <div class="speech">
-        “Create an N<sub>3</sub> vacancy, add Li above it, preserve PBC,
-        and render a clear 4K view.”
+        “Starting from a pristine 6 x 6 graphene sheet, create an N<sub>3</sub>
+        vacancy, add Li 2.15 Å above it, and render a clear 4K view.”
       </div>
-      <p class="human-note">No v_ase command syntax is required from the human.</p>
+      <p class="human-note">The human does not need to write v_ase command syntax.</p>
     </section>
 
     <section class="node agent">
-      <div class="agent-head">
-        <div class="agent-icon" aria-hidden="true">
-          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3">
-            <rect x="14" y="14" width="36" height="36" rx="4"></rect>
-            <path d="M24 25h16M24 32h16M24 39h10M8 24h6M8 40h6M50 24h6M50 40h6M24 8v6M40 8v6M24 50v6M40 50v6"></path>
-          </svg>
+      <div class="node-tag">Compatible external AI Agents</div>
+      <h2>The Agent reads the bundled v_ase Skill</h2>
+      <div class="agents">
+        <div class="agent-badge">
+          <span class="agent-logo"><img src="brand_assets/openai-symbol.svg" alt="OpenAI mark"></span>
+          <div><strong>Codex</strong><span>Agent Skill</span></div>
         </div>
-        <div>
-          <div class="node-tag">External AI Agent</div>
-          <h2>Uses the bundled v_ase Skill</h2>
+        <div class="agent-badge">
+          <span class="agent-logo"><img src="brand_assets/anthropic.svg" alt="Anthropic mark"></span>
+          <div><strong>Claude Code</strong><span>Agent Skill</span></div>
+        </div>
+        <div class="agent-badge">
+          <span class="agent-logo"><img src="brand_assets/github-copilot.svg" alt="GitHub Copilot mark"></span>
+          <div><strong>GitHub Copilot</strong><span>Agent Skill</span></div>
         </div>
       </div>
       <div class="skill">
-        <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.5">
+        <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
           <path d="M12 5h17l8 8v30H12z"></path>
           <path d="M29 5v9h8M18 23h13M18 30h13M18 37h8"></path>
         </svg>
-        <div><strong>v_ase Skill</strong><span>commands, safeguards, and verification steps</span></div>
+        <div><strong>v_ase Skill</strong><span>operations, safeguards, state checks, and exports</span></div>
       </div>
-      <p class="agent-copy">
-        Converts the request into structured CLI/API operations and checks
-        the exact state returned by v_ase.
-      </p>
     </section>
 
     <section class="node vase">
       <div class="node-tag">Scientific workspace</div>
-      <div class="vase-title"><strong>v_ase</strong><span>the system doing the atomistic work</span></div>
+      <div class="vase-logo-shell"><img src="../assets/v_ase-logo.png" alt="v_ase"></div>
       <p class="vase-role">
-        v_ase owns the live structure, trajectory, volumetric data, visual settings,
-        analysis results, and document revision.
+        Owns the live atoms, trajectories, settings, analyses, and document revision.
       </p>
       <div class="engine">
-        <div class="engine-row"><b>Apply</b><span>exact structure, analysis, camera, and export operations</span></div>
-        <div class="engine-row"><b>Validate</b><span>indices, labels, coordinates, constraints, and revisions</span></div>
-        <div class="engine-row"><b>Deliver</b><span>the live GUI, machine-readable state, and rendered output</span></div>
+        <div class="engine-row"><b>Apply</b><span>atomistic and visual operations</span></div>
+        <div class="engine-row"><b>Validate</b><span>indices, cells, constraints, revisions</span></div>
+        <div class="engine-row"><b>Return</b><span>GUI result and exact machine state</span></div>
       </div>
     </section>
 
@@ -459,6 +475,10 @@
       </div>
       <img src="../assets/readme_ai_collaboration_live.png" alt="Live v_ase GUI showing the verified result">
     </section>
+
+    <div class="marks-note">
+      Product names and marks identify compatible clients only; no affiliation or endorsement is implied.
+    </div>
   </main>
 </body>
 </html>

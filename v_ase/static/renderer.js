@@ -4688,6 +4688,54 @@ export class ASERenderer {
         if (requestRender) this.requestRender();
     }
 
+    commensuratePreviewLabel(preview, row) {
+        const explicit = preview?.labels?.[row];
+        if (explicit !== undefined && explicit !== null) return String(explicit);
+        const index = Number(preview?.atom_indices?.[row]);
+        return this.atomsData?.symbols?.[index] || '';
+    }
+
+    commensuratePreviewChemicalSymbol(preview, row) {
+        const explicit = preview?.chemical_symbols?.[row];
+        if (explicit !== undefined && explicit !== null) return String(explicit);
+        const index = Number(preview?.atom_indices?.[row]);
+        return this.atomChemicalSymbol(index);
+    }
+
+    commensuratePreviewRowVisible(preview, row) {
+        const label = this.commensuratePreviewLabel(preview, row);
+        return this.displayOptions?.labelVisible?.[label] !== false;
+    }
+
+    commensuratePreviewRadius(preview, row) {
+        const label = this.commensuratePreviewLabel(preview, row);
+        const configured = Number(this.displayOptions?.labelRadii?.[label]);
+        const source = Number.isFinite(configured) && configured > 0
+            ? configured
+            : Number(preview?.radii?.[row]);
+        const scale = Number(this.displayOptions?.atomRadiusScale || 0.6);
+        return (Number.isFinite(source) && source > 0 ? source : FALLBACK_ATOM_RADIUS)
+            * (Number.isFinite(scale) && scale > 0 ? scale : 0.6);
+    }
+
+    commensuratePreviewCovalentRadius(preview, row) {
+        const source = Number(preview?.bond_radii?.[row]);
+        return Number.isFinite(source) && source > 0 ? source : FALLBACK_COVALENT_RADIUS;
+    }
+
+    commensuratePreviewColor(preview, row) {
+        const label = this.commensuratePreviewLabel(preview, row);
+        const configured = this.displayOptions?.labelColors?.[label];
+        if (this.validHexColor(configured)) return configured;
+        const explicit = preview?.colors?.[row];
+        return this.validHexColor(explicit) ? explicit : FALLBACK_ATOM_COLOR;
+    }
+
+    commensuratePreviewMaterial(preview, row) {
+        const label = this.commensuratePreviewLabel(preview, row);
+        return this.normalizedAtomMaterialPreset(this.displayOptions?.labelMaterials?.[label]);
+    }
+
     commensuratePreviewBounds(preview) {
         const box = new THREE.Box3();
         const positions = preview?.positions || [];
@@ -4695,31 +4743,36 @@ export class ASERenderer {
         const translation = this.visualTranslationVector();
         positions.forEach((position, row) => {
             const index = Number(atomIndices[row]);
-            if (!Number.isInteger(index) || !this.atomLabelVisible(index)) return;
+            if (!Number.isInteger(index) || !this.commensuratePreviewRowVisible(preview, row)) return;
             const center = new THREE.Vector3(...position).add(translation);
-            const radius = this.atomVisualRadius(index);
+            const radius = this.commensuratePreviewRadius(preview, row);
             box.expandByPoint(center.clone().addScalar(radius));
             box.expandByPoint(center.clone().addScalar(-radius));
         });
-        this.commensurateCellSegments(preview?.cell).forEach(segment => {
+        const cellSpecs = [
+            [preview?.common_cell || preview?.cell, [0, 0, 0]],
+            [preview?.host_cell, [0, 0, 0]],
+            [preview?.guest_cell, preview?.mode === 'host-guest' ? (preview?.guest_offset || [0, 0, 0]) : [0, 0, 0]]
+        ];
+        cellSpecs.forEach(([cell, origin]) => this.commensurateCellSegments(cell, origin).forEach(segment => {
             segment.forEach(point => box.expandByPoint(point.clone().add(translation)));
-        });
+        }));
         return box.isEmpty() ? null : box;
     }
 
-    commensurateCellSegments(cell) {
+    commensurateCellSegments(cell, originValues = [0, 0, 0]) {
         if (!Array.isArray(cell) || cell.length !== 3) return [];
         const [a, b, c] = cell.map(values => new THREE.Vector3(...values));
-        const origin = new THREE.Vector3();
+        const origin = new THREE.Vector3(...originValues);
         const corners = [
             origin,
-            a,
-            b,
-            c,
-            a.clone().add(b),
-            a.clone().add(c),
-            b.clone().add(c),
-            a.clone().add(b).add(c)
+            origin.clone().add(a),
+            origin.clone().add(b),
+            origin.clone().add(c),
+            origin.clone().add(a).add(b),
+            origin.clone().add(a).add(c),
+            origin.clone().add(b).add(c),
+            origin.clone().add(a).add(b).add(c)
         ];
         return [[0,1],[0,2],[0,3],[1,4],[1,5],[2,4],[2,6],[3,5],[3,6],[4,7],[5,7],[6,7]]
             .map(([first, second]) => [corners[first], corners[second]]);
@@ -4729,6 +4782,7 @@ export class ASERenderer {
         const positions = preview.positions || [];
         const atomIndices = preview.atom_indices || [];
         const coreMask = preview.core_mask || [];
+        const components = preview.components || [];
         const fixed = this.fixedAtomDisplayEnabled()
             ? new Set(this.atomsData?.constraints?.fixed_indices || [])
             : new Set();
@@ -4736,9 +4790,9 @@ export class ASERenderer {
         const groups = new Map();
         positions.forEach((position, row) => {
             const index = Number(atomIndices[row]);
-            if (!Number.isInteger(index) || !this.atomLabelVisible(index)) return;
-            const isFixed = fixed.has(index);
-            const materialPreset = this.atomMaterialPreset(index);
+            if (!Number.isInteger(index) || !this.commensuratePreviewRowVisible(preview, row)) return;
+            const isFixed = components[row] !== 'guest' && fixed.has(index);
+            const materialPreset = this.commensuratePreviewMaterial(preview, row);
             const atomSegments = isFixed ? this.fixedAtomSegments(segmentCount) : segmentCount;
             const core = coreMask[row] !== false;
             const key = `${core ? 'core' : 'halo'}:${isFixed ? 'fixed' : 'normal'}:${materialPreset}:${atomSegments}`;
@@ -4779,8 +4833,7 @@ export class ASERenderer {
                 sharedGeometry: true
             };
             group.rows.forEach((row, instanceId) => {
-                const index = Number(atomIndices[row]);
-                const radius = this.atomVisualRadius(index);
+                const radius = this.commensuratePreviewRadius(preview, row);
                 this.instanceDummy.position.set(...positions[row]);
                 this.instanceDummy.quaternion.identity();
                 this.instanceDummy.scale.setScalar(radius);
@@ -4789,7 +4842,7 @@ export class ASERenderer {
                 mesh.setColorAt(
                     instanceId,
                     this.fixedAdjustedColor(
-                        this.atomVisualColor(index, this.customColors[index]),
+                        this.commensuratePreviewColor(preview, row),
                         group.isFixed,
                         group.materialPreset
                     )
@@ -4801,20 +4854,56 @@ export class ASERenderer {
         });
     }
 
+    commensuratePreviewBondRange(preview, firstRow, secondRow) {
+        if (this.displayOptions.bondMode === 'pairwise') {
+            return this.pairwiseBondRange(
+                this.commensuratePreviewLabel(preview, firstRow),
+                this.commensuratePreviewLabel(preview, secondRow)
+            );
+        }
+        const scale = Math.max(0.1, Number(this.displayOptions.bondCutoffScale || 1));
+        const maximum = this.autoBondBaseCutoffFromValues(
+            this.commensuratePreviewCovalentRadius(preview, firstRow),
+            this.commensuratePreviewCovalentRadius(preview, secondRow),
+            this.autoBondElementClass(this.commensuratePreviewChemicalSymbol(preview, firstRow)),
+            this.autoBondElementClass(this.commensuratePreviewChemicalSymbol(preview, secondRow))
+        ) * scale;
+        return Number.isFinite(maximum) && maximum > 0
+            ? { min: 0, max: maximum }
+            : null;
+    }
+
+    commensuratePreviewMaximumBondCutoff(preview) {
+        if (this.displayOptions.bondMode === 'pairwise') {
+            return Object.values(this.displayOptions.pairwiseBondRanges || {}).reduce((maximum, range) => {
+                const value = range?.enabled === false ? 0 : Number(range?.max);
+                return Number.isFinite(value) ? Math.max(maximum, value) : maximum;
+            }, 0);
+        }
+        const radii = (preview?.bond_radii || [])
+            .map(Number)
+            .filter(value => Number.isFinite(value) && value > 0)
+            .sort((left, right) => right - left);
+        const radiusSum = (radii[0] || FALLBACK_COVALENT_RADIUS)
+            + (radii[1] || radii[0] || FALLBACK_COVALENT_RADIUS);
+        return (radiusSum + AUTO_BOND_COVALENT_SLACK)
+            * Math.max(0.1, Number(this.displayOptions.bondCutoffScale || 1));
+    }
+
     commensuratePreviewBondPairs(preview) {
         if (!this.displayOptions.showBonds) return [];
         const positions = preview.positions || [];
         const atomIndices = preview.atom_indices || [];
         const coreMask = preview.core_mask || [];
         if (!positions.length) return [];
-        const maxCutoff = Math.max(0, Number(this.buildBondSearchContext()?.maxCutoff) || 0);
+        const maxCutoff = Math.max(0, this.commensuratePreviewMaximumBondCutoff(preview));
         if (maxCutoff <= 0) return [];
         const inverseBucket = 1 / maxCutoff;
         const buckets = new Map();
         const keyFor = (x, y, z) => `${x},${y},${z}`;
         positions.forEach((position, row) => {
             const index = Number(atomIndices[row]);
-            if (!Number.isInteger(index) || !this.atomLabelVisible(index)) return;
+            if (!Number.isInteger(index) || !this.commensuratePreviewRowVisible(preview, row)) return;
             const bucket = position.map(value => Math.floor(Number(value) * inverseBucket));
             const key = keyFor(bucket[0], bucket[1], bucket[2]);
             if (!buckets.has(key)) buckets.set(key, []);
@@ -4829,7 +4918,7 @@ export class ASERenderer {
         positions.forEach((position, firstRow) => {
             if (pairs.length >= maxPairs) return;
             const firstIndex = Number(atomIndices[firstRow]);
-            if (!Number.isInteger(firstIndex) || !this.atomLabelVisible(firstIndex)) return;
+            if (!Number.isInteger(firstIndex) || !this.commensuratePreviewRowVisible(preview, firstRow)) return;
             const center = position.map(value => Math.floor(Number(value) * inverseBucket));
             for (let dx = -1; dx <= 1; dx++) {
                 if (pairs.length >= maxPairs) break;
@@ -4847,7 +4936,7 @@ export class ASERenderer {
                             if (this.displayOptions.bondMode === 'manual' && !manual.has(pairKey)) continue;
                             const range = this.displayOptions.bondMode === 'manual'
                                 ? { min: 0, max: maxCutoff }
-                                : this.bondRangeForPair(firstIndex, secondIndex);
+                                : this.commensuratePreviewBondRange(preview, firstRow, secondRow);
                             if (!range) continue;
                             const second = positions[secondRow];
                             const deltaX = Number(second[0]) - Number(position[0]);
@@ -4880,12 +4969,14 @@ export class ASERenderer {
             const secondIndex = Number(atomIndices[secondRow]);
             const segments = split
                 ? [
-                    { firstRow, secondRow, t0: 0, t1: 0.5, colorIndex: firstIndex },
-                    { firstRow, secondRow, t0: 0.5, t1: 1, colorIndex: secondIndex }
+                    { firstRow, secondRow, t0: 0, t1: 0.5, color: this.commensuratePreviewColor(preview, firstRow) },
+                    { firstRow, secondRow, t0: 0.5, t1: 1, color: this.commensuratePreviewColor(preview, secondRow) }
                 ]
-                : [{ firstRow, secondRow, t0: 0, t1: 1, colorIndex: null }];
+                : [{ firstRow, secondRow, t0: 0, t1: 1, color: this.displayOptions.bondCustomColor }];
             segments.forEach(segment => {
-                const color = this.bondSegmentColor(segment);
+                const color = this.validHexColor(segment.color)
+                    ? segment.color
+                    : this.displayOptions.bondCustomColor;
                 if (!segmentsByColor.has(color)) segmentsByColor.set(color, []);
                 segmentsByColor.get(color).push(segment);
             });
@@ -4940,7 +5031,7 @@ export class ASERenderer {
             ? this.commensurateCameraSnapshot
             : this.cameraSnapshot();
         this.clearCommensurateSupercellPreview({ requestRender: false, restoreCamera: false });
-        if (!preview?.positions?.length) {
+        if (!preview || !Array.isArray(preview.cell)) {
             if (cameraSnapshot) this.restoreCameraSnapshot(cameraSnapshot);
             this.requestRender();
             return;
@@ -4948,21 +5039,54 @@ export class ASERenderer {
         this.commensurateCameraSnapshot = cameraSnapshot;
         this.hideBaseSceneForCommensuratePreview();
         this.commensurateSupercellPreview = payload;
-        this.buildCommensuratePreviewAtoms(preview);
-        const bondCount = this.buildCommensuratePreviewBonds(preview);
-        const cellMaterial = new THREE.MeshBasicMaterial({
-            color: 0x16a88f,
-            transparent: true,
-            opacity: 0.96,
-            depthTest: true,
-            depthWrite: false,
-            toneMapped: false
-        });
-        this.addCellEdgeInstances(
-            this.commensurateSupercellGroup,
-            this.commensurateCellSegments(preview.cell),
+        if (preview.positions?.length) this.buildCommensuratePreviewAtoms(preview);
+        const bondCount = preview.positions?.length ? this.buildCommensuratePreviewBonds(preview) : 0;
+        const addBoundary = (cell, color, opacity, metadata, origin = [0, 0, 0], scale = 1) => {
+            if (!Array.isArray(cell) || cell.length !== 3) return;
+            const material = new THREE.MeshBasicMaterial({
+                color,
+                transparent: true,
+                opacity,
+                depthTest: true,
+                depthWrite: false,
+                toneMapped: false
+            });
+            this.addCellEdgeInstances(
+                this.commensurateSupercellGroup,
+                this.commensurateCellSegments(cell, origin),
+                metadata,
+                {
+                    material,
+                    radius: Math.max(0.025, this.normalizedCellThickness() * scale)
+                }
+            );
+        };
+        const guestOrigin = preview.mode === 'host-guest'
+            ? (preview.guest_offset || [0, 0, 0])
+            : [0, 0, 0];
+        addBoundary(
+            preview.host_cell,
+            0xd6bd67,
+            0.92,
+            { commensurateHostCell: true },
+            [0, 0, 0],
+            0.68
+        );
+        addBoundary(
+            preview.guest_cell,
+            0x6aa7ff,
+            0.92,
+            { commensurateGuestCell: true },
+            guestOrigin,
+            0.68
+        );
+        addBoundary(
+            preview.common_cell || preview.cell,
+            0x16a88f,
+            1,
             { commensurateSuggestedCell: true },
-            { material: cellMaterial, radius: Math.max(0.025, this.normalizedCellThickness() * 0.82) }
+            [0, 0, 0],
+            1.05
         );
         this.commensurateSupercellGroup.position.copy(this.visualTranslationVector());
         this.domElement.dataset.commensuratePreviewAtoms = String(preview.preview_atom_count || preview.positions.length);

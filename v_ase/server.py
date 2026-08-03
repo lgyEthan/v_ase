@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, Any, List
 from .session import (
     append_session_frames,
+    copy_atoms_with_calc,
     EditorSession,
     create_workspace_session,
     finalize_workspace,
@@ -32,11 +33,16 @@ from .repulsion import (
     repulsion_metadata,
 )
 from .commensurate import (
+    COMMENSURATE_REFERENCES,
+    commensurate_csv,
     commensurate_supercell_geometry,
     find_commensurate_angles,
+    find_lattice_matches,
+    host_guest_supercell_geometry,
     row_rotation_matrix,
 )
 from .analysis import calculate_rdf, rdf_csv
+from .registry import calculate_registry_map, registry_map_csv
 from .ai import AI_PROTOCOL, COLLABORATION_PROTOCOL, ai_skill_path
 from .project import (
     PROJECT_MIME,
@@ -299,7 +305,9 @@ AI_CONTROL_SCHEMA = {
                 "translate-all, set-supercell, make-supercell, add-atom, "
                 "delete-selection, set-identity, set-constraints, "
                 "move-selection, rotate-selection, rotate-to-commensurate, "
-                "apply-commensurate-cell, dismiss-commensurate-cell, undo, redo, "
+                "load-commensurate-guest, remove-commensurate-guest, "
+                "calculate-commensurate, apply-commensurate-cell, "
+                "dismiss-commensurate-cell, calculate-registry-map, undo, redo, "
                 "reset-coordinates, start-relaxation, stop-relaxation, and "
                 "refresh-displacements, load-volumetric, show-volumetric, "
                 "combine-volumetric, remove-volumetric, and calculate-rdf."
@@ -311,7 +319,7 @@ AI_CONTROL_SCHEMA = {
                         "wrap", "undo", "redo", "reset-coordinates",
                         "stop-relaxation", "refresh-displacements",
                         "apply-commensurate-cell", "dismiss-commensurate-cell",
-                        "calculate-rdf",
+                        "remove-commensurate-guest", "calculate-rdf",
                     ],
                 },
                 {
@@ -325,8 +333,12 @@ AI_CONTROL_SCHEMA = {
                                 "delete-selection", "set-identity",
                                 "set-constraints", "move-selection",
                                 "rotate-selection", "rotate-to-commensurate",
+                                "load-commensurate-guest",
+                                "remove-commensurate-guest",
+                                "calculate-commensurate",
                                 "apply-commensurate-cell",
-                                "dismiss-commensurate-cell", "undo", "redo",
+                                "dismiss-commensurate-cell",
+                                "calculate-registry-map", "undo", "redo",
                                 "reset-coordinates", "start-relaxation",
                                 "stop-relaxation", "refresh-displacements",
                                 "load-volumetric", "show-volumetric",
@@ -336,6 +348,80 @@ AI_CONTROL_SCHEMA = {
                         },
                     },
                     "allOf": [
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "load-commensurate-guest"},
+                                },
+                            },
+                            "then": {
+                                "required": ["path"],
+                                "properties": {
+                                    "path": {"type": "string", "minLength": 1},
+                                    "format": {"type": "string"},
+                                    "calculate": {"type": "boolean"},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "calculate-commensurate"},
+                                },
+                            },
+                            "then": {
+                                "properties": {
+                                    "axis": {"const": "Z"},
+                                    "mode": {"enum": ["same-lattice", "host-guest"]},
+                                    "strainTarget": {"enum": ["host", "guest"]},
+                                    "strainTolerance": {
+                                        "type": "number", "minimum": 0, "maximum": 0.25
+                                    },
+                                    "maxIndex": {
+                                        "type": "integer", "minimum": 2, "maximum": 64
+                                    },
+                                    "maxAreaRatio": {
+                                        "type": "integer", "minimum": 1, "maximum": 256
+                                    },
+                                    "angleDeg": {"type": "number"},
+                                    "showAtoms": {"type": "boolean"},
+                                    "snap": {"type": "boolean"},
+                                    "indices": {
+                                        "type": "array",
+                                        "items": {"type": "integer", "minimum": 0},
+                                        "uniqueItems": True,
+                                    },
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "calculate-registry-map"},
+                                },
+                            },
+                            "then": {
+                                "properties": {
+                                    "indices": {
+                                        "type": "array",
+                                        "items": {"type": "integer", "minimum": 0},
+                                        "minItems": 1,
+                                        "uniqueItems": True,
+                                    },
+                                    "metric": {"enum": ["short-contact", "bond-strain"]},
+                                    "gridX": {
+                                        "type": "integer", "minimum": 4, "maximum": 160
+                                    },
+                                    "gridY": {
+                                        "type": "integer", "minimum": 4, "maximum": 160
+                                    },
+                                    "pairCutoffs": {"type": "object"},
+                                },
+                            },
+                        },
                         {
                             "if": {
                                 "required": ["name"],
@@ -551,13 +637,46 @@ AI_OPERATION_PARAMETERS = {
         "required": ["angleDeg", "selection-or-indices"],
         "optional": [
             "indices", "axis", "pivot", "maxAngleDifferenceDeg",
-            "strainTolerance", "maxIndex", "maxAreaRatio", "applyConstraints",
+            "strainTolerance", "maxIndex", "maxAreaRatio", "showAtoms",
+            "applyConstraints",
         ],
         "notes": (
             "Finds the nearest validated periodic 2D lattice match, rotates the "
-            "selected layer to that exact angle, and opens the opaque common-cell "
-            "proposal with a one-primitive-cell boundary shell. axis is X, Y, or Z; "
-            "maxAreaRatio defaults to 16. No proposal is made above that limit."
+            "selected layer to that exact angle, and opens the common-cell proposal. "
+            "The default is cells-only; showAtoms=true adds the opaque core and muted "
+            "one-primitive-cell boundary shell. axis is strictly Z; maxAreaRatio "
+            "defaults to 16. No proposal is made above that limit."
+        ),
+    },
+    "load-commensurate-guest": {
+        "mode": "view-or-edit",
+        "required": ["path"],
+        "optional": [
+            "format", "calculate", "strainTarget", "strainTolerance",
+            "maxAreaRatio", "maxIndex", "angleDeg", "showAtoms",
+        ],
+        "notes": (
+            "Loads an independent guest structure from inside the GUI launch "
+            "directory. Absolute paths and parent-directory traversal are rejected."
+        ),
+    },
+    "remove-commensurate-guest": {
+        "mode": "view-or-edit",
+        "required": [],
+        "optional": [],
+    },
+    "calculate-commensurate": {
+        "mode": "view-or-edit",
+        "required": [],
+        "optional": [
+            "indices", "axis", "mode", "strainTarget", "strainTolerance",
+            "maxAreaRatio", "maxIndex", "angleDeg", "showAtoms", "snap",
+        ],
+        "notes": (
+            "Searches bounded integer common cells about global Z. Same-lattice "
+            "mode requires a selected rotating layer before atom preview or "
+            "materialization; host-guest mode requires a loaded guest. Cells-only "
+            "preview is the default and maxAreaRatio defaults to 16."
         ),
     },
     "apply-commensurate-cell": {
@@ -571,6 +690,15 @@ AI_OPERATION_PARAMETERS = {
         "required": [],
         "optional": [],
         "notes": "Closes the active proposal and restores the pre-preview camera.",
+    },
+    "calculate-registry-map": {
+        "mode": "view-or-edit",
+        "required": ["selection-or-indices"],
+        "optional": ["indices", "metric", "gridX", "gridY", "pairCutoffs"],
+        "notes": (
+            "Scans one periodic XY cell for the selected movable layer. metric is "
+            "short-contact or bond-strain; both are geometry scores, not energies."
+        ),
     },
     "undo": {"mode": "view-or-edit", "required": [], "optional": []},
     "redo": {"mode": "view-or-edit", "required": [], "optional": []},
@@ -679,6 +807,19 @@ AI_EXPORT_PARAMETERS = {
     "rdf-csv": {
         "optional": ["cutoff", "bins", "pairMode", "activePairs"],
         "notes": "Exports the total RDF and currently requested partial curves.",
+    },
+    "commensurate-csv": {
+        "optional": [
+            "mode", "strainTarget", "strainTolerance", "maxAreaRatio", "maxIndex",
+        ],
+        "notes": (
+            "Exports angle, host/guest integer matrices, area ratios, residual "
+            "strains, and the scientific references used by the bounded search."
+        ),
+    },
+    "registry-csv": {
+        "optional": ["indices", "metric", "gridX", "gridY", "pairCutoffs"],
+        "notes": "Exports the full periodic XY translation grid and metric values.",
     },
 }
 
@@ -834,6 +975,19 @@ def session_atoms_to_json(session: EditorSession, include_inline_trajectory: boo
         dataset.summary()
         for dataset in session.volumetric_datasets
     ]
+    guest = session.commensurate_guest_atoms
+    data["metadata"]["commensurate_guest"] = (
+        {
+            "name": session.commensurate_guest_name or "Guest structure",
+            "natoms": len(guest),
+            "cell": np.asarray(guest.cell.array, dtype=float).tolist(),
+            "pbc": np.asarray(guest.pbc, dtype=bool).tolist(),
+            "labels": atom_labels(guest),
+            "chemical_symbols": guest.get_chemical_symbols(),
+        }
+        if isinstance(guest, Atoms)
+        else None
+    )
     if is_vase_repulsion_calculator(session.working_atoms.calc):
         data["metadata"]["calculator"] = "Repulsion"
         data["metadata"]["has_calculator"] = True
@@ -1188,41 +1342,129 @@ def _commensurate_angular_distance(first: float, second: float) -> float:
     return abs((float(first) - float(second) + 180.0) % 360.0 - 180.0)
 
 
-def resolve_commensurate_candidate(atoms, payload: Dict[str, Any]):
-    """Recompute and validate a client-selected common-cell candidate."""
+def _commensurate_search_signature(session: EditorSession, payload: Dict[str, Any]) -> str:
+    guest = session.commensurate_guest_atoms
+    mode = "host-guest" if payload.get("mode") == "host-guest" and guest is not None else "same-lattice"
+    signature = {
+        "mode": mode,
+        "axis": str(payload.get("axis", "Z")).upper(),
+        "max_index": int(payload.get("max_index", 32)),
+        "max_area_ratio": int(payload.get("max_area_ratio", 16)),
+        "strain_tolerance": round(float(payload.get("strain_tolerance", 0.01)), 12),
+        "strain_target": str(payload.get("strain_target", "guest")).lower(),
+        "host_cell": np.round(np.asarray(session.working_atoms.cell.array, dtype=float), 10).tolist(),
+        "host_pbc": np.asarray(session.working_atoms.pbc, dtype=bool).tolist(),
+        "guest_cell": (
+            np.round(np.asarray(guest.cell.array, dtype=float), 10).tolist()
+            if mode == "host-guest"
+            else None
+        ),
+        "guest_pbc": (
+            np.asarray(guest.pbc, dtype=bool).tolist()
+            if mode == "host-guest"
+            else None
+        ),
+    }
+    return json.dumps(signature, sort_keys=True, separators=(",", ":"))
 
-    axis = payload.get("axis", "Z")
+
+def _run_commensurate_search(
+    session: EditorSession,
+    payload: Dict[str, Any],
+    progress_callback=None,
+) -> Dict[str, Any]:
+    axis = str(payload.get("axis", "Z")).upper()
+    if axis != "Z":
+        raise ValueError(
+            "Commensurate atoms is restricted to in-plane rotation about global Z."
+        )
     max_index = int(payload.get("max_index", 32))
     strain_tolerance = float(payload.get("strain_tolerance", 0.01))
     max_area_ratio = int(payload.get("max_area_ratio", 16))
     if max_area_ratio < 1 or max_area_ratio > 256:
-        raise HTTPException(
-            status_code=400,
-            detail="Maximum commensurate area ratio must be between 1 and 256.",
+        raise ValueError(
+            "Maximum commensurate area ratio must be between 1 and 256."
         )
+    mode = "host-guest" if payload.get("mode") == "host-guest" else "same-lattice"
+    atoms = session.working_atoms
+    if mode == "host-guest":
+        guest = session.commensurate_guest_atoms
+        if guest is None:
+            raise ValueError("Load a guest structure before host/guest lattice matching.")
+        result = find_lattice_matches(
+            atoms.cell.array,
+            atoms.pbc,
+            guest.cell.array,
+            guest.pbc,
+            max_area_ratio=max_area_ratio,
+            strain_tolerance=strain_tolerance,
+            strain_target=payload.get("strain_target", "guest"),
+            progress_callback=progress_callback,
+        )
+    else:
+        if progress_callback:
+            progress_callback(0.08, "Projecting the periodic host cell")
+        result = find_commensurate_angles(
+            atoms.cell.array,
+            atoms.pbc,
+            axis,
+            max_index=max_index,
+            strain_tolerance=strain_tolerance,
+            chemical_symbols=atoms.get_chemical_symbols(),
+        )
+        result["max_area_ratio"] = max_area_ratio
+        result["suggestion_count"] = sum(
+            1
+            for candidate in result["candidates"]
+            if candidate.get("supercell_supported")
+            and int(candidate.get("area_ratio", 0)) <= max_area_ratio
+        )
+        if progress_callback:
+            progress_callback(1.0, "Ranking valid commensurate matches")
+    return result
+
+
+def resolve_commensurate_candidate(session: EditorSession, payload: Dict[str, Any]):
+    """Validate a client-selected common-cell candidate against backend search."""
+
+    max_area_ratio = int(payload.get("max_area_ratio", 16))
     requested = payload.get("candidate") or {}
     try:
-        requested_source = np.asarray(requested.get("source_matrix"), dtype=int)
-        requested_target = np.asarray(requested.get("target_matrix"), dtype=int)
+        requested_guest = np.asarray(
+            requested.get("guest_matrix", requested.get("source_matrix")),
+            dtype=int,
+        )
+        requested_host = np.asarray(
+            requested.get("host_matrix", requested.get("target_matrix")),
+            dtype=int,
+        )
         requested_angle = float(requested.get("angle_deg"))
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail="Invalid commensurate candidate payload.") from exc
-    if requested_source.shape != (2, 2) or requested_target.shape != (2, 2):
+    if requested_guest.shape != (2, 2) or requested_host.shape != (2, 2):
         raise HTTPException(status_code=400, detail="Commensurate candidate needs two 2 x 2 integer matrices.")
 
-    result = find_commensurate_angles(
-        atoms.cell.array,
-        atoms.pbc,
-        axis,
-        max_index=max_index,
-        strain_tolerance=strain_tolerance,
-        chemical_symbols=atoms.get_chemical_symbols(),
-    )
+    signature = _commensurate_search_signature(session, payload)
+    cached = session.commensurate_search_cache or {}
+    if cached.get("signature") == signature and isinstance(cached.get("result"), dict):
+        result = cached["result"]
+    else:
+        try:
+            result = _run_commensurate_search(session, payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        session.commensurate_search_cache = {"signature": signature, "result": result}
     matches = [
         candidate
         for candidate in result["candidates"]
-        if np.array_equal(np.asarray(candidate["source_matrix"], dtype=int), requested_source)
-        and np.array_equal(np.asarray(candidate["target_matrix"], dtype=int), requested_target)
+        if np.array_equal(
+            np.asarray(candidate.get("guest_matrix", candidate.get("source_matrix")), dtype=int),
+            requested_guest,
+        )
+        and np.array_equal(
+            np.asarray(candidate.get("host_matrix", candidate.get("target_matrix")), dtype=int),
+            requested_host,
+        )
         and _commensurate_angular_distance(candidate["angle_deg"], requested_angle) <= 2e-5
     ]
     if not matches:
@@ -1294,10 +1536,15 @@ def materialize_commensurate_atoms(
     )
     deformation = np.asarray(candidate["deformation_matrix"], dtype=float)
 
-    def transformed_direction(values, component: str):
+    def transformed_direction(values, component: str, *, plane_normal: bool = False):
         direction = np.asarray(values, dtype=float)
         if component == "rotating":
-            direction = direction @ rotation @ deformation
+            affine = rotation @ deformation
+            direction = (
+                np.linalg.solve(affine, direction)
+                if plane_normal
+                else direction @ affine
+            )
         length = float(np.linalg.norm(direction))
         if length <= 1e-12:
             raise HTTPException(status_code=400, detail="A directional constraint became singular.")
@@ -1344,7 +1591,11 @@ def materialize_commensurate_atoms(
                 if mapped:
                     constraints.append(constraint_type(
                         mapped,
-                        transformed_direction(constraint.dir, component),
+                        transformed_direction(
+                            constraint.dir,
+                            component,
+                            plane_normal=isinstance(constraint, FixedPlane),
+                        ),
                     ))
         elif isinstance(constraint, Hookean):
             if constraint._type != "two atoms":
@@ -1381,6 +1632,197 @@ def materialize_commensurate_atoms(
     if atoms.calc:
         transformed.calc = copy_calculator(atoms.calc)
     return transformed
+
+
+def _normalized_affine_line_direction(values, affine: np.ndarray) -> list[float]:
+    direction = np.asarray(values, dtype=float) @ affine
+    length = float(np.linalg.norm(direction))
+    if length <= 1e-12:
+        raise HTTPException(
+            status_code=400,
+            detail="A directional constraint became singular in the common cell.",
+        )
+    return (direction / length).tolist()
+
+
+def _normalized_affine_plane_normal(values, affine: np.ndarray) -> list[float]:
+    try:
+        normal = np.linalg.solve(np.asarray(affine, dtype=float), np.asarray(values, dtype=float))
+    except np.linalg.LinAlgError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="A fixed-plane normal became singular in the common cell.",
+        ) from exc
+    length = float(np.linalg.norm(normal))
+    if length <= 1e-12:
+        raise HTTPException(
+            status_code=400,
+            detail="A fixed-plane normal became singular in the common cell.",
+        )
+    return (normal / length).tolist()
+
+
+def _transform_commensurate_constraints(
+    atoms: Atoms,
+    affine: np.ndarray,
+    translation: np.ndarray,
+) -> list[Any]:
+    transformed: list[Any] = []
+    for constraint in atoms.constraints or []:
+        indices = _commensurate_constraint_indices(constraint, len(atoms))
+        if isinstance(constraint, FixAtoms):
+            transformed.append(FixAtoms(indices=indices))
+        elif isinstance(constraint, FixCartesian):
+            transformed.append(FixCartesian(indices, mask=constraint.mask.tolist()))
+        elif isinstance(constraint, FixScaled):
+            transformed.append(FixScaled(indices, mask=constraint.mask.tolist()))
+        elif isinstance(constraint, FixedLine):
+            transformed.append(FixedLine(
+                indices,
+                _normalized_affine_line_direction(constraint.dir, affine),
+            ))
+        elif isinstance(constraint, FixedPlane):
+            transformed.append(FixedPlane(
+                indices,
+                _normalized_affine_plane_normal(constraint.dir, affine),
+            ))
+        elif isinstance(constraint, Hookean) and constraint._type == "two atoms":
+            transformed.append(Hookean(
+                int(constraint.indices[0]),
+                int(constraint.indices[1]),
+                rt=constraint.threshold,
+                k=constraint.spring,
+            ))
+        elif isinstance(constraint, Hookean) and constraint._type == "point":
+            origin = np.asarray(constraint.origin, dtype=float) @ affine + translation
+            transformed.append(Hookean(
+                int(constraint.index),
+                origin,
+                rt=constraint.threshold,
+                k=constraint.spring,
+            ))
+        elif isinstance(constraint, Hookean) and constraint._type == "plane":
+            coefficients = np.asarray(constraint.plane[:3], dtype=float)
+            try:
+                normal = np.linalg.solve(affine, coefficients)
+            except np.linalg.LinAlgError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail="A Hookean plane became singular in the common cell.",
+                ) from exc
+            offset = float(constraint.plane[3]) - float(np.dot(translation, normal))
+            norm = float(np.linalg.norm(normal))
+            if norm <= 1e-12:
+                raise HTTPException(status_code=400, detail="A Hookean plane became singular.")
+            transformed.append(Hookean(
+                int(constraint.index),
+                [*(normal / norm), offset / norm],
+                rt=constraint.threshold,
+                k=constraint.spring,
+            ))
+    return transformed
+
+
+def _offset_constraints(constraints: List[Any], offset: int) -> list[Any]:
+    shifted: list[Any] = []
+    for constraint in constraints:
+        if isinstance(constraint, FixAtoms):
+            shifted.append(FixAtoms(indices=[int(value) + offset for value in constraint.index]))
+        elif isinstance(constraint, FixCartesian):
+            shifted.append(FixCartesian(
+                [int(value) + offset for value in constraint.index],
+                mask=constraint.mask.tolist(),
+            ))
+        elif isinstance(constraint, FixScaled):
+            shifted.append(FixScaled(
+                [int(value) + offset for value in constraint.index],
+                mask=constraint.mask.tolist(),
+            ))
+        elif isinstance(constraint, FixedLine):
+            shifted.append(FixedLine(
+                [int(value) + offset for value in constraint.index],
+                constraint.dir,
+            ))
+        elif isinstance(constraint, FixedPlane):
+            shifted.append(FixedPlane(
+                [int(value) + offset for value in constraint.index],
+                constraint.dir,
+            ))
+        elif isinstance(constraint, Hookean) and constraint._type == "two atoms":
+            shifted.append(Hookean(
+                int(constraint.indices[0]) + offset,
+                int(constraint.indices[1]) + offset,
+                rt=constraint.threshold,
+                k=constraint.spring,
+            ))
+        elif isinstance(constraint, Hookean) and constraint._type == "point":
+            shifted.append(Hookean(
+                int(constraint.index) + offset,
+                constraint.origin,
+                rt=constraint.threshold,
+                k=constraint.spring,
+            ))
+        elif isinstance(constraint, Hookean) and constraint._type == "plane":
+            shifted.append(Hookean(
+                int(constraint.index) + offset,
+                constraint.plane,
+                rt=constraint.threshold,
+                k=constraint.spring,
+            ))
+    return shifted
+
+
+def materialize_host_guest_atoms(
+    host: Atoms,
+    guest: Atoms,
+    candidate: Dict[str, Any],
+    guest_offset,
+) -> Atoms:
+    """Materialize a validated host/guest candidate as one ASE structure."""
+
+    host_matrix = np.asarray(candidate["host_matrix_3d"], dtype=int)
+    guest_matrix = np.asarray(candidate["guest_matrix_3d"], dtype=int)
+    host_super = make_supercell_atoms(host, host_matrix)
+    guest_super = make_supercell_atoms(guest, guest_matrix)
+    rotation = row_rotation_matrix([0.0, 0.0, 1.0], float(candidate["angle_deg"]))
+    host_affine = np.asarray(candidate["host_deformation_matrix"], dtype=float)
+    guest_affine = rotation @ np.asarray(candidate["guest_deformation_matrix"], dtype=float)
+    offset = np.asarray(guest_offset, dtype=float)
+    common_cell = np.asarray(candidate["suggested_cell"], dtype=float)
+
+    host_super.set_positions(host_super.get_positions() @ host_affine, apply_constraint=False)
+    guest_super.set_positions(
+        guest_super.get_positions() @ guest_affine + offset,
+        apply_constraint=False,
+    )
+    host_constraints = _transform_commensurate_constraints(
+        host_super,
+        host_affine,
+        np.zeros(3),
+    )
+    guest_constraints = _transform_commensurate_constraints(
+        guest_super,
+        guest_affine,
+        offset,
+    )
+    host_labels = atom_labels(host_super)
+    guest_labels = atom_labels(guest_super)
+    host_super.set_constraint()
+    guest_super.set_constraint()
+    combined = host_super.copy()
+    combined.extend(guest_super)
+    combined.set_cell(common_cell, scale_atoms=False)
+    combined.set_pbc(host.pbc)
+    set_atom_labels(combined, [*host_labels, *guest_labels])
+    combined.set_constraint([
+        *host_constraints,
+        *_offset_constraints(guest_constraints, len(host_super)),
+    ])
+    if host.calc:
+        combined.calc = copy_calculator(host.calc)
+    else:
+        ensure_default_calculator(combined)
+    return combined
 
 
 def translate_atoms(atoms, vector, coordinate_mode="cartesian"):
@@ -3126,34 +3568,200 @@ async def constrain_positions(session_id: str, payload: Dict[str, Any]):
     return {"positions": temp_atoms.get_positions().tolist()}
 
 
+def _suggested_guest_offset(host: Atoms, guest: Atoms) -> list[float]:
+    if not len(host) or not len(guest):
+        return [0.0, 0.0, 0.0]
+    separation = 3.35
+    return [
+        0.0,
+        0.0,
+        float(np.max(host.positions[:, 2]) - np.min(guest.positions[:, 2]) + separation),
+    ]
+
+
+def _read_commensurate_guest_structure(
+    source_path: Path,
+    display_name: str,
+    input_format: str | None = None,
+) -> Atoms:
+    """Read and validate one independent in-plane guest structure."""
+
+    from .commensurate import project_periodic_lattice
+    from .io import read_structure_frames, resolve_input_format
+
+    format_hint = _uploaded_format_hint(display_name, input_format or None)
+    resolved = resolve_input_format(format_hint)
+    if resolved in {"vase-project", "vase-html-project"}:
+        raise ValueError("Load a structure file, not a v_ase project, as the guest lattice.")
+    frames = read_structure_frames(source_path, "0", resolved)
+    if not frames:
+        raise ValueError("The guest file contains no readable structure.")
+    guest = frames[0]
+    if len(guest) < 1:
+        raise ValueError("The guest structure contains no atoms.")
+    projected = project_periodic_lattice(guest.cell.array, guest.pbc, "Z")
+    if projected.axis_alignment < 0.985:
+        raise ValueError(
+            "Guest matching requires two periodic cell vectors in the global XY plane."
+        )
+    return guest
+
+
+def _set_commensurate_guest(
+    session: EditorSession,
+    guest: Atoms,
+    display_name: str,
+) -> Dict[str, Any]:
+    session.commensurate_guest_atoms = copy_atoms_with_calc(guest, attach_default=False)
+    session.commensurate_guest_name = display_name
+    session.commensurate_search_cache = None
+    return {
+        "status": "ok",
+        "guest": {
+            "name": display_name,
+            "atoms": atoms_to_json(session.commensurate_guest_atoms),
+            "suggested_offset": _suggested_guest_offset(
+                session.working_atoms,
+                session.commensurate_guest_atoms,
+            ),
+        },
+    }
+
+
+def _enrich_commensurate_preview_visuals(
+    geometry: Dict[str, Any],
+    host: Atoms,
+    guest: Atoms | None = None,
+) -> Dict[str, Any]:
+    if not geometry.get("positions"):
+        return geometry
+    serialized = {"host": atoms_to_json(host), "reference": atoms_to_json(host), "rotating": atoms_to_json(host)}
+    if guest is not None:
+        serialized["guest"] = atoms_to_json(guest)
+    labels: list[str] = []
+    chemical_symbols: list[str] = []
+    colors: list[str] = []
+    radii: list[float] = []
+    bond_radii: list[float] = []
+    for atom_index, component in zip(geometry["atom_indices"], geometry["components"]):
+        source = serialized.get(str(component), serialized["host"])
+        index = int(atom_index)
+        labels.append(str(source["symbols"][index]))
+        chemical_symbols.append(str(source["chemical_symbols"][index]))
+        colors.append(str(source["visual"]["colors"][index]))
+        radii.append(float(source["visual"]["radii"][index]))
+        bond_radii.append(float(source["visual"]["bond_radii"][index]))
+    return {
+        **geometry,
+        "labels": labels,
+        "chemical_symbols": chemical_symbols,
+        "colors": colors,
+        "radii": radii,
+        "bond_radii": bond_radii,
+    }
+
+
+@app.post("/api/commensurate/guest/{session_id}")
+async def load_commensurate_guest(
+    session_id: str,
+    request: Request,
+    filename: str = "guest.xyz",
+    input_format: str = "",
+):
+    """Load one independent guest structure for interface-cell matching."""
+
+    session = get_session(session_id)
+    display_name = _validated_uploaded_filename(filename)
+    temporary = await _stream_uploaded_file(request, display_name)
+    try:
+        guest = await asyncio.to_thread(
+            _read_commensurate_guest_structure,
+            temporary,
+            display_name,
+            input_format or None,
+        )
+        return _set_commensurate_guest(session, guest, display_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        _remove_temporary_file(temporary)
+
+
+@app.post("/api/commensurate/guest-path/{session_id}")
+async def load_commensurate_guest_path(session_id: str, payload: Dict[str, Any]):
+    """Load a guest structure from the terminal launch directory for agents."""
+
+    session = get_session(session_id)
+    source_path = _resolve_launch_path(
+        session,
+        str(payload.get("path") or ""),
+        require_file=True,
+    )
+    _validate_launch_file_size(source_path)
+    display_name = _validated_uploaded_filename(source_path.name)
+    try:
+        guest = await asyncio.to_thread(
+            _read_commensurate_guest_structure,
+            source_path,
+            display_name,
+            str(payload.get("input_format") or "") or None,
+        )
+        return _set_commensurate_guest(session, guest, display_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/commensurate/guest/remove/{session_id}")
+async def remove_commensurate_guest(session_id: str):
+    session = get_session(session_id)
+    session.commensurate_guest_atoms = None
+    session.commensurate_guest_name = None
+    session.commensurate_search_cache = None
+    return {"status": "ok", "guest": None}
+
+
 @app.post("/api/commensurate/{session_id}")
 async def commensurate_rotation_candidates(session_id: str, payload: Dict[str, Any]):
-    """Return periodic 2D cell-boundary matches for an axis-locked rotate."""
+    """Return bounded same-lattice or host/guest periodic-cell matches."""
     session = get_session(session_id)
     sync_session_frame_from_payload(session, payload)
-    atoms = session.working_atoms
-    result = await asyncio.to_thread(
-        find_commensurate_angles,
-        atoms.cell.array,
-        atoms.pbc,
-        payload.get("axis", "Z"),
-        max_index=payload.get("max_index", 32),
-        strain_tolerance=payload.get("strain_tolerance", 0.01),
-        chemical_symbols=atoms.get_chemical_symbols(),
-    )
-    max_area_ratio = int(payload.get("max_area_ratio", 16))
-    if max_area_ratio < 1 or max_area_ratio > 256:
-        raise HTTPException(
-            status_code=400,
-            detail="Maximum commensurate area ratio must be between 1 and 256.",
+    job_id = str(payload.get("job_id") or uuid.uuid4())
+
+    def progress(value: float, stage: str) -> None:
+        ws_manager.broadcast_sync({
+            "type": "analysis_progress",
+            "analysis": "commensurate",
+            "job_id": job_id,
+            "progress": float(value),
+            "stage": str(stage),
+        }, session_id=session_id)
+
+    try:
+        result = await asyncio.to_thread(
+            _run_commensurate_search,
+            session,
+            payload,
+            progress,
         )
-    result["max_area_ratio"] = max_area_ratio
-    result["suggestion_count"] = sum(
-        1
-        for candidate in result["candidates"]
-        if candidate.get("supercell_supported")
-        and int(candidate.get("area_ratio", 0)) <= max_area_ratio
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    result["job_id"] = job_id
+    result["guest"] = (
+        {
+            "name": session.commensurate_guest_name or "Guest structure",
+            "natoms": len(session.commensurate_guest_atoms),
+            "suggested_offset": _suggested_guest_offset(
+                session.working_atoms,
+                session.commensurate_guest_atoms,
+            ),
+        }
+        if session.commensurate_guest_atoms is not None
+        else None
     )
+    session.commensurate_search_cache = {
+        "signature": _commensurate_search_signature(session, payload),
+        "result": result,
+    }
     return result
 
 
@@ -3169,19 +3777,44 @@ async def preview_commensurate_supercell(session_id: str, payload: Dict[str, Any
         if positions.shape != (len(atoms), 3) or not np.all(np.isfinite(positions)):
             raise HTTPException(status_code=400, detail="Preview positions must match the current atom count.")
         atoms.set_positions(positions, apply_constraint=False)
-    candidate, search = resolve_commensurate_candidate(atoms, payload)
+    candidate, search = resolve_commensurate_candidate(session, payload)
+    mode = str(search.get("mode") or "same-lattice")
     selected = [int(value) for value in payload.get("selected_indices", [])]
     pivot = payload.get("pivot", [0.0, 0.0, 0.0])
     try:
-        geometry = await asyncio.to_thread(
-            commensurate_supercell_geometry,
-            cell=atoms.cell.array,
-            positions=atoms.get_positions(),
-            selected_indices=selected,
-            candidate=candidate,
-            pivot=pivot,
-            padding_cells=1,
-        )
+        if mode == "host-guest":
+            guest = session.commensurate_guest_atoms
+            if guest is None:
+                raise ValueError("The guest structure is no longer loaded.")
+            geometry = await asyncio.to_thread(
+                host_guest_supercell_geometry,
+                host_cell=atoms.cell.array,
+                host_positions=atoms.get_positions(),
+                guest_cell=guest.cell.array,
+                guest_positions=guest.get_positions(),
+                candidate=candidate,
+                guest_offset=payload.get(
+                    "guest_offset",
+                    _suggested_guest_offset(atoms, guest),
+                ),
+                padding_cells=1,
+                include_atoms=bool(payload.get("show_atoms", False)),
+                display_angle_deg=payload.get("display_angle_deg"),
+            )
+            geometry = _enrich_commensurate_preview_visuals(geometry, atoms, guest)
+        else:
+            geometry = await asyncio.to_thread(
+                commensurate_supercell_geometry,
+                cell=atoms.cell.array,
+                positions=atoms.get_positions(),
+                selected_indices=selected,
+                candidate=candidate,
+                pivot=pivot,
+                padding_cells=1,
+                include_atoms=bool(payload.get("show_atoms", False)),
+                display_angle_deg=payload.get("display_angle_deg"),
+            )
+            geometry = _enrich_commensurate_preview_visuals(geometry, atoms)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -3200,6 +3833,7 @@ async def preview_commensurate_supercell(session_id: str, payload: Dict[str, Any
         "candidate": candidate,
         "search": {
             "axis": search["axis"],
+            "mode": mode,
             "lattice_family": search["lattice_family"],
             "strain_tolerance": search["strain_tolerance"],
             "max_area_ratio": int(payload.get("max_area_ratio", 16)),
@@ -3232,25 +3866,40 @@ async def apply_commensurate_supercell(session_id: str, payload: Dict[str, Any])
     sync_session_frame_from_payload(session, payload)
     set_current_payload_positions(session, payload)
     atoms = session.working_atoms
-    candidate, _ = resolve_commensurate_candidate(atoms, payload)
+    candidate, search = resolve_commensurate_candidate(session, payload)
     selected = [int(value) for value in payload.get("selected_indices", [])]
     pivot = payload.get("pivot", [0.0, 0.0, 0.0])
-    try:
-        geometry = await asyncio.to_thread(
-            commensurate_supercell_geometry,
-            cell=atoms.cell.array,
-            positions=atoms.get_positions(),
-            selected_indices=selected,
-            candidate=candidate,
-            pivot=pivot,
-            padding_cells=0,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
+    mode = str(search.get("mode") or "same-lattice")
     session.push_history(include_trajectory=True)
-    transformed = materialize_commensurate_atoms(atoms, geometry, candidate, selected, pivot)
+    if mode == "host-guest":
+        guest = session.commensurate_guest_atoms
+        if guest is None:
+            raise HTTPException(status_code=400, detail="The guest structure is no longer loaded.")
+        transformed = materialize_host_guest_atoms(
+            atoms,
+            guest,
+            candidate,
+            payload.get("guest_offset", _suggested_guest_offset(atoms, guest)),
+        )
+        session.commensurate_guest_atoms = None
+        session.commensurate_guest_name = None
+    else:
+        try:
+            geometry = await asyncio.to_thread(
+                commensurate_supercell_geometry,
+                cell=atoms.cell.array,
+                positions=atoms.get_positions(),
+                selected_indices=selected,
+                candidate=candidate,
+                pivot=pivot,
+                padding_cells=0,
+                include_atoms=True,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        transformed = materialize_commensurate_atoms(atoms, geometry, candidate, selected, pivot)
     session.working_atoms = transformed
+    session.commensurate_search_cache = None
     session.sync_current_frame()
     session.invalidate_trajectory_layout()
     session.refresh_trajectory_identity()
@@ -3836,6 +4485,93 @@ async def radial_distribution_csv(session_id: str, payload: Dict[str, Any]):
         content=rdf_csv(result),
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="v_ase_rdf.csv"'},
+    )
+
+
+@app.post("/api/analysis/commensurate-csv/{session_id}")
+async def commensurate_candidate_csv(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    try:
+        signature = _commensurate_search_signature(session, payload)
+        cached = session.commensurate_search_cache or {}
+        result = (
+            cached["result"]
+            if cached.get("signature") == signature and isinstance(cached.get("result"), dict)
+            else await asyncio.to_thread(_run_commensurate_search, session, payload)
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(
+        content=commensurate_csv(result),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="v_ase_commensurate.csv"'},
+    )
+
+
+def _calculate_session_registry(
+    session: EditorSession,
+    payload: Dict[str, Any],
+    progress_callback=None,
+):
+    with session.mode_transition_lock:
+        sync_session_frame_from_payload(session, payload)
+        atoms = session.working_atoms.copy()
+        positions = payload.get("positions")
+        if positions is not None:
+            coordinates = np.asarray(positions, dtype=float)
+            if coordinates.shape != (len(atoms), 3) or not np.all(np.isfinite(coordinates)):
+                raise ValueError("Registry-map positions must match the current atom count.")
+            atoms.set_positions(coordinates, apply_constraint=False)
+    return calculate_registry_map(
+        atoms,
+        payload.get("selected_indices") or [],
+        grid_x=int(payload.get("grid_x", 32)),
+        grid_y=int(payload.get("grid_y", 32)),
+        metric=str(payload.get("metric") or "short-contact"),
+        pair_cutoffs=payload.get("pair_cutoffs") or {},
+        progress_callback=progress_callback,
+    )
+
+
+@app.post("/api/analysis/registry/{session_id}")
+async def registry_analysis(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    job_id = str(payload.get("job_id") or uuid.uuid4())
+
+    def progress(value: float, stage: str) -> None:
+        ws_manager.broadcast_sync({
+            "type": "analysis_progress",
+            "analysis": "registry",
+            "job_id": job_id,
+            "progress": float(value),
+            "stage": str(stage),
+        }, session_id=session_id)
+
+    try:
+        result = await asyncio.to_thread(
+            _calculate_session_registry,
+            session,
+            payload,
+            progress,
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    response = result.payload()
+    response["job_id"] = job_id
+    return response
+
+
+@app.post("/api/analysis/registry-csv/{session_id}")
+async def registry_analysis_csv(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    try:
+        result = await asyncio.to_thread(_calculate_session_registry, session, payload)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(
+        content=registry_map_csv(result),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="v_ase_registry_map.csv"'},
     )
 
 

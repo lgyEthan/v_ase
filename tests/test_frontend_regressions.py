@@ -1606,7 +1606,8 @@ def test_rotate_pivot_and_commensurate_cell_matching_are_wired():
     assert "H' = P H" in docs
     assert "ase.build.make_supercell" in docs
     assert "Q* = argmin" in docs
-    assert "epsilon_boundary" in docs
+    assert "epsilon_guest" in docs
+    assert "epsilon_host" in docs
     assert "10.1016/j.cpc.2015.08.038" in docs
     assert "10.1021/acs.jpcc.6b01496" in docs
     assert "10.1073/pnas.1108174108" in docs

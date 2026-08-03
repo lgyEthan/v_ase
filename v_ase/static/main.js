@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.1.7&rev=1';
-import { ASERenderer } from './renderer.js?v=0.1.7&rev=1';
-import { ASESelection } from './selection.js?v=0.1.7&rev=1';
-import { ASETransform } from './transform.js?v=0.1.7&rev=1';
+import { ASEApi } from './api.js?v=0.1.8&rev=1';
+import { ASERenderer } from './renderer.js?v=0.1.8&rev=1';
+import { ASESelection } from './selection.js?v=0.1.8&rev=1';
+import { ASETransform } from './transform.js?v=0.1.8&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.1.7&rev=1';
+} from './trajectory.js?v=0.1.8&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -140,6 +140,11 @@ class VAseApp {
                 rotatePivot: 'selection',
                 commensurateGuide: false,
                 commensurateSnap: false,
+                commensurateMode: 'same-lattice',
+                commensurateStrainTarget: 'guest',
+                commensurateShowAtoms: false,
+                commensurateGuestOffset: [0, 0, 3.35],
+                commensurateGuestAngleDeg: 0,
                 commensurateStrainTolerance: 0.01,
                 commensurateMaxIndex: 32,
                 commensurateMaxAreaRatio: 16,
@@ -187,7 +192,10 @@ class VAseApp {
                 volumetricNegativeColor: '#e05b78',
                 rdfCutoff: null,
                 rdfBins: 200,
-                rdfPairMode: 'active'
+                rdfPairMode: 'active',
+                registryMetric: 'short-contact',
+                registryGridX: 32,
+                registryGridY: 32
             },
             antiAliasing: true,
             sphereQuality: 'auto',
@@ -215,6 +223,9 @@ class VAseApp {
             commensurateLastAngle: null,
             commensurateProposal: null,
             commensurateProposalToken: 0,
+            commensurateJobId: null,
+            commensuratePreviewTimer: null,
+            commensuratePreviewAngle: 0,
             transformSubject: null,
             sunSelected: null,
             sunTransformOriginal: null,
@@ -253,6 +264,13 @@ class VAseApp {
             volumetricSurfaceSummary: null,
             rdfResult: null,
             rdfRequestToken: 0,
+            registryResult: null,
+            registryRequestToken: 0,
+            registryJobId: null,
+            registrySelectionSignature: '',
+            registryTranslationFractional: [0, 0],
+            registryTransformStartFractional: null,
+            activeAnalysisPlot: null,
             plotlyPromise: null,
             videoExportId: null,
             videoExportStartedAt: null
@@ -284,6 +302,7 @@ class VAseApp {
             this.setupDisplacementAnalysis();
             this.setupVolumetricAnalysis();
             this.setupRdfAnalysis();
+            this.setupRegistryAnalysis();
             this.setupViewControls();
             this.setupRuntimeModeControls();
             this.setupSelectedAppearanceControls();
@@ -1977,11 +1996,9 @@ class VAseApp {
         const hadResult = Boolean(this.state.rdfResult);
         this.state.rdfRequestToken += 1;
         this.state.rdfResult = null;
-        const exportButton = document.getElementById('btn-rdf-export');
-        if (exportButton) exportButton.disabled = true;
         const plot = document.getElementById('rdf-plot');
         if (plot && window.Plotly?.purge) window.Plotly.purge(plot);
-        document.getElementById('analysis-drawer')?.classList.add('hidden');
+        if (this.state.activeAnalysisPlot === 'rdf') this.closeAnalysisDrawer();
         if (hadResult || wasCalculating) {
             this.setRdfStatus('idle', 'RDF needs recalculation', detail);
         }
@@ -2003,25 +2020,62 @@ class VAseApp {
         return this.state.plotlyPromise;
     }
 
+    analysisPlotElement(type = this.state.activeAnalysisPlot) {
+        const ids = {
+            rdf: 'rdf-plot',
+            commensurate: 'commensurate-plot',
+            registry: 'registry-plot'
+        };
+        return document.getElementById(ids[type] || '');
+    }
+
+    showAnalysisDrawer(type, title) {
+        const drawer = document.getElementById('analysis-drawer');
+        if (!drawer) return null;
+        this.state.activeAnalysisPlot = type;
+        ['rdf', 'commensurate', 'registry'].forEach(candidate => {
+            this.analysisPlotElement(candidate)?.classList.toggle('hidden', candidate !== type);
+        });
+        const titleElement = document.getElementById('analysis-drawer-title');
+        if (titleElement) titleElement.textContent = title;
+        const exportButton = document.getElementById('btn-analysis-export');
+        if (exportButton) exportButton.disabled = false;
+        drawer.classList.remove('hidden');
+        return this.analysisPlotElement(type);
+    }
+
+    closeAnalysisDrawer() {
+        document.getElementById('analysis-drawer')?.classList.add('hidden');
+        this.state.activeAnalysisPlot = null;
+        const exportButton = document.getElementById('btn-analysis-export');
+        if (exportButton) exportButton.disabled = true;
+    }
+
+    plotTheme() {
+        const style = getComputedStyle(document.documentElement);
+        return {
+            text: style.getPropertyValue('--text').trim() || '#dce4e3',
+            muted: style.getPropertyValue('--muted').trim() || '#879392',
+            line: style.getPropertyValue('--line').trim() || '#33403f',
+            teal: style.getPropertyValue('--teal').trim() || '#58d5bd',
+            amber: style.getPropertyValue('--amber').trim() || '#e58b2a',
+            blue: '#6aa7ff'
+        };
+    }
+
     async plotRdf(result) {
         const Plotly = await this.ensurePlotly();
-        const plot = document.getElementById('rdf-plot');
-        const drawer = document.getElementById('analysis-drawer');
-        if (!plot || !drawer) return;
-        drawer.classList.remove('hidden');
-        const style = getComputedStyle(document.documentElement);
-        const textColor = style.getPropertyValue('--text').trim() || '#dce4e3';
-        const mutedColor = style.getPropertyValue('--muted').trim() || '#879392';
-        const lineColor = style.getPropertyValue('--line').trim() || '#33403f';
-        const teal = style.getPropertyValue('--teal').trim() || '#58d5bd';
-        const palette = [teal, '#e58b2a', '#6aa7ff', '#e05b78', '#a7d46f', '#c49ae8'];
+        const plot = this.showAnalysisDrawer('rdf', 'Radial Distribution Function');
+        if (!plot) return;
+        const theme = this.plotTheme();
+        const palette = [theme.teal, theme.amber, theme.blue, '#e05b78', '#a7d46f', '#c49ae8'];
         const traces = [{
             x: result.radius,
             y: result.total,
             type: 'scatter',
             mode: 'lines',
             name: 'Total',
-            line: { color: teal, width: 2.4 }
+            line: { color: theme.teal, width: 2.4 }
         }];
         Object.entries(result.partial || {}).forEach(([name, values], index) => {
             traces.push({
@@ -2038,18 +2092,18 @@ class VAseApp {
             margin: { l: 56, r: 18, t: 16, b: 48 },
             paper_bgcolor: 'rgba(0,0,0,0)',
             plot_bgcolor: 'rgba(0,0,0,0)',
-            font: { color: textColor, family: 'Inter, system-ui, sans-serif', size: 11 },
+            font: { color: theme.text, family: 'Inter, system-ui, sans-serif', size: 11 },
             xaxis: {
                 title: 'r / Å',
-                gridcolor: lineColor,
+                gridcolor: theme.line,
                 zeroline: false,
-                color: mutedColor
+                color: theme.muted
             },
             yaxis: {
                 title: 'g(r)',
-                gridcolor: lineColor,
-                zerolinecolor: lineColor,
-                color: mutedColor
+                gridcolor: theme.line,
+                zerolinecolor: theme.line,
+                color: theme.muted
             },
             shapes: [{
                 type: 'line',
@@ -2059,7 +2113,7 @@ class VAseApp {
                 yref: 'y',
                 y0: 1,
                 y1: 1,
-                line: { color: mutedColor, width: 1.2, dash: 'dot' }
+                line: { color: theme.muted, width: 1.2, dash: 'dot' }
             }],
             annotations: [{
                 xref: 'paper',
@@ -2070,7 +2124,7 @@ class VAseApp {
                 yshift: 10,
                 text: 'bulk limit  g(r) = 1',
                 showarrow: false,
-                font: { color: mutedColor, size: 10 }
+                font: { color: theme.muted, size: 10 }
             }],
             legend: {
                 orientation: 'h',
@@ -2084,6 +2138,135 @@ class VAseApp {
             displaylogo: false,
             scrollZoom: true,
             modeBarButtonsToRemove: ['lasso2d', 'select2d']
+        });
+    }
+
+    commensuratePlotGeometry(result, angleDeg = 0) {
+        const candidates = (result?.candidates || []).filter(candidate => (
+            Number(candidate.area_ratio ?? candidate.area) <= Number(result.max_area_ratio || 16)
+        ));
+        const areas = candidates.map(candidate => Number(candidate.area_ratio ?? candidate.area));
+        const strains = candidates.map(candidate => Number(candidate.strain) * 100);
+        const areaMinimum = Math.min(...areas, 1);
+        const areaMaximum = Math.max(...areas, 1);
+        const strainMaximum = Math.max(...strains, Number(result?.strain_tolerance || 0.01) * 100, 0.1);
+        const nearest = candidates
+            .map(candidate => this.candidateInstanceNearAngle(candidate, angleDeg))
+            .sort((first, second) => Math.abs(first.deltaDeg) - Math.abs(second.deltaDeg))[0] || null;
+        return {
+            candidates,
+            nearest,
+            plane: {
+                x: [[angleDeg, angleDeg], [angleDeg, angleDeg]],
+                y: [[areaMinimum, areaMaximum], [areaMinimum, areaMaximum]],
+                z: [[0, 0], [strainMaximum, strainMaximum]]
+            }
+        };
+    }
+
+    async plotCommensurateSearch(result, angle = 0) {
+        const Plotly = await this.ensurePlotly();
+        const plot = this.showAnalysisDrawer('commensurate', 'Commensurate Angle · Area · Strain');
+        if (!plot) return;
+        const angleDeg = Math.abs(Number(angle)) <= Math.PI * 4
+            ? THREE.MathUtils.radToDeg(Number(angle) || 0)
+            : Number(angle) || 0;
+        const geometry = this.commensuratePlotGeometry(result, angleDeg);
+        const theme = this.plotTheme();
+        const hover = geometry.candidates.map(candidate => (
+            `angle ${Number(candidate.angle_deg).toFixed(5)}°<br>`
+            + `area ${Number(candidate.area_ratio ?? candidate.area)}×<br>`
+            + `strain ${(Number(candidate.strain) * 100).toFixed(5)}%<br>`
+            + `host ${candidate.host_notation || candidate.target_notation || ''}<br>`
+            + `guest ${candidate.guest_notation || candidate.source_notation || ''}`
+        ));
+        const nearest = geometry.nearest;
+        await Plotly.react(plot, [
+            {
+                type: 'scatter3d',
+                mode: 'markers',
+                name: 'Valid common cells',
+                x: geometry.candidates.map(candidate => Number(candidate.angle_deg)),
+                y: geometry.candidates.map(candidate => Number(candidate.area_ratio ?? candidate.area)),
+                z: geometry.candidates.map(candidate => Number(candidate.strain) * 100),
+                text: hover,
+                hovertemplate: '%{text}<extra></extra>',
+                marker: {
+                    size: 4.5,
+                    color: geometry.candidates.map(candidate => Number(candidate.strain) * 100),
+                    colorscale: [[0, theme.teal], [1, theme.amber]],
+                    colorbar: { title: 'strain / %', thickness: 10 },
+                    line: { color: theme.text, width: 0.35 }
+                }
+            },
+            {
+                type: 'surface',
+                name: 'Current angle',
+                showscale: false,
+                hoverinfo: 'skip',
+                opacity: 0.16,
+                x: geometry.plane.x,
+                y: geometry.plane.y,
+                z: geometry.plane.z,
+                surfacecolor: [[0, 0], [0, 0]],
+                colorscale: [[0, theme.blue], [1, theme.blue]]
+            },
+            {
+                type: 'scatter3d',
+                mode: 'markers+text',
+                name: 'Nearest suggestion',
+                x: nearest ? [angleDeg] : [],
+                y: nearest ? [Number(nearest.area_ratio ?? nearest.area)] : [],
+                z: nearest ? [Number(nearest.strain) * 100] : [],
+                text: nearest ? [`${Number(nearest.targetAngleDeg).toFixed(3)}°`] : [],
+                textposition: 'top center',
+                marker: { size: 7, color: theme.blue, symbol: 'diamond' }
+            }
+        ], {
+            autosize: true,
+            margin: { l: 0, r: 0, t: 4, b: 0 },
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            font: { color: theme.text, family: 'Inter, system-ui, sans-serif', size: 10 },
+            scene: {
+                bgcolor: 'rgba(0,0,0,0)',
+                xaxis: { title: 'rotation / deg', gridcolor: theme.line, color: theme.muted },
+                yaxis: { title: 'area ratio', gridcolor: theme.line, color: theme.muted },
+                zaxis: { title: 'strain / %', gridcolor: theme.line, color: theme.muted },
+                camera: { eye: { x: 1.35, y: 1.4, z: 0.9 } }
+            },
+            showlegend: false,
+            uirevision: 'commensurate-search'
+        }, {
+            responsive: true,
+            displaylogo: false,
+            scrollZoom: true
+        });
+    }
+
+    updateCommensuratePlotAngle(angleDeg) {
+        if (this.state.activeAnalysisPlot !== 'commensurate' || !window.Plotly || !this.state.commensurateSearch) return;
+        this.state.commensuratePlotPendingAngle = Number(angleDeg) || 0;
+        if (this.state.commensuratePlotFrame) return;
+        this.state.commensuratePlotFrame = requestAnimationFrame(() => {
+            this.state.commensuratePlotFrame = null;
+            const plot = this.analysisPlotElement('commensurate');
+            if (!plot) return;
+            const geometry = this.commensuratePlotGeometry(
+                this.state.commensurateSearch,
+                this.state.commensuratePlotPendingAngle
+            );
+            const nearest = geometry.nearest;
+            window.Plotly.restyle(plot, {
+                x: [geometry.plane.x],
+                y: [geometry.plane.y],
+                z: [geometry.plane.z]
+            }, [1]);
+            window.Plotly.restyle(plot, {
+                x: [nearest ? [this.state.commensuratePlotPendingAngle] : []],
+                y: [nearest ? [Number(nearest.area_ratio ?? nearest.area)] : []],
+                z: [nearest ? [Number(nearest.strain) * 100] : []],
+                text: [nearest ? [`${Number(nearest.targetAngleDeg).toFixed(3)}°`] : []]
+            }, [2]);
         });
     }
 
@@ -2101,7 +2284,6 @@ class VAseApp {
         );
         if (token !== this.state.rdfRequestToken) return;
         this.state.rdfResult = result;
-        document.getElementById('btn-rdf-export').disabled = false;
         await this.plotRdf(result);
         const warning = (result.warnings || []).join(' ');
         const imageSpan = Array.isArray(result.periodic_image_span)
@@ -2130,7 +2312,7 @@ class VAseApp {
                     Math.min(window.innerHeight * 0.62, startHeight + startY - moveEvent.clientY)
                 );
                 drawer.style.height = `${height}px`;
-                window.Plotly?.Plots?.resize?.(document.getElementById('rdf-plot'));
+                window.Plotly?.Plots?.resize?.(this.analysisPlotElement());
             };
             const onUp = () => {
                 window.removeEventListener('pointermove', onMove);
@@ -2171,21 +2353,294 @@ class VAseApp {
                 this.toast(`RDF failed: ${error.message}`, 'error');
             });
         });
-        document.getElementById('btn-rdf-export')?.addEventListener('click', async () => {
-            try {
-                const blob = await this.withBusy(
-                    'Preparing RDF data...',
-                    () => this.api.exportRdfCsv(this.rdfOptions())
-                );
-                this.downloadBlob(blob, 'v_ase_rdf.csv', 'text/csv');
-            } catch (error) {
-                this.toast(`RDF export failed: ${error.message}`, 'error');
-            }
-        });
         document.getElementById('btn-analysis-drawer-close')?.addEventListener('click', () => {
-            document.getElementById('analysis-drawer')?.classList.add('hidden');
+            this.closeAnalysisDrawer();
+        });
+        document.getElementById('btn-analysis-export')?.addEventListener('click', () => {
+            this.exportActiveAnalysisData().catch(error => {
+                this.toast(`Analysis export failed: ${error.message}`, 'error');
+            });
         });
         this.setupAnalysisDrawerResize();
+    }
+
+    registryPairCutoffs() {
+        const result = {};
+        this.uniqueLabelPairs().forEach(([left, right]) => {
+            const range = this.pairwiseBondRange(left, right);
+            result[[left, right].sort().join('|')] = {
+                enabled: Boolean(range.enabled && Number(range.max) > 0),
+                max: Number(range.max) || 0
+            };
+        });
+        return result;
+    }
+
+    registryOptions(jobId = null, overrides = {}) {
+        const requestedMetric = overrides.metric
+            ?? document.getElementById('registry-metric')?.value;
+        const metric = requestedMetric === 'bond-strain' ? 'bond-strain' : 'short-contact';
+        const gridX = Math.max(4, Math.min(160, parseInt(
+            overrides.gridX ?? document.getElementById('registry-grid-x')?.value ?? '32', 10
+        ) || 32));
+        const gridY = Math.max(4, Math.min(160, parseInt(
+            overrides.gridY ?? document.getElementById('registry-grid-y')?.value ?? '32', 10
+        ) || 32));
+        this.state.display.registryMetric = metric;
+        this.state.display.registryGridX = gridX;
+        this.state.display.registryGridY = gridY;
+        return {
+            positions: this.backendPositionsPayload(),
+            selected_indices: Array.isArray(overrides.selectedIndices)
+                ? [...overrides.selectedIndices]
+                : [...this.state.selected].filter(index => this.isEditableIndex(index)),
+            grid_x: gridX,
+            grid_y: gridY,
+            metric,
+            pair_cutoffs: overrides.pairCutoffs ?? this.registryPairCutoffs(),
+            job_id: jobId
+        };
+    }
+
+    setRegistryStatus(state, title, detail = '') {
+        const status = document.getElementById('registry-status');
+        if (!status) return;
+        status.dataset.state = state;
+        const titleElement = status.querySelector('.analysis-status-title');
+        const detailElement = status.querySelector('.analysis-status-detail');
+        if (titleElement) titleElement.textContent = title;
+        if (detailElement) detailElement.textContent = detail;
+    }
+
+    registrySelectionKey() {
+        return [...this.state.selected]
+            .filter(index => this.isEditableIndex(index))
+            .sort((left, right) => left - right)
+            .join(',');
+    }
+
+    invalidateRegistryResult(detail = 'Selection or structure changed. Calculate the map again.') {
+        const hadResult = Boolean(this.state.registryResult);
+        this.state.registryRequestToken += 1;
+        this.state.registryResult = null;
+        this.state.registrySelectionSignature = '';
+        this.state.registryTranslationFractional = [0, 0];
+        const plot = this.analysisPlotElement('registry');
+        if (plot && window.Plotly?.purge) window.Plotly.purge(plot);
+        if (this.state.activeAnalysisPlot === 'registry') this.closeAnalysisDrawer();
+        if (hadResult) this.setRegistryStatus('idle', 'Map needs recalculation', detail);
+    }
+
+    async calculateRegistryMap(overrides = {}) {
+        const selection = Array.isArray(overrides.selectedIndices)
+            ? [...overrides.selectedIndices]
+            : [...this.state.selected].filter(index => this.isEditableIndex(index));
+        if (!selection.length) {
+            throw new Error('Select the guest or movable layer before calculating an XY translation map.');
+        }
+        if (selection.length >= (this.state.atoms?.positions?.length || 0)) {
+            throw new Error('Leave at least one host atom unselected as the registry reference.');
+        }
+        const token = ++this.state.registryRequestToken;
+        const jobId = crypto.randomUUID?.() || `registry-${Date.now()}-${token}`;
+        this.state.registryJobId = jobId;
+        const options = this.registryOptions(jobId, {
+            ...overrides,
+            selectedIndices: selection
+        });
+        this.setRegistryStatus('loading', 'Scanning periodic translations', 'Evaluating one periodic XY cell.');
+        this.setBusy('Preparing periodic interfacial distances...', {
+            title: 'XY translation map',
+            progress: 1
+        });
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        try {
+            const result = await this.api.fetchRegistryMap(options);
+            if (token !== this.state.registryRequestToken) return;
+            this.state.registryResult = result;
+            this.state.registrySelectionSignature = this.registrySelectionKey();
+            this.state.registryTranslationFractional = [0, 0];
+            this.setBusyProgress(100, {
+                message: 'Translation scan complete. Preparing the map...',
+                complete: true
+            });
+            await this.plotRegistryMap(result);
+            const optimum = result.optimum_fractional || [0, 0];
+            this.setRegistryStatus(
+                'ready',
+                `Minimum at (${Number(optimum[0]).toFixed(4)}, ${Number(optimum[1]).toFixed(4)})`,
+                `${result.metric_label}; lower is better. Geometry-only result, not an energy.`
+            );
+            this.scheduleVisualHistoryCommit('registry-map');
+        } finally {
+            if (token === this.state.registryRequestToken) {
+                this.state.registryJobId = null;
+                this.clearBusy();
+            }
+        }
+    }
+
+    async plotRegistryMap(result) {
+        const Plotly = await this.ensurePlotly();
+        const plot = this.showAnalysisDrawer('registry', 'XY Translation Map');
+        if (!plot) return;
+        const theme = this.plotTheme();
+        const optimum = result.optimum_fractional || [0, 0];
+        await Plotly.react(plot, [
+            {
+                type: 'heatmap',
+                x: result.x_fractional,
+                y: result.y_fractional,
+                z: result.values,
+                colorscale: [[0, theme.teal], [0.5, theme.blue], [1, theme.amber]],
+                colorbar: { title: result.metric_label, thickness: 11 },
+                hovertemplate: 'u=%{x:.4f}<br>v=%{y:.4f}<br>value=%{z:.6g}<extra></extra>'
+            },
+            {
+                type: 'scatter',
+                mode: 'markers',
+                name: 'Suggested minimum',
+                x: [Number(optimum[0])],
+                y: [Number(optimum[1])],
+                marker: {
+                    symbol: 'diamond-open',
+                    size: 12,
+                    color: theme.text,
+                    line: { width: 2 }
+                }
+            },
+            {
+                type: 'scatter',
+                mode: 'markers',
+                name: 'Current translation',
+                x: [0],
+                y: [0],
+                marker: {
+                    size: 10,
+                    color: theme.amber,
+                    line: { color: theme.text, width: 1.5 }
+                }
+            }
+        ], {
+            autosize: true,
+            margin: { l: 52, r: 18, t: 14, b: 46 },
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            plot_bgcolor: 'rgba(0,0,0,0)',
+            font: { color: theme.text, family: 'Inter, system-ui, sans-serif', size: 11 },
+            xaxis: { title: 'fractional translation u', range: [0, 1], gridcolor: theme.line, color: theme.muted },
+            yaxis: { title: 'fractional translation v', range: [0, 1], gridcolor: theme.line, color: theme.muted, scaleanchor: 'x' },
+            legend: { orientation: 'h', x: 0, y: 1.12, bgcolor: 'rgba(0,0,0,0)' },
+            uirevision: 'registry-map'
+        }, {
+            responsive: true,
+            displaylogo: false,
+            scrollZoom: false,
+            modeBarButtonsToRemove: ['lasso2d', 'select2d']
+        });
+    }
+
+    updateRegistryMapMarker(fractional) {
+        if (!this.state.registryResult) return;
+        const wrapped = [
+            ((Number(fractional?.[0]) || 0) % 1 + 1) % 1,
+            ((Number(fractional?.[1]) || 0) % 1 + 1) % 1
+        ];
+        this.state.registryTranslationFractional = wrapped;
+        const result = this.state.registryResult;
+        if (result) {
+            this.setRegistryStatus(
+                'ready',
+                `Current translation (${wrapped[0].toFixed(4)}, ${wrapped[1].toFixed(4)})`,
+                `${result.metric_label}; suggested minimum (${Number(result.optimum_fractional?.[0] || 0).toFixed(4)}, ${Number(result.optimum_fractional?.[1] || 0).toFixed(4)}).`
+            );
+        }
+        if (this.state.activeAnalysisPlot === 'registry' && window.Plotly) {
+            const plot = this.analysisPlotElement('registry');
+            if (plot) window.Plotly.restyle(plot, { x: [[wrapped[0]]], y: [[wrapped[1]]] }, [2]);
+        }
+    }
+
+    constrainMoveToRegistryPlane(moveDelta) {
+        const result = this.state.registryResult;
+        if (!result || this.registrySelectionKey() !== this.state.registrySelectionSignature) {
+            return moveDelta;
+        }
+        const axes = result.periodic_axes || [0, 1];
+        const cell = this.state.atoms?.cell || [];
+        const first = new THREE.Vector3(...(cell[Number(axes[0])] || [1, 0, 0]));
+        const second = new THREE.Vector3(...(cell[Number(axes[1])] || [0, 1, 0]));
+        const normal = first.clone().cross(second);
+        if (normal.lengthSq() <= 1e-14) return moveDelta;
+        normal.normalize();
+        moveDelta.addScaledVector(normal, -moveDelta.dot(normal));
+        const fractional = this.renderer.cartToFrac?.(moveDelta) || new THREE.Vector3();
+        const start = this.state.registryTransformStartFractional
+            || this.state.registryTranslationFractional
+            || [0, 0];
+        this.updateRegistryMapMarker([
+            Number(start[0]) + Number(fractional.getComponent(Number(axes[0])) || 0),
+            Number(start[1]) + Number(fractional.getComponent(Number(axes[1])) || 0)
+        ]);
+        return moveDelta;
+    }
+
+    setupRegistryAnalysis() {
+        const metric = document.getElementById('registry-metric');
+        const gridX = document.getElementById('registry-grid-x');
+        const gridY = document.getElementById('registry-grid-y');
+        if (metric) metric.value = this.state.display.registryMetric || 'short-contact';
+        if (gridX) gridX.value = `${this.state.display.registryGridX || 32}`;
+        if (gridY) gridY.value = `${this.state.display.registryGridY || 32}`;
+        ['registry-metric', 'registry-grid-x', 'registry-grid-y'].forEach(id => {
+            document.getElementById(id)?.addEventListener('change', () => {
+                if (this.state.registryResult) {
+                    this.invalidateRegistryResult('Map settings changed. Calculate the map again.');
+                }
+            });
+        });
+        document.getElementById('btn-registry-calculate')?.addEventListener('click', () => {
+            this.calculateRegistryMap().catch(error => {
+                this.setRegistryStatus('warning', 'Translation map unavailable', error.message);
+                this.toast(`Translation map failed: ${error.message}`, 'error');
+                this.clearBusy();
+                this.state.registryJobId = null;
+            });
+        });
+    }
+
+    async exportActiveAnalysisData() {
+        let blob;
+        let filename;
+        if (this.state.activeAnalysisPlot === 'rdf') {
+            if (!this.state.rdfResult) throw new Error('Calculate the RDF before exporting data.');
+            blob = await this.withBusy('Preparing RDF data...', () => this.api.exportRdfCsv(this.rdfOptions()));
+            filename = 'v_ase_rdf.csv';
+        } else if (this.state.activeAnalysisPlot === 'commensurate') {
+            if (!this.state.commensurateSearch) throw new Error('Run the commensurate search before exporting data.');
+            const options = {
+                axis: 'Z',
+                max_index: this.state.display.commensurateMaxIndex,
+                strain_tolerance: this.state.display.commensurateStrainTolerance,
+                max_area_ratio: this.state.display.commensurateMaxAreaRatio,
+                mode: this.commensurateMode(),
+                strain_target: this.state.display.commensurateStrainTarget
+            };
+            blob = await this.withBusy(
+                'Preparing commensurate-cell data...',
+                () => this.api.exportCommensurateCsv(options)
+            );
+            filename = 'v_ase_commensurate.csv';
+        } else if (this.state.activeAnalysisPlot === 'registry') {
+            if (!this.state.registryResult) throw new Error('Calculate the translation map before exporting data.');
+            blob = await this.withBusy(
+                'Preparing translation-map data...',
+                () => this.api.exportRegistryCsv(this.registryOptions())
+            );
+            filename = 'v_ase_registry_map.csv';
+        } else {
+            throw new Error('No analysis graph is active.');
+        }
+        this.downloadBlob(blob, filename, 'text/csv');
     }
 
     normalizedViewRotationStep(value = this.state.display.viewRotationStepDeg) {
@@ -3148,6 +3603,23 @@ class VAseApp {
     ) {
         this.clearCommensurateSupercellProposal({ keepStatus: true });
         if (!preserveRdf) this.invalidateRdfResult();
+        const previousLatticeSignature = JSON.stringify({
+            cell: this.state.atoms?.cell || null,
+            pbc: this.state.atoms?.pbc || null,
+            guest: this.state.atoms?.metadata?.commensurate_guest?.cell || null
+        });
+        const nextLatticeSignature = JSON.stringify({
+            cell: data?.cell || null,
+            pbc: data?.pbc || null,
+            guest: data?.metadata?.commensurate_guest?.cell || null
+        });
+        const latticeChanged = previousLatticeSignature !== nextLatticeSignature;
+        const topologyChanged = JSON.stringify(this.state.atoms?.symbols || [])
+            !== JSON.stringify(data?.symbols || []);
+        if (latticeChanged) this.clearCommensurateRotation({ keepStatus: true, clearSearch: true });
+        if (this.state.registryResult && (latticeChanged || topologyChanged)) {
+            this.invalidateRegistryResult('Cell, labels, or atom topology changed. Calculate the map again.');
+        }
         const previousVolumeSignature = JSON.stringify(
             this.volumetricDatasets().map(dataset => [
                 dataset.id,
@@ -3157,6 +3629,7 @@ class VAseApp {
         );
         if (preserveDisplay) this.captureBondSettingsFromControls();
         this.state.atoms = data;
+        this.syncCommensurateWorkspaceControls();
         this.syncTrajectoryIdentity(data, { reset: resetTrajectoryIdentity });
         this.rebuildLabelIndexCache(data.symbols || []);
         this.state.cachedFmax = this.computeFmax(data.forces || []);
@@ -3208,6 +3681,13 @@ class VAseApp {
         this.setHoveredAtom(null);
         this.updateSelectionVisuals();
         this.updateUI();
+        if (latticeChanged && this.state.display.commensurateGuide) {
+            queueMicrotask(() => {
+                this.refreshCommensurateWorkspace({ showBusy: false }).catch(error => {
+                    this.updateCommensurateStatus(error.message, 'warning');
+                });
+            });
+        }
         this.updateDocumentAvailability();
         this.scheduleDisplacementAnalysisRefresh();
         this.observeCollaborationFrame();
@@ -3467,6 +3947,16 @@ class VAseApp {
         this.state.display.commensurateSnap = Boolean(
             config.commensurate_snap ?? this.state.display.commensurateSnap
         );
+        this.state.display.commensurateMode = config.commensurate_mode === 'host-guest'
+            ? 'host-guest'
+            : 'same-lattice';
+        this.state.display.commensurateStrainTarget = config.commensurate_strain_target === 'host'
+            ? 'host'
+            : 'guest';
+        this.state.display.commensurateShowAtoms = Boolean(config.commensurate_show_atoms);
+        this.state.display.commensurateGuestAngleDeg = Number.isFinite(Number(config.commensurate_guest_angle_deg))
+            ? Number(config.commensurate_guest_angle_deg)
+            : 0;
         const initialStrainTolerance = Number(config.commensurate_strain_tolerance);
         const initialMaxIndex = parseInt(config.commensurate_max_index, 10);
         const initialMaxArea = parseInt(config.commensurate_max_area_ratio, 10);
@@ -3512,10 +4002,15 @@ class VAseApp {
         document.getElementById('rotate-pivot').value = this.state.display.rotatePivot;
         document.getElementById('chk-commensurate-guide').checked = this.state.display.commensurateGuide;
         document.getElementById('chk-commensurate-snap').checked = this.state.display.commensurateSnap;
+        document.getElementById('commensurate-mode').value = this.state.display.commensurateMode;
+        document.getElementById('commensurate-strain-target').value = this.state.display.commensurateStrainTarget;
+        document.getElementById('chk-commensurate-show-atoms').checked = this.state.display.commensurateShowAtoms;
+        document.getElementById('commensurate-guest-angle').value = this.state.display.commensurateGuestAngleDeg;
         document.getElementById('commensurate-strain').value = this.state.display.commensurateStrainTolerance * 100;
         document.getElementById('commensurate-max-index').value = this.state.display.commensurateMaxIndex;
         document.getElementById('commensurate-max-area').value = this.state.display.commensurateMaxAreaRatio;
         document.getElementById('commensurate-snap-range').value = this.state.display.commensurateSnapRangeDeg;
+        this.syncCommensurateWorkspaceControls();
         const projectionMode = document.getElementById('projection-mode');
         if (projectionMode) projectionMode.value = this.state.display.projectionMode;
         this.syncViewControls();
@@ -3649,6 +4144,26 @@ class VAseApp {
         this.renderer.setReplicaSelection(this.state.vizOnly ? this.state.replicaSelected.values() : []);
         this.updateSelectionMeasurementOverlay();
         this.observeCollaborationSelection();
+        const selectionKey = this.registrySelectionKey();
+        if (this.state.registryResult && selectionKey !== this.state.registrySelectionSignature) {
+            this.invalidateRegistryResult();
+        }
+        if (
+            this.state.display.commensurateGuide
+            && this.commensurateMode() === 'same-lattice'
+            && this.state.commensurateCandidates.length
+            && this.transform.mode === 'IDLE'
+        ) {
+            const candidate = this.commensurateCandidateAtAngle(this.state.commensuratePreviewAngle || 0);
+            if (candidate && this.state.selected.size > 0) {
+                this.prepareCommensurateSupercellProposal(
+                    this.commensuratePreviewContext(candidate, this.state.commensuratePreviewAngle || 0)
+                ).catch(() => {});
+            } else if (this.state.selected.size === 0) {
+                this.clearCommensurateSupercellProposal({ keepStatus: true });
+                this.updateCommensurateStatus('Select the layer that should rotate.', 'warning');
+            }
+        }
     }
 
     getFixedIndices() {
@@ -4893,6 +5408,7 @@ class VAseApp {
             if (!hasNum) {
                 moveDelta.copy(this.snapMoveDelta(moveDelta, this.transform.axis ? axisVec : null));
             }
+            this.constrainMoveToRegistryPlane(moveDelta);
             this.state.transformReadout = this.formatMoveReadout(moveDelta);
         }
         
@@ -4957,6 +5473,7 @@ class VAseApp {
         if (this.transform.mode === 'ROTATE') {
             this.updateRotationReferenceGuide(appliedRotationAngle);
             this.renderCommensurateRotationGuides(appliedRotationAngle);
+            this.scheduleCommensurateLivePreview(appliedRotationAngle);
         }
         
         // Async backend projection is only needed for translation. Rotation
@@ -5015,7 +5532,8 @@ class VAseApp {
             candidate: proposalCandidate,
             selectedIndices: [...this.state.selected].filter(index => this.isEditableIndex(index)),
             pivot: this.transform.pivot.toArray(),
-            axis: this.transform.axis
+            axis: 'Z',
+            displayAngleDeg: THREE.MathUtils.radToDeg(this.state.commensurateLastAngle || 0)
         } : null;
         const newPositions = this.currentPositionsFromScene();
         this.state.atoms.positions = newPositions.map(p => [...p]);
@@ -5028,6 +5546,7 @@ class VAseApp {
         // and may correct constrained positions authoritatively.
         this.transform.exit();
         this.state.transformSubject = null;
+        this.state.registryTransformStartFractional = null;
         this.renderer.controls.enabled = true;
         this.updateToolState();
         this.updateSelectionVisuals();
@@ -5070,9 +5589,15 @@ class VAseApp {
         this.state.rotationLastAngle = 0;
         this.state.rotationPointerActive = false;
         this.state.transformSubject = 'atoms';
+        this.state.registryTransformStartFractional = mode === 'MOVE' && this.state.registryResult
+            ? [...this.state.registryTranslationFractional]
+            : null;
         this.transform.enter(mode, pivot, this.renderer.camera, {
             visualOffset: this.renderer.visualTranslationVector?.() || new THREE.Vector3()
         });
+        if (mode === 'ROTATE' && this.state.display.commensurateGuide) {
+            this.transform.setAxis('Z', this.renderer.camera);
+        }
         this.renderer.setConstraintMotionGuides?.({
             mode,
             indices: editableSelection,
@@ -5102,6 +5627,10 @@ class VAseApp {
         this.renderer.clearConstraintMotionGuides?.();
         this.transform.exit();
         this.state.transformSubject = null;
+        if (this.state.registryTransformStartFractional) {
+            this.updateRegistryMapMarker(this.state.registryTransformStartFractional);
+        }
+        this.state.registryTransformStartFractional = null;
         this.renderer.controls.enabled = true;
         this.updateToolState();
         this.updateUI();
@@ -6446,6 +6975,17 @@ class VAseApp {
         this.state.display.rotatePivot = document.getElementById('rotate-pivot')?.value || 'selection';
         this.state.display.commensurateGuide = Boolean(document.getElementById('chk-commensurate-guide')?.checked);
         this.state.display.commensurateSnap = document.getElementById('chk-commensurate-snap')?.checked !== false;
+        this.state.display.commensurateMode = document.getElementById('commensurate-mode')?.value === 'host-guest'
+            ? 'host-guest'
+            : 'same-lattice';
+        this.state.display.commensurateStrainTarget = document.getElementById('commensurate-strain-target')?.value === 'host'
+            ? 'host'
+            : 'guest';
+        this.state.display.commensurateShowAtoms = Boolean(
+            document.getElementById('chk-commensurate-show-atoms')?.checked
+        );
+        const guestAngle = Number(document.getElementById('commensurate-guest-angle')?.value || 0);
+        this.state.display.commensurateGuestAngleDeg = Number.isFinite(guestAngle) ? guestAngle : 0;
         const strainPercent = parseFloat(document.getElementById('commensurate-strain')?.value || '1');
         this.state.display.commensurateStrainTolerance = Number.isFinite(strainPercent) && strainPercent >= 0
             ? Math.min(25, strainPercent) / 100
@@ -6947,6 +7487,21 @@ class VAseApp {
                     warnings: [...(this.state.rdfResult.warnings || [])],
                     frame: this.state.rdfResult.frame_index
                 } : null,
+                commensurate: {
+                    enabled: Boolean(this.state.display.commensurateGuide),
+                    mode: this.commensurateMode(),
+                    axis: 'Z',
+                    guest: this.clonePlain(this.commensurateGuestMetadata()),
+                    currentAngleDeg: this.commensurateMode() === 'host-guest'
+                        ? Number(this.state.display.commensurateGuestAngleDeg || 0)
+                        : THREE.MathUtils.radToDeg(Number(this.state.commensurateLastAngle) || 0),
+                    strainTarget: this.state.display.commensurateStrainTarget || 'guest',
+                    strainTolerance: Number(this.state.display.commensurateStrainTolerance || 0.01),
+                    maxAreaRatio: Number(this.state.display.commensurateMaxAreaRatio || 16),
+                    showPreviewAtoms: Boolean(this.state.display.commensurateShowAtoms),
+                    candidateCount: Number(this.state.commensurateSearch?.candidates?.length || 0),
+                    references: this.clonePlain(this.state.commensurateSearch?.references || [])
+                },
                 commensurateProposal: this.state.commensurateProposal ? {
                     candidate: this.clonePlain(this.state.commensurateProposal.data?.candidate || {}),
                     coreAtomCount: Number(
@@ -6964,6 +7519,22 @@ class VAseApp {
                     materializationReason: (
                         this.state.commensurateProposal.data?.materialization_reason || null
                     )
+                } : null,
+                registryMap: this.state.registryResult ? {
+                    schema: this.state.registryResult.schema,
+                    metric: this.state.registryResult.metric,
+                    metricLabel: this.state.registryResult.metric_label,
+                    grid: [
+                        Number(this.state.registryResult.x_fractional?.length || 0),
+                        Number(this.state.registryResult.y_fractional?.length || 0)
+                    ],
+                    selectedIndices: [...(this.state.registryResult.selected_indices || [])],
+                    periodicAxes: [...(this.state.registryResult.periodic_axes || [])],
+                    optimumFractional: [...(this.state.registryResult.optimum_fractional || [])],
+                    optimumValue: Number(this.state.registryResult.optimum_value),
+                    currentFractional: [...(this.state.registryTranslationFractional || [0, 0])],
+                    lowerIsBetter: this.state.registryResult.lower_is_better !== false,
+                    warnings: [...(this.state.registryResult.warnings || [])]
                 } : null
             },
             collaboration: {
@@ -7016,7 +7587,8 @@ class VAseApp {
                 'atoms', 'labels', 'elements', 'positions', 'cell', 'pbc',
                 'constraints', 'forces', 'charges', 'tags', 'magnetic-moments',
                 'selection', 'measurement', 'trajectory', 'camera', 'display',
-                'volumetric-data', 'rdf', 'commensurate-proposal', 'collaboration'
+                'volumetric-data', 'rdf', 'commensurate', 'commensurate-proposal',
+                'registry-map', 'collaboration'
             ],
             apply: [
                 'expectedRevision', 'frame', 'mode', 'display', 'quality',
@@ -7026,14 +7598,17 @@ class VAseApp {
                 'wrap', 'translate-all', 'set-supercell', 'make-supercell',
                 'add-atom', 'delete-selection', 'set-identity', 'set-constraints',
                 'move-selection', 'rotate-selection', 'rotate-to-commensurate',
-                'apply-commensurate-cell', 'dismiss-commensurate-cell', 'undo', 'redo',
+                'load-commensurate-guest', 'remove-commensurate-guest',
+                'calculate-commensurate', 'apply-commensurate-cell',
+                'dismiss-commensurate-cell', 'calculate-registry-map', 'undo', 'redo',
                 'reset-coordinates', 'start-relaxation', 'stop-relaxation',
                 'refresh-displacements', 'load-volumetric', 'show-volumetric',
                 'combine-volumetric', 'remove-volumetric', 'calculate-rdf'
             ],
             exports: [
                 'image', 'video', 'poscar', 'pickle', 'blender', '3dm', 'obj',
-                'html', 'project', 'settings', 'rdf-csv'
+                'html', 'project', 'settings', 'rdf-csv', 'commensurate-csv',
+                'registry-csv'
             ]
         };
     }
@@ -7062,6 +7637,89 @@ class VAseApp {
             throw new Error(`Operation indices must be integers inside 0..${Math.max(0, atomCount - 1)}.`);
         }
         return indices;
+    }
+
+    aiSelectIndices(indices) {
+        this.clearAtomSelection();
+        indices.forEach(index => this.addSelectionReference(index));
+        this.updateSelectionVisuals();
+        this.updateUI();
+    }
+
+    aiCommensurateConfig(operation = {}) {
+        const axis = String(operation.axis || 'Z').trim().toUpperCase();
+        if (axis !== 'Z') {
+            throw new Error(
+                'Commensurate atoms is rigorously restricted to in-plane matching about global Z.'
+            );
+        }
+        const mode = operation.mode === 'host-guest' ? 'host-guest' : 'same-lattice';
+        const strainTarget = operation.strainTarget === 'host' ? 'host' : 'guest';
+        const strainTolerance = Number(
+            operation.strainTolerance
+            ?? this.state.display.commensurateStrainTolerance
+            ?? 0.01
+        );
+        if (!Number.isFinite(strainTolerance) || strainTolerance < 0 || strainTolerance > 0.25) {
+            throw new Error('strainTolerance must be a fraction from 0 through 0.25.');
+        }
+        const maxIndex = Math.max(2, Math.min(64, Math.round(
+            Number(operation.maxIndex ?? this.state.display.commensurateMaxIndex ?? 32)
+        )));
+        const maxAreaRatio = Math.max(1, Math.min(256, Math.round(
+            Number(operation.maxAreaRatio ?? this.state.display.commensurateMaxAreaRatio ?? 16)
+        )));
+        const angleDeg = Number(
+            operation.angleDeg
+            ?? (mode === 'host-guest'
+                ? this.state.display.commensurateGuestAngleDeg
+                : THREE.MathUtils.radToDeg(Number(this.state.commensurateLastAngle) || 0))
+            ?? 0
+        );
+        if (!Number.isFinite(angleDeg)) throw new Error('angleDeg must be finite.');
+        return {
+            axis,
+            mode,
+            strainTarget,
+            strainTolerance,
+            maxIndex,
+            maxAreaRatio,
+            angleDeg,
+            showAtoms: operation.showAtoms === undefined
+                ? Boolean(this.state.display.commensurateShowAtoms)
+                : operation.showAtoms === true
+        };
+    }
+
+    applyAICommensurateConfig(config) {
+        Object.assign(this.state.display, {
+            commensurateGuide: true,
+            commensurateMode: config.mode,
+            commensurateStrainTarget: config.strainTarget,
+            commensurateStrainTolerance: config.strainTolerance,
+            commensurateMaxIndex: config.maxIndex,
+            commensurateMaxAreaRatio: config.maxAreaRatio,
+            commensurateGuestAngleDeg: config.angleDeg,
+            commensurateShowAtoms: config.showAtoms
+        });
+        this.state.commensurateLastAngle = THREE.MathUtils.degToRad(config.angleDeg);
+        const values = {
+            'commensurate-mode': config.mode,
+            'commensurate-strain-target': config.strainTarget,
+            'commensurate-strain': `${config.strainTolerance * 100}`,
+            'commensurate-max-index': `${config.maxIndex}`,
+            'commensurate-max-area': `${config.maxAreaRatio}`,
+            'commensurate-guest-angle': `${config.angleDeg}`
+        };
+        Object.entries(values).forEach(([id, value]) => {
+            const element = document.getElementById(id);
+            if (element) element.value = value;
+        });
+        const guide = document.getElementById('chk-commensurate-guide');
+        if (guide) guide.checked = true;
+        const showAtoms = document.getElementById('chk-commensurate-show-atoms');
+        if (showAtoms) showAtoms.checked = config.showAtoms;
+        this.syncCommensurateWorkspaceControls();
     }
 
     aiRotationPivot(operation, indices, positions) {
@@ -7239,11 +7897,60 @@ class VAseApp {
             setData(await this.api.applyPositions(next, applyConstraints));
             return;
         }
+        if (name === 'load-commensurate-guest') {
+            const path = String(operation.path || '').trim();
+            if (!path) throw new Error('load-commensurate-guest requires a path.');
+            const loaded = await this.api.loadCommensurateGuestPath(
+                path,
+                String(operation.format || '')
+            );
+            if (Array.isArray(loaded?.guest?.suggested_offset)) {
+                this.state.display.commensurateGuestOffset = loaded.guest.suggested_offset.map(Number);
+            }
+            await this.refresh();
+            const config = this.aiCommensurateConfig({
+                ...operation,
+                mode: 'host-guest'
+            });
+            this.applyAICommensurateConfig(config);
+            if (operation.calculate !== false) {
+                await this.refreshCommensurateWorkspace({ showBusy: true });
+            }
+            return;
+        }
+        if (name === 'remove-commensurate-guest') {
+            await this.api.removeCommensurateGuest();
+            await this.refresh();
+            this.state.display.commensurateMode = 'same-lattice';
+            const modeControl = document.getElementById('commensurate-mode');
+            if (modeControl) modeControl.value = 'same-lattice';
+            this.clearCommensurateRotation({ keepStatus: true, clearSearch: true });
+            this.clearCommensurateSupercellProposal({ keepStatus: true });
+            this.syncCommensurateWorkspaceControls();
+            if (this.state.display.commensurateGuide) {
+                await this.refreshCommensurateWorkspace({ showBusy: true });
+            }
+            return;
+        }
+        if (name === 'calculate-commensurate') {
+            if (operation.indices !== undefined) {
+                this.aiSelectIndices(this.aiOperationIndices(operation));
+            }
+            const config = this.aiCommensurateConfig(operation);
+            this.applyAICommensurateConfig(config);
+            if (operation.snap !== undefined) {
+                this.state.display.commensurateSnap = Boolean(operation.snap);
+                const snap = document.getElementById('chk-commensurate-snap');
+                if (snap) snap.checked = this.state.display.commensurateSnap;
+            }
+            await this.refreshCommensurateWorkspace({ showBusy: true });
+            return;
+        }
         if (name === 'rotate-to-commensurate') {
             this.aiRequireEdit('rotate-to-commensurate');
             const axis = String(operation.axis || 'Z').trim().toUpperCase();
-            if (!['X', 'Y', 'Z'].includes(axis)) {
-                throw new Error("rotate-to-commensurate axis must be X, Y, or Z.");
+            if (axis !== 'Z') {
+                throw new Error('rotate-to-commensurate is restricted to global Z.');
             }
             const targetAngle = Number(operation.angleDeg);
             if (!Number.isFinite(targetAngle)) {
@@ -7263,6 +7970,9 @@ class VAseApp {
             const maxAreaRatio = Math.max(1, Math.min(256, Math.round(
                 Number(operation.maxAreaRatio ?? this.state.display.commensurateMaxAreaRatio ?? 16)
             )));
+            const showAtoms = operation.showAtoms === undefined
+                ? Boolean(this.state.display.commensurateShowAtoms)
+                : operation.showAtoms === true;
             const maxAngleDifference = Number(operation.maxAngleDifferenceDeg ?? 2);
             if (!Number.isFinite(maxAngleDifference) || maxAngleDifference < 0 || maxAngleDifference > 30) {
                 throw new Error('maxAngleDifferenceDeg must be from 0 through 30 degrees.');
@@ -7307,8 +8017,11 @@ class VAseApp {
                 commensurateSnap: true,
                 commensurateStrainTolerance: strainTolerance,
                 commensurateMaxIndex: maxIndex,
-                commensurateMaxAreaRatio: maxAreaRatio
+                commensurateMaxAreaRatio: maxAreaRatio,
+                commensurateShowAtoms: showAtoms
             });
+            const showAtomsControl = document.getElementById('chk-commensurate-show-atoms');
+            if (showAtomsControl) showAtomsControl.checked = showAtoms;
             this.state.commensurateSearch = search;
             this.state.commensurateCandidates = search.candidates || [];
             this.state.commensurateSnappedCandidate = candidate;
@@ -7329,6 +8042,29 @@ class VAseApp {
         }
         if (name === 'dismiss-commensurate-cell') {
             this.clearCommensurateSupercellProposal();
+            return;
+        }
+        if (name === 'calculate-registry-map') {
+            if (operation.indices !== undefined) {
+                this.aiSelectIndices(this.aiOperationIndices(operation));
+            }
+            const indices = this.aiOperationIndices(operation);
+            const metric = operation.metric === 'bond-strain' ? 'bond-strain' : 'short-contact';
+            const gridX = Math.max(4, Math.min(160, Math.round(Number(operation.gridX) || 32)));
+            const gridY = Math.max(4, Math.min(160, Math.round(Number(operation.gridY) || 32)));
+            const metricControl = document.getElementById('registry-metric');
+            const gridXControl = document.getElementById('registry-grid-x');
+            const gridYControl = document.getElementById('registry-grid-y');
+            if (metricControl) metricControl.value = metric;
+            if (gridXControl) gridXControl.value = `${gridX}`;
+            if (gridYControl) gridYControl.value = `${gridY}`;
+            await this.calculateRegistryMap({
+                selectedIndices: indices,
+                metric,
+                gridX,
+                gridY,
+                pairCutoffs: operation.pairCutoffs
+            });
             return;
         }
         if (name === 'undo') {
@@ -7553,7 +8289,6 @@ class VAseApp {
                 );
             }
             this.state.rdfResult = result;
-            document.getElementById('btn-rdf-export').disabled = false;
             await this.plotRdf(result);
             const warning = (result.warnings || []).join(' ');
             this.setRdfStatus(
@@ -7862,10 +8597,53 @@ class VAseApp {
             blob = await this.api.exportRdfCsv(options);
             filename = 'v_ase_rdf.csv';
             mimeType = 'text/csv';
+        } else if (format === 'commensurate-csv') {
+            if (!this.state.commensurateSearch) {
+                throw new Error('Run calculate-commensurate before exporting common-cell data.');
+            }
+            const options = {
+                axis: 'Z',
+                max_index: Number(
+                    request.maxIndex ?? this.state.display.commensurateMaxIndex ?? 32
+                ),
+                strain_tolerance: Number(
+                    request.strainTolerance
+                    ?? this.state.display.commensurateStrainTolerance
+                    ?? 0.01
+                ),
+                max_area_ratio: Number(
+                    request.maxAreaRatio
+                    ?? this.state.display.commensurateMaxAreaRatio
+                    ?? 16
+                ),
+                mode: request.mode === 'host-guest'
+                    ? 'host-guest'
+                    : this.commensurateMode(),
+                strain_target: request.strainTarget === 'host'
+                    ? 'host'
+                    : this.state.display.commensurateStrainTarget || 'guest'
+            };
+            blob = await this.api.exportCommensurateCsv(options);
+            filename = 'v_ase_commensurate.csv';
+            mimeType = 'text/csv';
+        } else if (format === 'registry-csv') {
+            if (!this.state.registryResult) {
+                throw new Error('Run calculate-registry-map before exporting translation-map data.');
+            }
+            blob = await this.api.exportRegistryCsv(this.registryOptions(null, {
+                selectedIndices: request.indices ?? this.state.registryResult.selected_indices,
+                metric: request.metric ?? this.state.registryResult.metric,
+                gridX: request.gridX ?? this.state.registryResult.x_fractional?.length,
+                gridY: request.gridY ?? this.state.registryResult.y_fractional?.length,
+                pairCutoffs: request.pairCutoffs
+            }));
+            filename = 'v_ase_registry_map.csv';
+            mimeType = 'text/csv';
         } else {
             throw new Error(
                 "export format must be image, video, poscar, pickle, blender, "
-                + "3dm, obj, html, project, settings, or rdf-csv."
+                + "3dm, obj, html, project, settings, rdf-csv, commensurate-csv, "
+                + "or registry-csv."
             );
         }
         return {
@@ -8101,6 +8879,10 @@ class VAseApp {
         setValue('rotate-pivot', display.rotatePivot || 'selection');
         setChecked('chk-commensurate-guide', display.commensurateGuide);
         setChecked('chk-commensurate-snap', display.commensurateSnap !== false);
+        setChecked('chk-commensurate-show-atoms', Boolean(display.commensurateShowAtoms));
+        setValue('commensurate-mode', display.commensurateMode === 'host-guest' ? 'host-guest' : 'same-lattice');
+        setValue('commensurate-strain-target', display.commensurateStrainTarget === 'host' ? 'host' : 'guest');
+        setValue('commensurate-guest-angle', Number(display.commensurateGuestAngleDeg) || 0);
         setValue('commensurate-strain', (display.commensurateStrainTolerance ?? 0.01) * 100);
         setValue('commensurate-max-index', display.commensurateMaxIndex ?? 32);
         setValue('commensurate-max-area', display.commensurateMaxAreaRatio ?? 16);
@@ -8127,6 +8909,7 @@ class VAseApp {
         this.syncLightingControls(display);
         this.updateRadiusScaleLabel();
         this.updateBondAppearanceUI();
+        this.syncCommensurateWorkspaceControls();
     }
 
     reconcileDesignDisplay(nextDisplay = {}) {
@@ -8278,6 +9061,21 @@ class VAseApp {
                 : 'unlit',
             commensurateGuide: Boolean(nextDisplay.commensurateGuide),
             commensurateSnap: Boolean(nextDisplay.commensurateSnap),
+            commensurateMode: nextDisplay.commensurateMode === 'host-guest'
+                ? 'host-guest'
+                : 'same-lattice',
+            commensurateStrainTarget: nextDisplay.commensurateStrainTarget === 'host'
+                ? 'host'
+                : 'guest',
+            commensurateShowAtoms: Boolean(nextDisplay.commensurateShowAtoms),
+            commensurateGuestOffset: Array.isArray(nextDisplay.commensurateGuestOffset)
+                && nextDisplay.commensurateGuestOffset.length === 3
+                && nextDisplay.commensurateGuestOffset.every(value => Number.isFinite(Number(value)))
+                ? nextDisplay.commensurateGuestOffset.map(Number)
+                : [0, 0, 3.35],
+            commensurateGuestAngleDeg: Number.isFinite(Number(nextDisplay.commensurateGuestAngleDeg))
+                ? Number(nextDisplay.commensurateGuestAngleDeg)
+                : 0,
             commensurateStrainTolerance: finiteClamped(
                 nextDisplay.commensurateStrainTolerance, 0.01, 0, 0.25
             ),
@@ -8372,6 +9170,11 @@ class VAseApp {
             rdfPairMode: ['active', 'all', 'none'].includes(nextDisplay.rdfPairMode)
                 ? nextDisplay.rdfPairMode
                 : 'active',
+            registryMetric: nextDisplay.registryMetric === 'bond-strain'
+                ? 'bond-strain'
+                : 'short-contact',
+            registryGridX: integerClamped(nextDisplay.registryGridX, 32, 4, 160),
+            registryGridY: integerClamped(nextDisplay.registryGridY, 32, 4, 160),
             pairwiseLabelColumnWidth: finiteClamped(
                 nextDisplay.pairwiseLabelColumnWidth, 210, 120, 520
             ),
@@ -8961,6 +9764,247 @@ class VAseApp {
         return pivot.divideScalar(Math.max(1, editableSelection.length));
     }
 
+    commensurateMode() {
+        return this.state.display.commensurateMode === 'host-guest'
+            ? 'host-guest'
+            : 'same-lattice';
+    }
+
+    commensurateGuestMetadata() {
+        return this.state.atoms?.metadata?.commensurate_guest || null;
+    }
+
+    syncCommensurateWorkspaceControls() {
+        const enabled = Boolean(this.state.display.commensurateGuide);
+        const mode = this.commensurateMode();
+        document.getElementById('commensurate-workspace')?.classList.toggle('hidden', !enabled);
+        document.getElementById('commensurate-guest-controls')?.classList.toggle(
+            'hidden', mode !== 'host-guest'
+        );
+        document.querySelectorAll('[data-commensurate-same-lattice]').forEach(element => {
+            element.classList.toggle('hidden', mode !== 'same-lattice');
+        });
+        const guest = this.commensurateGuestMetadata();
+        const summary = document.getElementById('commensurate-guest-summary');
+        if (summary) {
+            summary.textContent = guest
+                ? `${guest.name || 'Guest structure'} · ${Number(guest.natoms || 0).toLocaleString()} atoms`
+                : 'No guest structure loaded.';
+        }
+        document.getElementById('btn-remove-commensurate-guest')?.classList.toggle('hidden', !guest);
+    }
+
+    commensurateSearchOptions(jobId = null) {
+        return {
+            mode: this.commensurateMode(),
+            strainTarget: this.state.display.commensurateStrainTarget,
+            jobId
+        };
+    }
+
+    commensurateRequestPayload(context, positions = this.backendPositionsPayload()) {
+        return {
+            positions,
+            selected_indices: [...(context?.selectedIndices || [])],
+            pivot: [...(context?.pivot || [0, 0, 0])],
+            axis: 'Z',
+            candidate: context?.candidate || null,
+            display_angle_deg: Number(context?.displayAngleDeg || 0),
+            mode: this.commensurateMode(),
+            strain_target: this.state.display.commensurateStrainTarget,
+            max_index: this.state.display.commensurateMaxIndex,
+            strain_tolerance: this.state.display.commensurateStrainTolerance,
+            max_area_ratio: this.state.display.commensurateMaxAreaRatio,
+            show_atoms: Boolean(this.state.display.commensurateShowAtoms),
+            guest_offset: [...(this.state.display.commensurateGuestOffset || [0, 0, 3.35])],
+            apply_constraint: this.state.applyConstraints
+        };
+    }
+
+    commensurateCandidateAtAngle(angleDeg = 0) {
+        const maxArea = Math.max(1, Number(this.state.display.commensurateMaxAreaRatio) || 16);
+        return (this.state.commensurateCandidates || [])
+            .filter(candidate => (
+                candidate.supercell_supported !== false
+                && Number(candidate.area_ratio ?? candidate.area) <= maxArea
+            ))
+            .map(candidate => this.candidateInstanceNearAngle(candidate, angleDeg))
+            .sort((first, second) => (
+                Math.abs(first.deltaDeg) - Math.abs(second.deltaDeg)
+                || Number(first.area_ratio ?? first.area) - Number(second.area_ratio ?? second.area)
+                || Number(first.strain) - Number(second.strain)
+            ))[0] || null;
+    }
+
+    commensuratePreviewContext(candidate, displayAngleDeg = 0) {
+        const selectedIndices = [...this.state.selected].filter(index => this.isEditableIndex(index));
+        const pivot = this.transform.mode === 'ROTATE' && this.state.transformSubject === 'atoms'
+            ? this.transform.pivot.toArray()
+            : this.rotationPivotPosition(selectedIndices).toArray();
+        return {
+            candidate,
+            selectedIndices,
+            pivot,
+            axis: 'Z',
+            displayAngleDeg
+        };
+    }
+
+    renderPrimitiveCommensurateCells() {
+        const cell = this.state.atoms?.cell;
+        if (!this.state.display.commensurateGuide || !Array.isArray(cell) || cell.length !== 3) return;
+        if (this.commensurateMode() === 'same-lattice' && this.state.selected.size === 0) {
+            this.renderer.clearCommensurateSupercellPreview?.();
+            return;
+        }
+        this.renderer.setCommensurateSupercellPreview?.({
+            preview: {
+                mode: this.commensurateMode(),
+                positions: [],
+                atom_indices: [],
+                core_mask: [],
+                cell,
+                common_cell: cell,
+                host_cell: cell,
+                guest_cell: this.commensurateGuestMetadata()?.cell || cell,
+                guest_offset: this.state.display.commensurateGuestOffset || [0, 0, 3.35],
+                include_atoms: false,
+                preview_atom_count: 0
+            }
+        });
+    }
+
+    async loadCommensurateGuest(file) {
+        if (!file) return;
+        const data = await this.withBusy(
+            `Loading guest lattice from ${file.name}...`,
+            () => this.api.loadCommensurateGuest(file)
+        );
+        if (Array.isArray(data?.guest?.suggested_offset)) {
+            this.state.display.commensurateGuestOffset = data.guest.suggested_offset.map(Number);
+        }
+        await this.refresh({ preserveSelection: true });
+        this.state.display.commensurateMode = 'host-guest';
+        const mode = document.getElementById('commensurate-mode');
+        if (mode) mode.value = 'host-guest';
+        this.syncCommensurateWorkspaceControls();
+        await this.refreshCommensurateWorkspace({ showBusy: true });
+    }
+
+    async removeCommensurateGuest() {
+        await this.withBusy('Removing the guest lattice...', () => this.api.removeCommensurateGuest());
+        await this.refresh({ preserveSelection: true });
+        this.state.display.commensurateMode = 'same-lattice';
+        const mode = document.getElementById('commensurate-mode');
+        if (mode) mode.value = 'same-lattice';
+        this.syncCommensurateWorkspaceControls();
+        await this.refreshCommensurateWorkspace({ showBusy: true });
+    }
+
+    async refreshCommensurateWorkspace({ showBusy = true } = {}) {
+        this.applyDisplayOptions();
+        this.syncCommensurateWorkspaceControls();
+        if (!this.state.display.commensurateGuide) {
+            this.clearCommensurateRotation({ clearSearch: true });
+            this.clearCommensurateSupercellProposal();
+            return;
+        }
+        if (!this.hasUsableCell() || (this.state.atoms?.pbc || []).filter(Boolean).length < 2) {
+            this.clearCommensurateSupercellProposal({ keepStatus: true });
+            this.updateCommensurateStatus('Commensurate atoms requires two periodic vectors in the global XY plane.', 'warning');
+            return;
+        }
+        if (this.commensurateMode() === 'host-guest' && !this.commensurateGuestMetadata()) {
+            this.clearCommensurateSupercellProposal({ keepStatus: true });
+            this.renderPrimitiveCommensurateCells();
+            this.updateCommensurateStatus('Load a guest structure to search host/guest common cells.', 'warning');
+            return;
+        }
+        const token = ++this.state.commensurateRequestToken;
+        const jobId = crypto.randomUUID?.() || `commensurate-${Date.now()}-${token}`;
+        this.state.commensurateJobId = jobId;
+        this.renderPrimitiveCommensurateCells();
+        this.updateCommensurateStatus('Searching bounded integer supercells...', 'ready');
+        if (showBusy) {
+            this.setBusy('Projecting periodic lattices...', {
+                title: 'Commensurate atoms',
+                progress: 1
+            });
+            await new Promise(resolve => requestAnimationFrame(resolve));
+        }
+        try {
+            const result = await this.api.commensurateAngles(
+                'Z',
+                this.state.display.commensurateMaxIndex,
+                this.state.display.commensurateStrainTolerance,
+                this.state.display.commensurateMaxAreaRatio,
+                this.commensurateSearchOptions(jobId)
+            );
+            if (token !== this.state.commensurateRequestToken) return;
+            this.state.commensurateSearch = result;
+            this.state.commensurateCandidates = Array.isArray(result.candidates) ? result.candidates : [];
+            if (showBusy) {
+                this.setBusyProgress(100, {
+                    message: 'Common-cell search complete. Preparing the interactive graph...',
+                    complete: true
+                });
+            }
+            if (Array.isArray(result?.guest?.suggested_offset)) {
+                this.state.display.commensurateGuestOffset = result.guest.suggested_offset.map(Number);
+            }
+            const currentDeg = this.commensurateMode() === 'host-guest'
+                ? Number(this.state.display.commensurateGuestAngleDeg || 0)
+                : THREE.MathUtils.radToDeg(this.state.commensurateLastAngle || 0);
+            await this.plotCommensurateSearch(result, THREE.MathUtils.degToRad(currentDeg));
+            const candidate = this.commensurateCandidateAtAngle(currentDeg);
+            if (candidate && (this.commensurateMode() === 'host-guest' || this.state.selected.size > 0)) {
+                await this.prepareCommensurateSupercellProposal(
+                    this.commensuratePreviewContext(candidate, currentDeg)
+                );
+            } else if (candidate) {
+                this.renderer.clearCommensurateSupercellPreview?.();
+                this.updateCommensurateStatus(
+                    'Select the layer that should rotate, then the suggested cell will appear.',
+                    'warning'
+                );
+            } else {
+                this.renderPrimitiveCommensurateCells();
+                this.updateCommensurateStatus(
+                    result.warning || 'No common cell satisfies the current strain and area limits.',
+                    'warning'
+                );
+            }
+        } catch (error) {
+            if (token !== this.state.commensurateRequestToken) return;
+            this.state.commensurateCandidates = [];
+            this.state.commensurateSearch = null;
+            this.renderPrimitiveCommensurateCells();
+            this.updateCommensurateStatus(error.message, 'warning');
+            throw error;
+        } finally {
+            if (showBusy && token === this.state.commensurateRequestToken) this.clearBusy();
+            if (token === this.state.commensurateRequestToken) this.state.commensurateJobId = null;
+        }
+    }
+
+    scheduleCommensurateLivePreview(angle) {
+        if (!this.state.display.commensurateGuide || !this.state.commensurateCandidates.length) return;
+        const angleDeg = THREE.MathUtils.radToDeg(Number(angle) || 0);
+        this.state.commensuratePreviewAngle = angleDeg;
+        this.updateCommensuratePlotAngle(angleDeg);
+        if (this.state.commensuratePreviewTimer) clearTimeout(this.state.commensuratePreviewTimer);
+        this.state.commensuratePreviewTimer = setTimeout(() => {
+            this.state.commensuratePreviewTimer = null;
+            const candidate = this.commensurateCandidateAtAngle(this.state.commensuratePreviewAngle);
+            if (!candidate) return;
+            this.prepareCommensurateSupercellProposal(
+                this.commensuratePreviewContext(candidate, this.state.commensuratePreviewAngle)
+            ).catch(error => {
+                this.updateCommensurateStatus(`Preview unavailable: ${error.message}`, 'warning');
+            });
+        }, this.state.display.commensurateShowAtoms ? 150 : 55);
+    }
+
     updateCommensurateStatus(message, state = '') {
         const element = document.getElementById('commensurate-status');
         if (!element) return;
@@ -8975,7 +10019,7 @@ class VAseApp {
         this.renderer.clearCommensurateSupercellPreview?.({ restoreCamera: !preserveCamera });
         document.getElementById('commensurate-supercell-proposal')?.classList.add('hidden');
         if (!keepStatus && this.state.display.commensurateGuide) {
-            this.updateCommensurateStatus('Lock X, Y, or Z during R to scan periodic cell matches.');
+            this.updateCommensurateStatus('Searching and rotation are restricted to the global XY plane about Z.');
         }
     }
 
@@ -9002,21 +10046,7 @@ class VAseApp {
     }
 
     commensurateProposalPayload(context, positions = this.backendPositionsPayload()) {
-        return {
-            positions,
-            selected_indices: [...context.selectedIndices],
-            pivot: [...context.pivot],
-            axis: context.axis,
-            candidate: {
-                angle_deg: Number(context.candidate.angle_deg),
-                source_matrix: context.candidate.source_matrix,
-                target_matrix: context.candidate.target_matrix
-            },
-            max_index: this.state.display.commensurateMaxIndex,
-            strain_tolerance: this.state.display.commensurateStrainTolerance,
-            max_area_ratio: this.state.display.commensurateMaxAreaRatio,
-            apply_constraint: this.state.applyConstraints
-        };
+        return this.commensurateRequestPayload(context, positions);
     }
 
     renderCommensurateSupercellProposal(proposal) {
@@ -9030,16 +10060,17 @@ class VAseApp {
         const applyButton = document.getElementById('btn-apply-commensurate-cell');
         const reason = document.getElementById('commensurate-proposal-reason');
         if (notation) {
-            notation.textContent = `${candidate.source_notation || candidate.source_matrix_text} -> ${candidate.target_notation || candidate.target_matrix_text}`;
+            notation.textContent = `${candidate.guest_notation || candidate.source_notation || candidate.source_matrix_text} → ${candidate.host_notation || candidate.target_notation || candidate.target_matrix_text}`;
         }
         if (metrics) {
-            const lengths = (candidate.cell_lengths_angstrom || []).map(value => Number(value).toFixed(3));
             metrics.replaceChildren();
             [
-                `Area ratio N = ${candidate.area_ratio}`,
-                `Boundary strain = ${(Number(candidate.strain) * 100).toFixed(4)}%`,
-                `Cell = ${lengths.join(' x ')} A`,
-                `gamma = ${Number(candidate.cell_angle_deg).toFixed(3)} deg`
+                `Angle = ${Number(proposal.context.displayAngleDeg ?? candidate.angle_deg).toFixed(4)}°`,
+                `Suggested match = ${Number(candidate.angle_deg).toFixed(4)}°`,
+                `Host area = ${candidate.host_area_ratio ?? candidate.area_ratio ?? candidate.area}×`,
+                `Guest area = ${candidate.guest_area_ratio ?? candidate.area_ratio ?? candidate.area}×`,
+                `Residual strain = ${(Number(candidate.strain) * 100).toFixed(4)}%`,
+                `Strained lattice = ${candidate.strain_target || this.state.display.commensurateStrainTarget}`
             ].forEach(text => {
                 const item = document.createElement('span');
                 item.textContent = text;
@@ -9047,7 +10078,7 @@ class VAseApp {
             });
         }
         if (matrices) {
-            matrices.textContent = `rotating M = ${candidate.source_matrix_text}   reference N = ${candidate.target_matrix_text}`;
+            matrices.textContent = `guest M = ${candidate.guest_matrix_text || candidate.source_matrix_text}   host N = ${candidate.host_matrix_text || candidate.target_matrix_text}`;
         }
         const supported = proposal.data.materialization_supported !== false;
         if (applyButton) applyButton.disabled = !supported;
@@ -9056,17 +10087,22 @@ class VAseApp {
             reason.classList.toggle('hidden', supported);
         }
         panel.classList.remove('hidden');
-        panel.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+        const hostAreaRatio = candidate.host_area_ratio ?? candidate.area_ratio ?? candidate.area;
+        const guestAreaRatio = candidate.guest_area_ratio ?? candidate.area_ratio ?? candidate.area;
+        const snapped = this.state.commensurateSnappedCandidate;
+        const snapPrefix = this.transform.mode === 'ROTATE' && snapped
+            ? `Snapped: ${Number(snapped.targetAngleDeg).toFixed(6)} deg | `
+            : '';
         this.updateCommensurateStatus(
-            `Suggested ${candidate.target_notation || candidate.target_matrix_text}: ${preview.core_atom_count} atoms in the common cell plus a one-cell boundary shell.`,
-            'ready'
+            `${snapPrefix}${candidate.host_notation || candidate.target_notation || candidate.target_matrix_text} (N=${hostAreaRatio}) / ${candidate.guest_notation || candidate.source_notation || candidate.source_matrix_text} (N=${guestAreaRatio}); ${(Number(candidate.strain) * 100).toFixed(4)}% residual strain.${preview.include_atoms ? ` ${Number(preview.preview_atom_count || 0).toLocaleString()} preview atoms.` : ' Cell vectors only.'}`,
+            snapPrefix ? 'snap' : 'ready'
         );
     }
 
     async prepareCommensurateSupercellProposal(context) {
         if (!context?.candidate || !this.state.display.commensurateGuide) return;
         const token = ++this.state.commensurateProposalToken;
-        this.updateCommensurateStatus('Building the bounded common-cell preview...', 'ready');
+        this.updateCommensurateStatus('Updating host, guest, and suggested common-cell vectors...', 'ready');
         try {
             const payload = this.commensurateProposalPayload(context);
             const data = await this.api.previewCommensurateSupercell(payload);
@@ -9114,17 +10150,24 @@ class VAseApp {
         }
     }
 
-    clearCommensurateRotation({ keepStatus = false } = {}) {
-        this.state.commensurateRequestToken += 1;
-        this.state.commensurateCandidates = [];
-        this.state.commensurateSearch = null;
+    clearCommensurateRotation({ keepStatus = false, clearSearch = false } = {}) {
+        if (clearSearch) {
+            this.state.commensurateRequestToken += 1;
+            this.state.commensurateCandidates = [];
+            this.state.commensurateSearch = null;
+            if (this.state.commensuratePreviewTimer) clearTimeout(this.state.commensuratePreviewTimer);
+            this.state.commensuratePreviewTimer = null;
+            const plot = this.analysisPlotElement('commensurate');
+            if (plot && window.Plotly?.purge) window.Plotly.purge(plot);
+            if (this.state.activeAnalysisPlot === 'commensurate') this.closeAnalysisDrawer();
+        }
         this.state.commensurateReferenceDirection = null;
         this.state.commensurateSnappedCandidate = null;
         this.state.commensurateLastAngle = null;
         this.renderer.clearCommensurateGuides?.();
         this.updateCommensurateCandidatesReadout([]);
         if (!keepStatus) {
-            this.updateCommensurateStatus('Lock X, Y, or Z during R to scan periodic cell matches.');
+            this.updateCommensurateStatus('Searching and rotation are restricted to the global XY plane about Z.');
         }
     }
 
@@ -9132,7 +10175,7 @@ class VAseApp {
         return Boolean(
             this.transform.mode === 'ROTATE'
             && this.state.display.commensurateGuide
-            && this.transform.axis
+            && this.transform.axis === 'Z'
             && this.hasUsableCell()
             && (this.state.atoms?.pbc || []).filter(Boolean).length >= 2
         );
@@ -9299,9 +10342,6 @@ class VAseApp {
     }
 
     async prepareCommensurateRotation(editableSelection = [...this.state.selected]) {
-        const token = ++this.state.commensurateRequestToken;
-        this.state.commensurateCandidates = [];
-        this.state.commensurateSearch = null;
         this.state.commensurateSnappedCandidate = null;
         this.renderer.clearCommensurateGuides?.();
 
@@ -9309,9 +10349,12 @@ class VAseApp {
             this.updateCommensurateStatus('Commensurate cell guide is disabled.');
             return;
         }
-        if (this.transform.mode !== 'ROTATE' || !this.transform.axis) {
-            this.updateCommensurateStatus('Lock X, Y, or Z during R to scan periodic cell matches.');
+        if (this.transform.mode !== 'ROTATE') {
+            this.updateCommensurateStatus('Press R to rotate the matched layer about global Z.');
             return;
+        }
+        if (this.transform.axis !== 'Z') {
+            this.transform.setAxis('Z', this.renderer.camera);
         }
         if (!this.hasUsableCell() || (this.state.atoms?.pbc || []).filter(Boolean).length < 2) {
             this.updateCommensurateStatus('A defined cell with at least two periodic directions is required.', 'warning');
@@ -9324,27 +10367,15 @@ class VAseApp {
             ? this.state.rotationReferenceDirection.clone()
             : this.commensurateReferenceForSelection(editableSelection, axis);
         this.state.commensurateGuideRadius = Math.max(3.2, this.state.rotationGuideRadius * 0.82);
-        this.updateCommensurateStatus('Scanning integer periodic-cell boundaries...', 'ready');
-        try {
-            const result = await this.api.commensurateAngles(
-                this.transform.axis,
-                this.state.display.commensurateMaxIndex,
-                this.state.display.commensurateStrainTolerance,
-                this.state.display.commensurateMaxAreaRatio
-            );
-            if (token !== this.state.commensurateRequestToken || this.transform.mode !== 'ROTATE') return;
-            this.state.commensurateSearch = result;
-            this.state.commensurateCandidates = Array.isArray(result.candidates) ? result.candidates : [];
-            const tolerance = (Number(result.strain_tolerance || 0) * 100).toFixed(2);
-            const family = String(result.lattice_family || '2D').replace('-', ' ');
-            const areaLimit = Number(result.max_area_ratio || this.state.display.commensurateMaxAreaRatio || 16);
-            const summary = `${family}: ${this.state.commensurateCandidates.length} matches, boundary strain <= ${tolerance}%, proposal area <= ${areaLimit}.`;
-            this.updateCommensurateStatus(result.warning ? `${summary} ${result.warning}` : summary, result.warning ? 'warning' : 'ready');
-            this.applyTransformPreview();
-        } catch (error) {
-            if (token !== this.state.commensurateRequestToken) return;
-            this.updateCommensurateStatus(error.message, 'warning');
+        if (!this.state.commensurateCandidates.length) {
+            try {
+                await this.refreshCommensurateWorkspace({ showBusy: true });
+            } catch {
+                return;
+            }
         }
+        this.updateCommensurateStatus('Rotate about Z; the nearest valid common cell updates continuously.', 'ready');
+        this.applyTransformPreview();
     }
 
     candidateInstanceNearAngle(candidate, angleDeg) {
@@ -9523,6 +10554,20 @@ class VAseApp {
             if (msg.type === 'ai_command') {
                 void this.handleAICommandMessage(msg);
                 return;
+            }
+            if (msg.type === 'analysis_progress') {
+                const activeJob = msg.analysis === 'commensurate'
+                    ? this.state.commensurateJobId
+                    : msg.analysis === 'registry'
+                        ? this.state.registryJobId
+                        : null;
+                if (activeJob && msg.job_id === activeJob) {
+                    const progress = Math.max(0, Math.min(1, Number(msg.progress) || 0));
+                    this.setBusyProgress(progress * 100, {
+                        message: String(msg.stage || 'Calculating analysis...'),
+                        etaSeconds: null
+                    });
+                }
             }
             if (
                 msg.type === 'video_export_progress'
@@ -11312,6 +12357,12 @@ class VAseApp {
     async loadFrame(index) {
         if (this.transform.mode !== 'IDLE') this.cancelTransform();
         const meta = this.state.atoms?.metadata || {};
+        if (
+            this.state.registryResult
+            && Number(index) !== Number(meta.current_frame || 0)
+        ) {
+            this.invalidateRegistryResult('Trajectory frame changed. Calculate the map for the new frame.');
+        }
 
         if (meta.virtual_trajectory) {
             const count = meta.frame_count || 1;
@@ -12045,22 +13096,65 @@ class VAseApp {
             this.rotateSelectionFromPanel()
                 .catch(err => this.toast(`Rotation failed: ${err.message}`, 'error'));
         });
-        const refreshCommensurateSearch = () => {
-            this.applyDisplayOptions();
-            if (!this.state.display.commensurateGuide) {
-                this.clearCommensurateSupercellProposal();
-            }
-            if (this.transform.mode === 'ROTATE') {
-                this.prepareCommensurateRotation([...this.state.selected].filter(idx => this.isEditableIndex(idx)));
-            }
+        const refreshCommensurateSearch = ({ showBusy = true } = {}) => {
+            this.refreshCommensurateWorkspace({ showBusy }).catch(error => {
+                this.toast(`Commensurate search failed: ${error.message}`, 'error');
+            });
         };
-        document.getElementById('chk-commensurate-guide')?.addEventListener('change', refreshCommensurateSearch);
+        document.getElementById('chk-commensurate-guide')?.addEventListener('change', () => {
+            refreshCommensurateSearch({ showBusy: true });
+        });
+        document.getElementById('commensurate-mode')?.addEventListener('change', () => {
+            this.applyDisplayOptions();
+            this.syncCommensurateWorkspaceControls();
+            refreshCommensurateSearch({ showBusy: true });
+        });
+        document.getElementById('commensurate-strain-target')?.addEventListener('change', () => {
+            refreshCommensurateSearch({ showBusy: true });
+        });
+        document.getElementById('chk-commensurate-show-atoms')?.addEventListener('change', () => {
+            this.applyDisplayOptions();
+            const angle = this.state.commensuratePreviewAngle || 0;
+            const candidate = this.commensurateCandidateAtAngle(angle);
+            if (candidate) {
+                this.prepareCommensurateSupercellProposal(
+                    this.commensuratePreviewContext(candidate, angle)
+                ).catch(error => this.toast(`Preview failed: ${error.message}`, 'error'));
+            }
+        });
+        ['input', 'change'].forEach(type => {
+            document.getElementById('commensurate-guest-angle')?.addEventListener(type, event => {
+                const angle = Number(event.currentTarget.value || 0);
+                if (!Number.isFinite(angle)) return;
+                this.state.display.commensurateGuestAngleDeg = angle;
+                this.scheduleVisualHistoryCommit('commensurate-guest-angle');
+                this.scheduleCommensurateLivePreview(THREE.MathUtils.degToRad(angle));
+            });
+        });
+        const guestInput = document.getElementById('commensurate-guest-file');
+        document.getElementById('btn-load-commensurate-guest')?.addEventListener('click', () => {
+            guestInput?.click();
+        });
+        guestInput?.addEventListener('change', event => {
+            const file = event.currentTarget.files?.[0];
+            event.currentTarget.value = '';
+            this.loadCommensurateGuest(file).catch(error => {
+                this.toast(`Guest structure failed: ${error.message}`, 'error');
+            });
+        });
+        document.getElementById('btn-remove-commensurate-guest')?.addEventListener('click', () => {
+            this.removeCommensurateGuest().catch(error => {
+                this.toast(`Could not remove guest: ${error.message}`, 'error');
+            });
+        });
         document.getElementById('chk-commensurate-snap')?.addEventListener('change', () => {
             this.applyDisplayOptions();
             if (this.transform.mode === 'ROTATE') this.applyTransformPreview();
         });
         ['commensurate-strain', 'commensurate-max-index', 'commensurate-max-area'].forEach(id => {
-            document.getElementById(id)?.addEventListener('change', refreshCommensurateSearch);
+            document.getElementById(id)?.addEventListener('change', () => {
+                refreshCommensurateSearch({ showBusy: true });
+            });
         });
         document.getElementById('btn-dismiss-commensurate')?.addEventListener('click', () => {
             this.clearCommensurateSupercellProposal();
@@ -12296,7 +13390,15 @@ class VAseApp {
                     this.commitTransform();
                 } else if (axis) {
                     e.preventDefault();
-                    this.transform.setAxis(axis, this.renderer.camera);
+                    const constrainedAxis = (
+                        this.transform.mode === 'ROTATE'
+                        && this.state.transformSubject === 'atoms'
+                        && this.state.display.commensurateGuide
+                    ) ? 'Z' : axis;
+                    this.transform.setAxis(constrainedAxis, this.renderer.camera);
+                    if (constrainedAxis !== axis) {
+                        this.toast('Commensurate atoms uses in-plane matching about global Z.', 'warning');
+                    }
                     if (this.transform.mode === 'ROTATE' && this.state.transformSubject === 'atoms') {
                         this.prepareCommensurateRotation([...this.state.selected].filter(idx => this.isEditableIndex(idx)));
                     }

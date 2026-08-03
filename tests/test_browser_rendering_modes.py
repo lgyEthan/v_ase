@@ -518,7 +518,7 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                 )
                 assert stale_result["ok"] is False
                 assert "changed while RDF was being calculated" in stale_result["message"]
-                assert page.locator("#btn-rdf-export").is_disabled()
+                assert page.locator("#btn-analysis-export").is_disabled()
 
                 repeated = page.evaluate(
                     """async () => {
@@ -540,7 +540,7 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                     24,
                 ]
                 assert repeated["analysis"]["rdf"] is None
-                assert page.locator("#btn-rdf-export").is_disabled()
+                assert page.locator("#btn-analysis-export").is_disabled()
                 assert page.locator("#analysis-drawer").evaluate(
                     "element => element.classList.contains('hidden')"
                 )
@@ -2327,7 +2327,12 @@ def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
             canvas.focus()
             page.keyboard.press('Tab')
             page.click('[data-inspector-group="structure"]')
+            page.evaluate("window.__ASE_APP__.aiSelectIndices([0, 1])")
+            page.wait_for_function("window.__ASE_APP__.state.selected.size === 2")
             page.check('#chk-commensurate-guide')
+            page.locator('details.commensurate-advanced').evaluate(
+                "element => { element.open = true; }"
+            )
             page.check('#chk-commensurate-snap')
             page.keyboard.press('Escape')
             page.keyboard.press('r')
@@ -2342,7 +2347,7 @@ def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
                 .length""")
             assert labels > 0
             candidate_status = page.locator('#commensurate-status').inner_text()
-            assert 'boundary strain' in candidate_status
+            assert 'strain' in candidate_status
             assert 'N=' in candidate_status
 
             snapped = page.evaluate("""() => {
@@ -2482,6 +2487,10 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
             _select_structure_section(page, "transform")
             assert not page.is_checked('#chk-commensurate-guide')
             page.check('#chk-commensurate-guide')
+            page.locator('details.commensurate-advanced').evaluate(
+                "element => { element.open = true; }"
+            )
+            page.check('#chk-commensurate-show-atoms')
             page.check('#chk-commensurate-snap')
             page.fill('#commensurate-max-area', '16')
             page.keyboard.press('Escape')
@@ -2494,6 +2503,7 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
             page.keyboard.type('21.2')
             page.wait_for_function("Math.abs(window.__ASE_APP__.state.commensurateSnappedCandidate?.targetAngleDeg - 21.78678931) < 1e-5")
             page.keyboard.press('Enter')
+            page.evaluate("async () => await window.__ASE_APP__.pendingApply")
             page.wait_for_function("window.__ASE_APP__.state.commensurateProposal?.data?.preview?.core_atom_count === 28")
 
             preview = page.evaluate("""() => {
@@ -2622,6 +2632,7 @@ def test_ai_can_rotate_to_preview_and_materialize_a_bounded_commensurate_cell():
                         maxIndex: 32,
                         maxAreaRatio: 16,
                         maxAngleDifferenceDeg: 2,
+                        showAtoms: true,
                         applyConstraints: true
                     }
                 });
@@ -2648,6 +2659,161 @@ def test_ai_can_rotate_to_preview_and_materialize_a_bounded_commensurate_cell():
             assert abs(np.linalg.det(np.asarray(applied["cell"]))) == pytest.approx(
                 7 * abs(np.linalg.det(np.asarray(atoms.cell.array))),
                 rel=1e-7,
+            )
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
+    tmp_path,
+    monkeypatch,
+):
+    lattice = 2.46
+    host_cell = np.asarray([
+        [lattice, 0.0, 0.0],
+        [0.5 * lattice, 0.5 * 3 ** 0.5 * lattice, 0.0],
+        [0.0, 0.0, 18.0],
+    ])
+    guest_cell = host_cell.copy()
+    guest_cell[:2] *= 2.50 / 2.46
+    host = Atoms(
+        "C2",
+        positions=[[0, 0, 0], [1.23, 0.71014083, 0]],
+        cell=host_cell,
+        pbc=[True, True, False],
+    )
+    guest = Atoms(
+        "BN",
+        positions=[[0, 0, 0], [1.25, 0.72168784, 0]],
+        cell=guest_cell,
+        pbc=[True, True, False],
+    )
+    set_atom_labels(guest, ["B_guest", "N_guest"])
+    write(tmp_path / "hbn-guest.extxyz", guest)
+    monkeypatch.chdir(tmp_path)
+
+    port = find_free_port()
+    editor = view(
+        host,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.v_aseAI && window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2"
+            )
+
+            cells_only = page.evaluate("""async () => {
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'load-commensurate-guest',
+                        path: 'hbn-guest.extxyz',
+                        strainTolerance: 0.02,
+                        maxAreaRatio: 4,
+                        angleDeg: 0,
+                        showAtoms: false
+                    }
+                });
+                const app = window.__ASE_APP__;
+                const state = await window.v_aseAI.describe();
+                return {
+                    state,
+                    proposal: app.state.commensurateProposal?.data,
+                    hostCells: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateHostCell).length,
+                    guestCells: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateGuestCell).length,
+                    commonCells: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateSuggestedCell).length,
+                    plotReady: Boolean(document.querySelector('#commensurate-plot .plotly'))
+                };
+            }""")
+            assert cells_only["state"]["analysis"]["commensurate"]["mode"] == "host-guest"
+            assert cells_only["state"]["analysis"]["commensurate"]["guest"]["natoms"] == 2
+            assert cells_only["proposal"]["preview"]["include_atoms"] is False
+            assert cells_only["proposal"]["candidate"]["host_area_ratio"] == 1
+            assert cells_only["proposal"]["candidate"]["guest_area_ratio"] == 1
+            assert cells_only["hostCells"] == 1
+            assert cells_only["guestCells"] == 1
+            assert cells_only["commonCells"] == 1
+            assert cells_only["plotReady"] is True
+            assert page.locator("#btn-analysis-export").get_attribute("aria-label") == (
+                "Save graph data as CSV"
+            )
+
+            atom_preview = page.evaluate("""async () => {
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'calculate-commensurate',
+                        mode: 'host-guest',
+                        strainTolerance: 0.02,
+                        maxAreaRatio: 4,
+                        angleDeg: 0,
+                        showAtoms: true
+                    }
+                });
+                const app = window.__ASE_APP__;
+                const csv = await window.v_aseAI.export({format: 'commensurate-csv'});
+                return {
+                    previewAtoms: Number(app.renderer.domElement.dataset.commensuratePreviewAtoms),
+                    previewBonds: Number(app.renderer.domElement.dataset.commensuratePreviewBonds),
+                    csv: atob(csv.dataUrl.split(',')[1])
+                };
+            }""")
+            assert atom_preview["previewAtoms"] > 4
+            assert atom_preview["previewBonds"] > 0
+            assert "10.1016/j.cpc.2015.08.038" in atom_preview["csv"]
+            assert "host_matrix" in atom_preview["csv"]
+
+            analyzed = page.evaluate("""async () => {
+                await window.v_aseAI.apply({mode: 'edit'});
+                await window.v_aseAI.apply({operation: 'apply-commensurate-cell'});
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'calculate-registry-map',
+                        indices: [2, 3],
+                        metric: 'short-contact',
+                        gridX: 8,
+                        gridY: 6
+                    }
+                });
+                const state = await window.v_aseAI.describe();
+                const csv = await window.v_aseAI.export({format: 'registry-csv'});
+                const app = window.__ASE_APP__;
+                return {
+                    state,
+                    csv: atob(csv.dataUrl.split(',')[1]),
+                    plotReady: Boolean(document.querySelector('#registry-plot .plotly')),
+                    activePlot: app.state.activeAnalysisPlot,
+                    constrainedDelta: app.constrainMoveToRegistryPlane(
+                        app.renderer.controls.target.clone().set(0.4, -0.2, 1.7)
+                    ).toArray(),
+                    exportLabel: document.getElementById('btn-analysis-export')?.getAttribute('aria-label')
+                };
+            }""")
+            assert analyzed["state"]["atomCount"] == 4
+            registry = analyzed["state"]["analysis"]["registryMap"]
+            assert registry["grid"] == [8, 6]
+            assert registry["selectedIndices"] == [2, 3]
+            assert registry["periodicAxes"] == [0, 1]
+            assert analyzed["plotReady"] is True
+            assert analyzed["activePlot"] == "registry"
+            assert analyzed["constrainedDelta"][2] == pytest.approx(0.0, abs=1e-12)
+            assert analyzed["exportLabel"] == "Save graph data as CSV"
+            assert (
+                "x_fractional,y_fractional,dx_angstrom,dy_angstrom,dz_angstrom,value"
+                in analyzed["csv"]
             )
             browser.close()
     finally:

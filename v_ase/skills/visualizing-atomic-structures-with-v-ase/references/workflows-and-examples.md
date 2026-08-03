@@ -11,10 +11,11 @@
 7. Trajectory Analysis And Video
 8. Volumetric Difference And Isosurface
 9. RDF And CSV
-10. Bounded Commensurate Common Cell
-11. Periodic Supercell Measurement
-12. Multi-Document Live Collaboration
-13. Offline View-Only Handoff
+10. Bounded Commensurate 2D Cells
+11. XY Registry Map
+12. Periodic Supercell Measurement
+13. Multi-Document Live Collaboration
+14. Offline View-Only Handoff
 
 These templates are starting points. Preserve the plan, validate, execute, and
 verify sequence even when parameters change.
@@ -99,7 +100,7 @@ Example user intent:
 
 > Remove the carbon nearest the cell center, convert its three nearest
 > neighbors to pyridinic nitrogen, add a Li_site atom 2.15 A above the vacancy,
-> preserve PBC and bonds, use a clean oblique studio-shadow view, and render a
+> keep the existing bonds, use a clean oblique studio-shadow view, and render a
 > 4K image.
 
 This request explicitly authorizes deletion and element changes. Resolve the
@@ -597,47 +598,168 @@ Validation:
    first few bins across several cutoffs, including beyond the unique-MIC
    reference.
 
-## Bounded Commensurate Common Cell
+## Bounded Commensurate 2D Cells
 
-Use this only for a selected 2D layer in a cell with two periodic in-plane
-vectors. The first command rotates to the nearest validated match and opens a
-proposal; it does not silently change the unit cell:
+Use this workflow only for cells with two periodic in-plane vectors. The
+commensurate rotation axis is global Z and the lattice search is restricted to
+the XY plane. Enabling the workspace calculates a bounded family of integer
+host/guest supercells immediately. It previews the smallest valid match under
+the strain cutoff and the default `maxAreaRatio` of 16; it never silently
+materializes the proposal.
+
+### Same-lattice twist
+
+Select the layer that rotates and calculate the complete angle/area/strain
+family. Cells-only preview is the default:
 
 ```javascript
-const proposed = await applyCurrent({
+const analyzed = await applyCurrent({
+  selection: {clear: true, indices: [36, 37, 38, 39]},
+  operation: {
+    name: "calculate-commensurate",
+    mode: "same-lattice",
+    indices: [36, 37, 38, 39],
+    axis: "Z",
+    angleDeg: 21.2,
+    strainTolerance: 0.01,
+    maxAreaRatio: 16,
+    maxIndex: 32,
+    showAtoms: false,
+    snap: false
+  }
+});
+```
+
+Validate `analyzed.analysis.commensurate`: it must contain the candidate table,
+positive-determinant host/guest integer matrices, area ratios, residual strain,
+the current-angle marker, and the smallest valid proposal. The Plotly graph
+uses angle, area ratio, and residual strain as its three axes. Its moving angle
+plane and current marker must follow rotation without repeating the bounded
+search.
+
+`rotate-to-commensurate` is the stricter Edit-mode shortcut for rotating the
+selected layer to the nearest validated angle:
+
+```javascript
+await applyCurrent({
   mode: "edit",
-  selection: {clear: true, indices: [0, 1]},
+  selection: {clear: true, indices: [36, 37, 38, 39]},
   operation: {
     name: "rotate-to-commensurate",
     axis: "Z",
     angleDeg: 21.2,
     pivot: "com",
     strainTolerance: 0.01,
-    maxIndex: 32,
     maxAreaRatio: 16,
     maxAngleDifferenceDeg: 2,
+    showAtoms: false,
     applyConstraints: true
   }
 });
 ```
 
-Validate `proposed.analysis.commensurateProposal`: it must report the intended
-angle, the smallest area ratio inside the strain cutoff, source/target integer
-matrices, opaque core atoms, `paddingCells: 1`, and boundary-shell atoms and
-bonds. If `materializationSupported` is false, report
-`materializationReason`; do not bypass it with `make-supercell`.
+### Independent host and guest
 
-After explicit approval:
+Load the guest from inside the directory where the GUI was launched. The
+operation preserves the current host and calculates a separate guest lattice;
+the guest angle and offset then move the guest structure as one layer:
 
 ```javascript
-const materialized = await applyCurrent({
-  operation: "apply-commensurate-cell"
+await applyCurrent({
+  operation: {
+    name: "load-commensurate-guest",
+    path: "layers/hbn.cif",
+    format: "cif",
+    calculate: true,
+    strainTarget: "guest",
+    strainTolerance: 0.01,
+    maxAreaRatio: 16,
+    maxIndex: 32,
+    angleDeg: 0,
+    showAtoms: false
+  }
 });
 ```
 
-Re-describe and verify atom count, cell determinant, PBC, constraints, and that
-`analysis.commensurateProposal` is null. If the user wants only the rotated
-coordinates, use `dismiss-commensurate-cell` instead.
+Use `strainTarget: "guest"` unless the user explicitly asks to deform the host.
+Verify the distinct host, guest, and proposed common-cell outlines and both
+integer matrices. With `showAtoms: true`, require opaque core atoms, a
+one-primitive-cell boundary shell, and all preview bonds across the proposed
+supercell. Remove a guest with `remove-commensurate-guest`.
+
+The preview is scientific state, not an ASE topology change. A trajectory or a
+document containing volumetric grids remains preview-only. For one editable
+structure, materialize only after explicit approval:
+
+```javascript
+await applyCurrent({operation: {name: "apply-commensurate-cell"}});
+```
+
+Re-describe and verify atom count, cell determinant, PBC, remapped constraints,
+labels, and cleared proposal state. Never bypass an unsupported materialization
+with `make-supercell`; report `materializationReason`. Use
+`dismiss-commensurate-cell` when no topology change is wanted.
+
+Export the graph table only after calculation:
+
+```bash
+v_ase api "$COMMAND_URL" export --save commensurate.csv --params '{
+  "format":"commensurate-csv",
+  "mode":"host-guest",
+  "strainTarget":"guest",
+  "strainTolerance":0.01,
+  "maxAreaRatio":16,
+  "maxIndex":32
+}'
+```
+
+The CSV must include angle, matrices, area, strain, and the CellMatch and Stradi
+et al. references carried by the independent bounded-search implementation.
+
+## XY Registry Map
+
+Run this after selecting the layer to translate. It scans one fractional XY
+period while leaving source coordinates unchanged. No selection must produce a
+clear error rather than an empty graph:
+
+```javascript
+await applyCurrent({
+  selection: {clear: true, indices: [36, 37, 38, 39]},
+  operation: {
+    name: "calculate-registry-map",
+    indices: [36, 37, 38, 39],
+    metric: "short-contact",
+    gridX: 48,
+    gridY: 48
+  }
+});
+```
+
+`short-contact` is a covalent-radii-scaled overlap score. `bond-strain` is the
+RMS normalized deviation of enabled interfacial label-pair distances from
+their references and can receive explicit `pairCutoffs`. Both are geometry
+scores, not energies; lower values indicate less geometric penalty and must not
+be described as a relaxed stacking energy.
+
+While the map is active, `G` is constrained to XY. The live marker must track
+the selected layer's current fractional translation, including periodic wrap,
+and the map must show the unit-cell boundary. Export the complete grid through
+the graph's save icon or the exact semantic export:
+
+```bash
+v_ase api "$COMMAND_URL" export --save registry.csv --params '{
+  "format":"registry-csv",
+  "indices":[36,37,38,39],
+  "metric":"short-contact",
+  "gridX":48,
+  "gridY":48
+}'
+```
+
+CSV rows must retain fractional X/Y, Cartesian translation, metric, selected
+indices, and metric definition. No paper citation is required for the generic
+geometry score. RDF, commensurate, and registry Plotly drawers all expose the
+same icon-only CSV control beside the graph title.
 
 ## Periodic Supercell Measurement
 

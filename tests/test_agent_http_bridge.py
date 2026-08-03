@@ -93,8 +93,19 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(tm
                 "rotate-selection",
                 "set-constraints",
                 "refresh-displacements",
+                "load-commensurate-guest",
+                "remove-commensurate-guest",
+                "calculate-commensurate",
+                "calculate-registry-map",
             }.issubset(capabilities["operations"])
-            assert {"image", "html", "project", "settings"}.issubset(
+            assert {
+                "image",
+                "html",
+                "project",
+                "settings",
+                "commensurate-csv",
+                "registry-csv",
+            }.issubset(
                 capabilities["exports"]
             )
 
@@ -113,6 +124,19 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(tm
             assert schema["control_schema"]["title"] == "v_ase live semantic control"
             assert schema["operation_parameters"]["rotate-selection"]["mode"] == "edit"
             assert "includeCell" in schema["export_parameters"]["blender"]["optional"]
+            assert schema["operation_parameters"]["load-commensurate-guest"]["required"] == [
+                "path"
+            ]
+            assert "maxAreaRatio" in (
+                schema["operation_parameters"]["calculate-commensurate"]["optional"]
+            )
+            assert schema["operation_parameters"]["calculate-registry-map"]["required"] == [
+                "selection-or-indices"
+            ]
+            assert "maxAreaRatio" in (
+                schema["export_parameters"]["commensurate-csv"]["optional"]
+            )
+            assert "gridX" in schema["export_parameters"]["registry-csv"]["optional"]
 
             changed = _post_command(
                 command_url,

@@ -25,6 +25,8 @@ The description should trigger for these requests even when v_ase is not named:
 11. `[trigger]` Plot a signed charge-density-difference isosurface from three CHGCAR files.
 12. `[trigger]` Calculate total and Cu-O partial RDF curves and export CSV.
 13. `[trigger]` Twist this 2D layer to the nearest commensurate cell below 16x area.
+14. `[trigger]` Match this hBN guest cell to a graphene host below one percent strain.
+15. `[trigger]` Map the best periodic XY registry for this selected adsorbate layer.
 
 It should not trigger for these nearby but unrelated requests:
 
@@ -61,7 +63,9 @@ Current operation coverage:
 - wrap, translate-all, set-supercell, make-supercell;
 - add-atom, delete-selection, set-identity, set-constraints;
 - move-selection, rotate-selection, rotate-to-commensurate,
-  apply-commensurate-cell, dismiss-commensurate-cell, undo, redo,
+  load-commensurate-guest, remove-commensurate-guest,
+  calculate-commensurate, apply-commensurate-cell,
+  dismiss-commensurate-cell, calculate-registry-map, undo, redo,
   reset-coordinates;
 - start-relaxation, stop-relaxation, refresh-displacements;
 - load-volumetric, show-volumetric, combine-volumetric, remove-volumetric;
@@ -70,7 +74,7 @@ Current operation coverage:
 Current export coverage:
 
 - image, video, poscar, pickle, blender, 3dm, obj, html, project, settings,
-  rdf-csv.
+  rdf-csv, commensurate-csv, registry-csv.
 
 ## End-To-End Scenarios
 
@@ -119,8 +123,22 @@ Run all scenarios, not only static document checks:
    - project the complete proposal bounds through the live camera and verify
      they remain inside the viewport, then dismiss and verify camera restore;
    - set `maxAreaRatio` to 6 and verify the area-7 proposal is rejected;
+   - enable the commensurate workspace before rotating and verify cells-only
+     preview, monotonic progress, the smallest valid proposal, and a live
+     current-angle plane on the angle/area/strain graph;
+   - load an independent hBN guest from the launch directory, verify absolute
+     and parent-traversal paths are rejected, and compare guest-strain and
+     host-strain matches without conflating their integer matrices;
+   - enable atom preview and verify opaque host/guest cores, one-cell shells,
+     and boundary bonds while host, guest, and common cells remain visually
+     distinct;
+   - verify non-Z commensurate rotation is rejected, global-Z rotation updates
+     only the current marker until a new bounded search is required, and CSV
+     contains angle, matrices, area, strain, and references;
    - materialize only after explicit approval and verify atom count, cell
      determinant, PBC, constraints, and cleared proposal state.
+   - reject materialization for trajectories and volumetric documents instead
+     of applying one frame or dropping grids;
 6. **Appearance**
    - change radius, color, visibility, and material;
    - verify standard, metal, rubber, 2D, and 3D;
@@ -177,6 +195,13 @@ Run all scenarios, not only static document checks:
    - reject partial PBC, retain an explicit long triclinic cutoff, verify the
      returned image extent/span, render the Plotly drawer, and export matching
      CSV columns and row count.
+   - require a selected movable layer for the XY registry map, scan both
+     short-contact and bond-strain metrics, and verify the live marker follows
+     periodic fractional translation while `G` remains XY-constrained;
+   - verify both registry metrics are reported as geometry scores rather than
+     energies and that the registry CSV matches every plotted grid point;
+   - verify RDF, commensurate, and registry graphs each expose one adjacent
+     icon-only CSV action with an accessible label.
 10. **Exports**
    - render exact PNG/WebP dimensions and compare decoded pixels;
    - verify JPEG and PDF preserve dimensions and use opaque output;

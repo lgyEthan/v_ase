@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.1.8
+
+- Added a bounded host/guest commensurate workspace for same-lattice twists
+  and independently loaded 2D lattices, with separate integer supercell
+  matrices, selectable strain target, crystallographic notation, and a
+  default maximum primitive-cell area ratio of `16`.
+- Added live host, guest, and suggested common-cell guides, a cells-first
+  preview with optional atoms and boundary-crossing bonds, global-Z rotation
+  enforcement, staged progress, and explicit materialization of a validated
+  common structure.
+- Added an interactive Plotly angle-area-strain landscape with live rotation
+  marker and citation-bearing CSV output based on an independent bounded
+  implementation of the CellMatch and Stradi matching formulations.
+- Added a periodic XY registry scan for selected atoms, with short-contact or
+  active-bond strain metrics, live move marker, XY-constrained translation,
+  staged progress, and CSV export.
+- Added a shared icon-based CSV action to every analysis graph, including RDF,
+  and extended the semantic Agent API, project persistence, documentation,
+  and end-to-end tests for all new workflows.
+- Rebuilt the external-Agent diagram with recognizable Agent and v_ase brand
+  marks, a clearer pristine-graphene vacancy request, directional data flow,
+  and explicit same-document human refinement.
+
 ## 0.1.7
 
 - Added bounded commensurate common-cell proposals after exact periodic 2D

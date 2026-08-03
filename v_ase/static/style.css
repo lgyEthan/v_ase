@@ -1656,6 +1656,63 @@ body.inspector-wide #inspector .supercell-row {
     line-height: 1.45;
 }
 
+.commensurate-master-row > div {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+}
+
+.commensurate-master-row > div span {
+    color: var(--muted);
+    font-size: 0.59rem;
+    line-height: 1.35;
+}
+
+.commensurate-workspace {
+    display: grid;
+    gap: 7px;
+    margin-top: 9px;
+    padding: 10px;
+    border: 1px solid var(--teal-border-soft);
+    border-radius: 6px;
+    background: var(--surface-subtle);
+}
+
+.commensurate-workspace > .prop-row,
+.commensurate-workspace .inline-subpanel .prop-row {
+    margin: 0;
+}
+
+.commensurate-guest-controls {
+    display: grid;
+    gap: 6px;
+    padding: 8px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--surface-faint);
+}
+
+.commensurate-guest-summary {
+    overflow-wrap: anywhere;
+    color: var(--muted);
+    font-size: 0.62rem;
+    line-height: 1.4;
+}
+
+.text-action {
+    justify-self: start;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--teal-contrast);
+    font-size: 0.62rem;
+    font-weight: 700;
+}
+
+.commensurate-advanced {
+    margin: 1px 0 0;
+}
+
 .commensurate-status[data-state="ready"] {
     border-color: var(--teal-border);
     color: var(--text-soft);
@@ -1956,6 +2013,30 @@ body.inspector-collapsed .analysis-drawer {
     min-width: 0;
     align-items: baseline;
     gap: 9px;
+}
+
+.analysis-drawer-actions {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 5px;
+}
+
+.analysis-drawer-actions .icon-btn {
+    width: 30px;
+    min-width: 30px;
+    height: 30px;
+    padding: 6px;
+}
+
+.analysis-drawer-actions svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
 }
 
 .analysis-drawer-kicker {

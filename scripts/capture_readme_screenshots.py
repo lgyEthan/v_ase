@@ -1091,6 +1091,7 @@ def capture_commensurate_media(browser) -> None:
             "commensurateMaxIndex": 32,
             "commensurateStrainTolerance": 0.01,
             "commensurateMaxAreaRatio": 16,
+            "commensurateShowAtoms": True,
         })
         set_selection(page, indices["hbn"])
         configure_inspector(page, "structure", ["transform"], width=440)

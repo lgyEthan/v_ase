@@ -117,7 +117,7 @@ For example:
 
 > From this pristine 6 x 6 graphene sheet, remove the carbon nearest the cell
 > center, convert its three nearest neighbors to pyridinic nitrogen, add a
-> `Li_site` atom 2.15 A above the vacancy, preserve PBC and bonds, use a clean
+> `Li_site` atom 2.15 A above the vacancy, use a clean
 > oblique studio-shadow view, and render a 4K image.
 
 The agent preserves the three substituted sites as distinct `N_pyridinic` labels
@@ -134,6 +134,10 @@ indices, coordinates, and labels. The example assets are generated from
 - [intermediate pyridinic N3 CIF](examples/readme_scene_assets/ai_pyridinic_n3_graphene.cif)
 - [final N3/Li-site CIF](examples/readme_scene_assets/ai_pyridinic_n3_li_graphene.cif)
 - [ASE trajectory preserving labels](examples/readme_scene_assets/ai_pyridinic_n3_li_graphene.traj)
+
+Codex, Claude Code, and GitHub Copilot names and marks belong to their
+respective owners. They identify compatible external clients in the diagram;
+no affiliation or endorsement is implied.
 
 ## Structure Manipulation
 
@@ -220,30 +224,60 @@ structure diagrams such as
 [Zhang et al.](https://doi.org/10.1038/srep13927). The example demonstrates
 geometry editing and is not an energy-minimized final structure.
 
-#### Graphene/hBN: Find A Commensurate Rotation
+#### Commensurate Atoms: Match Periodic 2D Cells
 
 ![Graphene hBN commensurate rotation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_commensurate.gif)
 
-Select the hBN layer, enable **Commensurate guide**, then use `R`, `Z`. The
-top view intentionally hides the world X/Y/Z axes so the neutral start line,
-amber current line, and labeled cyan cell-match candidates remain distinct.
-**Magnetic angle snap** can pull the active rotation to a candidate within the
-configured tolerance. The guide is off by default.
+Enable **Structure > Transform > Commensurate atoms** to search bounded integer
+supercells immediately. The search runs behind a staged progress display and
+opens an interactive Plotly graph with:
 
-After an exact match is committed, v_ase proposes the smallest common periodic
-cell inside the configured boundary-strain cutoff. The proposal shows:
+- rotation angle on X;
+- common-cell area ratio on Y;
+- residual in-plane strain on Z;
+- every valid bounded match as a point;
+- a live plane and marker following the current guest rotation.
 
-- an opaque common cell with paper-style notation such as
-  `(sqrt(7) x sqrt(7)) R19.11 deg`;
-- a muted shell extending one primitive cell beyond the common cell, including
-  bonds across its boundary;
-- the area ratio, boundary strain, cell dimensions, and integer boundary
-  matrices;
-- **Set Suggested Cell as Unit Cell** when the proposal can be materialized.
+The graph's save icon exports the plotted angle, strain, host/guest integer
+matrices, surface notation, and method citations as CSV. **Maximum area ratio**
+defaults to `16`; **Maximum strain** rejects larger boundary mismatch instead
+of creating an unbounded cell.
 
-**Max area ratio** limits the proposed cell to `16` times the current cell by
-default. If no admissible match fits that bound, v_ase leaves the structure as
-rotated and does not create an unbounded preview.
+Two workflows use the same independently implemented integer-boundary search:
+
+| Workflow | Host | Guest / rotating component |
+| --- | --- | --- |
+| Same-lattice twist | Unselected atoms and the current periodic cell | Selected atoms using an independent copy of the same cell |
+| Host/guest interface | The open structure | A second structure loaded with **Load guest structure** |
+
+For the same-lattice graphene/hBN example, select the hBN layer before enabling
+the workspace. For a separate host/guest calculation, v_ase rotates the entire
+guest structure and its own cell together; it never silently substitutes the
+host cell. **Apply residual strain to** chooses which lattice receives the
+remaining in-plane deformation and defaults to the guest.
+
+Cells-only preview is the default so the host cell, guest cell, and suggested
+common cell remain readable while the guest rotates. Their vectors use
+distinct colors. **Show preview atoms** adds the bounded supercell atoms plus
+one primitive-cell halo, including bonds crossing the common-cell boundary.
+The proposal reports both integer matrices, both area ratios, residual strain,
+and notation such as `(sqrt(7) x sqrt(7)) R19.11 deg`.
+
+Commensurate matching is deliberately restricted to two periodic vectors in
+the global XY plane and rotation about global Z. This is the rigorously defined
+2D interface workflow; ordinary free atom rotation remains available when the
+workspace is off. **Set Suggested Cell as Structure** materializes the current
+validated proposal only in Edit mode. Trajectories and active volumetric fields
+remain preview-only because applying one inferred layer-specific cell to every
+frame or sampled field would be ambiguous.
+
+The boundary-matching method follows the published integer-supercell and
+minimal-strain formulations in
+[CellMatch](https://doi.org/10.1016/j.cpc.2015.08.038) and the
+[optimal interface-supercell method](https://doi.org/10.1088/1361-648X/aa66f3).
+v_ase implements the search independently; no source code from those projects
+is copied. A suggested cell is a geometric periodic match, not an electronic
+energy minimum.
 
 Normal `R` rotates selected atoms. **Cell Transform** is a separate periodic
 operation that applies an integer matrix to the cell and every trajectory
@@ -277,6 +311,28 @@ the previous frame or a chosen reference. Minimum-image correction, vector
 scale, thickness, color, and 2D/3D style are configurable. Displayed
 supercells repeat the vectors, and visual translation moves both endpoints
 without changing the physical displacement.
+
+### XY Registry Map
+
+After choosing a periodic interface cell, select the layer or adsorbate that
+should translate and open **Analysis > XY Registry Map**. Starting the analysis
+without a selection produces a direct selection warning. v_ase scans one full
+periodic XY cell on the requested fractional grid while a staged progress
+display reports the active step.
+
+The default **Short-contact score** is a dimensionless, covalent-radius-scaled
+geometry proxy. **Bond-strain RMS** instead uses enabled interfacial pairwise
+bond cutoffs and reports normalized bond-length mismatch for those pairs. Both
+scores are lower-is-better geometric screening metrics, not energies. Validate
+the proposed registry with an appropriate electronic-structure or force-field
+calculation before drawing physical conclusions.
+
+The Plotly heatmap marks the best grid point and the current translation. While
+the map is active, `G` is constrained to the periodic XY plane and the marker
+follows the move continuously in fractional coordinates. The graph's save icon
+exports the complete fractional X/Y grid, metric values, selected indices, and
+method notes as CSV. RDF, commensurate, and registry plots all expose the same
+adjacent save icon.
 
 ### Volumetric Fields
 

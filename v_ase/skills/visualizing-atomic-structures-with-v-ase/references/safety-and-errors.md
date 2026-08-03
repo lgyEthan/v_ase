@@ -36,6 +36,15 @@ test edit and a new filename for output.
   display repetition and not one guessed `make-supercell` matrix. Respect the
   boundary-strain and `maxAreaRatio` limits; require explicit approval before
   `apply-commensurate-cell`.
+- Commensurate atoms supports only two periodic vectors in global XY and guest
+  rotation about global Z. Treat same-lattice selected-layer twist and an
+  independently loaded host/guest interface as separate workflows. Report
+  which lattice receives residual strain; do not call a geometric match an
+  energy minimum.
+- A registry map requires selected moving atoms plus unselected host atoms.
+  Its short-contact and bond-length strain values are geometry-only screening
+  metrics. Do not present the minimum as a relaxed adsorption registry without
+  a separate energy calculation.
 - `display.translation` is a visual offset applied after display repetition.
   It moves atoms and their overlays but never changes ASE coordinates or the
   cell. `translate-all` is a separate physical Edit operation.
@@ -76,7 +85,12 @@ test edit and a new filename for output.
 | wrap requires a cell | Cell is undefined | Stop and ask for a valid cell |
 | supercell rejected | Invalid repetition or integer matrix | Validate bounds and determinant |
 | no commensurate cell inside the angle/area limit | The nearest low-strain match exceeds `maxAngleDifferenceDeg` or `maxAreaRatio` | Report the nearest bounded angle or increase a limit only with user approval |
+| load guest rejected as outside launch directory | Agent path escaped the directory used to launch v_ase | Move/reference the file inside that directory; never bypass path confinement |
+| host/guest matching needs a guest | `mode:"host-guest"` was requested before loading one | Run `load-commensurate-guest`, describe, then calculate again |
+| commensurate matching requires global XY/Z | Periodic plane is tilted or another axis was requested | Reorient/transform the cell explicitly or use ordinary atom rotation; do not project and materialize silently |
 | commensurate materialization unsupported | Trajectory, volumetric data, or an ambiguous cross-layer Hookean constraint is active | Keep/dismiss the preview; do not force an inferred topology or field transform |
+| registry map asks for selected guest/interface atoms | No selected indices were supplied | Select the moving layer/adsorbate and retry |
+| bond-strain registry has no enabled pair | No selected-to-host bond is inside an enabled pairwise cutoff | Enable scientifically intended label pairs or use the short-contact score; do not fabricate a cutoff |
 | repeated atoms cannot be selected | Edit keeps preview replicas noneditable | Use View for replica measurements or materialize with Set Supercell as Cell |
 | relaxation requires calculator | No ASE calculator is attached | Attach a supported calculator or do not relax |
 | optional 3DM export fails | `rhino3dm` is absent | Install `v_ase-gui[rhino]` |
