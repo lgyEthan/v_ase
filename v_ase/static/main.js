@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.1.10&rev=1';
-import { ASERenderer } from './renderer.js?v=0.1.10&rev=1';
-import { ASESelection } from './selection.js?v=0.1.10&rev=1';
-import { ASETransform } from './transform.js?v=0.1.10&rev=1';
+import { ASEApi } from './api.js?v=0.1.11&rev=1';
+import { ASERenderer } from './renderer.js?v=0.1.11&rev=1';
+import { ASESelection } from './selection.js?v=0.1.11&rev=1';
+import { ASETransform } from './transform.js?v=0.1.11&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.1.10&rev=1';
+} from './trajectory.js?v=0.1.11&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -11771,6 +11771,11 @@ class VAseApp {
                 <span>Reusable display preset: bonds, appearance, camera, lighting, quality, display replication, and visual translation. Atomic coordinates are not included.</span>
                 <strong>v_ase Project (.vase)</strong>
                 <span>Complete working state: structures or trajectory, current frame, coordinates, cell, constraints, labels, cached results, and visual setup.</span>
+            </div>
+            <h3 class="help-section-title">License</h3>
+            <div class="help-save-grid">
+                <strong>AGPL-3.0-or-later</strong>
+                <span>Copyright (C) 2026 v_ase contributors. This software is provided without warranty. <a href="/license" target="_blank" rel="noopener">View license</a> · <a href="https://github.com/lgyEthan/v_ase" target="_blank" rel="noopener">Get source</a></span>
             </div>
         `);
     }

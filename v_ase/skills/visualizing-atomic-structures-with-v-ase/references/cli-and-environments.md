@@ -14,18 +14,22 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.1.10"
+python -m pip install "v_ase-gui==0.1.11"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.1.10"
+python -m pip install "v_ase-gui[rhino]==0.1.11"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, SciPy, scikit-image,
 Plotly, imageio-ffmpeg, and Pillow. No Node.js runtime, API key, or hosted
 account is required.
+
+Releases from `0.1.11` onward use the `AGPL-3.0-or-later` license. Preserve
+the license and source offer when redistributing v_ase or operating a modified
+version for users over a network.
 
 Verify the active executable and import:
 

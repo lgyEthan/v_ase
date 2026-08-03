@@ -6,7 +6,7 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/v_ase-gui.svg)](https://pypi.org/project/v-ase-gui/)
 [![Python versions](https://img.shields.io/pypi/pyversions/v_ase-gui.svg)](https://pypi.org/project/v-ase-gui/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License: AGPL v3+](https://img.shields.io/badge/license-AGPL--3.0--or--later-2f855a.svg)](LICENSE)
 
 `v_ase` brings ASE's convenient terminal and Python workflow together with
 direct, Blender-style 3D structure editing. Open a structure or trajectory
@@ -947,6 +947,18 @@ remote file, creates the SSH tunnel, and opens the local browser. The source
 file and full trajectory cache remain on the server; only the current frame
 data required for local Three.js rendering crosses the tunnel. Use `ProxyJump`
 in `~/.ssh/config` when a login node is required.
+
+## License
+
+v_ase releases from `0.1.11` onward are licensed under the
+[GNU Affero General Public License v3.0 or later](LICENSE)
+(`AGPL-3.0-or-later`). You may use,
+modify, and redistribute the software under that license; distributions and
+modified network services must satisfy its source-availability and
+same-license requirements. Copyright (C) 2026 v_ase contributors.
+
+The bundled Three.js module retains its own MIT license in
+[`v_ase/static/vendor/THREE_LICENSE`](v_ase/static/vendor/THREE_LICENSE).
 
 ## Troubleshooting
 

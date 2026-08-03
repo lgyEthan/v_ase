@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "v_ase-gui"
-version = "0.1.10"
+version = "0.1.11"
 description = "A local 3D viewer, editor, and analysis workspace for atomistic structures, trajectories, and DFT fields."
 readme = "README.md"
-license = "MIT"
+license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [

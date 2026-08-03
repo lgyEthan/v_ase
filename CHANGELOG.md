@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.11
+
+- Licensed v_ase releases from this version onward under
+  `AGPL-3.0-or-later`, synchronized the package metadata and user guidance,
+  and added a visible in-app license, source, and warranty notice.
+
 ## 0.1.10
 
 - Corrected the canonical agent trajectory validation workflow to use the

@@ -5,9 +5,11 @@ import uuid
 from contextlib import asynccontextmanager, suppress
 import pickle
 import io
+import html
 import json
 import tempfile
 from collections import Counter
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from typing import Dict, Any, List
 from .session import (
@@ -178,6 +180,27 @@ if FASTAPI_AVAILABLE:
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 if FASTAPI_AVAILABLE:
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
+def v_ase_license_text() -> str:
+    """Return the installed AGPL text in source and wheel installations."""
+    source_license = Path(__file__).resolve().parent.parent / "LICENSE"
+    if source_license.is_file():
+        return source_license.read_text(encoding="utf-8")
+
+    try:
+        package = distribution("v_ase-gui")
+    except PackageNotFoundError:
+        package = None
+    if package is not None:
+        for record in package.files or ():
+            record_path = Path(str(record))
+            if record_path.name == "LICENSE" and "licenses" in record_path.parts:
+                installed_license = Path(package.locate_file(record))
+                if installed_license.is_file():
+                    return installed_license.read_text(encoding="utf-8")
+
+    raise FileNotFoundError("The v_ase license text is missing from this installation.")
 
 
 MAX_INLINE_TRAJECTORY_CACHE_VALUES = 750_000
@@ -2421,6 +2444,38 @@ def configure_repulsion_calculators(
 async def get_index():
     with open(os.path.join(static_dir, "index.html"), "r") as f:
         return HTMLResponse(f.read())
+
+
+@app.get("/license", include_in_schema=False)
+async def get_license():
+    try:
+        content = v_ase_license_text()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return HTMLResponse(
+        """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>v_ase license</title>
+  <style>
+    body { max-width: 920px; margin: 0 auto; padding: 40px 24px; color: #202523; background: #fff; font: 16px/1.55 system-ui, sans-serif; }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    p { margin: 0 0 28px; color: #4f5955; }
+    a { color: #167c6b; }
+    pre { overflow: auto; white-space: pre-wrap; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  </style>
+</head>
+<body>
+  <h1>v_ase</h1>
+  <p>Licensed under AGPL-3.0-or-later. <a href="https://github.com/lgyEthan/v_ase">Get the corresponding source.</a></p>
+  <pre>"""
+        + html.escape(content)
+        + """</pre>
+</body>
+</html>"""
+    )
 
 
 @app.get("/workspace")

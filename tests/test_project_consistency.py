@@ -49,6 +49,20 @@ def test_release_version_is_synchronized():
     assert f"## {__version__}" in changelog
 
 
+def test_release_license_is_agpl_and_vendor_license_is_preserved():
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    license_text = (ROOT / "LICENSE").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    frontend = (ROOT / "v_ase/static/main.js").read_text(encoding="utf-8")
+
+    assert project["project"]["license"] == "AGPL-3.0-or-later"
+    assert "GNU AFFERO GENERAL PUBLIC LICENSE" in license_text
+    assert "Version 3, 19 November 2007" in license_text
+    assert "AGPL-3.0-or-later" in readme
+    assert 'href="/license"' in frontend
+    assert (ROOT / "v_ase/static/vendor/THREE_LICENSE").is_file()
+
+
 def test_source_distribution_includes_release_documents():
     manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8").splitlines()
     included = {line.removeprefix("include ").strip() for line in manifest if line.startswith("include ")}

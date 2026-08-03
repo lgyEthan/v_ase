@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.10&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.11&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.1.10';
+            : '/static/vendor/three.module.js?v=0.1.11';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -68,7 +68,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.1.10</span>
+            <span class="version">0.1.11</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -1240,6 +1240,11 @@
                     <strong>HTML View / HTML Project</strong>
                     <span>Both use the image/video Preview Area crop. HTML View is lightweight by default; HTML Project embeds complete .vase recovery by default.</span>
                 </div>
+                <h3 class="help-section-title">License</h3>
+                <div class="help-save-grid">
+                    <strong>AGPL-3.0-or-later</strong>
+                    <span>Copyright (C) 2026 v_ase contributors. This software is provided without warranty. <a href="/license" target="_blank" rel="noopener">View license</a> · <a href="https://github.com/lgyEthan/v_ase" target="_blank" rel="noopener">Get source</a></span>
+                </div>
             </div>
             <div class="modal-actions">
                 <button id="modal-close" class="btn">Close</button>
@@ -1259,7 +1264,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.1.10&rev=1';
+            : './static/main.js?v=0.1.11&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });
