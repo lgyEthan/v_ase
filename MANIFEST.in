@@ -8,6 +8,6 @@ recursive-include v_ase/static/vendor *
 recursive-include v_ase/skills *.md *.yaml
 recursive-include docs *.md *.html
 prune docs/assets
-recursive-include examples *.py *.traj *.md
+recursive-include examples *.py *.traj *.md *.cif *.extxyz *.yaml *.yml *.json
 recursive-include scripts *.py
 prune tests

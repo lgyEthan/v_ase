@@ -1908,6 +1908,10 @@ body.inspector-wide #inspector .supercell-row {
 }
 
 .phonon-mode-row {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    text-align: left;
     grid-template-columns: 34px minmax(72px, 0.8fr) minmax(0, 1fr);
     cursor: pointer;
 }

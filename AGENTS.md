@@ -10,7 +10,7 @@ This repository is the standalone experimental symmetry build.
   another branch inside this standalone repository.
 - Keep versions independent from the main package using
   `MAIN_BASEaSYMMETRY_ITERATION+symmetry`, for example
-  `0.0.120a3+symmetry`. The first three fields identify the main release whose
+  `0.0.120a4+symmetry`. The first three fields identify the main release whose
   viewer state was forked; the alpha number advances only on this branch.
 - Never merge or push changes to the original GitHub `main` branch.
 - Never upload this experimental build to PyPI.

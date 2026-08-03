@@ -1,0 +1,212 @@
+{
+  "finite_displacements": {
+    "aligned_to_active_structure": false,
+    "displacement_count": 2,
+    "distance_angstrom": 0.01,
+    "forces_required": true,
+    "frequency_unit": "THz",
+    "has_force_constants": false,
+    "has_nac": false,
+    "message": "These structures are calculation inputs. Compute forces for every frame before producing force constants or physical phonon modes.",
+    "primitive_atoms": 2,
+    "source": "generated from current v_ase structure",
+    "status": "ok",
+    "supercell_atoms": 16,
+    "supercell_matrix": [
+      [
+        2,
+        0,
+        0
+      ],
+      [
+        0,
+        2,
+        0
+      ],
+      [
+        0,
+        0,
+        2
+      ]
+    ],
+    "unit_atoms": 2
+  },
+  "phonon_mode": {
+    "amplitude": 2.0,
+    "band": 3,
+    "commensurability": {
+      "commensurate": true,
+      "dimension": [
+        [
+          4,
+          0,
+          0
+        ],
+        [
+          0,
+          4,
+          0
+        ],
+        [
+          0,
+          0,
+          2
+        ]
+      ],
+      "nearest_integer": [
+        2,
+        0,
+        0
+      ],
+      "qpoint": [
+        0.5,
+        0.0,
+        0.0
+      ],
+      "residual": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "tolerance": 1e-08,
+      "transformed": [
+        2.0,
+        0.0,
+        0.0
+      ]
+    },
+    "coordinates_unwrapped": true,
+    "dimension": [
+      [
+        4,
+        0,
+        0
+      ],
+      [
+        0,
+        4,
+        0
+      ],
+      [
+        0,
+        0,
+        2
+      ]
+    ],
+    "finite_displacement_angstrom": 0.01,
+    "force_calculator": "ASE EMT",
+    "force_constant_supercell": [
+      2,
+      2,
+      2
+    ],
+    "frame_count": 24,
+    "frequency_thz": 7.918781883704656,
+    "imaginary": false,
+    "normalization": "phonopy modulation convention",
+    "phase_degrees": [
+      0.0,
+      15.0,
+      30.0,
+      45.0,
+      60.0,
+      75.0,
+      90.0,
+      105.0,
+      120.0,
+      135.0,
+      150.0,
+      165.0,
+      180.0,
+      195.0,
+      210.0,
+      225.0,
+      240.0,
+      255.0,
+      270.0,
+      285.0,
+      300.0,
+      315.0,
+      330.0,
+      345.0
+    ],
+    "qpoint": [
+      0.5,
+      0.0,
+      0.0
+    ],
+    "selected_mode": {
+      "band": 3,
+      "directional_fraction": 0.33333333333333376,
+      "dominant_atom": 0,
+      "dominant_axis": "y",
+      "eigenvector_imag": [
+        [
+          0.0,
+          2.589157691184748e-51,
+          8.261205126901488e-51
+        ]
+      ],
+      "eigenvector_real": [
+        [
+          -0.5773502691896255,
+          0.5773502691896262,
+          0.5773502691896257
+        ]
+      ],
+      "frequency_thz": 7.918781883704656,
+      "imaginary": false,
+      "longitudinal_fraction": 1.0000000000000002,
+      "participation": [
+        1.0000000000000002
+      ]
+    },
+    "status": "ok"
+  },
+  "schema": "v_ase.symmetry-readme-examples.v1",
+  "silicon": {
+    "conventional_atoms": 8,
+    "primitive_atoms": 2,
+    "space_group": {
+      "crystal_system": "cubic",
+      "international": "Fd-3m",
+      "number": 227,
+      "operation_count": 192,
+      "orbits": [
+        {
+          "element": "Si",
+          "fractional_position": [
+            0.0,
+            0.0,
+            0.49999999999999994
+          ],
+          "indices": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "labels": [
+            "Si"
+          ],
+          "multiplicity": 8,
+          "orbit": 1,
+          "representative": 0,
+          "site_symmetry": "-43m",
+          "wyckoff": "b"
+        }
+      ],
+      "pointgroup": "m-3m"
+    },
+    "transform": {
+      "mode": "conventional",
+      "result_atom_count": 8,
+      "source_atom_count": 2,
+      "warnings": []
+    }
+  }
+}

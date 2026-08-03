@@ -1,11 +1,14 @@
 import asyncio
+import json
 from pathlib import Path
 
 import numpy as np
 import pytest
 from ase import Atoms
 from ase.build import bulk
+from ase.io import read
 from fastapi import HTTPException
+from PIL import Image
 
 from v_ase.io import atom_labels, set_atom_labels
 from v_ase.phonon import (
@@ -36,6 +39,8 @@ from v_ase.session import EditorSession, sessions
 
 
 pytest.importorskip("spglib")
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_spacegroup_orbits_and_tolerance_scan_for_diamond_silicon():
@@ -457,3 +462,88 @@ def test_scientific_endpoints_report_invalid_user_input_without_mutation():
     assert len(session.history) == 0
     assert session.frame_count == 1
     assert np.allclose(session.working_atoms.positions, before.positions)
+
+
+def test_reproducible_symmetry_readme_structures_match_the_manifest():
+    pytest.importorskip("phonopy")
+    example_dir = ROOT / "examples" / "symmetry_branch"
+    manifest = json.loads((example_dir / "manifest.json").read_text(encoding="utf-8"))
+
+    primitive_si = read(example_dir / "si_diamond_primitive.cif")
+    conventional_si = read(example_dir / "si_diamond_conventional.cif")
+    assert len(primitive_si) == manifest["silicon"]["primitive_atoms"] == 2
+    assert len(conventional_si) == manifest["silicon"]["conventional_atoms"] == 8
+    primitive_analysis = analyze_symmetry(primitive_si)
+    assert primitive_analysis["international"] == "Fd-3m"
+    assert primitive_analysis["number"] == 227
+    assert primitive_analysis["operation_count"] == 48
+    assert manifest["silicon"]["space_group"]["operation_count"] == 192
+
+    displacement_frames = read(
+        example_dir / "nacl_2x2x2_finite_displacements.extxyz",
+        index=":",
+    )
+    assert len(displacement_frames) == manifest["finite_displacements"]["displacement_count"] == 2
+    assert {len(frame) for frame in displacement_frames} == {16}
+    assert manifest["finite_displacements"]["forces_required"] is True
+    assert manifest["finite_displacements"]["distance_angstrom"] == pytest.approx(0.01)
+
+    mode_frames = read(example_dir / "al_x_mode_trajectory.extxyz", index=":")
+    assert len(mode_frames) == manifest["phonon_mode"]["frame_count"] == 24
+    assert {len(frame) for frame in mode_frames} == {32}
+    assert not np.allclose(mode_frames[0].positions, mode_frames[12].positions)
+    assert manifest["phonon_mode"]["coordinates_unwrapped"] is True
+    assert manifest["phonon_mode"]["commensurability"]["commensurate"] is True
+
+    model = load_phonon_model(example_dir / "al_emt_phonopy_params.yaml")
+    assert model.has_force_constants
+    modes = phonon_modes_at_q(model, [0.5, 0, 0], projection_direction=[0, 1, 0])
+    documented = manifest["phonon_mode"]["selected_mode"]
+    actual = next(mode for mode in modes["bands"] if mode["band"] == documented["band"])
+    assert actual["frequency_thz"] == pytest.approx(documented["frequency_thz"], rel=2e-8)
+    assert actual["frequency_thz"] == pytest.approx(7.9187818837, rel=1e-8)
+
+
+def test_symmetry_readme_uses_actual_synchronized_application_captures():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    script = (ROOT / "scripts" / "capture_symmetry_readme_assets.py").read_text(
+        encoding="utf-8"
+    )
+    css = (ROOT / "v_ase" / "static" / "style.css").read_text(encoding="utf-8")
+    source_manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8")
+
+    required_media = (
+        "readme_symmetry_analysis.png",
+        "readme_symmetry_standard_cell.png",
+        "readme_phonon_displacements.png",
+        "readme_phonon_mode.png",
+    )
+    for filename in required_media:
+        canonical = ROOT / "docs" / "assets" / filename
+        github = ROOT / "docs" / "assets" / "github" / filename
+        assert canonical.read_bytes() == github.read_bytes()
+        with Image.open(canonical) as image:
+            assert image.size == (1920, 1080)
+            pixels = np.asarray(image.convert("RGB"), dtype=float)
+            assert pixels.std() > 20
+        assert filename in readme
+
+    for filename in (
+        "si_diamond_primitive.cif",
+        "si_diamond_conventional.cif",
+        "nacl_2x2x2_displacement_001.cif",
+        "nacl_2x2x2_finite_displacements.extxyz",
+        "al_emt_phonopy_params.yaml",
+        "al_x_mode_peak.cif",
+        "al_x_mode_trajectory.extxyz",
+        "manifest.json",
+    ):
+        assert filename in readme
+
+    assert "ASE EMT" in script
+    assert "generate_finite_displacements" in script
+    assert "generate_mode_trajectory" in script
+    assert 'background: transparent;' in css
+    for extension in ("*.cif", "*.extxyz", "*.yaml", "*.json"):
+        assert extension in source_manifest
+    assert "The figures below are screenshots from this branch, not mockups." in readme

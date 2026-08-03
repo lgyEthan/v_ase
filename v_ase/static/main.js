@@ -1,15 +1,15 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.120a3%2Bsymmetry&rev=3';
-import { ASERenderer } from './renderer.js?v=0.0.120a3%2Bsymmetry&rev=3';
-import { ASESelection } from './selection.js?v=0.0.120a3%2Bsymmetry&rev=3';
-import { ASETransform } from './transform.js?v=0.0.120a3%2Bsymmetry&rev=3';
+import { ASEApi } from './api.js?v=0.0.120a4%2Bsymmetry&rev=4';
+import { ASERenderer } from './renderer.js?v=0.0.120a4%2Bsymmetry&rev=4';
+import { ASESelection } from './selection.js?v=0.0.120a4%2Bsymmetry&rev=4';
+import { ASETransform } from './transform.js?v=0.0.120a4%2Bsymmetry&rev=4';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.120a3%2Bsymmetry&rev=3';
+} from './trajectory.js?v=0.0.120a4%2Bsymmetry&rev=4';
 
-const V_ASE_BUILD_VERSION = '0.0.120a3+symmetry';
+const V_ASE_BUILD_VERSION = '0.0.120a4+symmetry';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',

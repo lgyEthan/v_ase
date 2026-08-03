@@ -11,7 +11,8 @@
 7. Loading force constants
 8. Inspecting physical modes
 9. Generating a mode trajectory
-10. Verification and errors
+10. Reproducible branch examples
+11. Verification and errors
 
 ## Scientific Boundary
 
@@ -215,6 +216,31 @@ Generated mode coordinates are unwrapped around the corresponding
 unmodulated-supercell atom. Consecutive frames must remain continuous when an
 atom crosses a cell boundary; a jump by one lattice vector is a failed
 trajectory even though the two coordinates are periodically equivalent.
+
+## Reproducible Branch Examples
+
+In a source checkout, `scripts/capture_symmetry_readme_assets.py` is the
+authoritative end-to-end fixture. It generates and then opens these exact
+files:
+
+- `examples/symmetry_branch/si_diamond_primitive.cif`: expect `Fd-3m` No. 227,
+  point group `m-3m`, 48 primitive-cell operations, one independent site, and
+  the cF HPKOT path;
+- `examples/symmetry_branch/si_diamond_conventional.cif`: expect 8 atoms and
+  192 conventional-cell coordinate operations after a 2-to-8 standardization;
+- `examples/symmetry_branch/nacl_2x2x2_finite_displacements.extxyz`: expect two
+  16-atom calculation-input frames at 0.01 A and `forces_required: true`;
+- `examples/symmetry_branch/al_emt_phonopy_params.yaml`: expect force constants,
+  then at `q=[0.5,0,0]` a 7.9188 THz band-3 mode for the bundled ASE EMT
+  regression;
+- `examples/symmetry_branch/al_x_mode_trajectory.extxyz`: expect 24 frames,
+  32 Al atoms, a `4 x 4 x 2` commensurate cell, continuous coordinates, and
+  nonzero alternating displacement.
+
+Use `examples/symmetry_branch/manifest.json` for exact machine-readable values.
+The EMT frequency verifies the workflow only; do not present it as a converged
+materials prediction. An installed wheel may not contain repository examples,
+so agents must not assume these paths exist outside a source checkout.
 
 ## Verification And Errors
 

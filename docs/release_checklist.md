@@ -28,6 +28,9 @@ and rendered examples in sync.
    animation in both `docs/assets/` and `docs/assets/github/`.
    Open the logo, constraint images, and animation frames to verify actual
    geometry, camera, lighting, clipping, and visibility.
+   When symmetry or phonon examples change, also run
+   `scripts/capture_symmetry_readme_assets.py`; verify its CIF/EXTXYZ/YAML
+   manifest and inspect all four actual Analysis-panel PNGs.
 6. Run the complete browser AI workflows listed in the skill evaluation
    reference. Verify state, selection, edits, constraints, trajectory, camera
    directions, nonblank exact-size renders, exports, GUI-to-CLI collaboration

@@ -10,6 +10,7 @@
 - [Mode modulation](#mode-modulation)
 - [Commensurability](#commensurability)
 - [Validation](#validation)
+- [Reproducible README examples](#reproducible-readme-examples)
 - [Data handling](#data-handling)
 - [Dependencies and references](#dependencies-and-references)
 
@@ -181,6 +182,32 @@ canonical reference cases:
 These regressions validate the implementation and conventions. Synthetic force
 constants used in UI plumbing tests are not presented as a physical silicon
 phonon model.
+
+## Reproducible README Examples
+
+Run the branch-local generator from the repository root:
+
+```bash
+conda run -n python311 python scripts/capture_symmetry_readme_assets.py
+```
+
+It recreates the files under `examples/symmetry_branch/`, opens those exact
+structures in v_ase, and captures the four Analysis-panel figures under
+`docs/assets/` and `docs/assets/github/`.
+
+The examples cover separate scientific states:
+
+| Example | Verified state |
+| --- | --- |
+| Diamond-Si primitive cell | `Fd-3m` No. 227, `m-3m`, 48 operations, one site, HPKOT cF path |
+| Diamond-Si conventional cell | explicit 2-to-8 atom standardization, 192 conventional-cell operations |
+| NaCl 2 x 2 x 2 finite displacements | two 16-atom force-calculation inputs at 0.01 A; no force constants |
+| fcc-Al X-point mode | ASE EMT forces, Phonopy force constants, band 3 at 7.9188 THz, commensurate 4 x 4 x 2 movie |
+
+The Al example uses a real dynamical-matrix eigenvector produced from the
+included force constants. EMT is selected to make the example fast and fully
+reproducible; its numerical frequency is a workflow regression, not a
+reference-quality prediction for aluminum.
 
 ## Data Handling
 

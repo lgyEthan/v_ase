@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.0.120a4+symmetry
+
+- Added reproducible symmetry-branch README examples for diamond-Si analysis,
+  primitive-to-conventional standardization, NaCl finite-displacement inputs,
+  and an ASE-EMT/Phonopy fcc-Al X-point eigenmode.
+- Added the exact CIF, EXTXYZ, completed phonopy YAML, validation manifest, and
+  a dedicated generator that opens the same files in v_ase and captures four
+  actual Analysis-panel screenshots.
+- Fixed non-selected phonon-mode rows inheriting the browser's white button
+  background, then visually verified readable mode frequencies and physical
+  displacement vectors in the final capture.
+- Kept all assets, tests, documentation, and package metadata isolated to the
+  `symmetry` branch. This version is not published to PyPI.
+
 ## 0.0.120a3+symmetry
 
 - Changed the experimental version convention to
