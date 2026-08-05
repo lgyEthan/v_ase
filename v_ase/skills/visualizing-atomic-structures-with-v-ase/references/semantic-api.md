@@ -12,9 +12,10 @@
 8. Cell, View, Lighting, And Constraints
 9. Trajectory Analysis
 10. Volumetric And RDF Analysis
-11. Rendering
-12. Export
-13. Multi-Document Control
+11. Interface Theme And Personal Defaults
+12. Rendering
+13. Export
+14. Multi-Document Control
 
 ## Transport And Connection
 
@@ -62,8 +63,9 @@ v_ase api "$COMMAND_URL" describe \
 count, labels, ASE elements, atomic numbers, positions, cell, PBC, constraints,
 forces, calculator attachment/name/details, charges, tags, magnetic moments,
 selection references, measurements, display settings, camera, image export
-profile, `analysis.volumetricDatasets`, the current RDF summary, and
-`collaboration.revision`.
+profile, `preferences.interfaceTheme`,
+`preferences.personalVisualDefaults`, `analysis.volumetricDatasets`, the
+current RDF summary, and `collaboration.revision`.
 
 Use `includePositions: false` for metadata-only inspection of a very large
 frame. Re-enable positions before coordinate-dependent work.
@@ -654,6 +656,52 @@ v_ase api "$COMMAND_URL" export --save rdf.csv --params '{
   "pairMode":"all"
 }'
 ```
+
+## Interface Theme And Personal Defaults
+
+The application interface theme is independent of
+`display.viewportBackground`. Use `system` to follow the browser/OS color
+scheme or choose an explicit light/dark interface:
+
+```javascript
+await ai.apply({operation: {
+  name: "set-interface-theme",
+  theme: "system"
+}});
+```
+
+`describe().preferences.interfaceTheme` reports the stored preference and the
+currently resolved theme. The operation is `set-interface-theme`; accepted
+values are `system`, `light`, and `dark`.
+
+To make the current reusable visual setup the OS user's starting style for new
+structures and tabs:
+
+```javascript
+await ai.apply({operation: "set-personal-visual-default"});
+```
+
+`set-personal-visual-default` stores appearance, bonds, lighting, viewport,
+display replication, visual translation, render quality, and image-export
+defaults. It excludes coordinates, trajectory data, cell contents, absolute
+camera placement, and per-atom appearance overrides. Verify
+`describe().preferences.personalVisualDefaults === true` afterward.
+
+Deleting that preference is a low-freedom operation. Obtain explicit human
+approval, then send the mandatory confirmation:
+
+```javascript
+await ai.apply({operation: {
+  name: "restore-app-visual-defaults",
+  confirm: true
+}});
+```
+
+`restore-app-visual-defaults` deletes the saved personal default and applies
+the built-in visual settings to the active tab without changing coordinates,
+trajectory frames, or cell contents. Without `confirm: true`, v_ase rejects
+the command. Portable `settings` export is separate and does not become the
+OS user's automatic default merely by being exported.
 
 ## Rendering
 

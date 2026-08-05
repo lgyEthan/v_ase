@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.1.11"
+python -m pip install "v_ase-gui==0.1.12"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -116,8 +116,8 @@ resulting semantic state and rendered output.
 
 - **Low freedom**: deletion, identity/element changes, constraint edits,
   materialized supercells, volumetric linear combinations, relaxation,
-  overwrite-prone exports, and release publishing. Use exact documented
-  commands and verify afterward.
+  overwrite-prone exports, deleting a saved personal visual default, and
+  release publishing. Use exact documented commands and verify afterward.
 - **Medium freedom**: camera placement, bond cutoffs, materials, lighting,
   displacement/RDF parameters, bounded commensurate search limits, XY registry
   grid/metric selection, isovalue and surface styling, interpolation, and
@@ -217,6 +217,9 @@ handling, use the references below rather than improvising field names.
 - Never delete atoms, overwrite a project, materialize a supercell, change
   chemical elements, start relaxation, or publish files without explicit user
   intent.
+- Never call `restore-app-visual-defaults` without explicit human approval.
+  It deletes the OS user's saved visual preference and requires
+  `confirm: true`.
 - Never treat a visual label as an ASE element. Verify `chemicalSymbols`.
 - Never infer a periodic replica from screen position. Use `cellOffset`.
 - Never reuse indices after topology or frame changes without `describe()`.
@@ -244,6 +247,8 @@ For any nontrivial task, verify all applicable items:
   required periodic-image span, bins, pair mode, plotted curves, `g(r) = 1`
   bulk reference, long-range behavior, warnings, and exported CSV columns;
 - appearance: visibility, radii, colors, materials, bonds, cell, background;
+- preferences: resolved interface theme, system/light/dark preference, saved
+  personal-default state, and the intended scope before storing or restoring;
 - camera: projection, position, target, up vector, framing, expected direction;
 - manipulation overlays: rotation axis, fixed start reference, moving current
   reference, and separate commensurate candidates when a human is editing;

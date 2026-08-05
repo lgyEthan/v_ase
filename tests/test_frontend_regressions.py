@@ -52,6 +52,35 @@ def test_static_version_strings_match_package_version():
     assert "0.0.28" not in index_html
 
 
+def test_theme_and_personal_default_controls_are_wired_end_to_end():
+    index_html = (ROOT / "v_ase/static/index.html").read_text(encoding="utf-8")
+    workspace_html = (ROOT / "v_ase/static/workspace.html").read_text(encoding="utf-8")
+    main_js = (ROOT / "v_ase/static/main.js").read_text(encoding="utf-8")
+    workspace_js = (ROOT / "v_ase/static/workspace.js").read_text(encoding="utf-8")
+    style_css = (ROOT / "v_ase/static/style.css").read_text(encoding="utf-8")
+    api_js = (ROOT / "v_ase/static/api.js").read_text(encoding="utf-8")
+
+    assert 'id="ui-theme"' in index_html
+    assert '<option value="system" selected>System</option>' in index_html
+    assert 'id="btn-set-visual-default"' in index_html
+    assert 'id="btn-restore-visual-default"' in index_html
+    assert 'id="visual-default-status"' in index_html
+    assert "prefers-color-scheme: dark" in index_html
+    assert "prefers-color-scheme: dark" in workspace_html
+    assert 'html[data-ui-theme="light"]' in style_css
+    assert "setupThemeControls()" in main_js
+    assert "loadUserVisualDefaults()" in main_js
+    assert "includeCamera: false" in main_js
+    assert "Saved personal visualization defaults will be deleted." in main_js
+    assert "v_ase:document-theme" in main_js
+    assert "v_ase:workspace-theme" in workspace_js
+    assert "fetchUserVisualDefaults" in api_js
+    assert "/api/preferences/visual-defaults/{session_id}" in api_js
+    assert "'preferences', 'collaboration'" in main_js
+    assert "'set-interface-theme', 'set-personal-visual-default'" in main_js
+    assert "restore-app-visual-defaults permanently deletes" in main_js
+
+
 def test_ui_button_api_endpoints_respond_without_network_server():
     atoms = molecule("H2O")
     session = EditorSession("ui-api-test", atoms.copy(), atoms.copy())
@@ -1537,9 +1566,17 @@ def test_application_chrome_uses_one_role_based_palette():
     for token in required_tokens:
         assert token in style_css
 
-    # Color literals belong to the palette declaration only. Components consume
-    # semantic roles so new panels cannot drift into one-off grey families.
+    # Color literals belong to the dark and light palette declarations only.
+    # Components consume semantic roles so new panels cannot drift into one-off
+    # grey families.
     component_css = style_css.split("\n}\n", 1)[1]
+    component_css = re.sub(
+        r'html\[data-ui-theme="light"\]\s*\{.*?\}\s*',
+        "",
+        component_css,
+        count=1,
+        flags=re.DOTALL,
+    )
     assert re.search(r"#[0-9A-Fa-f]{3,8}(?![0-9A-Za-z_-])", component_css) is None
     assert "rgba(" not in component_css
     assert ".repulsion-settings" in style_css

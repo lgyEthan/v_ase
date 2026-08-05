@@ -56,6 +56,12 @@ from .project import (
     replace_session_from_project,
     write_project_archive,
 )
+from .preferences import (
+    PREFERENCES_SCHEMA,
+    clear_visual_defaults,
+    load_visual_defaults,
+    save_visual_defaults,
+)
 from .volumetric import (
     GRID_GEOMETRY_ATOL,
     GRID_GEOMETRY_RTOL,
@@ -113,6 +119,11 @@ class _MissingFastAPIApp:
         return decorator
 
     def post(self, *args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+
+    def delete(self, *args, **kwargs):
         def decorator(func):
             return func
         return decorator
@@ -334,7 +345,9 @@ AI_CONTROL_SCHEMA = {
                 "dismiss-commensurate-cell, calculate-registry-map, undo, redo, "
                 "reset-coordinates, start-relaxation, stop-relaxation, and "
                 "refresh-displacements, load-volumetric, show-volumetric, "
-                "combine-volumetric, remove-volumetric, and calculate-rdf."
+                "combine-volumetric, remove-volumetric, calculate-rdf, "
+                "set-interface-theme, set-personal-visual-default, and "
+                "restore-app-visual-defaults."
             ),
             "oneOf": [
                 {
@@ -344,6 +357,7 @@ AI_CONTROL_SCHEMA = {
                         "stop-relaxation", "refresh-displacements",
                         "apply-commensurate-cell", "dismiss-commensurate-cell",
                         "remove-commensurate-guest", "calculate-rdf",
+                        "set-personal-visual-default",
                     ],
                 },
                 {
@@ -367,11 +381,41 @@ AI_CONTROL_SCHEMA = {
                                 "stop-relaxation", "refresh-displacements",
                                 "load-volumetric", "show-volumetric",
                                 "combine-volumetric", "remove-volumetric",
-                                "calculate-rdf",
+                                "calculate-rdf", "set-interface-theme",
+                                "set-personal-visual-default",
+                                "restore-app-visual-defaults",
                             ],
                         },
                     },
                     "allOf": [
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "set-interface-theme"},
+                                },
+                            },
+                            "then": {
+                                "required": ["theme"],
+                                "properties": {
+                                    "theme": {"enum": ["system", "light", "dark"]},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "restore-app-visual-defaults"},
+                                },
+                            },
+                            "then": {
+                                "required": ["confirm"],
+                                "properties": {
+                                    "confirm": {"const": True},
+                                },
+                            },
+                        },
                         {
                             "if": {
                                 "required": ["name"],
@@ -603,6 +647,35 @@ AI_CONTROL_SCHEMA = {
 }
 
 AI_OPERATION_PARAMETERS = {
+    "set-interface-theme": {
+        "mode": "view-or-edit",
+        "required": ["theme"],
+        "optional": [],
+        "notes": (
+            "theme is system, light, or dark. system follows the browser/OS "
+            "color-scheme preference and is the built-in default."
+        ),
+    },
+    "set-personal-visual-default": {
+        "mode": "view-or-edit",
+        "required": [],
+        "optional": [],
+        "notes": (
+            "Persists the current reusable visual settings for this OS user. "
+            "Coordinates, trajectory data, absolute camera placement, and "
+            "per-atom appearance overrides are excluded."
+        ),
+    },
+    "restore-app-visual-defaults": {
+        "mode": "view-or-edit",
+        "required": ["confirm"],
+        "optional": [],
+        "notes": (
+            "Destructively deletes the saved personal visual default and applies "
+            "the built-in v_ase visual settings to the active tab. confirm must "
+            "be true and an agent must obtain human approval first."
+        ),
+    },
     "wrap": {
         "mode": "view-or-edit",
         "required": [],
@@ -4110,6 +4183,47 @@ async def load_visual_settings(session_id: str, request: Request):
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"schema": SETTINGS_SCHEMA, "settings": settings}
     raise HTTPException(status_code=400, detail="Visual settings file must contain a JSON object.")
+
+
+@app.get("/api/preferences/visual-defaults/{session_id}")
+async def get_user_visual_defaults(session_id: str):
+    get_session(session_id)
+    settings = load_visual_defaults()
+    return {
+        "schema": PREFERENCES_SCHEMA,
+        "configured": settings is not None,
+        "settings": settings,
+    }
+
+
+@app.post("/api/preferences/visual-defaults/{session_id}")
+async def set_user_visual_defaults(session_id: str, payload: Dict[str, Any]):
+    get_session(session_id)
+    try:
+        settings = normalize_visual_settings(payload.get("settings", payload))
+        saved = save_visual_defaults(settings)
+    except (OSError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "schema": PREFERENCES_SCHEMA,
+        "configured": True,
+        "settings": saved,
+    }
+
+
+@app.delete("/api/preferences/visual-defaults/{session_id}")
+async def delete_user_visual_defaults(session_id: str):
+    get_session(session_id)
+    try:
+        removed = clear_visual_defaults()
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not clear user defaults: {exc}") from exc
+    return {
+        "schema": PREFERENCES_SCHEMA,
+        "configured": False,
+        "removed": removed,
+        "settings": None,
+    }
 
 
 @app.post("/api/project/save/{session_id}")

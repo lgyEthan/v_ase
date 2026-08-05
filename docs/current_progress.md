@@ -407,7 +407,13 @@ same implementation for compatibility.
 - ASE Pickle contains the current `Atoms`, labels, constraints, portable arrays,
   and valid `SinglePointCalculator` results. It excludes visual state and
   arbitrary executable calculators.
-- Visual Settings JSON contains presentation state but no coordinates.
+- Portable Visual Settings JSON contains presentation state but no coordinates.
+- Personal visual defaults persist reusable startup styling per OS user; they
+  exclude coordinates, trajectory data, cell contents, absolute camera
+  placement, and per-atom overrides. Restore requires explicit confirmation.
+- The interface theme defaults to System and follows the browser/OS light-dark
+  preference; explicit Light/Dark choices are browser-persistent and do not
+  change the viewport background.
 - `.vase` is a validated ZIP archive containing every trajectory frame, current
   frame, edits, cells/PBC, constraints, labels, safe arrays and metadata,
   cached standard results, supported built-in calculator configuration, and

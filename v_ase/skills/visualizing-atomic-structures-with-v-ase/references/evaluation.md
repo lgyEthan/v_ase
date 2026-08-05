@@ -69,7 +69,9 @@ Current operation coverage:
   reset-coordinates;
 - start-relaxation, stop-relaxation, refresh-displacements;
 - load-volumetric, show-volumetric, combine-volumetric, remove-volumetric;
-- calculate-rdf.
+- calculate-rdf;
+- set-interface-theme, set-personal-visual-default,
+  restore-app-visual-defaults.
 
 Current export coverage:
 
@@ -260,7 +262,17 @@ Run all scenarios, not only static document checks:
     - verify full Reset returns translation to zero;
     - verify pairwise rows expose enabled/max only and retain a resized label
       column.
-13. **README scientific examples**
+13. **Interface theme and personal defaults**
+    - verify System follows `prefers-color-scheme` and explicit Light/Dark
+      choices update the workspace shell and every document frame;
+    - save a current 2D/flat-bond/radius setup as the personal default, open a
+      new document, and verify it inherits the reusable values without the
+      previous camera or per-atom overrides;
+    - verify canceling the GUI warning preserves the preference;
+    - verify the agent restore operation fails without `confirm:true`, then
+      succeeds after explicit approval and returns the built-in visual values;
+    - verify another open tab receives the configured/unconfigured status.
+14. **README scientific examples**
     - verify the phosphorene media starts from a flat sheet and records the
       production left-drag marquee selecting ridge 2 through the tail;
     - verify the Transform panel visibly contains Selection COM, X,

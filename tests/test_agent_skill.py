@@ -395,6 +395,34 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         "gridY",
         "pairCutoffs",
     ]
+    assert schema["operation_parameters"]["set-interface-theme"] == {
+        "mode": "view-or-edit",
+        "required": ["theme"],
+        "optional": [],
+        "notes": schema["operation_parameters"]["set-interface-theme"]["notes"],
+    }
+    assert schema["operation_parameters"]["set-personal-visual-default"]["mode"] == (
+        "view-or-edit"
+    )
+    assert schema["operation_parameters"]["restore-app-visual-defaults"]["required"] == [
+        "confirm"
+    ]
+    operation_names = operation_object["properties"]["name"]["enum"]
+    assert {
+        "set-interface-theme",
+        "set-personal-visual-default",
+        "restore-app-visual-defaults",
+    }.issubset(operation_names)
+    restore_schema = next(
+        item["then"]
+        for item in operation_object["allOf"]
+        if (
+            item["if"]["properties"]["name"].get("const")
+            == "restore-app-visual-defaults"
+        )
+    )
+    assert restore_schema["required"] == ["confirm"]
+    assert restore_schema["properties"]["confirm"] == {"const": True}
     assert schema["export_parameters"]["rdf-csv"]["optional"] == [
         "cutoff",
         "bins",

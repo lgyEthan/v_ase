@@ -10,6 +10,7 @@ export class ASEApi {
         this.onCollaborationMutation = null;
         this.currentFrameProvider = null;
         this.mockCollaborationRevision = 0;
+        this.mockVisualDefaults = null;
     }
 
     mockElementVisual(symbol) {
@@ -1214,6 +1215,72 @@ export class ASEApi {
             method: 'POST',
             headers: {'Content-Type': 'application/octet-stream'},
             body
+        });
+    }
+
+    readMockVisualDefaults() {
+        try {
+            const raw = window.localStorage.getItem('v_ase_mock_visual_defaults');
+            return raw ? JSON.parse(raw) : this.mockVisualDefaults;
+        } catch {
+            return this.mockVisualDefaults;
+        }
+    }
+
+    writeMockVisualDefaults(settings) {
+        this.mockVisualDefaults = settings ? this.clone(settings) : null;
+        try {
+            if (settings) {
+                window.localStorage.setItem('v_ase_mock_visual_defaults', JSON.stringify(settings));
+            } else {
+                window.localStorage.removeItem('v_ase_mock_visual_defaults');
+            }
+        } catch {
+            // Static mock pages may run with storage disabled.
+        }
+    }
+
+    async fetchUserVisualDefaults() {
+        if (this.mock) {
+            const settings = this.readMockVisualDefaults();
+            return {
+                schema: 'v_ase.user_preferences.v1',
+                configured: Boolean(settings),
+                settings: settings ? this.clone(settings) : null
+            };
+        }
+        return await this.request(`/api/preferences/visual-defaults/{session_id}`);
+    }
+
+    async saveUserVisualDefaults(settings) {
+        if (this.mock) {
+            this.writeMockVisualDefaults(settings);
+            return {
+                schema: 'v_ase.user_preferences.v1',
+                configured: true,
+                settings: this.clone(settings)
+            };
+        }
+        return await this.request(`/api/preferences/visual-defaults/{session_id}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ settings })
+        });
+    }
+
+    async clearUserVisualDefaults() {
+        if (this.mock) {
+            const removed = Boolean(this.readMockVisualDefaults());
+            this.writeMockVisualDefaults(null);
+            return {
+                schema: 'v_ase.user_preferences.v1',
+                configured: false,
+                removed,
+                settings: null
+            };
+        }
+        return await this.request(`/api/preferences/visual-defaults/{session_id}`, {
+            method: 'DELETE'
         });
     }
 

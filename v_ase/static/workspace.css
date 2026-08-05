@@ -1,4 +1,5 @@
 :root {
+    color-scheme: dark;
     --chrome: #111516;
     --chrome-raised: #181d1e;
     --surface: #202627;
@@ -11,6 +12,21 @@
     --teal-soft: rgba(88, 213, 189, 0.10);
     --danger: #ff7269;
     --tab-height: 40px;
+}
+
+html[data-ui-theme="light"] {
+    color-scheme: light;
+    --chrome: #f5f8f7;
+    --chrome-raised: #ffffff;
+    --surface: #edf2f0;
+    --surface-hover: #e5ece9;
+    --line: rgba(22, 48, 40, 0.12);
+    --line-strong: rgba(22, 48, 40, 0.22);
+    --text: #17231f;
+    --muted: #667771;
+    --teal: #147a69;
+    --teal-soft: rgba(20, 122, 105, 0.11);
+    --danger: #c63f38;
 }
 
 * {
@@ -214,6 +230,10 @@ button:focus-visible {
     height: 100%;
     border: 0;
     background: #2d3333;
+}
+
+html[data-ui-theme="light"] .document-pane {
+    background: #ffffff;
 }
 
 .document-pane[hidden] {

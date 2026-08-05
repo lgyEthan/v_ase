@@ -18,6 +18,7 @@ Require explicit user intent before:
 - materializing or transforming a unit cell;
 - disabling constraints for a physical edit;
 - starting relaxation with a calculator;
+- deleting the current OS user's saved visual default;
 - overwriting an existing project or export;
 - publishing files or package releases.
 
@@ -113,6 +114,7 @@ test edit and a new filename for output.
 | RDF requires full 3D periodicity | PBC is partial/false or the cell is degenerate | Stop; use a boundary-corrected finite-system method outside v_ase |
 | RDF periodic image span is large | The requested radius reaches several copies of the primitive cell | Confirm the requested cutoff, allow the complete search to finish, and report `periodicImageSpan`; do not silently truncate it |
 | RDF active mode has no pair curves | No pairwise bond labels are enabled | Choose `pairMode:"all"` or provide `activePairs` explicitly |
+| personal-default restore asks for confirmation | The operation deletes the saved OS-user preference | Obtain explicit human approval, then retry `restore-app-visual-defaults` with `confirm:true` |
 
 Do not suppress an error and report success. Return the specific failed command,
 message, and the last verified state.

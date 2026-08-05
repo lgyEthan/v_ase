@@ -400,9 +400,17 @@ def view(
         Scalar-grid precision used when ``atoms`` is a CHGCAR, LOCPOT, PARCHG,
         Cube, or XSF path. Use ``"fp32"`` for lower memory or ``"fp64"`` to
         preserve double-precision values.
+    theme : str
+        Interface theme: ``"system"``/``"auto"`` follows the local browser,
+        while ``"light"`` and ``"dark"`` select an explicit appearance.
     ...
     """
     notebook = resolve_notebook_display(notebook)
+    theme = str(theme or "system").strip().lower()
+    if theme == "auto":
+        theme = "system"
+    if theme not in {"system", "light", "dark"}:
+        raise ValueError("theme must be system, auto, light, or dark")
     launch_directory = os.path.abspath(os.getcwd())
     source_path = os.fspath(atoms) if isinstance(atoms, (str, os.PathLike)) else None
     if document_name is None:

@@ -4,12 +4,60 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.11&amp;rev=1">
+    <script>
+        (() => {
+            const key = 'v_ase_ui_theme';
+            const media = window.matchMedia('(prefers-color-scheme: dark)');
+            const normalize = value => ['light', 'dark'].includes(String(value || '').toLowerCase())
+                ? String(value).toLowerCase()
+                : 'system';
+            const cookieValue = () => {
+                const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${key}=([^;]+)`));
+                return match ? decodeURIComponent(match[1]) : '';
+            };
+            let localValue = '';
+            try { localValue = window.localStorage.getItem(key) || ''; } catch {}
+            const persistedValue = cookieValue() || localValue;
+            let hasPersisted = Boolean(persistedValue);
+            let preference = normalize(persistedValue);
+            const apply = (value, { persist = true, announce = true } = {}) => {
+                preference = normalize(value);
+                const resolved = preference === 'system' ? (media.matches ? 'dark' : 'light') : preference;
+                document.documentElement.dataset.uiTheme = resolved;
+                document.documentElement.dataset.themePreference = preference;
+                document.documentElement.style.colorScheme = resolved;
+                if (persist) {
+                    hasPersisted = true;
+                    document.cookie = `${key}=${encodeURIComponent(preference)}; Path=/; Max-Age=31536000; SameSite=Lax`;
+                    try { window.localStorage.setItem(key, preference); } catch {}
+                }
+                if (announce) {
+                    window.dispatchEvent(new CustomEvent('v_ase-theme-change', {
+                        detail: { preference, resolved }
+                    }));
+                }
+                return { preference, resolved };
+            };
+            window.v_aseTheme = {
+                apply,
+                info: () => ({
+                    preference,
+                    resolved: document.documentElement.dataset.uiTheme,
+                    persisted: hasPersisted
+                })
+            };
+            apply(preference, { persist: false, announce: false });
+            media.addEventListener?.('change', () => {
+                if (preference === 'system') apply('system', { persist: false });
+            });
+        })();
+    </script>
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.12&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.1.11';
+            : '/static/vendor/three.module.js?v=0.1.12';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -68,7 +116,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.1.11</span>
+            <span class="version">0.1.12</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -571,6 +619,15 @@
 
         <details class="panel-section" open data-panel="view" data-panel-group="view">
             <summary class="section-header">Viewport</summary>
+            <div class="prop-row">
+                <label for="ui-theme">Interface theme</label>
+                <select id="ui-theme">
+                    <option value="system" selected>System</option>
+                    <option value="light">Light</option>
+                    <option value="dark">Dark</option>
+                </select>
+            </div>
+            <p class="panel-note compact-note">System follows the browser or operating-system appearance.</p>
             <div class="prop-row">
                 <label for="projection-mode">Projection</label>
                 <select id="projection-mode">
@@ -1081,9 +1138,21 @@
         <section class="panel-section utility-section" data-panel="settings" data-panel-group="export">
             <div class="section-header static-header">Visual Settings</div>
             <p class="panel-note">Appearance, bonds, lighting, viewport, display replication, visual translation, and render quality only. Atom coordinates and cell contents are not included.</p>
+            <div class="personal-defaults-row">
+                <div>
+                    <strong>Personal default</strong>
+                    <span id="visual-default-status" data-state="app">Using v_ase defaults</span>
+                </div>
+                <span class="personal-default-indicator" aria-hidden="true"></span>
+            </div>
             <div class="btn-stack-row two">
-                <button id="btn-save-settings">Save Settings</button>
-                <button id="btn-load-settings">Load Settings</button>
+                <button id="btn-set-visual-default">Set Current as Default</button>
+                <button id="btn-restore-visual-default" class="danger-outline">Restore App Defaults</button>
+            </div>
+            <div class="settings-subheading">Portable preset</div>
+            <div class="btn-stack-row two">
+                <button id="btn-save-settings">Export Preset</button>
+                <button id="btn-load-settings">Import Preset</button>
             </div>
             <input type="file" id="settings-file" class="hidden" accept=".json,.pkl,.pickle,application/json">
             <div class="btn-stack-row">
@@ -1235,6 +1304,8 @@
                     <span>Current ASE Atoms data for Python: coordinates, labels, cell, PBC, constraints, arrays, and valid SinglePointCalculator results. Visual settings are excluded.</span>
                     <strong>Visual Settings (.json)</strong>
                     <span>Reusable display preset: bonds, appearance, camera, lighting, quality, and supercell preview. Atomic coordinates are not included.</span>
+                    <strong>Personal default</strong>
+                    <span>Automatic starting style for new structures and tabs on this OS account. It excludes coordinates, trajectory data, absolute camera placement, and per-atom overrides.</span>
                     <strong>v_ase Project (.vase)</strong>
                     <span>Complete working state: structures or trajectory, current frame, coordinates, cell, constraints, labels, cached results, and visual setup.</span>
                     <strong>HTML View / HTML Project</strong>
@@ -1264,7 +1335,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.1.11&rev=1';
+            : './static/main.js?v=0.1.12&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

@@ -95,9 +95,12 @@ state:
 - **Export ASE Pickle** writes the current ASE structure for Python use,
   including labels, cell/PBC, constraints, portable arrays, and valid
   `SinglePointCalculator` results. It does not include visualization settings.
-- **Save Settings** writes JSON containing bonds, appearance, camera, lighting,
+- **Export Preset** writes JSON containing bonds, appearance, camera, lighting,
   quality, overlays, display supercell, and visual translation, but no atomic
   coordinates.
+- **Set Current as Default** stores reusable visual choices for new structures
+  and tabs under the current OS user. **Restore App Defaults** warns before
+  deleting that preference and leaves structure data untouched.
 - **Save .vase** writes the complete structure or trajectory, current frame,
   edited coordinates, cell/PBC, constraints, labels, cached standard calculator
   results, and visual setup. Reopen it with `v_ase gui FILE.vase`.

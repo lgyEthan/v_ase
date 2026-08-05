@@ -43,6 +43,9 @@ Important options:
   inline handle.
 - `viz_only=True` uses the lightweight viewer and does not attach the fallback
   calculator.
+- `theme="auto"` and `theme="system"` follow the local browser/OS color
+  preference. `theme="light"` and `theme="dark"` request an explicit initial
+  interface theme unless that browser already has a user-selected preference.
 - `viz_only=False` enables atom editing, constraints editing, history,
   copy/paste, deletion, creation, and relaxation.
 - The browser's top-bar **View / Edit** switch can change this capability
@@ -245,6 +248,19 @@ Reusable presentation preset containing:
 Coordinates are never included. Loading reconciles label-specific values with
 the new structure, ignores absent labels, and creates defaults for new labels
 and pairs.
+
+### Personal Visual Defaults
+
+The GUI stores an optional per-OS-user startup style outside projects and
+structure files. It includes reusable appearance, bonds, lighting, viewport,
+display replication, visual translation, render quality, and image-export
+choices. It excludes atom coordinates, trajectory frames, cell contents,
+absolute camera placement, and per-atom overrides.
+
+Use **Export > Visual Settings > Set Current as Default** to save it. Restore
+the built-in values with **Restore App Defaults**; the confirmation dialog
+deletes the saved preference only after **Proceed**. Portable Visual Settings
+JSON remains a separate file-based interchange format.
 
 ### `.vase`
 

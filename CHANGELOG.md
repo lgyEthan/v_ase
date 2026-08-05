@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.12
+
+- Added a System/Light/Dark interface theme. System is the default, follows
+  the browser or operating-system color preference live, and stays separate
+  from the scientific viewport background.
+- Added OS-user personal visualization defaults for reusable appearance,
+  bonds, lighting, viewport, display replication, visual translation, render
+  quality, and image-export choices, with explicit warning and confirmation
+  before restoring the built-in defaults.
+- Kept portable visual presets independent from automatic personal defaults,
+  synchronized preference state across workspace tabs, and exposed the theme
+  and default workflows through the semantic Agent API with a mandatory
+  confirmation guard for deletion.
+
 ## 0.1.11
 
 - Licensed v_ase releases from this version onward under

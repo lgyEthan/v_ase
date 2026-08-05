@@ -30,7 +30,11 @@ def _post_command(url: str, method: str, params=None, *, expected_status: int = 
     return response.json()
 
 
-def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(tmp_path):
+def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("V_ASE_CONFIG_DIR", str(tmp_path / "preferences"))
     first = Atoms(
         "H2",
         positions=[[0.0, 0.0, 0.0], [0.74, 0.0, 0.0]],
@@ -97,7 +101,11 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(tm
                 "remove-commensurate-guest",
                 "calculate-commensurate",
                 "calculate-registry-map",
+                "set-interface-theme",
+                "set-personal-visual-default",
+                "restore-app-visual-defaults",
             }.issubset(capabilities["operations"])
+            assert "preferences" in capabilities["state"]
             assert {
                 "image",
                 "html",
@@ -119,6 +127,8 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(tm
             assert initial["calculator"]["attached"] is True
             assert initial["calculator"]["name"] == "Repulsion"
             assert initial["calculator"]["details"]["cutoff_scale"] == pytest.approx(0.7)
+            assert initial["preferences"]["interfaceTheme"]["preference"] == "system"
+            assert initial["preferences"]["personalVisualDefaults"] is False
 
             schema = _post_command(command_url, "schema")["result"]
             assert schema["control_schema"]["title"] == "v_ase live semantic control"
@@ -137,12 +147,66 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(tm
                 schema["export_parameters"]["commensurate-csv"]["optional"]
             )
             assert "gridX" in schema["export_parameters"]["registry-csv"]["optional"]
+            assert schema["operation_parameters"]["set-interface-theme"]["required"] == [
+                "theme"
+            ]
+            assert schema["operation_parameters"]["restore-app-visual-defaults"][
+                "required"
+            ] == ["confirm"]
+
+            themed = _post_command(
+                command_url,
+                "apply",
+                {"operation": {"name": "set-interface-theme", "theme": "dark"}},
+            )["result"]
+            assert themed["preferences"]["interfaceTheme"]["preference"] == "dark"
+
+            personalized = _post_command(
+                command_url,
+                "apply",
+                {
+                    "display": {
+                        "atomRadiusScale": 0.83,
+                        "atomDisplayMode": "2d",
+                        "bondStyle": "flat",
+                    },
+                    "operation": {"name": "set-personal-visual-default"},
+                },
+            )["result"]
+            assert personalized["preferences"]["personalVisualDefaults"] is True
+
+            rejected_restore = _post_command(
+                command_url,
+                "apply",
+                {
+                    "operation": {
+                        "name": "restore-app-visual-defaults",
+                        "confirm": False,
+                    }
+                },
+                expected_status=422,
+            )
+            assert "confirm" in rejected_restore["detail"]
+
+            restored = _post_command(
+                command_url,
+                "apply",
+                {
+                    "operation": {
+                        "name": "restore-app-visual-defaults",
+                        "confirm": True,
+                    }
+                },
+            )["result"]
+            assert restored["preferences"]["personalVisualDefaults"] is False
+            assert restored["display"]["atomRadiusScale"] == pytest.approx(0.6)
+            assert restored["display"]["atomDisplayMode"] == "3d"
 
             changed = _post_command(
                 command_url,
                 "apply",
                 {
-                    "expectedRevision": initial["collaboration"]["revision"],
+                    "expectedRevision": restored["collaboration"]["revision"],
                     "mode": "edit",
                     "display": {
                         "showGrid": False,

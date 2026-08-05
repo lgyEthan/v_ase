@@ -493,7 +493,14 @@ the View/Edit visual translation saved in display settings.
 - Image: PNG by default, plus JPEG, PDF, or lossless WebP at the exact
   requested dimensions.
 - Video: H.264 MOV or MPEG-4 AVI with source-frame or interpolated playback.
-- Visual Settings JSON: structure-independent presentation preset.
+- Export/Import Preset: portable, structure-independent visual settings JSON.
+- Personal default: OS-user appearance, bonds, lighting, viewport,
+  replication, visual translation, and render-quality startup settings for
+  new structures and tabs. Coordinates, cell contents, trajectory data,
+  absolute camera placement, and per-atom overrides are excluded.
+- Interface theme: System follows the local browser/OS preference; explicit
+  Light and Dark choices persist in that browser and remain separate from the
+  3D viewport background.
 - `.vase`: complete validated project archive.
 - `.vase` volumetric state: validated compressed NPZ members with bounded
   expected arrays; no executable pickle payload.

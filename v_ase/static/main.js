@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.1.11&rev=1';
-import { ASERenderer } from './renderer.js?v=0.1.11&rev=1';
-import { ASESelection } from './selection.js?v=0.1.11&rev=1';
-import { ASETransform } from './transform.js?v=0.1.11&rev=1';
+import { ASEApi } from './api.js?v=0.1.12&rev=1';
+import { ASERenderer } from './renderer.js?v=0.1.12&rev=1';
+import { ASESelection } from './selection.js?v=0.1.12&rev=1';
+import { ASETransform } from './transform.js?v=0.1.12&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.1.11&rev=1';
+} from './trajectory.js?v=0.1.12&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -80,6 +80,8 @@ class VAseApp {
         this.selection = new ASESelection(this.renderer);
         this.transform = new ASETransform(this.renderer.scene);
         this.initialDesignSettings = null;
+        this.personalVisualDefaults = null;
+        this.hasPersonalVisualDefaults = false;
         this.frameLoadInFlight = false;
         this.pendingFrameIndex = null;
         this.timelineStepQueue = Promise.resolve();
@@ -277,6 +279,16 @@ class VAseApp {
             videoExportId: null,
             videoExportStartedAt: null
         };
+        this.factoryDesignSettings = {
+            schema: 'v_ase.visual_settings.v3',
+            display: this.clonePlain(this.state.display),
+            applyConstraints: true,
+            antiAliasing: true,
+            sphereQuality: 'auto',
+            moveIncrement: 0,
+            rotateIncrementDeg: 0,
+            imageExportProfile: null
+        };
         this.api.currentFrameProvider = () => Number(
             this.state.atoms?.metadata?.current_frame ?? 0
         );
@@ -298,6 +310,7 @@ class VAseApp {
                 this.sessionId = active.session_id;
                 this.api.sessionId = this.sessionId;
             }
+            this.setupThemeControls();
             this.setupWebSocket();
             this.setupInspectorResizer();
             this.setupInspectorNavigation();
@@ -313,6 +326,7 @@ class VAseApp {
             this.setupEventListeners();
             this.setupInputCommitBehavior();
             this.setupNumberInputHoldGuards();
+            await this.loadUserVisualDefaults();
             await this.refresh();
             this.collaborationReady = true;
             this.collaborationSelectionSignature = this.collaborationSelectionKey();
@@ -419,6 +433,19 @@ class VAseApp {
             this.workspaceOpenRequests.delete(message.requestId);
             if (message.ok) pending.resolve(message);
             else pending.reject(new Error(message.error || 'Could not open a new structure tab.'));
+        } else if (message.type === 'v_ase:workspace-theme') {
+            window.v_aseTheme?.apply(message.preference, {
+                persist: false,
+                announce: false
+            });
+            this.syncThemeControl();
+            this.refreshActiveAnalysisTheme();
+        } else if (message.type === 'v_ase:workspace-visual-defaults') {
+            this.hasPersonalVisualDefaults = message.configured === true;
+            this.personalVisualDefaults = this.hasPersonalVisualDefaults && message.settings
+                ? this.clonePlain(message.settings)
+                : null;
+            this.updateVisualDefaultStatus();
         }
     }
 
@@ -2944,6 +2971,65 @@ class VAseApp {
         return Number.isFinite(parsed) ? Math.max(0.1, Math.min(360, parsed)) : 15;
     }
 
+    normalizedThemePreference(value) {
+        const normalized = String(value || '').trim().toLowerCase();
+        return ['light', 'dark'].includes(normalized) ? normalized : 'system';
+    }
+
+    syncThemeControl() {
+        const select = document.getElementById('ui-theme');
+        if (!select) return;
+        const info = window.v_aseTheme?.info?.() || {};
+        select.value = this.normalizedThemePreference(info.preference);
+    }
+
+    refreshActiveAnalysisTheme() {
+        if (this.state.activeAnalysisPlot === 'rdf' && this.state.rdfResult) {
+            void this.plotRdf(this.state.rdfResult);
+        } else if (this.state.activeAnalysisPlot === 'commensurate' && this.state.commensurateSearch) {
+            const angle = THREE.MathUtils.degToRad(
+                Number(this.state.display.commensurateGuestAngleDeg) || 0
+            );
+            void this.plotCommensurateSearch(this.state.commensurateSearch, angle);
+        } else if (this.state.activeAnalysisPlot === 'registry' && this.state.registryResult) {
+            void this.plotRegistryMap(this.state.registryResult);
+        }
+    }
+
+    applyThemePreference(value, { persist = true, notifyWorkspace = true } = {}) {
+        const preference = this.normalizedThemePreference(value);
+        const result = window.v_aseTheme?.apply?.(preference, { persist })
+            || { preference, resolved: preference };
+        this.syncThemeControl();
+        this.refreshActiveAnalysisTheme();
+        if (notifyWorkspace && this.workspaceChild && window.parent !== window) {
+            window.parent.postMessage({
+                type: 'v_ase:document-theme',
+                sessionId: this.sessionId,
+                preference: result.preference,
+                persist
+            }, window.location.origin);
+        }
+        return result;
+    }
+
+    applyConfiguredTheme(value) {
+        const info = window.v_aseTheme?.info?.() || {};
+        if (info.persisted) return;
+        this.applyThemePreference(value, { persist: false, notifyWorkspace: true });
+    }
+
+    setupThemeControls() {
+        this.syncThemeControl();
+        document.getElementById('ui-theme')?.addEventListener('change', event => {
+            this.applyThemePreference(event.target.value);
+        });
+        window.addEventListener('v_ase-theme-change', () => {
+            this.syncThemeControl();
+            this.refreshActiveAnalysisTheme();
+        });
+    }
+
     syncViewControls(options = this.state.display) {
         const background = options.viewportBackground === 'dark' ? 'dark' : 'white';
         const displayMode = options.atomDisplayMode === '2d' ? '2d' : '3d';
@@ -4190,6 +4276,7 @@ class VAseApp {
     applyInitialDisplayConfig(data) {
         if (this.state.displayConfigLoaded) return;
         const config = data.metadata?.config || {};
+        this.applyConfiguredTheme(config.theme || 'system');
         this.state.display.showBonds = config.show_bonds !== false;
         this.state.display.showCell = config.show_cell !== false;
         this.state.display.showAxes = config.show_axes !== false;
@@ -4323,6 +4410,8 @@ class VAseApp {
         this.state.displayConfigLoaded = true;
         if (config.initial_design_settings) {
             this.applyDesignSettings(config.initial_design_settings, { render: false });
+        } else if (this.personalVisualDefaults) {
+            this.applyDesignSettings(this.personalVisualDefaults, { render: false });
         }
     }
 
@@ -7693,6 +7782,14 @@ class VAseApp {
                 'remove-volumetric',
                 'calculate-rdf'
             ].includes(operation)) categories.add('analysis');
+            else if ([
+                'set-interface-theme',
+                'set-personal-visual-default',
+                'restore-app-visual-defaults'
+            ].includes(operation)) {
+                categories.add('display');
+                changedPaths.add('preferences');
+            }
             else if (['start-relaxation', 'stop-relaxation'].includes(operation)) {
                 categories.add('trajectory');
                 categories.add('structure');
@@ -7776,6 +7873,10 @@ class VAseApp {
             measurement: this.getSelectionMeasureText(),
             display: this.clonePlain(this.state.display),
             camera: this.cameraSettingsSnapshot(),
+            preferences: {
+                interfaceTheme: this.clonePlain(window.v_aseTheme?.info?.() || {}),
+                personalVisualDefaults: this.hasPersonalVisualDefaults
+            },
             imageExport: this.clonePlain(this.currentImageExportProfile()),
             analysis: {
                 volumetricDatasets: this.clonePlain(this.volumetricDatasets()),
@@ -7901,7 +8002,7 @@ class VAseApp {
                 'constraints', 'forces', 'charges', 'tags', 'magnetic-moments',
                 'selection', 'measurement', 'trajectory', 'camera', 'display',
                 'volumetric-data', 'rdf', 'commensurate', 'commensurate-proposal',
-                'registry-map', 'collaboration'
+                'registry-map', 'preferences', 'collaboration'
             ],
             apply: [
                 'expectedRevision', 'frame', 'mode', 'display', 'quality',
@@ -7916,7 +8017,9 @@ class VAseApp {
                 'dismiss-commensurate-cell', 'calculate-registry-map', 'undo', 'redo',
                 'reset-coordinates', 'start-relaxation', 'stop-relaxation',
                 'refresh-displacements', 'load-volumetric', 'show-volumetric',
-                'combine-volumetric', 'remove-volumetric', 'calculate-rdf'
+                'combine-volumetric', 'remove-volumetric', 'calculate-rdf',
+                'set-interface-theme', 'set-personal-visual-default',
+                'restore-app-visual-defaults'
             ],
             exports: [
                 'image', 'video', 'poscar', 'pickle', 'blender', '3dm', 'obj',
@@ -8105,6 +8208,28 @@ class VAseApp {
             return data;
         };
 
+        if (name === 'set-interface-theme') {
+            const theme = String(operation.theme || '').trim().toLowerCase();
+            if (!['system', 'light', 'dark'].includes(theme)) {
+                throw new Error('set-interface-theme requires system, light, or dark.');
+            }
+            this.applyThemePreference(theme);
+            return;
+        }
+        if (name === 'set-personal-visual-default') {
+            await this.setCurrentVisualDefaults();
+            return;
+        }
+        if (name === 'restore-app-visual-defaults') {
+            if (operation.confirm !== true) {
+                throw new Error(
+                    'restore-app-visual-defaults permanently deletes the saved personal '
+                    + 'visual default. Obtain human approval, then retry with confirm: true.'
+                );
+            }
+            await this.applyBuiltInVisualDefaults();
+            return;
+        }
         if (name === 'wrap') {
             if (!this.hasUsableCell()) throw new Error('Wrap requires a defined unit cell.');
             if (this.state.vizOnly) {
@@ -9124,15 +9249,104 @@ class VAseApp {
         return true;
     }
 
-    designSettingsSnapshot({ includeAtomOverrides = true } = {}) {
+    updateVisualDefaultStatus() {
+        const status = document.getElementById('visual-default-status');
+        const row = status?.closest('.personal-defaults-row');
+        const state = this.hasPersonalVisualDefaults ? 'personal' : 'app';
+        if (status) {
+            status.dataset.state = state;
+            status.textContent = this.hasPersonalVisualDefaults
+                ? 'Applied to new structures and tabs'
+                : 'Using v_ase defaults';
+        }
+        if (row) row.dataset.state = state;
+    }
+
+    notifyWorkspaceVisualDefaults() {
+        if (!this.workspaceChild || window.parent === window) return;
+        window.parent.postMessage({
+            type: 'v_ase:document-visual-defaults',
+            sessionId: this.sessionId,
+            configured: this.hasPersonalVisualDefaults,
+            settings: this.personalVisualDefaults
+                ? this.clonePlain(this.personalVisualDefaults)
+                : null
+        }, window.location.origin);
+    }
+
+    async loadUserVisualDefaults() {
+        try {
+            const response = await this.api.fetchUserVisualDefaults();
+            this.hasPersonalVisualDefaults = response?.configured === true
+                && Boolean(response.settings);
+            this.personalVisualDefaults = this.hasPersonalVisualDefaults
+                ? this.clonePlain(response.settings)
+                : null;
+        } catch (error) {
+            console.warn('Could not load personal visual defaults:', error);
+            this.hasPersonalVisualDefaults = false;
+            this.personalVisualDefaults = null;
+        }
+        this.updateVisualDefaultStatus();
+    }
+
+    personalVisualDefaultsSnapshot() {
+        return this.designSettingsSnapshot({
+            includeAtomOverrides: false,
+            includeCamera: false
+        });
+    }
+
+    async setCurrentVisualDefaults() {
+        this.applyDisplayOptions();
+        const settings = this.personalVisualDefaultsSnapshot();
+        const response = await this.api.saveUserVisualDefaults(settings);
+        this.personalVisualDefaults = this.clonePlain(response.settings || settings);
+        this.hasPersonalVisualDefaults = true;
+        this.updateVisualDefaultStatus();
+        this.notifyWorkspaceVisualDefaults();
+        this.toast('Current visual settings will be used for new structures and tabs.', 'success');
+        return this.personalVisualDefaults;
+    }
+
+    async restoreAppVisualDefaults() {
+        const confirmed = await this.showConfirmModal({
+            title: 'Restore app defaults?',
+            intro: 'This removes your saved personal default and applies the built-in v_ase appearance to this tab.',
+            items: [
+                'Saved personal visualization defaults will be deleted.',
+                'Appearance, bonds, lighting, replication, translation, and render quality will reset.',
+                'Atom coordinates, trajectory frames, and unit-cell contents will stay unchanged.'
+            ],
+            confirmText: 'Proceed',
+            cancelText: 'Cancel',
+            danger: true
+        });
+        if (!confirmed) return false;
+        await this.applyBuiltInVisualDefaults();
+        return true;
+    }
+
+    async applyBuiltInVisualDefaults() {
+        await this.api.clearUserVisualDefaults();
+        this.personalVisualDefaults = null;
+        this.hasPersonalVisualDefaults = false;
+        this.applyDesignSettings(this.clonePlain(this.factoryDesignSettings));
+        this.initialDesignSettings = this.designSettingsSnapshot();
+        this.updateVisualDefaultStatus();
+        this.notifyWorkspaceVisualDefaults();
+        this.toast('Built-in v_ase visual defaults restored.', 'success');
+        return this.clonePlain(this.factoryDesignSettings);
+    }
+
+    designSettingsSnapshot({ includeAtomOverrides = true, includeCamera = true } = {}) {
         this.readTransformSettings();
         this.syncAtomicScaleFromCamera({ forceInput: true, syncPreview: false });
         const display = this.clonePlain(this.state.display);
         if (!includeAtomOverrides) display.atomMaterials = {};
-        return {
+        const snapshot = {
             schema: 'v_ase.visual_settings.v3',
             display,
-            camera: this.currentCameraForExport(),
             applyConstraints: this.state.applyConstraints,
             antiAliasing: this.state.antiAliasing,
             sphereQuality: this.state.sphereQuality,
@@ -9140,6 +9354,8 @@ class VAseApp {
             rotateIncrementDeg: this.state.rotateIncrementDeg,
             imageExportProfile: this.clonePlain(this.currentImageExportProfile())
         };
+        if (includeCamera) snapshot.camera = this.currentCameraForExport();
+        return snapshot;
     }
 
     setSupercellInputs(reps = [1, 1, 1]) {
@@ -13300,6 +13516,20 @@ class VAseApp {
             event.target.value = '';
             if (!file) return;
             await this.loadStructureFile(file, '', ':');
+        };
+        document.getElementById('btn-set-visual-default').onclick = async () => {
+            try {
+                await this.setCurrentVisualDefaults();
+            } catch (err) {
+                this.toast(`Could not save personal defaults: ${err.message}`, 'error');
+            }
+        };
+        document.getElementById('btn-restore-visual-default').onclick = async () => {
+            try {
+                await this.restoreAppVisualDefaults();
+            } catch (err) {
+                this.toast(`Could not restore app defaults: ${err.message}`, 'error');
+            }
         };
         document.getElementById('btn-save-settings').onclick = async () => {
             try {

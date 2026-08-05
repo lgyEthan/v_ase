@@ -86,9 +86,11 @@ browser document releases the blocking terminal process.
 | Plot an RDF | Use **Analysis > Radial Distribution Function** |
 | View a charge or potential grid | Open CHGCAR/LOCPOT/PARCHG/Cube/XSF, then use **Analysis > Volumetric Data** |
 | Style a figure | Use **Structure > Appearance/Bonding** and **View** |
+| Match the app to the computer theme | Keep **View > Interface theme** on **System**, or choose Light/Dark explicitly |
+| Reuse the current visual style automatically | Use **Export > Visual Settings > Set Current as Default** |
 | Repeat or wrap a cell | Use **Structure > Cell & Replication** |
 | Save the whole session | Use **Export > v_ase Project** and choose compact `.vase` or browser-ready HTML |
-| Reuse only the visual style | Use **Export > Save Settings** |
+| Move a visual preset to another computer | Use **Export Preset**, then **Import Preset** |
 | Share an offline 3D view | Use **Export > Rendered media > HTML View**; the lightweight view-only file is the default |
 | Hand the scene to an AI | Provide the bundled agent skill; the agent starts the CLI/API session itself |
 
@@ -627,6 +629,27 @@ The top-bar renderer switches between fast modeling light and Sun/soft-shadow
 rendering. Sun source, target, intensity, and direction can be manipulated in
 the viewport and carried into Blender export.
 
+### Interface Theme And Personal Defaults
+
+**View > Interface theme** controls the application chrome independently from
+the white/dark 3D viewport background. **System** is the default and follows
+the browser or operating-system light/dark preference, including changes made
+while v_ase is open. **Light** and **Dark** keep an explicit choice in that
+browser.
+
+Under **Export > Visual Settings**, **Set Current as Default** stores the
+current reusable appearance, bonds, lighting, viewport, display replication,
+visual translation, and render-quality choices for the current OS user. New
+structures and new tabs start with that style. Atom coordinates, trajectory
+frames, cell contents, absolute camera placement, and per-atom appearance
+overrides are not included.
+
+**Restore App Defaults** deletes the saved personal default and applies the
+built-in v_ase style to the active tab. v_ase lists what will change and waits
+for **Proceed**; the structure itself is left untouched. **Export Preset** and
+**Import Preset** remain the portable file-based option for moving a visual
+preset between users or computers.
+
 ## Export And Save
 
 | Command | Result |
@@ -641,7 +664,7 @@ the viewport and carried into Blender export.
 | Export HTML View | Offline, view-only 3D document; lightweight by default, with optional `.vase` recovery |
 | Save `.vase` | Compact project with structure/trajectory and complete visual state |
 | HTML Project | Browser-ready project with complete embedded `.vase` recovery by default |
-| Save Settings | Reusable visual settings without coordinates |
+| Export/Import Preset | Portable visual settings file without coordinates |
 
 Image, video, and HTML use one shared **Preview Area** composition. Its aspect
 ratio, camera, crop, lighting, atom scale, and included overlays match the

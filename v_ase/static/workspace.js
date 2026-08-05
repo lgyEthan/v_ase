@@ -376,12 +376,41 @@ class VAseWorkspace {
         });
     }
 
+    applyWorkspaceTheme(preference, { persist = true } = {}) {
+        const result = window.v_aseTheme?.apply?.(preference, { persist })
+            || { preference };
+        this.tabs.forEach(entry => {
+            entry.pane.contentWindow?.postMessage({
+                type: 'v_ase:workspace-theme',
+                preference: result.preference
+            }, window.location.origin);
+        });
+    }
+
+    broadcastVisualDefaults(message) {
+        this.tabs.forEach(entry => {
+            entry.pane.contentWindow?.postMessage({
+                type: 'v_ase:workspace-visual-defaults',
+                configured: message.configured === true,
+                settings: message.settings || null
+            }, window.location.origin);
+        });
+    }
+
     handleDocumentMessage(event) {
         if (event.origin !== window.location.origin) return;
         const message = event.data || {};
         if (!message.type?.startsWith('v_ase:document-')) return;
         const entry = this.tabs.get(message.sessionId);
         if (!entry || entry.pane.contentWindow !== event.source) return;
+        if (message.type === 'v_ase:document-theme') {
+            this.applyWorkspaceTheme(message.preference, { persist: message.persist !== false });
+            return;
+        }
+        if (message.type === 'v_ase:document-visual-defaults') {
+            this.broadcastVisualDefaults(message);
+            return;
+        }
         if (message.type === 'v_ase:document-open-new') {
             this.openDocumentFromFile(entry, message);
             return;
