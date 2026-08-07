@@ -688,6 +688,7 @@ def _html_atom_color_scale_frames(
     frame_objects,
     settings: Dict[str, Any],
     selection: list[int],
+    current_frame: int = 0,
 ) -> list[dict[str, Any] | None]:
     """Freeze an active browser colorscale into standalone frame metadata.
 
@@ -706,17 +707,23 @@ def _html_atom_color_scale_frames(
     map_name = str(display.get("atomColorScaleMap") or "viridis")
     reverse = display.get("atomColorScaleReverse") is True
     scope = "selected" if display.get("atomColorScaleScope") == "selected" else "all"
-    automatic = display.get("atomColorScaleAutoRange") is not False
+    range_mode = str(display.get("atomColorScaleRangeMode") or "").strip().lower()
+    if range_mode not in {"current", "trajectory", "manual"}:
+        range_mode = "manual" if display.get("atomColorScaleAutoRange") is False else "current"
+    gamma = float(display.get("atomColorScaleGamma", 1.0))
+    if not math.isfinite(gamma) or gamma < 0.1 or gamma > 5.0:
+        gamma = 1.0
     selected = set(selection)
     palette = colormap_lut(map_name, samples=256, reverse=reverse)["colors"]
     payloads: list[dict[str, Any] | None] = []
+    descriptor: dict[str, Any] = {"id": field_id, "label": field_id, "unit": ""}
 
-    for atoms in frame_objects:
+    def extract(atoms):
+        nonlocal descriptor
         try:
             values = np.asarray(atom_scalar_values(atoms, field_id), dtype=np.float64)
         except ValueError:
-            payloads.append(None)
-            continue
+            return None
         finite_mask = np.isfinite(values)
         if scope == "selected":
             finite_mask &= np.fromiter(
@@ -724,52 +731,75 @@ def _html_atom_color_scale_frames(
                 dtype=bool,
                 count=len(atoms),
             )
-        finite = values[finite_mask]
-        if not finite.size:
-            payloads.append({
-                "field_id": field_id,
-                "scope": scope,
-                "colors": [None] * len(atoms),
-            })
+        if descriptor["label"] == field_id:
+            descriptor = next(
+                (item for item in atom_scalar_catalog(atoms) if item["id"] == field_id),
+                descriptor,
+            )
+        return values, finite_mask
+
+    try:
+        minimum = float(display.get("atomColorScaleMin"))
+        maximum = float(display.get("atomColorScaleMax"))
+    except (TypeError, ValueError):
+        minimum = math.nan
+        maximum = math.nan
+    if not math.isfinite(minimum) or not math.isfinite(maximum) or maximum <= minimum:
+        if range_mode == "manual":
+            raise ValueError("Manual color scale requires finite vmin and vmax with vmax greater than vmin.")
+        indices = (
+            range(len(frame_objects))
+            if range_mode == "trajectory"
+            else [max(0, min(len(frame_objects) - 1, int(current_frame)))]
+        )
+        minimum = math.inf
+        maximum = -math.inf
+        finite_count = 0
+        for index in indices:
+            frame = extract(frame_objects[index])
+            if frame is None:
+                continue
+            values, finite_mask = frame
+            finite = values[finite_mask]
+            if not finite.size:
+                continue
+            finite_count += int(finite.size)
+            minimum = min(minimum, float(np.min(finite)))
+            maximum = max(maximum, float(np.max(finite)))
+        if not finite_count:
+            return [None] * len(frame_objects)
+        if minimum == maximum:
+            padding = max(1e-12, abs(minimum) * 1e-6)
+            minimum -= padding
+            maximum += padding
+
+    for atoms in frame_objects:
+        frame = extract(atoms)
+        if frame is None:
+            payloads.append(None)
             continue
-
-        if automatic:
-            minimum = float(np.min(finite))
-            maximum = float(np.max(finite))
-            if minimum == maximum:
-                padding = max(1e-12, abs(minimum) * 1e-6)
-                minimum -= padding
-                maximum += padding
-        else:
-            try:
-                minimum = float(display.get("atomColorScaleMin"))
-                maximum = float(display.get("atomColorScaleMax"))
-            except (TypeError, ValueError) as exc:
-                raise ValueError("Color scale minimum and maximum must be finite numbers.") from exc
-            if not math.isfinite(minimum) or not math.isfinite(maximum) or maximum <= minimum:
-                raise ValueError("Color scale maximum must be greater than its minimum.")
-
+        values, finite_mask = frame
         normalized = np.where(
             np.isfinite(values),
             np.clip((values - minimum) / (maximum - minimum), 0.0, 1.0),
             0.0,
         )
+        if gamma != 1.0:
+            normalized = normalized ** gamma
         palette_indices = np.rint(normalized * (len(palette) - 1)).astype(np.int64)
         colors = [
             palette[int(palette_indices[index])] if finite_mask[index] else None
             for index in range(len(atoms))
         ]
-        descriptor = next(
-            (item for item in atom_scalar_catalog(atoms) if item["id"] == field_id),
-            {"id": field_id, "label": field_id, "unit": ""},
-        )
         payloads.append({
             "field_id": field_id,
             "label": descriptor.get("label", field_id),
             "unit": descriptor.get("unit", ""),
             "map": map_name,
             "reverse": reverse,
+            "gamma": gamma,
             "scope": scope,
+            "range_mode": range_mode,
             "minimum": minimum,
             "maximum": maximum,
             "colors": colors,
@@ -825,7 +855,12 @@ def export_html_response(session, payload: Dict[str, Any]):
             selection.append(index)
     selection = sorted(set(selection))
     frames = [atoms_to_json(frame) for frame in frame_objects]
-    color_scale_frames = _html_atom_color_scale_frames(frame_objects, settings, selection)
+    color_scale_frames = _html_atom_color_scale_frames(
+        frame_objects,
+        settings,
+        selection,
+        current_frame=int(session.current_frame),
+    )
     for frame, color_scale in zip(frames, color_scale_frames):
         if color_scale is not None:
             frame.setdefault("metadata", {})["atom_color_scale"] = color_scale

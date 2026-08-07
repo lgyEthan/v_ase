@@ -133,8 +133,10 @@ def _html_export_fixture(*, embed_project=True, atom_colorscale=False):
             "atomColorScaleReverse": False,
             "atomColorScaleScope": "selected",
             "atomColorScaleAutoRange": True,
-            "atomColorScaleMin": 0.0,
-            "atomColorScaleMax": 1.0,
+            "atomColorScaleRangeMode": "trajectory",
+            "atomColorScaleMin": 0.15,
+            "atomColorScaleMax": 0.95,
+            "atomColorScaleGamma": 2.0,
         })
     poster_buffer = io.BytesIO()
     Image.new("RGB", (640, 360), (242, 246, 244)).save(
@@ -273,13 +275,20 @@ def test_html_export_freezes_active_selected_atom_colorscale_for_offline_frames(
         _embedded_base64(html, "v-ase-scene-data")
     ).decode("utf-8"))
 
+    frame_colors = []
     for frame in scene["frames"]:
         scale = frame["metadata"]["atom_color_scale"]
         assert scale["field_id"] == "array::mlip_uncertainty::scalar"
         assert scale["map"] == "viridis"
         assert scale["scope"] == "selected"
+        assert scale["range_mode"] == "trajectory"
+        assert scale["minimum"] == pytest.approx(0.15)
+        assert scale["maximum"] == pytest.approx(0.95)
+        assert scale["gamma"] == pytest.approx(2.0)
         assert scale["colors"][0] is None
         assert re.fullmatch(r"#[0-9A-F]{6}", scale["colors"][1])
+        frame_colors.append(scale["colors"][1])
+    assert frame_colors[0] != frame_colors[1]
 
 
 def test_exported_html_opens_offline_as_view_only_interactive_trajectory(tmp_path):

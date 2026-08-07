@@ -407,8 +407,16 @@ AI_CONTROL_SCHEMA = {
                                     "reverse": {"type": "boolean"},
                                     "scope": {"enum": ["all", "selected"]},
                                     "autoRange": {"type": "boolean"},
+                                    "rangeMode": {
+                                        "enum": ["current", "trajectory", "manual"],
+                                    },
                                     "minimum": {"type": "number"},
                                     "maximum": {"type": "number"},
+                                    "gamma": {
+                                        "type": "number",
+                                        "minimum": 0.1,
+                                        "maximum": 5.0,
+                                    },
                                 },
                             },
                         },
@@ -676,11 +684,13 @@ AI_OPERATION_PARAMETERS = {
         "required": [],
         "optional": [
             "enabled", "field", "map", "reverse", "scope", "autoRange",
-            "minimum", "maximum",
+            "rangeMode", "minimum", "maximum", "gamma",
         ],
         "notes": (
             "Colors atoms by x/y/z, force norm, or a discovered numeric per-atom "
-            "ASE array/calculator result. scope is all or selected. Disabling it "
+            "ASE array/calculator result. scope is all or selected. rangeMode is "
+            "current, trajectory, or manual; every trajectory frame uses the same "
+            "resolved minimum and maximum. gamma controls contrast. Disabling it "
             "immediately restores the saved label and element colors."
         ),
     },
@@ -4751,10 +4761,15 @@ def _session_atom_scalar_values(session: EditorSession, payload: Dict[str, Any])
             and session.frame_count * atom_count <= MAX_ATOM_SCALAR_CACHE_VALUES
         )
         if not can_cache_trajectory:
-            values = atom_scalar_values(current_atoms, field_id).reshape(1, atom_count)
+            try:
+                values = atom_scalar_values(current_atoms, field_id).reshape(1, atom_count)
+            except ValueError:
+                # A field may be absent from one trajectory frame. Keep its
+                # identity/range stable and render that frame as uncolored.
+                values = np.full((1, atom_count), np.nan, dtype=np.float32)
             return requested_frame, values
 
-        values = np.full((session.frame_count, atom_count), np.nan, dtype=np.float64)
+        values = np.full((session.frame_count, atom_count), np.nan, dtype=np.float32)
         for index in range(session.frame_count):
             atoms = _atom_scalar_frame_atoms(session, index)
             if len(atoms) != atom_count:
@@ -4787,6 +4802,89 @@ async def per_atom_scalar_values(session_id: str, payload: Dict[str, Any]):
             "X-V-Ase-Cache": "trajectory" if packed.shape[0] > 1 else "frame",
         },
     )
+
+
+def _session_atom_scalar_range(session: EditorSession, payload: Dict[str, Any]):
+    field_id = str(payload.get("field_id") or "").strip()
+    if not field_id:
+        raise ValueError("field_id is required.")
+    requested_frame = int(payload.get("frame_index", session.current_frame))
+    requested_all_frames = bool(payload.get("all_frames", False))
+    requested_indices = payload.get("indices")
+
+    with session.mode_transition_lock:
+        current_atoms = _atom_scalar_frame_atoms(session, requested_frame)
+        if requested_indices is None:
+            selected = None
+        else:
+            if not isinstance(requested_indices, list):
+                raise ValueError("indices must be a list when a selected-atom range is requested.")
+            selected = np.asarray(sorted({int(index) for index in requested_indices}), dtype=np.int64)
+            if selected.size == 0:
+                raise ValueError("Select at least one atom before fitting a selected-atom color range.")
+            if selected[0] < 0 or selected[-1] >= len(current_atoms):
+                raise ValueError("A selected atom index is outside the current structure.")
+
+        frame_indices = (
+            range(session.frame_count)
+            if requested_all_frames and session.frame_count > 1
+            else (requested_frame,)
+        )
+        minimum = np.inf
+        maximum = -np.inf
+        finite_count = 0
+        frames_with_values = 0
+        missing_frames = 0
+
+        for index in frame_indices:
+            atoms = _atom_scalar_frame_atoms(session, index)
+            try:
+                values = np.asarray(atom_scalar_values(atoms, field_id), dtype=np.float64)
+            except ValueError:
+                missing_frames += 1
+                continue
+            if selected is not None:
+                valid = selected[selected < values.shape[0]]
+                if valid.size == 0:
+                    missing_frames += 1
+                    continue
+                values = values[valid]
+            finite = values[np.isfinite(values)]
+            if finite.size == 0:
+                missing_frames += 1
+                continue
+            frames_with_values += 1
+            finite_count += int(finite.size)
+            minimum = min(minimum, float(np.min(finite)))
+            maximum = max(maximum, float(np.max(finite)))
+
+        if finite_count == 0:
+            target = "trajectory" if requested_all_frames else "current frame"
+            raise ValueError(f"The selected per-atom property has no finite values in the {target}.")
+        if minimum == maximum:
+            padding = max(1e-12, abs(minimum) * 1e-6)
+            minimum -= padding
+            maximum += padding
+        return {
+            "field_id": field_id,
+            "scope": "selected" if selected is not None else "all",
+            "range_mode": "trajectory" if requested_all_frames and session.frame_count > 1 else "current",
+            "minimum": minimum,
+            "maximum": maximum,
+            "finite_values": finite_count,
+            "frames_scanned": len(frame_indices),
+            "frames_with_values": frames_with_values,
+            "missing_frames": missing_frames,
+        }
+
+
+@app.post("/api/analysis/atom-scalars/range/{session_id}")
+async def per_atom_scalar_range(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    try:
+        return await asyncio.to_thread(_session_atom_scalar_range, session, payload)
+    except (IndexError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/analysis/colormaps/{session_id}")

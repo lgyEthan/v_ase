@@ -157,9 +157,16 @@ Run all scenarios, not only static document checks:
    - discover and render coordinate, stored force-norm, scalar-array,
      vector-component, vector-norm, charge, magnetic-moment, and MLIP-specific
      per-atom colorscales; test all-atoms and selected-only scope;
-   - verify a trajectory refreshes frame values, standalone HTML preserves the
-     active map, and disabling the feature performs no scalar/LUT request and
-     restores the prior label/per-atom colors immediately;
+   - fit the current frame, advance to a frame with a disjoint value range,
+     and verify the resolved `vmin`/`vmax` remain locked;
+   - scan the complete trajectory and compare its streamed global extrema with
+     an independent finite-value reference without allocating a second full
+     frame-by-atom cube;
+   - verify manual `vmin`/`vmax`, gamma contrast, standalone HTML and media
+     export all preserve the same trajectory-wide range and that each frame's
+     colors change only from its values, not from per-frame normalization;
+   - verify disabling the feature performs no scalar/LUT request and restores
+     the prior label/per-atom colors immediately;
    - verify standard, metal, rubber, 2D, and 3D;
    - undo and redo a label color, radius, and material change; verify both
      semantic display state and rendered pixels, with one history step per

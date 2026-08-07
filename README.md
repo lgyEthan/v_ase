@@ -601,11 +601,19 @@ and includes:
   uncertainty, or model-specific MLIP outputs.
 
 Use **Selected atoms only** to color the current selection while preserving
-the established appearance of every other atom. Automatic or explicit value
-ranges and reversed maps are supported. The feature is lazy: while its toggle
-is off, v_ase does not load a colormap registry, extract scalar arrays, or run
-per-frame colorscale work. Turning it off immediately restores the existing
-label, element, and per-atom appearance.
+the established appearance of every other atom. **Fit current frame** is the
+default range: it derives `vmin` and `vmax` once from the visible frame, then
+keeps that range fixed while the trajectory plays. **Scan trajectory** finds a
+single range across every frame without constructing a full in-memory value
+cube. Entering either `vmin` or `vmax` switches to a manual range. Every frame
+and export uses the resolved range consistently.
+
+Reverse any map or adjust **Contrast (gamma)** from `0.1` to `5.0`; gamma is
+applied immediately in the browser without another scalar or colormap request.
+The feature remains lazy: while its toggle is off, v_ase does not load a
+colormap registry, extract scalar arrays, or run per-frame colorscale work.
+Turning it off immediately restores the existing label, element, and per-atom
+appearance.
 
 ![Pairwise Cu O bonds in a Cu2O(111) film on Cu(111)](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_bonds.png)
 

@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.1.13"
+python -m pip install "v_ase-gui==0.1.14"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -156,7 +156,11 @@ and `capabilities` instead of assuming that a command or parameter exists.
 browser to execute a document command.
 For per-atom coloring, follow the lazy scalar and Matplotlib catalog URLs from
 `capabilities().atomColorScale`, then use `set-atom-colorscale`; never guess a
-model-specific array name.
+model-specific array name. Use `rangeMode:"current"` for a fast active-frame
+fit that remains locked during playback, `rangeMode:"trajectory"` for one
+global scan across all frames, or `rangeMode:"manual"` with explicit
+`minimum`/`maximum`. Set `gamma` in `0.1..5.0` (`1.0` is neutral), and never
+normalize trajectory colors independently per frame.
 For a rotation around one atom, pass that atom last in the explicit `indices`
 array and set `pivot: "active"`; verify that its coordinate is unchanged.
 
@@ -250,6 +254,9 @@ For any nontrivial task, verify all applicable items:
   required periodic-image span, bins, pair mode, plotted curves, `g(r) = 1`
   bulk reference, long-range behavior, warnings, and exported CSV columns;
 - appearance: visibility, radii, colors, materials, bonds, cell, background;
+- per-atom colorscale: exact catalog field ID, scope, map, reverse state,
+  gamma, resolved `vmin`/`vmax`, current/trajectory/manual range source, and
+  identical locked range across every trajectory frame and export;
 - preferences: resolved interface theme, system/light/dark preference, saved
   personal-default state, and the intended scope before storing or restoring;
 - camera: projection, position, target, up vector, framing, expected direction;

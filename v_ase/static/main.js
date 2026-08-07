@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.1.13&rev=1';
-import { ASERenderer } from './renderer.js?v=0.1.13&rev=1';
-import { ASESelection } from './selection.js?v=0.1.13&rev=1';
-import { ASETransform } from './transform.js?v=0.1.13&rev=1';
+import { ASEApi } from './api.js?v=0.1.14&rev=1';
+import { ASERenderer } from './renderer.js?v=0.1.14&rev=1';
+import { ASESelection } from './selection.js?v=0.1.14&rev=1';
+import { ASETransform } from './transform.js?v=0.1.14&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.1.13&rev=1';
+} from './trajectory.js?v=0.1.14&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -146,8 +146,10 @@ class VAseApp {
                 atomColorScaleReverse: false,
                 atomColorScaleScope: 'all',
                 atomColorScaleAutoRange: true,
+                atomColorScaleRangeMode: 'current',
                 atomColorScaleMin: 0,
                 atomColorScaleMax: 1,
+                atomColorScaleGamma: 1,
                 rotatePivot: 'selection',
                 commensurateGuide: false,
                 commensurateSnap: false,
@@ -293,10 +295,17 @@ class VAseApp {
             colormapCatalog: null,
             colormapCatalogPromise: null,
             valueCaches: new Map(),
+            frameValueCaches: new Map(),
+            rangeCaches: new Map(),
             lutCaches: new Map(),
             requestToken: 0,
             refreshRequest: null,
-            selectionSignature: ''
+            selectionSignature: '',
+            rangeSignature: '',
+            prefetchField: '',
+            prefetchFrame: -1,
+            prefetchPromise: null,
+            prefetchTimer: null
         };
         this.factoryDesignSettings = {
             schema: 'v_ase.visual_settings.v3',
@@ -532,9 +541,11 @@ class VAseApp {
         const map = document.getElementById('atom-colorscale-map');
         const reverse = document.getElementById('chk-atom-colorscale-reverse');
         const scope = document.getElementById('atom-colorscale-scope');
-        const autoRange = document.getElementById('chk-atom-colorscale-auto-range');
         const minimum = document.getElementById('atom-colorscale-min');
         const maximum = document.getElementById('atom-colorscale-max');
+        const fitCurrent = document.getElementById('btn-atom-colorscale-fit-current');
+        const fitTrajectory = document.getElementById('btn-atom-colorscale-fit-trajectory');
+        const gamma = document.getElementById('atom-colorscale-gamma');
 
         enabled?.addEventListener('change', () => {
             this.state.display.atomColorScaleEnabled = enabled.checked;
@@ -553,6 +564,9 @@ class VAseApp {
         });
         field?.addEventListener('change', () => {
             this.state.display.atomColorScaleField = field.value || 'position:z';
+            this.state.display.atomColorScaleRangeMode = 'current';
+            this.state.display.atomColorScaleAutoRange = true;
+            this.atomColorScaleRuntime.rangeSignature = '';
             this.updateAtomColorScale().catch(error => this.handleAtomColorScaleError(error));
             this.scheduleVisualHistoryCommit('atom-colorscale-field');
         });
@@ -568,28 +582,51 @@ class VAseApp {
         });
         scope?.addEventListener('change', () => {
             this.state.display.atomColorScaleScope = scope.value === 'selected' ? 'selected' : 'all';
+            this.state.display.atomColorScaleRangeMode = 'current';
+            this.state.display.atomColorScaleAutoRange = true;
+            this.atomColorScaleRuntime.rangeSignature = '';
             this.updateAtomColorScale().catch(error => this.handleAtomColorScaleError(error));
             this.scheduleVisualHistoryCommit('atom-colorscale-scope');
         });
-        autoRange?.addEventListener('change', () => {
-            this.state.display.atomColorScaleAutoRange = autoRange.checked;
-            this.syncAtomColorScaleControls();
-            this.updateAtomColorScale().catch(error => this.handleAtomColorScaleError(error));
-            this.scheduleVisualHistoryCommit('atom-colorscale-range');
+        fitCurrent?.addEventListener('click', () => {
+            this.fitAtomColorScaleRange('current').catch(error => this.handleAtomColorScaleError(error));
+        });
+        fitTrajectory?.addEventListener('click', () => {
+            const frames = Number(this.state.atoms?.metadata?.frame_count || 1);
+            const mode = frames > 1 ? 'trajectory' : 'current';
+            const action = () => this.fitAtomColorScaleRange(mode);
+            const task = mode === 'trajectory'
+                ? this.withBusy(`Scanning ${frames} trajectory frames for vmin and vmax...`, action)
+                : action();
+            task.catch(error => this.handleAtomColorScaleError(error));
         });
         [minimum, maximum].forEach(input => {
             const update = () => {
                 const value = Number(input?.value);
                 if (Number.isFinite(value)) {
                     const key = input === minimum ? 'atomColorScaleMin' : 'atomColorScaleMax';
-                    if (Number(this.state.display[key]) === value) return;
+                    if (
+                        Number(this.state.display[key]) === value
+                        && this.state.display.atomColorScaleRangeMode === 'manual'
+                    ) return;
                     this.state.display[key] = value;
                 }
+                this.state.display.atomColorScaleRangeMode = 'manual';
+                this.state.display.atomColorScaleAutoRange = false;
+                this.atomColorScaleRuntime.rangeSignature = this.atomColorScaleRangeSignature('manual');
+                this.syncAtomColorScaleControls();
                 this.updateAtomColorScale().catch(error => this.handleAtomColorScaleError(error));
                 this.scheduleVisualHistoryCommit('atom-colorscale-range');
             };
             input?.addEventListener('change', update);
             input?.addEventListener('blur', update);
+        });
+        gamma?.addEventListener('input', () => {
+            const value = Math.max(0.1, Math.min(5, Number(gamma.value) || 1));
+            this.state.display.atomColorScaleGamma = value;
+            this.syncAtomColorScaleControls();
+            this.updateAtomColorScale({ quiet: true }).catch(error => this.handleAtomColorScaleError(error));
+            this.scheduleVisualHistoryCommit('atom-colorscale-gamma');
         });
         this.syncAtomColorScaleControls();
     }
@@ -607,7 +644,6 @@ class VAseApp {
         };
         setChecked('chk-atom-colorscale', enabled);
         setChecked('chk-atom-colorscale-reverse', display.atomColorScaleReverse);
-        setChecked('chk-atom-colorscale-auto-range', display.atomColorScaleAutoRange !== false);
         setValue('atom-colorscale-field', display.atomColorScaleField || 'position:z');
         setValue('atom-colorscale-map', display.atomColorScaleMap || 'viridis');
         setValue('atom-colorscale-scope', display.atomColorScaleScope === 'selected' ? 'selected' : 'all');
@@ -623,13 +659,28 @@ class VAseApp {
                 Number.isFinite(Number(display.atomColorScaleMax)) ? display.atomColorScaleMax : 1
             )
         );
+        const gamma = Math.max(0.1, Math.min(5, Number(display.atomColorScaleGamma) || 1));
+        setValue('atom-colorscale-gamma', gamma);
+        const gammaValue = document.getElementById('atom-colorscale-gamma-value');
+        if (gammaValue) gammaValue.textContent = gamma.toFixed(2);
         document.getElementById('atom-colorscale-controls')?.classList.toggle('hidden', !enabled);
-        const automatic = display.atomColorScaleAutoRange !== false;
-        document.getElementById('atom-colorscale-range')?.classList.toggle('is-auto', automatic);
-        ['atom-colorscale-min', 'atom-colorscale-max'].forEach(id => {
-            const input = document.getElementById(id);
-            if (input) input.disabled = automatic;
-        });
+        const mode = this.normalizedAtomColorScaleRangeMode(display.atomColorScaleRangeMode);
+        const source = document.getElementById('atom-colorscale-range-source');
+        if (source) {
+            source.textContent = {
+                current: 'CURRENT FRAME',
+                trajectory: 'FULL TRAJECTORY',
+                manual: 'MANUAL'
+            }[mode];
+        }
+        document.getElementById('btn-atom-colorscale-fit-current')?.classList.toggle(
+            'is-active', mode === 'current'
+        );
+        const trajectoryButton = document.getElementById('btn-atom-colorscale-fit-trajectory');
+        trajectoryButton?.classList.toggle('is-active', mode === 'trajectory');
+        if (trajectoryButton) {
+            trajectoryButton.disabled = Number(this.state.atoms?.metadata?.frame_count || 1) <= 1;
+        }
         if (!enabled) document.getElementById('atom-colorscale-legend')?.classList.add('hidden');
     }
 
@@ -647,14 +698,27 @@ class VAseApp {
         this.setAtomColorScaleStatus(error?.message || 'Atom color scale could not be applied.', 'error');
     }
 
-    invalidateAtomColorScaleData() {
+    invalidateAtomColorScaleData({ preserveRange = false } = {}) {
         const runtime = this.atomColorScaleRuntime;
         runtime.requestToken += 1;
-        runtime.catalog = null;
-        runtime.catalogPromise = null;
-        runtime.valueCaches.clear();
-        runtime.valuePromises?.clear?.();
-        runtime.selectionSignature = '';
+        if (!preserveRange) {
+            runtime.catalog = null;
+            runtime.catalogPromise = null;
+            runtime.valueCaches.clear();
+            runtime.frameValueCaches.clear();
+            runtime.valuePromises?.clear?.();
+            runtime.selectionSignature = '';
+            runtime.prefetchField = '';
+            runtime.prefetchFrame = -1;
+            runtime.prefetchPromise = null;
+            if (runtime.prefetchTimer !== null) {
+                const cancel = window.cancelIdleCallback || clearTimeout;
+                cancel(runtime.prefetchTimer);
+            }
+            runtime.prefetchTimer = null;
+            runtime.rangeCaches.clear();
+            runtime.rangeSignature = '';
+        }
         if (runtime.refreshRequest !== null) cancelAnimationFrame(runtime.refreshRequest);
         runtime.refreshRequest = null;
         this.renderer.atomColorScaleColors = null;
@@ -722,6 +786,7 @@ class VAseApp {
             runtime.catalog = null;
             runtime.catalogPromise = null;
             runtime.valueCaches.clear();
+            runtime.frameValueCaches.clear();
         }
         if (!runtime.catalog) {
             if (!runtime.catalogPromise) {
@@ -774,6 +839,71 @@ class VAseApp {
         return Float64Array.from(positions, position => Number(position?.[component]));
     }
 
+    atomColorScaleFrameCacheKey(fieldId, frame, atomCount) {
+        return `${fieldId}:${frame}:${atomCount}`;
+    }
+
+    cacheAtomColorScaleFrame(fieldId, frame, atomCount, values) {
+        const cache = this.atomColorScaleRuntime.frameValueCaches;
+        cache.set(
+            this.atomColorScaleFrameCacheKey(fieldId, frame, atomCount),
+            Float32Array.from(values)
+        );
+        while (cache.size > 64) cache.delete(cache.keys().next().value);
+    }
+
+    scheduleAtomColorScaleFramePrefetch(fieldId, currentFrame) {
+        const runtime = this.atomColorScaleRuntime;
+        const frameCount = Number(this.state.atoms?.metadata?.frame_count || 1);
+        const atomCount = this.state.atoms?.positions?.length || 0;
+        const targetFrame = (Math.max(0, Number(currentFrame) || 0) + 1) % Math.max(1, frameCount);
+        const cacheKey = this.atomColorScaleFrameCacheKey(fieldId, targetFrame, atomCount);
+        if (
+            frameCount <= 1
+            || !atomCount
+            || String(fieldId).startsWith('position:')
+            || runtime.frameValueCaches.has(cacheKey)
+            || runtime.valueCaches.get(fieldId)?.frames === frameCount
+            || runtime.prefetchPromise
+            || runtime.prefetchTimer !== null
+            || !this.state.display.atomColorScaleEnabled
+        ) return;
+        const schedule = window.requestIdleCallback
+            || ((callback, _options) => setTimeout(callback, 160));
+        runtime.prefetchField = fieldId;
+        runtime.prefetchFrame = targetFrame;
+        runtime.prefetchTimer = schedule(() => {
+            runtime.prefetchTimer = null;
+            if (
+                !this.state.display.atomColorScaleEnabled
+                || this.state.display.atomColorScaleField !== fieldId
+            ) {
+                runtime.prefetchField = '';
+                runtime.prefetchFrame = -1;
+                return;
+            }
+            runtime.prefetchPromise = this.api.fetchAtomScalarValues(fieldId, targetFrame, false)
+                .then(result => {
+                    if (result.frames === 1 && result.atoms === atomCount) {
+                        this.cacheAtomColorScaleFrame(
+                            fieldId,
+                            targetFrame,
+                            atomCount,
+                            result.values
+                        );
+                    }
+                })
+                .catch(() => {
+                    // The foreground frame request remains authoritative.
+                })
+                .finally(() => {
+                    runtime.prefetchField = '';
+                    runtime.prefetchFrame = -1;
+                    runtime.prefetchPromise = null;
+                });
+        }, { timeout: 1200 });
+    }
+
     async atomColorScaleValuesForCurrentFrame() {
         const fieldId = this.state.display.atomColorScaleField || 'position:z';
         const coordinateValues = this.atomColorScaleCoordinateValues(fieldId);
@@ -791,13 +921,19 @@ class VAseApp {
             const offset = (frame - cached.startFrame) * atomCount;
             return { values: cached.values.subarray(offset, offset + atomCount), cache: cached.cache };
         }
+        const frameCacheKey = this.atomColorScaleFrameCacheKey(fieldId, frame, atomCount);
+        const frameCached = runtime.frameValueCaches.get(frameCacheKey);
+        if (frameCached) {
+            this.scheduleAtomColorScaleFramePrefetch(fieldId, frame);
+            return { values: frameCached, cache: 'frame' };
+        }
         if (!runtime.valuePromises) runtime.valuePromises = new Map();
         const key = `${fieldId}:${frame}`;
         let promise = runtime.valuePromises.get(key);
         if (!promise) {
-            promise = this.api.fetchAtomScalarValues(fieldId, frame, true)
+            promise = this.api.fetchAtomScalarValues(fieldId, frame, false)
                 .then(result => {
-                    runtime.valueCaches.set(fieldId, result);
+                    if (result.frames > 1) runtime.valueCaches.set(fieldId, result);
                     runtime.valuePromises.delete(key);
                     return result;
                 })
@@ -812,7 +948,10 @@ class VAseApp {
         if (offset < 0 || offset + atomCount > result.values.length) {
             throw new Error('The selected per-atom property is unavailable for this trajectory frame.');
         }
-        return { values: result.values.subarray(offset, offset + atomCount), cache: result.cache };
+        const values = result.values.subarray(offset, offset + atomCount);
+        this.cacheAtomColorScaleFrame(fieldId, frame, atomCount, values);
+        this.scheduleAtomColorScaleFramePrefetch(fieldId, frame);
+        return { values, cache: result.cache };
     }
 
     async atomColorScaleLut() {
@@ -826,6 +965,20 @@ class VAseApp {
         return runtime.lutCaches.get(key);
     }
 
+    atomColorScalePalette(lut) {
+        const colors = Array.isArray(lut?.colors) ? lut.colors : [];
+        const gamma = Math.max(0.1, Math.min(5, Number(this.state.display.atomColorScaleGamma) || 1));
+        if (!colors.length || Math.abs(gamma - 1) < 1e-9) return colors;
+        return colors.map((_, index) => {
+            const normalized = index / Math.max(1, colors.length - 1);
+            const source = Math.min(
+                colors.length - 1,
+                Math.round((normalized ** gamma) * (colors.length - 1))
+            );
+            return colors[source];
+        });
+    }
+
     atomColorScaleSelection() {
         const selected = new Set(this.state.selected);
         if (this.state.vizOnly) {
@@ -837,40 +990,175 @@ class VAseApp {
         return selected;
     }
 
-    atomColorScaleRange(values, selected) {
+    normalizedAtomColorScaleRangeMode(mode) {
+        return ['current', 'trajectory', 'manual'].includes(mode) ? mode : 'current';
+    }
+
+    atomColorScaleRangeSignature(mode = this.state.display.atomColorScaleRangeMode) {
+        const normalizedMode = this.normalizedAtomColorScaleRangeMode(mode);
         const scope = this.state.display.atomColorScaleScope === 'selected' ? 'selected' : 'all';
-        const finite = [];
+        const selection = scope === 'selected'
+            ? Array.from(this.atomColorScaleSelection()).sort((a, b) => a - b).join(',')
+            : '*';
+        return [
+            normalizedMode,
+            this.state.display.atomColorScaleField || 'position:z',
+            scope,
+            selection
+        ].join('|');
+    }
+
+    atomColorScaleFiniteRange(values, selected) {
+        const scope = this.state.display.atomColorScaleScope === 'selected' ? 'selected' : 'all';
+        let minimum = Infinity;
+        let maximum = -Infinity;
+        let count = 0;
         values.forEach((value, index) => {
             if (scope === 'selected' && !selected.has(index)) return;
-            if (Number.isFinite(Number(value))) finite.push(Number(value));
+            const numeric = Number(value);
+            if (!Number.isFinite(numeric)) return;
+            minimum = Math.min(minimum, numeric);
+            maximum = Math.max(maximum, numeric);
+            count += 1;
         });
-        if (!finite.length) return null;
-        if (this.state.display.atomColorScaleAutoRange !== false) {
-            let minimum = Infinity;
-            let maximum = -Infinity;
-            finite.forEach(value => {
-                if (value < minimum) minimum = value;
-                if (value > maximum) maximum = value;
-            });
-            if (minimum === maximum) {
-                const padding = Math.max(1e-12, Math.abs(minimum) * 1e-6);
-                minimum -= padding;
-                maximum += padding;
-            }
-            this.state.display.atomColorScaleMin = minimum;
-            this.state.display.atomColorScaleMax = maximum;
-            const minInput = document.getElementById('atom-colorscale-min');
-            const maxInput = document.getElementById('atom-colorscale-max');
-            if (minInput) minInput.value = this.formatAtomColorScaleValue(minimum);
-            if (maxInput) maxInput.value = this.formatAtomColorScaleValue(maximum);
-            return { minimum, maximum };
+        if (!count) return null;
+        if (minimum === maximum) {
+            const padding = Math.max(1e-12, Math.abs(minimum) * 1e-6);
+            minimum -= padding;
+            maximum += padding;
         }
+        return { minimum, maximum, finiteValues: count };
+    }
+
+    storedAtomColorScaleRange() {
         const minimum = Number(this.state.display.atomColorScaleMin);
         const maximum = Number(this.state.display.atomColorScaleMax);
-        if (!Number.isFinite(minimum) || !Number.isFinite(maximum) || maximum <= minimum) {
+        if (!Number.isFinite(minimum) || !Number.isFinite(maximum) || maximum <= minimum) return null;
+        return { minimum, maximum };
+    }
+
+    setAtomColorScaleRange(range, mode, metadata = {}) {
+        if (!range || !Number.isFinite(range.minimum) || !Number.isFinite(range.maximum)) {
+            throw new Error('Color scale range contains no finite values.');
+        }
+        if (range.maximum <= range.minimum) {
             throw new Error('Color scale maximum must be greater than its minimum.');
         }
-        return { minimum, maximum };
+        const normalizedMode = this.normalizedAtomColorScaleRangeMode(mode);
+        Object.assign(this.state.display, {
+            atomColorScaleRangeMode: normalizedMode,
+            atomColorScaleAutoRange: normalizedMode !== 'manual',
+            atomColorScaleMin: Number(range.minimum),
+            atomColorScaleMax: Number(range.maximum)
+        });
+        this.atomColorScaleRuntime.rangeSignature = this.atomColorScaleRangeSignature(normalizedMode);
+        this.atomColorScaleRuntime.rangeMetadata = metadata;
+        this.syncAtomColorScaleControls();
+        return this.storedAtomColorScaleRange();
+    }
+
+    atomColorScaleRangeFromTrajectoryCache(selected) {
+        const runtime = this.atomColorScaleRuntime;
+        const fieldId = this.state.display.atomColorScaleField || 'position:z';
+        const cached = runtime.valueCaches.get(fieldId);
+        const frameCount = Number(this.state.atoms?.metadata?.frame_count || 1);
+        const atomCount = this.state.atoms?.positions?.length || 0;
+        if (!cached || cached.frames !== frameCount || cached.atoms !== atomCount) return null;
+        const scope = this.state.display.atomColorScaleScope === 'selected' ? 'selected' : 'all';
+        let minimum = Infinity;
+        let maximum = -Infinity;
+        let finiteValues = 0;
+        let framesWithValues = 0;
+        for (let frame = 0; frame < cached.frames; frame += 1) {
+            const offset = frame * atomCount;
+            let frameHasValue = false;
+            for (let index = 0; index < atomCount; index += 1) {
+                if (scope === 'selected' && !selected.has(index)) continue;
+                const value = Number(cached.values[offset + index]);
+                if (!Number.isFinite(value)) continue;
+                minimum = Math.min(minimum, value);
+                maximum = Math.max(maximum, value);
+                finiteValues += 1;
+                frameHasValue = true;
+            }
+            if (frameHasValue) framesWithValues += 1;
+        }
+        if (!finiteValues) return null;
+        if (minimum === maximum) {
+            const padding = Math.max(1e-12, Math.abs(minimum) * 1e-6);
+            minimum -= padding;
+            maximum += padding;
+        }
+        return {
+            minimum,
+            maximum,
+            finite_values: finiteValues,
+            frames_scanned: cached.frames,
+            frames_with_values: framesWithValues,
+            missing_frames: cached.frames - framesWithValues,
+            cache: 'browser'
+        };
+    }
+
+    async resolveAtomColorScaleRange(values, selected, { force = false } = {}) {
+        const mode = this.normalizedAtomColorScaleRangeMode(
+            this.state.display.atomColorScaleRangeMode
+                || (this.state.display.atomColorScaleAutoRange === false ? 'manual' : 'current')
+        );
+        const signature = this.atomColorScaleRangeSignature(mode);
+        const stored = this.storedAtomColorScaleRange();
+        if (!force && this.atomColorScaleRuntime.rangeSignature === signature && stored) {
+            return stored;
+        }
+        if (mode === 'manual') {
+            if (!stored) throw new Error('Manual color scale requires vmax greater than vmin.');
+            this.atomColorScaleRuntime.rangeSignature = signature;
+            return stored;
+        }
+        if (mode === 'current') {
+            const range = this.atomColorScaleFiniteRange(values, selected);
+            if (!range) {
+                if (this.state.display.atomColorScaleScope === 'selected') {
+                    return stored || { minimum: 0, maximum: 1 };
+                }
+                throw new Error('The selected property has no finite values in this frame.');
+            }
+            return this.setAtomColorScaleRange(range, 'current', {
+                frames_scanned: 1,
+                finite_values: range.finiteValues
+            });
+        }
+
+        if (this.state.display.atomColorScaleScope === 'selected' && !selected.size) {
+            throw new Error('Select at least one atom before scanning the trajectory color range.');
+        }
+        let cachedRange = this.atomColorScaleRuntime.rangeCaches.get(signature)
+            || this.atomColorScaleRangeFromTrajectoryCache(selected);
+        if (cachedRange) {
+            this.atomColorScaleRuntime.rangeCaches.set(signature, cachedRange);
+            return this.setAtomColorScaleRange(cachedRange, 'trajectory', cachedRange);
+        }
+        const indices = this.state.display.atomColorScaleScope === 'selected'
+            ? Array.from(selected).sort((a, b) => a - b)
+            : null;
+        const result = await this.api.fetchAtomScalarRange(
+            this.state.display.atomColorScaleField || 'position:z',
+            Number(this.state.atoms?.metadata?.current_frame || 0),
+            true,
+            indices
+        );
+        this.atomColorScaleRuntime.rangeCaches.set(signature, result);
+        return this.setAtomColorScaleRange(result, 'trajectory', result);
+    }
+
+    async fitAtomColorScaleRange(mode) {
+        if (!this.state.display.atomColorScaleEnabled) return;
+        const normalized = this.normalizedAtomColorScaleRangeMode(mode);
+        this.state.display.atomColorScaleRangeMode = normalized;
+        this.state.display.atomColorScaleAutoRange = normalized !== 'manual';
+        this.atomColorScaleRuntime.rangeSignature = '';
+        await this.updateAtomColorScale({ quiet: normalized !== 'trajectory', forceRange: true });
+        this.scheduleVisualHistoryCommit(`atom-colorscale-range-${normalized}`);
     }
 
     formatAtomColorScaleValue(value) {
@@ -901,7 +1189,7 @@ class VAseApp {
         scope?.classList.toggle('hidden', this.state.display.atomColorScaleScope !== 'selected');
     }
 
-    async updateAtomColorScale({ refreshCatalog = false, quiet = false } = {}) {
+    async updateAtomColorScale({ refreshCatalog = false, quiet = false, forceRange = false } = {}) {
         if (!this.state.display.atomColorScaleEnabled) {
             if (this.renderer.atomColorScaleColors !== null) {
                 this.renderer.setAtomColorScaleColors(null);
@@ -920,7 +1208,9 @@ class VAseApp {
         ]);
         if (token !== this.atomColorScaleRuntime.requestToken || !this.state.display.atomColorScaleEnabled) return;
         const selected = this.atomColorScaleSelection();
-        const range = this.atomColorScaleRange(values, selected);
+        const range = await this.resolveAtomColorScaleRange(values, selected, { force: forceRange });
+        if (token !== this.atomColorScaleRuntime.requestToken || !this.state.display.atomColorScaleEnabled) return;
+        const palette = this.atomColorScalePalette(lut);
         const scope = this.state.display.atomColorScaleScope === 'selected' ? 'selected' : 'all';
         const colors = new Array(values.length).fill(null);
         if (range) {
@@ -929,8 +1219,8 @@ class VAseApp {
                 const value = Number(rawValue);
                 if (!Number.isFinite(value) || (scope === 'selected' && !selected.has(index))) return;
                 const normalized = Math.max(0, Math.min(1, (value - range.minimum) / span));
-                const paletteIndex = Math.min(lut.colors.length - 1, Math.round(normalized * (lut.colors.length - 1)));
-                colors[index] = lut.colors[paletteIndex];
+                const paletteIndex = Math.min(palette.length - 1, Math.round(normalized * (palette.length - 1)));
+                colors[index] = palette[paletteIndex];
             });
         }
         this.renderer.setAtomColorScaleColors(colors);
@@ -939,7 +1229,7 @@ class VAseApp {
                 descriptor: this.atomColorScaleDescriptor(),
                 minimum: range.minimum,
                 maximum: range.maximum,
-                colors: lut.colors
+                colors: palette
             });
         } else {
             this.updateAtomColorScaleLegend(null);
@@ -947,8 +1237,15 @@ class VAseApp {
         const selectedNotice = scope === 'selected' && !selected.size
             ? ' Select atoms to apply it.'
             : '';
-        const cacheNotice = cache === 'trajectory' ? 'Trajectory values cached.' : 'Current frame ready.';
-        this.setAtomColorScaleStatus(`${cacheNotice}${selectedNotice}`);
+        const frameCount = Number(this.state.atoms?.metadata?.frame_count || 1);
+        const rangeMode = this.normalizedAtomColorScaleRangeMode(this.state.display.atomColorScaleRangeMode);
+        const rangeNotice = {
+            current: `Current-frame range locked across ${frameCount} frame${frameCount === 1 ? '' : 's'}.`,
+            trajectory: `Full-trajectory range locked across ${frameCount} frame${frameCount === 1 ? '' : 's'}.`,
+            manual: `Manual vmin/vmax locked across ${frameCount} frame${frameCount === 1 ? '' : 's'}.`
+        }[rangeMode];
+        const cacheNotice = cache === 'trajectory' ? ' Values cached.' : '';
+        this.setAtomColorScaleStatus(`${rangeNotice}${cacheNotice}${selectedNotice}`);
         this.syncAtomColorScaleControls();
     }
 
@@ -4441,11 +4738,12 @@ class VAseApp {
             clearSelection = false,
             preserveDisplay = true,
             preserveRdf = false,
-            resetTrajectoryIdentity = false
+            resetTrajectoryIdentity = false,
+            preserveColorScaleRange = false
         } = {}
     ) {
         this.clearCommensurateSupercellProposal({ keepStatus: true });
-        this.invalidateAtomColorScaleData();
+        this.invalidateAtomColorScaleData({ preserveRange: preserveColorScaleRange });
         if (!preserveRdf) this.invalidateRdfResult();
         const previousLatticeSignature = JSON.stringify({
             cell: this.state.atoms?.cell || null,
@@ -8523,7 +8821,13 @@ class VAseApp {
                     `/api/analysis/colormaps/${this.sessionId}`,
                     window.location.origin
                 ).href,
-                note: 'Catalogs are lazy; request them only when atom colorscale rendering is needed.'
+                rangeUrl: new URL(
+                    `/api/analysis/atom-scalars/range/${this.sessionId}`,
+                    window.location.origin
+                ).href,
+                rangeModes: ['current', 'trajectory', 'manual'],
+                gammaRange: [0.1, 5],
+                note: 'Catalogs and trajectory scans are lazy; every rendered frame shares one resolved vmin/vmax.'
             }
         };
     }
@@ -8755,11 +9059,17 @@ class VAseApp {
                 throw new Error(`Matplotlib colormap '${map}' is unavailable.`);
             }
             const scope = operation.scope === 'selected' ? 'selected' : 'all';
-            const autoRange = operation.autoRange !== false;
+            const rangeMode = ['current', 'trajectory', 'manual'].includes(operation.rangeMode)
+                ? operation.rangeMode
+                : (operation.autoRange === false ? 'manual' : 'current');
             const minimum = Number(operation.minimum ?? this.state.display.atomColorScaleMin ?? 0);
             const maximum = Number(operation.maximum ?? this.state.display.atomColorScaleMax ?? 1);
-            if (!autoRange && (!Number.isFinite(minimum) || !Number.isFinite(maximum) || maximum <= minimum)) {
+            const gamma = Number(operation.gamma ?? this.state.display.atomColorScaleGamma ?? 1);
+            if (rangeMode === 'manual' && (!Number.isFinite(minimum) || !Number.isFinite(maximum) || maximum <= minimum)) {
                 throw new Error('Manual atom colorscale requires maximum greater than minimum.');
+            }
+            if (!Number.isFinite(gamma) || gamma < 0.1 || gamma > 5) {
+                throw new Error('Atom colorscale gamma must be between 0.1 and 5.');
             }
             Object.assign(this.state.display, {
                 atomColorScaleEnabled: true,
@@ -8767,12 +9077,15 @@ class VAseApp {
                 atomColorScaleMap: map,
                 atomColorScaleReverse: operation.reverse === true,
                 atomColorScaleScope: scope,
-                atomColorScaleAutoRange: autoRange,
+                atomColorScaleAutoRange: rangeMode !== 'manual',
+                atomColorScaleRangeMode: rangeMode,
                 atomColorScaleMin: minimum,
-                atomColorScaleMax: maximum
+                atomColorScaleMax: maximum,
+                atomColorScaleGamma: gamma
             });
+            this.atomColorScaleRuntime.rangeSignature = '';
             this.syncAtomColorScaleControls();
-            await this.updateAtomColorScale({ quiet: true });
+            await this.updateAtomColorScale({ quiet: true, forceRange: rangeMode !== 'manual' });
             return;
         }
         if (name === 'wrap') {
@@ -10213,13 +10526,25 @@ class VAseApp {
             atomColorScaleMap: String(nextDisplay.atomColorScaleMap || 'viridis'),
             atomColorScaleReverse: Boolean(nextDisplay.atomColorScaleReverse),
             atomColorScaleScope: nextDisplay.atomColorScaleScope === 'selected' ? 'selected' : 'all',
-            atomColorScaleAutoRange: nextDisplay.atomColorScaleAutoRange !== false,
+            atomColorScaleAutoRange: ['current', 'trajectory'].includes(nextDisplay.atomColorScaleRangeMode)
+                || (
+                    !['current', 'trajectory', 'manual'].includes(nextDisplay.atomColorScaleRangeMode)
+                    && nextDisplay.atomColorScaleAutoRange !== false
+                ),
+            atomColorScaleRangeMode: ['current', 'trajectory', 'manual'].includes(
+                nextDisplay.atomColorScaleRangeMode
+            )
+                ? nextDisplay.atomColorScaleRangeMode
+                : (nextDisplay.atomColorScaleAutoRange === false ? 'manual' : 'current'),
             atomColorScaleMin: Number.isFinite(Number(nextDisplay.atomColorScaleMin))
                 ? Number(nextDisplay.atomColorScaleMin)
                 : 0,
             atomColorScaleMax: Number.isFinite(Number(nextDisplay.atomColorScaleMax))
                 ? Number(nextDisplay.atomColorScaleMax)
                 : 1,
+            atomColorScaleGamma: finiteClamped(
+                nextDisplay.atomColorScaleGamma, 1, 0.1, 5
+            ),
             imageFramingMode: nextDisplay.imageFramingMode === 'physical' ? 'physical' : 'viewport',
             atomicScalePixelsPerAngstrom: (() => {
                 const value = Number(nextDisplay.atomicScalePixelsPerAngstrom);
@@ -13720,7 +14045,7 @@ class VAseApp {
             await this.completeTrajectoryFrameUpdate();
             return;
         }
-        this.setAtomsData(data, { clearSelection: false });
+        this.setAtomsData(data, { clearSelection: false, preserveColorScaleRange: true });
     }
 
     queueFrameLoad(index, source = this.primaryTimelineSource()) {

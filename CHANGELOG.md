@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.14
+
+- Added explicit current-frame, full-trajectory, and manual per-atom
+  colorscale ranges with editable `vmin` and `vmax`; one resolved range now
+  remains fixed through playback and every supported export.
+- Added a bounded gamma contrast control that remaps the sampled colormap in
+  the browser without reloading scalar values or Matplotlib lookup tables.
+- Added a streaming full-trajectory extrema endpoint, current-frame-first
+  loading, a bounded 64-frame cache, and one-frame idle look-ahead so large
+  trajectories avoid a second complete frame-by-atom value allocation.
+- Extended the live semantic API, standalone HTML export, canonical Agent
+  Skill, user guide, and browser/backend regressions for trajectory-consistent
+  coloring.
+
 ## 0.1.13
 
 - Added lazy per-atom colorscales for Cartesian coordinates, stored force

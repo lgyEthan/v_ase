@@ -65,7 +65,8 @@ await applyCurrent({
     field: uncertainty.id,
     map: "viridis",
     scope: "selected",
-    autoRange: true
+    rangeMode: "trajectory",
+    gamma: 1.0
   }
 });
 const colored = await ai.describe({includePositions: false});
@@ -83,6 +84,14 @@ For stored forces use `force:norm`. Coordinates are always available as
 offer a norm and compact component views. Enabling may load one trajectory
 cache and one sampled color lookup table; disabling must restore the prior
 appearance without another scalar or colormap request.
+
+Use `rangeMode:"current"` for the fast default: it fits the active frame once
+and keeps the resulting range fixed as playback advances. Use
+`rangeMode:"trajectory"` when colors must be quantitatively comparable across
+every frame; v_ase scans finite extrema without retaining a second complete
+value cube. Use `rangeMode:"manual"` with explicit `minimum` and `maximum` for
+cross-document comparisons. Set `gamma` between `0.1` and `5.0` to change
+contrast without reloading scalar values or the Matplotlib lookup table.
 
 ## Publication Image
 

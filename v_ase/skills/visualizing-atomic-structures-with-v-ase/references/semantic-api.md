@@ -205,7 +205,7 @@ Pass `operation` as a name string or object:
 | `combine-volumetric` | `datasetIds`, `coefficients`, optional `name`, `precision` | Create a linear grid combination |
 | `remove-volumetric` | `datasetId` | Remove one grid from the document |
 | `calculate-rdf` | optional `cutoff`, `bins`, `pairMode`, `activePairs` | Calculate total and partial RDF curves |
-| `set-atom-colorscale` | optional `enabled`, `field`, `map`, `reverse`, `scope`, `autoRange`, `minimum`, `maximum` | Lazily color all or selected atoms by a discovered numeric per-atom value |
+| `set-atom-colorscale` | optional `enabled`, `field`, `map`, `reverse`, `scope`, `rangeMode`, `minimum`, `maximum`, `gamma` | Lazily color all or selected atoms by a discovered numeric per-atom value with a trajectory-consistent range |
 
 ## Per-Atom Colorscales
 
@@ -230,7 +230,8 @@ await ai.apply({
     field: uncertainty.id,
     map: "viridis",
     scope: "selected",
-    autoRange: true,
+    rangeMode: "trajectory",
+    gamma: 1.0,
     reverse: false
   }
 });
@@ -242,6 +243,22 @@ for compact vectors/tensors, individual components. The operation never asks
 an attached calculator to evaluate missing results. Disable it with
 `{"name":"set-atom-colorscale","enabled":false}` to restore the pre-existing
 atom appearance immediately.
+
+`rangeMode` has three exact meanings:
+
+- `"current"` resolves one finite `vmin`/`vmax` pair from the active frame and
+  locks it while the trajectory frame changes;
+- `"trajectory"` scans all frames and accumulates one global finite range
+  without constructing a complete frame-by-atom value cube;
+- `"manual"` requires finite `minimum` and `maximum` with
+  `maximum > minimum`.
+
+Use `capabilities().atomColorScale.rangeUrl` to inspect a current-frame or
+full-trajectory range before applying it. A selected-only scan uses the current
+selection on every frame and fails if it contains no finite value. `gamma` is a
+contrast transform in the valid range `0.1..5.0`; `1.0` is unchanged. Once a
+range is resolved, viewport playback and image, video, HTML, and geometry
+exports use that same range. Do not refit each frame during playback.
 
 Atom labels are exact user-facing identifiers, not fixed-width display
 abbreviations. Preserve the complete label returned by `describe`; do not

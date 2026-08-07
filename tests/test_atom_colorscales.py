@@ -12,7 +12,11 @@ from playwright.sync_api import sync_playwright
 from v_ase.atom_scalars import atom_scalar_catalog, atom_scalar_values
 from v_ase.colormaps import colormap_catalog, colormap_lut
 from v_ase.export import _cad_scene_data
-from v_ase.server import per_atom_scalar_catalog, per_atom_scalar_values
+from v_ase.server import (
+    per_atom_scalar_catalog,
+    per_atom_scalar_range,
+    per_atom_scalar_values,
+)
 from v_ase.session import EditorSession, sessions
 from v_ase.viewer import find_free_port, view
 
@@ -148,6 +152,64 @@ def test_scalar_api_marks_missing_frame_arrays_as_nan_instead_of_reusing_values(
     assert values[0] == 5.0
     assert np.isnan(values[1])
 
+    missing_response = asyncio.run(
+        per_atom_scalar_values(
+            session.session_id,
+            {"field_id": field_id, "frame_index": 1, "all_frames": False},
+        )
+    )
+    missing_values = np.frombuffer(missing_response.body, dtype=np.float32)
+    assert missing_response.headers["x-v-ase-cache"] == "frame"
+    assert missing_response.headers["x-v-ase-start-frame"] == "1"
+    assert missing_values.shape == (1,)
+    assert np.isnan(missing_values[0])
+
+
+def test_scalar_range_api_scans_trajectory_without_materializing_value_cube():
+    first = Atoms("H2", positions=[[0, 0, 0], [0, 0, 1]])
+    second = first.copy()
+    first.new_array("score", np.array([1.0, 2.0]))
+    second.new_array("score", np.array([3.0, 4.0]))
+    session = EditorSession(
+        "atom-colorscale-range",
+        first.copy(),
+        first.copy(),
+        original_frames=[first.copy(), second.copy()],
+        trajectory_frames=[first.copy(), second.copy()],
+    )
+    sessions[session.session_id] = session
+    field_id = _field(
+        atom_scalar_catalog(first),
+        source="array",
+        name="score",
+        reduction="scalar",
+    )["id"]
+
+    current = asyncio.run(per_atom_scalar_range(
+        session.session_id,
+        {"field_id": field_id, "frame_index": 0, "all_frames": False},
+    ))
+    trajectory = asyncio.run(per_atom_scalar_range(
+        session.session_id,
+        {"field_id": field_id, "frame_index": 0, "all_frames": True},
+    ))
+    selected = asyncio.run(per_atom_scalar_range(
+        session.session_id,
+        {
+            "field_id": field_id,
+            "frame_index": 0,
+            "all_frames": True,
+            "indices": [1],
+        },
+    ))
+
+    assert (current["minimum"], current["maximum"]) == (1.0, 2.0)
+    assert (trajectory["minimum"], trajectory["maximum"]) == (1.0, 4.0)
+    assert trajectory["frames_scanned"] == 2
+    assert trajectory["finite_values"] == 4
+    assert (selected["minimum"], selected["maximum"]) == (2.0, 4.0)
+    assert selected["scope"] == "selected"
+
 
 def test_cad_scene_uses_current_colorscale_without_overwriting_uncolored_atoms():
     atoms = Atoms("H2", positions=[[0, 0, 0], [0, 0, 1]], cell=[4, 4, 4], pbc=True)
@@ -184,9 +246,10 @@ def test_browser_colorscale_is_lazy_selection_scoped_frame_aware_and_reversible(
     second.arrays["mlip_uncertainty"][:] = [8.0, 9.0, 10.0]
     second.arrays["forces"][:] = [[4.0, 0, 0], [0, 5.0, 0], [0, 0, 6.0]]
     second.set_initial_charges([-0.4, 0.0, 0.4])
+    third = Atoms("H3", positions=first.positions + [0, 0, 4], cell=first.cell, pbc=True)
     port = find_free_port()
     editor = view(
-        [first, second],
+        [first, second, third],
         notebook=True,
         block=False,
         port=port,
@@ -201,7 +264,14 @@ def test_browser_colorscale_is_lazy_selection_scoped_frame_aware_and_reversible(
                 pytest.skip(f"Playwright Chromium is not installed: {exc}")
             page = browser.new_page(viewport={"width": 1440, "height": 900})
             requests = []
-            page.on("request", lambda request: requests.append(request.url))
+            scalar_value_payloads = []
+
+            def track_request(request):
+                requests.append(request.url)
+                if "/api/analysis/atom-scalars/values/" in request.url:
+                    scalar_value_payloads.append(request.post_data_json)
+
+            page.on("request", track_request)
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
 
@@ -237,14 +307,16 @@ def test_browser_colorscale_is_lazy_selection_scoped_frame_aware_and_reversible(
             assert page.locator("#atom-colorscale-map option").count() > 100
 
             page.select_option("#atom-colorscale-field", "array::mlip_uncertainty::scalar")
-            page.evaluate("""() => {
-                const input = document.getElementById('chk-atom-colorscale-auto-range');
-                input.checked = false;
-                input.dispatchEvent(new Event('change', {bubbles: true}));
-            }""")
-            page.fill("#atom-colorscale-min", "0")
-            page.fill("#atom-colorscale-max", "10")
-            page.locator("#atom-colorscale-max").press("Tab")
+            page.wait_for_function("""() => (
+                window.__ASE_APP__.state.display.atomColorScaleRangeMode === 'current'
+                && window.__ASE_APP__.state.display.atomColorScaleMin === 0
+                && window.__ASE_APP__.state.display.atomColorScaleMax === 2
+            )""")
+            current_range = page.evaluate("""() => [
+                window.__ASE_APP__.state.display.atomColorScaleMin,
+                window.__ASE_APP__.state.display.atomColorScaleMax
+            ]""")
+            assert current_range == [0, 2]
             page.evaluate("window.__ASE_APP__.updateAtomColorScale({quiet:true})")
             first_frame_colors = page.evaluate(
                 "window.__ASE_APP__.renderer.atomColorScaleColors"
@@ -257,6 +329,66 @@ def test_browser_colorscale_is_lazy_selection_scoped_frame_aware_and_reversible(
                 "window.__ASE_APP__.renderer.atomColorScaleColors"
             )
             assert second_frame_colors != first_frame_colors
+            assert page.evaluate("""() => [
+                window.__ASE_APP__.state.display.atomColorScaleMin,
+                window.__ASE_APP__.state.display.atomColorScaleMax
+            ]""") == [0, 2]
+
+            page.click("#btn-atom-colorscale-fit-trajectory")
+            page.wait_for_function("""() => (
+                window.__ASE_APP__.state.display.atomColorScaleRangeMode === 'trajectory'
+                && window.__ASE_APP__.state.display.atomColorScaleMin === 0
+                && window.__ASE_APP__.state.display.atomColorScaleMax === 10
+            )""")
+            assert page.locator("#atom-colorscale-range-source").inner_text() == "FULL TRAJECTORY"
+            assert scalar_value_payloads
+            assert all(payload["all_frames"] is False for payload in scalar_value_payloads)
+
+            page.evaluate("window.__ASE_APP__.loadFrame(2)")
+            page.wait_for_function("window.__ASE_APP__.state.atoms.metadata.current_frame === 2")
+            page.wait_for_function("window.__ASE_APP__.renderer.atomColorScaleColors?.length === 3")
+            assert page.evaluate(
+                "window.__ASE_APP__.state.display.atomColorScaleField"
+            ) == "array::mlip_uncertainty::scalar"
+            assert page.evaluate(
+                "window.__ASE_APP__.renderer.atomColorScaleColors"
+            ) == [None, None, None]
+            assert page.evaluate("""() => [
+                window.__ASE_APP__.state.display.atomColorScaleMin,
+                window.__ASE_APP__.state.display.atomColorScaleMax
+            ]""") == [0, 10]
+
+            page.evaluate("window.__ASE_APP__.loadFrame(1)")
+            page.wait_for_function("window.__ASE_APP__.state.atoms.metadata.current_frame === 1")
+            page.wait_for_function(
+                "window.__ASE_APP__.renderer.atomColorScaleColors?.some(Boolean)"
+            )
+
+            colors_before_gamma = page.evaluate(
+                "window.__ASE_APP__.renderer.atomColorScaleColors"
+            )
+            page.fill("#atom-colorscale-gamma", "2")
+            page.locator("#atom-colorscale-gamma").dispatch_event("input")
+            page.wait_for_function(
+                "window.__ASE_APP__.state.display.atomColorScaleGamma === 2"
+            )
+            page.wait_for_timeout(50)
+            colors_after_gamma = page.evaluate(
+                "window.__ASE_APP__.renderer.atomColorScaleColors"
+            )
+            assert colors_after_gamma != colors_before_gamma
+
+            page.fill("#atom-colorscale-min", "-1")
+            page.locator("#atom-colorscale-min").press("Tab")
+            page.fill("#atom-colorscale-max", "12")
+            page.locator("#atom-colorscale-max").press("Tab")
+            page.wait_for_function(
+                "window.__ASE_APP__.state.display.atomColorScaleRangeMode === 'manual'"
+            )
+            assert page.evaluate("""() => [
+                window.__ASE_APP__.state.display.atomColorScaleMin,
+                window.__ASE_APP__.state.display.atomColorScaleMax
+            ]""") == [-1, 12]
 
             page.evaluate("""() => {
                 const app = window.__ASE_APP__;
@@ -306,6 +438,10 @@ def test_browser_colorscale_is_lazy_selection_scoped_frame_aware_and_reversible(
             assert capabilities["atomColorScale"]["provider"] == "Matplotlib"
             assert capabilities["atomColorScale"]["scalarCatalogUrl"]
             assert capabilities["atomColorScale"]["colormapCatalogUrl"]
+            assert capabilities["atomColorScale"]["rangeUrl"]
+            assert capabilities["atomColorScale"]["rangeModes"] == [
+                "current", "trajectory", "manual"
+            ]
             assert "set-atom-colorscale" in capabilities["operations"]
             page.evaluate("""async () => await window.v_aseAI.apply({
                 operation: {
@@ -314,12 +450,19 @@ def test_browser_colorscale_is_lazy_selection_scoped_frame_aware_and_reversible(
                     field: 'position:z',
                     map: 'plasma',
                     scope: 'all',
-                    autoRange: true
+                    rangeMode: 'trajectory',
+                    gamma: 1.5
                 }
             })""")
             page.wait_for_function(
                 "window.__ASE_APP__.renderer.atomColorScaleColors?.every(Boolean)"
             )
+            assert page.evaluate(
+                "window.__ASE_APP__.state.display.atomColorScaleRangeMode"
+            ) == "trajectory"
+            assert page.evaluate(
+                "window.__ASE_APP__.state.display.atomColorScaleGamma"
+            ) == 1.5
             page.evaluate("""async () => await window.v_aseAI.apply({
                 operation: {name: 'set-atom-colorscale', enabled: false}
             })""")

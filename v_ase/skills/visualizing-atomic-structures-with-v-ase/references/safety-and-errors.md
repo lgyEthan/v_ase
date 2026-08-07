@@ -118,6 +118,8 @@ test edit and a new filename for output.
 | per-atom colorscale field is unknown | An agent guessed an array/result name or the active frame lacks it | Read `capabilities().atomColorScale.scalarCatalogUrl`, report the available labels, and retry with an exact field ID |
 | per-atom colorscale has no selected values | `scope:"selected"` was used without a selection or every selected value is non-finite | Select valid atoms or use `scope:"all"`; do not invent replacement values |
 | per-atom colorscale range is invalid | Manual maximum is not greater than minimum | Inspect finite values, choose a strictly increasing range, and retry |
+| per-atom trajectory range has no finite values | The field is absent/non-finite in every scanned frame or the selected subset is empty there | Inspect the scalar catalog and selection, then choose another exact field or scope; never substitute zero silently |
+| colorscale contrast is invalid | `gamma` is outside `0.1..5.0` or is not finite | Use a finite value in the documented range; use `1.0` for unchanged contrast |
 | requested colormap is unavailable | A map name was guessed or differs across Matplotlib versions | Read `capabilities().atomColorScale.colormapCatalogUrl` and use an exact registered name |
 
 Do not suppress an error and report success. Return the specific failed command,

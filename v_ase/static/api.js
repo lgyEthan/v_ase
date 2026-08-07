@@ -1044,7 +1044,7 @@ export class ASEApi {
         return await this.request(`/api/analysis/atom-scalars/catalog/{session_id}?${query.toString()}`);
     }
 
-    async fetchAtomScalarValues(fieldId, frameIndex = this.currentFrameIndex(), allFrames = true) {
+    async fetchAtomScalarValues(fieldId, frameIndex = this.currentFrameIndex(), allFrames = false) {
         if (this.mock) {
             const atoms = this.mockState.atoms;
             let source;
@@ -1096,6 +1096,45 @@ export class ASEApi {
             throw new Error('Per-atom scalar cache shape does not match the received binary payload.');
         }
         return { frames, atoms, startFrame, cache, values };
+    }
+
+    async fetchAtomScalarRange(
+        fieldId,
+        frameIndex = this.currentFrameIndex(),
+        allFrames = false,
+        indices = null
+    ) {
+        if (this.mock) {
+            const result = await this.fetchAtomScalarValues(fieldId, frameIndex, false);
+            const requested = Array.isArray(indices)
+                ? indices.map(index => result.values[index]).filter(Number.isFinite)
+                : Array.from(result.values).filter(Number.isFinite);
+            if (!requested.length) throw new Error('The selected per-atom property has no finite values.');
+            let minimum = Math.min(...requested);
+            let maximum = Math.max(...requested);
+            if (minimum === maximum) {
+                const padding = Math.max(1e-12, Math.abs(minimum) * 1e-6);
+                minimum -= padding;
+                maximum += padding;
+            }
+            return {
+                field_id: fieldId,
+                scope: Array.isArray(indices) ? 'selected' : 'all',
+                range_mode: allFrames ? 'trajectory' : 'current',
+                minimum,
+                maximum,
+                finite_values: requested.length,
+                frames_scanned: 1,
+                frames_with_values: 1,
+                missing_frames: 0
+            };
+        }
+        return await this.jsonPost('/api/analysis/atom-scalars/range/{session_id}', {
+            field_id: fieldId,
+            frame_index: Math.max(0, parseInt(frameIndex, 10) || 0),
+            all_frames: Boolean(allFrames),
+            indices: Array.isArray(indices) ? indices.map(Number) : null
+        });
     }
 
     async fetchColormapCatalog() {

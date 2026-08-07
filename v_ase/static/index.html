@@ -52,12 +52,12 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.13&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.14&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.1.13';
+            : '/static/vendor/three.module.js?v=0.1.14';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -116,7 +116,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.1.13</span>
+            <span class="version">0.1.14</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -763,20 +763,31 @@
                             <span>Reverse</span>
                             <input id="chk-atom-colorscale-reverse" type="checkbox">
                         </label>
-                        <label for="chk-atom-colorscale-auto-range">
-                            <span>Auto range</span>
-                            <input id="chk-atom-colorscale-auto-range" type="checkbox" checked>
-                        </label>
+                        <div class="atom-colorscale-range-source" aria-label="Active color range source">
+                            <span>Range</span>
+                            <strong id="atom-colorscale-range-source">CURRENT FRAME</strong>
+                        </div>
                     </div>
-                    <div id="atom-colorscale-range" class="atom-colorscale-range is-auto">
+                    <div class="atom-colorscale-range-actions">
+                        <button id="btn-atom-colorscale-fit-current" type="button">Fit current frame</button>
+                        <button id="btn-atom-colorscale-fit-trajectory" type="button">Scan trajectory</button>
+                    </div>
+                    <div id="atom-colorscale-range" class="atom-colorscale-range">
                         <label for="atom-colorscale-min">
-                            <span>Minimum</span>
-                            <input id="atom-colorscale-min" type="number" step="any" value="0" disabled>
+                            <span>vmin</span>
+                            <input id="atom-colorscale-min" type="number" step="any" value="0">
                         </label>
                         <label for="atom-colorscale-max">
-                            <span>Maximum</span>
-                            <input id="atom-colorscale-max" type="number" step="any" value="1" disabled>
+                            <span>vmax</span>
+                            <input id="atom-colorscale-max" type="number" step="any" value="1">
                         </label>
+                    </div>
+                    <div class="atom-colorscale-contrast">
+                        <div class="range-head">
+                            <label for="atom-colorscale-gamma">Contrast (gamma)</label>
+                            <output id="atom-colorscale-gamma-value">1.00</output>
+                        </div>
+                        <input id="atom-colorscale-gamma" type="range" min="0.1" max="5" step="0.05" value="1">
                     </div>
                     <p id="atom-colorscale-status" class="panel-note atom-colorscale-status">
                         Values load only while this option is enabled.
@@ -1402,7 +1413,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.1.13&rev=1';
+            : './static/main.js?v=0.1.14&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

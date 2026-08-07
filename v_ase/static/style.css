@@ -2488,7 +2488,8 @@ body.inspector-wide #inspector #appearance-table-body {
 
 .atom-colorscale-field,
 .atom-colorscale-grid > label,
-.atom-colorscale-range > label {
+.atom-colorscale-range > label,
+.atom-colorscale-contrast {
     min-width: 0;
     display: grid;
     gap: 4px;
@@ -2530,8 +2531,77 @@ body.inspector-wide #inspector #appearance-table-body {
     background: var(--field);
 }
 
-.atom-colorscale-range.is-auto {
-    opacity: 0.52;
+.atom-colorscale-range-source {
+    min-width: 0;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0 8px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--field);
+}
+
+.atom-colorscale-range-source > span {
+    color: var(--text-soft);
+    font-size: 0.66rem;
+}
+
+.atom-colorscale-range-source > strong {
+    overflow: hidden;
+    color: var(--teal);
+    font-size: 0.58rem;
+    font-weight: 760;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.atom-colorscale-range-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.atom-colorscale-range-actions button {
+    min-width: 0;
+    min-height: 32px;
+    padding: 0 8px;
+    overflow: hidden;
+    border: 1px solid var(--line-strong);
+    border-radius: 4px;
+    color: var(--text-soft);
+    background: var(--field);
+    font-size: 0.62rem;
+    font-weight: 680;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.atom-colorscale-range-actions button:hover:not(:disabled),
+.atom-colorscale-range-actions button.is-active {
+    border-color: var(--teal-border);
+    color: var(--text);
+    background: var(--teal-soft);
+}
+
+.atom-colorscale-range-actions button:disabled {
+    cursor: default;
+    opacity: 0.42;
+}
+
+.atom-colorscale-contrast {
+    padding-top: 2px;
+}
+
+.atom-colorscale-contrast .range-head {
+    margin: 0;
+}
+
+.atom-colorscale-contrast output {
+    color: var(--teal);
+    font-variant-numeric: tabular-nums;
 }
 
 .atom-colorscale-status {
