@@ -115,6 +115,10 @@ test edit and a new filename for output.
 | RDF periodic image span is large | The requested radius reaches several copies of the primitive cell | Confirm the requested cutoff, allow the complete search to finish, and report `periodicImageSpan`; do not silently truncate it |
 | RDF active mode has no pair curves | No pairwise bond labels are enabled | Choose `pairMode:"all"` or provide `activePairs` explicitly |
 | personal-default restore asks for confirmation | The operation deletes the saved OS-user preference | Obtain explicit human approval, then retry `restore-app-visual-defaults` with `confirm:true` |
+| per-atom colorscale field is unknown | An agent guessed an array/result name or the active frame lacks it | Read `capabilities().atomColorScale.scalarCatalogUrl`, report the available labels, and retry with an exact field ID |
+| per-atom colorscale has no selected values | `scope:"selected"` was used without a selection or every selected value is non-finite | Select valid atoms or use `scope:"all"`; do not invent replacement values |
+| per-atom colorscale range is invalid | Manual maximum is not greater than minimum | Inspect finite values, choose a strictly increasing range, and retry |
+| requested colormap is unavailable | A map name was guessed or differs across Matplotlib versions | Read `capabilities().atomColorScale.colormapCatalogUrl` and use an exact registered name |
 
 Do not suppress an error and report success. Return the specific failed command,
 message, and the last verified state.

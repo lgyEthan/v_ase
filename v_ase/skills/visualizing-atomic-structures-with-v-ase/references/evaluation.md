@@ -154,6 +154,12 @@ Run all scenarios, not only static document checks:
      of applying one frame or dropping grids;
 6. **Appearance**
    - change radius, color, visibility, and material;
+   - discover and render coordinate, stored force-norm, scalar-array,
+     vector-component, vector-norm, charge, magnetic-moment, and MLIP-specific
+     per-atom colorscales; test all-atoms and selected-only scope;
+   - verify a trajectory refreshes frame values, standalone HTML preserves the
+     active map, and disabling the feature performs no scalar/LUT request and
+     restores the prior label/per-atom colors immediately;
    - verify standard, metal, rubber, 2D, and 3D;
    - undo and redo a label color, radius, and material change; verify both
      semantic display state and rendered pixels, with one history step per

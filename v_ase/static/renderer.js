@@ -619,6 +619,7 @@ export class ASERenderer {
         this.bondNeighborCache = null;
         this.needsInitialCameraFit = true;
         this.customColors = {};
+        this.atomColorScaleColors = null;
         this.displayOptions = {
             showCell: true,
             showAxes: true,
@@ -1441,6 +1442,8 @@ export class ASERenderer {
     }
 
     atomVisualColor(index, explicitColor = null) {
+        const scaleColor = this.atomColorScaleColors?.[index];
+        if (this.validHexColor(scaleColor)) return scaleColor;
         const label = this.atomsData?.symbols?.[index];
         const labelColor = this.displayOptions?.labelColors?.[label];
         if (this.validHexColor(labelColor)) return labelColor;
@@ -3380,6 +3383,53 @@ export class ASERenderer {
             mesh.visible = this.atomLabelVisible(index);
             mesh.userData.materialPreset = materialPreset;
         });
+        this.requestRender();
+    }
+
+    refreshSupercellAtomColors() {
+        if (!this.useInstancedAtoms || !this.supercellGroup?.children?.length) return false;
+        let changed = false;
+        this.supercellGroup.children.forEach(mesh => {
+            const indices = mesh.userData?.atomIndices;
+            const shifts = mesh.userData?.shifts;
+            if (!mesh.isInstancedMesh || !Array.isArray(indices) || !Array.isArray(shifts)) return;
+            let instanceId = 0;
+            shifts.forEach(() => {
+                indices.forEach(index => {
+                    mesh.setColorAt(
+                        instanceId,
+                        this.fixedAdjustedColor(
+                            this.atomVisualColor(index, this.customColors[index]),
+                            Boolean(mesh.userData.fixed),
+                            mesh.userData.materialPreset || this.atomMaterialPreset(index)
+                        )
+                    );
+                    instanceId += 1;
+                });
+            });
+            if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+            changed = true;
+        });
+        return changed;
+    }
+
+    setAtomColorScaleColors(colors = null) {
+        const atomCount = this.atomsData?.symbols?.length || 0;
+        this.atomColorScaleColors = Array.isArray(colors) && colors.length === atomCount
+            ? [...colors]
+            : null;
+        if (!this.atomsData) return;
+        this.refreshAtomAppearance();
+        const hasReplicas = (this.displayOptions.supercell || [1, 1, 1]).some(value => value > 1);
+        if (hasReplicas) {
+            if (!this.refreshSupercellAtomColors()) this.rebuildSupercell();
+            else if (this.displayOptions.showBonds && this.displayOptions.bondColorMode === 'split') {
+                this.rebuildSupercellBonds();
+            }
+        }
+        if (this.displayOptions.showBonds && this.displayOptions.bondColorMode === 'split') {
+            this.rebuildBonds();
+        }
         this.requestRender();
     }
 

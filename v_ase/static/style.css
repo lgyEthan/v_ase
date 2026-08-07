@@ -116,6 +116,9 @@
     --export-preview-inner: rgba(216, 255, 247, 0.13);
     --export-preview-shadow: rgba(0, 0, 0, 0.22);
     --export-preview-caption: rgba(15, 20, 21, 0.94);
+    --colorscale-legend-text: #f1f4ef;
+    --colorscale-legend-muted: #c3cac6;
+    --colorscale-legend-accent: #8ae5d3;
 
     --header-height: 58px;
     --inspector-width: 416px;
@@ -2443,6 +2446,103 @@ body.inspector-wide #inspector #appearance-table-body {
     background: var(--surface-subtle);
 }
 
+.atom-colorscale-card {
+    margin: 10px 0 12px;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface-subtle);
+}
+
+.atom-colorscale-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+}
+
+.atom-colorscale-title-row > div {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+}
+
+.atom-colorscale-title-row strong {
+    font-size: 0.74rem;
+    font-weight: 720;
+}
+
+.atom-colorscale-title-row span,
+.atom-colorscale-status {
+    color: var(--muted);
+    font-size: 0.64rem;
+}
+
+.atom-colorscale-controls {
+    display: grid;
+    gap: 9px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+}
+
+.atom-colorscale-field,
+.atom-colorscale-grid > label,
+.atom-colorscale-range > label {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+}
+
+.atom-colorscale-field > span,
+.atom-colorscale-grid label > span,
+.atom-colorscale-range label > span {
+    color: var(--text-soft);
+    font-size: 0.65rem;
+}
+
+.atom-colorscale-grid,
+.atom-colorscale-range,
+.atom-colorscale-toggle-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.atom-colorscale-grid select,
+.atom-colorscale-field select,
+.atom-colorscale-range input {
+    width: 100%;
+    min-width: 0;
+}
+
+.atom-colorscale-toggle-grid > label {
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0 8px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    color: var(--text-soft);
+    font-size: 0.66rem;
+    background: var(--field);
+}
+
+.atom-colorscale-range.is-auto {
+    opacity: 0.52;
+}
+
+.atom-colorscale-status {
+    min-height: 16px;
+    margin: 0;
+}
+
+.atom-colorscale-status.is-error {
+    color: var(--red);
+}
+
 .selected-appearance-head {
     min-height: 22px;
     display: flex;
@@ -2680,6 +2780,59 @@ body.resizing-pairwise-column * {
     height: 104px;
     pointer-events: none;
     filter: var(--shadow-gizmo);
+}
+
+.atom-colorscale-legend {
+    position: fixed;
+    z-index: 24;
+    top: calc(var(--header-height) + 18px);
+    left: 18px;
+    width: 190px;
+    padding: 9px 10px 8px;
+    border: 1px solid var(--line-strong);
+    border-radius: 5px;
+    color: var(--colorscale-legend-text);
+    background: var(--hud-glass);
+    box-shadow: var(--shadow-sm);
+    pointer-events: none;
+}
+
+.atom-colorscale-legend-head,
+.atom-colorscale-legend-range {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.atom-colorscale-legend-head strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.68rem;
+    font-weight: 720;
+}
+
+.atom-colorscale-legend-head span,
+.atom-colorscale-legend-range,
+.atom-colorscale-legend-scope {
+    color: var(--colorscale-legend-muted);
+    font-family: var(--font-mono);
+    font-size: 0.58rem;
+}
+
+.atom-colorscale-legend-gradient {
+    height: 9px;
+    margin: 7px 0 5px;
+    border: 1px solid var(--line-strong);
+    border-radius: 2px;
+}
+
+.atom-colorscale-legend-scope {
+    display: block;
+    margin-top: 5px;
+    color: var(--colorscale-legend-accent);
 }
 
 .orientation-widget svg {

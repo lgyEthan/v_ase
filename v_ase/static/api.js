@@ -260,6 +260,52 @@ export class ASEApi {
         if (path.includes('/api/session/active')) {
             return { session_id: 'mock-session', count: 1 };
         }
+        if (path.includes('/api/analysis/atom-scalars/catalog/')) {
+            return {
+                frame_index: 0,
+                atom_count: this.mockState.atoms.positions.length,
+                fields: [
+                    { id: 'position:x', label: 'x coordinate', group: 'Position', source: 'position', name: 'positions', reduction: 'component', component: 0, unit: 'A' },
+                    { id: 'position:y', label: 'y coordinate', group: 'Position', source: 'position', name: 'positions', reduction: 'component', component: 1, unit: 'A' },
+                    { id: 'position:z', label: 'z coordinate', group: 'Position', source: 'position', name: 'positions', reduction: 'component', component: 2, unit: 'A' },
+                    { id: 'force:norm', label: 'Force |norm|', group: 'Calculator results', source: 'force', name: 'forces', reduction: 'norm', component: null, unit: 'eV/A' },
+                    { id: 'array::tags::scalar', label: 'tags', group: 'ASE arrays', source: 'array', name: 'tags', reduction: 'scalar', component: null, unit: '' },
+                    { id: 'array::initial_charges::scalar', label: 'initial_charges', group: 'ASE arrays', source: 'array', name: 'initial_charges', reduction: 'scalar', component: null, unit: 'e' },
+                    { id: 'array::initial_magmoms::scalar', label: 'initial_magmoms', group: 'ASE arrays', source: 'array', name: 'initial_magmoms', reduction: 'scalar', component: null, unit: 'mu_B' }
+                ]
+            };
+        }
+        if (path.includes('/api/analysis/colormaps/')) {
+            if (String(options.method || 'GET').toUpperCase() === 'POST') {
+                const payload = JSON.parse(options.body || '{}');
+                const count = Math.max(16, Math.min(2048, parseInt(payload.samples || 256, 10)));
+                const endpoints = payload.name === 'coolwarm'
+                    ? ['#3B4CC0', '#F7F7F7', '#B40426']
+                    : ['#440154', '#21918C', '#FDE725'];
+                const colors = Array.from({ length: count }, (_, index) => {
+                    const t = count <= 1 ? 0 : index / (count - 1);
+                    const segment = Math.min(endpoints.length - 2, Math.floor(t * (endpoints.length - 1)));
+                    const local = t * (endpoints.length - 1) - segment;
+                    const parse = hex => [1, 3, 5].map(offset => parseInt(hex.slice(offset, offset + 2), 16));
+                    const a = parse(endpoints[segment]);
+                    const b = parse(endpoints[segment + 1]);
+                    const rgb = a.map((value, channel) => Math.round(value + (b[channel] - value) * local));
+                    return `#${rgb.map(value => value.toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+                });
+                if (payload.reverse) colors.reverse();
+                return { provider: 'Matplotlib', name: payload.name || 'viridis', reverse: Boolean(payload.reverse), samples: count, colors };
+            }
+            return {
+                provider: 'Matplotlib',
+                default: 'viridis',
+                maps: [
+                    { name: 'viridis', category: 'Perceptually uniform sequential', reversed_variant: false },
+                    { name: 'plasma', category: 'Perceptually uniform sequential', reversed_variant: false },
+                    { name: 'coolwarm', category: 'Diverging', reversed_variant: false },
+                    { name: 'tab20', category: 'Qualitative', reversed_variant: false }
+                ]
+            };
+        }
         if (path.includes('/api/atoms/')) {
             return await this.mockResponse(this.mockState.atoms);
         }
@@ -991,6 +1037,77 @@ export class ASEApi {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(this.framePayload(options))
         }, { expect: 'blob' });
+    }
+
+    async fetchAtomScalarCatalog(frameIndex = this.currentFrameIndex()) {
+        const query = new URLSearchParams({ frame_index: `${Math.max(0, parseInt(frameIndex, 10) || 0)}` });
+        return await this.request(`/api/analysis/atom-scalars/catalog/{session_id}?${query.toString()}`);
+    }
+
+    async fetchAtomScalarValues(fieldId, frameIndex = this.currentFrameIndex(), allFrames = true) {
+        if (this.mock) {
+            const atoms = this.mockState.atoms;
+            let source;
+            if (fieldId === 'force:norm') {
+                source = (atoms.forces || []).map(force => Math.hypot(...force.map(Number)));
+            } else if (fieldId === 'array::tags::scalar') {
+                source = atoms.tags || [];
+            } else if (fieldId === 'array::initial_charges::scalar') {
+                source = atoms.charges || [];
+            } else if (fieldId === 'array::initial_magmoms::scalar') {
+                source = atoms.magmoms || [];
+            } else {
+                throw new Error(`Mock per-atom field is unavailable: ${fieldId}`);
+            }
+            return {
+                frames: 1,
+                atoms: atoms.positions.length,
+                startFrame: Math.max(0, parseInt(frameIndex, 10) || 0),
+                cache: 'frame',
+                values: Float32Array.from(source, Number)
+            };
+        }
+        const apiPath = this.sessionPath('/api/analysis/atom-scalars/values/{session_id}');
+        const res = await fetch(new URL(apiPath, this.baseUrl), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                field_id: fieldId,
+                frame_index: Math.max(0, parseInt(frameIndex, 10) || 0),
+                all_frames: Boolean(allFrames)
+            })
+        });
+        if (!res.ok) {
+            let message = '';
+            try {
+                const data = await res.json();
+                message = data.detail || JSON.stringify(data);
+            } catch {
+                message = await res.text().catch(() => '');
+            }
+            throw new Error(message || `Per-atom scalar request failed (${res.status})`);
+        }
+        const frames = parseInt(res.headers.get('X-V-Ase-Frames') || '0', 10);
+        const atoms = parseInt(res.headers.get('X-V-Ase-Atoms') || '0', 10);
+        const startFrame = parseInt(res.headers.get('X-V-Ase-Start-Frame') || '0', 10);
+        const cache = res.headers.get('X-V-Ase-Cache') || 'frame';
+        const values = new Float32Array(await res.arrayBuffer());
+        if (!frames || !atoms || values.length !== frames * atoms) {
+            throw new Error('Per-atom scalar cache shape does not match the received binary payload.');
+        }
+        return { frames, atoms, startFrame, cache, values };
+    }
+
+    async fetchColormapCatalog() {
+        return await this.request('/api/analysis/colormaps/{session_id}');
+    }
+
+    async fetchColormapLut(name = 'viridis', reverse = false, samples = 256) {
+        return await this.jsonPost('/api/analysis/colormaps/{session_id}', {
+            name,
+            reverse: Boolean(reverse),
+            samples: Math.max(16, Math.min(2048, parseInt(samples, 10) || 256))
+        });
     }
 
     async setFrame(index) {

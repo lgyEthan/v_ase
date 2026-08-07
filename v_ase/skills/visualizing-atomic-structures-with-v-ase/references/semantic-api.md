@@ -205,6 +205,43 @@ Pass `operation` as a name string or object:
 | `combine-volumetric` | `datasetIds`, `coefficients`, optional `name`, `precision` | Create a linear grid combination |
 | `remove-volumetric` | `datasetId` | Remove one grid from the document |
 | `calculate-rdf` | optional `cutoff`, `bins`, `pairMode`, `activePairs` | Calculate total and partial RDF curves |
+| `set-atom-colorscale` | optional `enabled`, `field`, `map`, `reverse`, `scope`, `autoRange`, `minimum`, `maximum` | Lazily color all or selected atoms by a discovered numeric per-atom value |
+
+## Per-Atom Colorscales
+
+Do not guess MLIP or calculator field names. Read
+`capabilities().atomColorScale.scalarCatalogUrl` to discover the current
+frame's field IDs, labels, reductions, components, and units. Read
+`colormapCatalogUrl` for every registered Matplotlib map. Catalog access is
+explicitly lazy so an ordinary view incurs no colorscale work.
+
+```javascript
+const capabilities = await ai.capabilities();
+const scalarCatalog = await fetch(capabilities.atomColorScale.scalarCatalogUrl)
+  .then(response => response.json());
+const uncertainty = scalarCatalog.fields.find(field => (
+  field.source === "array" && field.name === "mlip_uncertainty"
+));
+await ai.apply({
+  selection: {clear: true, indices: [0, 1, 2, 3]},
+  operation: {
+    name: "set-atom-colorscale",
+    enabled: true,
+    field: uncertainty.id,
+    map: "viridis",
+    scope: "selected",
+    autoRange: true,
+    reverse: false
+  }
+});
+```
+
+Coordinates use `position:x`, `position:y`, and `position:z`; stored force
+magnitude uses `force:norm`. Numeric multidimensional arrays expose a norm and,
+for compact vectors/tensors, individual components. The operation never asks
+an attached calculator to evaluate missing results. Disable it with
+`{"name":"set-atom-colorscale","enabled":false}` to restore the pre-existing
+atom appearance immediately.
 
 Atom labels are exact user-facing identifiers, not fixed-width display
 abbreviations. Preserve the complete label returned by `describe`; do not

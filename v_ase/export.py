@@ -684,6 +684,99 @@ def _safe_export_stem(value: Any, fallback: str = "v_ase_view") -> str:
     return source or fallback
 
 
+def _html_atom_color_scale_frames(
+    frame_objects,
+    settings: Dict[str, Any],
+    selection: list[int],
+) -> list[dict[str, Any] | None]:
+    """Freeze an active browser colorscale into standalone frame metadata.
+
+    The optional Matplotlib import and scalar extraction are deliberately kept
+    behind the enabled flag. Ordinary HTML exports therefore retain the same
+    cost and dependency path as before atom colorscales were introduced.
+    """
+    display = settings.get("display") if isinstance(settings.get("display"), dict) else {}
+    if display.get("atomColorScaleEnabled") is not True:
+        return [None] * len(frame_objects)
+
+    from .atom_scalars import atom_scalar_catalog, atom_scalar_values
+    from .colormaps import colormap_lut
+
+    field_id = str(display.get("atomColorScaleField") or "position:z")
+    map_name = str(display.get("atomColorScaleMap") or "viridis")
+    reverse = display.get("atomColorScaleReverse") is True
+    scope = "selected" if display.get("atomColorScaleScope") == "selected" else "all"
+    automatic = display.get("atomColorScaleAutoRange") is not False
+    selected = set(selection)
+    palette = colormap_lut(map_name, samples=256, reverse=reverse)["colors"]
+    payloads: list[dict[str, Any] | None] = []
+
+    for atoms in frame_objects:
+        try:
+            values = np.asarray(atom_scalar_values(atoms, field_id), dtype=np.float64)
+        except ValueError:
+            payloads.append(None)
+            continue
+        finite_mask = np.isfinite(values)
+        if scope == "selected":
+            finite_mask &= np.fromiter(
+                (index in selected for index in range(len(atoms))),
+                dtype=bool,
+                count=len(atoms),
+            )
+        finite = values[finite_mask]
+        if not finite.size:
+            payloads.append({
+                "field_id": field_id,
+                "scope": scope,
+                "colors": [None] * len(atoms),
+            })
+            continue
+
+        if automatic:
+            minimum = float(np.min(finite))
+            maximum = float(np.max(finite))
+            if minimum == maximum:
+                padding = max(1e-12, abs(minimum) * 1e-6)
+                minimum -= padding
+                maximum += padding
+        else:
+            try:
+                minimum = float(display.get("atomColorScaleMin"))
+                maximum = float(display.get("atomColorScaleMax"))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Color scale minimum and maximum must be finite numbers.") from exc
+            if not math.isfinite(minimum) or not math.isfinite(maximum) or maximum <= minimum:
+                raise ValueError("Color scale maximum must be greater than its minimum.")
+
+        normalized = np.where(
+            np.isfinite(values),
+            np.clip((values - minimum) / (maximum - minimum), 0.0, 1.0),
+            0.0,
+        )
+        palette_indices = np.rint(normalized * (len(palette) - 1)).astype(np.int64)
+        colors = [
+            palette[int(palette_indices[index])] if finite_mask[index] else None
+            for index in range(len(atoms))
+        ]
+        descriptor = next(
+            (item for item in atom_scalar_catalog(atoms) if item["id"] == field_id),
+            {"id": field_id, "label": field_id, "unit": ""},
+        )
+        payloads.append({
+            "field_id": field_id,
+            "label": descriptor.get("label", field_id),
+            "unit": descriptor.get("unit", ""),
+            "map": map_name,
+            "reverse": reverse,
+            "scope": scope,
+            "minimum": minimum,
+            "maximum": maximum,
+            "colors": colors,
+        })
+    return payloads
+
+
 def export_html_response(session, payload: Dict[str, Any]):
     """Build one offline, view-only HTML document with optional project recovery."""
     from .project import (
@@ -722,7 +815,6 @@ def export_html_response(session, payload: Dict[str, Any]):
             except OSError:
                 pass
 
-    frames = [atoms_to_json(frame) for frame in frame_objects]
     selection = []
     for value in payload.get("selection") or []:
         try:
@@ -731,6 +823,12 @@ def export_html_response(session, payload: Dict[str, Any]):
             continue
         if 0 <= index < len(frame_objects[current_frame]):
             selection.append(index)
+    selection = sorted(set(selection))
+    frames = [atoms_to_json(frame) for frame in frame_objects]
+    color_scale_frames = _html_atom_color_scale_frames(frame_objects, settings, selection)
+    for frame, color_scale in zip(frames, color_scale_frames):
+        if color_scale is not None:
+            frame.setdefault("metadata", {})["atom_color_scale"] = color_scale
     export_profile = _html_export_profile(payload.get("export_profile"), settings)
     poster_data_url = _validated_html_poster(payload.get("poster_data_url"))
     scene = {
@@ -748,7 +846,7 @@ def export_html_response(session, payload: Dict[str, Any]):
         "settings": settings,
         "exportProfile": export_profile,
         "hasPoster": bool(poster_data_url),
-        "selection": sorted(set(selection)),
+        "selection": selection,
         "frames": frames,
         "displacements": _html_view_displacements(frame_objects, settings),
     }
@@ -1192,12 +1290,25 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
     radius_map = display.get("labelRadii") or display.get("elementRadii") or {}
     label_materials = display.get("labelMaterials") or {}
     atom_materials = display.get("atomMaterials") or {}
+    scale_colors = (
+        display.get("atomColorScaleColors")
+        if display.get("atomColorScaleEnabled") is True
+        and isinstance(display.get("atomColorScaleColors"), list)
+        else []
+    )
     try:
         radius_scale = float(display.get("atomRadiusScale", 0.6))
     except (TypeError, ValueError):
         radius_scale = 0.6
     if not np.isfinite(radius_scale) or radius_scale <= 0:
         radius_scale = 0.6
+
+    def atom_color(index, label):
+        fallback = base_colors[index] if index < len(base_colors) else "#c8ccd0"
+        established = _valid_hex_color(color_map.get(label), _valid_hex_color(fallback))
+        if index < len(scale_colors):
+            return _valid_hex_color(scale_colors[index], established)
+        return established
 
     atom_specs = []
     visible_indices = set()
@@ -1206,8 +1317,7 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
         if visible_map.get(label, True) is False:
             continue
         visible_indices.add(index)
-        fallback_color = base_colors[index] if index < len(base_colors) else "#c8ccd0"
-        color = _valid_hex_color(color_map.get(label), _valid_hex_color(fallback_color))
+        color = atom_color(index, label)
         try:
             source_radius = float(radius_map.get(label, base_radii[index]))
         except (IndexError, TypeError, ValueError):
@@ -1241,10 +1351,9 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
     bond_radius = bond_diameter * 0.5
     bond_style = "flat" if display.get("bondStyle") == "flat" else "cylinder"
 
-    def atom_color(index):
+    def bond_atom_color(index):
         label = labels[index] if index < len(labels) else symbols[index]
-        fallback = base_colors[index] if index < len(base_colors) else "#c8ccd0"
-        return _valid_hex_color(color_map.get(label), _valid_hex_color(fallback))
+        return atom_color(index, label)
 
     bond_specs = []
 
@@ -1257,8 +1366,8 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
             segments = ((0.0, 1.0, custom_bond_color, "full"),)
         else:
             segments = (
-                (0.0, 0.5, atom_color(i), "a"),
-                (0.5, 1.0, atom_color(j), "b"),
+                (0.0, 0.5, bond_atom_color(i), "a"),
+                (0.5, 1.0, bond_atom_color(j), "b"),
             )
         delta = end - start
         logical_name = f"bond_{i}_{j}_{suffix}"
@@ -2028,6 +2137,8 @@ DISPLAY_LABEL_RADII = DISPLAY.get("labelRadii", DISPLAY.get("elementRadii", {{}}
 DISPLAY_LABEL_VISIBLE = DISPLAY.get("labelVisible", DISPLAY.get("elementVisible", {{}}))
 DISPLAY_LABEL_MATERIALS = DISPLAY.get("labelMaterials", {{}})
 DISPLAY_ATOM_MATERIALS = DISPLAY.get("atomMaterials", {{}})
+DISPLAY_ATOM_COLOR_SCALE_COLORS = DISPLAY.get("atomColorScaleColors", []) \
+    if DISPLAY.get("atomColorScaleEnabled") else []
 MATERIAL_PRESETS = {{
     "standard": {{"roughness": 0.28, "metalness": 0.0, "specular": 1.0, "clearcoat": 0.04, "clearcoat_roughness": 0.22}},
     "metal": {{"roughness": 0.11, "metalness": 0.96, "specular": 1.0, "clearcoat": 0.03, "clearcoat_roughness": 0.08}},
@@ -2061,6 +2172,10 @@ def hex_to_rgba(value):
     return FALLBACK_COLOR
 
 def get_atom_color(index):
+    if 0 <= index < len(DISPLAY_ATOM_COLOR_SCALE_COLORS):
+        color = DISPLAY_ATOM_COLOR_SCALE_COLORS[index]
+        if color:
+            return hex_to_rgba(color)
     if 0 <= index < len(ATOM_LABELS):
         display_color = DISPLAY_LABEL_COLORS.get(ATOM_LABELS[index])
         if display_color:

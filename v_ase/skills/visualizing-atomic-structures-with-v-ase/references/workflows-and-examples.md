@@ -2,20 +2,21 @@
 
 ## Contents
 
-1. Publication Image
-2. Natural-Language Defect Edit
-3. Phosphorene Cumulative Tail Rotation
-4. Rotate Around A Specific Atom
-5. Constraint-Aware Edit
-6. Ordered Measurement
-7. Trajectory Analysis And Video
-8. Volumetric Difference And Isosurface
-9. RDF And CSV
-10. Bounded Commensurate 2D Cells
-11. XY Registry Map
-12. Periodic Supercell Measurement
-13. Multi-Document Live Collaboration
-14. Offline View-Only Handoff
+1. Per-Atom Property Colorscale
+2. Publication Image
+3. Natural-Language Defect Edit
+4. Phosphorene Cumulative Tail Rotation
+5. Rotate Around A Specific Atom
+6. Constraint-Aware Edit
+7. Ordered Measurement
+8. Trajectory Analysis And Video
+9. Volumetric Difference And Isosurface
+10. RDF And CSV
+11. Bounded Commensurate 2D Cells
+12. XY Registry Map
+13. Periodic Supercell Measurement
+14. Multi-Document Live Collaboration
+15. Offline View-Only Handoff
 
 These templates are starting points. Preserve the plan, validate, execute, and
 verify sequence even when parameters change.
@@ -34,6 +35,54 @@ async function applyCurrent(command) {
   });
 }
 ```
+
+## Per-Atom Property Colorscale
+
+Use the live catalog rather than assuming how a DFT code or MLIP named its
+per-atom output. This example colors only a selected region by a stored
+uncertainty array and then restores the prior atom appearance:
+
+```javascript
+const capabilities = await ai.capabilities();
+const catalog = await fetch(capabilities.atomColorScale.scalarCatalogUrl)
+  .then(response => response.json());
+const uncertainty = catalog.fields.find(field => (
+  field.source === "array"
+  && ["uncertainty", "mlip_uncertainty", "local_uncertainty"].includes(field.name)
+  && field.reduction === "scalar"
+));
+if (!uncertainty) {
+  throw new Error(`No scalar uncertainty field is available. Found: ${
+    catalog.fields.map(field => field.label).join(", ")
+  }`);
+}
+
+await applyCurrent({
+  selection: {clear: true, indices: [0, 1, 2, 3]},
+  operation: {
+    name: "set-atom-colorscale",
+    enabled: true,
+    field: uncertainty.id,
+    map: "viridis",
+    scope: "selected",
+    autoRange: true
+  }
+});
+const colored = await ai.describe({includePositions: false});
+if (!colored.display.atomColorScaleEnabled) {
+  throw new Error("The per-atom colorscale was not enabled.");
+}
+
+await applyCurrent({
+  operation: {name: "set-atom-colorscale", enabled: false}
+});
+```
+
+For stored forces use `force:norm`. Coordinates are always available as
+`position:x`, `position:y`, and `position:z`. Numeric vector or tensor arrays
+offer a norm and compact component views. Enabling may load one trajectory
+cache and one sampled color lookup table; disabling must restore the prior
+appearance without another scalar or colormap request.
 
 ## Publication Image
 

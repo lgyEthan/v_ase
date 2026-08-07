@@ -21,6 +21,17 @@ Inactive document iframes suspend rendering and movie playback. Backend
 calculations may continue, but all documents share physical CPU/GPU resources
 through the process and operating system.
 
+## Per-Atom Colorscales
+
+Appearance can color all atoms or only the current selection from Cartesian
+coordinates, stored force magnitude, numeric ASE per-atom arrays, and existing
+per-atom calculator results. Scalar arrays are used directly; vector and
+compact tensor arrays expose a norm and components. Every colormap registered
+by the installed Matplotlib version is available, with reverse and automatic
+or manual ranges. The catalog, values, and lookup table are loaded only while
+the option is enabled; disabling it immediately restores label, element, and
+per-atom appearance without per-frame colorscale work.
+
 ## Human-Agent Collaboration
 
 v_ase is the scientific application in the collaboration cycle. Structured

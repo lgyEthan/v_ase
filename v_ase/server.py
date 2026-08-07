@@ -45,6 +45,8 @@ from .commensurate import (
     row_rotation_matrix,
 )
 from .analysis import calculate_rdf, rdf_csv
+from .atom_scalars import atom_scalar_catalog, atom_scalar_values
+from .colormaps import colormap_catalog, colormap_lut
 from .registry import calculate_registry_map, registry_map_csv
 from .ai import AI_PROTOCOL, COLLABORATION_PROTOCOL, ai_skill_path
 from .project import (
@@ -216,6 +218,7 @@ def v_ase_license_text() -> str:
 
 MAX_INLINE_TRAJECTORY_CACHE_VALUES = 750_000
 MAX_BINARY_TRAJECTORY_CACHE_VALUES = 30_000_000
+MAX_ATOM_SCALAR_CACHE_VALUES = 20_000_000
 MAX_UPLOADED_STRUCTURE_BYTES = 64 * 1024 * 1024 * 1024
 MAX_UPLOADED_IMAGE_BYTES = 512 * 1024 * 1024
 MAX_UPLOADED_VIDEO_BYTES = 2 * 1024 * 1024 * 1024
@@ -347,7 +350,7 @@ AI_CONTROL_SCHEMA = {
                 "refresh-displacements, load-volumetric, show-volumetric, "
                 "combine-volumetric, remove-volumetric, calculate-rdf, "
                 "set-interface-theme, set-personal-visual-default, and "
-                "restore-app-visual-defaults."
+                "restore-app-visual-defaults, and set-atom-colorscale."
             ),
             "oneOf": [
                 {
@@ -384,10 +387,31 @@ AI_CONTROL_SCHEMA = {
                                 "calculate-rdf", "set-interface-theme",
                                 "set-personal-visual-default",
                                 "restore-app-visual-defaults",
+                                "set-atom-colorscale",
                             ],
                         },
                     },
                     "allOf": [
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "set-atom-colorscale"},
+                                },
+                            },
+                            "then": {
+                                "properties": {
+                                    "enabled": {"type": "boolean"},
+                                    "field": {"type": "string", "minLength": 1},
+                                    "map": {"type": "string", "minLength": 1},
+                                    "reverse": {"type": "boolean"},
+                                    "scope": {"enum": ["all", "selected"]},
+                                    "autoRange": {"type": "boolean"},
+                                    "minimum": {"type": "number"},
+                                    "maximum": {"type": "number"},
+                                },
+                            },
+                        },
                         {
                             "if": {
                                 "required": ["name"],
@@ -647,6 +671,19 @@ AI_CONTROL_SCHEMA = {
 }
 
 AI_OPERATION_PARAMETERS = {
+    "set-atom-colorscale": {
+        "mode": "view-or-edit",
+        "required": [],
+        "optional": [
+            "enabled", "field", "map", "reverse", "scope", "autoRange",
+            "minimum", "maximum",
+        ],
+        "notes": (
+            "Colors atoms by x/y/z, force norm, or a discovered numeric per-atom "
+            "ASE array/calculator result. scope is all or selected. Disabling it "
+            "immediately restores the saved label and element colors."
+        ),
+    },
     "set-interface-theme": {
         "mode": "view-or-edit",
         "required": ["theme"],
@@ -4509,6 +4546,12 @@ def _analysis_frame_atoms(session: EditorSession, frame_index: int):
     raise HTTPException(status_code=400, detail="The requested trajectory frame is unavailable.")
 
 
+def _atom_scalar_frame_atoms(session: EditorSession, frame_index: int):
+    if frame_index == session.current_frame:
+        return session.working_atoms.copy()
+    return _analysis_frame_atoms(session, frame_index)
+
+
 def _unique_particle_ids(atoms):
     for name in _PARTICLE_ID_ARRAY_NAMES:
         values = atoms.arrays.get(name)
@@ -4669,6 +4712,101 @@ async def displacement_analysis(session_id: str, payload: Dict[str, Any]):
             return calculate_displacements(session, payload)
 
     return await asyncio.to_thread(calculate)
+
+
+@app.get("/api/analysis/atom-scalars/catalog/{session_id}")
+async def per_atom_scalar_catalog(session_id: str, frame_index: int | None = None):
+    session = get_session(session_id)
+
+    def discover():
+        with session.mode_transition_lock:
+            index = session.current_frame if frame_index is None else int(frame_index)
+            atoms = _atom_scalar_frame_atoms(session, index)
+            return {
+                "frame_index": index,
+                "atom_count": len(atoms),
+                "fields": atom_scalar_catalog(atoms),
+            }
+
+    try:
+        return await asyncio.to_thread(discover)
+    except (IndexError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _session_atom_scalar_values(session: EditorSession, payload: Dict[str, Any]):
+    field_id = str(payload.get("field_id") or "").strip()
+    if not field_id:
+        raise ValueError("field_id is required.")
+    requested_frame = int(payload.get("frame_index", session.current_frame))
+    requested_all_frames = bool(payload.get("all_frames", False))
+
+    with session.mode_transition_lock:
+        current_atoms = _atom_scalar_frame_atoms(session, requested_frame)
+        atom_count = len(current_atoms)
+        can_cache_trajectory = (
+            requested_all_frames
+            and session.frame_count > 1
+            and trajectory_layout_compatible(session)
+            and session.frame_count * atom_count <= MAX_ATOM_SCALAR_CACHE_VALUES
+        )
+        if not can_cache_trajectory:
+            values = atom_scalar_values(current_atoms, field_id).reshape(1, atom_count)
+            return requested_frame, values
+
+        values = np.full((session.frame_count, atom_count), np.nan, dtype=np.float64)
+        for index in range(session.frame_count):
+            atoms = _atom_scalar_frame_atoms(session, index)
+            if len(atoms) != atom_count:
+                raise ValueError("Trajectory atom counts differ; this field cannot be cached across frames.")
+            try:
+                values[index] = atom_scalar_values(atoms, field_id)
+            except ValueError:
+                # Calculator and custom arrays may be absent from individual frames.
+                # NaN keeps those frames explicit instead of substituting misleading data.
+                continue
+        return 0, values
+
+
+@app.post("/api/analysis/atom-scalars/values/{session_id}")
+async def per_atom_scalar_values(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    try:
+        start_frame, values = await asyncio.to_thread(_session_atom_scalar_values, session, payload)
+    except (IndexError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    packed = np.asarray(values, dtype=np.float32, order="C")
+    return Response(
+        content=packed.tobytes(order="C"),
+        media_type="application/octet-stream",
+        headers={
+            "X-V-Ase-Frames": str(packed.shape[0]),
+            "X-V-Ase-Atoms": str(packed.shape[1]),
+            "X-V-Ase-Start-Frame": str(start_frame),
+            "X-V-Ase-Dtype": "float32",
+            "X-V-Ase-Cache": "trajectory" if packed.shape[0] > 1 else "frame",
+        },
+    )
+
+
+@app.get("/api/analysis/colormaps/{session_id}")
+async def registered_colormaps(session_id: str):
+    get_session(session_id)
+    return await asyncio.to_thread(colormap_catalog)
+
+
+@app.post("/api/analysis/colormaps/{session_id}")
+async def sampled_colormap(session_id: str, payload: Dict[str, Any]):
+    get_session(session_id)
+    try:
+        return await asyncio.to_thread(
+            colormap_lut,
+            str(payload.get("name") or "viridis"),
+            int(payload.get("samples", 256)),
+            bool(payload.get("reverse", False)),
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _calculate_session_rdf(session: EditorSession, payload: Dict[str, Any]):

@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.1.12"
+python -m pip install "v_ase-gui==0.1.13"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -119,10 +119,10 @@ resulting semantic state and rendered output.
   overwrite-prone exports, deleting a saved personal visual default, and
   release publishing. Use exact documented commands and verify afterward.
 - **Medium freedom**: camera placement, bond cutoffs, materials, lighting,
-  displacement/RDF parameters, bounded commensurate search limits, XY registry
-  grid/metric selection, isovalue and surface styling, interpolation, and
-  rendering quality. Start with the documented templates, then tune against
-  the requested result.
+  per-atom colorscale field/range/map, displacement/RDF parameters, bounded
+  commensurate search limits, XY registry grid/metric selection, isovalue and
+  surface styling, interpolation, and rendering quality. Start with the
+  documented templates, then tune against the requested result.
 - **High freedom**: choosing a visually clear viewpoint, palette, or
   composition when the user has not specified one. Preserve scientific
   identity and disclose aesthetic choices.
@@ -154,6 +154,9 @@ The `apply` method accepts `frame`, `mode`, `display`, `quality`,
 and `capabilities` instead of assuming that a command or parameter exists.
 `schema` returns operation and export parameter maps without requiring the
 browser to execute a document command.
+For per-atom coloring, follow the lazy scalar and Matplotlib catalog URLs from
+`capabilities().atomColorScale`, then use `set-atom-colorscale`; never guess a
+model-specific array name.
 For a rotation around one atom, pass that atom last in the explicit `indices`
 array and set `pivot: "active"`; verify that its coordinate is unchanged.
 

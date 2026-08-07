@@ -52,12 +52,12 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.12&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.13&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.1.12';
+            : '/static/vendor/three.module.js?v=0.1.13';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -116,7 +116,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.1.12</span>
+            <span class="version">0.1.13</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -331,6 +331,18 @@
         </svg>
     </div>
     <svg id="measurement-overlay" class="measurement-overlay hidden" aria-hidden="true"></svg>
+    <aside id="atom-colorscale-legend" class="atom-colorscale-legend hidden" aria-live="polite">
+        <div class="atom-colorscale-legend-head">
+            <strong id="atom-colorscale-legend-label">z coordinate</strong>
+            <span id="atom-colorscale-legend-unit">A</span>
+        </div>
+        <div id="atom-colorscale-legend-gradient" class="atom-colorscale-legend-gradient"></div>
+        <div class="atom-colorscale-legend-range">
+            <span id="atom-colorscale-legend-min">0</span>
+            <span id="atom-colorscale-legend-max">1</span>
+        </div>
+        <span id="atom-colorscale-legend-scope" class="atom-colorscale-legend-scope hidden">Selected atoms</span>
+    </aside>
 
     <datalist id="element-type-options"></datalist>
 
@@ -715,6 +727,61 @@
                     <output id="atom-radius-scale-value">0.60x</output>
                 </div>
                 <input type="range" id="atom-radius-scale" value="0.6" min="0.25" max="2.5" step="0.05">
+            </div>
+            <div class="atom-colorscale-card">
+                <div class="atom-colorscale-title-row">
+                    <div>
+                        <strong>Atom color scale</strong>
+                        <span>Map a numeric value onto atom colors</span>
+                    </div>
+                    <input id="chk-atom-colorscale" type="checkbox" aria-label="Enable atom color scale">
+                </div>
+                <div id="atom-colorscale-controls" class="atom-colorscale-controls hidden">
+                    <label class="atom-colorscale-field" for="atom-colorscale-field">
+                        <span>Property</span>
+                        <select id="atom-colorscale-field">
+                            <option value="position:z">z coordinate</option>
+                        </select>
+                    </label>
+                    <div class="atom-colorscale-grid">
+                        <label for="atom-colorscale-map">
+                            <span>Colormap</span>
+                            <select id="atom-colorscale-map">
+                                <option value="viridis">viridis</option>
+                            </select>
+                        </label>
+                        <label for="atom-colorscale-scope">
+                            <span>Apply to</span>
+                            <select id="atom-colorscale-scope">
+                                <option value="all">All atoms</option>
+                                <option value="selected">Selected atoms only</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="atom-colorscale-toggle-grid">
+                        <label for="chk-atom-colorscale-reverse">
+                            <span>Reverse</span>
+                            <input id="chk-atom-colorscale-reverse" type="checkbox">
+                        </label>
+                        <label for="chk-atom-colorscale-auto-range">
+                            <span>Auto range</span>
+                            <input id="chk-atom-colorscale-auto-range" type="checkbox" checked>
+                        </label>
+                    </div>
+                    <div id="atom-colorscale-range" class="atom-colorscale-range is-auto">
+                        <label for="atom-colorscale-min">
+                            <span>Minimum</span>
+                            <input id="atom-colorscale-min" type="number" step="any" value="0" disabled>
+                        </label>
+                        <label for="atom-colorscale-max">
+                            <span>Maximum</span>
+                            <input id="atom-colorscale-max" type="number" step="any" value="1" disabled>
+                        </label>
+                    </div>
+                    <p id="atom-colorscale-status" class="panel-note atom-colorscale-status">
+                        Values load only while this option is enabled.
+                    </p>
+                </div>
             </div>
             <div id="selected-appearance" class="selected-appearance" data-edit-only>
                 <div class="selected-appearance-head">
@@ -1335,7 +1402,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.1.12&rev=1';
+            : './static/main.js?v=0.1.13&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

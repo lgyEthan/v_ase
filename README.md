@@ -590,6 +590,23 @@ and radius, so only the optical material changes:
 Materials affect rendering only. ASE elements, coordinates, calculators, and
 constraints are unchanged.
 
+**Atom colorscale** maps a numeric per-atom property onto any registered
+Matplotlib colormap. The property list is discovered from the open structure
+and includes:
+
+- Cartesian `x`, `y`, and `z` coordinates;
+- force magnitude when stored forces are available;
+- scalar, component, and vector-norm views of numeric `Atoms.arrays` values;
+- per-atom calculator results such as charge, magnetic moment, local energy,
+  uncertainty, or model-specific MLIP outputs.
+
+Use **Selected atoms only** to color the current selection while preserving
+the established appearance of every other atom. Automatic or explicit value
+ranges and reversed maps are supported. The feature is lazy: while its toggle
+is off, v_ase does not load a colormap registry, extract scalar arrays, or run
+per-frame colorscale work. Turning it off immediately restores the existing
+label, element, and per-atom appearance.
+
 ![Pairwise Cu O bonds in a Cu2O(111) film on Cu(111)](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_bonds.png)
 
 **Structure > Bonding** provides automatic inference, explicit label-pair

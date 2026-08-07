@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.13
+
+- Added lazy per-atom colorscales for Cartesian coordinates, stored force
+  magnitude, numeric ASE arrays, and existing calculator or MLIP results,
+  including scalar, component, and norm views where applicable.
+- Added every colormap registered by Matplotlib, reversible automatic or
+  manual ranges, a viewport legend, and all-atoms or selected-atoms-only
+  scope while preserving uncolored atom appearance.
+- Kept the disabled path free of scalar extraction, Matplotlib imports, LUT
+  requests, and per-frame color work; disabling immediately restores the
+  established label, element, material, and per-atom appearance.
+- Preserved active colorscales in image, video, standalone HTML, Blender,
+  OBJ, and 3DM output, and exposed catalog-driven control through the live
+  semantic Agent API.
+
 ## 0.1.12
 
 - Added a System/Light/Dark interface theme. System is the default, follows

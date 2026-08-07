@@ -29,7 +29,7 @@ def _embedded_base64(html, element_id):
     return "".join(match.group(1).split())
 
 
-def _html_export_fixture(*, embed_project=True):
+def _html_export_fixture(*, embed_project=True, atom_colorscale=False):
     first = Atoms(
         "CuO",
         positions=[[0.0, 0.0, 0.0], [1.8, 0.0, 0.0]],
@@ -38,6 +38,7 @@ def _html_export_fixture(*, embed_project=True):
     )
     first.set_constraint(FixedPlane(1, [0, 0, 1]))
     set_atom_labels(first, ["Cu_surface", "O_ads"])
+    first.new_array("mlip_uncertainty", np.array([0.15, 0.85]))
     first.calc = SinglePointCalculator(
         first,
         energy=-1.25,
@@ -45,6 +46,7 @@ def _html_export_fixture(*, embed_project=True):
     )
     second = first.copy()
     second.positions[1] = [2.05, 0.25, 0.0]
+    second.arrays["mlip_uncertainty"][:] = [0.25, 0.95]
     second.calc = SinglePointCalculator(
         second,
         energy=-1.40,
@@ -123,6 +125,17 @@ def _html_export_fixture(*, embed_project=True):
         "antiAliasing": True,
         "sphereQuality": "high",
     }
+    if atom_colorscale:
+        settings["display"].update({
+            "atomColorScaleEnabled": True,
+            "atomColorScaleField": "array::mlip_uncertainty::scalar",
+            "atomColorScaleMap": "viridis",
+            "atomColorScaleReverse": False,
+            "atomColorScaleScope": "selected",
+            "atomColorScaleAutoRange": True,
+            "atomColorScaleMin": 0.0,
+            "atomColorScaleMax": 1.0,
+        })
     poster_buffer = io.BytesIO()
     Image.new("RGB", (640, 360), (242, 246, 244)).save(
         poster_buffer,
@@ -251,6 +264,22 @@ def test_lightweight_html_omits_project_recovery_and_is_smaller(tmp_path):
     lightweight_path.write_bytes(lightweight.body)
     with pytest.raises(ValueError, match="no embedded .vase project"):
         read_project_html(lightweight_path)
+
+
+def test_html_export_freezes_active_selected_atom_colorscale_for_offline_frames():
+    response, _, _ = _html_export_fixture(embed_project=False, atom_colorscale=True)
+    html = response.body.decode("utf-8")
+    scene = json.loads(base64.b64decode(
+        _embedded_base64(html, "v-ase-scene-data")
+    ).decode("utf-8"))
+
+    for frame in scene["frames"]:
+        scale = frame["metadata"]["atom_color_scale"]
+        assert scale["field_id"] == "array::mlip_uncertainty::scalar"
+        assert scale["map"] == "viridis"
+        assert scale["scope"] == "selected"
+        assert scale["colors"][0] is None
+        assert re.fullmatch(r"#[0-9A-F]{6}", scale["colors"][1])
 
 
 def test_exported_html_opens_offline_as_view_only_interactive_trajectory(tmp_path):
