@@ -2289,6 +2289,31 @@ def capture_volumetric_media(browser) -> None:
             for material in opacity_state["materials"]
         ):
             raise AssertionError("README isosurface opacity was not applied to its materials.")
+        opacity_frames = []
+        opacity_values = [0.24, 0.34, 0.46, 0.60, 0.74, 0.60, 0.46, 0.34]
+        for opacity in opacity_values:
+            page.evaluate(
+                """(opacity) => {
+                    const input = document.getElementById('volume-opacity');
+                    input.value = `${opacity}`;
+                    input.dispatchEvent(new Event('input', {bubbles: true}));
+                }""",
+                opacity,
+            )
+            page.wait_for_timeout(70)
+            opacity_frames.append(screenshot_frame(page))
+        save_gif(
+            opacity_frames,
+            ASSET_DIR / "readme_volumetric.gif",
+            duration=125,
+        )
+        page.evaluate(
+            """() => {
+                const input = document.getElementById('volume-opacity');
+                input.value = '0.56';
+                input.dispatchEvent(new Event('input', {bubbles: true}));
+            }"""
+        )
         page.wait_for_timeout(300)
         screenshot_frame(page).save(
             ASSET_DIR / "readme_volumetric.png",
@@ -2298,6 +2323,127 @@ def capture_volumetric_media(browser) -> None:
         page.close()
         editor.close()
         cube_path.unlink(missing_ok=True)
+
+
+def make_atom_colorscale_trajectory() -> list[Atoms]:
+    """Return a compact surface trajectory with a moving uncertainty hotspot."""
+
+    slab = fcc111("Cu", size=(6, 6, 3), vacuum=7.0, orthogonal=True)
+    cell = slab.cell.array
+    top_z = float(np.max(slab.positions[:, 2]))
+    x_min, y_min = np.min(slab.positions[:, :2], axis=0)
+    x_max, y_max = np.max(slab.positions[:, :2], axis=0)
+    frames = []
+    for frame_index, fraction in enumerate(np.linspace(0.08, 0.92, 10)):
+        probe_x = float(x_min + fraction * (x_max - x_min))
+        probe_y = float((y_min + y_max) * 0.5 + 0.55 * math.sin(2 * math.pi * fraction))
+        probe = Atoms("O", positions=[[probe_x, probe_y, top_z + 1.65]], cell=cell, pbc=True)
+        atoms = slab + probe
+        delta_xy = atoms.positions[:, :2] - np.array([probe_x, probe_y])
+        uncertainty = 0.035 + 0.82 * np.exp(-np.sum(delta_xy * delta_xy, axis=1) / 5.2)
+        uncertainty += 0.025 * (atoms.positions[:, 2] - np.min(atoms.positions[:, 2]))
+        uncertainty[-1] = 1.0
+        atoms.set_array("mlip_uncertainty", uncertainty.astype(np.float32))
+        atoms.info["readme_scene"] = "trajectory_consistent_atom_colorscale"
+        atoms.info["frame_index"] = frame_index
+        frames.append(atoms)
+    return frames
+
+
+def capture_atom_colorscale_media(browser) -> None:
+    frames = make_atom_colorscale_trajectory()
+    editor, page = open_scene(browser, frames, show_bonds=False, viz_only=True)
+    try:
+        set_display(page, {
+            "atomRadiusScale": 0.52,
+            "showBonds": False,
+            "showGrid": False,
+            "showCell": True,
+            "showAxes": False,
+            "viewportBackground": "white",
+            "lightingMode": "studio-shadow",
+        })
+        configure_inspector(page, "structure", ["appearance"], width=475)
+        result = page.evaluate(
+            """async () => {
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'set-atom-colorscale',
+                        enabled: true,
+                        field: 'array::mlip_uncertainty::scalar',
+                        map: 'viridis',
+                        scope: 'all',
+                        rangeMode: 'trajectory',
+                        gamma: 0.82
+                    }
+                });
+                return await window.v_aseAI.describe({includePositions: false});
+            }"""
+        )
+        color_scale = result["display"]
+        if color_scale["atomColorScaleField"] != "array::mlip_uncertainty::scalar":
+            raise AssertionError("README colorscale did not select the trajectory scalar field.")
+        if color_scale["atomColorScaleRangeMode"] != "trajectory":
+            raise AssertionError("README colorscale did not lock a full-trajectory range.")
+        page.wait_for_selector("#atom-colorscale-legend:not(.hidden)")
+        page.wait_for_function(
+            "window.__V_ASE_APP__.renderer.atomColorScaleColors?.filter(Boolean).length > 100"
+        )
+        page.evaluate(
+            """() => {
+                const panel = document.querySelector('[data-panel="appearance"]');
+                panel?.scrollIntoView({block: 'start'});
+                document.getElementById('inspector-content').scrollTop = 0;
+            }"""
+        )
+        center = np.mean(frames[0].positions, axis=0)
+        settle_view(
+            page,
+            target=center.tolist(),
+            position=(center + np.array([10.5, -13.0, 14.5])).tolist(),
+            fov=34,
+        )
+        set_atomic_scale(page, 47.0)
+        set_readme_lighting(
+            page,
+            center.tolist(),
+            intensity=2.9,
+            position_offset=(-12.0, -12.0, 18.0),
+        )
+        gif_frames = []
+        ranges = []
+        for frame_index in range(len(frames)):
+            page.evaluate(
+                "async (index) => await window.__V_ASE_APP__.loadFrame(index)",
+                frame_index,
+            )
+            page.wait_for_function(
+                "index => window.__V_ASE_APP__.state.atoms.metadata.current_frame === index",
+                arg=frame_index,
+            )
+            page.wait_for_timeout(55)
+            ranges.append(page.evaluate(
+                """() => [
+                    window.__V_ASE_APP__.state.display.atomColorScaleMin,
+                    window.__V_ASE_APP__.state.display.atomColorScaleMax
+                ]"""
+            ))
+            gif_frames.append(screenshot_frame(page))
+        reference_range = np.asarray(ranges[0], dtype=float)
+        if not all(np.allclose(np.asarray(item, dtype=float), reference_range) for item in ranges[1:]):
+            raise AssertionError("README trajectory colorscale changed vmin/vmax between frames.")
+        save_gif(
+            gif_frames + list(reversed(gif_frames[1:-1])),
+            ASSET_DIR / "readme_atom_colorscale.gif",
+            duration=115,
+        )
+        gif_frames[len(gif_frames) // 2].save(
+            ASSET_DIR / "readme_atom_colorscale.png",
+            optimize=True,
+        )
+    finally:
+        page.close()
+        editor.close()
 
 
 def capture_rdf_media(browser) -> None:
@@ -2391,6 +2537,7 @@ def capture_rdf_media(browser) -> None:
 
 def capture_analysis_media(browser) -> None:
     capture_volumetric_media(browser)
+    capture_atom_colorscale_media(browser)
     capture_rdf_media(browser)
 
 

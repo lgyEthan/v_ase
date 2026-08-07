@@ -49,6 +49,8 @@ def test_volumetric_format_detection_covers_vasp_and_qe_exchange_formats(tmp_pat
     assert resolve_volumetric_format(tmp_path / "CHGCAR") == "vasp-density"
     assert resolve_volumetric_format(tmp_path / "LOCPOT") == "vasp-potential"
     assert resolve_volumetric_format(tmp_path / "PARCHG") == "vasp-partial-density"
+    assert resolve_volumetric_format(tmp_path / "PARCHG_m0.1_to_0.0") == "vasp-partial-density"
+    assert resolve_volumetric_format(tmp_path / "LOCPOT-reference") == "vasp-potential"
     assert resolve_volumetric_format(tmp_path / "density.cube") == "cube"
     assert resolve_volumetric_format(tmp_path / "density.xsf") == "xsf"
     assert resolve_volumetric_format(tmp_path / "unknown.dat") is None
@@ -433,10 +435,14 @@ def test_periodic_isosurface_closes_cell_seams_and_uses_cartesian_cell(monkeypat
     payload = mesh.binary()
 
     assert payload.startswith(ISOSURFACE_BINARY_MAGIC)
+    header_length = int.from_bytes(payload[8:12], "little")
+    assert (12 + header_length) % 4 == 0
     assert len(mesh.faces) > 0
     assert np.min(mesh.vertices[:, 0]) < 0.5
     assert np.max(mesh.vertices[:, 0]) > 3.5
     assert np.all(np.isfinite(mesh.vertices))
+
+    assert generate_isosurface(dataset, 0.0) is mesh
 
 
 def test_field_smearing_preserves_precision_source_values_and_periodic_boundaries():

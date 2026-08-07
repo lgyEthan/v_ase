@@ -81,17 +81,20 @@ await applyCurrent({
 
 For stored forces use `force:norm`. Coordinates are always available as
 `position:x`, `position:y`, and `position:z`. Numeric vector or tensor arrays
-offer a norm and compact component views. Enabling may load one trajectory
-cache and one sampled color lookup table; disabling must restore the prior
-appearance without another scalar or colormap request.
+offer a norm and compact component views. Arbitrary finite numeric columns in
+LAMMPS dumps are cataloged by their exact names. Enabling may load one bounded
+trajectory scalar cache and one sampled color lookup table; disabling must
+restore the prior appearance without another scalar or colormap request.
 
 Use `rangeMode:"current"` for the fast default: it fits the active frame once
 and keeps the resulting range fixed as playback advances. Use
 `rangeMode:"trajectory"` when colors must be quantitatively comparable across
-every frame; v_ase scans finite extrema without retaining a second complete
-value cube. Use `rangeMode:"manual"` with explicit `minimum` and `maximum` for
-cross-document comparisons. Set `gamma` between `0.1` and `5.0` to change
-contrast without reloading scalar values or the Matplotlib lookup table.
+every frame; v_ase loads a bounded scalar buffer once and reuses it, or scans
+larger inputs in the backend. Verify that the full scan does not also request a
+prefetched single frame. Use `rangeMode:"manual"` with explicit `minimum` and
+`maximum` for cross-document comparisons. Set `gamma` between `0.1` and `5.0`
+to change contrast without reloading scalar values or the Matplotlib lookup
+table.
 
 ## Publication Image
 
@@ -519,6 +522,10 @@ above one.
 Input: one structure and three charge grids generated on the same FFT grid,
 for example `combined/CHGCAR`, `fragment-a/CHGCAR`, and
 `fragment-b/CHGCAR`.
+
+Directly loaded VASP grids may use `.`, `_`, or `-` suffixes, so calculation
+outputs such as `PARCHG_band_12` and `LOCPOT.vacuum` do not require a manual
+format override.
 
 ```javascript
 for (const path of [

@@ -3069,18 +3069,12 @@ async def get_frame_positions(session_id: str, frame_index: int):
     if session.trajectory_source is None:
         raise HTTPException(status_code=404, detail="Virtual trajectory positions are not available for this session.")
     try:
-        positions = await asyncio.to_thread(
-            session.trajectory_source.read_positions,
-            frame_index,
-        )
+        frame_atoms = await asyncio.to_thread(session.set_frame, frame_index)
     except IndexError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    session.current_frame = int(frame_index)
-    session.working_atoms.set_positions(positions, apply_constraint=False)
-    cell = np.asarray(session.trajectory_source.cells[frame_index], dtype=float)
-    pbc = np.asarray(session.trajectory_source.pbc[frame_index], dtype=bool)
-    session.working_atoms.set_cell(cell)
-    session.working_atoms.set_pbc(pbc)
+    positions = frame_atoms.get_positions()
+    cell = np.asarray(frame_atoms.cell.array, dtype=float)
+    pbc = np.asarray(frame_atoms.pbc, dtype=bool)
     return Response(
         content=np.asarray(positions, dtype=np.float32).tobytes(order="C"),
         media_type="application/octet-stream",
@@ -3112,13 +3106,13 @@ def _uploaded_format_hint(filename: str, explicit_format: str | None) -> str | N
         return "vasp-xdatcar"
     if lower_name == "vasprun.xml":
         return "vasp-xml"
-    if lower_name in {"chg", "chgcar"} or lower_name.startswith(("chg.", "chgcar.")):
+    if lower_name in {"chg", "chgcar"} or lower_name.startswith(("chg.", "chg_", "chg-", "chgcar.", "chgcar_", "chgcar-")):
         return "vasp-density"
-    if lower_name == "locpot" or lower_name.startswith("locpot."):
+    if lower_name == "locpot" or lower_name.startswith(("locpot.", "locpot_", "locpot-")):
         return "vasp-potential"
-    if lower_name == "parchg" or lower_name.startswith("parchg."):
+    if lower_name == "parchg" or lower_name.startswith(("parchg.", "parchg_", "parchg-")):
         return "vasp-partial-density"
-    if lower_name == "elfcar" or lower_name.startswith("elfcar."):
+    if lower_name == "elfcar" or lower_name.startswith(("elfcar.", "elfcar_", "elfcar-")):
         return "vasp-elf"
     return None
 
@@ -4562,6 +4556,17 @@ def _atom_scalar_frame_atoms(session: EditorSession, frame_index: int):
     return _analysis_frame_atoms(session, frame_index)
 
 
+def _fast_trajectory_scalar_values(
+    session: EditorSession,
+    frame_index: int,
+    field_id: str,
+):
+    reader = getattr(session.trajectory_source, "read_scalar_values", None)
+    if not callable(reader):
+        return None
+    return reader(frame_index, field_id)
+
+
 def _unique_particle_ids(atoms):
     for name in _PARTICLE_ID_ARRAY_NAMES:
         values = atoms.arrays.get(name)
@@ -4752,8 +4757,13 @@ def _session_atom_scalar_values(session: EditorSession, payload: Dict[str, Any])
     requested_all_frames = bool(payload.get("all_frames", False))
 
     with session.mode_transition_lock:
-        current_atoms = _atom_scalar_frame_atoms(session, requested_frame)
-        atom_count = len(current_atoms)
+        current_atoms = None
+        atom_count = (
+            int(session.trajectory_source.natoms)
+            if session.trajectory_source is not None
+            and hasattr(session.trajectory_source, "natoms")
+            else len(_atom_scalar_frame_atoms(session, requested_frame))
+        )
         can_cache_trajectory = (
             requested_all_frames
             and session.frame_count > 1
@@ -4761,6 +4771,10 @@ def _session_atom_scalar_values(session: EditorSession, payload: Dict[str, Any])
             and session.frame_count * atom_count <= MAX_ATOM_SCALAR_CACHE_VALUES
         )
         if not can_cache_trajectory:
+            fast_values = _fast_trajectory_scalar_values(session, requested_frame, field_id)
+            if fast_values is not None:
+                return requested_frame, np.asarray(fast_values, dtype=np.float32).reshape(1, atom_count)
+            current_atoms = _atom_scalar_frame_atoms(session, requested_frame)
             try:
                 values = atom_scalar_values(current_atoms, field_id).reshape(1, atom_count)
             except ValueError:
@@ -4771,6 +4785,10 @@ def _session_atom_scalar_values(session: EditorSession, payload: Dict[str, Any])
 
         values = np.full((session.frame_count, atom_count), np.nan, dtype=np.float32)
         for index in range(session.frame_count):
+            fast_values = _fast_trajectory_scalar_values(session, index, field_id)
+            if fast_values is not None:
+                values[index] = fast_values
+                continue
             atoms = _atom_scalar_frame_atoms(session, index)
             if len(atoms) != atom_count:
                 raise ValueError("Trajectory atom counts differ; this field cannot be cached across frames.")
@@ -4837,12 +4855,16 @@ def _session_atom_scalar_range(session: EditorSession, payload: Dict[str, Any]):
         missing_frames = 0
 
         for index in frame_indices:
-            atoms = _atom_scalar_frame_atoms(session, index)
-            try:
-                values = np.asarray(atom_scalar_values(atoms, field_id), dtype=np.float64)
-            except ValueError:
-                missing_frames += 1
-                continue
+            fast_values = _fast_trajectory_scalar_values(session, index, field_id)
+            if fast_values is not None:
+                values = np.asarray(fast_values, dtype=np.float64)
+            else:
+                atoms = _atom_scalar_frame_atoms(session, index)
+                try:
+                    values = np.asarray(atom_scalar_values(atoms, field_id), dtype=np.float64)
+                except ValueError:
+                    missing_frames += 1
+                    continue
             if selected is not None:
                 valid = selected[selected < values.shape[0]]
                 if valid.size == 0:

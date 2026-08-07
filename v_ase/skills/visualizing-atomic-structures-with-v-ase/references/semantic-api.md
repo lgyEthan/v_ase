@@ -239,8 +239,10 @@ await ai.apply({
 
 Coordinates use `position:x`, `position:y`, and `position:z`; stored force
 magnitude uses `force:norm`. Numeric multidimensional arrays expose a norm and,
-for compact vectors/tensors, individual components. The operation never asks
-an attached calculator to evaluate missing results. Disable it with
+for compact vectors/tensors, individual components. Fast LAMMPS trajectories
+also register every finite numeric atom column, including arbitrary `c_*`,
+`f_*`, and model-specific scalar names. The operation never asks an attached
+calculator to evaluate missing results. Disable it with
 `{"name":"set-atom-colorscale","enabled":false}` to restore the pre-existing
 atom appearance immediately.
 
@@ -248,8 +250,9 @@ atom appearance immediately.
 
 - `"current"` resolves one finite `vmin`/`vmax` pair from the active frame and
   locks it while the trajectory frame changes;
-- `"trajectory"` scans all frames and accumulates one global finite range
-  without constructing a complete frame-by-atom value cube;
+- `"trajectory"` scans all frames and accumulates one global finite range. A
+  bounded frame-by-atom scalar buffer is loaded once and reused during
+  playback; inputs beyond that cache budget use a backend extrema scan;
 - `"manual"` requires finite `minimum` and `maximum` with
   `maximum > minimum`.
 
@@ -259,6 +262,9 @@ selection on every frame and fails if it contains no finite value. `gamma` is a
 contrast transform in the valid range `0.1..5.0`; `1.0` is unchanged. Once a
 range is resolved, viewport playback and image, video, HTML, and geometry
 exports use that same range. Do not refit each frame during playback.
+The full-range load supersedes scheduled next-frame prefetch, so one range scan
+must not trigger duplicate frame requests. Disabling the colorscale removes
+all per-frame recoloring work and restores the previous visual appearance.
 
 Atom labels are exact user-facing identifiers, not fixed-width display
 abbreviations. Preserve the complete label returned by `describe`; do not
@@ -564,8 +570,9 @@ moves both endpoints.
 
 Use `load-volumetric` for VASP `CHGCAR`/`CHG`, `LOCPOT`, `PARCHG`, and
 `ELFCAR`, or for Gaussian Cube and XSF grids written by Quantum ESPRESSO and
-other DFT codes. The path is resolved inside the directory from which the GUI
-was launched:
+other DFT codes. VASP stem detection accepts `.`, `_`, and `-` suffixes, for
+example `PARCHG_band_12`, `LOCPOT.vacuum`, and `CHGCAR-difference`. The path is
+resolved inside the directory from which the GUI was launched:
 
 ```javascript
 await ai.apply({
@@ -633,6 +640,10 @@ isovalue, sign mode, detail, smearing, or smoothing changes. Isosurfaces
 repeat with `display.supercell` and move with visual translation. A physical
 `set-supercell` operation repeats the stored volumetric grid as well as every
 trajectory frame.
+Identical mesh requests use a bounded per-dataset LRU cache. The complete
+scalar grid stays in the backend and the browser receives an aligned binary
+mesh, so agents must validate the dataset summary and mesh metadata rather
+than attempting to transfer or decode the full grid through `describe()`.
 `reset-coordinates` restores the originally loaded atom frames, cell, and
 scalar grids together after a materialized diagonal supercell. Undo and Redo
 retain the same atom/grid pairing.

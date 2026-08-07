@@ -407,6 +407,26 @@ def test_browser_colorscale_is_lazy_selection_scoped_frame_aware_and_reversible(
             assert selected_colors[2] is None
             assert page.locator("#atom-colorscale-legend").is_visible()
 
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.__testSelectionRebuilds = 0;
+                app.__testOriginalSetSelection = app.renderer.setSelection.bind(app.renderer);
+                app.renderer.setSelection = (...args) => {
+                    app.__testSelectionRebuilds += 1;
+                    return app.__testOriginalSetSelection(...args);
+                };
+            }""")
+            page.evaluate("window.__ASE_APP__.loadFrame(0)")
+            page.wait_for_function("window.__ASE_APP__.state.atoms.metadata.current_frame === 0")
+            assert page.evaluate("window.__ASE_APP__.state.selected.has(1)") is True
+            assert page.evaluate("window.__ASE_APP__.__testSelectionRebuilds") == 0
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.renderer.setSelection = app.__testOriginalSetSelection;
+                delete app.__testOriginalSetSelection;
+                delete app.__testSelectionRebuilds;
+            }""")
+
             request_count = len([
                 url for url in requests
                 if "/api/analysis/atom-scalars/" in url or "/api/analysis/colormaps/" in url
@@ -467,6 +487,79 @@ def test_browser_colorscale_is_lazy_selection_scoped_frame_aware_and_reversible(
                 operation: {name: 'set-atom-colorscale', enabled: false}
             })""")
             page.wait_for_function("window.__ASE_APP__.renderer.atomColorScaleColors === null")
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_large_browser_trajectory_scans_and_caches_colorscale_values_once():
+    atom_count = 5_000
+    positions = np.zeros((atom_count, 3), dtype=float)
+    positions[:, 0] = np.arange(atom_count) % 100
+    positions[:, 1] = np.arange(atom_count) // 100
+    first = Atoms(["H"] * atom_count, positions=positions, cell=[120, 60, 8], pbc=True)
+    second = first.copy()
+    first.new_array("score", np.linspace(-2.0, 3.0, atom_count))
+    second.new_array("score", np.linspace(4.0, 9.0, atom_count))
+    port = find_free_port()
+    editor = view(
+        [first, second],
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 720})
+            value_payloads = []
+            range_requests = []
+
+            def track_request(request):
+                if "/api/analysis/atom-scalars/values/" in request.url:
+                    value_payloads.append(request.post_data_json)
+                if "/api/analysis/atom-scalars/range/" in request.url:
+                    range_requests.append(request.post_data_json)
+
+            page.on("request", track_request)
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                f"window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === {atom_count}"
+            )
+            page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                app.state.display.atomColorScaleEnabled = true;
+                app.state.display.atomColorScaleField = 'array::score::scalar';
+                app.state.display.atomColorScaleRangeMode = 'current';
+                await app.updateAtomColorScale({quiet: true, refreshCatalog: true});
+            }""")
+            value_payloads.clear()
+            range_requests.clear()
+
+            page.evaluate("window.__ASE_APP__.fitAtomColorScaleRange('trajectory')")
+            page.wait_for_function("""() => (
+                window.__ASE_APP__.state.display.atomColorScaleRangeMode === 'trajectory'
+                && window.__ASE_APP__.state.display.atomColorScaleMin === -2
+                && window.__ASE_APP__.state.display.atomColorScaleMax === 9
+            )""")
+
+            assert value_payloads == [{
+                "field_id": "array::score::scalar",
+                "frame_index": 0,
+                "all_frames": True,
+            }]
+            assert range_requests == []
+            assert page.evaluate("""() => {
+                const cache = window.__ASE_APP__.atomColorScaleRuntime.valueCaches.get(
+                    'array::score::scalar'
+                );
+                return cache.frames === 2 && cache.atoms === 5000 && cache.values.length === 10000;
+            }""") is True
             browser.close()
     finally:
         editor.close()

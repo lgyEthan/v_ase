@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.1.14"
+python -m pip install "v_ase-gui==0.1.15"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -159,8 +159,11 @@ For per-atom coloring, follow the lazy scalar and Matplotlib catalog URLs from
 model-specific array name. Use `rangeMode:"current"` for a fast active-frame
 fit that remains locked during playback, `rangeMode:"trajectory"` for one
 global scan across all frames, or `rangeMode:"manual"` with explicit
-`minimum`/`maximum`. Set `gamma` in `0.1..5.0` (`1.0` is neutral), and never
-normalize trajectory colors independently per frame.
+`minimum`/`maximum`. A bounded trajectory scan is cached once for playback;
+larger scans remain backend-side. Set `gamma` in `0.1..5.0` (`1.0` is
+neutral), and never normalize trajectory colors independently per frame.
+Numeric LAMMPS atom columns are valid catalog fields alongside coordinates,
+stored forces, ASE arrays, charges, magnetic moments, and calculator results.
 For a rotation around one atom, pass that atom last in the explicit `indices`
 array and set `pivot: "active"`; verify that its coordinate is unchanged.
 
@@ -248,15 +251,18 @@ For any nontrivial task, verify all applicable items:
 - trajectory: frame count, active frame, stable selection, analysis reference;
 - volumetric: dataset ID, grid dimensions, cell, origin, PBC, units,
   component, FP32/FP64 precision, memory size, visible default/custom
-  isovalue, mesh count, live color/opacity state, and
-  supercell/translation alignment;
+  isovalue, mesh count, live color/opacity state, cache reuse, and
+  supercell/translation alignment; verify suffixed VASP names such as
+  `PARCHG_*`, `LOCPOT.*`, and `CHGCAR-*` are identified by contents/type;
 - RDF: current frame, 3D PBC, requested/effective cutoff, unique-MIC reference,
   required periodic-image span, bins, pair mode, plotted curves, `g(r) = 1`
   bulk reference, long-range behavior, warnings, and exported CSV columns;
 - appearance: visibility, radii, colors, materials, bonds, cell, background;
 - per-atom colorscale: exact catalog field ID, scope, map, reverse state,
   gamma, resolved `vmin`/`vmax`, current/trajectory/manual range source, and
-  identical locked range across every trajectory frame and export;
+  identical locked range across every trajectory frame and export; for large
+  trajectories verify one full-range load, no duplicate frame prefetch, fast
+  cached recoloring, and zero colorscale work after disabling;
 - preferences: resolved interface theme, system/light/dark preference, saved
   personal-default state, and the intended scope before storing or restoring;
 - camera: projection, position, target, up vector, framing, expected direction;

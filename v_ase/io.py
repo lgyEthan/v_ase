@@ -8,6 +8,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import unquote
 
 import numpy as np
 from ase import Atoms
@@ -94,6 +95,7 @@ class FastLammpsDumpTrajectory:
     charge_column: int | None = None
     force_columns: tuple[int, int, int] | None = None
     mass_column: int | None = None
+    scalar_columns: dict[str, int] = field(default_factory=dict)
     _id_order: np.ndarray | None = field(default=None, repr=False)
     _ids_are_sorted: bool = True
 
@@ -148,15 +150,80 @@ class FastLammpsDumpTrajectory:
     def read_positions(self, frame_index: int) -> np.ndarray:
         return self._positions_from_table(self._read_numeric_table(frame_index), frame_index)
 
+    def read_scalar_values(self, frame_index: int, field_id: str) -> np.ndarray | None:
+        """Read one colorable scalar without constructing an ``Atoms`` object."""
+
+        table = self._read_numeric_table(frame_index)
+        if field_id in {"position:x", "position:y", "position:z"}:
+            component = {"position:x": 0, "position:y": 1, "position:z": 2}[field_id]
+            return self._positions_from_table(table, frame_index)[:, component]
+        if field_id == "force:norm" and self.force_columns is not None:
+            return np.linalg.norm(table[:, self.force_columns], axis=1).astype(np.float32)
+
+        parts = str(field_id).split("::")
+        if len(parts) < 3 or parts[0] != "array":
+            return None
+        name = unquote(parts[1])
+        reduction = parts[2]
+        component = int(parts[3]) if len(parts) > 3 and parts[3].lstrip("-").isdigit() else None
+        if name == "initial_charges" and self.charge_column is not None:
+            values = table[:, self.charge_column]
+        elif name == "forces" and self.force_columns is not None:
+            values = table[:, self.force_columns]
+        elif name == "lammps_id" and self.id_column is not None:
+            values = table[:, self.id_column]
+        elif name == "lammps_type" and self.type_column is not None:
+            values = table[:, self.type_column]
+        elif name == "mol" and self.mol_column is not None:
+            values = table[:, self.mol_column]
+        elif name == "masses" and self.mass_column is not None:
+            values = table[:, self.mass_column]
+        elif name in self.scalar_columns:
+            values = table[:, self.scalar_columns[name]]
+        else:
+            return None
+
+        flattened = np.asarray(values, dtype=np.float32).reshape(self.natoms, -1)
+        if reduction == "scalar" and flattened.shape[1] == 1:
+            return flattened[:, 0]
+        if reduction == "norm":
+            return np.linalg.norm(flattened, axis=1).astype(np.float32)
+        if reduction == "component" and component is not None and 0 <= component < flattened.shape[1]:
+            return flattened[:, component]
+        return None
+
     def read_atoms(self, frame_index: int) -> Atoms:
         if self.template_atoms is None:
             raise ValueError("Fast LAMMPS trajectory has no template Atoms object.")
+        table = self._read_numeric_table(frame_index)
         atoms = self.template_atoms.copy()
-        atoms.set_positions(self.read_positions(frame_index), apply_constraint=False)
+        atoms.set_positions(
+            self._positions_from_table(table, frame_index),
+            apply_constraint=False,
+        )
         atoms.set_cell(self.cells[frame_index])
         atoms.set_pbc(self.pbc[frame_index])
         atoms.info["timestep"] = int(self.timesteps[frame_index])
+        self._apply_frame_arrays(atoms, table)
         return atoms
+
+    def _apply_frame_arrays(self, atoms: Atoms, table: np.ndarray) -> None:
+        """Update every per-atom numeric field from one dump frame."""
+
+        if self.id_column is not None:
+            atoms.set_array("lammps_id", table[:, self.id_column].astype(np.int64))
+        if self.type_column is not None:
+            atoms.set_array("lammps_type", table[:, self.type_column].astype(np.int32))
+        if self.mol_column is not None:
+            atoms.set_array("mol", table[:, self.mol_column].astype(np.int64))
+        if self.charge_column is not None:
+            atoms.set_initial_charges(table[:, self.charge_column].astype(np.float32))
+        if self.force_columns is not None:
+            atoms.set_array("forces", table[:, self.force_columns].astype(np.float32))
+        if self.mass_column is not None:
+            atoms.set_masses(table[:, self.mass_column].astype(np.float32))
+        for name, column in self.scalar_columns.items():
+            atoms.set_array(name, table[:, column].astype(np.float32))
 
     def build_template(self, frame_index: int = 0) -> Atoms:
         table = self._read_numeric_table(frame_index)
@@ -176,16 +243,7 @@ class FastLammpsDumpTrajectory:
         atoms = Atoms(symbols=symbols, positions=positions, cell=self.cells[frame_index], pbc=self.pbc[frame_index])
         atoms.info["timestep"] = int(self.timesteps[frame_index])
         set_atom_labels(atoms, labels)
-        if self.id_column is not None:
-            atoms.set_array("lammps_id", table[:, self.id_column].astype(np.int64))
-        if self.mol_column is not None:
-            atoms.set_array("mol", table[:, self.mol_column].astype(np.int64))
-        if self.charge_column is not None:
-            atoms.set_initial_charges(table[:, self.charge_column].astype(float))
-        if self.force_columns is not None:
-            atoms.set_array("forces", table[:, self.force_columns].astype(float))
-        if self.mass_column is not None:
-            atoms.set_masses(table[:, self.mass_column].astype(float))
+        self._apply_frame_arrays(atoms, table)
         self.template_atoms = atoms.copy()
         return atoms
 
@@ -560,6 +618,16 @@ def index_lammps_dump(path: str | Path) -> FastLammpsDumpTrajectory:
     force_columns = None
     if all(name in column_map for name in ("fx", "fy", "fz")):
         force_columns = (column_map["fx"], column_map["fy"], column_map["fz"])
+    known_columns = {
+        "id", "type", "mol", "q", "mass",
+        "x", "y", "z", "xu", "yu", "zu", "xs", "ys", "zs",
+        "xsu", "ysu", "zsu", "fx", "fy", "fz",
+    }
+    scalar_columns = {
+        name: column
+        for name, column in column_map.items()
+        if name not in known_columns
+    }
     return FastLammpsDumpTrajectory(
         path=str(path),
         natoms=natoms,
@@ -577,6 +645,7 @@ def index_lammps_dump(path: str | Path) -> FastLammpsDumpTrajectory:
         charge_column=column_map.get("q"),
         force_columns=force_columns,
         mass_column=column_map.get("mass"),
+        scalar_columns=scalar_columns,
     )
 
 

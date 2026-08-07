@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.1.14"
+python -m pip install "v_ase-gui==0.1.15"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.1.14"
+python -m pip install "v_ase-gui[rhino]==0.1.15"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, SciPy, scikit-image,
@@ -175,7 +175,8 @@ ASE-readable structures and trajectories are supported. Common inputs include:
 
 Volumetric inputs may be opened directly or loaded into an existing document:
 
-- VASP `CHGCAR`/`CHG`, `LOCPOT`, `PARCHG`, and `ELFCAR`;
+- VASP `CHGCAR`/`CHG`, `LOCPOT`, `PARCHG`, and `ELFCAR`, including
+  calculation suffixes separated by `.`, `_`, or `-`;
 - Gaussian Cube;
 - XSF `DATAGRID_3D` blocks;
 - Quantum ESPRESSO scalar data exported by `pp.x` as Cube or XSF.
@@ -267,6 +268,11 @@ to an untrusted network.
 - 3DM export requires the optional `rhino3dm` dependency.
 - Volumetric input is bounded by `V_ASE_MAX_VOLUMETRIC_POINTS`. Keep the
   default safety limit unless the machine has enough memory for the complete
-  grid and extracted surface.
+  grid and extracted surface. The backend keeps the scalar grid and sends only
+  an aligned binary mesh to the browser; identical mesh requests use a bounded
+  cache.
 - Very large trajectories should use `--stream-frames`; do not preload every
   coordinate into an agent context.
+- Per-atom colorscale catalogs include finite numeric LAMMPS atom columns.
+  Full-trajectory range fitting uses one bounded scalar cache when eligible
+  and otherwise computes extrema in the backend.

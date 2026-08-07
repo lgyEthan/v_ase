@@ -159,9 +159,10 @@ Run all scenarios, not only static document checks:
      per-atom colorscales; test all-atoms and selected-only scope;
    - fit the current frame, advance to a frame with a disjoint value range,
      and verify the resolved `vmin`/`vmax` remain locked;
-   - scan the complete trajectory and compare its streamed global extrema with
-     an independent finite-value reference without allocating a second full
-     frame-by-atom cube;
+   - scan the complete trajectory and compare its global extrema with an
+     independent finite-value reference; verify a bounded scalar cache is
+     fetched once, reused across frames, and does not race a single-frame
+     prefetch, while oversized inputs use backend range scanning;
    - verify manual `vmin`/`vmax`, gamma contrast, standalone HTML and media
      export all preserve the same trajectory-wide range and that each frame's
      colors change only from its values, not from per-frame normalization;
@@ -186,7 +187,8 @@ Run all scenarios, not only static document checks:
      endpoint translation without changing vector values;
    - render interpolation with known frame count.
 9. **Volumetric and RDF analysis**
-   - load VASP CHGCAR/LOCPOT/PARCHG/ELFCAR plus Cube and XSF fixtures;
+   - load VASP CHGCAR/LOCPOT/PARCHG/ELFCAR plus Cube and XSF fixtures, including
+     VASP basenames with `.`, `_`, and `-` calculation suffixes;
    - compare parsed shape, cell, origin, PBC, scalar range, quantity, and units
      with the source fixture;
    - create single and signed isosurfaces, verify nonblank triangles, colors,
@@ -214,6 +216,10 @@ Run all scenarios, not only static document checks:
      retained scalar difference, and the expected twofold grid-memory change;
    - save and reopen `.vase`, then require exactly the same bounded FP32/FP64
      volume and visualization settings;
+   - benchmark representative 15-million-point PARCHG and LOCPOT grids in
+     FP32 and FP64; require complete parsing below the documented readiness
+     threshold, nonblank browser meshes, and a cache hit for an identical mesh
+     request;
    - calculate total RDF at several cutoffs for a homogeneous periodic system,
      including a radius that needs images beyond a fixed `2 x 2 x 2`
      repetition, and verify its non-edge plateau approaches one and aligns

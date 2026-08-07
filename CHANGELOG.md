@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.15
+
+- Optimized large VASP scalar grids with cached statistics, bounded
+  isosurface meshes, aligned binary transfer, FP32-preserving combinations,
+  and lower-memory mesh smoothing while keeping FP64 available on demand.
+- Recognized suffixed CHG/CHGCAR/PARCHG/LOCPOT/ELFCAR filenames and verified
+  real 280 x 140 x 384 PARCHG and LOCPOT grids through backend parsing,
+  isosurface generation, cache reuse, and browser rendering.
+- Exposed arbitrary numeric LAMMPS atom columns to trajectory colorscales,
+  added a bounded all-frame scalar cache, removed duplicate prefetch during a
+  trajectory range fit, and reduced 15,000-atom cached recoloring to a direct
+  instanced-buffer update.
+- Added synchronized volumetric and trajectory-colorscale animations, user
+  guidance, Agent Skill workflows, benchmarks, and backend/browser
+  regressions.
+
 ## 0.1.14
 
 - Added explicit current-frame, full-trajectory, and manual per-atom

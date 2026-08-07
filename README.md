@@ -384,7 +384,9 @@ adjacent save icon.
 
 ### Volumetric Fields
 
-Open a VASP `CHGCAR`, `CHG`, `PARCHG`, `LOCPOT`, or `ELFCAR` directly. Quantum
+Open a VASP `CHGCAR`, `CHG`, `PARCHG`, `LOCPOT`, or `ELFCAR` directly. Common
+suffixes used to distinguish calculations are recognized too, including names
+such as `PARCHG_band_12`, `LOCPOT.vacuum`, and `CHGCAR-difference`. Quantum
 ESPRESSO and other electronic-structure codes can use Gaussian Cube or XSF
 grid output:
 
@@ -407,7 +409,7 @@ browser receives only the generated surface mesh.
 Signed mode treats the isovalue as a nonzero magnitude and renders the
 positive and negative crossings that remain inside the displayed field range.
 
-![Smooth signed benzene pi-field isosurfaces with live opacity control](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric.png)
+![Smooth signed benzene pi-field isosurfaces with live opacity control](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric.gif)
 
 **Field smearing σ** applies a Gaussian filter measured in grid voxels before
 the isosurface is extracted. Periodic directions wrap across the cell;
@@ -444,6 +446,12 @@ explicit interpolation choice.
 After a materialized diagonal supercell, **Reset Coordinates** restores the
 original atoms, cell, and scalar grid together; Undo/Redo keeps the same
 atomic field pairing.
+
+Large scalar grids are parsed and meshed in the backend. Repeating the same
+dataset, level, detail, smearing, and smoothing request reuses a bounded mesh
+cache; changing only color or opacity updates the existing browser geometry.
+This keeps ordinary structure viewing unaffected when no volumetric dataset is
+loaded and avoids sending the complete FFT grid to the browser.
 
 ### Radial Distribution Function
 
@@ -600,13 +608,20 @@ and includes:
 - per-atom calculator results such as charge, magnetic moment, local energy,
   uncertainty, or model-specific MLIP outputs.
 
+LAMMPS trajectories also expose arbitrary numeric atom columns, so fields such
+as `c_uncertainty`, `c_energy`, or custom descriptors can be selected without
+converting the dump to another format.
+
+![Trajectory-wide MLIP uncertainty colorscale with one locked range](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_atom_colorscale.gif)
+
 Use **Selected atoms only** to color the current selection while preserving
 the established appearance of every other atom. **Fit current frame** is the
 default range: it derives `vmin` and `vmax` once from the visible frame, then
 keeps that range fixed while the trajectory plays. **Scan trajectory** finds a
-single range across every frame without constructing a full in-memory value
-cube. Entering either `vmin` or `vmax` switches to a manual range. Every frame
-and export uses the resolved range consistently.
+single range across every frame. For bounded large trajectories, the scan
+stores one compact scalar cache and reuses it during playback; larger sources
+fall back to backend range scanning. Entering either `vmin` or `vmax` switches
+to a manual range. Every frame and export uses the resolved range consistently.
 
 Reverse any map or adjust **Contrast (gamma)** from `0.1` to `5.0`; gamma is
 applied immediately in the browser without another scalar or colormap request.
@@ -928,7 +943,8 @@ path. `view_edit()` remains a compatibility alias for Edit mode.
 Common structure inputs include POSCAR/CONTCAR, VASP files, XDATCAR,
 `vasprun.xml`, XYZ/extxyz, ASE `.traj`, LAMMPS dump/data, CIF, and `.vase`.
 Volumetric inputs include VASP CHGCAR/CHG/PARCHG/LOCPOT/ELFCAR and Gaussian
-Cube/XSF grids. ASE readers cover additional structure formats.
+Cube/XSF grids. VASP scalar names may carry `.`, `_`, or `-` suffixes for
+separate calculations. ASE readers cover additional structure formats.
 
 Use `--format` when an ambiguous filename does not identify the reader:
 

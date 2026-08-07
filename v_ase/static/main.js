@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.1.14&rev=1';
-import { ASERenderer } from './renderer.js?v=0.1.14&rev=1';
-import { ASESelection } from './selection.js?v=0.1.14&rev=1';
-import { ASETransform } from './transform.js?v=0.1.14&rev=1';
+import { ASEApi } from './api.js?v=0.1.15&rev=1';
+import { ASERenderer } from './renderer.js?v=0.1.15&rev=1';
+import { ASESelection } from './selection.js?v=0.1.15&rev=1';
+import { ASETransform } from './transform.js?v=0.1.15&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.1.14&rev=1';
+} from './trajectory.js?v=0.1.15&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -32,6 +32,8 @@ const LEGACY_LABEL_DISPLAY_KEYS = Object.freeze({
 });
 const ATOM_MATERIAL_PRESETS = Object.freeze(['standard', 'metal', 'rubber']);
 const MAX_COMMENSURATE_AREA_RATIO = 128;
+const MIN_ATOM_COLORSCALE_TRAJECTORY_CACHE_VALUES = 10_000;
+const MAX_ATOM_COLORSCALE_TRAJECTORY_CACHE_VALUES = 2_000_000;
 
 class VAseApp {
     constructor() {
@@ -1100,6 +1102,16 @@ class VAseApp {
         };
     }
 
+    atomColorScaleTrajectoryCacheEligible(fieldId = this.state.display.atomColorScaleField || 'position:z') {
+        const frames = Number(this.state.atoms?.metadata?.frame_count || 1);
+        const atoms = Number(this.state.atoms?.positions?.length || 0);
+        const total = frames * atoms;
+        return !fieldId.startsWith('position:')
+            && frames > 1
+            && total >= MIN_ATOM_COLORSCALE_TRAJECTORY_CACHE_VALUES
+            && total <= MAX_ATOM_COLORSCALE_TRAJECTORY_CACHE_VALUES;
+    }
+
     async resolveAtomColorScaleRange(values, selected, { force = false } = {}) {
         const mode = this.normalizedAtomColorScaleRangeMode(
             this.state.display.atomColorScaleRangeMode
@@ -1134,6 +1146,10 @@ class VAseApp {
         }
         let cachedRange = this.atomColorScaleRuntime.rangeCaches.get(signature)
             || this.atomColorScaleRangeFromTrajectoryCache(selected);
+        if (!cachedRange && this.atomColorScaleTrajectoryCacheEligible()) {
+            await this.preloadAtomColorScaleTrajectoryValues();
+            cachedRange = this.atomColorScaleRangeFromTrajectoryCache(selected);
+        }
         if (cachedRange) {
             this.atomColorScaleRuntime.rangeCaches.set(signature, cachedRange);
             return this.setAtomColorScaleRange(cachedRange, 'trajectory', cachedRange);
@@ -1157,8 +1173,31 @@ class VAseApp {
         this.state.display.atomColorScaleRangeMode = normalized;
         this.state.display.atomColorScaleAutoRange = normalized !== 'manual';
         this.atomColorScaleRuntime.rangeSignature = '';
+        if (normalized === 'trajectory') {
+            await this.preloadAtomColorScaleTrajectoryValues();
+        }
         await this.updateAtomColorScale({ quiet: normalized !== 'trajectory', forceRange: true });
         this.scheduleVisualHistoryCommit(`atom-colorscale-range-${normalized}`);
+    }
+
+    async preloadAtomColorScaleTrajectoryValues() {
+        const runtime = this.atomColorScaleRuntime;
+        const fieldId = this.state.display.atomColorScaleField || 'position:z';
+        if (fieldId.startsWith('position:') || runtime.valueCaches.has(fieldId)) return false;
+        if (runtime.prefetchTimer !== null) {
+            const cancel = window.cancelIdleCallback || clearTimeout;
+            cancel(runtime.prefetchTimer);
+            runtime.prefetchTimer = null;
+            runtime.prefetchField = '';
+            runtime.prefetchFrame = -1;
+        }
+        const frames = Number(this.state.atoms?.metadata?.frame_count || 1);
+        const atoms = Number(this.state.atoms?.positions?.length || 0);
+        if (!this.atomColorScaleTrajectoryCacheEligible(fieldId)) return false;
+        const result = await this.api.fetchAtomScalarValues(fieldId, 0, true);
+        if (result.frames !== frames || result.atoms !== atoms) return false;
+        runtime.valueCaches.set(fieldId, result);
+        return true;
     }
 
     formatAtomColorScaleValue(value) {
@@ -1189,7 +1228,12 @@ class VAseApp {
         scope?.classList.toggle('hidden', this.state.display.atomColorScaleScope !== 'selected');
     }
 
-    async updateAtomColorScale({ refreshCatalog = false, quiet = false, forceRange = false } = {}) {
+    async updateAtomColorScale({
+        refreshCatalog = false,
+        quiet = false,
+        forceRange = false,
+        refreshBonds = true
+    } = {}) {
         if (!this.state.display.atomColorScaleEnabled) {
             if (this.renderer.atomColorScaleColors !== null) {
                 this.renderer.setAtomColorScaleColors(null);
@@ -1223,7 +1267,7 @@ class VAseApp {
                 colors[index] = palette[paletteIndex];
             });
         }
-        this.renderer.setAtomColorScaleColors(colors);
+        this.renderer.setAtomColorScaleColors(colors, { refreshBonds });
         if (range) {
             this.updateAtomColorScaleLegend({
                 descriptor: this.atomColorScaleDescriptor(),
@@ -2436,7 +2480,7 @@ class VAseApp {
 
     decodeIsosurface(buffer) {
         const bytes = new Uint8Array(buffer);
-        const magic = new TextDecoder().decode(bytes.slice(0, 8));
+        const magic = new TextDecoder().decode(bytes.subarray(0, 8));
         if (magic !== 'VASEISO1' || bytes.byteLength < 12) {
             throw new Error('v_ase returned an invalid isosurface payload.');
         }
@@ -2445,7 +2489,7 @@ class VAseApp {
         const headerStart = 12;
         const dataStart = headerStart + headerLength;
         if (dataStart > bytes.byteLength) throw new Error('Isosurface header is truncated.');
-        const header = JSON.parse(new TextDecoder().decode(bytes.slice(headerStart, dataStart)));
+        const header = JSON.parse(new TextDecoder().decode(bytes.subarray(headerStart, dataStart)));
         const vertexBytes = Number(header.vertex_count) * 3 * 4;
         const faceBytes = Number(header.face_count) * 3 * 4;
         if (dataStart + vertexBytes + faceBytes !== bytes.byteLength) {
@@ -2453,8 +2497,12 @@ class VAseApp {
         }
         return {
             header,
-            vertices: new Float32Array(buffer.slice(dataStart, dataStart + vertexBytes)),
-            faces: new Uint32Array(buffer.slice(dataStart + vertexBytes))
+            vertices: dataStart % 4 === 0
+                ? new Float32Array(buffer, dataStart, Number(header.vertex_count) * 3)
+                : new Float32Array(buffer.slice(dataStart, dataStart + vertexBytes)),
+            faces: (dataStart + vertexBytes) % 4 === 0
+                ? new Uint32Array(buffer, dataStart + vertexBytes, Number(header.face_count) * 3)
+                : new Uint32Array(buffer.slice(dataStart + vertexBytes))
         };
     }
 
@@ -5012,7 +5060,10 @@ class VAseApp {
         this.state.originalPositions = this.state.vizOnly ? positions : positions.map(p => [...p]);
         this.renderer.updatePositions(positions);
         if (this.state.display.atomColorScaleEnabled) {
-            await this.updateAtomColorScale({ quiet: true });
+            await this.updateAtomColorScale({
+                quiet: true,
+                refreshBonds: !this.state.trajectoryTimer
+            });
         }
         this.updateUI();
     }
@@ -9086,6 +9137,9 @@ class VAseApp {
             this.atomColorScaleRuntime.rangeSignature = '';
             this.syncAtomColorScaleControls();
             await this.updateAtomColorScale({ quiet: true, forceRange: rangeMode !== 'manual' });
+            if (rangeMode === 'trajectory') {
+                await this.preloadAtomColorScaleTrajectoryValues();
+            }
             return;
         }
         if (name === 'wrap') {
@@ -13908,10 +13962,17 @@ class VAseApp {
     }
 
     async completeTrajectoryFrameUpdate() {
-        this.pruneSelection();
-        this.updateSelectionVisuals();
+        // Position updates already move selection outlines and constraint guides.
+        // Rebuilding those geometries for an unchanged selection dominated large
+        // trajectory playback, especially when no atoms were selected.
+        if (this.state.selected.size || this.state.replicaSelected.size) {
+            this.pruneSelection();
+        }
         if (this.state.display.atomColorScaleEnabled) {
-            await this.updateAtomColorScale({ quiet: true });
+            await this.updateAtomColorScale({
+                quiet: true,
+                refreshBonds: !this.state.trajectoryTimer
+            });
         }
         this.observeCollaborationFrame();
         if (this.state.display.showDisplacements) {

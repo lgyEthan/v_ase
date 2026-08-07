@@ -7,6 +7,7 @@ history operations while retaining an ASE structure for scientific work.
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass, field
 import json
 import os
@@ -45,6 +46,8 @@ DEFAULT_MAX_GRID_POINTS = 128 * 1024 * 1024
 MAX_ISOSURFACE_TRIANGLES = 2_000_000
 MAX_VOLUMETRIC_SMEARING_SIGMA = 8.0
 MAX_ISOSURFACE_SMOOTHING_ITERATIONS = 30
+MAX_ISOSURFACE_CACHE_BYTES = 64 * 1024 * 1024
+MAX_ISOSURFACE_CACHE_ITEMS = 4
 ISOSURFACE_BINARY_MAGIC = b"VASEISO1"
 # Cube and XSF writers commonly round cell vectors to six decimal places.
 # This accepts that serialization noise without treating distinct cells as equal.
@@ -102,15 +105,18 @@ def resolve_volumetric_format(
 
     source = Path(path)
     basename = source.name.lower()
-    if basename == "chgcar" or basename.startswith("chgcar."):
+    def matches_vasp_stem(stem: str) -> bool:
+        return basename == stem or basename.startswith((f"{stem}.", f"{stem}_", f"{stem}-"))
+
+    if matches_vasp_stem("chgcar"):
         return "vasp-density"
-    if basename == "chg" or basename.startswith("chg."):
+    if matches_vasp_stem("chg"):
         return "vasp-density"
-    if basename == "locpot" or basename.startswith("locpot."):
+    if matches_vasp_stem("locpot"):
         return "vasp-potential"
-    if basename == "parchg" or basename.startswith("parchg."):
+    if matches_vasp_stem("parchg"):
         return "vasp-partial-density"
-    if basename == "elfcar" or basename.startswith("elfcar."):
+    if matches_vasp_stem("elfcar"):
         return "vasp-elf"
     if source.suffix.lower() in {".cube", ".cub"}:
         return "cube"
@@ -193,6 +199,23 @@ class VolumetricData:
         repr=False,
         compare=False,
     )
+    _minimum: float = field(default=0.0, init=False, repr=False, compare=False)
+    _maximum: float = field(default=0.0, init=False, repr=False, compare=False)
+    _mean: float = field(default=0.0, init=False, repr=False, compare=False)
+    _integral: float = field(default=0.0, init=False, repr=False, compare=False)
+    _isosurface_cache: OrderedDict[tuple[Any, ...], "IsosurfaceMesh"] = field(
+        default_factory=OrderedDict,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _isosurface_cache_bytes: int = field(default=0, init=False, repr=False, compare=False)
+    _isosurface_cache_lock: threading.Lock = field(
+        default_factory=threading.Lock,
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         self.name = str(self.name or "Volumetric data").strip() or "Volumetric data"
@@ -219,26 +242,30 @@ class VolumetricData:
         self.metadata = dict(self.metadata or {})
         if self.atoms is not None and not isinstance(self.atoms, Atoms):
             raise TypeError("Volumetric atoms must be an ase.Atoms object or None.")
+        self._minimum = float(np.min(self.values))
+        self._maximum = float(np.max(self.values))
+        self._mean = float(np.mean(self.values, dtype=np.float64))
+        integral_values = self.values
+        if self.endpoint_inclusive:
+            integral_values = integral_values[:-1, :-1, :-1]
+        voxel_volume = abs(float(np.linalg.det(self.cell))) / float(np.prod(integral_values.shape))
+        self._integral = float(np.sum(integral_values, dtype=np.float64) * voxel_volume)
 
     @property
     def minimum(self) -> float:
-        return float(np.min(self.values))
+        return self._minimum
 
     @property
     def maximum(self) -> float:
-        return float(np.max(self.values))
+        return self._maximum
 
     @property
     def mean(self) -> float:
-        return float(np.mean(self.values, dtype=np.float64))
+        return self._mean
 
     @property
     def integral(self) -> float:
-        values = self.values
-        if self.endpoint_inclusive:
-            values = values[:-1, :-1, :-1]
-        voxel_volume = abs(float(np.linalg.det(self.cell))) / float(np.prod(values.shape))
-        return float(np.sum(values, dtype=np.float64) * voxel_volume)
+        return self._integral
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -391,6 +418,9 @@ class IsosurfaceMesh:
             separators=(",", ":"),
             allow_nan=False,
         ).encode("utf-8")
+        # Keep both typed-array sections 4-byte aligned so browsers can view
+        # the response buffer directly instead of copying every mesh twice.
+        header += b" " * ((-len(header)) % 4)
         return b"".join(
             (
                 ISOSURFACE_BINARY_MAGIC,
@@ -774,14 +804,25 @@ def combine_volumetric_datasets(
             else "float32"
         )
     )
-    result = np.zeros(reference.values.shape, dtype=np.float64)
+    output_dtype = VOLUMETRIC_PRECISION_DTYPES[output_precision]
+    result = np.zeros(reference.values.shape, dtype=output_dtype)
     clean_coefficients = []
     for coefficient, dataset in zip(coefficients, datasets):
         value = float(coefficient)
         if not np.isfinite(value):
             raise ValueError("Volumetric combination coefficients must be finite.")
         clean_coefficients.append(value)
-        result += value * dataset.values
+        # Work in bounded slabs. A full-grid expression temporarily doubles
+        # memory for large CHGCAR/PARCHG differences.
+        plane_size = int(np.prod(reference.values.shape[1:]))
+        slab_depth = max(1, min(reference.values.shape[0], 1_048_576 // max(1, plane_size)))
+        coefficient_value = output_dtype.type(value)
+        for start in range(0, reference.values.shape[0], slab_depth):
+            stop = min(reference.values.shape[0], start + slab_depth)
+            result[start:stop] += (
+                np.asarray(dataset.values[start:stop], dtype=output_dtype)
+                * coefficient_value
+            )
     return VolumetricData(
         name=name,
         values=result,
@@ -951,7 +992,7 @@ def _smooth_mesh_vertices(
     """Apply shrinkage-reducing two-pass Laplacian mesh fairing."""
 
     passes = _validated_smoothing_iterations(iterations)
-    source = np.asarray(vertices, dtype=np.float64)
+    source = np.asarray(vertices, dtype=np.float32)
     if passes == 0 or len(source) < 4 or not len(faces):
         return source.copy()
 
@@ -963,7 +1004,7 @@ def _smooth_mesh_vertices(
             "Install or repair v_ase with `python -m pip install -U v_ase-gui`."
         ) from exc
 
-    triangles = np.asarray(faces, dtype=np.int64)
+    triangles = np.asarray(faces, dtype=np.uint32)
     edges = np.concatenate(
         (
             triangles[:, (0, 1)],
@@ -972,14 +1013,15 @@ def _smooth_mesh_vertices(
         ),
         axis=0,
     )
-    edges = np.unique(np.sort(edges, axis=1), axis=0)
+    edges.sort(axis=1)
+    edges = np.unique(edges, axis=0)
     rows = np.concatenate((edges[:, 0], edges[:, 1]))
     columns = np.concatenate((edges[:, 1], edges[:, 0]))
     adjacency = coo_matrix(
-        (np.ones(len(rows), dtype=np.float64), (rows, columns)),
+        (np.ones(len(rows), dtype=np.float32), (rows, columns)),
         shape=(len(source), len(source)),
     ).tocsr()
-    degree = np.asarray(adjacency.sum(axis=1)).reshape(-1)
+    degree = np.asarray(adjacency.sum(axis=1), dtype=np.float32).reshape(-1)
     movable = degree > 0
     if fixed is not None:
         fixed_mask = np.asarray(fixed, dtype=bool)
@@ -1025,15 +1067,30 @@ def generate_isosurface(
         raise ValueError("Isosurface level must be finite.")
     smear_sigma = _validated_smearing_sigma(smearing_sigma)
     smoothing_passes = _validated_smoothing_iterations(smoothing_iterations)
+    quality_step = max(1, min(8, int(step_size)))
+    cache_key = (
+        float(iso_level),
+        quality_step,
+        float(smear_sigma),
+        smoothing_passes,
+        int(max_triangles),
+    )
+    with dataset._isosurface_cache_lock:
+        cached = dataset._isosurface_cache.get(cache_key)
+        if cached is not None:
+            dataset._isosurface_cache.move_to_end(cache_key)
+            return cached
     display_values = _smear_scalar_grid(dataset, smear_sigma)
-    minimum = float(np.min(display_values))
-    maximum = float(np.max(display_values))
+    if smear_sigma == 0:
+        minimum, maximum = dataset.minimum, dataset.maximum
+    else:
+        minimum = float(np.min(display_values))
+        maximum = float(np.max(display_values))
     if not minimum < iso_level < maximum:
         raise ValueError(
             "Isosurface level must lie strictly between "
             f"{minimum:.8g} and {maximum:.8g} after field smearing."
         )
-    quality_step = max(1, min(8, int(step_size)))
     volume, denominator = _periodic_marching_grid_values(dataset, display_values)
     try:
         vertices, faces, _normals, _values = marching_cubes(
@@ -1057,9 +1114,11 @@ def generate_isosurface(
         iterations=smoothing_passes,
         fixed=fixed,
     )
-    fractional = vertices / denominator
-    cartesian = dataset.origin + fractional @ dataset.cell
-    return IsosurfaceMesh(
+    fractional = vertices / np.asarray(denominator, dtype=np.float32)
+    cartesian = np.asarray(dataset.origin, dtype=np.float32) + (
+        fractional @ np.asarray(dataset.cell, dtype=np.float32)
+    )
+    mesh = IsosurfaceMesh(
         dataset_id=dataset.dataset_id,
         name=dataset.name,
         level=iso_level,
@@ -1081,6 +1140,23 @@ def generate_isosurface(
             "source_shape": [int(value) for value in dataset.values.shape],
         },
     )
+    mesh_bytes = int(mesh.vertices.nbytes + mesh.faces.nbytes)
+    with dataset._isosurface_cache_lock:
+        dataset._isosurface_cache[cache_key] = mesh
+        dataset._isosurface_cache.move_to_end(cache_key)
+        dataset._isosurface_cache_bytes += mesh_bytes
+        while (
+            len(dataset._isosurface_cache) > MAX_ISOSURFACE_CACHE_ITEMS
+            or (
+                dataset._isosurface_cache_bytes > MAX_ISOSURFACE_CACHE_BYTES
+                and len(dataset._isosurface_cache) > 1
+            )
+        ):
+            _key, removed = dataset._isosurface_cache.popitem(last=False)
+            dataset._isosurface_cache_bytes -= int(
+                removed.vertices.nbytes + removed.faces.nbytes
+            )
+    return mesh
 
 
 def dataset_by_id(

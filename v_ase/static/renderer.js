@@ -605,10 +605,12 @@ export class ASERenderer {
         this.scene.add(this.hookeanGroup);
         this.atomMeshByIndex = new Map();
         this.atomInstanceRefs = new Map();
+        this.atomInstanceRefsByIndex = [];
         this.atomInstanceMeshes = new Set();
         this.atomIndicesByLabel = new Map();
         this.useInstancedAtoms = false;
         this.instanceDummy = new THREE.Object3D();
+        this.atomColorScratch = new THREE.Color();
         this.bondInstanceDummy = new THREE.Object3D();
         this.bondDeltaScratch = new THREE.Vector3();
         this.yAxis = new THREE.Vector3(0, 1, 0);
@@ -1726,8 +1728,9 @@ export class ASERenderer {
         return material;
     }
 
-    fixedAdjustedColor(color, isFixed = false, presetName = 'standard') {
-        return this.atomMaterialSpec(color, isFixed, presetName).color;
+    fixedAdjustedColor(color, isFixed = false, presetName = 'standard', target = null) {
+        // Fixed/material presets change surface response, not the element hue.
+        return (target || new THREE.Color()).set(color);
     }
 
     atomLabelVisible(index) {
@@ -1936,6 +1939,7 @@ export class ASERenderer {
         this.clearReplicaSelectionOutlines();
         this.atomMeshByIndex.clear();
         this.atomInstanceRefs.clear();
+        this.atomInstanceRefsByIndex.length = 0;
         this.atomInstanceMeshes.clear();
         this.atomIndicesByLabel.clear();
         this.atomsData = atoms;
@@ -2100,7 +2104,15 @@ export class ASERenderer {
                     group.materialPreset
                 );
                 this.atomMeshByIndex.set(index, proxy);
-                this.atomInstanceRefs.set(index, { mesh, instanceId });
+                const ref = {
+                    mesh,
+                    instanceId,
+                    proxy,
+                    matrix: mesh.instanceMatrix.array,
+                    matrixOffset: instanceId * 16
+                };
+                this.atomInstanceRefs.set(index, ref);
+                this.atomInstanceRefsByIndex[index] = ref;
                 mesh.setColorAt(
                     instanceId,
                     this.fixedAdjustedColor(
@@ -2109,6 +2121,8 @@ export class ASERenderer {
                         group.materialPreset
                     )
                 );
+                ref.color = mesh.instanceColor.array;
+                ref.colorOffset = instanceId * 3;
                 this.updateAtomInstanceMatrix(index);
             });
             mesh.instanceMatrix.needsUpdate = true;
@@ -2143,12 +2157,14 @@ export class ASERenderer {
     }
 
     updateAtomInstanceTranslation(index, x, y, z) {
-        const ref = this.atomInstanceRefs.get(index);
-        const proxy = this.atomMeshByIndex.get(index);
+        const ref = this.atomInstanceRefsByIndex[index] || this.atomInstanceRefs.get(index);
+        const proxy = ref?.proxy || this.atomMeshByIndex.get(index);
         if (!ref || !proxy) return;
-        proxy.position.set(x, y, z);
-        const matrix = ref.mesh.instanceMatrix.array;
-        const offset = ref.instanceId * 16;
+        proxy.position.x = x;
+        proxy.position.y = y;
+        proxy.position.z = z;
+        const matrix = ref.matrix || ref.mesh.instanceMatrix.array;
+        const offset = ref.matrixOffset ?? ref.instanceId * 16;
         matrix[offset + 12] = x;
         matrix[offset + 13] = y;
         matrix[offset + 14] = z;
@@ -3093,17 +3109,26 @@ export class ASERenderer {
         if (!values || !count) return;
         const atomPositions = this.atomsData?.positions;
         if (this.useInstancedAtoms) {
+            const refs = this.atomInstanceRefsByIndex;
             for (let index = 0; index < count; index++) {
                 const base = offset + index * 3;
+                const x = values[base];
+                const y = values[base + 1];
+                const z = values[base + 2];
                 const position = atomPositions?.[index];
                 if (position) {
-                    position[0] = values[base];
-                    position[1] = values[base + 1];
-                    position[2] = values[base + 2];
+                    position[0] = x;
+                    position[1] = y;
+                    position[2] = z;
                 }
-                this.updateAtomInstanceTranslation(
-                    index, values[base], values[base + 1], values[base + 2]
-                );
+                const ref = refs[index];
+                if (!ref) continue;
+                ref.proxy.position.x = x;
+                ref.proxy.position.y = y;
+                ref.proxy.position.z = z;
+                ref.matrix[ref.matrixOffset + 12] = x;
+                ref.matrix[ref.matrixOffset + 13] = y;
+                ref.matrix[ref.matrixOffset + 14] = z;
             }
             this.atomInstanceMeshes.forEach(mesh => {
                 mesh.instanceMatrix.needsUpdate = true;
@@ -3386,6 +3411,52 @@ export class ASERenderer {
         this.requestRender();
     }
 
+    refreshAtomColors(indices = []) {
+        if (!this.atomsData?.symbols) return;
+        if (this.useInstancedAtoms) {
+            const changed = new Set();
+            const refs = this.atomInstanceRefsByIndex;
+            const scratch = this.atomColorScratch;
+            const updateIndex = index => {
+                const ref = refs[index] || this.atomInstanceRefs.get(index);
+                const proxy = ref?.proxy || this.atomMeshByIndex.get(index);
+                if (!ref || !proxy) return;
+                this.fixedAdjustedColor(
+                    this.atomVisualColor(index, this.customColors[index]),
+                    Boolean(proxy.userData.fixed),
+                    proxy.userData.materialPreset || this.atomMaterialPreset(index),
+                    scratch
+                );
+                if (ref.color) scratch.toArray(ref.color, ref.colorOffset);
+                else ref.mesh.setColorAt(ref.instanceId, scratch);
+                changed.add(ref.mesh);
+            };
+            if (indices.length) indices.forEach(updateIndex);
+            else for (let index = 0; index < refs.length; index++) updateIndex(index);
+            changed.forEach(mesh => {
+                if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+            });
+            this.requestRender();
+            return;
+        }
+        const targets = indices.length ? indices : this.atomsData.symbols.map((_, index) => index);
+        const segmentCount = this.sphereQualitySegments(this.atomsData.symbols.length);
+        targets.forEach(index => {
+            const mesh = this.atomMeshByIndex.get(index);
+            if (!mesh) return;
+            const color = this.atomVisualColor(index, this.customColors[index]);
+            const isFixed = Boolean(mesh.userData.fixed) && this.fixedAtomDisplayEnabled();
+            const materialPreset = this.atomMaterialPreset(index);
+            const atomSegments = isFixed ? this.fixedAtomSegments(segmentCount) : segmentCount;
+            const materialKey = this.atomMaterialCacheKey(color, isFixed, atomSegments, false, materialPreset);
+            if (!this.materialCache.has(materialKey)) {
+                this.materialCache.set(materialKey, this.createAtomMaterial(color, isFixed, materialPreset));
+            }
+            mesh.material = this.materialCache.get(materialKey);
+        });
+        this.requestRender();
+    }
+
     refreshSupercellAtomColors() {
         if (!this.useInstancedAtoms || !this.supercellGroup?.children?.length) return false;
         let changed = false;
@@ -3413,21 +3484,21 @@ export class ASERenderer {
         return changed;
     }
 
-    setAtomColorScaleColors(colors = null) {
+    setAtomColorScaleColors(colors = null, { refreshBonds = true } = {}) {
         const atomCount = this.atomsData?.symbols?.length || 0;
         this.atomColorScaleColors = Array.isArray(colors) && colors.length === atomCount
             ? [...colors]
             : null;
         if (!this.atomsData) return;
-        this.refreshAtomAppearance();
+        this.refreshAtomColors();
         const hasReplicas = (this.displayOptions.supercell || [1, 1, 1]).some(value => value > 1);
         if (hasReplicas) {
             if (!this.refreshSupercellAtomColors()) this.rebuildSupercell();
-            else if (this.displayOptions.showBonds && this.displayOptions.bondColorMode === 'split') {
+            else if (refreshBonds && this.displayOptions.showBonds && this.displayOptions.bondColorMode === 'split') {
                 this.rebuildSupercellBonds();
             }
         }
-        if (this.displayOptions.showBonds && this.displayOptions.bondColorMode === 'split') {
+        if (refreshBonds && this.displayOptions.showBonds && this.displayOptions.bondColorMode === 'split') {
             this.rebuildBonds();
         }
         this.requestRender();
