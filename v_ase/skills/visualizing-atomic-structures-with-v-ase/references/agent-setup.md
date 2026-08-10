@@ -161,6 +161,10 @@ The command returns one JSON object. Its semantic value is under `result`.
 Call `schema` before planning a broad workflow; it exposes exact operation and
 export parameter maps as `operation_parameters` and `export_parameters`, even
 before a document command is sent to the browser.
+Compare their keys with `capabilities.operations` and
+`capabilities.exports`. Both sets must match exactly. A difference means the
+installed browser assets and Python package are out of sync; do not mutate the
+document until the installation is repaired.
 For a complex request, write the parameters to a JSON file and use
 `--params-file`. For render/export results, use `--save OUTPUT`; this decodes
 the returned data URL without printing it. Existing files are protected unless
@@ -179,6 +183,12 @@ If no live browser is connected, commands fail with HTTP 409 and tell the
 agent to open `human_url`. If the browser controller cannot evaluate
 `window.v_aseAI`, do not treat that as a blocker; `v_ase api` is the
 vendor-neutral control path.
+
+The public bridge is also the release-test path. Send at least one structured
+selection plus physical or visual change from a separate `v_ase api` process,
+confirm the corresponding mode/control/readout changes in `human_url`, and
+read the same semantic state and revision back with `describe`. In-page
+evaluation alone is not sufficient evidence of external-agent compatibility.
 
 For a remote server, keep the structure and v_ase process on the server. Use
 the automatic SSH tunnel command documented in `cli-and-environments.md`; the

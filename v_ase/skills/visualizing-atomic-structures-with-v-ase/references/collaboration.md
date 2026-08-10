@@ -31,6 +31,11 @@ GUI edits, renders the GUI, and emits machine-readable state and revisions.
 workspace controlled through the handshake's `command_url`. Human GUI edits
 are authoritative and must be reviewed before the agent continues.
 
+Do not validate this contract with page-only JavaScript. Send at least one
+selection plus physical or visual change from a separate `v_ase api` process,
+confirm the corresponding controls/readouts change in the normal GUI, and
+then confirm `describe().collaboration.revision` and semantic state agree.
+
 When live human collaboration is requested, automate the visible `human_url`
 page itself so the researcher observes and edits that browser view between
 agent commands. Do not create an unnecessary hidden rendering copy.

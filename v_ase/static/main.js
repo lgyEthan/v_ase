@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.1.17&rev=1';
-import { ASERenderer } from './renderer.js?v=0.1.17&rev=1';
-import { ASESelection } from './selection.js?v=0.1.17&rev=1';
-import { ASETransform } from './transform.js?v=0.1.17&rev=1';
+import { ASEApi } from './api.js?v=0.1.18&rev=1';
+import { ASERenderer } from './renderer.js?v=0.1.18&rev=1';
+import { ASESelection } from './selection.js?v=0.1.18&rev=1';
+import { ASETransform } from './transform.js?v=0.1.18&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.1.17&rev=1';
+} from './trajectory.js?v=0.1.18&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -10276,11 +10276,33 @@ class VAseApp {
         } catch {
             // The static capability lists below remain usable offline.
         }
+        const operationParameters = this.clonePlain(discovery.operation_parameters || {});
+        const exportParameters = this.clonePlain(discovery.export_parameters || {});
+        const fallbackOperations = [
+            'wrap', 'translate-all', 'set-supercell', 'make-supercell',
+            'add-atom', 'delete-selection', 'set-identity', 'set-constraints',
+            'move-selection', 'rotate-selection', 'rotate-to-commensurate',
+            'load-commensurate-guest', 'remove-commensurate-guest',
+            'calculate-commensurate', 'apply-commensurate-cell',
+            'dismiss-commensurate-cell', 'calculate-registry-map', 'undo', 'redo',
+            'reset-coordinates', 'start-relaxation', 'stop-relaxation',
+            'refresh-displacements', 'load-volumetric', 'show-volumetric',
+            'add-volumetric-plane', 'update-volumetric-planes',
+            'remove-volumetric-planes',
+            'combine-volumetric', 'remove-volumetric', 'calculate-rdf',
+            'set-interface-theme', 'set-personal-visual-default',
+            'restore-app-visual-defaults', 'set-atom-colorscale'
+        ];
+        const fallbackExports = [
+            'image', 'video', 'poscar', 'pickle', 'blender', '3dm', 'obj',
+            'html', 'project', 'settings', 'rdf-csv', 'commensurate-csv',
+            'registry-csv'
+        ];
         return {
             protocol: 'v_ase.ai.v1',
             schemaUrl,
-            operationParameters: this.clonePlain(discovery.operation_parameters || {}),
-            exportParameters: this.clonePlain(discovery.export_parameters || {}),
+            operationParameters,
+            exportParameters,
             state: [
                 'atoms', 'labels', 'elements', 'positions', 'cell', 'pbc',
                 'constraints', 'forces', 'charges', 'tags', 'magnetic-moments',
@@ -10293,26 +10315,12 @@ class VAseApp {
                 'expectedRevision', 'frame', 'mode', 'display', 'quality',
                 'applyConstraints', 'camera', 'selection', 'operation'
             ],
-            operations: [
-                'wrap', 'translate-all', 'set-supercell', 'make-supercell',
-                'add-atom', 'delete-selection', 'set-identity', 'set-constraints',
-                'move-selection', 'rotate-selection', 'rotate-to-commensurate',
-                'load-commensurate-guest', 'remove-commensurate-guest',
-                'calculate-commensurate', 'apply-commensurate-cell',
-                'dismiss-commensurate-cell', 'calculate-registry-map', 'undo', 'redo',
-                'reset-coordinates', 'start-relaxation', 'stop-relaxation',
-                'refresh-displacements', 'load-volumetric', 'show-volumetric',
-                'add-volumetric-plane', 'update-volumetric-planes',
-                'remove-volumetric-planes',
-                'combine-volumetric', 'remove-volumetric', 'calculate-rdf',
-                'set-interface-theme', 'set-personal-visual-default',
-                'restore-app-visual-defaults', 'set-atom-colorscale'
-            ],
-            exports: [
-                'image', 'video', 'poscar', 'pickle', 'blender', '3dm', 'obj',
-                'html', 'project', 'settings', 'rdf-csv', 'commensurate-csv',
-                'registry-csv'
-            ],
+            operations: Object.keys(operationParameters).length
+                ? Object.keys(operationParameters)
+                : fallbackOperations,
+            exports: Object.keys(exportParameters).length
+                ? Object.keys(exportParameters)
+                : fallbackExports,
             atomColorScale: {
                 provider: 'Matplotlib',
                 scalarCatalogUrl: new URL(

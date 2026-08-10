@@ -36,9 +36,15 @@ need page-main-world JavaScript access.
 The agent calls `v_ase api "$COMMAND_URL" schema` before a broad workflow to
 discover exact operation and export parameters, then uses `capabilities` and
 `describe` for the live document and attached calculator state.
+It must require exact equality between schema parameter-map keys and the
+operation/export names returned by `capabilities`; a mismatch indicates an
+out-of-sync installation. External-agent verification uses separate
+`v_ase api` processes and confirms each command in the same normal GUI, not
+only through page-injected JavaScript.
 The same semantic contract includes VASP/Cube/XSF volumetric grids, signed
 isosurfaces, compatible-grid density differences, total and label-pair RDF,
-and RDF CSV export. Agents use `describe().analysis` for dataset IDs,
+interactive hkl scalar-field planes, and RDF CSV export. Agents use
+`describe().analysis` for dataset and plane IDs,
 effective cutoffs, warnings, and curve names instead of reading plots or
 surfaces from screenshots.
 The canonical skill also documents standalone `html` export in lightweight

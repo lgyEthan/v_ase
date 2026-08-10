@@ -11,7 +11,7 @@ from ase.io import read
 
 from v_ase import __version__
 from v_ase.ai import ai_skill_path
-from v_ase.server import ai_control_schema, ai_skill
+from v_ase.server import ai_control_schema, ai_schema_payload, ai_skill
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,9 +45,13 @@ def _documented_skill_text() -> str:
     ])
 
 
-def _capability_values(source: str, key: str) -> set[str]:
-    match = re.search(rf"{key}:\s*\[(?P<body>.*?)\]", source, re.DOTALL)
-    assert match, f"Could not locate aiCapabilities().{key}"
+def _javascript_array_values(source: str, variable: str) -> set[str]:
+    match = re.search(
+        rf"const\s+{re.escape(variable)}\s*=\s*\[(?P<body>.*?)\]",
+        source,
+        re.DOTALL,
+    )
+    assert match, f"Could not locate JavaScript array {variable}"
     return set(re.findall(r"'([^']+)'", match.group("body")))
 
 
@@ -84,13 +88,54 @@ def test_skill_uses_one_level_progressive_references():
 def test_skill_covers_every_live_operation_and_export():
     main_js = (ROOT / "v_ase/static/main.js").read_text(encoding="utf-8")
     documented = _documented_skill_text()
+    schema = ai_schema_payload()
+    operations = set(schema["operation_parameters"])
+    exports = set(schema["export_parameters"])
+    operation_dispatch = main_js.split(
+        "async aiApplyOperation(operation)", 1
+    )[1].split("async aiApply(command", 1)[0]
+    export_dispatch = main_js.split(
+        "async aiExport(request", 1
+    )[1].split("async aiApplyCollaboratively", 1)[0]
+    operation_handlers = set(re.findall(r"if \(name === '([^']+)'\)", operation_dispatch))
+    export_handlers = set(re.findall(r"if \(format === '([^']+)'\)", export_dispatch))
+    export_handlers.update(
+        re.findall(r"else if \(format === '([^']+)'\)", export_dispatch)
+    )
 
-    operations = _capability_values(main_js, "operations")
-    exports = _capability_values(main_js, "exports")
     assert operations
     assert exports
+    assert operations == operation_handlers
+    assert exports == export_handlers
+    assert operations == _javascript_array_values(main_js, "fallbackOperations")
+    assert exports == _javascript_array_values(main_js, "fallbackExports")
+    assert "Object.keys(operationParameters)" in main_js
+    assert "Object.keys(exportParameters)" in main_js
     for value in sorted(operations | exports):
         assert f"`{value}`" in documented, value
+
+
+def test_readme_agent_media_uses_the_external_cli_bridge():
+    capture = (ROOT / "scripts/capture_readme_screenshots.py").read_text(
+        encoding="utf-8"
+    )
+    ai_edit = capture.split("def capture_ai_edit_media", 1)[1].split(
+        "def capture_ai_collaboration_figure", 1
+    )[0]
+    collaboration = capture.split(
+        "def capture_ai_collaboration_figure", 1
+    )[1].split("def capture_relaxation_media", 1)[0]
+    volumetric = capture.split("def capture_volumetric_media", 1)[1].split(
+        "def make_atom_colorscale_trajectory", 1
+    )[0]
+
+    assert "run_external_ai_apply" in ai_edit
+    assert "run_external_ai_apply" in collaboration
+    assert "run_external_ai_apply" in volumetric
+    assert "update-volumetric-planes" in volumetric
+    assert "window.v_aseAI.apply" not in ai_edit
+    assert "window.v_aseAI.apply" not in collaboration
+    assert "window.v_aseAI.apply" not in volumetric
 
 
 def test_skill_version_install_and_environment_contract_are_current():

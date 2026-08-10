@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.1.17"
+python -m pip install "v_ase-gui==0.1.18"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -94,6 +94,10 @@ Use this sequence for every task:
    open `human_url` so the human and agent share one live document.
 2. **Plan**: call `schema`, `capabilities`, and `describe`; identify the document,
    frame, atom indices, labels, elements, cell, PBC, constraints, and camera.
+   Require `capabilities.operations` to equal the keys of
+   `schema.operation_parameters` and `capabilities.exports` to equal the keys
+   of `schema.export_parameters`. Stop on a mismatch because the installed
+   Python package and browser assets are not synchronized.
 3. **Validate**: confirm atom count and topology before reusing indices. Confirm
    Edit mode before physical changes.
 4. **Execute**: apply one semantic change at a time with the latest
@@ -154,6 +158,9 @@ The `apply` method accepts `frame`, `mode`, `display`, `quality`,
 and `capabilities` instead of assuming that a command or parameter exists.
 `schema` returns operation and export parameter maps without requiring the
 browser to execute a document command.
+The capability name lists are generated from those live maps. Treat a missing
+name as unsupported instead of trying a hidden browser method. Every
+advertised name is dispatched in the same visible GUI document.
 For per-atom coloring, follow the lazy scalar and Matplotlib catalog URLs from
 `capabilities().atomColorScale`, then use `set-atom-colorscale`; never guess a
 model-specific array name. Use `rangeMode:"current"` for a fast active-frame
@@ -258,6 +265,9 @@ handling, use the references below rather than improvising field names.
 For any nontrivial task, verify all applicable items:
 
 - structure: count, labels, elements, positions, cell, PBC, constraints;
+- AI contract: exact schema/capability operation and export set equality, an
+  external `v_ase api` mutation visible in the normal GUI, and matching GUI
+  and `describe().collaboration.revision` state;
 - trajectory: frame count, active frame, stable selection, analysis reference;
 - volumetric: dataset ID, grid dimensions, cell, origin, PBC, units,
   component, FP32/FP64 precision, memory size, visible default/custom

@@ -8,6 +8,7 @@ import json
 import math
 import os
 import shutil
+import subprocess
 import sys
 from io import BytesIO
 from pathlib import Path
@@ -26,6 +27,7 @@ if str(ROOT) not in sys.path:
 
 from tests.manual_showcase import make_frames
 from v_ase import view
+from v_ase.ai import ai_handshake
 from examples.readme_scenes import (
     make_copper_oxide_bond_scene,
     make_crowded_c60_relaxation_scene,
@@ -850,6 +852,70 @@ def open_scene(browser, atoms_or_frames, *, show_bonds=False, viz_only=False):
     return editor, page
 
 
+def external_ai_command_url(editor, *, workspace: bool = False) -> str:
+    """Return the same loopback command URL printed by ``v_ase gui --cli``."""
+    url = editor.url if workspace else (
+        f"http://127.0.0.1:{editor.port}/?session_id={editor.session_id}"
+    )
+    command_url = ai_handshake(url).get("command_url")
+    if not command_url:
+        raise AssertionError("README capture could not discover the AI command URL.")
+    return str(command_url)
+
+
+def run_external_ai_command(
+    command_url: str,
+    method: str,
+    params: dict | None = None,
+    *,
+    timeout: float = 180.0,
+):
+    """Invoke the public ``v_ase api`` executable, not an in-page helper."""
+    command = [
+        sys.executable,
+        "-m",
+        "v_ase.cli",
+        "api",
+        command_url,
+        method,
+        "--timeout",
+        f"{float(timeout):g}",
+    ]
+    if params is not None:
+        command.extend(["--params", json.dumps(params, separators=(",", ":"))])
+    completed = subprocess.run(
+        command,
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=timeout + 10.0,
+    )
+    try:
+        envelope = json.loads(completed.stdout.strip())
+    except json.JSONDecodeError as exc:
+        raise AssertionError(
+            f"v_ase api returned non-JSON output for {method}: {completed.stdout!r}"
+        ) from exc
+    if "result" not in envelope:
+        raise AssertionError(f"v_ase api returned no result for {method}: {envelope!r}")
+    return envelope["result"]
+
+
+def run_external_ai_apply(command_url: str, command: dict):
+    """Apply one revision-guarded command through the external CLI."""
+    before = run_external_ai_command(
+        command_url,
+        "describe",
+        {"includePositions": False},
+    )
+    guarded = {
+        **command,
+        "expectedRevision": before["collaboration"]["revision"],
+    }
+    return run_external_ai_command(command_url, "apply", guarded)
+
+
 def sinusoidal_frames(base: np.ndarray, index: int, delta_fn, count=34) -> list[np.ndarray]:
     frames = []
     for step in range(count):
@@ -1562,6 +1628,7 @@ def capture_ai_edit_media(browser) -> None:
     editor, page = open_scene(browser, source, show_bonds=True)
     try:
         page.wait_for_function("window.v_aseAI")
+        command_url = external_ai_command_url(editor)
         set_display(page, {
             "atomRadiusScale": 0.58,
             "bondThickness": 0.18,
@@ -1606,38 +1673,39 @@ def capture_ai_edit_media(browser) -> None:
             frames.extend(frame.copy() for _ in range(count))
 
         hold(6)
-        set_selection(page, [metadata["vacancy_index"]])
+        run_external_ai_apply(command_url, {
+            "mode": "edit",
+            "selection": {
+                "clear": True,
+                "indices": [metadata["vacancy_index"]],
+            },
+        })
         hold(5)
-        page.evaluate(
-            """async (index) => {
-                await window.v_aseAI.apply({
-                    mode: 'edit',
-                    selection: {clear: true, indices: [index]},
-                    operation: {name: 'delete-selection', indices: [index]}
-                });
-            }""",
-            metadata["vacancy_index"],
-        )
+        run_external_ai_apply(command_url, {
+            "operation": {
+                "name": "delete-selection",
+                "indices": [metadata["vacancy_index"]],
+            },
+        })
         page.wait_for_function(
             "window.__V_ASE_APP__.state.atoms.positions.length === 71"
         )
         hold(7)
-        set_selection(page, metadata["neighbors_after"])
+        run_external_ai_apply(command_url, {
+            "selection": {
+                "clear": True,
+                "indices": metadata["neighbors_after"],
+            },
+        })
         hold(5)
-        page.evaluate(
-            """async (indices) => {
-                await window.v_aseAI.apply({
-                    selection: {clear: true, indices},
-                    operation: {
-                        name: 'set-identity',
-                        indices,
-                        label: 'N_pyridinic',
-                        element: 'N'
-                    }
-                });
-            }""",
-            metadata["neighbors_after"],
-        )
+        run_external_ai_apply(command_url, {
+            "operation": {
+                "name": "set-identity",
+                "indices": metadata["neighbors_after"],
+                "label": "N_pyridinic",
+                "element": "N",
+            },
+        })
         page.wait_for_function(
             "window.__V_ASE_APP__.state.atoms.symbols.filter(label => label === 'N_pyridinic').length === 3"
         )
@@ -1653,21 +1721,15 @@ def capture_ai_edit_media(browser) -> None:
                 "Li_site": "metal",
             },
         })
-        set_selection(page, metadata["neighbors_after"])
         hold(7)
-        page.evaluate(
-            """async ({position}) => {
-                await window.v_aseAI.apply({
-                    operation: {
-                        name: 'add-atom',
-                        label: 'Li_site',
-                        element: 'Li',
-                        position
-                    }
-                });
-            }""",
-            {"position": metadata["li_position"]},
-        )
+        run_external_ai_apply(command_url, {
+            "operation": {
+                "name": "add-atom",
+                "label": "Li_site",
+                "element": "Li",
+                "position": metadata["li_position"],
+            },
+        })
         page.wait_for_function(
             "window.__V_ASE_APP__.state.atoms.positions.length === 72"
         )
@@ -1683,19 +1745,23 @@ def capture_ai_edit_media(browser) -> None:
                 "Li_site": "metal",
             },
         })
-        set_selection(page, [*metadata["neighbors_after"], metadata["li_index"]])
+        run_external_ai_apply(command_url, {
+            "selection": {
+                "clear": True,
+                "indices": [*metadata["neighbors_after"], metadata["li_index"]],
+            },
+        })
         hold(10)
-        set_selection(page, [])
+        run_external_ai_apply(command_url, {
+            "selection": {"clear": True, "indices": []},
+        })
         hold(8)
 
-        final_state = page.evaluate("""() => {
-            const atoms = window.__V_ASE_APP__.state.atoms;
-            return {
-                positions: atoms.positions,
-                chemicalSymbols: atoms.chemical_symbols,
-                labels: atoms.symbols
-            };
-        }""")
+        final_state = run_external_ai_command(
+            command_url,
+            "describe",
+            {"includePositions": True},
+        )
         if not np.allclose(final_state["positions"], expected_final.positions):
             raise AssertionError("AI README edit did not reproduce the generated final coordinates.")
         if final_state["chemicalSymbols"] != expected_final.get_chemical_symbols():
@@ -1730,8 +1796,12 @@ def capture_ai_collaboration_figure(browser) -> None:
     try:
         page.goto(editor.url)
         page.wait_for_function("window.v_aseAI")
-        initial = page.evaluate(
-            "async () => { await window.v_aseAI.ready(); return await window.v_aseAI.describe(); }"
+        command_url = external_ai_command_url(editor, workspace=True)
+        run_external_ai_command(command_url, "ready")
+        initial = run_external_ai_command(
+            command_url,
+            "describe",
+            {"includePositions": True},
         )
 
         async_commands = [
@@ -1794,24 +1864,7 @@ def capture_ai_collaboration_figure(browser) -> None:
         ]
         state = initial
         for command in async_commands:
-            state = page.evaluate(
-                """async command => {
-                    for (let attempt = 0; attempt < 3; attempt += 1) {
-                        const current = await window.v_aseAI.describe({includePositions: false});
-                        try {
-                            return await window.v_aseAI.apply({
-                                ...command,
-                                expectedRevision: current.collaboration.revision
-                            });
-                        } catch (error) {
-                            if (!String(error?.message || error).includes('revision conflict')
-                                || attempt === 2) throw error;
-                            await new Promise(resolve => setTimeout(resolve, 80));
-                        }
-                    }
-                }""",
-                command,
-            )
+            state = run_external_ai_apply(command_url, command)
 
         child = next(
             frame for frame in page.frames
@@ -1863,8 +1916,10 @@ def capture_ai_collaboration_figure(browser) -> None:
                 f"Expected human camera/display events, received {human_events!r}"
             )
 
-        final_state = page.evaluate(
-            "async () => await window.v_aseAI.describe({includePositions: true})"
+        final_state = run_external_ai_command(
+            command_url,
+            "describe",
+            {"includePositions": True},
         )
         if not np.allclose(final_state["positions"], expected_final.positions):
             raise AssertionError("Collaboration example changed the verified coordinates.")
@@ -2194,6 +2249,7 @@ def capture_volumetric_media(browser) -> None:
 
     editor, page = open_scene(browser, atoms, show_bonds=True)
     try:
+        command_url = external_ai_command_url(editor)
         set_display(page, {
             "atomRadiusScale": 0.54,
             "showBonds": True,
@@ -2213,35 +2269,27 @@ def capture_volumetric_media(browser) -> None:
             },
         })
         configure_inspector(page, "analysis", ["volumetric"], width=470)
-        result = page.evaluate(
-            """async ({ path, level }) => {
-                const ai = window.v_aseAI;
-                await ai.apply({
-                    operation: {name: 'load-volumetric', path}
-                });
-                const loaded = await ai.describe({includePositions: false});
-                const dataset = loaded.analysis.volumetricDatasets.at(-1);
-                await ai.apply({
-                    operation: {
-                        name: 'show-volumetric',
-                        datasetId: dataset.id,
-                        level,
-                        surfaceMode: 'signed',
-                        stepSize: 1,
-                        smearingSigma: 0.45,
-                        smoothingIterations: 7,
-                        opacity: 0.56,
-                        positiveColor: '#258fbd',
-                        negativeColor: '#dc5976'
-                    }
-                });
-                return await ai.describe({includePositions: false});
-            }""",
-            {
+        loaded = run_external_ai_apply(command_url, {
+            "operation": {
+                "name": "load-volumetric",
                 "path": cube_path.relative_to(ROOT).as_posix(),
-                "level": float(np.max(np.abs(values)) * 0.22),
             },
-        )
+        })
+        dataset = loaded["analysis"]["volumetricDatasets"][-1]
+        result = run_external_ai_apply(command_url, {
+            "operation": {
+                "name": "show-volumetric",
+                "datasetId": dataset["id"],
+                "level": float(np.max(np.abs(values)) * 0.22),
+                "surfaceMode": "signed",
+                "stepSize": 1,
+                "smearingSigma": 0.45,
+                "smoothingIterations": 7,
+                "opacity": 0.56,
+                "positiveColor": "#258fbd",
+                "negativeColor": "#dc5976",
+            },
+        })
         if not result["analysis"]["volumetricDatasets"]:
             raise AssertionError("README volumetric scene did not load its scalar field.")
         page.wait_for_function(
@@ -2320,34 +2368,25 @@ def capture_volumetric_media(browser) -> None:
             optimize=True,
         )
 
-        plane_state = page.evaluate(
-            """async () => {
-                const app = window.__V_ASE_APP__;
-                const ai = window.v_aseAI;
-                const dataset = (await ai.describe({includePositions: false}))
-                    .analysis.volumetricDatasets.at(-1);
-                await ai.apply({
-                    operation: {
-                        name: 'add-volumetric-plane',
-                        datasetId: dataset.id,
-                        planeName: '(0 0 1) pi-field section',
-                        hkl: [0, 0, 1],
-                        resolution: 512,
-                        colormap: 'coolwarm',
-                        autoRange: true,
-                        opacity: 0.68,
-                        visible: true
-                    }
-                });
-                const plane = app.volumetricPlanes().at(-1);
-                const metrics = app.volumetricPlaneMetrics(plane);
-                return {
-                    id: plane.id,
-                    minimum: metrics.minimum,
-                    maximum: metrics.maximum
-                };
-            }"""
-        )
+        plane_result = run_external_ai_apply(command_url, {
+            "operation": {
+                "name": "add-volumetric-plane",
+                "datasetId": dataset["id"],
+                "planeName": "(0 0 1) pi-field section",
+                "hkl": [0, 0, 1],
+                "resolution": 512,
+                "colormap": "coolwarm",
+                "autoRange": True,
+                "opacity": 0.68,
+                "visible": True,
+            },
+        })
+        plane = plane_result["analysis"]["volumetricPlanes"][-1]
+        plane_state = {
+            "id": plane["id"],
+            "minimum": plane["offsetRangeAngstrom"][0],
+            "maximum": plane["offsetRangeAngstrom"][1],
+        }
         page.wait_for_function(
             """() => window.__V_ASE_APP__.renderer.volumetricPlanes.size === 1"""
         )
@@ -2368,18 +2407,13 @@ def capture_volumetric_media(browser) -> None:
         plane_frames = []
         for fraction in offsets:
             offset = plane_state["minimum"] + span * fraction
-            page.evaluate(
-                """async ({ planeId, offset }) => {
-                    await window.v_aseAI.apply({
-                        operation: {
-                            name: 'update-volumetric-planes',
-                            planeIds: [planeId],
-                            offsetAngstrom: offset
-                        }
-                    });
-                }""",
-                {"planeId": plane_state["id"], "offset": offset},
-            )
+            run_external_ai_apply(command_url, {
+                "operation": {
+                    "name": "update-volumetric-planes",
+                    "planeIds": [plane_state["id"]],
+                    "offsetAngstrom": offset,
+                },
+            })
             page.wait_for_timeout(90)
             plane_frames.append(screenshot_frame(page))
         save_gif(

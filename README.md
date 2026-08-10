@@ -130,7 +130,19 @@ Reading structured atom state instead of repeatedly interpreting screenshots
 can reduce token use while keeping coordinates, labels, and camera settings
 directly verifiable.
 
+The GIF below is recorded from the ordinary live GUI while a separate
+`v_ase api` process sends each selection and atom edit through the public CLI
+bridge. It does not use hidden in-page commands: the Agent and the human are
+looking at the same revisioned document.
+
 ![Natural-language pyridinic N3 graphene edit](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_edit.gif)
+
+The live `schema` is the authority for every supported operation and export.
+v_ase checks that the operation/export lists reported to an Agent, the browser
+handlers that update the GUI, and the bundled Skill stay identical. This
+includes structure edits, constraints, trajectories, cameras, appearance,
+volumetric fields and planes, colorscales, RDF, commensurate analysis,
+rendering, and file export.
 
 The example assets are generated from `ase.build.graphene`:
 
@@ -442,6 +454,10 @@ pointer is active and restores the configured resolution after the transform
 settles.
 
 ![Interactive hkl scalar-field plane clipped to the displayed cell](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric_plane.gif)
+
+The plane in this GIF is added and swept by the same external `v_ase api`
+operations available to an AI Agent; every committed offset is reflected in
+the live GUI and returned by `describe().analysis.volumetricPlanes`.
 
 **Field smearing σ** applies a Gaussian filter measured in grid voxels before
 the isosurface is extracted. Periodic directions wrap across the cell;

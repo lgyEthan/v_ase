@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.18
+
+- Made live AI capability names derive from the server schema so every
+  advertised operation and export stays synchronized with its parameter map.
+- Added exact schema/capability/browser-dispatch/Skill parity regressions and
+  verified external `v_ase api` edits against the same live GUI controls,
+  semantic state, and collaboration revision.
+- Regenerated the AI collaboration and volumetric analysis media through the
+  public CLI bridge, and updated README and canonical Agent Skill guidance for
+  end-to-end external-agent verification.
+
 ## 0.1.17
 
 - Reorganized volumetric analysis into dedicated Isosurface, Planes, and

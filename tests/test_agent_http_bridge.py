@@ -30,6 +30,27 @@ def _post_command(url: str, method: str, params=None, *, expected_status: int = 
     return response.json()
 
 
+def _run_cli_command(url: str, method: str, params=None):
+    command = [
+        sys.executable,
+        "-m",
+        "v_ase.cli",
+        "api",
+        url,
+        method,
+    ]
+    if params is not None:
+        command.extend(["--params", json.dumps(params, separators=(",", ":"))])
+    completed = subprocess.run(
+        command,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return json.loads(completed.stdout)["result"]
+
+
 def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
     tmp_path,
     monkeypatch,
@@ -86,7 +107,7 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
             )
             assert json.loads(cli_ready.stdout)["result"]["sessionId"] == editor.session_id
 
-            capabilities = _post_command(command_url, "capabilities")["result"]
+            capabilities = _run_cli_command(command_url, "capabilities")
             assert capabilities["schemaUrl"].endswith("/api/ai/schema")
             assert "expectedRevision" in capabilities["apply"]
             assert "vector" in capabilities["operationParameters"]["move-selection"]["required"]
@@ -131,6 +152,16 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
             assert initial["preferences"]["personalVisualDefaults"] is False
 
             schema = _post_command(command_url, "schema")["result"]
+            assert set(capabilities["operations"]) == set(
+                schema["operation_parameters"]
+            )
+            assert set(capabilities["exports"]) == set(schema["export_parameters"])
+            assert set(capabilities["operationParameters"]) == set(
+                schema["operation_parameters"]
+            )
+            assert set(capabilities["exportParameters"]) == set(
+                schema["export_parameters"]
+            )
             assert schema["control_schema"]["title"] == "v_ase live semantic control"
             assert schema["operation_parameters"]["rotate-selection"]["mode"] == "edit"
             assert "includeCell" in schema["export_parameters"]["blender"]["optional"]
@@ -209,7 +240,7 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
             assert restored["display"]["atomRadiusScale"] == pytest.approx(0.6)
             assert restored["display"]["atomDisplayMode"] == "3d"
 
-            changed = _post_command(
+            changed = _run_cli_command(
                 command_url,
                 "apply",
                 {
@@ -229,12 +260,26 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
                         "applyConstraints": True,
                     },
                 },
-            )["result"]
+            )
             assert changed["positions"][1] == pytest.approx(
                 [0.84, 0.2, 0.0],
                 abs=1e-8,
             )
             assert changed["selection"][0]["index"] == 1
+
+            child = next(
+                frame for frame in page.frames if "workspace_child=1" in frame.url
+            )
+            child.wait_for_function(
+                "() => document.getElementById('prop-selected')?.textContent === '1'"
+            )
+            assert child.locator('[data-runtime-mode="edit"]').get_attribute(
+                "aria-pressed"
+            ) == "true"
+            assert child.locator("#chk-axes").is_checked()
+            assert child.locator("#chk-cell").is_checked()
+            assert not child.locator("#chk-grid").is_checked()
+            assert child.locator("#selected-indices").inner_text().strip() == "1"
 
             stale = _post_command(
                 command_url,

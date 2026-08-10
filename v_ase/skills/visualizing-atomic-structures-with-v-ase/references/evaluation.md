@@ -277,6 +277,18 @@ Run all scenarios, not only static document checks:
       to launch the CLI, open `human_url`, use `command_url`, exercise every
       advertised operation/export or report an intentional optional-dependency
       failure, and verify semantic plus rendered results.
+    - require exact equality among live schema operation/export keys,
+      `capabilities()` names, browser operation/export dispatchers, and the
+      canonical Skill; an extra or missing name is a release blocker;
+    - run selection, Edit-mode atom motion, camera, axes/cell/grid, render, and
+      export through separate `v_ase api` subprocesses, then inspect the same
+      GUI controls and semantic revision rather than relying on page-injected
+      API calls;
+    - regenerate `readme_ai_edit.gif` with external CLI subprocesses and verify
+      the final GUI structure against its ASE reference coordinates/elements;
+    - add and sweep the README volumetric plane through external CLI
+      operations and verify every offset in
+      `describe().analysis.volumetricPlanes` before capturing a frame.
 12. **Settings and resets**
     - save and reload display supercell and visual translation;
     - verify Reset Coordinates preserves both;

@@ -480,8 +480,12 @@ def test_readme_ferrocene_and_copper_bond_media_use_documented_visual_controls()
 
 def test_readme_volumetric_media_uses_refined_isosurface_controls():
     source = (ROOT / "scripts" / "capture_readme_screenshots.py").read_text()
-    assert "smearingSigma: 0.45" in source
-    assert "smoothingIterations: 7" in source
+    volumetric = source.split("def capture_volumetric_media", 1)[1].split(
+        "def make_atom_colorscale_trajectory", 1
+    )[0]
+    assert '"smearingSigma": 0.45' in volumetric
+    assert '"smoothingIterations": 7' in volumetric
+    assert "run_external_ai_apply" in volumetric
     assert "document.getElementById('volume-smearing')?.value" in source
     assert "document.getElementById('volume-smoothing')?.value" in source
     assert "#176f8c" not in source

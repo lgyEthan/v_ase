@@ -47,6 +47,9 @@ collaboration revision.
 `schema` returns the live `apply` JSON Schema plus `operation_parameters` and
 `export_parameters`. `capabilities()` returns supported state fields, command
 groups, operations, exports, `schemaUrl`, and the same parameter maps.
+At connection time, require exact set equality between capability names and
+the parameter-map keys. This detects a stale wheel/static-asset combination
+before an edit is attempted. Do not call unadvertised internal browser methods.
 
 Read [Live Human-Agent Collaboration](collaboration.md) before sharing control
 with a human. It defines the NDJSON event fields, multi-tab routing, and
