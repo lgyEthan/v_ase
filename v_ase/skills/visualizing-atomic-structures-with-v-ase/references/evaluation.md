@@ -369,6 +369,12 @@ Every browser render test must check:
   without inventing a common value, accept atomic multi-plane edits, clip to
   skew unit cells and supercells, use periodic interpolation, and replace the
   low-resolution `G/R` preview with the configured settled resolution;
+- View mode can create and edit plane hkl and signed grid-origin distance
+  without changing ASE coordinates; Edit-mode numeric and pointer `G/R`
+  transforms update the corresponding distance slider and hkl fields live;
+- editing one selected plane requests and replaces only that plane raster,
+  and a high-resolution section through a representative skew structure stays
+  within the documented timing and temporary-memory budget;
 - semantic add/update/remove plane commands round-trip through `describe()`,
   reject stale IDs and invalid hkl/ranges atomically, and survive `.vase`
   project save/load;

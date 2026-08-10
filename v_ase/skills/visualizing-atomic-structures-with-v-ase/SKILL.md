@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.1.16"
+python -m pip install "v_ase-gui==0.1.17"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -170,7 +170,12 @@ For scalar-field sections, use `add-volumetric-plane` with a dataset ID and a
 nonzero hkl normal, `update-volumetric-planes` with the current plane IDs for
 atomic multi-plane edits, and `remove-volumetric-planes` to delete them. Read
 `describe().analysis.volumetricPlanes` after every operation; do not infer a
-plane ID, colormap, or sampled range from the viewport.
+plane ID, colormap, sampled range, or signed offset from the viewport. A user
+can create and edit planes from **Analysis > Volumetric Data > Planes** in
+View mode without changing ASE coordinates. Edit mode additionally supports
+viewport `G` along each selected plane normal and `R` for its orientation; the
+visible distance and hkl controls update during the transform but semantic
+state after commit remains the authority.
 
 ## Minimal End-To-End Example
 

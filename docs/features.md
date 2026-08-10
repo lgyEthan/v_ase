@@ -366,6 +366,10 @@ Supported operations:
   vertices;
 - restyle positive/negative colors and opacity live without rerunning marching
   cubes;
+- create one or more cell-clipped `(hkl)` sections in View or Edit mode with a
+  signed distance from the stored volumetric grid origin;
+- edit selected plane resolution, colormap, range, opacity, visibility, and
+  shared multi-plane values without changing atom coordinates;
 - remove a dataset;
 - repeat meshes for a display supercell and move them with visual translation;
 - repeat the underlying grid when a physical diagonal supercell is
@@ -392,6 +396,15 @@ so a signed positive/negative request filters the grid once. Mesh smoothing is
 a shrinkage-reducing two-pass Laplacian fairing stage after marching cubes;
 zero passes returns the original extracted vertices. Extracted meshes use
 indexed float32 geometry.
+
+The Volumetric Data panel separates isosurfaces, planar sections, and field
+arithmetic into internal workspaces. View mode exposes the full plane editor
+as non-destructive analysis state. Edit mode adds viewport transforms: `G`
+moves each selected plane along its own normal, while `R` changes the
+reciprocal-space normal. The panel distance, slider, hkl fields, and list
+labels remain synchronized during the live transform. Plane sampling clips
+against the exact displayed triclinic cell or supercell and transfers only the
+selected compact raster to the browser.
 
 Volumetric refinement separates pre-extraction field filtering from
 post-extraction mesh fairing so each control has one explicit numerical

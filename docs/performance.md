@@ -35,6 +35,14 @@ the latest filtered grid per dataset and is reused by both signs of a signed
 surface. Mesh fairing uses sparse vertex adjacency and does no work at zero
 passes. Hidden surfaces allocate no Three.js mesh.
 
+Planar sections cache the cell inverse once per dataset and build one compact
+`3 x height x width` fractional-coordinate buffer directly, avoiding full
+Cartesian point and meshgrid copies. Identical requests reuse the cached
+raster. Live `G/R` previews request only selected planes at reduced resolution;
+settling restores only those planes at their configured resolution. Displayed
+supercells resample the periodic 2D section rather than repeating the full 3D
+grid.
+
 RDF uses one periodic neighbor-list pass at the requested cutoff. ASE
 enumerates every contributing periodic shift, so a long cutoff is not
 truncated to a prebuilt supercell. Total and selected partial histograms share

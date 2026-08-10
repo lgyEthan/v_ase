@@ -291,6 +291,12 @@ class VolumetricData:
         repr=False,
         compare=False,
     )
+    _cell_inverse: np.ndarray = field(
+        default_factory=lambda: np.eye(3, dtype=float),
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         self.name = str(self.name or "Volumetric data").strip() or "Volumetric data"
@@ -301,6 +307,7 @@ class VolumetricData:
             precision=self.precision,
         )
         self.cell = _cell_array(self.cell)
+        self._cell_inverse = np.linalg.inv(self.cell)
         self.origin = np.asarray(self.origin, dtype=float)
         if self.origin.shape != (3,) or not np.all(np.isfinite(self.origin)):
             raise ValueError("Volumetric origin must contain three finite values.")
@@ -630,7 +637,7 @@ def _plane_geometry(
     if np.any((reps > 1) & ~dataset.pbc):
         raise ValueError("A plane can repeat only along periodic volumetric axes.")
 
-    reciprocal_normal = np.linalg.solve(dataset.cell, indices)
+    reciprocal_normal = dataset._cell_inverse @ indices
     reciprocal_length = float(np.linalg.norm(reciprocal_normal))
     if reciprocal_length <= 1e-12:
         raise ValueError("Plane (h k l) does not define a finite cell normal.")
@@ -792,25 +799,31 @@ def generate_volumetric_plane(
         height,
         dtype=np.float64,
     )
-    grid_u, grid_v = np.meshgrid(samples_u, samples_v, indexing="xy")
-    points = (
-        np.asarray(geometry["centroid"])[None, None, :]
-        + grid_u[..., None] * np.asarray(geometry["basis_u"])[None, None, :]
-        + grid_v[..., None] * np.asarray(geometry["basis_v"])[None, None, :]
-    )
-    fractional = (points.reshape(-1, 3) - dataset.origin) @ np.linalg.inv(dataset.cell)
+    inverse_cell = dataset._cell_inverse
+    fractional_origin = (
+        np.asarray(geometry["centroid"], dtype=np.float64) - dataset.origin
+    ) @ inverse_cell
+    fractional_u = np.asarray(geometry["basis_u"], dtype=np.float64) @ inverse_cell
+    fractional_v = np.asarray(geometry["basis_v"], dtype=np.float64) @ inverse_cell
     shape = np.asarray(dataset.values.shape, dtype=float)
-    coordinates = np.empty_like(fractional, dtype=np.float64)
+    # Build one compact 3 x height x width array directly in fractional space.
+    # This avoids materializing Cartesian points, a second fractional copy, and
+    # two full 2D meshgrid arrays for high-resolution sections.
+    coordinates = np.empty((3, height, width), dtype=np.float64)
     for axis in range(3):
-        component = fractional[:, axis]
+        component = (
+            fractional_origin[axis]
+            + samples_u[None, :] * fractional_u[axis]
+            + samples_v[:, None] * fractional_v[axis]
+        )
         if dataset.pbc[axis]:
             component = np.mod(component, 1.0)
         else:
             component = np.clip(component, 0.0, 1.0)
         if dataset.endpoint_inclusive:
-            coordinates[:, axis] = component * max(1.0, shape[axis] - 1.0)
+            coordinates[axis] = component * max(1.0, shape[axis] - 1.0)
         else:
-            coordinates[:, axis] = np.minimum(
+            coordinates[axis] = np.minimum(
                 component * shape[axis],
                 shape[axis] - 1.0,
             )
@@ -824,15 +837,15 @@ def generate_volumetric_plane(
         ) from exc
     sampled = map_coordinates(
         dataset.values,
-        coordinates.T,
+        coordinates.reshape(3, -1),
         order=1,
         mode="nearest",
         prefilter=False,
     ).reshape(height, width)
     sampled = np.ascontiguousarray(sampled, dtype=np.float32)
     polygon_uv = np.asarray(geometry["polygon_uv"], dtype=np.float64)
-    normalized_u = (grid_u - float(geometry["minimum_u"])) / span_u
-    normalized_v = (grid_v - float(geometry["minimum_v"])) / span_v
+    normalized_u = np.linspace(0.0, 1.0, width, dtype=np.float64)[None, :]
+    normalized_v = np.linspace(0.0, 1.0, height, dtype=np.float64)[:, None]
     visible_mask = np.ones((height, width), dtype=bool)
     signed_area = 0.5 * float(np.sum(
         polygon_uv[:, 0] * np.roll(polygon_uv[:, 1], -1)
@@ -852,7 +865,7 @@ def generate_volumetric_plane(
 
     vertex_fractional = (
         np.asarray(geometry["polygon"], dtype=float) - dataset.origin
-    ) @ np.linalg.inv(dataset.cell)
+    ) @ inverse_cell
     vertex_coordinates = np.empty_like(vertex_fractional, dtype=np.float64)
     for axis in range(3):
         component = vertex_fractional[:, axis]

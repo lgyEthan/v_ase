@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.17
+
+- Reorganized volumetric analysis into dedicated Isosurface, Planes, and
+  Combine workspaces, with accessible keyboard tabs and clearer separation of
+  threshold, section, and field-arithmetic controls.
+- Made cell-clipped hkl planes fully configurable in View mode through signed
+  grid-origin distance and reciprocal-normal controls without changing ASE
+  atom coordinates.
+- Synchronized Edit-mode plane `G/R` transforms with the visible distance
+  input, slider, hkl fields, and plane list while retaining reduced-resolution
+  previews and full-resolution settled rendering.
+- Reduced high-resolution plane-sampling memory by caching each grid cell
+  inverse and generating one compact fractional-coordinate buffer directly;
+  live edits now request only the selected plane rasters.
+- Extended browser regressions, performance guidance, the canonical Agent
+  Skill, and regenerated volumetric README media for the updated workflow.
+
 ## 0.1.16
 
 - Added cached raw and absolute-value scalar histograms integrated with the

@@ -653,9 +653,13 @@ dataset voxel count. Verify both plane IDs, exact hkl/offset/range fields, and
 the displayed supercell repetitions in `analysis.volumetricPlanes`. Render
 once with `[1,1,1]` and again with `[2,2,1]`; each plane must remain clipped to
 the corresponding skew cell while the 3D source-grid memory is unchanged.
-For GUI manipulation, enter Edit mode, select one plane, press `G`, move it
-along the visible normal, and confirm the settled full-resolution offset.
-Then press `R`, constrain if needed, and confirm the reported hkl changed.
+For GUI manipulation, first remain in View mode and open **Analysis >
+Volumetric Data > Planes**. Create a plane, enter hkl and signed distance, and
+confirm the ASE atom coordinates are unchanged. Then enter Edit mode, select
+one plane, press `G`, move it along the visible normal, and confirm the number
+field and slider follow the live offset before the settled full-resolution
+render replaces the preview. Press `R`, constrain if needed, and confirm the
+three hkl fields follow the live normal and the committed descriptor matches.
 
 Do not combine grids with different dimensions, cell, origin, PBC, or units.
 Do not hide that validation error by interpolating one grid onto another.

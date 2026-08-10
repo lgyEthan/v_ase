@@ -310,7 +310,12 @@ and documentation use `view()`.
     cubes. Both stages are explicit, bounded, persisted display settings and
     can be disabled with zero. Semantic state reports the rendered levels,
     mesh/triangle counts, post-smearing range, and partial signed-surface
-    status without transmitting the source grid.
+    status without transmitting the source grid. The Volumetric Data panel
+    separates isosurfaces, cell-clipped hkl planes, and field arithmetic.
+    View mode edits plane hkl and signed grid-origin distance without changing
+    ASE coordinates; Edit-mode G/R transforms synchronize the visible distance
+    and hkl controls live. Selected-plane previews and settled renders request
+    only the affected compact 2D rasters.
 60. Volumetric combinations require identical dimensions, cell, origin, PBC,
     endpoint convention, and scalar units. Display repetition and visual
     translation transform the extracted mesh with atoms. A physical diagonal

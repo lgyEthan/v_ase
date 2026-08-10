@@ -508,6 +508,16 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                         const renderedStatus = document.getElementById(
                             'volume-plane-status'
                         ).textContent;
+                        app.setVolumetricPlaneSelection([first.id]);
+                        let targetedRequestCount = 0;
+                        const fetchPlane = app.api.fetchVolumetricPlane.bind(app.api);
+                        app.api.fetchVolumetricPlane = async options => {
+                            targetedRequestCount += 1;
+                            return await fetchPlane(options);
+                        };
+                        await app.renderAllVolumetricPlanes({planeIds: [first.id]});
+                        app.api.fetchVolumetricPlane = fetchPlane;
+                        app.setVolumetricPlaneSelection([first.id, second.id]);
                         first.autoRange = true;
                         second.autoRange = false;
                         second.vmin = 1;
@@ -530,6 +540,7 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                             selected: [...app.state.selectedVolumetricPlanes],
                             hPlaceholder: document.getElementById('volume-plane-h').placeholder,
                             atomicRangePreserved,
+                            targetedRequestCount,
                             maximumX,
                             status: renderedStatus,
                             canvasWidth: document.getElementById('volume-histogram').width,
@@ -551,6 +562,7 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                 assert len(planar_state["selected"]) == 2
                 assert planar_state["hPlaceholder"] == "Mixed"
                 assert planar_state["atomicRangePreserved"] is True
+                assert planar_state["targetedRequestCount"] == 1
                 assert planar_state["maximumX"] == pytest.approx(18.0, abs=1e-4)
                 assert "trilinear interpolation" in planar_state["status"]
                 assert planar_state["canvasWidth"] > 0
@@ -608,8 +620,97 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                 assert semantic_plane["updated"]["vmax"] == pytest.approx(0.5)
                 assert semantic_plane["updated"]["opacity"] == pytest.approx(0.62)
 
+                page.evaluate(
+                    """async id => {
+                        const app = window.__ASE_APP__;
+                        app.setVolumetricPlaneSelection([id]);
+                        await app.switchRuntimeMode(true);
+                        app.setInspectorCollapsed(false);
+                        app.setInspectorGroup('analysis');
+                        app.setVolumetricToolView('planes');
+                    }""",
+                    semantic_plane["id"],
+                )
+                page.fill("#volume-plane-h", "1")
+                page.locator("#volume-plane-h").press("Tab")
+                page.wait_for_timeout(220)
+                requested_offset = page.evaluate(
+                    """id => {
+                        const app = window.__ASE_APP__;
+                        const plane = app.volumetricPlanes().find(item => item.id === id);
+                        const metrics = app.volumetricPlaneMetrics(plane);
+                        return metrics.minimum + 0.55 * (metrics.maximum - metrics.minimum);
+                    }""",
+                    semantic_plane["id"],
+                )
+                page.fill("#volume-plane-offset", str(requested_offset))
+                page.locator("#volume-plane-offset").press("Tab")
+                page.wait_for_timeout(300)
+                view_plane_controls = page.evaluate(
+                    """id => {
+                        const app = window.__ASE_APP__;
+                        const plane = app.volumetricPlanes().find(item => item.id === id);
+                        return {
+                            vizOnly: app.state.vizOnly,
+                            hkl: [...plane.hkl],
+                            offset: plane.offsetAngstrom,
+                            offsetInput: Number(document.getElementById(
+                                'volume-plane-offset'
+                            ).value),
+                            slider: Number(document.getElementById(
+                                'volume-plane-offset-slider'
+                            ).value),
+                            tool: app.state.volumetricToolView,
+                            modeNote: document.getElementById(
+                                'volume-plane-mode-note'
+                            ).textContent,
+                            rendered: app.renderer.volumetricPlanes.has(id)
+                        };
+                    }""",
+                    semantic_plane["id"],
+                )
+                assert view_plane_controls["vizOnly"] is True
+                assert view_plane_controls["hkl"] == pytest.approx([1, 0, 1])
+                assert view_plane_controls["offset"] == pytest.approx(
+                    requested_offset,
+                    abs=1e-5,
+                )
+                assert view_plane_controls["offsetInput"] == pytest.approx(
+                    view_plane_controls["offset"], abs=1e-5
+                )
+                assert view_plane_controls["slider"] == pytest.approx(
+                    view_plane_controls["offset"], abs=1e-5
+                )
+                assert view_plane_controls["tool"] == "planes"
+                assert "View mode" in view_plane_controls["modeNote"]
+                assert view_plane_controls["rendered"] is True
+
+                page.evaluate("window.__ASE_APP__.switchRuntimeMode(false)")
+                page.fill("#volume-plane-h", "0")
+                page.locator("#volume-plane-h").press("Tab")
+                page.wait_for_timeout(220)
+                page.locator("#app-viewport canvas").focus()
+
                 page.keyboard.press("g")
                 page.keyboard.type("0.5")
+                live_move = page.evaluate(
+                    """id => {
+                        const app = window.__ASE_APP__;
+                        const plane = app.volumetricPlanes().find(item => item.id === id);
+                        return {
+                            offset: plane.offsetAngstrom,
+                            input: Number(document.getElementById(
+                                'volume-plane-offset'
+                            ).value),
+                            slider: Number(document.getElementById(
+                                'volume-plane-offset-slider'
+                            ).value)
+                        };
+                    }""",
+                    semantic_plane["id"],
+                )
+                assert live_move["input"] == pytest.approx(live_move["offset"], abs=1e-5)
+                assert live_move["slider"] == pytest.approx(live_move["offset"], abs=1e-5)
                 page.keyboard.press("Enter")
                 page.wait_for_function(
                     "window.__ASE_APP__.transform.mode === 'IDLE'"
@@ -623,13 +724,29 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                     semantic_plane["id"],
                 )
                 assert moved_plane["offsetAngstrom"] == pytest.approx(
-                    semantic_plane["initialOffset"] + 0.5,
+                    view_plane_controls["offset"] + 0.5,
                     abs=1e-5,
                 )
 
                 page.keyboard.press("r")
                 page.keyboard.press("x")
                 page.keyboard.type("90")
+                live_rotation = page.evaluate(
+                    """id => {
+                        const app = window.__ASE_APP__;
+                        const plane = app.volumetricPlanes().find(item => item.id === id);
+                        return {
+                            hkl: [...plane.hkl],
+                            inputs: ['h', 'k', 'l'].map(axis => Number(
+                                document.getElementById(`volume-plane-${axis}`).value
+                            ))
+                        };
+                    }""",
+                    semantic_plane["id"],
+                )
+                assert live_rotation["inputs"] == pytest.approx(
+                    live_rotation["hkl"], abs=1e-6
+                )
                 page.keyboard.press("Enter")
                 page.wait_for_function(
                     "window.__ASE_APP__.transform.mode === 'IDLE'"
@@ -644,6 +761,62 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                 )
                 assert rotated_plane["hkl"] == pytest.approx([0, -1, 0], abs=1e-6)
                 assert rotated_plane["repetitions"] == [1, 1, 1]
+
+                page.locator("#app-viewport canvas").focus()
+                page.keyboard.press("r")
+                rotation_pivot = page.evaluate(
+                    """() => {
+                        const pivot = window.__ASE_APP__.state.rotationScreenPivot;
+                        return {x: pivot.x, y: pivot.y};
+                    }"""
+                )
+                page.mouse.move(rotation_pivot["x"] + 84, rotation_pivot["y"])
+                page.mouse.move(
+                    rotation_pivot["x"],
+                    rotation_pivot["y"] + 84,
+                    steps=6,
+                )
+                page.wait_for_timeout(80)
+                mouse_rotation = page.evaluate(
+                    """id => {
+                        const app = window.__ASE_APP__;
+                        const plane = app.volumetricPlanes().find(item => item.id === id);
+                        return {
+                            mode: app.transform.mode,
+                            hkl: [...plane.hkl],
+                            inputs: ['h', 'k', 'l'].map(axis => Number(
+                                document.getElementById(`volume-plane-${axis}`).value
+                            ))
+                        };
+                    }""",
+                    semantic_plane["id"],
+                )
+                assert mouse_rotation["mode"] == "ROTATE"
+                assert mouse_rotation["hkl"] != pytest.approx([0, -1, 0], abs=1e-5)
+                assert mouse_rotation["inputs"] == pytest.approx(
+                    mouse_rotation["hkl"], abs=1e-6
+                )
+                page.keyboard.press("Escape")
+                page.wait_for_function(
+                    "window.__ASE_APP__.transform.mode === 'IDLE'"
+                )
+                cancelled_rotation = page.evaluate(
+                    """id => {
+                        const app = window.__ASE_APP__;
+                        const plane = app.volumetricPlanes().find(item => item.id === id);
+                        return {
+                            hkl: [...plane.hkl],
+                            inputs: ['h', 'k', 'l'].map(axis => Number(
+                                document.getElementById(`volume-plane-${axis}`).value
+                            ))
+                        };
+                    }""",
+                    semantic_plane["id"],
+                )
+                assert cancelled_rotation["hkl"] == pytest.approx([0, -1, 0], abs=1e-6)
+                assert cancelled_rotation["inputs"] == pytest.approx(
+                    cancelled_rotation["hkl"], abs=1e-6
+                )
 
                 removed_plane = page.evaluate(
                     """async id => {

@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.1.16&rev=1';
-import { ASERenderer } from './renderer.js?v=0.1.16&rev=1';
-import { ASESelection } from './selection.js?v=0.1.16&rev=1';
-import { ASETransform } from './transform.js?v=0.1.16&rev=1';
+import { ASEApi } from './api.js?v=0.1.17&rev=1';
+import { ASERenderer } from './renderer.js?v=0.1.17&rev=1';
+import { ASESelection } from './selection.js?v=0.1.17&rev=1';
+import { ASETransform } from './transform.js?v=0.1.17&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.1.16&rev=1';
+} from './trajectory.js?v=0.1.17&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -285,6 +285,7 @@ class VAseApp {
             volumetricPlanePreviewTimer: null,
             volumetricPlaneSettledTimer: null,
             volumetricPlaneTransformOriginal: null,
+            volumetricToolView: 'surface',
             rdfResult: null,
             rdfRequestToken: 0,
             registryResult: null,
@@ -508,6 +509,7 @@ class VAseApp {
             button.setAttribute('aria-pressed', selected ? 'true' : 'false');
             button.disabled = this.state.modeSwitchInFlight;
         });
+        this.syncVolumetricPlaneModeNote();
         this.updateSelectedAppearanceControls();
     }
 
@@ -2454,6 +2456,33 @@ class VAseApp {
         context.globalAlpha = 1;
     }
 
+    setVolumetricToolView(view, { focus = false } = {}) {
+        const selected = ['surface', 'planes', 'difference'].includes(view)
+            ? view
+            : 'surface';
+        this.state.volumetricToolView = selected;
+        document.querySelectorAll('[data-volume-tool]').forEach(button => {
+            const active = button.dataset.volumeTool === selected;
+            button.setAttribute('aria-selected', active ? 'true' : 'false');
+            button.tabIndex = active ? 0 : -1;
+            if (active && focus) button.focus({ preventScroll: true });
+        });
+        document.querySelectorAll('[data-volume-tool-view]').forEach(panel => {
+            const active = panel.dataset.volumeToolView === selected;
+            panel.classList.toggle('hidden', !active);
+            panel.setAttribute('aria-hidden', active ? 'false' : 'true');
+        });
+    }
+
+    syncVolumetricPlaneModeNote() {
+        const modeNote = document.getElementById('volume-plane-mode-note');
+        if (!modeNote) return;
+        modeNote.dataset.mode = this.state.vizOnly ? 'view' : 'edit';
+        modeNote.textContent = this.state.vizOnly
+            ? 'View mode · edit (h k l) and distance here without changing ASE coordinates.'
+            : 'Edit mode · use these controls, or select a plane in the viewport and press G or R.';
+    }
+
     renderVolumetricControls() {
         const datasets = this.volumetricDatasets();
         const empty = document.getElementById('volume-empty');
@@ -2539,6 +2568,7 @@ class VAseApp {
         }
         this.syncVolumetricControls();
         this.renderVolumetricPlaneControls();
+        this.setVolumetricToolView(this.state.volumetricToolView);
     }
 
     syncVolumetricControls() {
@@ -2869,6 +2899,7 @@ class VAseApp {
                 this.clearAtomSelection();
                 this.updateSelectionVisuals();
             }
+            this.setVolumetricToolView('planes');
         }
         if (update) {
             this.renderVolumetricPlaneControls();
@@ -2950,6 +2981,7 @@ class VAseApp {
 
     renderVolumetricPlaneControls() {
         const planes = this.normalizeVolumetricPlanes();
+        this.syncVolumetricPlaneModeNote();
         const list = document.getElementById('volume-plane-list');
         if (!list) return;
         list.replaceChildren();
@@ -3051,7 +3083,7 @@ class VAseApp {
             if (canSlide) {
                 offsetSlider.min = `${commonMinimum.value}`;
                 offsetSlider.max = `${commonMaximum.value}`;
-                offsetSlider.step = `${Math.max(1e-6, (commonMaximum.value - commonMinimum.value) / 1200)}`;
+                offsetSlider.step = 'any';
                 if (document.activeElement !== offsetSlider) offsetSlider.value = `${commonOffset.value}`;
             }
         }
@@ -3219,38 +3251,51 @@ class VAseApp {
         return payload;
     }
 
-    async renderAllVolumetricPlanes({ preview = false } = {}) {
+    async renderAllVolumetricPlanes({
+        preview = false,
+        planeIds = null,
+        updateControls = true
+    } = {}) {
         const planes = this.normalizeVolumetricPlanes();
         const validIds = new Set(planes.map(plane => plane.id));
         const stale = [...this.renderer.volumetricPlanes.keys()].filter(id => !validIds.has(id));
         if (stale.length) this.renderer.clearVolumetricPlanes(stale);
         const visible = planes.filter(plane => plane.visible);
+        const requestedIds = Array.isArray(planeIds) ? new Set(planeIds.map(String)) : null;
+        const requested = requestedIds
+            ? visible.filter(plane => requestedIds.has(plane.id))
+            : visible;
         if (!visible.length) {
             this.setVolumetricPlaneStatus('idle', planes.length ? 'Planes hidden' : 'No planar section', '');
             return [];
         }
+        if (!requested.length) return [];
         this.setVolumetricPlaneStatus(
             'loading',
             preview ? 'Updating plane preview' : 'Sampling planar sections',
-            `${visible.length} plane${visible.length === 1 ? '' : 's'} · ${preview ? 'interactive' : 'settled'} resolution`
+            `${requested.length} of ${visible.length} plane${visible.length === 1 ? '' : 's'} · ${preview ? 'interactive' : 'settled'} resolution`
         );
         const results = await Promise.allSettled(
-            visible.map(plane => this.renderVolumetricPlane(plane, { preview }))
+            requested.map(plane => this.renderVolumetricPlane(plane, { preview }))
         );
         const failures = results.filter(result => result.status === 'rejected');
         this.renderer.setVolumetricPlaneSelection([...this.state.selectedVolumetricPlanes]);
-        this.renderVolumetricPlaneControls();
+        if (updateControls) this.renderVolumetricPlaneControls();
+        else this.syncVolumetricPlaneTransformControls();
         this.setVolumetricPlaneStatus(
             failures.length ? 'warning' : 'ready',
-            `${visible.length - failures.length} planar section${visible.length - failures.length === 1 ? '' : 's'}`,
+            `${visible.length} planar section${visible.length === 1 ? '' : 's'}`,
             failures.length
                 ? failures.map(result => result.reason?.message || 'Plane unavailable').join(' ')
-                : `${preview ? 'Interactive preview' : 'Settled field'} · trilinear interpolation`
+                : `${requested.length} updated · ${preview ? 'interactive preview' : 'settled field'} · trilinear interpolation`
         );
         return results;
     }
 
-    scheduleVolumetricPlanePreview({ settle = false } = {}) {
+    scheduleVolumetricPlanePreview({ settle = false, planeIds = null } = {}) {
+        const requestedIds = Array.isArray(planeIds)
+            ? [...new Set(planeIds.map(String))]
+            : null;
         if (this.state.volumetricPlanePreviewTimer !== null) {
             clearTimeout(this.state.volumetricPlanePreviewTimer);
         }
@@ -3260,14 +3305,22 @@ class VAseApp {
         }
         this.state.volumetricPlanePreviewTimer = setTimeout(() => {
             this.state.volumetricPlanePreviewTimer = null;
-            this.renderAllVolumetricPlanes({ preview: !settle }).catch(error => {
+            this.renderAllVolumetricPlanes({
+                preview: !settle,
+                planeIds: requestedIds,
+                updateControls: false
+            }).catch(error => {
                 this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
             });
         }, settle ? 90 : 45);
         if (!settle) {
             this.state.volumetricPlaneSettledTimer = setTimeout(() => {
                 this.state.volumetricPlaneSettledTimer = null;
-                this.renderAllVolumetricPlanes({ preview: false }).catch(error => {
+                this.renderAllVolumetricPlanes({
+                    preview: false,
+                    planeIds: requestedIds,
+                    updateControls: false
+                }).catch(error => {
                     this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
                 });
             }, 260);
@@ -3458,6 +3511,20 @@ class VAseApp {
 
     setupVolumetricAnalysis() {
         const fileInput = document.getElementById('volume-file');
+        document.querySelectorAll('[data-volume-tool]').forEach(button => {
+            button.addEventListener('click', () => {
+                this.setVolumetricToolView(button.dataset.volumeTool, { focus: true });
+            });
+            button.addEventListener('keydown', event => {
+                if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+                event.preventDefault();
+                const views = ['surface', 'planes', 'difference'];
+                const current = views.indexOf(this.state.volumetricToolView);
+                const delta = event.key === 'ArrowRight' ? 1 : -1;
+                const next = views[(current + delta + views.length) % views.length];
+                this.setVolumetricToolView(next, { focus: true });
+            });
+        });
         const histogramContainer = document.querySelector('.volume-distribution');
         if (histogramContainer && typeof ResizeObserver !== 'undefined') {
             new ResizeObserver(() => this.drawVolumetricHistogram()).observe(histogramContainer);
@@ -3667,14 +3734,18 @@ class VAseApp {
         });
         const applyPlaneOffset = (value, { preview = false } = {}) => {
             if (!Number.isFinite(value)) return;
-            this.selectedVolumetricPlaneList().forEach(plane => {
+            const selected = this.selectedVolumetricPlaneList();
+            selected.forEach(plane => {
                 const metrics = this.volumetricPlaneMetrics(plane);
                 plane.offsetAngstrom = metrics
                     ? Math.max(metrics.minimum, Math.min(metrics.maximum, value))
                     : value;
             });
-            this.renderVolumetricPlaneControls();
-            this.scheduleVolumetricPlanePreview({ settle: !preview });
+            this.syncVolumetricPlaneTransformControls();
+            this.scheduleVolumetricPlanePreview({
+                settle: !preview,
+                planeIds: selected.map(plane => plane.id)
+            });
         };
         document.getElementById('volume-plane-offset-slider')?.addEventListener('input', event => {
             const value = Number(event.target.value);
@@ -7723,6 +7794,33 @@ class VAseApp {
             'volume-plane-offset',
             this.commonVolumetricPlaneValue(selected, plane => plane.offsetAngstrom)
         );
+        const commonOffset = this.commonVolumetricPlaneValue(
+            selected,
+            plane => plane.offsetAngstrom
+        );
+        const commonMinimum = this.commonVolumetricPlaneValue(
+            selected,
+            plane => plane.offsetMinimum
+        );
+        const commonMaximum = this.commonVolumetricPlaneValue(
+            selected,
+            plane => plane.offsetMaximum
+        );
+        const offsetSlider = document.getElementById('volume-plane-offset-slider');
+        if (offsetSlider) {
+            const canSlide = !commonOffset.mixed && !commonMinimum.mixed && !commonMaximum.mixed
+                && Number.isFinite(Number(commonMinimum.value))
+                && Number.isFinite(Number(commonMaximum.value));
+            offsetSlider.disabled = !canSlide;
+            if (canSlide) {
+                offsetSlider.min = `${commonMinimum.value}`;
+                offsetSlider.max = `${commonMaximum.value}`;
+                offsetSlider.step = 'any';
+                if (document.activeElement !== offsetSlider) {
+                    offsetSlider.value = `${commonOffset.value}`;
+                }
+            }
+        }
         selected.forEach(plane => {
             const row = document.querySelector(`[data-plane-id="${CSS.escape(plane.id)}"]`);
             const label = row?.querySelector('.volume-plane-list-hkl');
@@ -7788,7 +7886,9 @@ class VAseApp {
         }
         this.renderer.previewVolumetricPlaneTransforms(transforms);
         this.syncVolumetricPlaneTransformControls();
-        this.scheduleVolumetricPlanePreview();
+        this.scheduleVolumetricPlanePreview({
+            planeIds: originals.map(original => original.id)
+        });
         this.transform.updateGuides(this.renderer.camera);
         this.updateCommandReadout();
         this.renderer.requestRender();
@@ -7859,8 +7959,10 @@ class VAseApp {
 
     commitVolumetricPlaneTransform() {
         if (this.transform.mode === 'IDLE') return;
+        const planeIds = (this.state.volumetricPlaneTransformOriginal || [])
+            .map(original => original.id);
         this.finishVolumetricPlaneTransform();
-        this.renderAllVolumetricPlanes().catch(error => {
+        this.renderAllVolumetricPlanes({ planeIds }).catch(error => {
             this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
         });
         this.scheduleVisualHistoryCommit('volumetric-plane-transform');
@@ -7876,8 +7978,9 @@ class VAseApp {
             plane.offsetMinimum = original.offsetMinimum;
             plane.offsetMaximum = original.offsetMaximum;
         });
+        const planeIds = originals.map(original => original.id);
         this.finishVolumetricPlaneTransform();
-        this.renderAllVolumetricPlanes().catch(error => {
+        this.renderAllVolumetricPlanes({ planeIds }).catch(error => {
             this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
         });
     }

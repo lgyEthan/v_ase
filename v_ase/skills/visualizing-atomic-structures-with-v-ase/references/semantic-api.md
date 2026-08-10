@@ -690,11 +690,13 @@ const planeId = withPlane.analysis.volumetricPlanes.at(-1).id;
 
 `hkl` defines the Cartesian normal through the reciprocal cell and cannot be
 `[0,0,0]`. `offsetAngstrom` is the signed distance from the origin along that
-unit normal. If omitted, v_ase centers the plane in the displayed cell or
-supercell. `resolution` is `128`, `256`, `512`, or `1024`. The backend clips
-the plane against the exact triclinic cell, samples by periodic trilinear
-interpolation, and returns only a compact 2D raster and polygon. A displayed
-supercell is sampled periodically without materializing a repeated 3D grid.
+unit normal. Here, origin means the volumetric dataset's stored grid origin,
+not an inferred atom center or selection center. If omitted, v_ase centers the
+plane in the displayed cell or supercell. `resolution` is `128`, `256`, `512`,
+or `1024`. The backend clips the plane against the exact triclinic cell,
+samples by periodic trilinear interpolation, and returns only a compact 2D
+raster and polygon. A displayed supercell is sampled periodically without
+materializing a repeated 3D grid.
 
 Edit multiple planes as one validated operation:
 
@@ -717,9 +719,14 @@ normal, unsupported resolution/colormap, invalid opacity, or manual
 `vmin >= vmax` rejects the entire edit. Use `remove-volumetric-planes` with a
 nonempty `planeIds` list to remove them atomically. In the GUI, mixed values
 for a multi-selection are blank until the user enters a common replacement.
-Edit-mode `G` moves selected planes along their own normals and `R` changes
-their normals/hkl; interactive movement uses a low-resolution preview and the
-configured full resolution is restored after settling.
+The **Planes** panel is available in View mode, where hkl, signed distance,
+resolution, colormap, range, opacity, visibility, and multi-selection edits
+change analysis state without changing ASE atom coordinates. Edit-mode `G`
+moves selected planes along their own normals and `R` changes their
+normals/hkl. The number input, distance slider, hkl fields, and list label
+track an active viewport transform. Interactive movement updates only the
+selected plane rasters at low resolution; the configured full resolution is
+restored after settling.
 
 `describe().analysis.volumetricPlanes` reports each plane's ID, name, dataset,
 visibility, hkl, offset, displayed-cell repetitions, resolution, colormap,

@@ -2353,11 +2353,12 @@ def capture_volumetric_media(browser) -> None:
         )
         page.evaluate(
             """() => {
+                const app = window.__V_ASE_APP__;
+                app.setVolumetricToolView('planes');
                 const input = document.getElementById('volume-opacity');
                 input.value = '0.42';
                 input.dispatchEvent(new Event('input', {bubbles: true}));
                 const panel = document.querySelector('.volume-plane-panel');
-                panel.open = true;
                 panel.scrollIntoView({block: 'start', behavior: 'instant'});
             }"""
         )

@@ -52,12 +52,12 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.16&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.17&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.1.16';
+            : '/static/vendor/three.module.js?v=0.1.17';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -116,7 +116,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.1.16</span>
+            <span class="version">0.1.17</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -514,6 +514,16 @@
                     <select id="volume-dataset"></select>
                 </div>
                 <div id="volume-summary" class="volume-summary"></div>
+                <div class="volume-tool-tabs" role="tablist" aria-label="Volumetric display">
+                    <button id="volume-tool-tab-surface" type="button" role="tab" data-volume-tool="surface" aria-controls="volume-tool-surface" aria-selected="true">Isosurface</button>
+                    <button id="volume-tool-tab-planes" type="button" role="tab" data-volume-tool="planes" aria-controls="volume-tool-planes" aria-selected="false">Planes</button>
+                    <button id="volume-tool-tab-difference" type="button" role="tab" data-volume-tool="difference" aria-controls="volume-tool-difference" aria-selected="false">Combine</button>
+                </div>
+                <section id="volume-tool-surface" class="volume-tool-view" data-volume-tool-view="surface" role="tabpanel" aria-labelledby="volume-tool-tab-surface">
+                    <div class="volume-tool-heading">
+                        <strong>Isosurface</strong>
+                        <span>Thresholded 3D field</span>
+                    </div>
                 <div class="prop-row">
                     <label for="chk-volume-visible">Show isosurface</label>
                     <input id="chk-volume-visible" type="checkbox">
@@ -579,12 +589,19 @@
                     <button id="btn-volume-refresh" type="button">Update Isosurface</button>
                     <button id="btn-volume-delete" class="danger-soft" type="button">Remove Dataset</button>
                 </div>
-                <details class="inline-subpanel volume-plane-panel" open>
-                    <summary>Planar Sections</summary>
+                </section>
+                <section id="volume-tool-planes" class="volume-tool-view volume-plane-panel hidden" data-volume-tool-view="planes" role="tabpanel" aria-labelledby="volume-tool-tab-planes" aria-hidden="true">
+                    <div class="volume-tool-heading">
+                        <strong>Planar Sections</strong>
+                        <span>Cell-clipped field maps</span>
+                    </div>
                     <p class="panel-note">
-                        Sample the field on cell-clipped (h k l) planes. Select a plane in the viewport,
-                        then use G to move it or R to rotate its reciprocal-space normal.
+                        In View and Edit modes, set the reciprocal-space normal and signed distance from
+                        the grid origin here. Edit mode also supports viewport G and R transforms.
                     </p>
+                    <div id="volume-plane-mode-note" class="volume-plane-mode-note" data-mode="view">
+                        Panel controls are available in both modes.
+                    </div>
                     <div class="volume-plane-toolbar">
                         <button id="btn-volume-plane-add" type="button">Add Plane</button>
                         <button id="btn-volume-plane-remove" class="danger-outline" type="button" disabled>Remove Selected</button>
@@ -613,7 +630,7 @@
                         </div>
                         <div class="volume-plane-offset-control">
                             <div class="volume-level-head">
-                                <label for="volume-plane-offset">Offset / Å</label>
+                                <label for="volume-plane-offset">Distance from grid origin / Å</label>
                                 <input id="volume-plane-offset" type="number" step="0.01" value="0">
                             </div>
                             <input id="volume-plane-offset-slider" type="range" min="0" max="1" step="0.01" value="0">
@@ -660,13 +677,16 @@
                         <span class="analysis-status-title">No planar section</span>
                         <span class="analysis-status-detail">Add one or more planes without transferring the full grid.</span>
                     </div>
-                </details>
-                <details class="inline-subpanel">
-                    <summary>Density Difference</summary>
+                </section>
+                <section id="volume-tool-difference" class="volume-tool-view hidden" data-volume-tool-view="difference" role="tabpanel" aria-labelledby="volume-tool-tab-difference" aria-hidden="true">
+                    <div class="volume-tool-heading">
+                        <strong>Field Arithmetic</strong>
+                        <span>Linear combinations</span>
+                    </div>
                     <p class="panel-note">Select compatible grids and assign coefficients such as +1, -1, -1.</p>
                     <div id="volume-difference-terms" class="volume-difference-terms"></div>
                     <button id="btn-volume-difference" class="btn-block" type="button">Create Linear Combination</button>
-                </details>
+                </section>
             </div>
             <div id="volume-status" class="analysis-status" data-state="idle">
                 <span class="analysis-status-title">Ready</span>
@@ -1507,7 +1527,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.1.16&rev=1';
+            : './static/main.js?v=0.1.17&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });
