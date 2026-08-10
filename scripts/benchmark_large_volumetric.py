@@ -13,7 +13,13 @@ import sys
 import time
 from pathlib import Path
 
-from v_ase.volumetric import generate_isosurface, read_volumetric_file
+import numpy as np
+
+from v_ase.volumetric import (
+    generate_isosurface,
+    generate_volumetric_plane,
+    read_volumetric_file,
+)
 
 
 def benchmark(
@@ -23,6 +29,7 @@ def benchmark(
     step_size: int,
     smearing_sigma: float,
     smoothing_iterations: int,
+    plane_resolution: int,
 ) -> dict:
     started = time.perf_counter()
     datasets = read_volumetric_file(path, precision=precision)
@@ -53,6 +60,34 @@ def benchmark(
     )
     cache_seconds = time.perf_counter() - started
 
+    plane_hkl = np.asarray([0.0, 0.0, 1.0])
+    plane_normal = np.linalg.solve(dataset.cell, plane_hkl)
+    plane_normal /= np.linalg.norm(plane_normal)
+    corners = np.asarray([
+        [a, b, c]
+        for a in (0.0, 1.0)
+        for b in (0.0, 1.0)
+        for c in (0.0, 1.0)
+    ]) @ dataset.cell
+    projections = corners @ plane_normal
+    plane_offset = float((np.min(projections) + np.max(projections)) * 0.5)
+    started = time.perf_counter()
+    plane = generate_volumetric_plane(
+        dataset,
+        plane_hkl,
+        plane_offset,
+        resolution=plane_resolution,
+    )
+    plane_seconds = time.perf_counter() - started
+    started = time.perf_counter()
+    cached_plane = generate_volumetric_plane(
+        dataset,
+        plane_hkl,
+        plane_offset,
+        resolution=plane_resolution,
+    )
+    plane_cache_seconds = time.perf_counter() - started
+
     peak_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     peak_rss_mib = peak_rss / (1024 * 1024) if sys.platform == "darwin" else peak_rss / 1024
     return {
@@ -73,6 +108,18 @@ def benchmark(
         "triangles": len(mesh.faces),
         "mesh_bytes": mesh.vertices.nbytes + mesh.faces.nbytes,
         "cache_identity_preserved": cached is mesh,
+        "histogram_bins": len(dataset.summary()["histogram"]["counts"]),
+        "histogram_voxels": sum(dataset.summary()["histogram"]["counts"]),
+        "absolute_histogram_voxels": sum(
+            dataset.summary()["absolute_histogram"]["counts"]
+        ),
+        "plane_hkl": plane_hkl.tolist(),
+        "plane_resolution": plane_resolution,
+        "plane_dimensions": [plane.width, plane.height],
+        "plane_seconds": round(plane_seconds, 4),
+        "cached_plane_seconds": round(plane_cache_seconds, 6),
+        "plane_bytes": plane.values.nbytes,
+        "plane_cache_identity_preserved": cached_plane is plane,
         "peak_rss_mib": round(peak_rss_mib, 2),
     }
 
@@ -84,6 +131,7 @@ def main() -> int:
     parser.add_argument("--step-size", type=int, choices=range(1, 9), default=1)
     parser.add_argument("--smearing-sigma", type=float, default=0.0)
     parser.add_argument("--smoothing-iterations", type=int, default=4)
+    parser.add_argument("--plane-resolution", type=int, default=512)
     parser.add_argument("--max-parse-seconds", type=float)
     args = parser.parse_args()
 
@@ -93,6 +141,7 @@ def main() -> int:
         step_size=args.step_size,
         smearing_sigma=args.smearing_sigma,
         smoothing_iterations=args.smoothing_iterations,
+        plane_resolution=args.plane_resolution,
     )
     print(json.dumps(result, indent=2))
     if (

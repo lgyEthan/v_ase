@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.16
+
+- Added cached raw and absolute-value scalar histograms integrated with the
+  isovalue slider so threshold density remains visible without remeshing.
+- Added multiple cell-clipped hkl scalar-field planes with periodic triclinic
+  interpolation, displayed-supercell support, Matplotlib colormaps, manual or
+  fitted ranges, opacity, and atomic multi-selection editing.
+- Added Edit-mode plane manipulation: `G` moves selected planes along their
+  normals and `R` rotates their reciprocal-space normals with low-resolution
+  live previews and full-resolution settled rendering.
+- Extended the semantic Agent API, `.vase` persistence, README, canonical
+  Skill, and backend/browser regressions for volumetric distributions and
+  planar sections; benchmarked real 280 x 140 x 384 LOCPOT/PARCHG grids.
+
 ## 0.1.15
 
 - Optimized large VASP scalar grids with cached statistics, bounded

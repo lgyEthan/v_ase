@@ -17,6 +17,7 @@ from v_ase.volumetric import (
     ISOSURFACE_BINARY_MAGIC,
     MAX_ISOSURFACE_SMOOTHING_ITERATIONS,
     MAX_VOLUMETRIC_SMEARING_SIGMA,
+    VOLUMETRIC_PLANE_BINARY_MAGIC,
     VolumetricData,
     _max_grid_points,
     _read_vasp_structure_configuration,
@@ -24,6 +25,7 @@ from v_ase.volumetric import (
     _smooth_mesh_vertices,
     combine_volumetric_datasets,
     generate_isosurface,
+    generate_volumetric_plane,
     normalize_volumetric_precision,
     read_volumetric_file,
     resolve_volumetric_format,
@@ -40,6 +42,7 @@ from v_ase.server import (
     session_atoms_to_json,
     undo as undo_session,
     volumetric_isosurface,
+    volumetric_plane,
 )
 from v_ase.session import EditorSession, sessions
 from v_ase.viewer import view
@@ -102,6 +105,123 @@ def test_volumetric_precision_is_explicit_and_preserves_fp64_values():
     assert fp64.values[1, 1, 1] == pytest.approx(1.0 + 2.0 ** -30)
     assert fp64.summary()["precision"] == "float64"
     assert fp64.summary()["memory_bytes"] == fp64.values.nbytes
+
+
+def test_volumetric_summary_contains_stable_source_distribution():
+    values = np.concatenate((
+        np.zeros(400, dtype=np.float32),
+        np.ones(80, dtype=np.float32),
+        np.full(32, 2.0, dtype=np.float32),
+    )).reshape(8, 8, 8)
+    dataset = VolumetricData("distribution", values, np.eye(3))
+
+    histogram = dataset.summary()["histogram"]
+
+    assert len(histogram["counts"]) == 256
+    assert len(histogram["edges"]) == 257
+    assert sum(histogram["counts"]) == values.size
+    assert histogram["sample_count"] == values.size
+    assert histogram["edges"][0] == pytest.approx(0.0)
+    assert histogram["edges"][-1] == pytest.approx(2.0)
+    assert histogram["maximum_count"] >= 400
+    absolute_histogram = dataset.summary()["absolute_histogram"]
+    assert len(absolute_histogram["counts"]) == 256
+    assert len(absolute_histogram["edges"]) == 257
+    assert sum(absolute_histogram["counts"]) == values.size
+    assert absolute_histogram["sample_count"] == values.size
+    assert absolute_histogram["edges"][0] == pytest.approx(0.0)
+    assert absolute_histogram["edges"][-1] == pytest.approx(2.0)
+
+
+def test_volumetric_plane_is_cell_clipped_and_trilinearly_sampled():
+    shape = (21, 25, 29)
+    fractional = np.stack(
+        np.meshgrid(
+            *[np.linspace(0.0, 1.0, count) for count in shape],
+            indexing="ij",
+        ),
+        axis=-1,
+    )
+    values = fractional[..., 0] + 2.0 * fractional[..., 1] + 3.0 * fractional[..., 2]
+    cell = np.asarray([[2.0, 0.0, 0.0], [0.4, 3.0, 0.0], [0.2, 0.3, 4.0]])
+    origin = np.asarray([1.1, -0.4, 2.2])
+    dataset = VolumetricData(
+        "linear",
+        values,
+        cell,
+        origin=origin,
+        endpoint_inclusive=True,
+        precision="float64",
+        pbc=False,
+    )
+
+    plane = generate_volumetric_plane(
+        dataset,
+        [0, 0, 1],
+        2.0,
+        resolution=160,
+    )
+
+    assert plane.width == 160 or plane.height == 160
+    assert plane.values.dtype == np.float32
+    assert len(plane.polygon_vertices) == 4
+    fractional_vertices = (plane.polygon_vertices - origin) @ np.linalg.inv(cell)
+    assert np.all(fractional_vertices >= -1e-6)
+    assert np.all(fractional_vertices <= 1.0 + 1e-6)
+    assert np.max(np.abs(fractional_vertices[:, 2] - 0.5)) < 1e-6
+    assert plane.minimum == pytest.approx(1.5, abs=3e-3)
+    assert plane.maximum == pytest.approx(4.5, abs=3e-3)
+    assert plane.offset_minimum == pytest.approx(0.0)
+    assert plane.offset_maximum == pytest.approx(4.0)
+
+
+def test_volumetric_plane_repeats_periodically_without_materializing_grid():
+    count = 32
+    fractional = np.stack(
+        np.meshgrid(
+            *[np.arange(count, dtype=float) / count for _ in range(3)],
+            indexing="ij",
+        ),
+        axis=-1,
+    )
+    values = np.sin(2.0 * np.pi * fractional[..., 0])
+    dataset = VolumetricData(
+        "periodic",
+        values,
+        np.asarray([[3.0, 0.0, 0.0], [0.6, 4.0, 0.0], [0.2, 0.4, 5.0]]),
+        pbc=True,
+    )
+
+    plane = generate_volumetric_plane(
+        dataset,
+        [0, 0, 1],
+        2.5,
+        repetitions=[2, 3, 1],
+        resolution=256,
+    )
+
+    assert plane.repetitions.tolist() == [2, 3, 1]
+    assert max(plane.width, plane.height) == 256
+    assert plane.values.nbytes <= 256 * 256 * 4
+    assert plane.minimum < -0.99
+    assert plane.maximum > 0.99
+    assert dataset.values.shape == (count, count, count)
+    assert generate_volumetric_plane(
+        dataset,
+        [0, 0, 1],
+        2.5,
+        repetitions=[2, 3, 1],
+        resolution=256,
+    ) is plane
+
+
+def test_volumetric_plane_rejects_invalid_orientation_and_outside_offset():
+    dataset = VolumetricData("field", np.ones((8, 8, 8)), np.eye(3) * 4.0)
+
+    with pytest.raises(ValueError, match="cannot be"):
+        generate_volumetric_plane(dataset, [0, 0, 0], 0.0)
+    with pytest.raises(ValueError, match="between"):
+        generate_volumetric_plane(dataset, [1, 0, 0], 8.0)
 
 
 def test_cube_reader_preserves_grid_cell_origin_and_atoms(tmp_path):
@@ -628,6 +748,23 @@ def test_vase_project_roundtrips_volumetric_data_without_pickle(tmp_path):
                 "showVolumetric": True,
                 "volumetricDatasetId": dataset.dataset_id,
                 "volumetricLevel": 0.15,
+                "volumetricPlanes": [
+                    {
+                        "id": "plane-density-z",
+                        "name": "Density z",
+                        "datasetId": dataset.dataset_id,
+                        "visible": True,
+                        "hkl": [0, 0, 1],
+                        "offsetAngstrom": 2.5,
+                        "resolution": 512,
+                        "colormap": "magma",
+                        "reverse": True,
+                        "autoRange": False,
+                        "vmin": -0.2,
+                        "vmax": 0.6,
+                        "opacity": 0.73,
+                    }
+                ],
                 "supercell": [2, 1, 1],
                 "translation": [0.2, 0.3, 0.4],
             }
@@ -644,6 +781,23 @@ def test_vase_project_roundtrips_volumetric_data_without_pickle(tmp_path):
     np.testing.assert_allclose(loaded.cell, atoms.cell.array)
     assert restored.settings["display"]["supercell"] == [2, 1, 1]
     assert restored.settings["display"]["translation"] == [0.2, 0.3, 0.4]
+    assert restored.settings["display"]["volumetricPlanes"] == [
+        {
+            "id": "plane-density-z",
+            "name": "Density z",
+            "datasetId": dataset.dataset_id,
+            "visible": True,
+            "hkl": [0, 0, 1],
+            "offsetAngstrom": 2.5,
+            "resolution": 512,
+            "colormap": "magma",
+            "reverse": True,
+            "autoRange": False,
+            "vmin": -0.2,
+            "vmax": 0.6,
+            "opacity": 0.73,
+        }
+    ]
 
 
 def test_vase_project_roundtrips_fp64_volumetric_data(tmp_path):
@@ -791,5 +945,28 @@ def test_volumetric_api_exposes_metadata_difference_and_binary_mesh():
         header = json.loads(response.body[12:12 + header_size])
         assert header["metadata"]["smearing_sigma"] == pytest.approx(0.4)
         assert header["metadata"]["smoothing_iterations"] == 5
+
+        plane_response = asyncio.run(volumetric_plane(
+            session.session_id,
+            {
+                "dataset_id": first.dataset_id,
+                "hkl": [0, 0, 1],
+                "offset_angstrom": 1.5,
+                "repetitions": [2, 1, 1],
+                "resolution": 96,
+            },
+        ))
+        assert plane_response.body.startswith(VOLUMETRIC_PLANE_BINARY_MAGIC)
+        assert plane_response.media_type == "application/vnd.v-ase.volumetric-plane"
+        plane_header_size = int.from_bytes(plane_response.body[8:12], "little")
+        plane_header = json.loads(plane_response.body[12:12 + plane_header_size])
+        assert plane_header["schema"] == "v_ase.volumetric_plane.v1"
+        assert plane_header["repetitions"] == [2, 1, 1]
+        assert plane_header["width"] == 96 or plane_header["height"] == 96
+        assert len(plane_header["polygon_vertices"]) == 4
+        assert len(plane_response.body) == (
+            12 + plane_header_size
+            + plane_header["width"] * plane_header["height"] * 4
+        )
     finally:
         sessions.pop(session.session_id, None)

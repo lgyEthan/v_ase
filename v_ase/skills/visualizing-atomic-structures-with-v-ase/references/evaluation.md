@@ -68,7 +68,9 @@ Current operation coverage:
   dismiss-commensurate-cell, calculate-registry-map, undo, redo,
   reset-coordinates;
 - start-relaxation, stop-relaxation, refresh-displacements;
-- load-volumetric, show-volumetric, combine-volumetric, remove-volumetric;
+- load-volumetric, show-volumetric, add-volumetric-plane,
+  update-volumetric-planes, remove-volumetric-planes, combine-volumetric,
+  remove-volumetric;
 - calculate-rdf;
 - set-interface-theme, set-personal-visual-default,
   restore-app-visual-defaults.
@@ -361,6 +363,15 @@ Every browser render test must check:
 - signed volumetric surfaces have distinct positive/negative coverage, repeat
   with the displayed supercell, move by the same visual translation as atoms,
   appear automatically for a newly loaded grid, and update opacity live;
+- raw and absolute volumetric histograms each have 256 bins, preserve the
+  source voxel count, and drive single/signed slider ranges without mesh work;
+- multiple hkl planes remain individually selectable, expose mixed values
+  without inventing a common value, accept atomic multi-plane edits, clip to
+  skew unit cells and supercells, use periodic interpolation, and replace the
+  low-resolution `G/R` preview with the configured settled resolution;
+- semantic add/update/remove plane commands round-trip through `describe()`,
+  reject stale IDs and invalid hkl/ranges atomically, and survive `.vase`
+  project save/load;
 - FP64 volumetric import remains FP64 through combination and `.vase`
   round-trip while the browser receives only compact mesh geometry;
 - the RDF drawer is nonblank, labeled in Angstrom and `g(r)`, and exposes the

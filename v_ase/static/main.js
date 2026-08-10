@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.1.15&rev=1';
-import { ASERenderer } from './renderer.js?v=0.1.15&rev=1';
-import { ASESelection } from './selection.js?v=0.1.15&rev=1';
-import { ASETransform } from './transform.js?v=0.1.15&rev=1';
+import { ASEApi } from './api.js?v=0.1.16&rev=1';
+import { ASERenderer } from './renderer.js?v=0.1.16&rev=1';
+import { ASESelection } from './selection.js?v=0.1.16&rev=1';
+import { ASETransform } from './transform.js?v=0.1.16&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.1.15&rev=1';
+} from './trajectory.js?v=0.1.16&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -206,6 +206,7 @@ class VAseApp {
                 volumetricOpacity: 0.72,
                 volumetricPositiveColor: '#2f8fdb',
                 volumetricNegativeColor: '#e05b78',
+                volumetricPlanes: [],
                 rdfCutoff: null,
                 rdfBins: 200,
                 rdfPairMode: 'active',
@@ -278,6 +279,12 @@ class VAseApp {
             displacementStats: null,
             volumetricRequestToken: 0,
             volumetricSurfaceSummary: null,
+            selectedVolumetricPlanes: new Set(),
+            volumetricPlaneRequestTokens: new Map(),
+            volumetricPlanePayloads: new Map(),
+            volumetricPlanePreviewTimer: null,
+            volumetricPlaneSettledTimer: null,
+            volumetricPlaneTransformOriginal: null,
             rdfResult: null,
             rdfRequestToken: 0,
             registryResult: null,
@@ -2329,6 +2336,124 @@ class VAseApp {
         return `${scaled >= 100 ? scaled.toFixed(0) : scaled.toFixed(1)} ${units[unit]}`;
     }
 
+    volumetricDistributionProfile(dataset = this.selectedVolumetricDataset()) {
+        if (!dataset) return null;
+        const signed = this.state.display.volumetricSurfaceMode === 'signed';
+        const minimum = signed ? 0 : Number(dataset.minimum);
+        const maximum = signed
+            ? Math.max(Math.abs(Number(dataset.minimum)), Math.abs(Number(dataset.maximum)))
+            : Number(dataset.maximum);
+        const histogram = signed && Array.isArray(dataset.absolute_histogram?.counts)
+            ? dataset.absolute_histogram
+            : dataset.histogram;
+        return { signed, minimum, maximum, histogram };
+    }
+
+    volumetricLevelStep(dataset, profile = this.volumetricDistributionProfile(dataset)) {
+        const span = Number(profile?.maximum) - Number(profile?.minimum);
+        if (!Number.isFinite(span) || span <= 0) return 0.001;
+        return Math.max(Number.MIN_VALUE, span / 2400);
+    }
+
+    syncVolumetricDistribution(dataset = this.selectedVolumetricDataset()) {
+        const slider = document.getElementById('volume-level-slider');
+        const minimumLabel = document.getElementById('volume-distribution-min');
+        const maximumLabel = document.getElementById('volume-distribution-max');
+        const marker = document.getElementById('volume-histogram-marker');
+        if (!slider || !dataset) return;
+        const profile = this.volumetricDistributionProfile(dataset);
+        if (!profile) return;
+        const { minimum, maximum } = profile;
+        const requested = Number(this.state.display.volumetricLevel);
+        const normalized = profile.signed ? Math.abs(requested) : requested;
+        const level = Math.min(maximum, Math.max(minimum, normalized));
+        this.state.display.volumetricLevel = level;
+        slider.min = `${minimum}`;
+        slider.max = `${maximum}`;
+        slider.step = `${this.volumetricLevelStep(dataset, profile)}`;
+        if (document.activeElement !== slider) slider.value = `${level}`;
+        const number = document.getElementById('volume-level');
+        if (number) {
+            number.min = `${minimum}`;
+            number.max = `${maximum}`;
+            number.step = `${this.volumetricLevelStep(dataset, profile)}`;
+            if (document.activeElement !== number) number.value = `${level}`;
+        }
+        if (minimumLabel) minimumLabel.textContent = this.formatScalarValue(minimum);
+        if (maximumLabel) maximumLabel.textContent = this.formatScalarValue(maximum);
+        const caption = document.getElementById('volume-distribution-caption');
+        if (caption) caption.textContent = profile.signed
+            ? '|voxel value| distribution'
+            : 'voxel value distribution';
+        if (marker) {
+            const normalized = maximum > minimum ? (level - minimum) / (maximum - minimum) : 0.5;
+            marker.style.left = `${Math.max(0, Math.min(1, normalized)) * 100}%`;
+        }
+        this.drawVolumetricHistogram(dataset, profile.histogram);
+    }
+
+    drawVolumetricHistogram(
+        dataset = this.selectedVolumetricDataset(),
+        histogram = this.volumetricDistributionProfile(dataset)?.histogram
+    ) {
+        const canvas = document.getElementById('volume-histogram');
+        const counts = histogram?.counts;
+        if (!canvas || !Array.isArray(counts) || !counts.length) return;
+        const rect = canvas.getBoundingClientRect();
+        const width = Math.max(1, Math.round(rect.width));
+        const height = Math.max(1, Math.round(rect.height));
+        const ratio = Math.min(2, window.devicePixelRatio || 1);
+        const pixelWidth = Math.max(1, Math.round(width * ratio));
+        const pixelHeight = Math.max(1, Math.round(height * ratio));
+        if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+            canvas.width = pixelWidth;
+            canvas.height = pixelHeight;
+        }
+        const context = canvas.getContext('2d');
+        if (!context) return;
+        context.setTransform(ratio, 0, 0, ratio, 0, 0);
+        context.clearRect(0, 0, width, height);
+        const transformed = counts.map(value => Math.log1p(Math.max(0, Number(value) || 0)));
+        const maximum = Math.max(...transformed, 1);
+        const baseline = height - 2;
+        const points = transformed.map((value, index) => ({
+            x: counts.length === 1 ? width / 2 : index * width / (counts.length - 1),
+            y: baseline - (value / maximum) * Math.max(6, height - 9)
+        }));
+        const styles = getComputedStyle(document.documentElement);
+        const teal = styles.getPropertyValue('--teal').trim() || '#55d6c2';
+        const muted = styles.getPropertyValue('--muted').trim() || '#87928e';
+        const trace = new Path2D();
+        trace.moveTo(0, baseline);
+        trace.lineTo(points[0].x, points[0].y);
+        for (let index = 1; index < points.length; index++) {
+            const previous = points[index - 1];
+            const point = points[index];
+            const middleX = (previous.x + point.x) / 2;
+            trace.quadraticCurveTo(previous.x, previous.y, middleX, (previous.y + point.y) / 2);
+        }
+        trace.lineTo(points.at(-1).x, points.at(-1).y);
+        trace.lineTo(width, baseline);
+        trace.closePath();
+        const fill = context.createLinearGradient(0, 0, 0, height);
+        fill.addColorStop(0, teal);
+        fill.addColorStop(1, teal);
+        context.globalAlpha = 0.22;
+        context.fillStyle = fill;
+        context.fill(trace);
+        context.globalAlpha = 0.82;
+        context.strokeStyle = teal;
+        context.lineWidth = 1.25;
+        context.stroke(trace);
+        context.globalAlpha = 0.32;
+        context.strokeStyle = muted;
+        context.beginPath();
+        context.moveTo(0, baseline + 0.5);
+        context.lineTo(width, baseline + 0.5);
+        context.stroke();
+        context.globalAlpha = 1;
+    }
+
     renderVolumetricControls() {
         const datasets = this.volumetricDatasets();
         const empty = document.getElementById('volume-empty');
@@ -2351,8 +2476,15 @@ class VAseApp {
             this.state.display.volumetricDatasetId = '';
             this.state.display.showVolumetric = false;
             this.renderer.clearVolumetricSurfaces();
+            this.state.display.volumetricPlanes = [];
+            this.state.selectedVolumetricPlanes.clear();
+            this.renderer.clearVolumetricPlanes();
+            this.renderVolumetricPlaneControls();
             return;
         }
+        this.ensureVolumetricColormapCatalog().catch(() => {
+            // The built-in viridis fallback remains usable if the catalog is unavailable.
+        });
         const datasetChanged = selected.id !== previousId;
         this.state.display.volumetricDatasetId = selected.id;
         select.value = selected.id;
@@ -2406,6 +2538,7 @@ class VAseApp {
             });
         }
         this.syncVolumetricControls();
+        this.renderVolumetricPlaneControls();
     }
 
     syncVolumetricControls() {
@@ -2440,6 +2573,7 @@ class VAseApp {
         setValue('volume-opacity', Number(display.volumetricOpacity) || 0.72);
         const output = document.getElementById('volume-opacity-value');
         if (output) output.textContent = (Number(display.volumetricOpacity) || 0.72).toFixed(2);
+        this.syncVolumetricDistribution();
     }
 
     readVolumetricControls() {
@@ -2478,6 +2612,678 @@ class VAseApp {
         this.syncVolumetricControls();
     }
 
+    volumetricPlanes() {
+        if (!Array.isArray(this.state.display.volumetricPlanes)) {
+            this.state.display.volumetricPlanes = [];
+        }
+        return this.state.display.volumetricPlanes;
+    }
+
+    normalizedVolumetricPlane(source = {}, index = 0) {
+        const datasets = this.volumetricDatasets();
+        const datasetId = datasets.some(dataset => dataset.id === source.datasetId)
+            ? source.datasetId
+            : (datasets[0]?.id || '');
+        const hkl = Array.isArray(source.hkl) && source.hkl.length >= 3
+            ? source.hkl.slice(0, 3).map((value, axis) => {
+                const parsed = Number(value);
+                return Number.isFinite(parsed) ? parsed : [0, 0, 1][axis];
+            })
+            : [0, 0, 1];
+        if (Math.hypot(...hkl) <= 1e-9) hkl[2] = 1;
+        const resolution = [128, 256, 512, 1024].includes(Number(source.resolution))
+            ? Number(source.resolution)
+            : 256;
+        const opacity = Math.max(0.05, Math.min(1, Number(source.opacity) || 0.88));
+        return {
+            id: String(source.id || globalThis.crypto?.randomUUID?.() || `volume-plane-${Date.now()}-${index}`),
+            name: String(source.name || `Plane ${index + 1}`),
+            datasetId,
+            visible: source.visible !== false,
+            hkl,
+            offsetAngstrom: Number.isFinite(Number(source.offsetAngstrom))
+                ? Number(source.offsetAngstrom)
+                : 0,
+            resolution,
+            colormap: String(source.colormap || 'viridis'),
+            reverse: Boolean(source.reverse),
+            autoRange: source.autoRange !== false,
+            vmin: Number.isFinite(Number(source.vmin)) ? Number(source.vmin) : null,
+            vmax: Number.isFinite(Number(source.vmax)) ? Number(source.vmax) : null,
+            opacity,
+            offsetMinimum: Number.isFinite(Number(source.offsetMinimum))
+                ? Number(source.offsetMinimum)
+                : null,
+            offsetMaximum: Number.isFinite(Number(source.offsetMaximum))
+                ? Number(source.offsetMaximum)
+                : null
+        };
+    }
+
+    volumetricPlanePatchFromOperation(operation = {}, plane = null) {
+        const has = key => Object.prototype.hasOwnProperty.call(operation, key);
+        const patch = {};
+        if (has('datasetId')) {
+            const datasetId = String(operation.datasetId || '').trim();
+            if (!this.volumetricDatasets().some(dataset => dataset.id === datasetId)) {
+                throw new Error(`Volumetric dataset '${datasetId}' was not found.`);
+            }
+            patch.datasetId = datasetId;
+        }
+        if (has('planeName')) {
+            const name = String(operation.planeName || '').trim();
+            if (!name) throw new Error('planeName must not be empty.');
+            patch.name = name;
+        }
+        if (has('hkl')) {
+            if (!Array.isArray(operation.hkl) || operation.hkl.length !== 3) {
+                throw new Error('hkl must contain exactly three finite numbers.');
+            }
+            const hkl = operation.hkl.map(Number);
+            if (!hkl.every(Number.isFinite) || Math.hypot(...hkl) <= 1e-9) {
+                throw new Error('hkl must be a finite, non-zero three-number vector.');
+            }
+            patch.hkl = hkl;
+        }
+        if (has('offsetAngstrom')) {
+            const offset = Number(operation.offsetAngstrom);
+            if (!Number.isFinite(offset)) throw new Error('offsetAngstrom must be finite.');
+            patch.offsetAngstrom = offset;
+        }
+        if (has('resolution')) {
+            const resolution = Number(operation.resolution);
+            if (![128, 256, 512, 1024].includes(resolution)) {
+                throw new Error('resolution must be 128, 256, 512, or 1024.');
+            }
+            patch.resolution = resolution;
+        }
+        if (has('colormap')) {
+            const colormap = String(operation.colormap || '').trim();
+            if (!colormap) throw new Error('colormap must not be empty.');
+            patch.colormap = colormap;
+        }
+        if (has('reverse')) patch.reverse = Boolean(operation.reverse);
+        if (has('autoRange')) patch.autoRange = Boolean(operation.autoRange);
+        if (has('vmin')) {
+            const value = Number(operation.vmin);
+            if (!Number.isFinite(value)) throw new Error('vmin must be finite.');
+            patch.vmin = value;
+        }
+        if (has('vmax')) {
+            const value = Number(operation.vmax);
+            if (!Number.isFinite(value)) throw new Error('vmax must be finite.');
+            patch.vmax = value;
+        }
+        if (has('opacity')) {
+            const opacity = Number(operation.opacity);
+            if (!Number.isFinite(opacity) || opacity < 0.05 || opacity > 1) {
+                throw new Error('opacity must be between 0.05 and 1.');
+            }
+            patch.opacity = opacity;
+        }
+        if (has('visible')) patch.visible = Boolean(operation.visible);
+
+        const autoRange = patch.autoRange ?? plane?.autoRange ?? true;
+        const minimum = patch.vmin ?? plane?.vmin;
+        const maximum = patch.vmax ?? plane?.vmax;
+        if (!autoRange && (!Number.isFinite(Number(minimum))
+            || !Number.isFinite(Number(maximum)) || Number(maximum) <= Number(minimum))) {
+            throw new Error('Manual plane coloring requires finite vmin < vmax.');
+        }
+        return patch;
+    }
+
+    volumetricPlanesByOperationIds(operation = {}) {
+        if (!Array.isArray(operation.planeIds) || !operation.planeIds.length) {
+            throw new Error('planeIds must contain at least one plane ID.');
+        }
+        const requested = operation.planeIds.map(value => String(value || '').trim());
+        if (requested.some(id => !id) || new Set(requested).size !== requested.length) {
+            throw new Error('planeIds must contain unique, non-empty plane IDs.');
+        }
+        const byId = new Map(this.volumetricPlanes().map(plane => [plane.id, plane]));
+        const missing = requested.filter(id => !byId.has(id));
+        if (missing.length) {
+            throw new Error(`Volumetric plane${missing.length === 1 ? '' : 's'} not found: ${missing.join(', ')}.`);
+        }
+        return requested.map(id => byId.get(id));
+    }
+
+    normalizeVolumetricPlanes() {
+        const datasets = new Set(this.volumetricDatasets().map(dataset => dataset.id));
+        this.state.display.volumetricPlanes = this.volumetricPlanes()
+            .map((plane, index) => {
+                const normalized = this.normalizedVolumetricPlane(plane, index);
+                if (plane && typeof plane === 'object') {
+                    Object.assign(plane, normalized);
+                    return plane;
+                }
+                return normalized;
+            })
+            .filter(plane => datasets.has(plane.datasetId));
+        const available = new Set(this.state.display.volumetricPlanes.map(plane => plane.id));
+        this.state.selectedVolumetricPlanes = new Set(
+            [...this.state.selectedVolumetricPlanes].filter(id => available.has(id))
+        );
+        return this.state.display.volumetricPlanes;
+    }
+
+    selectedVolumetricPlaneList() {
+        const selected = this.state.selectedVolumetricPlanes;
+        return this.volumetricPlanes().filter(plane => selected.has(plane.id));
+    }
+
+    volumetricPlaneDataset(plane) {
+        return this.volumetricDatasets().find(dataset => dataset.id === plane?.datasetId) || null;
+    }
+
+    volumetricPlaneRepetitions() {
+        return (this.state.display.supercell || [1, 1, 1]).map(value => (
+            Math.max(1, Math.min(128, Math.round(Number(value) || 1)))
+        ));
+    }
+
+    volumetricPlaneMetrics(plane) {
+        const dataset = this.volumetricPlaneDataset(plane);
+        const cell = dataset?.cell;
+        if (!Array.isArray(cell) || cell.length !== 3) return null;
+        const hkl = Array.isArray(plane?.hkl) ? plane.hkl : [0, 0, 1];
+        const matrix = new THREE.Matrix3().set(...cell.flat().map(Number));
+        if (Math.abs(matrix.determinant()) <= 1e-12) return null;
+        const reciprocal = new THREE.Vector3(...hkl.map(Number)).applyMatrix3(matrix.clone().invert());
+        if (reciprocal.lengthSq() <= 1e-18) return null;
+        const normal = reciprocal.normalize();
+        const vectors = cell.map(vector => new THREE.Vector3(...vector.map(Number)));
+        const repetitions = this.volumetricPlaneRepetitions();
+        const projections = [];
+        for (const a of [0, repetitions[0]]) {
+            for (const b of [0, repetitions[1]]) {
+                for (const c of [0, repetitions[2]]) {
+                    projections.push(
+                        vectors[0].clone().multiplyScalar(a)
+                            .addScaledVector(vectors[1], b)
+                            .addScaledVector(vectors[2], c)
+                            .dot(normal)
+                    );
+                }
+            }
+        }
+        return {
+            normal,
+            minimum: Math.min(...projections),
+            maximum: Math.max(...projections)
+        };
+    }
+
+    createVolumetricPlane() {
+        const dataset = this.selectedVolumetricDataset();
+        if (!dataset) {
+            this.toast('Load a volumetric dataset before adding a plane.', 'warning');
+            return null;
+        }
+        const index = this.volumetricPlanes().length;
+        const plane = this.normalizedVolumetricPlane({
+            name: `Plane ${index + 1}`,
+            datasetId: dataset.id,
+            hkl: [0, 0, 1],
+            autoRange: true,
+            vmin: dataset.minimum,
+            vmax: dataset.maximum
+        }, index);
+        const metrics = this.volumetricPlaneMetrics(plane);
+        plane.offsetAngstrom = metrics ? (metrics.minimum + metrics.maximum) / 2 : 0;
+        plane.offsetMinimum = metrics?.minimum ?? null;
+        plane.offsetMaximum = metrics?.maximum ?? null;
+        this.volumetricPlanes().push(plane);
+        this.setVolumetricPlaneSelection([plane.id]);
+        this.renderVolumetricPlane(plane).catch(error => {
+            this.setVolumetricPlaneStatus('warning', 'Plane unavailable', error.message);
+        });
+        this.scheduleVisualHistoryCommit('volumetric-plane-add');
+        return plane;
+    }
+
+    setVolumetricPlaneStatus(state, title, detail = '') {
+        const status = document.getElementById('volume-plane-status');
+        if (!status) return;
+        status.dataset.state = state;
+        const titleElement = status.querySelector('.analysis-status-title');
+        const detailElement = status.querySelector('.analysis-status-detail');
+        if (titleElement) titleElement.textContent = title;
+        if (detailElement) detailElement.textContent = detail;
+    }
+
+    setVolumetricPlaneSelection(planeIds = [], { additive = false, update = true } = {}) {
+        const available = new Set(this.volumetricPlanes().map(plane => plane.id));
+        const next = additive ? new Set(this.state.selectedVolumetricPlanes) : new Set();
+        planeIds.forEach(id => {
+            if (!available.has(id)) return;
+            if (additive && next.has(id)) next.delete(id);
+            else next.add(id);
+        });
+        this.state.selectedVolumetricPlanes = next;
+        this.renderer.setVolumetricPlaneSelection([...next]);
+        if (next.size) {
+            this.setSunSelected(false, { update: false });
+            if (this.selectionCount()) {
+                this.clearAtomSelection();
+                this.updateSelectionVisuals();
+            }
+        }
+        if (update) {
+            this.renderVolumetricPlaneControls();
+            this.updateToolState();
+            this.updateUI();
+        }
+    }
+
+    commonVolumetricPlaneValue(planes, getter) {
+        if (!planes.length) return { mixed: false, value: null };
+        const values = planes.map(getter);
+        const first = JSON.stringify(values[0]);
+        return values.every(value => JSON.stringify(value) === first)
+            ? { mixed: false, value: values[0] }
+            : { mixed: true, value: null };
+    }
+
+    setMixedControl(id, common, { checked = false } = {}) {
+        const element = document.getElementById(id);
+        if (!element) return;
+        if (checked) {
+            element.indeterminate = common.mixed;
+            element.checked = common.mixed ? false : Boolean(common.value);
+            return;
+        }
+        if (document.activeElement === element) return;
+        element.value = common.mixed || common.value === null || common.value === undefined
+            ? ''
+            : `${common.value}`;
+        element.placeholder = common.mixed ? 'Mixed' : '';
+    }
+
+    populateVolumetricPlaneColormaps(select, requested = 'viridis') {
+        if (!select) return;
+        const catalog = this.atomColorScaleRuntime.colormapCatalog;
+        const maps = Array.isArray(catalog?.maps) ? catalog.maps : [];
+        if (!maps.length) return;
+        select.replaceChildren();
+        const groups = new Map();
+        maps.forEach(item => {
+            const category = item.category || 'Other';
+            if (!groups.has(category)) groups.set(category, []);
+            groups.get(category).push(item.name);
+        });
+        groups.forEach((names, label) => {
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = label;
+            names.forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                optgroup.appendChild(option);
+            });
+            select.appendChild(optgroup);
+        });
+        select.value = maps.some(item => item.name === requested)
+            ? requested
+            : (catalog.default || 'viridis');
+    }
+
+    ensureVolumetricColormapCatalog() {
+        const runtime = this.atomColorScaleRuntime;
+        if (runtime.colormapCatalog) return Promise.resolve(runtime.colormapCatalog);
+        if (!runtime.colormapCatalogPromise) {
+            runtime.colormapCatalogPromise = this.api.fetchColormapCatalog()
+                .then(catalog => {
+                    runtime.colormapCatalog = catalog;
+                    runtime.colormapCatalogPromise = null;
+                    this.renderVolumetricPlaneControls();
+                    return catalog;
+                })
+                .catch(error => {
+                    runtime.colormapCatalogPromise = null;
+                    throw error;
+                });
+        }
+        return runtime.colormapCatalogPromise;
+    }
+
+    renderVolumetricPlaneControls() {
+        const planes = this.normalizeVolumetricPlanes();
+        const list = document.getElementById('volume-plane-list');
+        if (!list) return;
+        list.replaceChildren();
+        planes.forEach(plane => {
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'volume-plane-list-item';
+            row.dataset.planeId = plane.id;
+            row.setAttribute('role', 'option');
+            row.setAttribute('aria-selected', this.state.selectedVolumetricPlanes.has(plane.id) ? 'true' : 'false');
+            const visible = document.createElement('input');
+            visible.type = 'checkbox';
+            visible.checked = plane.visible;
+            visible.setAttribute('aria-label', `Show ${plane.name}`);
+            visible.addEventListener('click', event => event.stopPropagation());
+            visible.addEventListener('change', () => {
+                plane.visible = visible.checked;
+                const record = this.renderer.volumetricPlanes.get(plane.id);
+                if (record) record.group.visible = plane.visible;
+                if (plane.visible && !record) {
+                    this.renderVolumetricPlane(plane).catch(error => {
+                        this.setVolumetricPlaneStatus('warning', 'Plane unavailable', error.message);
+                    });
+                }
+                this.renderer.requestRender();
+                this.scheduleVisualHistoryCommit('volumetric-plane-visible');
+            });
+            const name = document.createElement('span');
+            name.className = 'volume-plane-list-name';
+            name.textContent = plane.name;
+            const indices = document.createElement('span');
+            indices.className = 'volume-plane-list-hkl';
+            indices.textContent = `(${plane.hkl.map(value => this.formatScalarValue(value)).join(' ')})`;
+            row.append(visible, name, indices);
+            row.addEventListener('click', event => {
+                const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+                this.setVolumetricPlaneSelection([plane.id], { additive });
+            });
+            list.appendChild(row);
+        });
+
+        const selected = this.selectedVolumetricPlaneList();
+        const editor = document.getElementById('volume-plane-editor');
+        editor?.classList.toggle('hidden', selected.length === 0);
+        const remove = document.getElementById('btn-volume-plane-remove');
+        if (remove) remove.disabled = selected.length === 0;
+        if (!selected.length) {
+            this.setVolumetricPlaneStatus(
+                planes.length ? 'ready' : 'idle',
+                planes.length ? `${planes.length} planar section${planes.length === 1 ? '' : 's'}` : 'No planar section',
+                planes.length ? 'Select a plane to edit its field mapping.' : 'Add one or more planes without transferring the full grid.'
+            );
+            return;
+        }
+
+        const title = document.getElementById('volume-plane-selection-title');
+        const count = document.getElementById('volume-plane-selection-count');
+        if (title) title.textContent = selected.length === 1 ? selected[0].name : 'Multiple planes';
+        if (count) count.textContent = `${selected.length} selected`;
+        this.setMixedControl('chk-volume-plane-visible', this.commonVolumetricPlaneValue(selected, plane => plane.visible), { checked: true });
+
+        const datasetSelect = document.getElementById('volume-plane-dataset');
+        if (datasetSelect) {
+            const common = this.commonVolumetricPlaneValue(selected, plane => plane.datasetId);
+            datasetSelect.replaceChildren();
+            if (common.mixed) {
+                const mixed = document.createElement('option');
+                mixed.value = '';
+                mixed.textContent = 'Mixed';
+                datasetSelect.appendChild(mixed);
+            }
+            this.volumetricDatasets().forEach(dataset => {
+                const option = document.createElement('option');
+                option.value = dataset.id;
+                option.textContent = dataset.name;
+                datasetSelect.appendChild(option);
+            });
+            datasetSelect.value = common.mixed ? '' : common.value;
+        }
+        ['h', 'k', 'l'].forEach((axis, index) => {
+            this.setMixedControl(
+                `volume-plane-${axis}`,
+                this.commonVolumetricPlaneValue(selected, plane => plane.hkl[index])
+            );
+        });
+        this.setMixedControl(
+            'volume-plane-offset',
+            this.commonVolumetricPlaneValue(selected, plane => plane.offsetAngstrom)
+        );
+        const offsetSlider = document.getElementById('volume-plane-offset-slider');
+        const commonOffset = this.commonVolumetricPlaneValue(selected, plane => plane.offsetAngstrom);
+        const commonMinimum = this.commonVolumetricPlaneValue(selected, plane => plane.offsetMinimum);
+        const commonMaximum = this.commonVolumetricPlaneValue(selected, plane => plane.offsetMaximum);
+        if (offsetSlider) {
+            const canSlide = !commonOffset.mixed && !commonMinimum.mixed && !commonMaximum.mixed
+                && Number.isFinite(Number(commonMinimum.value))
+                && Number.isFinite(Number(commonMaximum.value));
+            offsetSlider.disabled = !canSlide;
+            if (canSlide) {
+                offsetSlider.min = `${commonMinimum.value}`;
+                offsetSlider.max = `${commonMaximum.value}`;
+                offsetSlider.step = `${Math.max(1e-6, (commonMaximum.value - commonMinimum.value) / 1200)}`;
+                if (document.activeElement !== offsetSlider) offsetSlider.value = `${commonOffset.value}`;
+            }
+        }
+        this.setMixedControl('volume-plane-resolution', this.commonVolumetricPlaneValue(selected, plane => plane.resolution));
+        const colormap = this.commonVolumetricPlaneValue(selected, plane => plane.colormap);
+        this.populateVolumetricPlaneColormaps(document.getElementById('volume-plane-colormap'), colormap.value || 'viridis');
+        if (colormap.mixed) {
+            const select = document.getElementById('volume-plane-colormap');
+            const mixed = document.createElement('option');
+            mixed.value = '';
+            mixed.textContent = 'Mixed';
+            select.prepend(mixed);
+            select.value = '';
+        }
+        this.setMixedControl('chk-volume-plane-reverse', this.commonVolumetricPlaneValue(selected, plane => plane.reverse), { checked: true });
+        const rangeFor = plane => {
+            const payload = this.state.volumetricPlanePayloads.get(plane.id);
+            return {
+                minimum: plane.autoRange ? payload?.header?.minimum : plane.vmin,
+                maximum: plane.autoRange ? payload?.header?.maximum : plane.vmax
+            };
+        };
+        this.setMixedControl('volume-plane-vmin', this.commonVolumetricPlaneValue(selected, plane => rangeFor(plane).minimum));
+        this.setMixedControl('volume-plane-vmax', this.commonVolumetricPlaneValue(selected, plane => rangeFor(plane).maximum));
+        this.setMixedControl('volume-plane-opacity', this.commonVolumetricPlaneValue(selected, plane => plane.opacity));
+        const opacity = this.commonVolumetricPlaneValue(selected, plane => plane.opacity);
+        const opacityOutput = document.getElementById('volume-plane-opacity-value');
+        if (opacityOutput) opacityOutput.textContent = opacity.mixed ? 'Mixed' : Number(opacity.value).toFixed(2);
+        const mixed = [
+            commonOffset, commonMinimum, commonMaximum, colormap,
+            this.commonVolumetricPlaneValue(selected, plane => plane.hkl),
+            this.commonVolumetricPlaneValue(selected, plane => plane.resolution)
+        ].some(value => value.mixed);
+        document.getElementById('volume-plane-mixed-note')?.classList.toggle('hidden', !mixed);
+        this.setVolumetricPlaneStatus(
+            'ready',
+            selected.length === 1 ? selected[0].name : `${selected.length} planes selected`,
+            'G moves along the plane normal. R rotates the normal; settled rendering restores full resolution.'
+        );
+    }
+
+    decodeVolumetricPlane(buffer) {
+        const bytes = new Uint8Array(buffer);
+        const magic = new TextDecoder().decode(bytes.subarray(0, 8));
+        if (magic !== 'VASEPLN1' || bytes.byteLength < 12) {
+            throw new Error('v_ase returned an invalid volumetric plane payload.');
+        }
+        const view = new DataView(buffer);
+        const headerLength = view.getUint32(8, true);
+        const dataStart = 12 + headerLength;
+        if (dataStart > bytes.byteLength) throw new Error('Volumetric plane header is truncated.');
+        const header = JSON.parse(new TextDecoder().decode(bytes.subarray(12, dataStart)));
+        const valueCount = Number(header.width) * Number(header.height);
+        if (dataStart + valueCount * 4 !== bytes.byteLength) {
+            throw new Error('Volumetric plane dimensions do not match its payload.');
+        }
+        return {
+            header,
+            values: dataStart % 4 === 0
+                ? new Float32Array(buffer, dataStart, valueCount)
+                : new Float32Array(buffer.slice(dataStart))
+        };
+    }
+
+    async volumetricPlanePalette(plane) {
+        const name = plane.colormap || 'viridis';
+        const reverse = Boolean(plane.reverse);
+        const key = `${name}:${reverse ? 'reverse' : 'forward'}`;
+        const cache = this.atomColorScaleRuntime.lutCaches;
+        if (!cache.has(key)) {
+            cache.set(key, await this.api.fetchColormapLut(name, reverse, 256));
+        }
+        return cache.get(key)?.colors || [];
+    }
+
+    colorStringToRgb(value) {
+        const match = /^#([0-9a-f]{6})$/i.exec(String(value || ''));
+        if (!match) return [127, 127, 127];
+        const numeric = parseInt(match[1], 16);
+        return [(numeric >> 16) & 255, (numeric >> 8) & 255, numeric & 255];
+    }
+
+    async volumetricPlaneRgba(plane, payload) {
+        const colors = await this.volumetricPlanePalette(plane);
+        if (!colors.length) throw new Error(`Colormap '${plane.colormap}' is unavailable.`);
+        const palette = colors.map(color => this.colorStringToRgb(color));
+        let minimum = plane.autoRange
+            ? Number(payload.header.minimum)
+            : Number(plane.vmin);
+        let maximum = plane.autoRange
+            ? Number(payload.header.maximum)
+            : Number(plane.vmax);
+        if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) {
+            throw new Error('Plane color maximum must be greater than its minimum.');
+        }
+        if (maximum <= minimum && plane.autoRange) {
+            const epsilon = Math.max(1e-12, Math.abs(minimum) * 1e-9);
+            minimum -= epsilon;
+            maximum += epsilon;
+        }
+        if (maximum <= minimum) throw new Error('Plane color maximum must be greater than its minimum.');
+        const scale = (palette.length - 1) / (maximum - minimum);
+        const rgba = new Uint8Array(payload.values.length * 4);
+        for (let index = 0; index < payload.values.length; index++) {
+            const colorIndex = Math.max(0, Math.min(
+                palette.length - 1,
+                Math.round((payload.values[index] - minimum) * scale)
+            ));
+            const color = palette[colorIndex];
+            const output = index * 4;
+            rgba[output] = color[0];
+            rgba[output + 1] = color[1];
+            rgba[output + 2] = color[2];
+            rgba[output + 3] = 255;
+        }
+        return rgba;
+    }
+
+    async renderVolumetricPlane(plane, { preview = false } = {}) {
+        if (!plane?.visible) {
+            const record = this.renderer.volumetricPlanes.get(plane?.id);
+            if (record) record.group.visible = false;
+            return null;
+        }
+        const token = (this.state.volumetricPlaneRequestTokens.get(plane.id) || 0) + 1;
+        this.state.volumetricPlaneRequestTokens.set(plane.id, token);
+        const resolution = preview ? Math.min(72, plane.resolution) : plane.resolution;
+        const metrics = this.volumetricPlaneMetrics(plane);
+        if (metrics) {
+            plane.offsetMinimum = metrics.minimum;
+            plane.offsetMaximum = metrics.maximum;
+            plane.offsetAngstrom = Math.max(metrics.minimum, Math.min(metrics.maximum, plane.offsetAngstrom));
+        }
+        const buffer = await this.api.fetchVolumetricPlane({
+            dataset_id: plane.datasetId,
+            hkl: plane.hkl,
+            offset_angstrom: plane.offsetAngstrom,
+            repetitions: this.volumetricPlaneRepetitions(),
+            resolution
+        });
+        if (this.state.volumetricPlaneRequestTokens.get(plane.id) !== token) return null;
+        const payload = this.decodeVolumetricPlane(buffer);
+        const rgba = await this.volumetricPlaneRgba(plane, payload);
+        if (this.state.volumetricPlaneRequestTokens.get(plane.id) !== token) return null;
+        plane.offsetAngstrom = Number(payload.header.offset_angstrom);
+        plane.offsetMinimum = Number(payload.header.offset_minimum);
+        plane.offsetMaximum = Number(payload.header.offset_maximum);
+        this.state.volumetricPlanePayloads.set(plane.id, payload);
+        this.renderer.setVolumetricPlaneSlice({
+            planeId: plane.id,
+            polygonVertices: payload.header.polygon_vertices,
+            polygonUv: payload.header.polygon_uv,
+            normal: payload.header.normal,
+            centroid: payload.header.centroid,
+            hkl: [...plane.hkl],
+            offsetAngstrom: plane.offsetAngstrom,
+            width: payload.header.width,
+            height: payload.header.height,
+            rgba,
+            opacity: plane.opacity,
+            visible: plane.visible,
+            selected: this.state.selectedVolumetricPlanes.has(plane.id),
+            preview
+        });
+        return payload;
+    }
+
+    async renderAllVolumetricPlanes({ preview = false } = {}) {
+        const planes = this.normalizeVolumetricPlanes();
+        const validIds = new Set(planes.map(plane => plane.id));
+        const stale = [...this.renderer.volumetricPlanes.keys()].filter(id => !validIds.has(id));
+        if (stale.length) this.renderer.clearVolumetricPlanes(stale);
+        const visible = planes.filter(plane => plane.visible);
+        if (!visible.length) {
+            this.setVolumetricPlaneStatus('idle', planes.length ? 'Planes hidden' : 'No planar section', '');
+            return [];
+        }
+        this.setVolumetricPlaneStatus(
+            'loading',
+            preview ? 'Updating plane preview' : 'Sampling planar sections',
+            `${visible.length} plane${visible.length === 1 ? '' : 's'} · ${preview ? 'interactive' : 'settled'} resolution`
+        );
+        const results = await Promise.allSettled(
+            visible.map(plane => this.renderVolumetricPlane(plane, { preview }))
+        );
+        const failures = results.filter(result => result.status === 'rejected');
+        this.renderer.setVolumetricPlaneSelection([...this.state.selectedVolumetricPlanes]);
+        this.renderVolumetricPlaneControls();
+        this.setVolumetricPlaneStatus(
+            failures.length ? 'warning' : 'ready',
+            `${visible.length - failures.length} planar section${visible.length - failures.length === 1 ? '' : 's'}`,
+            failures.length
+                ? failures.map(result => result.reason?.message || 'Plane unavailable').join(' ')
+                : `${preview ? 'Interactive preview' : 'Settled field'} · trilinear interpolation`
+        );
+        return results;
+    }
+
+    scheduleVolumetricPlanePreview({ settle = false } = {}) {
+        if (this.state.volumetricPlanePreviewTimer !== null) {
+            clearTimeout(this.state.volumetricPlanePreviewTimer);
+        }
+        if (this.state.volumetricPlaneSettledTimer !== null) {
+            clearTimeout(this.state.volumetricPlaneSettledTimer);
+            this.state.volumetricPlaneSettledTimer = null;
+        }
+        this.state.volumetricPlanePreviewTimer = setTimeout(() => {
+            this.state.volumetricPlanePreviewTimer = null;
+            this.renderAllVolumetricPlanes({ preview: !settle }).catch(error => {
+                this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
+            });
+        }, settle ? 90 : 45);
+        if (!settle) {
+            this.state.volumetricPlaneSettledTimer = setTimeout(() => {
+                this.state.volumetricPlaneSettledTimer = null;
+                this.renderAllVolumetricPlanes({ preview: false }).catch(error => {
+                    this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
+                });
+            }, 260);
+        }
+    }
+
+    async recolorVolumetricPlanes(planes = this.selectedVolumetricPlaneList()) {
+        await Promise.all(planes.map(async plane => {
+            const payload = this.state.volumetricPlanePayloads.get(plane.id);
+            if (!payload) return;
+            const rgba = await this.volumetricPlaneRgba(plane, payload);
+            this.renderer.updateVolumetricPlaneTexture(plane.id, rgba, { opacity: plane.opacity });
+        }));
+        this.renderVolumetricPlaneControls();
+    }
+
     decodeIsosurface(buffer) {
         const bytes = new Uint8Array(buffer);
         const magic = new TextDecoder().decode(bytes.subarray(0, 8));
@@ -2506,7 +3312,7 @@ class VAseApp {
         };
     }
 
-    async updateVolumetricSurface() {
+    async updateVolumetricSurface({ recordHistory = true } = {}) {
         this.readVolumetricControls();
         const token = ++this.state.volumetricRequestToken;
         const dataset = this.selectedVolumetricDataset();
@@ -2611,7 +3417,7 @@ class VAseApp {
                 : `${triangleCount.toLocaleString()} triangles`
                     + `${refinements.length ? ` · ${refinements.join(' · ')}` : ''}`
         );
-        this.scheduleVisualHistoryCommit('volumetric');
+        if (recordHistory) this.scheduleVisualHistoryCommit('volumetric');
     }
 
     async addVolumetricFile(file) {
@@ -2652,6 +3458,49 @@ class VAseApp {
 
     setupVolumetricAnalysis() {
         const fileInput = document.getElementById('volume-file');
+        const histogramContainer = document.querySelector('.volume-distribution');
+        if (histogramContainer && typeof ResizeObserver !== 'undefined') {
+            new ResizeObserver(() => this.drawVolumetricHistogram()).observe(histogramContainer);
+        }
+        let levelSettleTimer = null;
+        const updateLevelFromControl = (source, { settle = false } = {}) => {
+            const dataset = this.selectedVolumetricDataset();
+            if (!dataset) return;
+            const value = Number(source?.value);
+            if (!Number.isFinite(value)) return;
+            const profile = this.volumetricDistributionProfile(dataset);
+            if (!profile) return;
+            this.state.display.volumetricLevel = Math.max(
+                profile.minimum,
+                Math.min(profile.maximum, profile.signed ? Math.abs(value) : value)
+            );
+            const number = document.getElementById('volume-level');
+            const slider = document.getElementById('volume-level-slider');
+            if (source !== number && number && document.activeElement !== number) {
+                number.value = `${this.state.display.volumetricLevel}`;
+            }
+            if (source !== slider && slider && document.activeElement !== slider) {
+                slider.value = `${this.state.display.volumetricLevel}`;
+            }
+            this.syncVolumetricDistribution(dataset);
+            if (levelSettleTimer !== null) clearTimeout(levelSettleTimer);
+            levelSettleTimer = setTimeout(() => {
+                levelSettleTimer = null;
+                if (!this.state.display.showVolumetric) return;
+                this.updateVolumetricSurface().catch(error => {
+                    this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);
+                });
+            }, settle ? 0 : 220);
+        };
+        document.getElementById('volume-level-slider')?.addEventListener('input', event => {
+            updateLevelFromControl(event.target);
+        });
+        document.getElementById('volume-level-slider')?.addEventListener('change', event => {
+            updateLevelFromControl(event.target, { settle: true });
+        });
+        document.getElementById('volume-level')?.addEventListener('input', event => {
+            updateLevelFromControl(event.target);
+        });
         document.getElementById('volume-import-precision')?.addEventListener('change', event => {
             this.state.display.volumetricPrecision = event.target.value === 'float64'
                 ? 'float64'
@@ -2727,12 +3576,216 @@ class VAseApp {
             try {
                 const result = await this.api.deleteVolumetricDataset(dataset.id);
                 this.state.atoms.metadata.volumetric_datasets = result.volumetric_datasets || [];
+                const removedPlaneIds = this.volumetricPlanes()
+                    .filter(plane => plane.datasetId === dataset.id)
+                    .map(plane => plane.id);
+                this.state.display.volumetricPlanes = this.volumetricPlanes()
+                    .filter(plane => plane.datasetId !== dataset.id);
+                removedPlaneIds.forEach(id => this.state.volumetricPlanePayloads.delete(id));
+                this.renderer.clearVolumetricPlanes(removedPlaneIds);
                 this.state.display.volumetricDatasetId = '';
                 this.renderer.clearVolumetricSurfaces();
                 this.renderVolumetricControls();
             } catch (error) {
                 this.toast(`Remove scalar field failed: ${error.message}`, 'error');
             }
+        });
+        document.getElementById('btn-volume-plane-add')?.addEventListener('click', () => {
+            this.createVolumetricPlane();
+        });
+        document.getElementById('btn-volume-plane-remove')?.addEventListener('click', () => {
+            const selected = new Set(this.state.selectedVolumetricPlanes);
+            if (!selected.size) return;
+            this.state.display.volumetricPlanes = this.volumetricPlanes()
+                .filter(plane => !selected.has(plane.id));
+            selected.forEach(id => this.state.volumetricPlanePayloads.delete(id));
+            this.renderer.clearVolumetricPlanes([...selected]);
+            this.state.selectedVolumetricPlanes.clear();
+            this.renderVolumetricPlaneControls();
+            this.scheduleVisualHistoryCommit('volumetric-plane-remove');
+        });
+        document.getElementById('chk-volume-plane-visible')?.addEventListener('change', event => {
+            this.selectedVolumetricPlaneList().forEach(plane => {
+                plane.visible = event.target.checked;
+                const record = this.renderer.volumetricPlanes.get(plane.id);
+                if (record) record.group.visible = plane.visible;
+            });
+            this.renderAllVolumetricPlanes().catch(error => {
+                this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
+            });
+            this.scheduleVisualHistoryCommit('volumetric-plane-visible');
+        });
+        document.getElementById('volume-plane-dataset')?.addEventListener('change', event => {
+            if (!event.target.value) return;
+            const dataset = this.volumetricDatasets().find(item => item.id === event.target.value);
+            this.selectedVolumetricPlaneList().forEach(plane => {
+                plane.datasetId = event.target.value;
+                plane.autoRange = true;
+                plane.vmin = Number(dataset?.minimum);
+                plane.vmax = Number(dataset?.maximum);
+                const metrics = this.volumetricPlaneMetrics(plane);
+                if (metrics) {
+                    plane.offsetMinimum = metrics.minimum;
+                    plane.offsetMaximum = metrics.maximum;
+                    plane.offsetAngstrom = Math.max(metrics.minimum, Math.min(metrics.maximum, plane.offsetAngstrom));
+                }
+            });
+            this.renderAllVolumetricPlanes().catch(error => {
+                this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
+            });
+            this.scheduleVisualHistoryCommit('volumetric-plane-dataset');
+        });
+        ['h', 'k', 'l'].forEach((axis, axisIndex) => {
+            document.getElementById(`volume-plane-${axis}`)?.addEventListener('change', event => {
+                const value = Number(event.target.value);
+                if (!Number.isFinite(value)) return;
+                const selected = this.selectedVolumetricPlaneList();
+                const proposed = selected.map(plane => {
+                    const next = [...plane.hkl];
+                    next[axisIndex] = value;
+                    return { plane, next };
+                });
+                if (proposed.some(({ next }) => Math.hypot(...next) <= 1e-9)) {
+                    this.toast('Plane (h k l) cannot be (0 0 0).', 'warning');
+                    this.renderVolumetricPlaneControls();
+                    return;
+                }
+                proposed.forEach(({ plane, next }) => {
+                    plane.hkl = next;
+                    const metrics = this.volumetricPlaneMetrics(plane);
+                    if (metrics) {
+                        plane.offsetMinimum = metrics.minimum;
+                        plane.offsetMaximum = metrics.maximum;
+                        plane.offsetAngstrom = Math.max(metrics.minimum, Math.min(metrics.maximum, plane.offsetAngstrom));
+                    }
+                });
+                this.renderAllVolumetricPlanes().catch(error => {
+                    this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
+                });
+                this.scheduleVisualHistoryCommit('volumetric-plane-hkl');
+            });
+        });
+        const applyPlaneOffset = (value, { preview = false } = {}) => {
+            if (!Number.isFinite(value)) return;
+            this.selectedVolumetricPlaneList().forEach(plane => {
+                const metrics = this.volumetricPlaneMetrics(plane);
+                plane.offsetAngstrom = metrics
+                    ? Math.max(metrics.minimum, Math.min(metrics.maximum, value))
+                    : value;
+            });
+            this.renderVolumetricPlaneControls();
+            this.scheduleVolumetricPlanePreview({ settle: !preview });
+        };
+        document.getElementById('volume-plane-offset-slider')?.addEventListener('input', event => {
+            const value = Number(event.target.value);
+            const number = document.getElementById('volume-plane-offset');
+            if (number) number.value = event.target.value;
+            applyPlaneOffset(value, { preview: true });
+        });
+        document.getElementById('volume-plane-offset-slider')?.addEventListener('change', event => {
+            applyPlaneOffset(Number(event.target.value));
+            this.scheduleVisualHistoryCommit('volumetric-plane-offset');
+        });
+        document.getElementById('volume-plane-offset')?.addEventListener('change', event => {
+            applyPlaneOffset(Number(event.target.value));
+            this.scheduleVisualHistoryCommit('volumetric-plane-offset');
+        });
+        document.getElementById('volume-plane-resolution')?.addEventListener('change', event => {
+            const resolution = Number(event.target.value);
+            if (![128, 256, 512, 1024].includes(resolution)) return;
+            this.selectedVolumetricPlaneList().forEach(plane => { plane.resolution = resolution; });
+            this.renderAllVolumetricPlanes().catch(error => {
+                this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
+            });
+            this.scheduleVisualHistoryCommit('volumetric-plane-resolution');
+        });
+        document.getElementById('volume-plane-colormap')?.addEventListener('change', event => {
+            if (!event.target.value) return;
+            const selected = this.selectedVolumetricPlaneList();
+            selected.forEach(plane => { plane.colormap = event.target.value; });
+            this.recolorVolumetricPlanes(selected).catch(error => {
+                this.setVolumetricPlaneStatus('warning', 'Colormap unavailable', error.message);
+            });
+            this.scheduleVisualHistoryCommit('volumetric-plane-colormap');
+        });
+        document.getElementById('chk-volume-plane-reverse')?.addEventListener('change', event => {
+            const selected = this.selectedVolumetricPlaneList();
+            selected.forEach(plane => { plane.reverse = event.target.checked; });
+            this.recolorVolumetricPlanes(selected).catch(error => {
+                this.setVolumetricPlaneStatus('warning', 'Colormap unavailable', error.message);
+            });
+            this.scheduleVisualHistoryCommit('volumetric-plane-colormap');
+        });
+        const applyPlaneRange = () => {
+            const minimumInput = document.getElementById('volume-plane-vmin');
+            const maximumInput = document.getElementById('volume-plane-vmax');
+            const minimumText = minimumInput?.value.trim() || '';
+            const maximumText = maximumInput?.value.trim() || '';
+            const selected = this.selectedVolumetricPlaneList();
+            const proposals = selected.map(plane => {
+                const payload = this.state.volumetricPlanePayloads.get(plane.id);
+                const minimum = minimumText ? Number(minimumText) : Number(
+                    plane.autoRange ? payload?.header?.minimum : plane.vmin
+                );
+                const maximum = maximumText ? Number(maximumText) : Number(
+                    plane.autoRange ? payload?.header?.maximum : plane.vmax
+                );
+                return { plane, minimum, maximum };
+            });
+            const invalid = proposals.some(({ minimum, maximum }) => (
+                !Number.isFinite(minimum)
+                || !Number.isFinite(maximum)
+                || maximum <= minimum
+            ));
+            if (invalid) {
+                this.toast('Plane color maximum must be greater than its minimum.', 'warning');
+                this.renderVolumetricPlaneControls();
+                return;
+            }
+            proposals.forEach(({ plane, minimum, maximum }) => {
+                plane.autoRange = false;
+                plane.vmin = minimum;
+                plane.vmax = maximum;
+            });
+            this.recolorVolumetricPlanes(selected).catch(error => {
+                this.setVolumetricPlaneStatus('warning', 'Color range unavailable', error.message);
+            });
+            this.scheduleVisualHistoryCommit('volumetric-plane-range');
+        };
+        ['volume-plane-vmin', 'volume-plane-vmax'].forEach(id => {
+            document.getElementById(id)?.addEventListener('change', applyPlaneRange);
+        });
+        document.getElementById('btn-volume-plane-fit')?.addEventListener('click', () => {
+            const selected = this.selectedVolumetricPlaneList();
+            selected.forEach(plane => {
+                plane.autoRange = true;
+                plane.vmin = null;
+                plane.vmax = null;
+            });
+            this.recolorVolumetricPlanes(selected).catch(error => {
+                this.setVolumetricPlaneStatus('warning', 'Color range unavailable', error.message);
+            });
+            this.scheduleVisualHistoryCommit('volumetric-plane-range');
+        });
+        document.getElementById('volume-plane-opacity')?.addEventListener('input', event => {
+            const opacity = Math.max(0.05, Math.min(1, Number(event.target.value) || 0.88));
+            const selected = this.selectedVolumetricPlaneList();
+            selected.forEach(plane => {
+                plane.opacity = opacity;
+                const record = this.renderer.volumetricPlanes.get(plane.id);
+                if (record) {
+                    record.material.opacity = opacity;
+                    record.material.transparent = opacity < 0.999;
+                    record.material.depthWrite = opacity >= 0.98;
+                    record.material.needsUpdate = true;
+                }
+            });
+            const output = document.getElementById('volume-plane-opacity-value');
+            if (output) output.textContent = opacity.toFixed(2);
+            this.renderer.requestRender();
+        });
+        document.getElementById('volume-plane-opacity')?.addEventListener('change', () => {
+            this.scheduleVisualHistoryCommit('volumetric-plane-opacity');
         });
         document.getElementById('btn-volume-difference')?.addEventListener('click', async () => {
             const terms = [...document.querySelectorAll('.volume-difference-term')]
@@ -4279,6 +5332,9 @@ class VAseApp {
             : null;
         this.state.sunSelected = next;
         this.renderer.setSunGizmoSelected(next);
+        if (next && this.state.selectedVolumetricPlanes.size) {
+            this.setVolumetricPlaneSelection([], { update: false });
+        }
         if (next && clearAtoms && this.selectionCount() > 0) {
             this.clearAtomSelection();
             this.updateSelectionVisuals();
@@ -4771,6 +5827,8 @@ class VAseApp {
                 'cmd-mode',
                 this.state.transformSubject === 'sun'
                     ? `SUN ${lightHandle.toUpperCase()} ${this.transform.mode}`
+                    : this.state.transformSubject === 'volumetric-plane'
+                        ? `PLANE ${this.transform.mode}`
                     : this.transform.mode
             );
             setHtml('cmd-axis', this.transform.axis || 'NONE');
@@ -4859,12 +5917,21 @@ class VAseApp {
                 this.renderer.clearVolumetricSurfaces();
             } else {
                 queueMicrotask(() => {
-                    this.updateVolumetricSurface().catch(error => {
+                    this.updateVolumetricSurface({ recordHistory: false }).catch(error => {
                         this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);
                         this.renderer.clearVolumetricSurfaces();
                     });
                 });
             }
+        }
+        if (this.volumetricPlanes().length) {
+            queueMicrotask(() => {
+                this.renderAllVolumetricPlanes().catch(error => {
+                    this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
+                });
+            });
+        } else {
+            this.renderer.clearVolumetricPlanes();
         }
         this.renderAppearanceRows();
         this.updateEditingAvailability();
@@ -5793,6 +6860,9 @@ class VAseApp {
     addSelectionReference(reference) {
         const normalized = this.normalizeSelectionReference(reference);
         if (!normalized || !this.isAtomVisible(normalized.index)) return false;
+        if (this.state.selectedVolumetricPlanes.size) {
+            this.setVolumetricPlaneSelection([], { update: false });
+        }
         const alreadySelected = this.hasSelectionReference(normalized);
         if (normalized.kind === 'replica') {
             if (!this.replicaReferenceIsSelectable(normalized)) return false;
@@ -6579,10 +7649,247 @@ class VAseApp {
         this.updateCommandReadout();
     }
 
+    volumetricPlaneNormalToHkl(normal, plane) {
+        const dataset = this.volumetricPlaneDataset(plane);
+        if (!dataset?.cell || normal.lengthSq() <= 1e-18) return [...plane.hkl];
+        const cell = new THREE.Matrix3().set(...dataset.cell.flat().map(Number));
+        const hkl = normal.clone().normalize().applyMatrix3(cell);
+        const scale = Math.max(Math.abs(hkl.x), Math.abs(hkl.y), Math.abs(hkl.z), 1e-12);
+        return [hkl.x, hkl.y, hkl.z].map(value => {
+            const normalized = value / scale;
+            return Math.abs(normalized) < 1e-8 ? 0 : Number(normalized.toFixed(8));
+        });
+    }
+
+    volumetricPlaneTransformMoveScalar(originals) {
+        const numeric = this.transform.getNumericValue();
+        if (numeric !== null) return numeric;
+        const primary = originals[0];
+        if (!primary) return 0;
+        const normal = new THREE.Vector3(...primary.normal).normalize();
+        const camera = this.renderer.camera;
+        camera.updateMatrixWorld();
+        const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+        const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+        const pivot = new THREE.Vector3(...primary.centroid);
+        const distance = Math.max(pivot.distanceTo(camera.position), 1e-6);
+        const zoom = Math.max(camera.zoom || 1, 1e-6);
+        const height = camera.isOrthographicCamera
+            ? (camera.top - camera.bottom) / zoom
+            : 2 * Math.tan((camera.fov || 50) * Math.PI / 360) * distance;
+        const width = camera.isOrthographicCamera
+            ? (camera.right - camera.left) / zoom
+            : height * (camera.aspect || this.renderer.viewportAspect?.() || 1);
+        const screenDelta = right.clone().multiplyScalar(this.transform.pointerDelta.x * width)
+            .add(up.clone().multiplyScalar(this.transform.pointerDelta.y * height));
+        let scalar = screenDelta.dot(normal);
+        const visibleNormal = Math.hypot(normal.dot(right), normal.dot(up));
+        if (visibleNormal < 0.08) scalar = this.transform.pointerDelta.y * height;
+        return this.state.moveIncrement > 0
+            ? this.snapScalar(scalar, this.state.moveIncrement)
+            : scalar;
+    }
+
+    volumetricPlaneTransformRotation() {
+        const numeric = this.transform.getNumericValue();
+        let angle = numeric === null
+            ? this.snapRotationAngle(this.transform.rotationAngle)
+            : THREE.MathUtils.degToRad(numeric);
+        if (!Number.isFinite(angle)) angle = 0;
+        const axis = new THREE.Vector3();
+        if (this.transform.axis === 'X') axis.set(1, 0, 0);
+        else if (this.transform.axis === 'Y') axis.set(0, 1, 0);
+        else if (this.transform.axis === 'Z') axis.set(0, 0, 1);
+        else {
+            this.renderer.camera.getWorldDirection(axis).normalize();
+            angle *= -1;
+        }
+        return {
+            angle,
+            quaternion: new THREE.Quaternion().setFromAxisAngle(axis, angle)
+        };
+    }
+
+    syncVolumetricPlaneTransformControls() {
+        const selected = this.selectedVolumetricPlaneList();
+        if (!selected.length) return;
+        ['h', 'k', 'l'].forEach((axis, index) => {
+            this.setMixedControl(
+                `volume-plane-${axis}`,
+                this.commonVolumetricPlaneValue(selected, plane => plane.hkl[index])
+            );
+        });
+        this.setMixedControl(
+            'volume-plane-offset',
+            this.commonVolumetricPlaneValue(selected, plane => plane.offsetAngstrom)
+        );
+        selected.forEach(plane => {
+            const row = document.querySelector(`[data-plane-id="${CSS.escape(plane.id)}"]`);
+            const label = row?.querySelector('.volume-plane-list-hkl');
+            if (label) label.textContent = `(${plane.hkl.map(value => this.formatScalarValue(value)).join(' ')})`;
+        });
+    }
+
+    applyVolumetricPlaneTransformPreview() {
+        const originals = this.state.volumetricPlaneTransformOriginal;
+        if (!Array.isArray(originals) || !originals.length || this.transform.mode === 'IDLE') return;
+        const transforms = {};
+        if (this.transform.mode === 'MOVE') {
+            const scalar = this.volumetricPlaneTransformMoveScalar(originals);
+            originals.forEach(original => {
+                const plane = this.volumetricPlanes().find(candidate => candidate.id === original.id);
+                if (!plane) return;
+                const minimum = Number.isFinite(original.offsetMinimum) ? original.offsetMinimum : -Infinity;
+                const maximum = Number.isFinite(original.offsetMaximum) ? original.offsetMaximum : Infinity;
+                plane.offsetAngstrom = Math.max(minimum, Math.min(maximum, original.offsetAngstrom + scalar));
+                const record = this.renderer.volumetricPlanes.get(plane.id);
+                const renderedOffset = Number.isFinite(Number(record?.offsetAngstrom))
+                    ? Number(record.offsetAngstrom)
+                    : original.offsetAngstrom;
+                const applied = plane.offsetAngstrom - renderedOffset;
+                transforms[plane.id] = {
+                    translation: new THREE.Vector3(...original.normal).multiplyScalar(applied).toArray()
+                };
+            });
+            this.state.transformReadout = `normal ${this.formatNumber(scalar)} A`;
+        } else if (this.transform.mode === 'ROTATE') {
+            const { angle, quaternion } = this.volumetricPlaneTransformRotation();
+            originals.forEach(original => {
+                const plane = this.volumetricPlanes().find(candidate => candidate.id === original.id);
+                if (!plane) return;
+                const normal = new THREE.Vector3(...original.normal).applyQuaternion(quaternion).normalize();
+                const centroid = new THREE.Vector3(...original.centroid);
+                plane.hkl = this.volumetricPlaneNormalToHkl(normal, plane);
+                const dataset = this.volumetricPlaneDataset(plane);
+                const origin = new THREE.Vector3(...(
+                    Array.isArray(dataset?.origin) ? dataset.origin : [0, 0, 0]
+                ));
+                plane.offsetAngstrom = normal.dot(centroid.clone().sub(origin));
+                const metrics = this.volumetricPlaneMetrics(plane);
+                plane.offsetMinimum = metrics?.minimum ?? plane.offsetMinimum;
+                plane.offsetMaximum = metrics?.maximum ?? plane.offsetMaximum;
+                plane.offsetAngstrom = Math.max(
+                    plane.offsetMinimum,
+                    Math.min(plane.offsetMaximum, plane.offsetAngstrom)
+                );
+                const record = this.renderer.volumetricPlanes.get(plane.id);
+                const renderedNormal = record?.normal?.clone() || new THREE.Vector3(...original.normal);
+                const renderedCentroid = record?.centroid?.toArray() || original.centroid;
+                const displayQuaternion = new THREE.Quaternion().setFromUnitVectors(
+                    renderedNormal.normalize(),
+                    normal
+                );
+                transforms[plane.id] = {
+                    quaternion: displayQuaternion.toArray(),
+                    pivot: renderedCentroid
+                };
+            });
+            this.state.transformReadout = this.formatRotateReadout(angle);
+        }
+        this.renderer.previewVolumetricPlaneTransforms(transforms);
+        this.syncVolumetricPlaneTransformControls();
+        this.scheduleVolumetricPlanePreview();
+        this.transform.updateGuides(this.renderer.camera);
+        this.updateCommandReadout();
+        this.renderer.requestRender();
+    }
+
+    enterVolumetricPlaneTransformMode(mode) {
+        if (this.state.vizOnly) {
+            this.toast('Switch to Edit mode to move or rotate volumetric planes.', 'warning');
+            return;
+        }
+        const selected = this.selectedVolumetricPlaneList().filter(plane => plane.visible);
+        if (!selected.length) return;
+        const originals = selected.map(plane => {
+            const record = this.renderer.volumetricPlanes.get(plane.id);
+            const metrics = this.volumetricPlaneMetrics(plane);
+            const normal = record?.normal?.clone() || metrics?.normal?.clone() || new THREE.Vector3(0, 0, 1);
+            const centroid = record?.centroid?.clone() || normal.clone().multiplyScalar(plane.offsetAngstrom);
+            return {
+                id: plane.id,
+                hkl: [...plane.hkl],
+                offsetAngstrom: plane.offsetAngstrom,
+                offsetMinimum: plane.offsetMinimum,
+                offsetMaximum: plane.offsetMaximum,
+                normal: normal.normalize().toArray(),
+                centroid: centroid.toArray()
+            };
+        });
+        const pivot = originals.reduce(
+            (sum, original) => sum.add(new THREE.Vector3(...original.centroid)),
+            new THREE.Vector3()
+        ).multiplyScalar(1 / originals.length);
+        this.readTransformSettings();
+        this.state.volumetricPlaneTransformOriginal = originals;
+        this.state.transformSubject = 'volumetric-plane';
+        this.state.transformReadout = '';
+        this.state.transformStartPointer.copy(this.state.lastPointer);
+        this.state.rotationScreenPivot.copy(this.worldToScreen(this.renderer.toVisualAtomPosition(pivot)));
+        this.state.rotationLastAngle = 0;
+        this.state.rotationPointerActive = false;
+        this.renderer.clearConstraintMotionGuides?.();
+        this.transform.enter(mode, pivot, this.renderer.camera, {
+            visualOffset: this.renderer.visualTranslationVector?.() || new THREE.Vector3()
+        });
+        this.renderer.controls.enabled = false;
+        this.updateToolState();
+        this.updateUI();
+    }
+
+    finishVolumetricPlaneTransform() {
+        if (this.state.volumetricPlanePreviewTimer !== null) {
+            clearTimeout(this.state.volumetricPlanePreviewTimer);
+            this.state.volumetricPlanePreviewTimer = null;
+        }
+        if (this.state.volumetricPlaneSettledTimer !== null) {
+            clearTimeout(this.state.volumetricPlaneSettledTimer);
+            this.state.volumetricPlaneSettledTimer = null;
+        }
+        this.renderer.resetVolumetricPlaneTransforms();
+        this.state.volumetricPlaneTransformOriginal = null;
+        this.state.transformReadout = '';
+        this.transform.exit();
+        this.state.transformSubject = null;
+        this.renderer.controls.enabled = true;
+        this.renderVolumetricPlaneControls();
+        this.updateToolState();
+        this.updateUI();
+    }
+
+    commitVolumetricPlaneTransform() {
+        if (this.transform.mode === 'IDLE') return;
+        this.finishVolumetricPlaneTransform();
+        this.renderAllVolumetricPlanes().catch(error => {
+            this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
+        });
+        this.scheduleVisualHistoryCommit('volumetric-plane-transform');
+    }
+
+    cancelVolumetricPlaneTransform() {
+        const originals = this.state.volumetricPlaneTransformOriginal || [];
+        originals.forEach(original => {
+            const plane = this.volumetricPlanes().find(candidate => candidate.id === original.id);
+            if (!plane) return;
+            plane.hkl = [...original.hkl];
+            plane.offsetAngstrom = original.offsetAngstrom;
+            plane.offsetMinimum = original.offsetMinimum;
+            plane.offsetMaximum = original.offsetMaximum;
+        });
+        this.finishVolumetricPlaneTransform();
+        this.renderAllVolumetricPlanes().catch(error => {
+            this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
+        });
+    }
+
     applyTransformPreview() {
         if (this.transform.mode === 'IDLE') return;
         if (this.state.transformSubject === 'sun') {
             this.applySunTransformPreview();
+            return;
+        }
+        if (this.state.transformSubject === 'volumetric-plane') {
+            this.applyVolumetricPlaneTransformPreview();
             return;
         }
 
@@ -6753,6 +8060,9 @@ class VAseApp {
 
     commitTransform() {
         if (this.state.transformSubject === 'sun') return this.commitSunTransform();
+        if (this.state.transformSubject === 'volumetric-plane') {
+            return this.commitVolumetricPlaneTransform();
+        }
         if (this.transform.mode === 'IDLE' || this.state.selected.size === 0) return;
         if (!this.canEditAtoms()) {
             this.cancelTransform();
@@ -6802,6 +8112,10 @@ class VAseApp {
     }
 
     enterTransformMode(mode) {
+        if (this.state.selectedVolumetricPlanes.size) {
+            this.enterVolumetricPlaneTransformMode(mode);
+            return;
+        }
         if (this.state.sunSelected) {
             this.enterSunTransformMode(mode);
             return;
@@ -6854,6 +8168,10 @@ class VAseApp {
     cancelTransform() {
         if (this.state.transformSubject === 'sun') {
             this.cancelSunTransform();
+            return;
+        }
+        if (this.state.transformSubject === 'volumetric-plane') {
+            this.cancelVolumetricPlaneTransform();
             return;
         }
         if (this.constraintTimeout) clearTimeout(this.constraintTimeout);
@@ -8178,6 +9496,7 @@ class VAseApp {
             cancelAnimationFrame(this.state.displayApplyRequest);
             this.state.displayApplyRequest = null;
         }
+        const previousPlaneRepetitions = JSON.stringify(this.volumetricPlaneRepetitions());
         this.state.display.showBonds = document.getElementById('chk-bonds').checked;
         this.state.display.showCell = document.getElementById('chk-cell').checked;
         const cellThickness = Number(document.getElementById('cell-thickness')?.value);
@@ -8260,6 +9579,12 @@ class VAseApp {
         this.syncViewControls();
         this.pruneSelection();
         this.renderer.setDisplayOptions(this.state.display);
+        if (
+            this.volumetricPlanes().length
+            && previousPlaneRepetitions !== JSON.stringify(this.volumetricPlaneRepetitions())
+        ) {
+            this.scheduleVolumetricPlanePreview({ settle: true });
+        }
         this.updateSelectionVisuals();
         this.updateLabelSelectionControls();
         this.updateBondModeUI();
@@ -8614,6 +9939,9 @@ class VAseApp {
                 'refresh-displacements',
                 'load-volumetric',
                 'show-volumetric',
+                'add-volumetric-plane',
+                'update-volumetric-planes',
+                'remove-volumetric-planes',
                 'combine-volumetric',
                 'remove-volumetric',
                 'calculate-rdf'
@@ -8717,6 +10045,23 @@ class VAseApp {
             analysis: {
                 volumetricDatasets: this.clonePlain(this.volumetricDatasets()),
                 volumetricSurface: this.clonePlain(this.state.volumetricSurfaceSummary),
+                volumetricPlanes: this.clonePlain(this.volumetricPlanes().map(plane => ({
+                    id: plane.id,
+                    name: plane.name,
+                    datasetId: plane.datasetId,
+                    visible: plane.visible,
+                    hkl: [...plane.hkl],
+                    offsetAngstrom: plane.offsetAngstrom,
+                    offsetRangeAngstrom: [plane.offsetMinimum, plane.offsetMaximum],
+                    repetitions: this.volumetricPlaneRepetitions(),
+                    resolution: plane.resolution,
+                    colormap: plane.colormap,
+                    reverse: plane.reverse,
+                    autoRange: plane.autoRange,
+                    vmin: plane.vmin,
+                    vmax: plane.vmax,
+                    opacity: plane.opacity
+                }))),
                 rdf: this.state.rdfResult ? {
                     schema: this.state.rdfResult.schema,
                     bins: this.state.rdfResult.bins,
@@ -8837,7 +10182,8 @@ class VAseApp {
                 'atoms', 'labels', 'elements', 'positions', 'cell', 'pbc',
                 'constraints', 'forces', 'charges', 'tags', 'magnetic-moments',
                 'selection', 'measurement', 'trajectory', 'camera', 'display',
-                'volumetric-data', 'rdf', 'commensurate', 'commensurate-proposal',
+                'volumetric-data', 'volumetric-planes', 'rdf', 'commensurate',
+                'commensurate-proposal',
                 'registry-map', 'atom-colorscale', 'preferences', 'collaboration'
             ],
             apply: [
@@ -8853,6 +10199,8 @@ class VAseApp {
                 'dismiss-commensurate-cell', 'calculate-registry-map', 'undo', 'redo',
                 'reset-coordinates', 'start-relaxation', 'stop-relaxation',
                 'refresh-displacements', 'load-volumetric', 'show-volumetric',
+                'add-volumetric-plane', 'update-volumetric-planes',
+                'remove-volumetric-planes',
                 'combine-volumetric', 'remove-volumetric', 'calculate-rdf',
                 'set-interface-theme', 'set-personal-visual-default',
                 'restore-app-visual-defaults', 'set-atom-colorscale'
@@ -9588,6 +10936,95 @@ class VAseApp {
             });
             this.renderVolumetricControls();
             await this.updateVolumetricSurface();
+            return;
+        }
+        if (name === 'add-volumetric-plane') {
+            const patch = this.volumetricPlanePatchFromOperation(operation);
+            if (!patch.datasetId) throw new Error('add-volumetric-plane requires datasetId.');
+            if (!patch.hkl) throw new Error('add-volumetric-plane requires hkl.');
+            const index = this.volumetricPlanes().length;
+            const dataset = this.volumetricDatasets().find(item => item.id === patch.datasetId);
+            const plane = this.normalizedVolumetricPlane({
+                name: `Plane ${index + 1}`,
+                datasetId: patch.datasetId,
+                hkl: patch.hkl,
+                vmin: dataset?.minimum,
+                vmax: dataset?.maximum,
+                ...patch
+            }, index);
+            const metrics = this.volumetricPlaneMetrics(plane);
+            plane.offsetMinimum = metrics?.minimum ?? null;
+            plane.offsetMaximum = metrics?.maximum ?? null;
+            if (!Object.prototype.hasOwnProperty.call(operation, 'offsetAngstrom') && metrics) {
+                plane.offsetAngstrom = (metrics.minimum + metrics.maximum) / 2;
+            }
+            this.volumetricPlanes().push(plane);
+            try {
+                await this.renderVolumetricPlane(plane);
+            } catch (error) {
+                this.state.display.volumetricPlanes = this.volumetricPlanes()
+                    .filter(candidate => candidate.id !== plane.id);
+                this.state.volumetricPlanePayloads.delete(plane.id);
+                this.renderer.clearVolumetricPlanes([plane.id]);
+                throw error;
+            }
+            this.setVolumetricPlaneSelection([plane.id], { update: false });
+            this.renderVolumetricPlaneControls();
+            this.scheduleVisualHistoryCommit('volumetric-plane-add');
+            return;
+        }
+        if (name === 'update-volumetric-planes') {
+            const planes = this.volumetricPlanesByOperationIds(operation);
+            const patches = planes.map(plane => this.volumetricPlanePatchFromOperation(operation, plane));
+            const snapshots = planes.map(plane => this.clonePlain(plane));
+            planes.forEach((plane, index) => {
+                const patch = patches[index];
+                const datasetChanged = patch.datasetId && patch.datasetId !== plane.datasetId;
+                Object.assign(plane, patch);
+                if (datasetChanged && !Object.prototype.hasOwnProperty.call(operation, 'autoRange')) {
+                    plane.autoRange = true;
+                }
+                const dataset = this.volumetricPlaneDataset(plane);
+                if (datasetChanged && !Object.prototype.hasOwnProperty.call(operation, 'vmin')) {
+                    plane.vmin = Number(dataset?.minimum);
+                }
+                if (datasetChanged && !Object.prototype.hasOwnProperty.call(operation, 'vmax')) {
+                    plane.vmax = Number(dataset?.maximum);
+                }
+                const metrics = this.volumetricPlaneMetrics(plane);
+                plane.offsetMinimum = metrics?.minimum ?? null;
+                plane.offsetMaximum = metrics?.maximum ?? null;
+                if (metrics) {
+                    plane.offsetAngstrom = Math.max(
+                        metrics.minimum,
+                        Math.min(metrics.maximum, plane.offsetAngstrom)
+                    );
+                }
+            });
+            try {
+                await Promise.all(planes.map(plane => this.renderVolumetricPlane(plane)));
+            } catch (error) {
+                planes.forEach((plane, index) => Object.assign(plane, snapshots[index]));
+                await Promise.allSettled(planes.map(plane => this.renderVolumetricPlane(plane)));
+                throw error;
+            }
+            this.setVolumetricPlaneSelection(planes.map(plane => plane.id), { update: false });
+            this.renderVolumetricPlaneControls();
+            this.scheduleVisualHistoryCommit('volumetric-plane-update');
+            return;
+        }
+        if (name === 'remove-volumetric-planes') {
+            const planes = this.volumetricPlanesByOperationIds(operation);
+            const ids = new Set(planes.map(plane => plane.id));
+            this.state.display.volumetricPlanes = this.volumetricPlanes()
+                .filter(plane => !ids.has(plane.id));
+            ids.forEach(id => {
+                this.state.volumetricPlanePayloads.delete(id);
+                this.state.selectedVolumetricPlanes.delete(id);
+            });
+            this.renderer.clearVolumetricPlanes([...ids]);
+            this.renderVolumetricPlaneControls();
+            this.scheduleVisualHistoryCommit('volumetric-plane-remove');
             return;
         }
         if (name === 'combine-volumetric') {
@@ -10525,6 +11962,17 @@ class VAseApp {
             translationMode = 'cartesian';
             translation = [0, 0, 0];
         }
+        const availableVolumeIds = new Set(this.volumetricDatasets().map(dataset => dataset.id));
+        const seenPlaneIds = new Set();
+        const volumetricPlanes = (Array.isArray(nextDisplay.volumetricPlanes)
+            ? nextDisplay.volumetricPlanes
+            : [])
+            .map((plane, index) => this.normalizedVolumetricPlane(plane, index))
+            .filter(plane => {
+                if (!availableVolumeIds.has(plane.datasetId) || seenPlaneIds.has(plane.id)) return false;
+                seenPlaneIds.add(plane.id);
+                return true;
+            });
 
         return {
             ...this.clonePlain(nextDisplay),
@@ -10666,6 +12114,7 @@ class VAseApp {
             volumetricNegativeColor: this.validHexColor(nextDisplay.volumetricNegativeColor)
                 ? nextDisplay.volumetricNegativeColor
                 : '#e05b78',
+            volumetricPlanes,
             rdfCutoff: Number.isFinite(Number(nextDisplay.rdfCutoff)) && Number(nextDisplay.rdfCutoff) > 0
                 ? Number(nextDisplay.rdfCutoff)
                 : null,
@@ -10746,7 +12195,8 @@ class VAseApp {
             labelMaterials: this.clonePlain(nextDisplay.labelMaterials),
             atomMaterials: this.clonePlain(nextDisplay.atomMaterials),
             supercell: this.clonePlain(nextDisplay.supercell),
-            translation: this.clonePlain(nextDisplay.translation)
+            translation: this.clonePlain(nextDisplay.translation),
+            volumetricPlanes: this.clonePlain(nextDisplay.volumetricPlanes)
         };
         if ('applyConstraints' in source) this.state.applyConstraints = Boolean(source.applyConstraints);
         if ('antiAliasing' in source) {
@@ -10780,10 +12230,13 @@ class VAseApp {
             this.renderer.setDisplayOptions(this.state.display);
             this.renderVolumetricControls();
             if (this.state.display.showVolumetric) {
-                this.updateVolumetricSurface().catch(error => {
+                this.updateVolumetricSurface({ recordHistory: false }).catch(error => {
                     this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);
                 });
             }
+            this.renderAllVolumetricPlanes().catch(error => {
+                this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
+            });
             this.updateSelectionVisuals();
             this.updateBondModeUI();
             this.updateUI();
@@ -14934,6 +16387,19 @@ class VAseApp {
                     this.renderer.supercellGroup,
                     this.state.vizOnly
                 );
+                const pickedPlane = picked === null
+                    ? this.renderer.pickVolumetricPlane?.(e)
+                    : null;
+                if (pickedPlane) {
+                    this.clearAtomSelection();
+                    this.setVolumetricPlaneSelection([pickedPlane], {
+                        additive: e.shiftKey || e.ctrlKey || e.metaKey
+                    });
+                    return;
+                }
+                if (!e.shiftKey && this.state.selectedVolumetricPlanes.size) {
+                    this.setVolumetricPlaneSelection([], { update: false });
+                }
                 if (!e.shiftKey) this.clearAtomSelection();
 
                 if (picked !== null) {
@@ -14958,7 +16424,12 @@ class VAseApp {
                     this.state.vizOnly
                 );
 
-                if (!e.shiftKey) this.clearAtomSelection();
+                if (!e.shiftKey) {
+                    this.clearAtomSelection();
+                    if (this.state.selectedVolumetricPlanes.size) {
+                        this.setVolumetricPlaneSelection([], { update: false });
+                    }
+                }
                 newSelected.forEach(reference => this.addSelectionReference(reference));
                 this.updateSelectionVisuals();
                 this.updateUI();
@@ -15050,6 +16521,13 @@ class VAseApp {
                     this.commitTransform();
                 } else if (axis) {
                     e.preventDefault();
+                    if (
+                        this.state.transformSubject === 'volumetric-plane'
+                        && this.transform.mode === 'MOVE'
+                    ) {
+                        this.toast('Volumetric planes move along their own normal.', 'warning');
+                        return;
+                    }
                     const constrainedAxis = (
                         this.transform.mode === 'ROTATE'
                         && this.state.transformSubject === 'atoms'
@@ -15088,6 +16566,17 @@ class VAseApp {
                     e.preventDefault();
                     const mode = this.isPhysicalKey(e, 'KeyR', ['r']) ? 'ROTATE' : 'MOVE';
                     this.enterSunTransformMode(mode);
+                    return;
+                }
+                if (this.state.selectedVolumetricPlanes.size &&
+                    (this.isPhysicalKey(e, 'KeyG', ['g']) || this.isPhysicalKey(e, 'KeyR', ['r']))) {
+                    e.preventDefault();
+                    if (!this.canEditAtoms()) {
+                        this.editOnlyToast();
+                        return;
+                    }
+                    const mode = this.isPhysicalKey(e, 'KeyR', ['r']) ? 'ROTATE' : 'MOVE';
+                    this.enterVolumetricPlaneTransformMode(mode);
                     return;
                 }
                 if (this.isPhysicalKey(e, 'KeyA', ['a'])) {

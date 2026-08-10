@@ -52,12 +52,12 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.15&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.16&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.1.15';
+            : '/static/vendor/three.module.js?v=0.1.16';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -116,7 +116,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.1.15</span>
+            <span class="version">0.1.16</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -525,9 +525,21 @@
                         <option value="signed">Positive + negative</option>
                     </select>
                 </div>
-                <div class="prop-row">
-                    <label for="volume-level">Isovalue</label>
-                    <input id="volume-level" type="number" step="any">
+                <div class="volume-level-control">
+                    <div class="volume-level-head">
+                        <label for="volume-level">Isovalue</label>
+                        <input id="volume-level" type="number" step="any">
+                    </div>
+                    <div class="volume-distribution" aria-label="Scalar value distribution">
+                        <canvas id="volume-histogram" aria-hidden="true"></canvas>
+                        <span id="volume-histogram-marker" class="volume-histogram-marker" aria-hidden="true"></span>
+                        <input id="volume-level-slider" type="range" min="0" max="1" step="0.001" value="0">
+                    </div>
+                    <div class="volume-distribution-scale">
+                        <span id="volume-distribution-min">0</span>
+                        <span id="volume-distribution-caption">voxel distribution</span>
+                        <span id="volume-distribution-max">1</span>
+                    </div>
                 </div>
                 <div class="prop-row">
                     <label for="volume-step">Mesh detail</label>
@@ -563,10 +575,92 @@
                     </div>
                     <input id="volume-opacity" type="range" min="0.05" max="1" step="0.01" value="0.72">
                 </div>
-                <div class="btn-stack-row two">
-                    <button id="btn-volume-refresh" type="button">Update Surface</button>
-                    <button id="btn-volume-delete" class="danger-soft" type="button">Remove</button>
+                <div class="btn-stack-row two volume-primary-actions">
+                    <button id="btn-volume-refresh" type="button">Update Isosurface</button>
+                    <button id="btn-volume-delete" class="danger-soft" type="button">Remove Dataset</button>
                 </div>
+                <details class="inline-subpanel volume-plane-panel" open>
+                    <summary>Planar Sections</summary>
+                    <p class="panel-note">
+                        Sample the field on cell-clipped (h k l) planes. Select a plane in the viewport,
+                        then use G to move it or R to rotate its reciprocal-space normal.
+                    </p>
+                    <div class="volume-plane-toolbar">
+                        <button id="btn-volume-plane-add" type="button">Add Plane</button>
+                        <button id="btn-volume-plane-remove" class="danger-outline" type="button" disabled>Remove Selected</button>
+                    </div>
+                    <div id="volume-plane-list" class="volume-plane-list" role="listbox" aria-label="Volumetric planes" aria-multiselectable="true"></div>
+                    <div id="volume-plane-editor" class="volume-plane-editor hidden">
+                        <div class="volume-plane-selection-head">
+                            <strong id="volume-plane-selection-title">Plane 1</strong>
+                            <span id="volume-plane-selection-count">1 selected</span>
+                        </div>
+                        <div class="prop-row">
+                            <label for="chk-volume-plane-visible">Visible</label>
+                            <input id="chk-volume-plane-visible" type="checkbox" checked>
+                        </div>
+                        <div class="prop-row">
+                            <label for="volume-plane-dataset">Dataset</label>
+                            <select id="volume-plane-dataset"></select>
+                        </div>
+                        <div class="prop-row volume-hkl-row">
+                            <label>(h k l)</label>
+                            <div class="num-group">
+                                <input id="volume-plane-h" type="number" step="0.01" value="0" aria-label="Plane h">
+                                <input id="volume-plane-k" type="number" step="0.01" value="0" aria-label="Plane k">
+                                <input id="volume-plane-l" type="number" step="0.01" value="1" aria-label="Plane l">
+                            </div>
+                        </div>
+                        <div class="volume-plane-offset-control">
+                            <div class="volume-level-head">
+                                <label for="volume-plane-offset">Offset / Å</label>
+                                <input id="volume-plane-offset" type="number" step="0.01" value="0">
+                            </div>
+                            <input id="volume-plane-offset-slider" type="range" min="0" max="1" step="0.01" value="0">
+                        </div>
+                        <div class="prop-row">
+                            <label for="volume-plane-resolution">Settled resolution</label>
+                            <select id="volume-plane-resolution">
+                                <option value="128">128 · fast</option>
+                                <option value="256" selected>256 · balanced</option>
+                                <option value="512">512 · high</option>
+                                <option value="1024">1024 · ultra</option>
+                            </select>
+                        </div>
+                        <div class="prop-row">
+                            <label for="volume-plane-colormap">Colormap</label>
+                            <select id="volume-plane-colormap">
+                                <option value="viridis">viridis</option>
+                            </select>
+                        </div>
+                        <div class="prop-row">
+                            <label for="chk-volume-plane-reverse">Reverse colormap</label>
+                            <input id="chk-volume-plane-reverse" type="checkbox">
+                        </div>
+                        <div class="volume-plane-range-head">
+                            <strong>Color range</strong>
+                            <button id="btn-volume-plane-fit" type="button">Fit Selected</button>
+                        </div>
+                        <div class="volume-plane-range">
+                            <label for="volume-plane-vmin"><span>Minimum</span><input id="volume-plane-vmin" type="number" step="any"></label>
+                            <label for="volume-plane-vmax"><span>Maximum</span><input id="volume-plane-vmax" type="number" step="any"></label>
+                        </div>
+                        <div class="range-row">
+                            <div class="range-head">
+                                <label for="volume-plane-opacity">Plane opacity</label>
+                                <output id="volume-plane-opacity-value">0.88</output>
+                            </div>
+                            <input id="volume-plane-opacity" type="range" min="0.05" max="1" step="0.01" value="0.88">
+                        </div>
+                        <p id="volume-plane-mixed-note" class="panel-note hidden">
+                            Mixed values are blank. Entering a value applies it to every selected plane.
+                        </p>
+                    </div>
+                    <div id="volume-plane-status" class="analysis-status" data-state="idle">
+                        <span class="analysis-status-title">No planar section</span>
+                        <span class="analysis-status-detail">Add one or more planes without transferring the full grid.</span>
+                    </div>
+                </details>
                 <details class="inline-subpanel">
                     <summary>Density Difference</summary>
                     <p class="panel-note">Select compatible grids and assign coefficients such as +1, -1, -1.</p>
@@ -1413,7 +1507,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.1.15&rev=1';
+            : './static/main.js?v=0.1.16&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

@@ -2319,6 +2319,77 @@ def capture_volumetric_media(browser) -> None:
             ASSET_DIR / "readme_volumetric.png",
             optimize=True,
         )
+
+        plane_state = page.evaluate(
+            """async () => {
+                const app = window.__V_ASE_APP__;
+                const ai = window.v_aseAI;
+                const dataset = (await ai.describe({includePositions: false}))
+                    .analysis.volumetricDatasets.at(-1);
+                await ai.apply({
+                    operation: {
+                        name: 'add-volumetric-plane',
+                        datasetId: dataset.id,
+                        planeName: '(0 0 1) pi-field section',
+                        hkl: [0, 0, 1],
+                        resolution: 512,
+                        colormap: 'coolwarm',
+                        autoRange: true,
+                        opacity: 0.68,
+                        visible: true
+                    }
+                });
+                const plane = app.volumetricPlanes().at(-1);
+                const metrics = app.volumetricPlaneMetrics(plane);
+                return {
+                    id: plane.id,
+                    minimum: metrics.minimum,
+                    maximum: metrics.maximum
+                };
+            }"""
+        )
+        page.wait_for_function(
+            """() => window.__V_ASE_APP__.renderer.volumetricPlanes.size === 1"""
+        )
+        page.evaluate(
+            """() => {
+                const input = document.getElementById('volume-opacity');
+                input.value = '0.42';
+                input.dispatchEvent(new Event('input', {bubbles: true}));
+                const panel = document.querySelector('.volume-plane-panel');
+                panel.open = true;
+                panel.scrollIntoView({block: 'start', behavior: 'instant'});
+            }"""
+        )
+        page.wait_for_timeout(120)
+        span = plane_state["maximum"] - plane_state["minimum"]
+        offsets = [0.32, 0.40, 0.48, 0.56, 0.64, 0.56, 0.48, 0.40]
+        plane_frames = []
+        for fraction in offsets:
+            offset = plane_state["minimum"] + span * fraction
+            page.evaluate(
+                """async ({ planeId, offset }) => {
+                    await window.v_aseAI.apply({
+                        operation: {
+                            name: 'update-volumetric-planes',
+                            planeIds: [planeId],
+                            offsetAngstrom: offset
+                        }
+                    });
+                }""",
+                {"planeId": plane_state["id"], "offset": offset},
+            )
+            page.wait_for_timeout(90)
+            plane_frames.append(screenshot_frame(page))
+        save_gif(
+            plane_frames,
+            ASSET_DIR / "readme_volumetric_plane.gif",
+            duration=130,
+        )
+        plane_frames[3].save(
+            ASSET_DIR / "readme_volumetric_plane.png",
+            optimize=True,
+        )
     finally:
         page.close()
         editor.close()

@@ -202,6 +202,9 @@ Pass `operation` as a name string or object:
 | `refresh-displacements` | optional `display` | Recompute displacement vectors |
 | `load-volumetric` | `path`, optional `format`, `precision` | Load one VASP, Cube, or XSF grid as FP32 or FP64 |
 | `show-volumetric` | `datasetId`, `level`, optional surface controls | Build one isosurface |
+| `add-volumetric-plane` | `datasetId`, `hkl`, optional plane controls | Add one cell-clipped scalar-field plane |
+| `update-volumetric-planes` | `planeIds`, optional plane controls | Atomically edit one or more scalar-field planes |
+| `remove-volumetric-planes` | `planeIds` | Atomically remove one or more scalar-field planes |
 | `combine-volumetric` | `datasetIds`, `coefficients`, optional `name`, `precision` | Create a linear grid combination |
 | `remove-volumetric` | `datasetId` | Remove one grid from the document |
 | `calculate-rdf` | optional `cutoff`, `bins`, `pairMode`, `activePairs` | Calculate total and partial RDF curves |
@@ -656,6 +659,73 @@ After generation, `describe().analysis.volumetricSurface` reports
 the API-level check that display-only refinement did not replace the source.
 Bitwise source-array identity is enforced by the package regression suite
 because the semantic API intentionally does not transmit full scalar grids.
+
+Every dataset descriptor includes a fixed 256-bin `histogram` of raw values
+and an `absolute_histogram` for signed-magnitude thresholds. The GUI draws the
+appropriate distribution directly under the isovalue control. Histogram
+counts sum to the source voxel count and remain unchanged when the isovalue,
+surface mesh, or camera changes.
+
+Add a scalar-field plane with a nonzero reciprocal-space normal:
+
+```javascript
+await ai.apply({
+  operation: {
+    name: "add-volumetric-plane",
+    datasetId: densityId,
+    planeName: "(1 1 0) section",
+    hkl: [1, 1, 0],
+    offsetAngstrom: 2.5,
+    resolution: 512,
+    colormap: "viridis",
+    reverse: false,
+    autoRange: true,
+    opacity: 0.9,
+    visible: true
+  }
+});
+const withPlane = await ai.describe({includePositions: false});
+const planeId = withPlane.analysis.volumetricPlanes.at(-1).id;
+```
+
+`hkl` defines the Cartesian normal through the reciprocal cell and cannot be
+`[0,0,0]`. `offsetAngstrom` is the signed distance from the origin along that
+unit normal. If omitted, v_ase centers the plane in the displayed cell or
+supercell. `resolution` is `128`, `256`, `512`, or `1024`. The backend clips
+the plane against the exact triclinic cell, samples by periodic trilinear
+interpolation, and returns only a compact 2D raster and polygon. A displayed
+supercell is sampled periodically without materializing a repeated 3D grid.
+
+Edit multiple planes as one validated operation:
+
+```javascript
+await ai.apply({
+  operation: {
+    name: "update-volumetric-planes",
+    planeIds: [planeId, secondPlaneId],
+    colormap: "coolwarm",
+    autoRange: false,
+    vmin: -0.08,
+    vmax: 0.08,
+    opacity: 0.82
+  }
+});
+```
+
+Every supplied field is applied to every listed plane. An unknown ID, zero
+normal, unsupported resolution/colormap, invalid opacity, or manual
+`vmin >= vmax` rejects the entire edit. Use `remove-volumetric-planes` with a
+nonempty `planeIds` list to remove them atomically. In the GUI, mixed values
+for a multi-selection are blank until the user enters a common replacement.
+Edit-mode `G` moves selected planes along their own normals and `R` changes
+their normals/hkl; interactive movement uses a low-resolution preview and the
+configured full resolution is restored after settling.
+
+`describe().analysis.volumetricPlanes` reports each plane's ID, name, dataset,
+visibility, hkl, offset, displayed-cell repetitions, resolution, colormap,
+reverse state, automatic/manual range, resolved `vmin`/`vmax`, and opacity.
+Verify that descriptor after add/update/remove, then inspect a render for the
+cell-clipped map and selected perimeter.
 
 Charge-density differences use a linear combination:
 

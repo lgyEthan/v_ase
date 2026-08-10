@@ -70,6 +70,7 @@ from .volumetric import (
     combine_volumetric_datasets,
     dataset_by_id,
     generate_isosurface,
+    generate_volumetric_plane,
     normalize_volumetric_precision,
     read_volumetric_file,
     resolve_volumetric_format,
@@ -348,7 +349,9 @@ AI_CONTROL_SCHEMA = {
                 "dismiss-commensurate-cell, calculate-registry-map, undo, redo, "
                 "reset-coordinates, start-relaxation, stop-relaxation, and "
                 "refresh-displacements, load-volumetric, show-volumetric, "
-                "combine-volumetric, remove-volumetric, calculate-rdf, "
+                "add-volumetric-plane, update-volumetric-planes, "
+                "remove-volumetric-planes, combine-volumetric, "
+                "remove-volumetric, calculate-rdf, "
                 "set-interface-theme, set-personal-visual-default, and "
                 "restore-app-visual-defaults, and set-atom-colorscale."
             ),
@@ -383,6 +386,9 @@ AI_CONTROL_SCHEMA = {
                                 "reset-coordinates", "start-relaxation",
                                 "stop-relaxation", "refresh-displacements",
                                 "load-volumetric", "show-volumetric",
+                                "add-volumetric-plane",
+                                "update-volumetric-planes",
+                                "remove-volumetric-planes",
                                 "combine-volumetric", "remove-volumetric",
                                 "calculate-rdf", "set-interface-theme",
                                 "set-personal-visual-default",
@@ -416,6 +422,95 @@ AI_CONTROL_SCHEMA = {
                                         "type": "number",
                                         "minimum": 0.1,
                                         "maximum": 5.0,
+                                    },
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "add-volumetric-plane"},
+                                },
+                            },
+                            "then": {
+                                "required": ["datasetId", "hkl"],
+                                "properties": {
+                                    "datasetId": {"type": "string", "minLength": 1},
+                                    "planeName": {"type": "string", "minLength": 1},
+                                    "hkl": {
+                                        "type": "array",
+                                        "items": {"type": "number"},
+                                        "minItems": 3,
+                                        "maxItems": 3,
+                                    },
+                                    "offsetAngstrom": {"type": "number"},
+                                    "resolution": {"enum": [128, 256, 512, 1024]},
+                                    "colormap": {"type": "string", "minLength": 1},
+                                    "reverse": {"type": "boolean"},
+                                    "autoRange": {"type": "boolean"},
+                                    "vmin": {"type": "number"},
+                                    "vmax": {"type": "number"},
+                                    "opacity": {
+                                        "type": "number", "minimum": 0.05, "maximum": 1
+                                    },
+                                    "visible": {"type": "boolean"},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "update-volumetric-planes"},
+                                },
+                            },
+                            "then": {
+                                "required": ["planeIds"],
+                                "properties": {
+                                    "planeIds": {
+                                        "type": "array",
+                                        "items": {"type": "string", "minLength": 1},
+                                        "minItems": 1,
+                                        "uniqueItems": True,
+                                    },
+                                    "datasetId": {"type": "string", "minLength": 1},
+                                    "planeName": {"type": "string", "minLength": 1},
+                                    "hkl": {
+                                        "type": "array",
+                                        "items": {"type": "number"},
+                                        "minItems": 3,
+                                        "maxItems": 3,
+                                    },
+                                    "offsetAngstrom": {"type": "number"},
+                                    "resolution": {"enum": [128, 256, 512, 1024]},
+                                    "colormap": {"type": "string", "minLength": 1},
+                                    "reverse": {"type": "boolean"},
+                                    "autoRange": {"type": "boolean"},
+                                    "vmin": {"type": "number"},
+                                    "vmax": {"type": "number"},
+                                    "opacity": {
+                                        "type": "number", "minimum": 0.05, "maximum": 1
+                                    },
+                                    "visible": {"type": "boolean"},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "remove-volumetric-planes"},
+                                },
+                            },
+                            "then": {
+                                "required": ["planeIds"],
+                                "properties": {
+                                    "planeIds": {
+                                        "type": "array",
+                                        "items": {"type": "string", "minLength": 1},
+                                        "minItems": 1,
+                                        "uniqueItems": True,
                                     },
                                 },
                             },
@@ -907,6 +1002,40 @@ AI_OPERATION_PARAMETERS = {
             "the extracted mesh. The default safety limits are 134,217,728 "
             "source grid points and 2,000,000 output triangles per surface."
         ),
+    },
+    "add-volumetric-plane": {
+        "mode": "view-or-edit",
+        "required": ["datasetId", "hkl"],
+        "optional": [
+            "planeName", "offsetAngstrom", "resolution", "colormap",
+            "reverse", "autoRange", "vmin", "vmax", "opacity", "visible",
+        ],
+        "notes": (
+            "Creates one cell-clipped scalar-field plane. hkl is a non-zero "
+            "three-number reciprocal-space normal; offsetAngstrom is the signed "
+            "distance from the origin along its Cartesian unit normal. If the "
+            "offset is omitted, the plane is centered in the displayed supercell."
+        ),
+    },
+    "update-volumetric-planes": {
+        "mode": "view-or-edit",
+        "required": ["planeIds"],
+        "optional": [
+            "datasetId", "planeName", "hkl", "offsetAngstrom", "resolution",
+            "colormap", "reverse", "autoRange", "vmin", "vmax", "opacity",
+            "visible",
+        ],
+        "notes": (
+            "Applies every supplied field to all planeIds as one visual edit. "
+            "resolution is 128, 256, 512, or 1024. vmin/vmax are used when "
+            "autoRange is false. Invalid IDs or values reject the whole edit."
+        ),
+    },
+    "remove-volumetric-planes": {
+        "mode": "view-or-edit",
+        "required": ["planeIds"],
+        "optional": [],
+        "notes": "Removes all requested planar sections as one visual edit.",
     },
     "combine-volumetric": {
         "mode": "view-or-edit",
@@ -3734,6 +3863,32 @@ async def volumetric_isosurface(session_id: str, payload: Dict[str, Any]):
     return Response(
         content=mesh.binary(),
         media_type="application/vnd.v-ase.isosurface",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.post("/api/volumetric/plane/{session_id}")
+async def volumetric_plane(session_id: str, payload: Dict[str, Any]):
+    """Return one compact, cell-clipped scalar plane without the source grid."""
+    session = get_session(session_id)
+    try:
+        dataset = dataset_by_id(
+            session.volumetric_datasets,
+            str(payload.get("dataset_id") or ""),
+        )
+        plane = await asyncio.to_thread(
+            generate_volumetric_plane,
+            dataset,
+            payload.get("hkl") or [0, 0, 1],
+            float(payload.get("offset_angstrom", 0.0)),
+            repetitions=payload.get("repetitions") or [1, 1, 1],
+            resolution=int(payload.get("resolution", 256)),
+        )
+    except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(
+        content=plane.binary(),
+        media_type="application/vnd.v-ase.volumetric-plane",
         headers={"Cache-Control": "no-store"},
     )
 

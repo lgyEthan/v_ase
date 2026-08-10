@@ -25,7 +25,8 @@ If the client accepts only individual files, always provide:
 
 Choose task references as follows:
 
-- live state, selection, edits, camera, materials, volumetric grids, RDF,
+- live state, selection, edits, camera, materials, volumetric grids,
+  isosurfaces, hkl planar sections, RDF,
   render, or export:
   `references/semantic-api.md`;
 - a human watching or modifying the same GUI while the agent works:

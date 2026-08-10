@@ -49,6 +49,12 @@ MAX_ISOSURFACE_SMOOTHING_ITERATIONS = 30
 MAX_ISOSURFACE_CACHE_BYTES = 64 * 1024 * 1024
 MAX_ISOSURFACE_CACHE_ITEMS = 4
 ISOSURFACE_BINARY_MAGIC = b"VASEISO1"
+VOLUMETRIC_HISTOGRAM_BINS = 256
+MAX_VOLUMETRIC_PLANE_RESOLUTION = 1024
+MAX_VOLUMETRIC_PLANE_PIXELS = 1024 * 1024
+MAX_VOLUMETRIC_PLANE_CACHE_BYTES = 48 * 1024 * 1024
+MAX_VOLUMETRIC_PLANE_CACHE_ITEMS = 12
+VOLUMETRIC_PLANE_BINARY_MAGIC = b"VASEPLN1"
 # Cube and XSF writers commonly round cell vectors to six decimal places.
 # This accepts that serialization noise without treating distinct cells as equal.
 GRID_GEOMETRY_RTOL = 1e-6
@@ -163,6 +169,38 @@ def _cell_array(cell: Any) -> np.ndarray:
     return array
 
 
+def _scalar_histogram(
+    values: np.ndarray,
+    minimum: float,
+    maximum: float,
+    *,
+    bins: int = VOLUMETRIC_HISTOGRAM_BINS,
+    absolute: bool = False,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute a bounded-memory histogram without flattening a large grid."""
+
+    count = max(16, min(2048, int(bins)))
+    if maximum <= minimum:
+        width = max(1.0, abs(minimum)) * 1e-6
+        edges = np.linspace(minimum - width, maximum + width, count + 1)
+        histogram = np.zeros(count, dtype=np.uint64)
+        histogram[count // 2] = int(values.size)
+        return histogram, edges
+
+    histogram = np.zeros(count, dtype=np.uint64)
+    edges = np.linspace(minimum, maximum, count + 1, dtype=np.float64)
+    # A z-slab keeps peak memory independent of the total number of voxels.
+    slab_depth = max(1, min(values.shape[0], 16))
+    for start in range(0, values.shape[0], slab_depth):
+        stop = min(values.shape[0], start + slab_depth)
+        samples = values[start:stop]
+        if absolute:
+            samples = np.abs(samples)
+        slab_histogram, _ = np.histogram(samples, bins=edges)
+        histogram += slab_histogram.astype(np.uint64, copy=False)
+    return histogram, edges
+
+
 @dataclass
 class VolumetricData:
     """One scalar field sampled over a parallelepiped grid."""
@@ -203,6 +241,30 @@ class VolumetricData:
     _maximum: float = field(default=0.0, init=False, repr=False, compare=False)
     _mean: float = field(default=0.0, init=False, repr=False, compare=False)
     _integral: float = field(default=0.0, init=False, repr=False, compare=False)
+    _histogram_counts: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.uint64),
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _histogram_edges: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float64),
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _absolute_histogram_counts: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.uint64),
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _absolute_histogram_edges: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float64),
+        init=False,
+        repr=False,
+        compare=False,
+    )
     _isosurface_cache: OrderedDict[tuple[Any, ...], "IsosurfaceMesh"] = field(
         default_factory=OrderedDict,
         init=False,
@@ -211,6 +273,19 @@ class VolumetricData:
     )
     _isosurface_cache_bytes: int = field(default=0, init=False, repr=False, compare=False)
     _isosurface_cache_lock: threading.Lock = field(
+        default_factory=threading.Lock,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _plane_cache: OrderedDict[tuple[Any, ...], "VolumetricPlaneSlice"] = field(
+        default_factory=OrderedDict,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _plane_cache_bytes: int = field(default=0, init=False, repr=False, compare=False)
+    _plane_cache_lock: threading.Lock = field(
         default_factory=threading.Lock,
         init=False,
         repr=False,
@@ -245,6 +320,18 @@ class VolumetricData:
         self._minimum = float(np.min(self.values))
         self._maximum = float(np.max(self.values))
         self._mean = float(np.mean(self.values, dtype=np.float64))
+        self._histogram_counts, self._histogram_edges = _scalar_histogram(
+            self.values,
+            self._minimum,
+            self._maximum,
+        )
+        absolute_maximum = max(abs(self._minimum), abs(self._maximum))
+        self._absolute_histogram_counts, self._absolute_histogram_edges = _scalar_histogram(
+            self.values,
+            0.0,
+            absolute_maximum,
+            absolute=True,
+        )
         integral_values = self.values
         if self.endpoint_inclusive:
             integral_values = integral_values[:-1, :-1, :-1]
@@ -286,6 +373,20 @@ class VolumetricData:
             "maximum": self.maximum,
             "mean": self.mean,
             "integral": self.integral,
+            "histogram": {
+                "counts": [int(value) for value in self._histogram_counts],
+                "edges": [float(value) for value in self._histogram_edges],
+                "sample_count": int(self.values.size),
+                "maximum_count": int(np.max(self._histogram_counts, initial=0)),
+            },
+            "absolute_histogram": {
+                "counts": [int(value) for value in self._absolute_histogram_counts],
+                "edges": [float(value) for value in self._absolute_histogram_edges],
+                "sample_count": int(self.values.size),
+                "maximum_count": int(
+                    np.max(self._absolute_histogram_counts, initial=0)
+                ),
+            },
             "metadata": json.loads(json.dumps(self.metadata, allow_nan=False, default=str)),
         }
 
@@ -430,6 +531,389 @@ class IsosurfaceMesh:
                 faces.tobytes(order="C"),
             )
         )
+
+
+@dataclass(frozen=True)
+class VolumetricPlaneSlice:
+    """A scalar-field slice clipped to a crystallographic cell box."""
+
+    dataset_id: str
+    hkl: np.ndarray
+    offset_angstrom: float
+    repetitions: np.ndarray
+    polygon_vertices: np.ndarray
+    polygon_uv: np.ndarray
+    normal: np.ndarray
+    centroid: np.ndarray
+    width: int
+    height: int
+    values: np.ndarray
+    minimum: float
+    maximum: float
+    offset_minimum: float
+    offset_maximum: float
+    metadata: dict[str, Any]
+
+    def binary(self) -> bytes:
+        values = np.ascontiguousarray(self.values, dtype="<f4")
+        header = json.dumps(
+            {
+                "schema": "v_ase.volumetric_plane.v1",
+                "dataset_id": self.dataset_id,
+                "hkl": np.asarray(self.hkl, dtype=float).tolist(),
+                "offset_angstrom": float(self.offset_angstrom),
+                "offset_minimum": float(self.offset_minimum),
+                "offset_maximum": float(self.offset_maximum),
+                "repetitions": np.asarray(self.repetitions, dtype=int).tolist(),
+                "polygon_vertices": np.asarray(
+                    self.polygon_vertices,
+                    dtype=float,
+                ).tolist(),
+                "polygon_uv": np.asarray(self.polygon_uv, dtype=float).tolist(),
+                "normal": np.asarray(self.normal, dtype=float).tolist(),
+                "centroid": np.asarray(self.centroid, dtype=float).tolist(),
+                "width": int(self.width),
+                "height": int(self.height),
+                "minimum": float(self.minimum),
+                "maximum": float(self.maximum),
+                "metadata": self.metadata,
+            },
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        header += b" " * ((-len(header)) % 4)
+        return b"".join(
+            (
+                VOLUMETRIC_PLANE_BINARY_MAGIC,
+                struct.pack("<I", len(header)),
+                header,
+                values.tobytes(order="C"),
+            )
+        )
+
+
+def _validated_plane_repetitions(value: Sequence[int] | None) -> np.ndarray:
+    if value is None:
+        return np.ones(3, dtype=int)
+    try:
+        numeric = np.asarray(value, dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Plane repetitions must contain three integers.") from exc
+    if (
+        numeric.shape != (3,)
+        or not np.all(np.isfinite(numeric))
+        or not np.all(numeric == np.floor(numeric))
+        or np.any(numeric < 1)
+        or np.any(numeric > 128)
+    ):
+        raise ValueError("Plane repetitions must be three integers from 1 to 128.")
+    return numeric.astype(int)
+
+
+def _plane_geometry(
+    dataset: VolumetricData,
+    hkl: Sequence[float],
+    offset_angstrom: float,
+    repetitions: Sequence[int] | None,
+) -> dict[str, np.ndarray | float]:
+    """Intersect one reciprocal-space plane with a repeated cell box."""
+
+    indices = np.asarray(hkl, dtype=float)
+    if indices.shape != (3,) or not np.all(np.isfinite(indices)):
+        raise ValueError("Plane (h k l) must contain three finite values.")
+    if float(np.linalg.norm(indices)) <= 1e-12:
+        raise ValueError("Plane (h k l) cannot be (0 0 0).")
+    offset = float(offset_angstrom)
+    if not np.isfinite(offset):
+        raise ValueError("Plane offset must be finite.")
+    reps = _validated_plane_repetitions(repetitions)
+    if np.any((reps > 1) & ~dataset.pbc):
+        raise ValueError("A plane can repeat only along periodic volumetric axes.")
+
+    reciprocal_normal = np.linalg.solve(dataset.cell, indices)
+    reciprocal_length = float(np.linalg.norm(reciprocal_normal))
+    if reciprocal_length <= 1e-12:
+        raise ValueError("Plane (h k l) does not define a finite cell normal.")
+    normal = reciprocal_normal / reciprocal_length
+
+    corners_fractional = np.asarray(
+        [
+            [0, 0, 0],
+            [reps[0], 0, 0],
+            [0, reps[1], 0],
+            [reps[0], reps[1], 0],
+            [0, 0, reps[2]],
+            [reps[0], 0, reps[2]],
+            [0, reps[1], reps[2]],
+            [reps[0], reps[1], reps[2]],
+        ],
+        dtype=float,
+    )
+    corners = dataset.origin + corners_fractional @ dataset.cell
+    projections = (corners - dataset.origin) @ normal
+    offset_minimum = float(np.min(projections))
+    offset_maximum = float(np.max(projections))
+    tolerance = max(1e-8, (offset_maximum - offset_minimum) * 1e-9)
+    if offset < offset_minimum - tolerance or offset > offset_maximum + tolerance:
+        raise ValueError(
+            "Plane offset must lie between "
+            f"{offset_minimum:.8g} and {offset_maximum:.8g} angstrom for the "
+            "current cell box."
+        )
+    offset = min(offset_maximum, max(offset_minimum, offset))
+
+    edge_indices = (
+        (0, 1), (0, 2), (0, 4),
+        (1, 3), (1, 5),
+        (2, 3), (2, 6),
+        (3, 7),
+        (4, 5), (4, 6),
+        (5, 7), (6, 7),
+    )
+    signed = projections - offset
+    intersections: list[np.ndarray] = []
+    for first, second in edge_indices:
+        first_distance = float(signed[first])
+        second_distance = float(signed[second])
+        if abs(first_distance) <= tolerance:
+            intersections.append(corners[first])
+        if abs(second_distance) <= tolerance:
+            intersections.append(corners[second])
+        if first_distance * second_distance < -(tolerance * tolerance):
+            ratio = first_distance / (first_distance - second_distance)
+            intersections.append(corners[first] + ratio * (corners[second] - corners[first]))
+
+    unique: list[np.ndarray] = []
+    cartesian_tolerance = max(1e-7, float(np.max(np.linalg.norm(dataset.cell, axis=1))) * 1e-8)
+    for point in intersections:
+        if not any(float(np.linalg.norm(point - existing)) <= cartesian_tolerance for existing in unique):
+            unique.append(np.asarray(point, dtype=float))
+    if len(unique) < 3:
+        raise ValueError("The requested plane touches the cell box without a finite visible area.")
+
+    polygon = np.asarray(unique, dtype=float)
+    centroid = np.mean(polygon, axis=0)
+    reference_axes = np.eye(3)
+    reference = reference_axes[int(np.argmin(np.abs(reference_axes @ normal)))]
+    basis_u = np.cross(normal, reference)
+    basis_u /= np.linalg.norm(basis_u)
+    basis_v = np.cross(normal, basis_u)
+    basis_v /= np.linalg.norm(basis_v)
+    centered = polygon - centroid
+    angles = np.arctan2(centered @ basis_v, centered @ basis_u)
+    polygon = polygon[np.argsort(angles)]
+    centered = polygon - centroid
+    coordinates_u = centered @ basis_u
+    coordinates_v = centered @ basis_v
+    minimum_u, maximum_u = float(np.min(coordinates_u)), float(np.max(coordinates_u))
+    minimum_v, maximum_v = float(np.min(coordinates_v)), float(np.max(coordinates_v))
+    span_u = maximum_u - minimum_u
+    span_v = maximum_v - minimum_v
+    if span_u <= cartesian_tolerance or span_v <= cartesian_tolerance:
+        raise ValueError("The requested plane has a numerically degenerate cell intersection.")
+    polygon_uv = np.column_stack(
+        (
+            (coordinates_u - minimum_u) / span_u,
+            (coordinates_v - minimum_v) / span_v,
+        )
+    )
+    return {
+        "hkl": indices,
+        "offset": offset,
+        "repetitions": reps,
+        "normal": normal,
+        "centroid": centroid,
+        "polygon": polygon,
+        "polygon_uv": polygon_uv,
+        "basis_u": basis_u,
+        "basis_v": basis_v,
+        "minimum_u": minimum_u,
+        "maximum_u": maximum_u,
+        "minimum_v": minimum_v,
+        "maximum_v": maximum_v,
+        "offset_minimum": offset_minimum,
+        "offset_maximum": offset_maximum,
+    }
+
+
+def generate_volumetric_plane(
+    dataset: VolumetricData,
+    hkl: Sequence[float],
+    offset_angstrom: float,
+    *,
+    repetitions: Sequence[int] | None = None,
+    resolution: int = 256,
+) -> VolumetricPlaneSlice:
+    """Sample one cell-clipped scalar slice using trilinear interpolation."""
+
+    try:
+        numeric_resolution = int(resolution)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Plane resolution must be an integer.") from exc
+    if numeric_resolution < 16 or numeric_resolution > MAX_VOLUMETRIC_PLANE_RESOLUTION:
+        raise ValueError(
+            "Plane resolution must be between 16 and "
+            f"{MAX_VOLUMETRIC_PLANE_RESOLUTION}."
+        )
+    geometry = _plane_geometry(dataset, hkl, offset_angstrom, repetitions)
+    span_u = float(geometry["maximum_u"]) - float(geometry["minimum_u"])
+    span_v = float(geometry["maximum_v"]) - float(geometry["minimum_v"])
+    longest = max(span_u, span_v)
+    width = max(2, int(round(numeric_resolution * span_u / longest)))
+    height = max(2, int(round(numeric_resolution * span_v / longest)))
+    if width * height > MAX_VOLUMETRIC_PLANE_PIXELS:
+        raise ValueError(
+            f"Plane image would contain {width * height:,} pixels, exceeding "
+            f"the {MAX_VOLUMETRIC_PLANE_PIXELS:,}-pixel safety limit."
+        )
+
+    cache_key = (
+        tuple(np.round(np.asarray(geometry["hkl"], dtype=float), 10)),
+        round(float(geometry["offset"]), 10),
+        tuple(int(value) for value in np.asarray(geometry["repetitions"])),
+        width,
+        height,
+    )
+    with dataset._plane_cache_lock:
+        cached = dataset._plane_cache.get(cache_key)
+        if cached is not None:
+            dataset._plane_cache.move_to_end(cache_key)
+            return cached
+
+    samples_u = np.linspace(
+        float(geometry["minimum_u"]),
+        float(geometry["maximum_u"]),
+        width,
+        dtype=np.float64,
+    )
+    samples_v = np.linspace(
+        float(geometry["minimum_v"]),
+        float(geometry["maximum_v"]),
+        height,
+        dtype=np.float64,
+    )
+    grid_u, grid_v = np.meshgrid(samples_u, samples_v, indexing="xy")
+    points = (
+        np.asarray(geometry["centroid"])[None, None, :]
+        + grid_u[..., None] * np.asarray(geometry["basis_u"])[None, None, :]
+        + grid_v[..., None] * np.asarray(geometry["basis_v"])[None, None, :]
+    )
+    fractional = (points.reshape(-1, 3) - dataset.origin) @ np.linalg.inv(dataset.cell)
+    shape = np.asarray(dataset.values.shape, dtype=float)
+    coordinates = np.empty_like(fractional, dtype=np.float64)
+    for axis in range(3):
+        component = fractional[:, axis]
+        if dataset.pbc[axis]:
+            component = np.mod(component, 1.0)
+        else:
+            component = np.clip(component, 0.0, 1.0)
+        if dataset.endpoint_inclusive:
+            coordinates[:, axis] = component * max(1.0, shape[axis] - 1.0)
+        else:
+            coordinates[:, axis] = np.minimum(
+                component * shape[axis],
+                shape[axis] - 1.0,
+            )
+
+    try:
+        from scipy.ndimage import map_coordinates
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "Volumetric plane sampling requires SciPy. Install or repair v_ase "
+            "with `python -m pip install -U v_ase-gui`."
+        ) from exc
+    sampled = map_coordinates(
+        dataset.values,
+        coordinates.T,
+        order=1,
+        mode="nearest",
+        prefilter=False,
+    ).reshape(height, width)
+    sampled = np.ascontiguousarray(sampled, dtype=np.float32)
+    polygon_uv = np.asarray(geometry["polygon_uv"], dtype=np.float64)
+    normalized_u = (grid_u - float(geometry["minimum_u"])) / span_u
+    normalized_v = (grid_v - float(geometry["minimum_v"])) / span_v
+    visible_mask = np.ones((height, width), dtype=bool)
+    signed_area = 0.5 * float(np.sum(
+        polygon_uv[:, 0] * np.roll(polygon_uv[:, 1], -1)
+        - np.roll(polygon_uv[:, 0], -1) * polygon_uv[:, 1]
+    ))
+    orientation = 1.0 if signed_area >= 0 else -1.0
+    for index, start in enumerate(polygon_uv):
+        end = polygon_uv[(index + 1) % len(polygon_uv)]
+        cross = (
+            (end[0] - start[0]) * (normalized_v - start[1])
+            - (end[1] - start[1]) * (normalized_u - start[0])
+        )
+        visible_mask &= orientation * cross >= -1e-7
+    visible_values = sampled[visible_mask]
+    if not visible_values.size:
+        raise ValueError("The requested plane did not cover any raster samples.")
+
+    vertex_fractional = (
+        np.asarray(geometry["polygon"], dtype=float) - dataset.origin
+    ) @ np.linalg.inv(dataset.cell)
+    vertex_coordinates = np.empty_like(vertex_fractional, dtype=np.float64)
+    for axis in range(3):
+        component = vertex_fractional[:, axis]
+        if dataset.pbc[axis]:
+            component = np.mod(component, 1.0)
+        else:
+            component = np.clip(component, 0.0, 1.0)
+        if dataset.endpoint_inclusive:
+            vertex_coordinates[:, axis] = component * max(1.0, shape[axis] - 1.0)
+        else:
+            vertex_coordinates[:, axis] = np.minimum(
+                component * shape[axis],
+                shape[axis] - 1.0,
+            )
+    vertex_values = map_coordinates(
+        dataset.values,
+        vertex_coordinates.T,
+        order=1,
+        mode="nearest",
+        prefilter=False,
+    )
+    visible_minimum = min(float(np.min(visible_values)), float(np.min(vertex_values)))
+    visible_maximum = max(float(np.max(visible_values)), float(np.max(vertex_values)))
+    plane = VolumetricPlaneSlice(
+        dataset_id=dataset.dataset_id,
+        hkl=np.asarray(geometry["hkl"], dtype=float),
+        offset_angstrom=float(geometry["offset"]),
+        repetitions=np.asarray(geometry["repetitions"], dtype=int),
+        polygon_vertices=np.asarray(geometry["polygon"], dtype=np.float32),
+        polygon_uv=np.asarray(geometry["polygon_uv"], dtype=np.float32),
+        normal=np.asarray(geometry["normal"], dtype=np.float32),
+        centroid=np.asarray(geometry["centroid"], dtype=np.float32),
+        width=width,
+        height=height,
+        values=sampled,
+        minimum=visible_minimum,
+        maximum=visible_maximum,
+        offset_minimum=float(geometry["offset_minimum"]),
+        offset_maximum=float(geometry["offset_maximum"]),
+        metadata={
+            "interpolation": "trilinear",
+            "requested_resolution": numeric_resolution,
+            "source_shape": [int(value) for value in dataset.values.shape],
+            "endpoint_inclusive": bool(dataset.endpoint_inclusive),
+        },
+    )
+    plane_bytes = int(plane.values.nbytes)
+    with dataset._plane_cache_lock:
+        dataset._plane_cache[cache_key] = plane
+        dataset._plane_cache.move_to_end(cache_key)
+        dataset._plane_cache_bytes += plane_bytes
+        while (
+            len(dataset._plane_cache) > MAX_VOLUMETRIC_PLANE_CACHE_ITEMS
+            or (
+                dataset._plane_cache_bytes > MAX_VOLUMETRIC_PLANE_CACHE_BYTES
+                and len(dataset._plane_cache) > 1
+            )
+        ):
+            _key, removed = dataset._plane_cache.popitem(last=False)
+            dataset._plane_cache_bytes -= int(removed.values.nbytes)
+    return plane
 
 
 def _vasp_quantity(canonical_format: str) -> tuple[str, str, bool]:

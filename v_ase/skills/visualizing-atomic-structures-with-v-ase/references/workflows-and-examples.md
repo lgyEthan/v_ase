@@ -606,6 +606,57 @@ Validation:
 9. Repeating the source grids physically is done only after explicit
    `set-supercell`; undo restores atom count, cell, and grid dimensions.
 
+Add and edit two planar sections without transferring the 3D grid:
+
+```javascript
+await applyCurrent({
+  operation: {
+    name: "add-volumetric-plane",
+    datasetId: difference.id,
+    planeName: "basal section",
+    hkl: [0, 0, 1],
+    offsetAngstrom: 3.0,
+    resolution: 512,
+    colormap: "coolwarm",
+    autoRange: true,
+    opacity: 0.9
+  }
+});
+await applyCurrent({
+  operation: {
+    name: "add-volumetric-plane",
+    datasetId: difference.id,
+    planeName: "cross section",
+    hkl: [1, 1, 0],
+    resolution: 256,
+    colormap: "viridis",
+    autoRange: true
+  }
+});
+
+const planeState = await ai.describe({includePositions: false});
+const planeIds = planeState.analysis.volumetricPlanes.map(plane => plane.id);
+await applyCurrent({
+  operation: {
+    name: "update-volumetric-planes",
+    planeIds,
+    autoRange: false,
+    vmin: -0.02,
+    vmax: 0.02,
+    opacity: 0.84
+  }
+});
+```
+
+Verify the raw and absolute histograms each contain 256 bins and sum to the
+dataset voxel count. Verify both plane IDs, exact hkl/offset/range fields, and
+the displayed supercell repetitions in `analysis.volumetricPlanes`. Render
+once with `[1,1,1]` and again with `[2,2,1]`; each plane must remain clipped to
+the corresponding skew cell while the 3D source-grid memory is unchanged.
+For GUI manipulation, enter Edit mode, select one plane, press `G`, move it
+along the visible normal, and confirm the settled full-resolution offset.
+Then press `R`, constrain if needed, and confirm the reported hkl changed.
+
 Do not combine grids with different dimensions, cell, origin, PBC, or units.
 Do not hide that validation error by interpolating one grid onto another.
 

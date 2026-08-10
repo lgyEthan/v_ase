@@ -401,7 +401,14 @@ v_ase gui charge-density.xsf
 positive/negative surfaces, mesh detail, field smearing, mesh smoothing,
 colors, and isosurface opacity.
 Opening a volumetric file, or adding the first scalar field, immediately shows
-an isosurface at a valid default level. Drag **Isosurface opacity** to update
+an isosurface at a valid default level. A compact value-distribution ridge is
+drawn directly above the isovalue slider, so dense and sparse parts of the
+field remain visible while the threshold moves. Single-surface mode shows the
+raw-value distribution; signed mode shows the `|value|` distribution used by
+its magnitude slider. This histogram is calculated once when the dataset is
+loaded and does not regenerate the surface.
+
+Drag **Isosurface opacity** to update
 the current surface live without regenerating its mesh. Multiple compatible
 datasets can be combined with coefficients such as `+1, -1, -1` for a
 charge-density difference. Grid values stay in the local v_ase backend; the
@@ -410,6 +417,25 @@ Signed mode treats the isovalue as a nonzero magnitude and renders the
 positive and negative crossings that remain inside the displayed field range.
 
 ![Smooth signed benzene pi-field isosurfaces with live opacity control](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric.gif)
+
+**Planar Sections** samples the selected scalar field on one or more `(hkl)`
+planes. Each plane has a signed offset in Angstrom along its reciprocal-space
+normal, 128-1024 pixel sampling, any available Matplotlib colormap, reverse,
+automatic or manual `vmin`/`vmax`, and opacity. The sampled map is clipped to
+the displayed unit cell or supercell, including skew cells, rather than drawn
+as an unbounded rectangle. Only the compact 2D slice is transferred to the
+browser; the full 3D grid remains in the backend.
+
+Select several planes in the list to edit them together. Values shared by all
+selected planes remain visible; mixed fields are left blank until a new value
+is entered, then that value is applied to every selected plane. In **Edit**
+mode, select a plane in the viewport or list and press `G` to move it only
+along its normal. Press `R`, optionally followed by `X`, `Y`, or `Z`, to rotate
+its normal and update `(hkl)` continuously. Movement uses a lower-resolution
+preview while the pointer is active and restores the configured resolution
+after the transform settles.
+
+![Interactive hkl scalar-field plane clipped to the displayed cell](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric_plane.gif)
 
 **Field smearing σ** applies a Gaussian filter measured in grid voxels before
 the isosurface is extracted. Periodic directions wrap across the cell;

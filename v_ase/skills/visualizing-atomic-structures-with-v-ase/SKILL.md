@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.1.15"
+python -m pip install "v_ase-gui==0.1.16"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -166,6 +166,11 @@ Numeric LAMMPS atom columns are valid catalog fields alongside coordinates,
 stored forces, ASE arrays, charges, magnetic moments, and calculator results.
 For a rotation around one atom, pass that atom last in the explicit `indices`
 array and set `pivot: "active"`; verify that its coordinate is unchanged.
+For scalar-field sections, use `add-volumetric-plane` with a dataset ID and a
+nonzero hkl normal, `update-volumetric-planes` with the current plane IDs for
+atomic multi-plane edits, and `remove-volumetric-planes` to delete them. Read
+`describe().analysis.volumetricPlanes` after every operation; do not infer a
+plane ID, colormap, or sampled range from the viewport.
 
 ## Minimal End-To-End Example
 
@@ -251,8 +256,10 @@ For any nontrivial task, verify all applicable items:
 - trajectory: frame count, active frame, stable selection, analysis reference;
 - volumetric: dataset ID, grid dimensions, cell, origin, PBC, units,
   component, FP32/FP64 precision, memory size, visible default/custom
-  isovalue, mesh count, live color/opacity state, cache reuse, and
-  supercell/translation alignment; verify suffixed VASP names such as
+  isovalue, raw or absolute-value histogram, mesh count, live color/opacity
+  state, planar-section IDs, nonzero hkl, signed Angstrom offsets, resolution,
+  colormap/range/opacity, cache reuse, and supercell/translation alignment;
+  verify suffixed VASP names such as
   `PARCHG_*`, `LOCPOT.*`, and `CHGCAR-*` are identified by contents/type;
 - RDF: current frame, 3D PBC, requested/effective cutoff, unique-MIC reference,
   required periodic-image span, bins, pair mode, plotted curves, `g(r) = 1`

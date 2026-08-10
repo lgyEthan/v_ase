@@ -153,6 +153,13 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
             assert schema["operation_parameters"]["restore-app-visual-defaults"][
                 "required"
             ] == ["confirm"]
+            assert schema["operation_parameters"]["add-volumetric-plane"]["required"] == [
+                "datasetId",
+                "hkl",
+            ]
+            assert schema["operation_parameters"]["update-volumetric-planes"][
+                "required"
+            ] == ["planeIds"]
 
             themed = _post_command(
                 command_url,

@@ -250,6 +250,11 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                 assert datasets[0]["shape"] == list(shape)
                 assert datasets[0]["precision"] == "float64"
                 assert datasets[0]["memory_bytes"] == int(values.size * 8)
+                assert len(datasets[0]["histogram"]["counts"]) == 256
+                assert len(datasets[0]["histogram"]["edges"]) == 257
+                assert sum(datasets[0]["histogram"]["counts"]) == values.size
+                assert len(datasets[0]["absolute_histogram"]["counts"]) == 256
+                assert sum(datasets[0]["absolute_histogram"]["counts"]) == values.size
                 source_descriptor = datasets[0]
                 dataset_id = datasets[0]["id"]
                 collaboration_events = page.evaluate(
@@ -464,6 +469,206 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                     for material in opacity_state["materials"]
                 )
 
+                planar_state = page.evaluate(
+                    """async () => {
+                        const app = window.__ASE_APP__;
+                        const first = app.createVolumetricPlane();
+                        await app.renderAllVolumetricPlanes();
+                        const firstOffset = first.offsetAngstrom;
+                        app.setVolumetricPlaneSelection([first.id]);
+                        app.enterVolumetricPlaneTransformMode('MOVE');
+                        app.transform.buffer = '1';
+                        app.applyVolumetricPlaneTransformPreview();
+                        app.commitVolumetricPlaneTransform();
+                        await app.renderAllVolumetricPlanes();
+                        const movedOffset = first.offsetAngstrom;
+
+                        app.enterVolumetricPlaneTransformMode('ROTATE');
+                        app.transform.setAxis('X', app.renderer.camera);
+                        app.transform.buffer = '90';
+                        app.applyVolumetricPlaneTransformPreview();
+                        app.commitVolumetricPlaneTransform();
+                        await app.renderAllVolumetricPlanes();
+
+                        const second = app.createVolumetricPlane();
+                        second.hkl = [1, 0, 0];
+                        const metrics = app.volumetricPlaneMetrics(second);
+                        second.offsetAngstrom = (metrics.minimum + metrics.maximum) * 0.5;
+                        app.setVolumetricPlaneSelection([first.id, second.id]);
+                        await app.renderAllVolumetricPlanes();
+
+                        app.state.display.supercell = [2, 1, 1];
+                        await app.renderAllVolumetricPlanes();
+                        const repeated = app.renderer.volumetricPlanes.get(first.id);
+                        const positions = repeated.geometry.attributes.position.array;
+                        let maximumX = -Infinity;
+                        for (let index = 0; index < positions.length; index += 3) {
+                            maximumX = Math.max(maximumX, positions[index]);
+                        }
+                        const renderedStatus = document.getElementById(
+                            'volume-plane-status'
+                        ).textContent;
+                        first.autoRange = true;
+                        second.autoRange = false;
+                        second.vmin = 1;
+                        second.vmax = 0;
+                        app.renderVolumetricPlaneControls();
+                        document.getElementById('volume-plane-vmin').value = '';
+                        document.getElementById('volume-plane-vmax').value = '';
+                        document.getElementById('volume-plane-vmin').dispatchEvent(
+                            new Event('change', {bubbles: true})
+                        );
+                        const atomicRangePreserved = first.autoRange === true;
+                        second.autoRange = true;
+                        second.vmin = null;
+                        second.vmax = null;
+                        const result = {
+                            count: app.renderer.volumetricPlanes.size,
+                            firstOffset,
+                            movedOffset,
+                            rotatedHkl: [...first.hkl],
+                            selected: [...app.state.selectedVolumetricPlanes],
+                            hPlaceholder: document.getElementById('volume-plane-h').placeholder,
+                            atomicRangePreserved,
+                            maximumX,
+                            status: renderedStatus,
+                            canvasWidth: document.getElementById('volume-histogram').width,
+                            canvasHeight: document.getElementById('volume-histogram').height
+                        };
+                        app.state.display.supercell = [1, 1, 1];
+                        await app.renderAllVolumetricPlanes();
+                        app.flushVisualHistoryCommit();
+                        app.resetHistoryTimeline();
+                        return result;
+                    }"""
+                )
+                assert planar_state["count"] == 2
+                assert planar_state["movedOffset"] == pytest.approx(
+                    planar_state["firstOffset"] + 1.0,
+                    abs=1e-5,
+                )
+                assert planar_state["rotatedHkl"] == pytest.approx([0, -1, 0], abs=1e-6)
+                assert len(planar_state["selected"]) == 2
+                assert planar_state["hPlaceholder"] == "Mixed"
+                assert planar_state["atomicRangePreserved"] is True
+                assert planar_state["maximumX"] == pytest.approx(18.0, abs=1e-4)
+                assert "trilinear interpolation" in planar_state["status"]
+                assert planar_state["canvasWidth"] > 0
+                assert planar_state["canvasHeight"] > 0
+
+                semantic_plane = page.evaluate(
+                    """async datasetId => {
+                        const before = await window.v_aseAI.describe({
+                            includePositions: false
+                        });
+                        const existing = new Set(
+                            before.analysis.volumetricPlanes.map(plane => plane.id)
+                        );
+                        const added = await window.v_aseAI.apply({
+                            operation: {
+                                name: 'add-volumetric-plane',
+                                datasetId,
+                                planeName: 'Agent plane',
+                                hkl: [0, 0, 1],
+                                resolution: 128,
+                                colormap: 'viridis',
+                                opacity: 0.74
+                            }
+                        });
+                        const plane = added.analysis.volumetricPlanes.find(
+                            candidate => !existing.has(candidate.id)
+                        );
+                        await window.v_aseAI.apply({
+                            operation: {
+                                name: 'update-volumetric-planes',
+                                planeIds: [plane.id],
+                                colormap: 'plasma',
+                                reverse: true,
+                                autoRange: false,
+                                vmin: -0.5,
+                                vmax: 0.5,
+                                opacity: 0.62
+                            }
+                        });
+                        const updated = (await window.v_aseAI.describe({
+                            includePositions: false
+                        })).analysis.volumetricPlanes.find(
+                            candidate => candidate.id === plane.id
+                        );
+                        window.__ASE_APP__.renderer.domElement.focus();
+                        return {id: plane.id, initialOffset: updated.offsetAngstrom,
+                            updated};
+                    }""",
+                    dataset_id,
+                )
+                assert semantic_plane["updated"]["colormap"] == "plasma"
+                assert semantic_plane["updated"]["reverse"] is True
+                assert semantic_plane["updated"]["autoRange"] is False
+                assert semantic_plane["updated"]["vmin"] == pytest.approx(-0.5)
+                assert semantic_plane["updated"]["vmax"] == pytest.approx(0.5)
+                assert semantic_plane["updated"]["opacity"] == pytest.approx(0.62)
+
+                page.keyboard.press("g")
+                page.keyboard.type("0.5")
+                page.keyboard.press("Enter")
+                page.wait_for_function(
+                    "window.__ASE_APP__.transform.mode === 'IDLE'"
+                )
+                moved_plane = page.evaluate(
+                    """async id => {
+                        await new Promise(resolve => setTimeout(resolve, 320));
+                        return (await window.v_aseAI.describe({includePositions: false}))
+                            .analysis.volumetricPlanes.find(plane => plane.id === id);
+                    }""",
+                    semantic_plane["id"],
+                )
+                assert moved_plane["offsetAngstrom"] == pytest.approx(
+                    semantic_plane["initialOffset"] + 0.5,
+                    abs=1e-5,
+                )
+
+                page.keyboard.press("r")
+                page.keyboard.press("x")
+                page.keyboard.type("90")
+                page.keyboard.press("Enter")
+                page.wait_for_function(
+                    "window.__ASE_APP__.transform.mode === 'IDLE'"
+                )
+                rotated_plane = page.evaluate(
+                    """async id => {
+                        await new Promise(resolve => setTimeout(resolve, 320));
+                        return (await window.v_aseAI.describe({includePositions: false}))
+                            .analysis.volumetricPlanes.find(plane => plane.id === id);
+                    }""",
+                    semantic_plane["id"],
+                )
+                assert rotated_plane["hkl"] == pytest.approx([0, -1, 0], abs=1e-6)
+                assert rotated_plane["repetitions"] == [1, 1, 1]
+
+                removed_plane = page.evaluate(
+                    """async id => {
+                        const state = await window.v_aseAI.apply({
+                            operation: {
+                                name: 'remove-volumetric-planes',
+                                planeIds: [id]
+                            }
+                        });
+                        return {
+                            exists: state.analysis.volumetricPlanes.some(
+                                plane => plane.id === id
+                            ),
+                            operations: (await window.v_aseAI.capabilities()).operations
+                        };
+                    }""",
+                    semantic_plane["id"],
+                )
+                assert removed_plane["exists"] is False
+                assert {
+                    "add-volumetric-plane",
+                    "update-volumetric-planes",
+                    "remove-volumetric-planes",
+                }.issubset(removed_plane["operations"])
+
                 csv_result = page.evaluate(
                     """async () => await window.v_aseAI.export({
                         format: 'rdf-csv',
@@ -548,7 +753,6 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                     page.locator("#rdf-status .analysis-status-title").inner_text()
                     == "RDF needs recalculation"
                 )
-
                 restored = page.evaluate(
                     """async () => {
                         await window.v_aseAI.apply({operation: 'undo'});

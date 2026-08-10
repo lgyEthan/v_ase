@@ -111,6 +111,11 @@ test edit and a new filename for output.
 | requested isosurface is outside the scalar range | Absolute level has no crossing | Inspect dataset minimum/maximum and choose an in-range nonzero level |
 | requested isosurface is outside the range after smearing | Gaussian filtering changed the displayed extrema | Reduce `smearingSigma` or choose a level inside the reported displayed range; do not alter the source grid |
 | isosurface lost a narrow feature | Field smearing is too strong for that topology | Set `smearingSigma:0` to inspect raw data, then use the smallest defensible value |
+| volumetric plane normal is zero | `hkl` was `[0,0,0]` or collapsed during editing | Provide a finite nonzero reciprocal-space normal; do not infer one |
+| volumetric plane is outside the displayed cell | Signed offset does not intersect the current unit cell/supercell | Move the plane along its normal or reduce the absolute Angstrom offset |
+| volumetric plane manual range is invalid | `autoRange:false` with non-finite values or `vmin >= vmax` | Inspect the sampled finite range and provide a strictly increasing pair |
+| volumetric plane ID is unknown | A stale ID was reused after deletion/project replacement | Re-describe `analysis.volumetricPlanes` and retry the whole atomic edit with current IDs |
+| volumetric plane colormap is unavailable | A map name was guessed or differs across Matplotlib versions | Read the live Matplotlib catalog and use an exact registered name |
 | RDF requires full 3D periodicity | PBC is partial/false or the cell is degenerate | Stop; use a boundary-corrected finite-system method outside v_ase |
 | RDF periodic image span is large | The requested radius reaches several copies of the primitive cell | Confirm the requested cutoff, allow the complete search to finish, and report `periodicImageSpan`; do not silently truncate it |
 | RDF active mode has no pair curves | No pairwise bond labels are enabled | Choose `pairMode:"all"` or provide `activePairs` explicitly |
@@ -143,6 +148,10 @@ isosurface extraction, and high-bin RDF calculations can take time.
   source file.
 - For volumetric work, use `stepSize: 2` or `4` only as an explicit preview
   tradeoff. Rebuild with `stepSize: 1` before reporting final geometry.
+- For planar sections, use 128 pixels while interactively exploring a large
+  grid and restore the requested 256-1024 pixel resolution after movement.
+  Repetition resamples one periodic 2D plane; it must not allocate a repeated
+  3D scalar array.
 - Treat `smearingSigma` as a visualization transform, not a new scientific
   dataset. Preserve the source field and report nonzero smearing when the
   surface is used for analysis or publication.

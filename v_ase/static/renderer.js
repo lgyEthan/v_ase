@@ -583,6 +583,10 @@ export class ASERenderer {
         this.volumetricGroup.name = 'v_ase_volumetric_isosurfaces';
         this.scene.add(this.volumetricGroup);
         this.volumetricSurfaces = [];
+        this.volumetricPlaneGroup = new THREE.Group();
+        this.volumetricPlaneGroup.name = 'v_ase_volumetric_planes';
+        this.scene.add(this.volumetricPlaneGroup);
+        this.volumetricPlanes = new Map();
         this.commensurateGuideGroup = new THREE.Group();
         this.scene.add(this.commensurateGuideGroup);
         this.commensurateGuideSignature = null;
@@ -1081,6 +1085,7 @@ export class ASERenderer {
             this.bondGroup,
             this.displacementGroup,
             this.volumetricGroup,
+            this.volumetricPlaneGroup,
             this.commensurateGuideGroup,
             this.commensurateSupercellGroup,
             this.constraintMarkGroup,
@@ -4159,6 +4164,196 @@ export class ASERenderer {
         this.requestRender();
     }
 
+    disposeVolumetricPlaneRecord(record) {
+        if (!record) return;
+        record.geometry?.dispose?.();
+        record.texture?.dispose?.();
+        record.material?.dispose?.();
+        record.perimeterGeometry?.dispose?.();
+        record.perimeterMaterial?.dispose?.();
+    }
+
+    clearVolumetricPlanes(planeIds = null) {
+        const requested = planeIds ? new Set(planeIds) : null;
+        [...this.volumetricPlanes.entries()].forEach(([planeId, record]) => {
+            if (requested && !requested.has(planeId)) return;
+            record.group?.removeFromParent?.();
+            this.disposeVolumetricPlaneRecord(record);
+            this.volumetricPlanes.delete(planeId);
+        });
+        this.domElement.dataset.volumetricPlaneCount = String(this.volumetricPlanes.size);
+        this.invalidateSunShadowBounds();
+        this.requestRender();
+    }
+
+    setVolumetricPlaneSlice(specification = {}) {
+        const planeId = String(specification.planeId || '');
+        if (!planeId) return;
+        this.clearVolumetricPlanes([planeId]);
+        const vertices = Array.isArray(specification.polygonVertices)
+            ? specification.polygonVertices
+            : [];
+        const uv = Array.isArray(specification.polygonUv) ? specification.polygonUv : [];
+        if (vertices.length < 3 || uv.length !== vertices.length) return;
+
+        const positions = new Float32Array(vertices.length * 3);
+        const textureCoordinates = new Float32Array(vertices.length * 2);
+        vertices.forEach((vertex, index) => {
+            positions.set(vertex.slice(0, 3).map(value => Number(value) || 0), index * 3);
+            textureCoordinates.set(uv[index].slice(0, 2).map(value => Number(value) || 0), index * 2);
+        });
+        const indices = [];
+        for (let index = 1; index < vertices.length - 1; index++) {
+            indices.push(0, index, index + 1);
+        }
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('uv', new THREE.BufferAttribute(textureCoordinates, 2));
+        geometry.setIndex(indices);
+        geometry.computeVertexNormals();
+        geometry.computeBoundingSphere();
+
+        const width = Math.max(2, Number(specification.width) || 2);
+        const height = Math.max(2, Number(specification.height) || 2);
+        const rgba = specification.rgba instanceof Uint8Array
+            ? specification.rgba
+            : new Uint8Array(specification.rgba || []);
+        const texture = new THREE.DataTexture(
+            rgba,
+            width,
+            height,
+            THREE.RGBAFormat,
+            THREE.UnsignedByteType
+        );
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.minFilter = THREE.LinearFilter;
+        texture.magFilter = THREE.LinearFilter;
+        texture.generateMipmaps = false;
+        texture.flipY = false;
+        texture.needsUpdate = true;
+
+        const opacity = Math.max(0.05, Math.min(1, Number(specification.opacity) || 0.88));
+        const material = new THREE.MeshBasicMaterial({
+            map: texture,
+            side: THREE.DoubleSide,
+            transparent: opacity < 0.999,
+            opacity,
+            depthWrite: opacity >= 0.98,
+            toneMapped: false
+        });
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.name = `v_ase_volumetric_plane_${planeId}`;
+        mesh.renderOrder = 14;
+        mesh.userData = { volumetricPlane: true, planeId };
+
+        const perimeterPositions = new Float32Array((vertices.length + 1) * 3);
+        vertices.forEach((vertex, index) => {
+            perimeterPositions.set(vertex.slice(0, 3).map(value => Number(value) || 0), index * 3);
+        });
+        perimeterPositions.set(vertices[0].slice(0, 3).map(value => Number(value) || 0), vertices.length * 3);
+        const perimeterGeometry = new THREE.BufferGeometry();
+        perimeterGeometry.setAttribute('position', new THREE.BufferAttribute(perimeterPositions, 3));
+        const perimeterMaterial = new THREE.LineBasicMaterial({
+            color: specification.selected ? '#f4be54' : '#89d9cc',
+            transparent: true,
+            opacity: specification.selected ? 0.98 : 0.72,
+            depthTest: true,
+            toneMapped: false
+        });
+        const perimeter = new THREE.Line(perimeterGeometry, perimeterMaterial);
+        perimeter.renderOrder = 15;
+        perimeter.userData = { volumetricPlanePerimeter: true, planeId };
+
+        const group = new THREE.Group();
+        group.add(mesh, perimeter);
+        group.visible = specification.visible !== false;
+        group.userData = { volumetricPlane: true, planeId };
+        this.volumetricPlaneGroup.add(group);
+        this.volumetricPlaneGroup.position.copy(this.visualTranslationVector());
+        const record = {
+            ...specification,
+            planeId,
+            group,
+            mesh,
+            geometry,
+            texture,
+            material,
+            perimeter,
+            perimeterGeometry,
+            perimeterMaterial,
+            centroid: new THREE.Vector3(...(specification.centroid || [0, 0, 0])),
+            normal: new THREE.Vector3(...(specification.normal || [0, 0, 1])).normalize()
+        };
+        this.volumetricPlanes.set(planeId, record);
+        this.domElement.dataset.volumetricPlaneCount = String(this.volumetricPlanes.size);
+        this.invalidateSunShadowBounds();
+        this.requestRender();
+    }
+
+    updateVolumetricPlaneTexture(planeId, rgba, { opacity = null } = {}) {
+        const record = this.volumetricPlanes.get(String(planeId));
+        if (!record || !(rgba instanceof Uint8Array)) return;
+        record.texture.image.data = rgba;
+        record.texture.needsUpdate = true;
+        if (opacity !== null) {
+            const alpha = Math.max(0.05, Math.min(1, Number(opacity) || 0.88));
+            record.material.opacity = alpha;
+            record.material.transparent = alpha < 0.999;
+            record.material.depthWrite = alpha >= 0.98;
+            record.material.needsUpdate = true;
+        }
+        this.requestRender();
+    }
+
+    setVolumetricPlaneSelection(planeIds = []) {
+        const selected = new Set(planeIds);
+        this.volumetricPlanes.forEach((record, planeId) => {
+            const active = selected.has(planeId);
+            record.selected = active;
+            record.perimeterMaterial.color.set(active ? '#f4be54' : '#89d9cc');
+            record.perimeterMaterial.opacity = active ? 0.98 : 0.72;
+            record.perimeterMaterial.needsUpdate = true;
+        });
+        this.requestRender();
+    }
+
+    pickVolumetricPlane(event) {
+        if (!event || !this.volumetricPlanes.size) return null;
+        this.sunRaycaster.setFromCamera(this.sunPointerNdc(event), this.camera);
+        const meshes = [...this.volumetricPlanes.values()]
+            .filter(record => record.group.visible)
+            .map(record => record.mesh);
+        const hit = this.sunRaycaster.intersectObjects(meshes, false)[0];
+        return hit?.object?.userData?.planeId || null;
+    }
+
+    previewVolumetricPlaneTransforms(transforms = {}) {
+        this.volumetricPlanes.forEach((record, planeId) => {
+            record.group.position.set(0, 0, 0);
+            record.group.quaternion.identity();
+            const transform = transforms[planeId];
+            if (!transform) return;
+            if (Array.isArray(transform.translation)) {
+                record.group.position.add(new THREE.Vector3(...transform.translation));
+            }
+            if (Array.isArray(transform.quaternion) && transform.quaternion.length === 4) {
+                const quaternion = new THREE.Quaternion(...transform.quaternion).normalize();
+                const pivot = new THREE.Vector3(...(transform.pivot || record.centroid.toArray()));
+                record.group.quaternion.copy(quaternion);
+                record.group.position.add(pivot.clone().sub(pivot.clone().applyQuaternion(quaternion)));
+            }
+        });
+        this.requestRender();
+    }
+
+    resetVolumetricPlaneTransforms() {
+        this.volumetricPlanes.forEach(record => {
+            record.group.position.set(0, 0, 0);
+            record.group.quaternion.identity();
+        });
+        this.requestRender();
+    }
+
     setVolumetricSurfaces(specifications = []) {
         this.clearVolumetricSurfaces();
         this.volumetricSurfaces = specifications.map(specification => {
@@ -4717,6 +4912,7 @@ export class ASERenderer {
             this.supercellGroup,
             this.displacementGroup,
             this.volumetricGroup,
+            this.volumetricPlaneGroup,
             this.constraintMarkGroup,
             this.constraintGuideGroup,
             this.constraintMotionGuideGroup,

@@ -336,6 +336,25 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         "maximum": 1,
     }
     assert show_properties["positiveColor"]["pattern"] == "^#[0-9A-Fa-f]{6}$"
+    assert schema["operation_parameters"]["add-volumetric-plane"]["required"] == [
+        "datasetId",
+        "hkl",
+    ]
+    assert {
+        "offsetAngstrom",
+        "resolution",
+        "colormap",
+        "autoRange",
+        "vmin",
+        "vmax",
+        "opacity",
+    }.issubset(schema["operation_parameters"]["add-volumetric-plane"]["optional"])
+    assert schema["operation_parameters"]["update-volumetric-planes"]["required"] == [
+        "planeIds"
+    ]
+    assert schema["operation_parameters"]["remove-volumetric-planes"]["required"] == [
+        "planeIds"
+    ]
     assert schema["operation_parameters"]["combine-volumetric"]["required"] == [
         "datasetIds",
         "coefficients",
@@ -412,6 +431,9 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         "set-interface-theme",
         "set-personal-visual-default",
         "restore-app-visual-defaults",
+        "add-volumetric-plane",
+        "update-volumetric-planes",
+        "remove-volumetric-planes",
     }.issubset(operation_names)
     restore_schema = next(
         item["then"]

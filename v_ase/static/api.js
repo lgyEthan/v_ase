@@ -1479,6 +1479,14 @@ export class ASEApi {
         }, { expect: 'arrayBuffer' });
     }
 
+    async fetchVolumetricPlane(options = {}) {
+        return await this.request(`/api/volumetric/plane/{session_id}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(options)
+        }, { expect: 'arrayBuffer' });
+    }
+
     async createVolumetricDifference(options = {}) {
         return await this.jsonPost(
             `/api/volumetric/difference/{session_id}`,
