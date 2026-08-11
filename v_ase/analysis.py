@@ -187,7 +187,10 @@ def calculate_rdf(
     if mode not in {"active", "all", "none"}:
         raise ValueError("RDF pair mode must be active, all, or none.")
     if mode == "all":
-        selected_pairs = set(combinations_with_replacement(ordered_labels, 2))
+        selected_pairs = {
+            _canonical_pair(left, right)
+            for left, right in combinations_with_replacement(ordered_labels, 2)
+        }
     elif mode == "active":
         selected_pairs = parse_pair_keys(active_pairs)
     else:

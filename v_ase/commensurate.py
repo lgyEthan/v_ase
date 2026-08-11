@@ -10,7 +10,7 @@ from __future__ import annotations
 import csv
 from dataclasses import dataclass
 import io
-from math import cos, gcd, radians, sin, sqrt
+from math import ceil, cos, gcd, radians, sin, sqrt
 from typing import Callable, Iterable, Sequence
 
 import numpy as np
@@ -546,6 +546,34 @@ def _primitive_halo_points(
     return [(point, point in core) for point in sorted(expanded)]
 
 
+def _commensurate_grid_padding(area_ratio: int, atom_padding: int) -> int:
+    """Return a small visual halo that keeps the common cell inside both grids.
+
+    Atom previews use a deliberately tight halo because their cost scales with
+    atom count.  Primitive-cell lines are cheap, so the lattice context extends
+    at least one shell farther and grows mildly for unusually large proposals.
+    """
+
+    linear_extent = sqrt(max(1, int(area_ratio)))
+    return max(int(atom_padding) + 1, min(4, int(ceil(linear_extent / 3.0))))
+
+
+def _grid_lattice_metadata(
+    points: Sequence[tuple[Sequence[int], bool]],
+    periodic_axes: Sequence[int],
+) -> tuple[list[list[int]], list[int]]:
+    origins = [list(map(int, point)) for point, _ in points]
+    axes = tuple(int(axis) for axis in periodic_axes)
+    if not origins:
+        return [], [0, 0]
+    values = np.asarray(origins, dtype=int)
+    shape = [
+        int(values[:, axis].max() - values[:, axis].min() + 1)
+        for axis in axes
+    ]
+    return origins, shape
+
+
 def commensurate_supercell_geometry(
     *,
     cell: Sequence[Sequence[float]],
@@ -613,6 +641,9 @@ def commensurate_supercell_geometry(
     target_core = _integer_supercell_lattice_points(parent_cell, target_matrix)
     source_points = _primitive_halo_points(source_core, periodic_axes, int(padding_cells))
     target_points = _primitive_halo_points(target_core, periodic_axes, int(padding_cells))
+    grid_padding = _commensurate_grid_padding(source_area, int(padding_cells))
+    source_grid_points = _primitive_halo_points(source_core, periodic_axes, grid_padding)
+    target_grid_points = _primitive_halo_points(target_core, periodic_axes, grid_padding)
     preview_count = (
         len(source_points) * len(selected) + len(target_points) * len(reference)
     ) if include_atoms else 0
@@ -669,6 +700,22 @@ def commensurate_supercell_geometry(
         (np.asarray(point, dtype=float) @ guest_primitive).tolist()
         for point in source_core
     ]
+    target_grid_indices, host_grid_shape = _grid_lattice_metadata(
+        target_grid_points,
+        periodic_axes,
+    )
+    source_grid_indices, guest_grid_shape = _grid_lattice_metadata(
+        source_grid_points,
+        periodic_axes,
+    )
+    host_grid_lattice_origins = [
+        (np.asarray(point, dtype=float) @ parent_cell).tolist()
+        for point in target_grid_indices
+    ]
+    guest_grid_lattice_origins = [
+        (np.asarray(point, dtype=float) @ guest_primitive).tolist()
+        for point in source_grid_indices
+    ]
 
     return {
         "mode": "same-lattice",
@@ -688,8 +735,15 @@ def commensurate_supercell_geometry(
         "guest_cell": guest_cell.tolist(),
         "host_lattice_origins": host_lattice_origins,
         "guest_lattice_origins": guest_lattice_origins,
+        "host_grid_lattice_origins": host_grid_lattice_origins,
+        "guest_grid_lattice_origins": guest_grid_lattice_origins,
+        "host_grid_shape": host_grid_shape,
+        "guest_grid_shape": guest_grid_shape,
+        "grid_padding_cells": grid_padding,
         "host_primitive_vectors": host_primitive[list(periodic_axes)].tolist(),
         "guest_primitive_vectors": guest_primitive[list(periodic_axes)].tolist(),
+        "host_notation": str(candidate.get("target_notation", "Host cell")),
+        "guest_notation": str(candidate.get("source_notation", "Guest cell")),
         "has_suggestion": True,
         "source_cell": (source_matrix @ parent_cell).tolist(),
         "source_matrix_3d": source_matrix.tolist(),
@@ -745,6 +799,10 @@ def host_guest_supercell_geometry(
     guest_core = _integer_supercell_lattice_points(guest_parent, guest_matrix)
     host_points = _primitive_halo_points(host_core, host_axes, int(padding_cells))
     guest_points = _primitive_halo_points(guest_core, guest_axes, int(padding_cells))
+    largest_area = max(len(host_core), len(guest_core))
+    grid_padding = _commensurate_grid_padding(largest_area, int(padding_cells))
+    host_grid_points = _primitive_halo_points(host_core, host_axes, grid_padding)
+    guest_grid_points = _primitive_halo_points(guest_core, guest_axes, grid_padding)
     preview_count = (
         len(host_points) * len(host_coordinates)
         + len(guest_points) * len(guest_coordinates)
@@ -805,6 +863,16 @@ def host_guest_supercell_geometry(
         (np.asarray(point, dtype=float) @ guest_primitive + offset).tolist()
         for point in guest_core
     ]
+    host_grid_indices, host_grid_shape = _grid_lattice_metadata(host_grid_points, host_axes)
+    guest_grid_indices, guest_grid_shape = _grid_lattice_metadata(guest_grid_points, guest_axes)
+    host_grid_lattice_origins = [
+        (np.asarray(point, dtype=float) @ host_primitive).tolist()
+        for point in host_grid_indices
+    ]
+    guest_grid_lattice_origins = [
+        (np.asarray(point, dtype=float) @ guest_primitive + offset).tolist()
+        for point in guest_grid_indices
+    ]
     return {
         "mode": "host-guest",
         "positions": positions,
@@ -826,8 +894,15 @@ def host_guest_supercell_geometry(
         "guest_cell": guest_boundary.tolist(),
         "host_lattice_origins": host_lattice_origins,
         "guest_lattice_origins": guest_lattice_origins,
+        "host_grid_lattice_origins": host_grid_lattice_origins,
+        "guest_grid_lattice_origins": guest_grid_lattice_origins,
+        "host_grid_shape": host_grid_shape,
+        "guest_grid_shape": guest_grid_shape,
+        "grid_padding_cells": grid_padding,
         "host_primitive_vectors": host_primitive[list(host_axes)].tolist(),
         "guest_primitive_vectors": guest_primitive[list(guest_axes)].tolist(),
+        "host_notation": str(candidate.get("host_notation", "Host cell")),
+        "guest_notation": str(candidate.get("guest_notation", "Guest cell")),
         "has_suggestion": True,
         "host_matrix_3d": host_matrix.tolist(),
         "guest_matrix_3d": guest_matrix.tolist(),

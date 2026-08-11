@@ -582,6 +582,9 @@ export class ASERenderer {
         this.displacementGroup = new THREE.Group();
         this.displacementGroup.name = 'v_ase_displacement_vectors';
         this.scene.add(this.displacementGroup);
+        this.forceVectorGroup = new THREE.Group();
+        this.forceVectorGroup.name = 'v_ase_force_vectors';
+        this.scene.add(this.forceVectorGroup);
         this.volumetricGroup = new THREE.Group();
         this.volumetricGroup.name = 'v_ase_volumetric_isosurfaces';
         this.scene.add(this.volumetricGroup);
@@ -687,7 +690,12 @@ export class ASERenderer {
             displacementStyle: '3d',
             displacementScale: 1,
             displacementThickness: 0.08,
-            displacementColor: '#e58b2a'
+            displacementColor: '#e58b2a',
+            showForceVectors: false,
+            forceVectorStyle: '3d',
+            forceVectorScale: 1,
+            forceVectorThickness: 0.08,
+            forceVectorColor: '#c43f5e'
         };
         this.lightingOptions = {
             lightingMode: 'modeling',
@@ -716,6 +724,8 @@ export class ASERenderer {
         this.displacementFlatHeadGeometry.computeVertexNormals();
         this.displacementData = null;
         this.displacementCameraSignature = '';
+        this.forceVectorData = null;
+        this.forceVectorCameraSignature = '';
         this.displacementDummy = new THREE.Object3D();
         this.displacementDirection = new THREE.Vector3();
         this.displacementStart = new THREE.Vector3();
@@ -1087,6 +1097,7 @@ export class ASERenderer {
             this.replicaSelectionOutlines,
             this.bondGroup,
             this.displacementGroup,
+            this.forceVectorGroup,
             this.volumetricGroup,
             this.volumetricPlaneGroup,
             this.commensurateGuideGroup,
@@ -1937,6 +1948,7 @@ export class ASERenderer {
         this.clearGroup(this.cellGroup);
         this.clearGroup(this.bondGroup);
         this.clearDisplacementVectors();
+        this.clearForceVectors();
         this.clearCommensurateGuides();
         this.clearGroup(this.commensurateSupercellGroup);
         this.clearGroup(this.supercellGroup);
@@ -1971,6 +1983,7 @@ export class ASERenderer {
             this.rebuildConstraintGuides();
             this.rebuildHookeanConstraints();
             this.rebuildSupercell();
+            this.setForceVectors(atoms.forces, this.displayOptions);
             this.applyVisualTranslation();
             this.applyOverlayVisibility();
             if (this.needsInitialCameraFit) {
@@ -2023,6 +2036,7 @@ export class ASERenderer {
         this.rebuildConstraintGuides();
         this.rebuildHookeanConstraints();
         this.rebuildSupercell();
+        this.setForceVectors(atoms.forces, this.displayOptions);
         this.applyVisualTranslation();
         this.applyOverlayVisibility();
         if (this.needsInitialCameraFit) {
@@ -2211,6 +2225,7 @@ export class ASERenderer {
         const geometries = new Set();
         const materials = new Set();
         root.traverse(object => {
+            object.userData?.commensurateTexture?.dispose?.();
             if (object.geometry && !object.userData?.sharedGeometry) geometries.add(object.geometry);
             if (!object.material || object.userData?.sharedMaterial) return;
             const values = Array.isArray(object.material) ? object.material : [object.material];
@@ -3212,6 +3227,7 @@ export class ASERenderer {
         this.refreshBondsForCurrentPositions();
         this.updateSupercellPositions({ translationsOnly: true });
         this.updateHookeanPositions();
+        this.updateForceVectorMatrices(true);
         this.refreshStudioSunForStructure();
         this.requestRender();
     }
@@ -3251,6 +3267,7 @@ export class ASERenderer {
                 this.updateSupercellPositions({ translationsOnly: true });
             }
             if (this.hookeanGroup.children.length) this.updateHookeanPositions();
+            if (this.forceVectorGroup.children.length) this.updateForceVectorMatrices(true);
             this.refreshStudioSunForStructure();
             this.requestRender();
             return;
@@ -3276,6 +3293,7 @@ export class ASERenderer {
         this.refreshBondsForCurrentPositions();
         this.updateSupercellPositions({ translationsOnly: true });
         this.updateHookeanPositions();
+        this.updateForceVectorMatrices(true);
         this.refreshStudioSunForStructure();
         this.requestRender();
     }
@@ -3336,6 +3354,11 @@ export class ASERenderer {
             previous.displacementScale !== this.displayOptions.displacementScale ||
             previous.displacementThickness !== this.displayOptions.displacementThickness ||
             previous.displacementColor !== this.displayOptions.displacementColor;
+        const forceVectorsChanged = previous.showForceVectors !== this.displayOptions.showForceVectors ||
+            previous.forceVectorStyle !== this.displayOptions.forceVectorStyle ||
+            previous.forceVectorScale !== this.displayOptions.forceVectorScale ||
+            previous.forceVectorThickness !== this.displayOptions.forceVectorThickness ||
+            previous.forceVectorColor !== this.displayOptions.forceVectorColor;
         if (previous.projectionMode !== this.displayOptions.projectionMode) {
             this.setProjectionMode(this.displayOptions.projectionMode);
         }
@@ -3403,6 +3426,9 @@ export class ASERenderer {
         if ((displacementChanged || visibilityChanged || supercellChanged) && this.displacementData) {
             this.setDisplacementVectors(this.displacementData, this.displayOptions);
         }
+        if ((forceVectorsChanged || visibilityChanged || supercellChanged) && this.atomsData) {
+            this.setForceVectors(this.atomsData.forces, this.displayOptions);
+        }
         if (translationChanged) this.applyVisualTranslation();
         if ((radiusChanged || supercellChanged) && !visibilityChanged) {
             this.refreshStudioSunForStructure();
@@ -3426,6 +3452,9 @@ export class ASERenderer {
         if (this.hookeanGroup) this.hookeanGroup.visible = visible;
         if (this.displacementGroup) {
             this.displacementGroup.visible = visible && this.displayOptions.showDisplacements === true;
+        }
+        if (this.forceVectorGroup) {
+            this.forceVectorGroup.visible = visible && this.displayOptions.showForceVectors === true;
         }
     }
 
@@ -4256,6 +4285,15 @@ export class ASERenderer {
         this.requestRender();
     }
 
+    clearForceVectors({ keepData = false } = {}) {
+        this.clearGroup(this.forceVectorGroup);
+        this.forceVectorGroup.userData = {};
+        if (!keepData) this.forceVectorData = null;
+        this.forceVectorCameraSignature = '';
+        this.domElement.dataset.forceVectorCount = '0';
+        this.requestRender();
+    }
+
     clearVolumetricSurfaces() {
         if (!this.volumetricGroup) return;
         while (this.volumetricGroup.children.length) {
@@ -4738,6 +4776,168 @@ export class ASERenderer {
         head.instanceMatrix.needsUpdate = true;
     }
 
+    forceVectorStyle(options = this.displayOptions) {
+        return options?.forceVectorStyle === '2d' ? '2d' : '3d';
+    }
+
+    setForceVectors(forces, options = this.displayOptions) {
+        this.clearGroup(this.forceVectorGroup);
+        this.forceVectorGroup.userData = {};
+        this.forceVectorCameraSignature = '';
+        this.forceVectorData = Array.isArray(forces) ? forces : null;
+        if (options?.showForceVectors !== true || !this.forceVectorData?.length) {
+            this.domElement.dataset.forceVectorCount = '0';
+            this.applyOverlayVisibility();
+            this.requestRender();
+            return;
+        }
+
+        const translations = [{ cellOffset: [0, 0, 0], vector: new THREE.Vector3() }];
+        const repetitions = options?.supercell || [1, 1, 1];
+        if (this.hasValidCell() && repetitions.some(value => Number(value) > 1)) {
+            const cell = this.atomsData.cell.map(vector => new THREE.Vector3(...vector));
+            translations.push(...this.supercellTranslations(cell, repetitions));
+        }
+        const entries = [];
+        this.forceVectorData.forEach((vector, index) => {
+            if (
+                !this.atomLabelVisible(index)
+                || !Array.isArray(vector)
+                || vector.length < 3
+                || !vector.slice(0, 3).every(value => Number.isFinite(Number(value)))
+            ) return;
+            const values = vector.slice(0, 3).map(Number);
+            const magnitudeSquared = values.reduce((sum, value) => sum + value * value, 0);
+            if (magnitudeSquared < 1e-14) return;
+            translations.forEach(translation => entries.push({
+                index,
+                cellOffset: [...translation.cellOffset],
+                translation: translation.vector.toArray(),
+                vector: values
+            }));
+        });
+        if (!entries.length) {
+            this.domElement.dataset.forceVectorCount = '0';
+            this.applyOverlayVisibility();
+            this.requestRender();
+            return;
+        }
+
+        const flat = this.forceVectorStyle(options) === '2d';
+        const color = this.validHexColor(options?.forceVectorColor)
+            ? options.forceVectorColor
+            : '#c43f5e';
+        const material = flat
+            ? new THREE.MeshBasicMaterial({
+                color,
+                side: THREE.DoubleSide,
+                toneMapped: false,
+                depthTest: true,
+                depthWrite: false
+            })
+            : new THREE.MeshStandardMaterial({
+                color,
+                roughness: 0.36,
+                metalness: 0.03
+            });
+        const shaft = new THREE.InstancedMesh(
+            flat ? this.bondFlatGeometry : this.bondCylinderGeometry,
+            material,
+            entries.length
+        );
+        const head = new THREE.InstancedMesh(
+            flat ? this.displacementFlatHeadGeometry : this.displacementConeGeometry,
+            material.clone(),
+            entries.length
+        );
+        [shaft, head].forEach(mesh => {
+            mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+            mesh.frustumCulled = false;
+            mesh.renderOrder = 6;
+            mesh.castShadow = false;
+            mesh.receiveShadow = false;
+            mesh.userData.sharedGeometry = true;
+        });
+        shaft.userData.forceVectorRole = 'shaft';
+        head.userData.forceVectorRole = 'head';
+        Object.assign(this.forceVectorGroup.userData, { entries, shaft, head, flat });
+        this.forceVectorGroup.add(shaft, head);
+        this.updateForceVectorMatrices(true);
+        this.domElement.dataset.forceVectorCount = String(entries.length);
+        this.applyOverlayVisibility();
+        this.requestRender();
+    }
+
+    updateForceVectorMatrices(force = false) {
+        const entries = this.forceVectorGroup?.userData?.entries;
+        const shaft = this.forceVectorGroup?.userData?.shaft;
+        const head = this.forceVectorGroup?.userData?.head;
+        if (!entries?.length || !shaft || !head) return;
+        const flat = this.forceVectorGroup.userData.flat === true;
+        const cameraSignature = flat ? this.displacementCameraKey() : '3d';
+        if (!force && cameraSignature === this.forceVectorCameraSignature) return;
+        this.forceVectorCameraSignature = cameraSignature;
+        const scale = Math.max(0.02, Math.min(5, Number(this.displayOptions.forceVectorScale) || 1));
+        const thickness = Math.max(
+            0.01,
+            Math.min(0.5, Number(this.displayOptions.forceVectorThickness) || 0.08)
+        );
+        const dummy = this.displacementDummy;
+        entries.forEach((entry, instanceId) => {
+            const atom = this.atomMeshByIndex.get(entry.index);
+            if (!atom || !this.atomLabelVisible(entry.index)) {
+                dummy.position.set(0, 0, 0);
+                dummy.scale.setScalar(0);
+                dummy.updateMatrix();
+                shaft.setMatrixAt(instanceId, dummy.matrix);
+                head.setMatrixAt(instanceId, dummy.matrix);
+                return;
+            }
+            this.displacementStart.copy(atom.position).add(
+                new THREE.Vector3(...entry.translation)
+            );
+            this.displacementDirection.fromArray(entry.vector).multiplyScalar(scale);
+            const length = this.displacementDirection.length();
+            if (length < 1e-7) {
+                dummy.position.set(0, 0, 0);
+                dummy.scale.setScalar(0);
+                dummy.updateMatrix();
+                shaft.setMatrixAt(instanceId, dummy.matrix);
+                head.setMatrixAt(instanceId, dummy.matrix);
+                return;
+            }
+            const direction = this.displacementDirection.normalize();
+            this.displacementEnd.copy(this.displacementStart).addScaledVector(direction, length);
+            const headLength = Math.min(length * 0.45, Math.max(thickness * 4.2, 0.08));
+            const headWidth = Math.max(thickness * 2.7, headLength * 0.48);
+            const bodyLength = Math.max(1e-7, length - headLength * 0.72);
+
+            dummy.position.copy(this.displacementStart).addScaledVector(direction, bodyLength * 0.5);
+            if (flat) {
+                dummy.scale.set(thickness, bodyLength, 1);
+                this.orientFlatBond(dummy, direction);
+            } else {
+                dummy.scale.set(thickness, bodyLength, thickness);
+                dummy.quaternion.setFromUnitVectors(this.yAxis, direction);
+            }
+            dummy.updateMatrix();
+            shaft.setMatrixAt(instanceId, dummy.matrix);
+
+            dummy.position.copy(this.displacementEnd).addScaledVector(direction, -headLength * 0.5);
+            if (flat) {
+                dummy.scale.set(headWidth, headLength, 1);
+                this.orientFlatBond(dummy, direction);
+            } else {
+                dummy.scale.set(headWidth, headLength, headWidth);
+                dummy.quaternion.setFromUnitVectors(this.yAxis, direction);
+            }
+            dummy.updateMatrix();
+            head.setMatrixAt(instanceId, dummy.matrix);
+        });
+        shaft.instanceMatrix.needsUpdate = true;
+        head.instanceMatrix.needsUpdate = true;
+    }
+
     rebuildBonds(precomputedPairs = null, precomputedBridgeRecords = null) {
         this.clearGroup(this.bondGroup);
         this.clearSupercellBonds();
@@ -5017,6 +5217,7 @@ export class ASERenderer {
             this.bondGroup,
             this.supercellGroup,
             this.displacementGroup,
+            this.forceVectorGroup,
             this.volumetricGroup,
             this.volumetricPlaneGroup,
             this.constraintMarkGroup,
@@ -5180,6 +5381,14 @@ export class ASERenderer {
         cellSpecs.forEach(([cell, origin]) => this.commensurateCellSegments(cell, origin).forEach(segment => {
             segment.forEach(point => box.expandByPoint(point.clone().add(translation)));
         }));
+        [
+            [preview?.host_grid_lattice_origins, preview?.host_primitive_vectors],
+            [preview?.guest_grid_lattice_origins, preview?.guest_primitive_vectors]
+        ].forEach(([origins, vectors]) => {
+            this.commensuratePrimitiveSegments(origins, vectors).forEach(segment => {
+                segment.forEach(point => box.expandByPoint(point.clone().add(translation)));
+            });
+        });
         return box.isEmpty() ? null : box;
     }
 
@@ -5232,6 +5441,54 @@ export class ASERenderer {
             });
         });
         return [...unique.values()];
+    }
+
+    commensurateCellLabelSprite(text, color = '#159b8c') {
+        const canvas = document.createElement('canvas');
+        canvas.width = 640;
+        canvas.height = 112;
+        const context = canvas.getContext('2d');
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        let fontSize = 34;
+        let metrics;
+        do {
+            context.font = `700 ${fontSize}px Inter, system-ui, sans-serif`;
+            metrics = context.measureText(text);
+            if (metrics.width <= canvas.width - 66 || fontSize <= 22) break;
+            fontSize -= 2;
+        } while (fontSize >= 22);
+        const boxWidth = Math.min(canvas.width - 12, Math.ceil(metrics.width + 54));
+        const left = (canvas.width - boxWidth) / 2;
+        context.fillStyle = 'rgba(255,255,255,0.94)';
+        context.strokeStyle = color;
+        context.lineWidth = 4;
+        context.beginPath();
+        if (typeof context.roundRect === 'function') context.roundRect(left, 14, boxWidth, 84, 14);
+        else context.rect(left, 14, boxWidth, 84);
+        context.fill();
+        context.stroke();
+        context.fillStyle = color;
+        context.fillText(text, canvas.width / 2, canvas.height / 2);
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.minFilter = THREE.LinearFilter;
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            transparent: true,
+            depthTest: false,
+            depthWrite: false,
+            toneMapped: false
+        });
+        const sprite = new THREE.Sprite(material);
+        sprite.renderOrder = 52;
+        sprite.userData = {
+            commensurateCellLabel: true,
+            labelText: text,
+            commensurateTexture: texture
+        };
+        return sprite;
     }
 
     buildCommensuratePreviewAtoms(preview) {
@@ -5523,7 +5780,7 @@ export class ASERenderer {
             const material = new THREE.MeshBasicMaterial({
                 color,
                 transparent: true,
-                opacity: 1,
+                opacity: 0.64,
                 depthTest: true,
                 depthWrite: false,
                 toneMapped: false
@@ -5537,6 +5794,24 @@ export class ASERenderer {
                     radius: Math.max(0.018, this.normalizedCellThickness() * 0.48)
                 }
             );
+        };
+        const addCellLabel = (text, cell, originValues, color, side, metadata) => {
+            if (!text || !Array.isArray(cell) || cell.length < 2) return;
+            const origin = new THREE.Vector3(...originValues);
+            const first = new THREE.Vector3(...cell[0]);
+            const second = new THREE.Vector3(...cell[1]);
+            const firstLength = first.length();
+            const secondLength = second.length();
+            if (firstLength <= 1e-8 || secondLength <= 1e-8) return;
+            const normal = second.clone().normalize().multiplyScalar(
+                side * Math.max(0.8, Math.min(firstLength, secondLength) * 0.16)
+            );
+            const sprite = this.commensurateCellLabelSprite(text, color);
+            sprite.position.copy(origin).addScaledVector(first, 0.5).add(normal);
+            const width = THREE.MathUtils.clamp(firstLength * 0.54, 3.3, 7.2);
+            sprite.scale.set(width, width * 0.175, 1);
+            sprite.userData = { ...sprite.userData, ...metadata };
+            this.commensurateSupercellGroup.add(sprite);
         };
         const addPrimitiveVectors = (origins, vectors, color, metadata) => {
             if (!Array.isArray(origins) || !origins.length || !Array.isArray(vectors)) return;
@@ -5602,18 +5877,27 @@ export class ASERenderer {
         const guestOrigin = preview.mode === 'host-guest'
             ? (preview.guest_offset || [0, 0, 0])
             : [0, 0, 0];
+        const gridLabel = (shape) => (
+            Array.isArray(shape)
+            && shape.length >= 2
+            && shape.slice(0, 2).every(value => Number.isFinite(Number(value)))
+                ? `${Math.trunc(Number(shape[0]))} × ${Math.trunc(Number(shape[1]))} grid`
+                : ''
+        );
+        const hostGridLabel = gridLabel(preview.host_grid_shape);
+        const guestGridLabel = gridLabel(preview.guest_grid_shape);
         const hostColor = this.displayOptions.viewportBackground === 'dark'
             ? 0xf2f5f4
             : 0x161a1d;
         const guestColor = 0xf58220;
         addPrimitiveGrid(
-            preview.host_lattice_origins,
+            preview.host_grid_lattice_origins || preview.host_lattice_origins,
             preview.host_primitive_vectors,
             hostColor,
             { commensurateHostPrimitiveGrid: true }
         );
         addPrimitiveGrid(
-            preview.guest_lattice_origins,
+            preview.guest_grid_lattice_origins || preview.guest_lattice_origins,
             preview.guest_primitive_vectors,
             guestColor,
             { commensurateGuestPrimitiveGrid: true }
@@ -5645,6 +5929,22 @@ export class ASERenderer {
             { commensurateGuestCell: true },
             guestOrigin,
             1.18
+        );
+        addCellLabel(
+            `HOST ${hostGridLabel} · ${preview.host_notation || ''}`.trim(),
+            preview.host_cell,
+            [0, 0, 0],
+            this.displayOptions.viewportBackground === 'dark' ? '#f2f5f4' : '#161a1d',
+            -1,
+            { commensurateHostCellLabel: true }
+        );
+        addCellLabel(
+            `GUEST ${guestGridLabel} · ${preview.guest_notation || ''}`.trim(),
+            preview.guest_cell,
+            guestOrigin,
+            '#d8660f',
+            1,
+            { commensurateGuestCellLabel: true }
         );
         if (preview.has_suggestion !== false && (preview.common_cell || preview.cell)) {
             addBoundary(
@@ -7069,7 +7369,55 @@ export class ASERenderer {
         lockPin.userData = { sharedMaterial: true, lockPin: true };
         group.add(lockPin);
 
+        const threshold = Number(spec.item?.threshold);
+        if (Number.isFinite(threshold) && threshold > 0) {
+            group.add(this.hookeanThresholdLabelSprite(threshold));
+        }
+
         this.hookeanGroup.add(group);
+    }
+
+    hookeanThresholdLabelSprite(threshold) {
+        const text = `rt ${Number(threshold).toFixed(2)} Å`;
+        const canvas = document.createElement('canvas');
+        canvas.width = 320;
+        canvas.height = 80;
+        const context = canvas.getContext('2d');
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.font = '700 27px ui-monospace, SFMono-Regular, Menlo, monospace';
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        const width = Math.min(canvas.width - 8, Math.ceil(context.measureText(text).width + 38));
+        const left = (canvas.width - width) / 2;
+        context.fillStyle = 'rgba(255,255,255,0.92)';
+        context.strokeStyle = 'rgba(169,102,24,0.88)';
+        context.lineWidth = 2;
+        context.beginPath();
+        if (typeof context.roundRect === 'function') context.roundRect(left, 9, width, 62, 10);
+        else context.rect(left, 9, width, 62);
+        context.fill();
+        context.stroke();
+        context.fillStyle = '#70410f';
+        context.fillText(text, canvas.width / 2, canvas.height / 2);
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.minFilter = THREE.LinearFilter;
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            transparent: true,
+            depthTest: false,
+            depthWrite: false,
+            toneMapped: false
+        });
+        const sprite = new THREE.Sprite(material);
+        sprite.scale.set(1.8, 0.45, 1);
+        sprite.renderOrder = 22;
+        sprite.userData = {
+            hookeanThresholdLabel: true,
+            hookeanThresholdText: text,
+            commensurateTexture: texture
+        };
+        return sprite;
     }
 
     addHookeanPlane(item) {
@@ -7185,6 +7533,7 @@ export class ASERenderer {
         const springLine = group.children.find(child => child.userData.springLine);
         const gapLine = group.children.find(child => child.userData.gapLine);
         const lockPin = group.children.find(child => child.userData.lockPin);
+        const thresholdLabel = group.children.find(child => child.userData.hookeanThresholdLabel);
 
         // Dead-zone rail: the Hookean force is inactive until this exact cutoff.
         this.setLinePoints(hookLine, [
@@ -7212,6 +7561,11 @@ export class ASERenderer {
                 lockPin.material = this.hookeanStateMaterial(state);
                 lockPin.userData.sharedMaterial = true;
             }
+        }
+
+        if (thresholdLabel) {
+            thresholdLabel.position.set(gateWidth + 0.72, thresholdY, 0);
+            thresholdLabel.visible = this.displayOptions.showOverlays !== false;
         }
 
         springLine.visible = state !== 'inactive' && springEnd > springStart;
@@ -7610,6 +7964,7 @@ export class ASERenderer {
         this.controls.update();
         if (this.effectiveBondStyle() === 'flat') this.updateBondPositions();
         if (this.displacementStyle() === '2d') this.updateDisplacementVectorMatrices();
+        if (this.forceVectorStyle() === '2d') this.updateForceVectorMatrices();
         this.syncSelectionOutlines();
         this.onFrame?.();
         this.updateViewLighting();

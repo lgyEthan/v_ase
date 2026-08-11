@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.1"
+python -m pip install "v_ase-gui==0.2.2"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -136,7 +136,22 @@ resulting semantic state and rendered output.
   composition when the user has not specified one. Preserve scientific
   identity and disclose aesthetic choices.
 
-## Core Semantic Commands
+## Semantic Command Map
+
+Choose commands by scientific task, then read the corresponding one-level
+reference before executing a multi-step workflow:
+
+| Task | Primary state or operation |
+| --- | --- |
+| Inspect and measure | `describe`, `selection`, ordered `measurement` |
+| Edit a structure | `move-selection`, `rotate-selection`, `add-atom`, `scatter-atoms`, constraints |
+| Work with periodic interfaces | display replication, cell transforms, commensurate search, XY registry |
+| Analyze trajectories | frame selection, displacement, RDF, colorscale, stored force vectors |
+| Analyze scalar fields | volumetric datasets, isosurfaces, planes, field combinations |
+| Style and render | `display`, `quality`, `camera`, `render` |
+| Save or share | `export`, `.vase`, media, HTML, and geometry formats |
+
+### Live Methods
 
 The HTTP bridge has seven document methods:
 
@@ -176,6 +191,11 @@ larger scans remain backend-side. Set `gamma` in `0.1..5.0` (`1.0` is
 neutral), and never normalize trajectory colors independently per frame.
 Numeric LAMMPS atom columns are valid catalog fields alongside coordinates,
 stored forces, ASE arrays, charges, magnetic moments, and calculator results.
+Stored Cartesian forces can also be shown directly with display fields
+`showForceVectors`, `forceVectorStyle`, `forceVectorScale`,
+`forceVectorThickness`, and `forceVectorColor`. Arrow direction must equal the
+stored vector direction and arrow length is `forceVectorScale * |F|`; never
+evaluate an attached calculator merely to create an arrow.
 For a rotation around one atom, pass that atom last in the explicit `indices`
 array and set `pivot: "active"`; verify that its coordinate is unchanged.
 For batch insertion, use `scatter-atoms` only on a single Edit-mode structure.
@@ -310,6 +330,9 @@ For any nontrivial task, verify all applicable items:
   identical locked range across every trajectory frame and export; for large
   trajectories verify one full-range load, no duplicate frame prefetch, fast
   cached recoloring, and zero colorscale work after disabling;
+- force vectors: stored-force availability, exact Cartesian direction,
+  `scale * |F|` length, 2D/3D style, thickness/color, replica placement, and
+  an explicit unavailable state rather than calculator evaluation;
 - preferences: resolved interface theme, system/light/dark preference, saved
   personal-default state, and the intended scope before storing or restoring;
 - camera: projection, position, target, up vector, framing, expected direction;
@@ -320,9 +343,11 @@ For any nontrivial task, verify all applicable items:
   default loaded-guest gap, direct guest angle, preserved camera, candidate
   angle, smallest admissible area ratio, Host/Guest strain target,
   host/guest integer matrices, readable square-root notation, black/orange/teal
-  host/guest/common cells, cells-only default, primitive lattices tiled through
-  the proposal, optional one-primitive-cell atom/bond halo, horizontal rotation
-  graph axis, live angle plane, graph CSV, and materialization support. With no
+  host/guest/common cells, cells-only default, primitive lattices tiled at
+  least one primitive cell beyond the full proposal, grid dimensions and
+  readable `N x M` coverage, optional one-primitive-cell atom/bond halo,
+  horizontal rotation axis plus orthogonal area-depth and strain-height axes,
+  candidate stems/projections, live angle plane, graph CSV, and materialization support. With no
   explicit angle, require the smallest-area admissible proposal; with an
   explicit angle, require the nearest admissible candidate. Confirm
   that the conservative max principal strain
@@ -338,6 +363,9 @@ For any nontrivial task, verify all applicable items:
   original-position FixedLine direction guide during `G`, and one
   original-position FixedPlane motion guide per selected atom during `G`;
   FixedLine uses one center axis, while rings and discs are plane-only;
+  for `Hookean(a1, a2, rt, k)`, require no active spring at `r <= rt`, a visible
+  3D helix at `r > rt`, an exact `rt` label, and ASE force magnitude
+  `k * (r - rt)` without altering backend constraint semantics;
 - render: exact dimensions, format, options, nonblank decoded pixels;
 - export: MIME type, filename, byte count, and reopenability where supported;
 - standalone HTML: both lightweight and project-embedded modes load from
@@ -369,10 +397,11 @@ Read only the references needed for the current task:
 - [CLI and environments](references/cli-and-environments.md): installation,
   input formats, local/remote/server use, dependencies, and process lifecycle.
 - [Semantic API](references/semantic-api.md): complete state, command, display,
-  volumetric/RDF analysis, render, and export fields.
-- [Workflows and examples](references/workflows-and-examples.md): tested
-  structure editing, volumetric, RDF, trajectory, rendering, and
-  multi-document recipes.
+  colorscale/force, periodic-interface, volumetric/RDF analysis, render, and
+  export fields.
+- [Workflows and examples](references/workflows-and-examples.md): tested edit,
+  periodic-interface, analysis, trajectory, rendering, collaboration, and
+  export recipes grouped in the same order as the user guide.
 - [Safety and errors](references/safety-and-errors.md): destructive actions,
   common errors, fallbacks, and verification requirements.
 - [Evaluation](references/evaluation.md): trigger tests, capability audit, and

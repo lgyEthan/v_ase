@@ -1935,6 +1935,96 @@ def test_ai_bridge_screen_relative_camera_and_constraint_vector_workflow():
         editor.close()
 
 
+def test_force_vectors_follow_cartesian_forces_repeat_with_supercell_and_clear():
+    atoms = Atoms(
+        "CO",
+        positions=[[0.0, 0.0, 0.0], [1.4, 0.0, 0.0]],
+        cell=[6.0, 6.0, 6.0],
+        pbc=True,
+    )
+    atoms.set_array(
+        "forces",
+        np.asarray([[1.0, 0.0, 0.0], [0.0, 0.5, 0.0]], dtype=float),
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.v_aseAI && window.__ASE_APP__?.state?.atoms")
+            result = page.evaluate("""async () => {
+                await window.v_aseAI.apply({
+                    display: {
+                        showForceVectors: true,
+                        forceVectorStyle: '3d',
+                        forceVectorScale: 1,
+                        forceVectorThickness: 0.08,
+                        forceVectorColor: '#c43f5e',
+                        supercell: [2, 1, 1]
+                    }
+                });
+                const app = window.__ASE_APP__;
+                const group = app.renderer.forceVectorGroup;
+                const head = group.userData.head;
+                const positions = [];
+                for (let index = 0; index < head.count; index++) {
+                    const offset = index * 16;
+                    positions.push([
+                        head.instanceMatrix.array[offset + 12],
+                        head.instanceMatrix.array[offset + 13],
+                        head.instanceMatrix.array[offset + 14]
+                    ]);
+                }
+                return {
+                    state: await window.v_aseAI.describe({includePositions: false}),
+                    count: Number(app.renderer.domElement.dataset.forceVectorCount),
+                    entries: group.userData.entries.map(entry => ({
+                        atom: entry.index,
+                        cellOffset: entry.cellOffset,
+                        vector: entry.vector
+                    })),
+                    positions
+                };
+            }""")
+            assert result["state"]["display"]["showForceVectors"] is True
+            assert result["count"] == 4
+            assert len(result["entries"]) == 4
+            assert result["entries"][0]["vector"] == [1.0, 0.0, 0.0]
+            assert result["positions"][0][0] > atoms.positions[0, 0]
+            assert result["positions"][2][1] > atoms.positions[1, 1]
+            assert {tuple(item["cellOffset"]) for item in result["entries"]} == {
+                (0, 0, 0),
+                (1, 0, 0),
+            }
+
+            cleared = page.evaluate("""async () => {
+                await window.v_aseAI.apply({display: {showForceVectors: false}});
+                const renderer = window.__ASE_APP__.renderer;
+                renderer.updatePositions([[0.1, 0, 0], [1.4, 0, 0]]);
+                return {
+                    children: renderer.forceVectorGroup.children.length,
+                    entries: renderer.forceVectorGroup.userData.entries || null,
+                    count: Number(renderer.domElement.dataset.forceVectorCount)
+                };
+            }""")
+            assert cleared == {"children": 0, "entries": None, "count": 0}
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
     first = molecule("H2O")
     first.set_cell([8.0, 8.0, 8.0])
@@ -3235,14 +3325,15 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
             assert cells_only["proposal"]["preview"]["guest_offset"][2] == pytest.approx(3.0)
             assert cells_only["modeControlType"] == "hidden"
             assert cells_only["plotReady"] is True
-            assert cells_only["plot"]["type"] == "scatter3d"
-            assert cells_only["plot"]["layers"] >= 1
-            assert "rotation-axis" in cells_only["plot"]["roles"]
-            assert "area-axis" in cells_only["plot"]["roles"]
-            assert "strain-axis" in cells_only["plot"]["roles"]
-            assert cells_only["plot"]["projection"] == "orthographic"
-            assert 0.0 < cells_only["plot"]["eye"]["x"] < 0.5
+            assert cells_only["plot"]["type"] == "surface"
+            assert "angle-area-floor" in cells_only["plot"]["roles"]
+            assert "candidate-stems" in cells_only["plot"]["roles"]
+            assert "commensurate-candidates" in cells_only["plot"]["roles"]
+            assert "current-angle-plane" in cells_only["plot"]["roles"]
+            assert cells_only["plot"]["projection"] == "perspective"
+            assert cells_only["plot"]["eye"]["y"] < -1.0
             assert cells_only["plot"]["aspect"]["x"] > cells_only["plot"]["aspect"]["y"]
+            assert cells_only["plot"]["aspect"]["x"] > cells_only["plot"]["aspect"]["z"]
             assert page.locator("#commensurate-plot-view").is_visible()
             assert page.locator("#btn-analysis-export").get_attribute("aria-label") == (
                 "Save graph data as CSV"
@@ -3324,6 +3415,12 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
                     csv: atob(csv.dataUrl.split(',')[1]),
                     plotReady: Boolean(document.querySelector('#registry-plot .plotly')),
                     activePlot: app.state.activeAnalysisPlot,
+                    plotDomain: {
+                        xRange: document.getElementById('registry-plot')?.layout?.xaxis?.range,
+                        yRange: document.getElementById('registry-plot')?.layout?.yaxis?.range,
+                        xConstraint: document.getElementById('registry-plot')?.layout?.xaxis?.constrain,
+                        yConstraint: document.getElementById('registry-plot')?.layout?.yaxis?.constrain
+                    },
                     constrainedDelta: app.constrainMoveToRegistryPlane(
                         app.renderer.controls.target.clone().set(0.4, -0.2, 1.7)
                     ).toArray(),
@@ -3337,6 +3434,12 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
             assert registry["periodicAxes"] == [0, 1]
             assert analyzed["plotReady"] is True
             assert analyzed["activePlot"] == "registry"
+            assert analyzed["plotDomain"] == {
+                "xRange": [0, 1],
+                "yRange": [0, 1],
+                "xConstraint": "domain",
+                "yConstraint": "domain",
+            }
             assert analyzed["constrainedDelta"][2] == pytest.approx(0.0, abs=1e-12)
             assert analyzed["exportLabel"] == "Save graph data as CSV"
             assert (

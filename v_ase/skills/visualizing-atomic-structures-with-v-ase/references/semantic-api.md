@@ -346,6 +346,33 @@ The full-range load supersedes scheduled next-frame prefetch, so one range scan
 must not trigger duplicate frame requests. Disabling the colorscale removes
 all per-frame recoloring work and restores the previous visual appearance.
 
+## Stored Force Vectors
+
+Force arrows are a display operation over force values already present in the
+active frame. They never trigger calculator evaluation. Configure them through
+`display` in the same revision-safe `apply` call used for other visual state:
+
+```javascript
+await ai.apply({
+  expectedRevision: before.collaboration.revision,
+  display: {
+    showForceVectors: true,
+    forceVectorStyle: "3d",
+    forceVectorScale: 2.5,
+    forceVectorThickness: 0.10,
+    forceVectorColor: "#c43f5e"
+  }
+});
+```
+
+`forceVectorStyle` is `"3d"` or `"2d"`. Scale is Angstrom of displayed
+arrow length per force unit; the renderer uses `scale * |F|` and preserves the
+normalized Cartesian direction exactly. Thickness is an Angstrom diameter.
+Displayed supercells repeat arrows with their source atoms. Verify both a
+known nonzero vector and its rendered direction. If `describe().forces` is
+missing or nonfinite, leave the feature unavailable and report that stored
+forces are absent rather than attaching or running a calculator.
+
 Atom labels are exact user-facing identifiers, not fixed-width display
 abbreviations. Preserve the complete label returned by `describe`; do not
 truncate it before `set-identity`, bond-pair, RDF-pair, or export operations.

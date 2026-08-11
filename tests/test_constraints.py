@@ -1,5 +1,6 @@
 import asyncio
 import numpy as np
+import pytest
 from ase import Atoms
 from ase.build import molecule
 from ase.constraints import FixAtoms, FixedLine, FixedPlane, FixScaled, Hookean
@@ -81,6 +82,27 @@ def test_constraint_serialization_line_plane_and_hookean():
         "kind": "two atoms",
         "indices": [1, 2],
     }]
+
+
+def test_hookean_rt_dead_zone_and_linear_extension_match_ase():
+    atoms = Atoms(
+        "CO",
+        positions=[[0.0, 0.0, 0.0], [1.4, 0.0, 0.0]],
+        cell=[8.0, 8.0, 8.0],
+        pbc=True,
+    )
+    constraint = Hookean(0, 1, rt=1.5, k=12.0)
+    atoms.set_constraint(constraint)
+    forces = np.zeros((2, 3), dtype=float)
+    constraint.adjust_forces(atoms, forces)
+    np.testing.assert_allclose(forces, 0.0, atol=1e-12)
+
+    atoms.positions[1] = [1.8, 0.0, 0.0]
+    forces[:] = 0.0
+    constraint.adjust_forces(atoms, forces)
+    assert np.linalg.norm(forces[0]) == pytest.approx(12.0 * (1.8 - 1.5))
+    np.testing.assert_allclose(forces[0], -forces[1], atol=1e-12)
+    assert forces[0, 0] > 0
 
 
 def test_fix_scaled_serialization_uses_fractional_line_and_plane_guides():

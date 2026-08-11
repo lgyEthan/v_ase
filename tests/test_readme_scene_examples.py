@@ -365,21 +365,23 @@ def test_brand_logo_generation_uses_approved_palette_and_separated_letter_atoms(
 
 def test_readme_presents_real_manipulation_and_analysis_workflows():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    ai = readme.index("## Work With An AI Agent")
-    structure = readme.index("## Structure Manipulation")
+    structure = readme.index("## Edit Structures")
     select = readme.index("### Select", structure)
     move = readme.index("### Move", select)
     add_atoms = readme.index("### Add Atoms — New In v0.2.1", move)
-    rotate = readme.index("### Rotate", add_atoms)
+    rotate = readme.index("### Rotate Selected Atoms", add_atoms)
     ferrocene = readme.index("#### Ferrocene: Use Fe As The Active Pivot", rotate)
     phosphorene = readme.index("#### Phosphorene: Build The Twist One Edit At A Time", ferrocene)
+    periodic = readme.index("## Periodic Cells And Interfaces", phosphorene)
     commensurate = readme.index(
-        "#### Commensurate Atoms: Match Periodic 2D Cells",
-        phosphorene,
+        "### Commensurate Atoms: Match Periodic 2D Cells",
+        periodic,
     )
-    measurement = readme.index("## Measurement And Analysis", commensurate)
+    measurement = readme.index("## Analyze Structures And Fields", commensurate)
+    ai = readme.index("## Work With An AI Agent", measurement)
 
-    assert ai < structure < select < move < add_atoms < rotate < ferrocene < phosphorene < commensurate < measurement
+    assert structure < select < move < add_atoms < rotate < ferrocene < phosphorene
+    assert phosphorene < periodic < commensurate < measurement < ai
     normalized_readme = " ".join(
         line.lstrip("> ").strip() for line in readme.lower().splitlines()
     )
@@ -387,14 +389,16 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "`N_pyridinic`" in readme
     assert "`Li_site`" in readme
     assert "Li 2.15 Å" in readme
-    assert "+Z top view with +Y up at 4K" in readme
-    assert "three" in readme[ai:structure]
+    assert "render a 4K +Z view with +Y up" in readme
+    assert "1." in readme[ai:]
+    assert "2." in readme[ai:]
+    assert "3." in readme[ai:]
     assert "external ai agent" in normalized_readme
-    assert "same document remains visible and editable in the normal gui" in normalized_readme
-    assert "does not interpret the natural-language request or embed an llm" in normalized_readme
-    assert "exact, structured cli/api operations" in normalized_readme
+    assert "same document stays open in the normal gui" in normalized_readme
+    assert "does not contain an llm or interpret natural language" in normalized_readme
+    assert "structured cli/api" in normalized_readme
     assert "a manual gui edit becomes the next document revision" in normalized_readme
-    assert "can reduce token use" in normalized_readme
+    assert "reduce repeated image interpretation" in normalized_readme
     assert "Standard Metal and Rubber atom materials" in readme
     assert "Cu_substrate-Cu_substrate" in readme
     assert "Cu_oxide-O_oxide" in readme

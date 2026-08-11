@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.2
+
+- Expanded commensurate host and guest primitive lattices beyond every
+  proposed common-cell boundary, added visible grid dimensions and notation,
+  and rebuilt the angle-area-strain overview as a perspective 3D coordinate
+  plot with candidate stems and floor projections.
+- Added exact stored-force vector rendering with 2D/3D styles, scale,
+  thickness, color, displayed-supercell repetition, and no implicit calculator
+  evaluation.
+- Corrected all-label pairwise RDF enumeration when label discovery order is
+  not lexical, preserving mixed partial curves and total reconstruction.
+- Added exact Hookean `rt` viewport labels and strengthened physical tests for
+  inactive/engaged force behavior and the 3D helical spring.
+- Rebuilt deterministic README media for commensurate cells, XY registry,
+  isovalue motion, fixed-range volumetric planes, pairwise RDF, and
+  trajectory-wide colorscales with force vectors; reorganized the user guide
+  and canonical Agent Skill by workflow. Periodic registry maps now preserve a
+  square one-cell plotting domain in wide analysis drawers.
+
 ## 0.2.1
 
 - Added a persistent Edit-mode Add Atoms workspace for single-atom placement

@@ -2,22 +2,28 @@
 
 ## Contents
 
-1. Per-Atom Property Colorscale
-2. Publication Image
-3. Natural-Language Defect Edit
-4. Random Multi-Species Insertion And Repulsion
-5. Phosphorene Cumulative Tail Rotation
-6. Rotate Around A Specific Atom
-7. Constraint-Aware Edit
-8. Ordered Measurement
-9. Trajectory Analysis And Video
-10. Volumetric Difference And Isosurface
-11. RDF And CSV
-12. Bounded Commensurate 2D Cells
-13. XY Registry Map
-14. Periodic Supercell Measurement
-15. Multi-Document Live Collaboration
-16. Offline View-Only Handoff
+1. Analyze, Style, And Render
+   - Per-Atom Property Colorscale And Stored Forces
+   - Publication Image
+2. Edit Structures
+   - Natural-Language Defect Edit
+   - Random Multi-Species Insertion And Repulsion
+   - Phosphorene Cumulative Tail Rotation
+   - Rotate Around A Specific Atom
+   - Constraint-Aware Edit
+3. Measure And Animate
+   - Ordered Measurement
+   - Trajectory Analysis And Video
+4. Analyze Scalar Fields
+   - Volumetric Difference And Isosurface
+   - RDF And CSV
+5. Match Periodic Interfaces
+   - Bounded Commensurate 2D Cells
+   - XY Registry Map
+   - Periodic Supercell Measurement
+6. Collaborate And Share
+   - Multi-Document Live Collaboration
+   - Offline View-Only Handoff
 
 These templates are starting points. Preserve the plan, validate, execute, and
 verify sequence even when parameters change.
@@ -37,7 +43,9 @@ async function applyCurrent(command) {
 }
 ```
 
-## Per-Atom Property Colorscale
+## Analyze, Style, And Render
+
+### Per-Atom Property Colorscale And Stored Forces
 
 Use the live catalog rather than assuming how a DFT code or MLIP named its
 per-atom output. This example colors only a selected region by a stored
@@ -97,7 +105,24 @@ prefetched single frame. Use `rangeMode:"manual"` with explicit `minimum` and
 to change contrast without reloading scalar values or the Matplotlib lookup
 table.
 
-## Publication Image
+To show stored forces over the same locked colorscale, update display state
+without evaluating a calculator:
+
+```javascript
+await applyCurrent({display: {
+  showForceVectors: true,
+  forceVectorStyle: "3d",
+  forceVectorScale: 2.5,
+  forceVectorThickness: 0.10,
+  forceVectorColor: "#c43f5e"
+}});
+```
+
+For each known nonzero force `F`, verify that the arrow direction is
+`F / |F|` and its length is `forceVectorScale * |F|`. Keep the same resolved
+colorscale minimum and maximum on every trajectory frame and export.
+
+### Publication Image
 
 Input: an ASE-readable structure and a request for a clean 4K top view.
 
@@ -154,7 +179,9 @@ Output: save the lossless WebP with
 `v_ase api "$COMMAND_URL" render ... --save figure.webp`; the same live view
 remains visible at `human_url`.
 
-## Natural-Language Defect Edit
+## Edit Structures
+
+### Natural-Language Defect Edit
 
 Input: `examples/readme_scene_assets/ai_graphene_source.cif`.
 
@@ -284,7 +311,7 @@ intermediate, and expected final structures are generated from
 - `examples/readme_scene_assets/ai_pyridinic_n3_li_graphene.cif`;
 - `examples/readme_scene_assets/ai_pyridinic_n3_li_graphene.traj`.
 
-## Random Multi-Species Insertion And Repulsion
+### Random Multi-Species Insertion And Repulsion
 
 Use this low-freedom workflow to scatter several atom populations and move
 only those new atoms away from short contacts. It requires one periodic
@@ -367,7 +394,7 @@ sampling diagnostics before optimization. Use `cancel-add-atoms` at any point
 before finish to restore coordinates, constraints, arrays, labels, history,
 and redo state exactly.
 
-## Phosphorene Cumulative Tail Rotation
+### Phosphorene Cumulative Tail Rotation
 
 Input: `examples/readme_scene_assets/phosphorene_nanosheet.cif`.
 
@@ -386,7 +413,7 @@ cell or as an energy-minimized structure. The canonical README capture uses a
 short, wide 5 x 6 repeat, nine physical ridge edits, and a camera-only
 above-to-below orbit after the final coordinate commit.
 
-## Rotate Around A Specific Atom
+### Rotate Around A Specific Atom
 
 For a human edit, select the moving atoms first, Shift-select the desired pivot
 atom last, and choose **Active atom (last selected)** under
@@ -489,7 +516,7 @@ the workflow above is the authority: every step starts from the previous
 confirmed structure. Published media colors the upper and lower phosphorus
 sublayers green and purple while preserving `P` as the ASE element.
 
-## Constraint-Aware Edit
+### Constraint-Aware Edit
 
 Input: move selected atoms while honoring FixedLine, FixedPlane, FixAtoms, or
 FixScaled constraints.
@@ -526,7 +553,9 @@ During human FixedPlane movement, verify that each constrained atom retains its
 compact local plane marker and that `G` adds a larger translucent guide at the
 atom's original position. A group COM plane is an implementation error.
 
-## Ordered Measurement
+## Measure And Animate
+
+### Ordered Measurement
 
 Input: `examples/readme_scene_assets/ethane_measurement.cif`.
 
@@ -543,7 +572,7 @@ if (measured.selection.length !== 4 || !measured.measurement) {
 Never sort the ordered selection. Two atoms measure direct and MIC distance,
 three use `a1-a2-a3`, and four use the signed `a1-a2-a3-a4` torsion.
 
-## Trajectory Analysis And Video
+### Trajectory Analysis And Video
 
 Input: a trajectory with stable topology. For repository validation, use
 `examples/readme_scene_assets/crowded_c60_relaxation.traj`; it contains 42
@@ -601,7 +630,9 @@ if (movie.mimeType !== "video/quicktime" || movie.bytes <= 0) {
 Interpolation can be expensive. Inform the user before choosing a multiplier
 above one.
 
-## Volumetric Difference And Isosurface
+## Analyze Scalar Fields
+
+### Volumetric Difference And Isosurface
 
 Input: one structure and three charge grids generated on the same FFT grid,
 for example `combined/CHGCAR`, `fragment-a/CHGCAR`, and
@@ -748,7 +779,7 @@ three hkl fields follow the live normal and the committed descriptor matches.
 Do not combine grids with different dimensions, cell, origin, PBC, or units.
 Do not hide that validation error by interpolating one grid onto another.
 
-## RDF And CSV
+### RDF And CSV
 
 Input: a fully periodic 3D structure or trajectory frame.
 
@@ -805,7 +836,9 @@ Validation:
    first few bins across several cutoffs, including beyond the unique-MIC
    reference.
 
-## Bounded Commensurate 2D Cells
+## Match Periodic Interfaces
+
+### Bounded Commensurate 2D Cells
 
 Use this workflow only for cells with two periodic in-plane vectors. The
 commensurate rotation axis is global Z and the lattice search is restricted to
@@ -815,7 +848,7 @@ the strain cutoff and the default `maxAreaRatio` of 16; it never silently
 materializes the proposal. The interactive area bound is `1..128`; do not
 silently clamp or sample a larger request.
 
-### Same-lattice twist
+#### Same-lattice twist
 
 Select the layer that rotates and calculate the complete angle/area/strain
 family. Cells-only preview is the default:
@@ -868,7 +901,7 @@ await applyCurrent({
 });
 ```
 
-### Different host and guest lattices
+#### Different host and guest lattices
 
 Load the guest from inside the directory where the GUI was launched. The
 operation preserves the current host and calculates a separate guest lattice;
@@ -934,7 +967,7 @@ The CSV must include angle, matrices, area, max principal strain, mean absolute
 strain, host/guest/total atom counts, and the CellMatch and Stradi et al.
 references carried by the bounded-search implementation.
 
-## XY Registry Map
+### XY Registry Map
 
 Run this after selecting the layer to translate. It scans one fractional XY
 period while leaving source coordinates unchanged. No selection must produce a
@@ -979,7 +1012,7 @@ indices, and metric definition. No paper citation is required for the generic
 geometry score. RDF, commensurate, and registry Plotly drawers all expose the
 same icon-only CSV control beside the graph title.
 
-## Periodic Supercell Measurement
+### Periodic Supercell Measurement
 
 Use View mode when the user only needs displayed replicas:
 
@@ -1010,7 +1043,9 @@ Use `set-supercell` only when the user explicitly wants new atoms and a
 materialized larger cell. It changes topology in every frame and requires Edit
 mode.
 
-## Multi-Document Live Collaboration
+## Collaborate And Share
+
+### Multi-Document Live Collaboration
 
 ```javascript
 const workspace = await ai.documents();
@@ -1035,7 +1070,7 @@ operate the same state, not copies. A workspace event identifies the edited tab
 with `session_id` and its `document_revision`; activate it before reviewing the
 new semantic state.
 
-## Offline View-Only Handoff
+### Offline View-Only Handoff
 
 Use this only after the scene, trajectory, camera, and overlays are verified:
 

@@ -75,7 +75,7 @@ v_ase gui structure.vasp --interactive
 No Node.js installation or hosted account is required. Closing the v_ase
 browser document releases the blocking terminal process.
 
-## Common Tasks
+## Start Here
 
 | Goal | Action |
 | --- | --- |
@@ -99,64 +99,21 @@ browser document releases the blocking terminal process.
 > panel before using `G` or `R`. The selection is preserved and keyboard focus
 > returns to the 3D viewport.
 
-## Work With An AI Agent
+The guide is organized by task:
 
-You describe the scientific result to an external AI Agent. The bundled
-[v_ase Skill](#agent-setup) teaches that Agent the exact CLI operations,
-validation checks, and export steps. The Agent works through v_ase while the
-same document remains visible and editable in the normal GUI.
+- [Edit structures](#edit-structures): select, move, insert, and rotate atoms.
+- [Match periodic cells and interfaces](#periodic-cells-and-interfaces):
+  replication, common cells, and XY registry.
+- [Analyze structures and fields](#analyze-structures-and-fields): ordered
+  geometry, trajectories, forces, RDF, and volumetric data.
+- [Use constraints and relaxation](#constraints-and-relaxation): ASE-enforced
+  motion and optimization trajectories.
+- [Style and render](#style-atoms-bonds-and-rendering): appearance, bonds,
+  lighting, media, projects, and reusable visual settings.
+- [Work with an AI Agent](#work-with-an-ai-agent): share one revisioned GUI
+  document through the bundled semantic CLI Skill.
 
-![Human and external AI agent working in one live v_ase document](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.png)
-
-1. **You → Agent:** describe the source system, requested scientific change,
-   and final camera in ordinary language.
-2. **Agent → v_ase:** the Agent uses the Skill and structured CLI/API to read,
-   modify, validate, and render exact atom data.
-3. **v_ase → you:** the result appears in the same live GUI. A manual GUI edit
-   becomes the next document revision seen by the Agent.
-
-v_ase does not interpret the natural-language request or embed an LLM. The
-external Agent translates it into exact, structured CLI/API operations.
-
-For example, a human can ask:
-
-> From pristine 6 × 6 graphene, create a pyridinic N3 vacancy, place Li 2.15 Å
-> above it, and render a +Z top view with +Y up at 4K.
-
-The Agent identifies atoms from structured state rather than estimating them
-from screenshots, preserves the three substituted sites as `N_pyridinic`, and
-labels the adsorbate `Li_site`. It sets the requested `+Z` view and `+Y` up
-direction before rendering.
-Reading structured atom state instead of repeatedly interpreting screenshots
-can reduce token use while keeping coordinates, labels, and camera settings
-directly verifiable.
-
-The GIF below is recorded from the ordinary live GUI while a separate
-`v_ase api` process sends each selection and atom edit through the public CLI
-bridge. It does not use hidden in-page commands: the Agent and the human are
-looking at the same revisioned document.
-
-![Natural-language pyridinic N3 graphene edit](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_edit.gif)
-
-The live `schema` is the authority for every supported operation and export.
-v_ase checks that the operation/export lists reported to an Agent, the browser
-handlers that update the GUI, and the bundled Skill stay identical. This
-includes structure edits, constraints, trajectories, cameras, appearance,
-volumetric fields and planes, colorscales, RDF, commensurate analysis,
-rendering, and file export.
-
-The example assets are generated from `ase.build.graphene`:
-
-- [source graphene CIF](examples/readme_scene_assets/ai_graphene_source.cif)
-- [intermediate pyridinic N3 CIF](examples/readme_scene_assets/ai_pyridinic_n3_graphene.cif)
-- [final N3/Li-site CIF](examples/readme_scene_assets/ai_pyridinic_n3_li_graphene.cif)
-- [ASE trajectory preserving labels](examples/readme_scene_assets/ai_pyridinic_n3_li_graphene.traj)
-
-Codex, Claude Code, and GitHub Copilot names and marks belong to their
-respective owners. They identify compatible external clients in the diagram;
-no affiliation or endorsement is implied.
-
-## Structure Manipulation
+## Edit Structures
 
 Use **Edit** when atom coordinates must change. Selection, measurement,
 appearance, bonds, replication, wrapping, visual translation, and export
@@ -208,7 +165,7 @@ The animation uses the included
 placed using editable element-pair cutoffs while the `Si_framework` host stays
 fixed.
 
-### Rotate
+### Rotate Selected Atoms
 
 Press `R` after selecting atoms. Choose **Selection COM**, **Active atom (last
 selected)**, **Origin**, or **Unit-cell center** as the pivot, lock an axis if
@@ -273,7 +230,15 @@ structure diagrams such as
 [Zhang et al.](https://doi.org/10.1038/srep13927). The example demonstrates
 geometry editing and is not an energy-minimized final structure.
 
-#### Commensurate Atoms: Match Periodic 2D Cells
+## Periodic Cells And Interfaces
+
+Display replication, integer cell transforms, common-cell matching, and
+periodic registry are related but distinct operations. Display replication
+changes only what is visible. **Set Supercell as Cell** materializes a
+replicated structure. **Cell Transform** applies an integer matrix to the cell
+and every compatible trajectory frame.
+
+### Commensurate Atoms: Match Periodic 2D Cells
 
 ![Graphene hBN commensurate rotation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_commensurate.gif)
 
@@ -378,33 +343,6 @@ frame. Display replication is separate again: it only repeats what is shown.
 The common-cell equations, limits, and assumptions are documented in
 [unit_cell_aware_rotate.md](docs/unit_cell_aware_rotate.md).
 
-## Measurement And Analysis
-
-![Ordered distance angle and torsion measurement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_measurement.gif)
-
-The numbered `a1` to `a4` markers record selection order and are deliberately
-different from atom indices.
-
-| Ordered selection | Reported result |
-| --- | --- |
-| 1 atom | Label, element, position, force, charge, tag, magnetic moment |
-| 2 atoms | Direct distance and minimum-image distance |
-| 3 atoms | Angle `a1-a2-a3`, centered on `a2` |
-| 4 atoms | Signed torsion `a1-a2-a3-a4` |
-| 5 or more | Total count and per-label counts |
-
-The connector, angle arc, torsion axis, and compact value badge stay attached
-to the selected atoms. Hover information is independent, so moving the pointer
-does not replace a saved measurement.
-
-![Trajectory displacement analysis](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_displacement.png)
-
-For trajectories, **Analysis > Displacement** compares the current frame with
-the previous frame or a chosen reference. Minimum-image correction, vector
-scale, thickness, color, and 2D/3D style are configurable. Displayed
-supercells repeat the vectors, and visual translation moves both endpoints
-without changing the physical displacement.
-
 ### XY Registry Map
 
 After choosing a periodic interface cell, select the layer or adsorbate that
@@ -426,6 +364,69 @@ follows the move continuously in fractional coordinates. The graph's save icon
 exports the complete fractional X/Y grid, metric values, selected indices, and
 method notes as CSV. RDF, commensurate, and registry plots all expose the same
 adjacent save icon.
+
+![Periodic XY registry scan with current and optimum translations](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_registry_map.png)
+
+The shown graphene/h-BN example uses **Bond-strain RMS** with explicit C-B and
+C-N interfacial cutoffs, so the heatmap remains a geometric comparison rather
+than an implied energy surface.
+
+## Analyze Structures And Fields
+
+### Ordered Geometry
+
+![Ordered distance angle and torsion measurement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_measurement.gif)
+
+The numbered `a1` to `a4` markers record selection order and are deliberately
+different from atom indices.
+
+| Ordered selection | Reported result |
+| --- | --- |
+| 1 atom | Label, element, position, force, charge, tag, magnetic moment |
+| 2 atoms | Direct distance and minimum-image distance |
+| 3 atoms | Angle `a1-a2-a3`, centered on `a2` |
+| 4 atoms | Signed torsion `a1-a2-a3-a4` |
+| 5 or more | Total count and per-label counts |
+
+The connector, angle arc, torsion axis, and compact value badge stay attached
+to the selected atoms. Hover information is independent, so moving the pointer
+does not replace a saved measurement.
+
+### Trajectory Displacement
+
+![Trajectory displacement analysis](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_displacement.png)
+
+For trajectories, **Analysis > Displacement** compares the current frame with
+the previous frame or a chosen reference. Minimum-image correction, vector
+scale, thickness, color, and 2D/3D style are configurable. Displayed
+supercells repeat the vectors, and visual translation moves both endpoints
+without changing the physical displacement.
+
+### Per-Atom Properties And Force Vectors
+
+**Atom colorscale** maps a numeric per-atom property onto any registered
+Matplotlib colormap. The property list is discovered from the open structure
+and includes coordinates, stored-force magnitude, scalar/component/norm views
+of numeric `Atoms.arrays`, and per-atom calculator results such as charge,
+magnetic moment, local energy, uncertainty, or model-specific MLIP outputs.
+Numeric LAMMPS atom columns are exposed by their stored names.
+
+![Trajectory-wide uncertainty colorscale with locked limits and Cartesian force vectors](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_atom_colorscale.gif)
+
+The example scans the complete trajectory once and then locks one `vmin` and
+`vmax` for every frame. The red arrows use the stored Cartesian force vectors:
+their direction is unchanged, their length is `scale × |F|`, and no calculator
+is evaluated merely to draw them. Force arrows can use 2D or 3D geometry,
+custom color, thickness, and scale. If a frame has no stored forces, v_ase
+reports that fact instead of inventing a vector.
+
+Use **Selected atoms only** to preserve the established appearance of every
+other atom. **Fit current frame** resolves one range from the active frame and
+keeps it fixed during playback. **Scan trajectory** resolves one global range
+across every frame. Manual `vmin`/`vmax`, map reversal, and gamma contrast are
+applied consistently to playback and export. The feature is lazy: disabling
+it immediately restores the prior appearance without loading another scalar
+array or colormap.
 
 ### Volumetric Fields
 
@@ -455,15 +456,22 @@ raw-value distribution; signed mode shows the `|value|` distribution used by
 its magnitude slider. This histogram is calculated once when the dataset is
 loaded and does not regenerate the surface.
 
-Drag **Isosurface opacity** to update
-the current surface live without regenerating its mesh. Multiple compatible
+![Signed isosurface threshold moving across a fixed volumetric distribution](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric.gif)
+
+The animation moves the actual isovalue slider through the fixed distribution;
+the positive and negative meshes update at every captured level. Drag
+**Isosurface opacity** to change only transparency without regenerating the
+mesh. Multiple compatible
 datasets can be combined with coefficients such as `+1, -1, -1` for a
 charge-density difference. Grid values stay in the local v_ase backend; the
 browser receives only the generated surface mesh.
 Signed mode treats the isovalue as a nonzero magnitude and renders the
 positive and negative crossings that remain inside the displayed field range.
 
-![Smooth signed benzene pi-field isosurfaces with live opacity control](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric.gif)
+The documentation field is generated locally from a deterministic analytic
+benzene pz-Gaussian model in `examples/readme_scenes.py`. It contains no
+external calculation, private dataset, or copied volumetric values and is used
+only to demonstrate controls; it is not presented as a DFT result.
 
 **Planar Sections** samples the selected scalar field on one or more `(hkl)`
 planes. Each plane has a signed offset in Angstrom along its reciprocal-space
@@ -488,9 +496,12 @@ settles.
 
 ![Interactive hkl scalar-field plane clipped to the displayed cell](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric_plane.gif)
 
-The plane in this GIF is added and swept by the same external `v_ase api`
-operations available to an AI Agent; every committed offset is reflected in
-the live GUI and returned by `describe().analysis.volumetricPlanes`.
+The plane is swept continuously through the field with one fixed `vmin` and
+`vmax`, so color changes represent sampled scalar values rather than automatic
+contrast changes. The camera, white background, atoms, and cell remain fixed.
+The same external `v_ase api` operations available to an AI Agent add and move
+the plane; every committed offset is reflected in the live GUI and returned by
+`describe().analysis.volumetricPlanes`.
 
 **Field smearing σ** applies a Gaussian filter measured in grid voxels before
 the isosurface is extracted. Periodic directions wrap across the cell;
@@ -551,12 +562,13 @@ directions; partial-PBC and finite systems require a separate boundary
 correction and are rejected instead of returning a misleading bulk `g(r)`.
 
 The dotted `g(r) = 1` reference makes the bulk limit explicit. In the
-amorphous Cu-Zr example below, the broad short-range peak decays into a flat
+deterministic amorphous Cu-Zr example below, total, Cu-Cu, Cu-Zr, and Zr-Zr
+curves are plotted together. Their broad short-range peaks decay into a flat
 long-range plateau rather than falling with the finite display cell.
 
-![Amorphous Cu-Zr structure and RDF approaching the bulk limit](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_rdf.png)
+![Pairwise amorphous Cu-Zr RDF curves approaching the bulk limit](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_rdf.png)
 
-## Constraints
+## Constraints And Relaxation
 
 ASE remains authoritative when **Apply constraints** is enabled. Constraint
 visualization is local to each atom rather than merged at a group center.
@@ -599,8 +611,11 @@ treatment. They remain identifiable without looking selected.
 ### Hookean
 
 Hookean constraints show their inactive cutoff and engaged state separately.
-After the constrained distance passes `rt`, a shaded 3D helical spring appears
-between the constrained atoms.
+For ASE `Hookean(a1, a2, rt, k)`, the spring is inactive while `r ≤ rt` and the
+restoring-force magnitude is `k(r - rt)` after `r > rt`. v_ase reads `rt` and
+`k` from the live ASE constraint, labels the exact `rt` value in Angstrom, and
+draws the shaded 3D helix only in the engaged region. The rendering does not
+change the ASE force law.
 
 ![Hookean constraint](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_hookean.png)
 
@@ -610,7 +625,7 @@ between the constrained atoms.
 v_ase gui examples/readme_scene_assets/hookean.traj --interactive
 ```
 
-## Relaxation
+### Relaxation
 
 ![Repulsive relaxation trajectory](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_relaxation.gif)
 
@@ -651,7 +666,7 @@ Video export uses FPS as playback speed. Optional `N x` interpolation creates
 periodic cells to avoid jumps across a boundary. Interpolation takes longer
 because more frames are rendered.
 
-## Appearance, Bonds, And Rendering
+## Style Atoms, Bonds, And Rendering
 
 **Structure > Appearance** controls each stable atom label:
 
@@ -677,39 +692,8 @@ and radius, so only the optical material changes:
 | Rubber | High roughness with broad, muted highlights | Soft visual grouping and low-glare nonmetal regions |
 
 Materials affect rendering only. ASE elements, coordinates, calculators, and
-constraints are unchanged.
-
-**Atom colorscale** maps a numeric per-atom property onto any registered
-Matplotlib colormap. The property list is discovered from the open structure
-and includes:
-
-- Cartesian `x`, `y`, and `z` coordinates;
-- force magnitude when stored forces are available;
-- scalar, component, and vector-norm views of numeric `Atoms.arrays` values;
-- per-atom calculator results such as charge, magnetic moment, local energy,
-  uncertainty, or model-specific MLIP outputs.
-
-LAMMPS trajectories also expose arbitrary numeric atom columns, so fields such
-as `c_uncertainty`, `c_energy`, or custom descriptors can be selected without
-converting the dump to another format.
-
-![Trajectory-wide MLIP uncertainty colorscale with one locked range](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_atom_colorscale.gif)
-
-Use **Selected atoms only** to color the current selection while preserving
-the established appearance of every other atom. **Fit current frame** is the
-default range: it derives `vmin` and `vmax` once from the visible frame, then
-keeps that range fixed while the trajectory plays. **Scan trajectory** finds a
-single range across every frame. For bounded large trajectories, the scan
-stores one compact scalar cache and reuses it during playback; larger sources
-fall back to backend range scanning. Entering either `vmin` or `vmax` switches
-to a manual range. Every frame and export uses the resolved range consistently.
-
-Reverse any map or adjust **Contrast (gamma)** from `0.1` to `5.0`; gamma is
-applied immediately in the browser without another scalar or colormap request.
-The feature remains lazy: while its toggle is off, v_ase does not load a
-colormap registry, extract scalar arrays, or run per-frame colorscale work.
-Turning it off immediately restores the existing label, element, and per-atom
-appearance.
+constraints are unchanged. Numeric property coloring and force-vector analysis
+are documented under [Per-Atom Properties And Force Vectors](#per-atom-properties-and-force-vectors).
 
 ![Pairwise Cu O bonds in a Cu2O(111) film on Cu(111)](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_bonds.png)
 
@@ -869,9 +853,58 @@ python -m pip install "v_ase-gui[rhino]"
 
 OBJ export has no optional Python dependency.
 
-## Agent Setup
+## Work With An AI Agent
 
-The AI agent runs separately from v_ase. Give it the complete
+You describe the scientific result to an external AI Agent. The bundled
+[v_ase Skill](v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md)
+teaches that Agent the exact state queries, edits, validation checks, camera
+commands, and exports. v_ase itself does not contain an LLM or interpret
+natural language.
+
+![Human and external AI agent working in one live v_ase document](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.png)
+
+1. **You → Agent:** state the source structure, scientific change, and desired
+   final view in ordinary language.
+2. **Agent ↔ v_ase:** the Agent uses the Skill and structured CLI/API to inspect
+   exact atoms, apply one revision-checked operation at a time, and verify it.
+3. **v_ase → you:** the same document stays open in the normal GUI. A manual
+   GUI edit becomes the next document revision, which the Agent must read
+   before it continues.
+
+Throughout this cycle, the result appears in the same live GUI.
+
+For example:
+
+> Starting from pristine 6 × 6 graphene, create a pyridinic N3 vacancy, place
+> Li 2.15 Å above the vacancy, then render a 4K +Z view with +Y up.
+
+The Agent resolves atom identities and coordinates from semantic state instead
+of estimating them from screenshots, performs the authorized topology edits,
+sets the requested camera, and validates the final render. Structured state can
+also reduce repeated image interpretation and can reduce token use while
+retaining exact labels, positions, cells, constraints, and camera parameters.
+In the shown result, the three substituted atoms use the `N_pyridinic` label
+and the adsorbate uses `Li_site`, so both the GUI and the Agent refer to the
+same chemical roles.
+
+![Natural-language pyridinic N3 graphene edit in the shared GUI](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_edit.gif)
+
+The live schema covers structure edits, constraints, trajectories, cameras,
+appearance, force vectors, volumetric surfaces and planes, colorscales, RDF,
+commensurate cells, registry maps, rendering, and export. The bundled release
+tests require advertised operations, browser handlers, and Skill instructions
+to remain synchronized.
+
+The example is generated locally from `ase.build.graphene`:
+
+- [source graphene CIF](examples/readme_scene_assets/ai_graphene_source.cif)
+- [intermediate pyridinic N3 CIF](examples/readme_scene_assets/ai_pyridinic_n3_graphene.cif)
+- [final N3/Li-site CIF](examples/readme_scene_assets/ai_pyridinic_n3_li_graphene.cif)
+- [ASE trajectory preserving labels](examples/readme_scene_assets/ai_pyridinic_n3_li_graphene.traj)
+
+### Agent Setup
+
+The AI Agent runs separately from v_ase. Give it the complete
 [v_ase Skill directory](https://github.com/lgyEthan/v_ase/tree/main/v_ase/skills/visualizing-atomic-structures-with-v-ase),
 then describe the result you want. The agent starts the machine-readable v_ase
 session, gives you the live GUI URL, and performs verified changes in that same

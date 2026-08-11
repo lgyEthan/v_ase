@@ -218,6 +218,32 @@ def test_all_partial_rdfs_reconstruct_total_with_concentration_weights():
     np.testing.assert_allclose(reconstructed, result.total, atol=1e-12)
 
 
+def test_all_pairwise_rdf_keeps_mixed_pair_when_label_order_is_not_sorted():
+    atoms = Atoms(
+        "ZrCuCuZr",
+        positions=[
+            [0.0, 0.0, 0.0],
+            [2.2, 0.0, 0.0],
+            [0.0, 2.2, 0.0],
+            [2.2, 2.2, 0.0],
+        ],
+        cell=[8.0, 8.0, 8.0],
+        pbc=True,
+    )
+    set_atom_labels(
+        atoms,
+        ["Zr_glass", "Cu_glass", "Cu_glass", "Zr_glass"],
+    )
+
+    result = calculate_rdf(atoms, cutoff=3.8, bins=38, pair_mode="all")
+
+    assert set(result.partial) == {
+        "Cu_glass|Cu_glass",
+        "Cu_glass|Zr_glass",
+        "Zr_glass|Zr_glass",
+    }
+
+
 def test_rdf_refuses_partial_pbc_instead_of_reporting_boundary_biased_curve():
     atoms = Atoms(
         "H4",

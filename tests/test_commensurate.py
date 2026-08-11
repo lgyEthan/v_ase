@@ -781,6 +781,17 @@ def test_commensurate_geometry_has_exact_core_and_one_primitive_cell_halo():
     assert set(geometry["components"]) == {"reference", "rotating"}
     assert len(geometry["host_lattice_origins"]) == geometry["area_ratio"]
     assert len(geometry["guest_lattice_origins"]) == geometry["area_ratio"]
+    assert geometry["grid_padding_cells"] > geometry["padding_cells"]
+    assert len(geometry["host_grid_lattice_origins"]) > len(
+        geometry["host_lattice_origins"]
+    )
+    assert len(geometry["guest_grid_lattice_origins"]) > len(
+        geometry["guest_lattice_origins"]
+    )
+    assert all(value >= 3 for value in geometry["host_grid_shape"])
+    assert all(value >= 3 for value in geometry["guest_grid_shape"])
+    assert geometry["host_notation"] == candidate["target_notation"]
+    assert geometry["guest_notation"] == candidate["source_notation"]
     assert np.asarray(geometry["host_primitive_vectors"]).shape == (2, 3)
     assert np.asarray(geometry["guest_primitive_vectors"]).shape == (2, 3)
     assert np.asarray(geometry["cell"]) == pytest.approx(

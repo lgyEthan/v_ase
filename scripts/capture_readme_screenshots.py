@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 from ase import Atoms
 from ase.build import fcc111
+from ase.calculators.singlepoint import SinglePointCalculator
 from ase.io import read
 from ase.io.cube import write_cube
 from PIL import Image
@@ -1302,6 +1303,38 @@ def capture_commensurate_media(browser) -> None:
         page.wait_for_function(
             "window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.padding_cells === 1"
         )
+        preview_context = page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            const preview = app.state.commensurateProposal.data.preview;
+            const children = app.renderer.commensurateSupercellGroup.children;
+            return {
+                hostGridShape: preview.host_grid_shape,
+                guestGridShape: preview.guest_grid_shape,
+                hostNotation: preview.host_notation,
+                guestNotation: preview.guest_notation,
+                hostLabel: children.find(child => child.userData?.commensurateHostCellLabel)?.userData?.labelText,
+                guestLabel: children.find(child => child.userData?.commensurateGuestCellLabel)?.userData?.labelText,
+                suggestedCell: children.some(child => child.userData?.commensurateSuggestedCell)
+            };
+        }""")
+        if min(preview_context["hostGridShape"][:2]) < 3:
+            raise AssertionError("README host primitive grid does not surround the common cell.")
+        if min(preview_context["guestGridShape"][:2]) < 3:
+            raise AssertionError("README guest primitive grid does not surround the common cell.")
+        host_shape_text = f"{preview_context['hostGridShape'][0]} × {preview_context['hostGridShape'][1]}"
+        guest_shape_text = f"{preview_context['guestGridShape'][0]} × {preview_context['guestGridShape'][1]}"
+        if host_shape_text not in str(preview_context["hostLabel"]):
+            raise AssertionError("README host grid dimensions are not printed in its viewport label.")
+        if guest_shape_text not in str(preview_context["guestLabel"]):
+            raise AssertionError("README guest grid dimensions are not printed in its viewport label.")
+        if not all((
+            preview_context["hostNotation"],
+            preview_context["guestNotation"],
+            preview_context["hostLabel"],
+            preview_context["guestLabel"],
+            preview_context["suggestedCell"],
+        )):
+            raise AssertionError("README commensurate cells are missing notation or boundaries.")
         page.locator("details.commensurate-advanced").evaluate("element => { element.open = true; }")
         page.locator("#chk-commensurate-show-atoms").set_checked(True)
         page.wait_for_function(
@@ -1337,7 +1370,7 @@ def capture_commensurate_media(browser) -> None:
             "viewportBackground": "white",
             "commensurateGuide": False,
             "commensurateSnap": False,
-            "commensurateStrainTolerance": 0.01,
+            "commensurateStrainTolerance": 0.02,
             "commensurateMaxAreaRatio": 32,
             "commensurateShowAtoms": False,
         })
@@ -1404,7 +1437,12 @@ def capture_commensurate_media(browser) -> None:
             app.renderer.fitCameraToStructure(bounds);
             app.renderer.renderNow();
         }""")
-        page.wait_for_function("document.getElementById('commensurate-plot').data?.some(trace => trace.meta?.role === 'area-layer')")
+        page.wait_for_function("""() => {
+            const traces = Array.from(document.getElementById('commensurate-plot').data || []);
+            return traces.some(trace => trace.meta?.role === 'angle-area-floor')
+                && traces.some(trace => trace.meta?.role === 'candidate-stems')
+                && traces.some(trace => trace.meta?.role === 'commensurate-candidates');
+        }""")
         page.evaluate("""() => {
             const drawer = document.getElementById('analysis-drawer');
             drawer.style.height = '455px';
@@ -1423,9 +1461,123 @@ def capture_commensurate_media(browser) -> None:
             fov=32,
         )
         set_atomic_scale(page, 32.0)
+        graph_state = page.evaluate("""() => {
+            const plot = document.getElementById('commensurate-plot');
+            return {
+                xTitle: plot.layout.scene?.xaxis?.title?.text,
+                perspective: plot.layout.scene?.camera?.projection?.type,
+                xAspect: Number(plot.layout.scene?.aspectratio?.x || 0),
+                zAspect: Number(plot.layout.scene?.aspectratio?.z || 0)
+            };
+        }""")
+        if graph_state["xTitle"] != "rotation θ / °":
+            raise AssertionError("README commensurate graph does not expose rotation as its x axis.")
+        if graph_state["perspective"] != "perspective" or graph_state["xAspect"] <= graph_state["zAspect"]:
+            raise AssertionError("README commensurate graph is not presented as a legible 3D landscape.")
         page.wait_for_timeout(350)
         screenshot_frame(page).save(
             ASSET_DIR / "readme_commensurate_host_guest.png",
+            optimize=True,
+        )
+    finally:
+        page.close()
+        editor.close()
+
+
+def capture_registry_media(browser) -> None:
+    atoms, indices = make_graphene_hbn_commensurate_scene()
+    editor, page = open_scene(browser, atoms, show_bonds=True, viz_only=False)
+    try:
+        command_url = external_ai_command_url(editor)
+        set_display(page, {
+            "atomRadiusScale": 0.48,
+            "showBonds": True,
+            "bondThickness": 0.16,
+            "showGrid": False,
+            "showCell": True,
+            "showAxes": False,
+            "viewportBackground": "white",
+            "supercell": [4, 4, 1],
+            "labelColors": {"C": "#3f4b50", "B": "#d69a4b", "N": "#3c70c5"},
+        })
+        configure_inspector(page, "analysis", ["registry-map"], width=455)
+        page.add_style_tag(content="""
+            #measurement-overlay,
+            #selection-measure-readout,
+            #hover-readout,
+            #coord-readout { display: none !important; }
+        """)
+        set_selection(page, indices["hbn"])
+        result = run_external_ai_apply(command_url, {
+            "operation": {
+                "name": "calculate-registry-map",
+                "indices": indices["hbn"],
+                "metric": "bond-strain",
+                "gridX": 40,
+                "gridY": 40,
+                "pairCutoffs": {
+                    "B|C": {"enabled": True, "max": 4.2},
+                    "C|N": {"enabled": True, "max": 4.2},
+                },
+            },
+        })
+        registry = result["analysis"]["registryMap"]
+        if registry["grid"] != [40, 40] or registry["selectedIndices"] != indices["hbn"]:
+            raise AssertionError("README registry map did not retain its selected layer or grid.")
+        if registry["metric"] != "bond-strain" or registry["optimumValue"] <= 0:
+            raise AssertionError("README registry map did not retain its physical bond-strain metric.")
+        page.wait_for_selector("#registry-plot .plotly", state="attached")
+        page.evaluate("""() => {
+            const drawer = document.getElementById('analysis-drawer');
+            drawer.style.height = '500px';
+            window.Plotly?.Plots?.resize?.(document.getElementById('registry-plot'));
+            window.__V_ASE_APP__.renderer.fitCameraToStructure();
+            window.__V_ASE_APP__.renderer.renderNow();
+        }""")
+        cell = np.asarray(atoms.cell.array, dtype=float)
+        target = np.mean(atoms.positions, axis=0) + 1.5 * (cell[0] + cell[1])
+        set_camera(
+            page,
+            target=target.tolist(),
+            position=(target + np.array([0.0, 0.0, 34.0])).tolist(),
+            up=(0.0, 1.0, 0.0),
+            fov=32,
+        )
+        set_atomic_scale(page, 34.0)
+        page.wait_for_timeout(300)
+        plot_state = page.evaluate("""() => {
+            const plot = document.getElementById('registry-plot');
+            const titleText = title => typeof title === 'string' ? title : title?.text;
+            return {
+                traceCount: plot.data?.length || 0,
+                xTitle: titleText(plot.layout?.xaxis?.title),
+                yTitle: titleText(plot.layout?.yaxis?.title),
+                xRange: plot.layout?.xaxis?.range,
+                yRange: plot.layout?.yaxis?.range,
+                xConstraint: plot.layout?.xaxis?.constrain,
+                yConstraint: plot.layout?.yaxis?.constrain,
+                valueSpan: (() => {
+                    const values = (plot.data?.[0]?.z || []).flat().map(Number).filter(Number.isFinite);
+                    return values.length ? Math.max(...values) - Math.min(...values) : 0;
+                })(),
+                optimum: window.__V_ASE_APP__.state.registryResult?.optimum_fractional,
+                active: window.__V_ASE_APP__.state.activeAnalysisPlot
+            };
+        }""")
+        if plot_state["traceCount"] != 3 or plot_state["active"] != "registry":
+            raise AssertionError("README registry heatmap is not active with both map markers.")
+        if plot_state["xTitle"] != "fractional translation u" or plot_state["yTitle"] != "fractional translation v":
+            raise AssertionError("README registry map is missing its periodic fractional axes.")
+        if plot_state["xRange"] != [0, 1] or plot_state["yRange"] != [0, 1]:
+            raise AssertionError("README registry map expanded beyond one periodic translation cell.")
+        if plot_state["xConstraint"] != "domain" or plot_state["yConstraint"] != "domain":
+            raise AssertionError("README registry map does not preserve a readable square domain.")
+        if len(plot_state["optimum"] or []) != 2:
+            raise AssertionError("README registry map does not expose a suggested minimum.")
+        if plot_state["valueSpan"] < 0.02:
+            raise AssertionError("README registry heatmap lacks a visibly meaningful value range.")
+        screenshot_frame(page).save(
+            ASSET_DIR / "readme_registry_map.png",
             optimize=True,
         )
     finally:
@@ -2087,9 +2239,24 @@ def capture_constraint_media(browser) -> None:
         base = hookean_atoms.get_positions()
         carbon_pos = base[indices["carbon"]].copy()
         oxygen_pos = base[indices["oxygen"]].copy()
+        hookean = next(
+            constraint
+            for constraint in hookean_atoms.constraints
+            if getattr(constraint, "indices", None) == [indices["carbon"], indices["oxygen"]]
+        )
+        threshold = float(hookean.threshold)
+        spring_constant = float(hookean.spring)
+        initial_distance = float(hookean_atoms.get_distance(
+            indices["carbon"],
+            indices["oxygen"],
+            mic=True,
+        ))
+        if initial_distance >= threshold:
+            raise AssertionError("README Hookean example must begin inside its zero-force rt region.")
         direction = oxygen_pos - carbon_pos
         direction /= np.linalg.norm(direction)
-        preview_delta = direction * 1.38
+        preview_distance = threshold + 0.95
+        preview_delta = direction * (preview_distance - initial_distance)
         target = (carbon_pos + oxygen_pos) * 0.5 + preview_delta * 0.48 + np.array([0.15, 0.05, 0.12])
         settle_view(page, target=target.tolist(), position=(target + np.array([3.9, -4.7, 2.9])).tolist(), fov=33)
         set_atomic_scale(page, min(230.0, MEDIA_SIZE[0] / 9.5))
@@ -2098,8 +2265,43 @@ def capture_constraint_media(browser) -> None:
         active_preview[indices["oxygen"]] += preview_delta
         active_preview[indices["hydroxyl_h"]] += preview_delta
         update_positions(page, active_preview)
+        rendered_hookean = page.evaluate("""() => {
+            const group = window.__V_ASE_APP__.renderer.hookeanGroup.children[0];
+            const spring = group.children.find(child => child.userData?.springLine);
+            spring.geometry.computeBoundingBox();
+            const bounds = spring.geometry.boundingBox;
+            const label = group.children.find(child => child.userData?.hookeanThresholdLabel);
+            return {
+                state: group.userData.hookeanState,
+                distance: group.userData.hookeanDistance,
+                threshold: group.userData.hookeanThreshold,
+                extension: group.userData.hookeanExtension,
+                label: label?.userData?.hookeanThresholdText,
+                springXSpan: bounds.max.x - bounds.min.x,
+                springZSpan: bounds.max.z - bounds.min.z
+            };
+        }""")
+        if rendered_hookean["state"] != "active":
+            raise AssertionError("README Hookean spring is not shown in its active regime.")
+        if not np.isclose(rendered_hookean["distance"], preview_distance, atol=1e-7):
+            raise AssertionError("README Hookean distance does not match the displayed atom geometry.")
+        if not np.isclose(rendered_hookean["threshold"], threshold, atol=1e-12):
+            raise AssertionError("README Hookean rt does not match the ASE constraint.")
+        if not np.isclose(
+            rendered_hookean["extension"],
+            preview_distance - threshold,
+            atol=1e-7,
+        ):
+            raise AssertionError("README Hookean extension is not max(0, distance - rt).")
+        if rendered_hookean["label"] != f"rt {threshold:.2f} Å":
+            raise AssertionError("README Hookean cutoff label is not synchronized with ASE rt.")
+        if min(rendered_hookean["springXSpan"], rendered_hookean["springZSpan"]) <= 0.18:
+            raise AssertionError("README Hookean spring does not retain visible 3D helical depth.")
+        expected_force = spring_constant * (preview_distance - threshold)
+        if expected_force <= 0:
+            raise AssertionError("README Hookean active force must be positive beyond rt.")
         page.screenshot(path=ASSET_DIR / "readme_hookean.png")
-        end = carbon_pos + direction * 3.02
+        end = carbon_pos + direction * (threshold + 1.50)
         delta = end - oxygen_pos
         capture_animation(
             page,
@@ -2526,32 +2728,57 @@ def capture_volumetric_media(browser) -> None:
             for material in opacity_state["materials"]
         ):
             raise AssertionError("README isosurface opacity was not applied to its materials.")
-        opacity_frames = []
-        opacity_values = [0.24, 0.34, 0.46, 0.60, 0.74, 0.60, 0.46, 0.34]
-        for opacity in opacity_values:
+        level_frames = []
+        maximum_level = float(max(abs(dataset["minimum"]), abs(dataset["maximum"])))
+        level_values = [
+            maximum_level * fraction
+            for fraction in (0.10, 0.14, 0.19, 0.25, 0.31, 0.25, 0.19, 0.14)
+        ]
+        for level in level_values:
             page.evaluate(
-                """(opacity) => {
-                    const input = document.getElementById('volume-opacity');
-                    input.value = `${opacity}`;
-                    input.dispatchEvent(new Event('input', {bubbles: true}));
+                """(level) => {
+                    const slider = document.getElementById('volume-level-slider');
+                    slider.value = `${level}`;
+                    slider.dispatchEvent(new Event('input', {bubbles: true}));
+                    slider.dispatchEvent(new Event('change', {bubbles: true}));
                 }""",
-                opacity,
+                level,
             )
-            page.wait_for_timeout(70)
-            opacity_frames.append(screenshot_frame(page))
+            page.wait_for_function(
+                """level => {
+                    const app = window.__V_ASE_APP__;
+                    const summary = app.state.volumetricSurfaceSummary;
+                    return summary
+                        && Math.abs(Number(summary.requestedLevel) - Number(level)) < 1e-8
+                        && Number(app.renderer.domElement.dataset.volumetricSurfaceCount || 0) >= 2;
+                }""",
+                arg=level,
+                timeout=30_000,
+            )
+            page.wait_for_timeout(55)
+            level_frames.append(screenshot_frame(page))
         save_gif(
-            opacity_frames,
+            level_frames,
             ASSET_DIR / "readme_volumetric.gif",
-            duration=125,
+            duration=145,
         )
         page.evaluate(
-            """() => {
-                const input = document.getElementById('volume-opacity');
-                input.value = '0.56';
-                input.dispatchEvent(new Event('input', {bubbles: true}));
-            }"""
+            """level => {
+                const slider = document.getElementById('volume-level-slider');
+                slider.value = `${level}`;
+                slider.dispatchEvent(new Event('input', {bubbles: true}));
+                slider.dispatchEvent(new Event('change', {bubbles: true}));
+            }""",
+            float(np.max(np.abs(values)) * 0.22),
         )
-        page.wait_for_timeout(300)
+        page.wait_for_function(
+            """level => Math.abs(
+                Number(window.__V_ASE_APP__.state.volumetricSurfaceSummary?.requestedLevel)
+                - Number(level)
+            ) < 1e-8""",
+            arg=float(np.max(np.abs(values)) * 0.22),
+            timeout=30_000,
+        )
         screenshot_frame(page).save(
             ASSET_DIR / "readme_volumetric.png",
             optimize=True,
@@ -2565,7 +2792,9 @@ def capture_volumetric_media(browser) -> None:
                 "hkl": [0, 0, 1],
                 "resolution": 512,
                 "colormap": "coolwarm",
-                "autoRange": True,
+                "autoRange": False,
+                "vmin": -maximum_level * 0.42,
+                "vmax": maximum_level * 0.42,
                 "opacity": 0.68,
                 "visible": True,
             },
@@ -2575,24 +2804,42 @@ def capture_volumetric_media(browser) -> None:
             "id": plane["id"],
             "minimum": plane["offsetRangeAngstrom"][0],
             "maximum": plane["offsetRangeAngstrom"][1],
+            "vmin": -maximum_level * 0.42,
+            "vmax": maximum_level * 0.42,
         }
         page.wait_for_function(
             """() => window.__V_ASE_APP__.renderer.volumetricPlanes.size === 1"""
         )
+        run_external_ai_apply(command_url, {
+            "display": {
+                "showVolumetric": False,
+                "showCell": True,
+                "showGrid": False,
+                "showAxes": False,
+            },
+        })
         page.evaluate(
             """() => {
                 const app = window.__V_ASE_APP__;
                 app.setVolumetricToolView('planes');
-                const input = document.getElementById('volume-opacity');
-                input.value = '0.42';
-                input.dispatchEvent(new Event('input', {bubbles: true}));
                 const panel = document.querySelector('.volume-plane-panel');
                 panel.scrollIntoView({block: 'start', behavior: 'instant'});
             }"""
         )
-        page.wait_for_timeout(120)
+        set_camera(
+            page,
+            target=center.tolist(),
+            position=(center + np.array([0.0, 0.0, 24.0])).tolist(),
+            up=(0.0, 1.0, 0.0),
+            fov=32,
+        )
+        set_atomic_scale(page, 58.0)
+        page.wait_for_timeout(180)
         span = plane_state["maximum"] - plane_state["minimum"]
-        offsets = [0.32, 0.40, 0.48, 0.56, 0.64, 0.56, 0.48, 0.40]
+        offsets = [
+            *np.linspace(0.38, 0.62, 25),
+            *np.linspace(0.61, 0.39, 23),
+        ]
         plane_frames = []
         for fraction in offsets:
             offset = plane_state["minimum"] + span * fraction
@@ -2601,16 +2848,32 @@ def capture_volumetric_media(browser) -> None:
                     "name": "update-volumetric-planes",
                     "planeIds": [plane_state["id"]],
                     "offsetAngstrom": offset,
+                    "autoRange": False,
+                    "vmin": plane_state["vmin"],
+                    "vmax": plane_state["vmax"],
                 },
             })
-            page.wait_for_timeout(90)
+            fixed_range = page.evaluate(
+                """id => {
+                    const plane = window.__V_ASE_APP__.state.display.volumetricPlanes
+                        .find(candidate => candidate.id === id);
+                    return [plane.autoRange, plane.vmin, plane.vmax];
+                }""",
+                plane_state["id"],
+            )
+            if fixed_range[0] or not np.allclose(
+                fixed_range[1:],
+                [plane_state["vmin"], plane_state["vmax"]],
+            ):
+                raise AssertionError("README plane animation changed its fixed color range.")
+            page.wait_for_timeout(45)
             plane_frames.append(screenshot_frame(page))
         save_gif(
             plane_frames,
             ASSET_DIR / "readme_volumetric_plane.gif",
-            duration=130,
+            duration=105,
         )
-        plane_frames[3].save(
+        plane_frames[len(plane_frames) // 2].save(
             ASSET_DIR / "readme_volumetric_plane.png",
             optimize=True,
         )
@@ -2639,6 +2902,28 @@ def make_atom_colorscale_trajectory() -> list[Atoms]:
         uncertainty += 0.025 * (atoms.positions[:, 2] - np.min(atoms.positions[:, 2]))
         uncertainty[-1] = 1.0
         atoms.set_array("mlip_uncertainty", uncertainty.astype(np.float32))
+        forces = np.zeros((len(atoms), 3), dtype=float)
+        tangent = np.array([
+            x_max - x_min,
+            0.55 * 2.0 * math.pi * math.cos(2.0 * math.pi * fraction),
+            -0.45,
+        ])
+        tangent /= np.linalg.norm(tangent)
+        counter_target = np.array([
+            x_min + 0.24 * (x_max - x_min),
+            y_min + 0.28 * (y_max - y_min),
+        ])
+        counter = int(np.argmin(np.linalg.norm(
+            atoms.positions[:-1, :2] - counter_target,
+            axis=1,
+        )))
+        forces[-1] = 0.82 * tangent
+        forces[counter] = -forces[-1]
+        atoms.calc = SinglePointCalculator(
+            atoms,
+            energy=float(-0.5 + 0.03 * frame_index),
+            forces=forces,
+        )
         atoms.info["readme_scene"] = "trajectory_consistent_atom_colorscale"
         atoms.info["frame_index"] = frame_index
         frames.append(atoms)
@@ -2657,6 +2942,11 @@ def capture_atom_colorscale_media(browser) -> None:
             "showAxes": False,
             "viewportBackground": "white",
             "lightingMode": "studio-shadow",
+            "showForceVectors": True,
+            "forceVectorStyle": "3d",
+            "forceVectorScale": 3.6,
+            "forceVectorThickness": 0.12,
+            "forceVectorColor": "#c43f5e",
         })
         configure_inspector(page, "structure", ["appearance"], width=475)
         result = page.evaluate(
@@ -2683,6 +2973,9 @@ def capture_atom_colorscale_media(browser) -> None:
         page.wait_for_selector("#atom-colorscale-legend:not(.hidden)")
         page.wait_for_function(
             "window.__V_ASE_APP__.renderer.atomColorScaleColors?.filter(Boolean).length > 100"
+        )
+        page.wait_for_function(
+            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.forceVectorCount) === 2"
         )
         page.evaluate(
             """() => {
@@ -2723,6 +3016,24 @@ def capture_atom_colorscale_media(browser) -> None:
                     window.__V_ASE_APP__.state.display.atomColorScaleMax
                 ]"""
             ))
+            force_alignment = page.evaluate("""() => {
+                const app = window.__V_ASE_APP__;
+                const entries = app.renderer.forceVectorGroup.userData.entries || [];
+                const forces = app.state.atoms.forces || [];
+                return entries.map(entry => {
+                    const source = forces[entry.index] || [0, 0, 0];
+                    const direction = entry.vector || [0, 0, 0];
+                    const sourceLength = Math.hypot(...source);
+                    const directionLength = Math.hypot(...direction);
+                    if (sourceLength <= 1e-12 || directionLength <= 1e-12) return 0;
+                    return direction.reduce(
+                        (sum, value, axis) => sum + value * source[axis],
+                        0
+                    ) / (sourceLength * directionLength);
+                });
+            }""")
+            if len(force_alignment) != 2 or min(force_alignment) < 1 - 1e-8:
+                raise AssertionError("README force arrows do not follow the stored Cartesian forces.")
             gif_frames.append(screenshot_frame(page))
         reference_range = np.asarray(ranges[0], dtype=float)
         if not all(np.allclose(np.asarray(item, dtype=float), reference_range) for item in ranges[1:]):
@@ -2770,7 +3081,7 @@ def capture_rdf_media(browser) -> None:
                         name: 'calculate-rdf',
                         cutoff: 11.0,
                         bins: 180,
-                        pairMode: 'none'
+                        pairMode: 'all'
                     }
                 });
                 const rdf = window.__V_ASE_APP__.state.rdfResult;
@@ -2786,7 +3097,8 @@ def capture_rdf_media(browser) -> None:
                 return {
                     mean,
                     standardDeviation: Math.sqrt(variance),
-                    tailCount: tail.length
+                    tailCount: tail.length,
+                    partialNames: Object.keys(rdf.partial || {})
                 };
             }"""
         )
@@ -2794,6 +3106,8 @@ def capture_rdf_media(browser) -> None:
             raise AssertionError(
                 "README amorphous RDF does not reach a flat bulk plateau."
             )
+        if len(result["partialNames"]) < 3:
+            raise AssertionError("README RDF does not show all pairwise curves.")
         page.wait_for_selector("#rdf-plot .plotly", state="attached")
         page.wait_for_selector(
             "#rdf-plot .annotation-text",
@@ -2831,6 +3145,7 @@ def capture_rdf_media(browser) -> None:
 
 
 def capture_analysis_media(browser) -> None:
+    capture_registry_media(browser)
     capture_volumetric_media(browser)
     capture_atom_colorscale_media(browser)
     capture_rdf_media(browser)
@@ -2854,6 +3169,7 @@ def main() -> int:
             "phosphorene",
             "ferrocene",
             "commensurate",
+            "registry",
             "bonds",
             "materials",
             "ai",
@@ -2862,6 +3178,9 @@ def main() -> int:
             "constraints",
             "measurement",
             "relaxation",
+            "volumetric",
+            "colorscale",
+            "rdf",
             "analysis",
         ),
         help="Regenerate one README scene group.",
@@ -2885,6 +3204,7 @@ def main() -> int:
                 "phosphorene": capture_phosphorene_media,
                 "ferrocene": capture_ferrocene_media,
                 "commensurate": capture_commensurate_media,
+                "registry": capture_registry_media,
                 "bonds": capture_bond_media,
                 "materials": capture_material_media,
                 "ai": capture_ai_edit_media,
@@ -2893,6 +3213,9 @@ def main() -> int:
                 "constraints": capture_constraint_media,
                 "measurement": capture_measurement_media,
                 "relaxation": capture_relaxation_media,
+                "volumetric": capture_volumetric_media,
+                "colorscale": capture_atom_colorscale_media,
+                "rdf": capture_rdf_media,
                 "analysis": capture_analysis_media,
             }
             if args.only:

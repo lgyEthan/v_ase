@@ -52,12 +52,12 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.1&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.2&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.2.1';
+            : '/static/vendor/three.module.js?v=0.2.2';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -116,7 +116,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.2.1</span>
+            <span class="version">0.2.2</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -574,6 +574,43 @@
                 <span class="p-label">Mapped</span><span id="displacement-mapped" class="p-val">-</span>
                 <span class="p-label">Mean / RMS</span><span id="displacement-mean-rms" class="p-val">-</span>
                 <span class="p-label">Maximum</span><span id="displacement-max" class="p-val">-</span>
+            </div>
+        </details>
+
+        <details class="panel-section" open data-panel="forces" data-panel-group="analysis">
+            <summary class="section-header">Forces</summary>
+            <div class="prop-row">
+                <label for="chk-force-vectors">Show vectors</label>
+                <input type="checkbox" id="chk-force-vectors">
+            </div>
+            <div class="prop-row">
+                <label for="force-vector-style">Vector style</label>
+                <select id="force-vector-style">
+                    <option value="3d">3D arrow</option>
+                    <option value="2d">2D flat arrow</option>
+                </select>
+            </div>
+            <div class="range-row">
+                <div class="range-head">
+                    <label for="force-vector-scale">Length scale</label>
+                    <output id="force-vector-scale-value">1.00 A per eV/A</output>
+                </div>
+                <input id="force-vector-scale" type="range" min="0.02" max="5" step="0.02" value="1">
+            </div>
+            <div class="range-row">
+                <div class="range-head">
+                    <label for="force-vector-thickness">Thickness</label>
+                    <output id="force-vector-thickness-value">0.08 A</output>
+                </div>
+                <input id="force-vector-thickness" type="range" min="0.01" max="0.5" step="0.01" value="0.08">
+            </div>
+            <div class="prop-row">
+                <label for="force-vector-color">Color</label>
+                <input id="force-vector-color" type="color" value="#c43f5e">
+            </div>
+            <div id="force-vector-status" class="analysis-status" data-state="idle">
+                <span class="analysis-status-title">Force vectors hidden</span>
+                <span class="analysis-status-detail">Enable Show vectors when per-atom forces are available.</span>
             </div>
         </details>
 
@@ -1610,7 +1647,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.2.1&rev=1';
+            : './static/main.js?v=0.2.2&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

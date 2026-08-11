@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.1&rev=1';
-import { ASERenderer } from './renderer.js?v=0.2.1&rev=1';
-import { ASESelection } from './selection.js?v=0.2.1&rev=1';
-import { ASETransform } from './transform.js?v=0.2.1&rev=1';
+import { ASEApi } from './api.js?v=0.2.2&rev=1';
+import { ASERenderer } from './renderer.js?v=0.2.2&rev=1';
+import { ASESelection } from './selection.js?v=0.2.2&rev=1';
+import { ASETransform } from './transform.js?v=0.2.2&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.1&rev=1';
+} from './trajectory.js?v=0.2.2&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -195,6 +195,11 @@ class VAseApp {
                 displacementScale: 1,
                 displacementThickness: 0.08,
                 displacementColor: '#e58b2a',
+                showForceVectors: false,
+                forceVectorStyle: '3d',
+                forceVectorScale: 1,
+                forceVectorThickness: 0.08,
+                forceVectorColor: '#c43f5e',
                 showVolumetric: false,
                 volumetricPrecision: 'float32',
                 volumetricDatasetId: '',
@@ -353,6 +358,7 @@ class VAseApp {
             this.setupInspectorResizer();
             this.setupInspectorNavigation();
             this.setupDisplacementAnalysis();
+            this.setupForceAnalysis();
             this.setupVolumetricAnalysis();
             this.setupRdfAnalysis();
             this.setupRegistryAnalysis();
@@ -2726,6 +2732,96 @@ class VAseApp {
         }
     }
 
+    setupForceAnalysis() {
+        const restyle = () => this.readForceVectorControls();
+        document.getElementById('chk-force-vectors')?.addEventListener('change', restyle);
+        document.getElementById('force-vector-style')?.addEventListener('change', restyle);
+        document.getElementById('force-vector-scale')?.addEventListener('input', restyle);
+        document.getElementById('force-vector-thickness')?.addEventListener('input', restyle);
+        document.getElementById('force-vector-color')?.addEventListener('input', restyle);
+        this.syncForceVectorControls();
+    }
+
+    readForceVectorControls({ applyRenderer = true } = {}) {
+        const color = document.getElementById('force-vector-color')?.value;
+        Object.assign(this.state.display, {
+            showForceVectors: Boolean(document.getElementById('chk-force-vectors')?.checked),
+            forceVectorStyle: document.getElementById('force-vector-style')?.value === '2d'
+                ? '2d'
+                : '3d',
+            forceVectorScale: Math.max(
+                0.02,
+                Math.min(5, Number(document.getElementById('force-vector-scale')?.value) || 1)
+            ),
+            forceVectorThickness: Math.max(
+                0.01,
+                Math.min(0.5, Number(document.getElementById('force-vector-thickness')?.value) || 0.08)
+            ),
+            forceVectorColor: /^#[0-9a-f]{6}$/i.test(color || '') ? color : '#c43f5e'
+        });
+        this.syncForceVectorControls();
+        if (applyRenderer) {
+            this.renderer.setDisplayOptions(this.state.display);
+            this.scheduleVisualHistoryCommit('force-vectors');
+        }
+        this.updateForceVectorStatus();
+    }
+
+    syncForceVectorControls(display = this.state.display) {
+        const setValue = (id, value) => {
+            const element = document.getElementById(id);
+            if (element && document.activeElement !== element) element.value = `${value}`;
+        };
+        const enabled = document.getElementById('chk-force-vectors');
+        if (enabled) enabled.checked = Boolean(display.showForceVectors);
+        setValue('force-vector-style', display.forceVectorStyle === '2d' ? '2d' : '3d');
+        setValue('force-vector-scale', Number(display.forceVectorScale) || 1);
+        setValue('force-vector-thickness', Number(display.forceVectorThickness) || 0.08);
+        setValue('force-vector-color', display.forceVectorColor || '#c43f5e');
+        const scaleOutput = document.getElementById('force-vector-scale-value');
+        if (scaleOutput) {
+            scaleOutput.textContent = `${(Number(display.forceVectorScale) || 1).toFixed(2)} A per eV/A`;
+        }
+        const thicknessOutput = document.getElementById('force-vector-thickness-value');
+        if (thicknessOutput) {
+            thicknessOutput.textContent = `${(Number(display.forceVectorThickness) || 0.08).toFixed(2)} A`;
+        }
+        this.updateForceVectorStatus();
+    }
+
+    updateForceVectorStatus() {
+        const status = document.getElementById('force-vector-status');
+        if (!status) return;
+        const title = status.querySelector('.analysis-status-title');
+        const detail = status.querySelector('.analysis-status-detail');
+        const forces = Array.isArray(this.state.atoms?.forces) ? this.state.atoms.forces : [];
+        const finite = forces.filter(vector => (
+            Array.isArray(vector)
+            && vector.length >= 3
+            && vector.slice(0, 3).every(value => Number.isFinite(Number(value)))
+        ));
+        const nonzero = finite.filter(vector => (
+            Number(vector[0]) ** 2 + Number(vector[1]) ** 2 + Number(vector[2]) ** 2 > 1e-14
+        ));
+        if (!this.state.display.showForceVectors) {
+            status.dataset.state = 'idle';
+            if (title) title.textContent = 'Force vectors hidden';
+            if (detail) detail.textContent = finite.length
+                ? `${finite.length} per-atom force values are available in this frame.`
+                : 'This frame does not contain per-atom force values.';
+            return;
+        }
+        if (!finite.length) {
+            status.dataset.state = 'warning';
+            if (title) title.textContent = 'Forces unavailable';
+            if (detail) detail.textContent = 'Load a frame with calculator or per-atom force data.';
+            return;
+        }
+        status.dataset.state = 'ready';
+        if (title) title.textContent = `${nonzero.length} force vector${nonzero.length === 1 ? '' : 's'}`;
+        if (detail) detail.textContent = 'Arrow direction follows the stored Cartesian force vector.';
+    }
+
     volumetricDatasets() {
         const datasets = this.state.atoms?.metadata?.volumetric_datasets;
         return Array.isArray(datasets) ? datasets : [];
@@ -4597,27 +4693,30 @@ class VAseApp {
         const areaPadding = areaMaximum > areaMinimum
             ? Math.max(0.5, (areaMaximum - areaMinimum) * 0.08)
             : 0.65;
-        const nearest = candidates
+        const areaTicks = [...new Set(areas)].sort((first, second) => first - second);
+        const nearest = [...candidates]
             .sort((first, second) => Math.abs(first.deltaDeg) - Math.abs(second.deltaDeg))[0] || null;
         const layers = new Map();
         candidates.forEach(candidate => {
-            const area = Number(candidate.host_area_ratio ?? candidate.area_ratio ?? candidate.area);
-            if (!layers.has(area)) layers.set(area, []);
-            layers.get(area).push(candidate);
+            const angleKey = Number(candidate.plotAngleDeg).toFixed(5);
+            if (!layers.has(angleKey)) layers.set(angleKey, []);
+            layers.get(angleKey).push(candidate);
         });
-        const areaLayers = [...layers.entries()]
-            .sort(([first], [second]) => first - second)
-            .map(([area, entries]) => ({
-                area,
+        const angleLayers = [...layers.entries()]
+            .sort(([first], [second]) => Number(first) - Number(second))
+            .map(([angle, entries]) => ({
+                angle: Number(angle),
                 candidates: entries.sort((first, second) => (
-                    Number(first.plotAngleDeg) - Number(second.plotAngleDeg)
+                    Number(first.host_area_ratio ?? first.area_ratio ?? first.area)
+                    - Number(second.host_area_ratio ?? second.area_ratio ?? second.area)
                     || Number(first.max_principal_strain ?? first.strain)
                         - Number(second.max_principal_strain ?? second.strain)
                 ))
             }));
         return {
             candidates,
-            areaLayers,
+            angleLayers,
+            areaTicks,
             nearest,
             axis: {
                 x: [angleMinimum, angleMaximum],
@@ -4636,6 +4735,11 @@ class VAseApp {
                 x: [[angleDeg, angleDeg], [angleDeg, angleDeg]],
                 y: [[areaMinimum, areaMaximum], [areaMinimum, areaMaximum]],
                 z: [[0, 0], [strainRangeMaximum, strainRangeMaximum]]
+            },
+            floor: {
+                x: [[angleMinimum, angleMaximum], [angleMinimum, angleMaximum]],
+                y: [[areaMinimum, areaMinimum], [areaMaximum, areaMaximum]],
+                z: [[0, 0], [0, 0]]
             }
         };
     }
@@ -4725,26 +4829,21 @@ class VAseApp {
             });
             return;
         }
-        const layerBaseX = [];
-        const layerBaseY = [];
-        const layerBaseZ = [];
-        const layerCurveX = [];
-        const layerCurveY = [];
-        const layerCurveZ = [];
-        geometry.areaLayers.forEach(layer => {
-            layerBaseX.push(geometry.axis.x[0], geometry.axis.x[1], null);
-            layerBaseY.push(layer.area, layer.area, null);
-            layerBaseZ.push(0, 0, null);
-            if (layer.candidates.length > 1) {
-                layer.candidates.forEach(candidate => {
-                    layerCurveX.push(Number(candidate.plotAngleDeg));
-                    layerCurveY.push(layer.area);
-                    layerCurveZ.push(Number(candidate.max_principal_strain ?? candidate.strain) * 100);
-                });
-                layerCurveX.push(null);
-                layerCurveY.push(null);
-                layerCurveZ.push(null);
-            }
+        const sliceCurveX = [];
+        const sliceCurveY = [];
+        const sliceCurveZ = [];
+        geometry.angleLayers.forEach(layer => {
+            if (layer.candidates.length < 2) return;
+            layer.candidates.forEach(candidate => {
+                sliceCurveX.push(layer.angle);
+                sliceCurveY.push(Number(
+                    candidate.host_area_ratio ?? candidate.area_ratio ?? candidate.area
+                ));
+                sliceCurveZ.push(Number(candidate.max_principal_strain ?? candidate.strain) * 100);
+            });
+            sliceCurveX.push(null);
+            sliceCurveY.push(null);
+            sliceCurveZ.push(null);
         });
         const stemX = [];
         const stemY = [];
@@ -4756,61 +4855,104 @@ class VAseApp {
             stemY.push(area, area, null);
             stemZ.push(0, strain, null);
         });
-        const layerTrace = {
-            type: 'scatter3d',
-            mode: 'lines',
-            meta: { role: 'area-layer' },
-            name: 'Host area layers',
-            x: layerBaseX,
-            y: layerBaseY,
-            z: layerBaseZ,
-            line: { color: theme.line, width: 2.2 },
-            hoverinfo: 'skip'
+        const floorGridX = [];
+        const floorGridY = [];
+        const floorGridZ = [];
+        const appendFloorLine = (first, second) => {
+            floorGridX.push(first[0], second[0], null);
+            floorGridY.push(first[1], second[1], null);
+            floorGridZ.push(0, 0, null);
         };
+        const angleSpan = geometry.axis.x[1] - geometry.axis.x[0];
+        for (let index = 0; index <= 6; index += 1) {
+            const x = geometry.axis.x[0] + angleSpan * index / 6;
+            appendFloorLine(
+                [x, geometry.axis.yRange[0]],
+                [x, geometry.axis.yRange[1]]
+            );
+        }
+        const areaGrid = geometry.areaTicks.length > 8
+            ? geometry.areaTicks.filter((_, index) => index % Math.ceil(geometry.areaTicks.length / 8) === 0)
+            : geometry.areaTicks;
+        [...new Set([
+            geometry.axis.yRange[0],
+            ...areaGrid,
+            geometry.axis.yRange[1]
+        ])].forEach(y => appendFloorLine(
+            [geometry.axis.x[0], y],
+            [geometry.axis.x[1], y]
+        ));
+        const axisTrace = (role, x, y, z, label) => ({
+            type: 'scatter3d',
+            mode: 'lines+text',
+            meta: { role },
+            name: label,
+            x,
+            y,
+            z,
+            text: ['', label],
+            textposition: 'top center',
+            textfont: { color: theme.text, size: 12 },
+            line: { color: theme.text, width: role === 'rotation-axis' ? 8 : 6 },
+            hoverinfo: 'skip'
+        });
+        const axisY0 = geometry.axis.yRange[0];
+        const axisZ1 = geometry.axis.zRange[1];
         await Plotly.react(plot, [
             {
-                type: 'scatter3d',
-                mode: 'lines',
-                name: 'Rotation axis',
-                meta: { role: 'rotation-axis' },
-                x: geometry.axis.x,
-                y: geometry.axis.y,
-                z: geometry.axis.z,
-                line: { color: theme.text, width: 7 },
-                hoverinfo: 'skip'
+                type: 'surface',
+                name: 'Angle-area floor',
+                meta: { role: 'angle-area-floor' },
+                showscale: false,
+                hoverinfo: 'skip',
+                opacity: 0.20,
+                x: geometry.floor.x,
+                y: [[geometry.axis.yRange[0], geometry.axis.yRange[0]], [geometry.axis.yRange[1], geometry.axis.yRange[1]]],
+                z: geometry.floor.z,
+                surfacecolor: [[0, 0], [0, 0]],
+                colorscale: [[0, theme.muted], [1, theme.muted]]
             },
             {
                 type: 'scatter3d',
                 mode: 'lines',
-                name: 'Area axis',
-                meta: { role: 'area-axis' },
-                x: geometry.axis.areaX,
-                y: geometry.axis.areaY,
-                z: geometry.axis.areaZ,
-                line: { color: theme.text, width: 6 },
+                meta: { role: 'angle-area-grid' },
+                name: 'Angle-area grid',
+                x: floorGridX,
+                y: floorGridY,
+                z: floorGridZ,
+                line: { color: theme.line, width: 2 },
                 hoverinfo: 'skip'
             },
+            axisTrace(
+                'rotation-axis',
+                geometry.axis.x,
+                [axisY0, axisY0],
+                [0, 0],
+                ''
+            ),
+            axisTrace(
+                'area-axis',
+                [geometry.axis.x[0], geometry.axis.x[0]],
+                geometry.axis.yRange,
+                [0, 0],
+                'host area / A₀'
+            ),
+            axisTrace(
+                'strain-axis',
+                [geometry.axis.x[0], geometry.axis.x[0]],
+                [axisY0, axisY0],
+                [0, axisZ1],
+                'max strain / %'
+            ),
             {
                 type: 'scatter3d',
                 mode: 'lines',
-                name: 'Strain axis',
-                meta: { role: 'strain-axis' },
-                x: geometry.axis.strainX,
-                y: geometry.axis.strainY,
-                z: geometry.axis.strainZ,
-                line: { color: theme.text, width: 6 },
-                hoverinfo: 'skip'
-            },
-            layerTrace,
-            {
-                type: 'scatter3d',
-                mode: 'lines',
-                meta: { role: 'candidate-curves' },
-                name: 'Candidate curves',
-                x: layerCurveX,
-                y: layerCurveY,
-                z: layerCurveZ,
-                line: { color: theme.teal, width: 4.5 },
+                meta: { role: 'angle-slice-curves' },
+                name: 'Candidates at one angle',
+                x: sliceCurveX,
+                y: sliceCurveY,
+                z: sliceCurveZ,
+                line: { color: theme.teal, width: 5 },
                 hoverinfo: 'skip'
             },
             {
@@ -4821,7 +4963,29 @@ class VAseApp {
                 x: stemX,
                 y: stemY,
                 z: stemZ,
-                line: { color: theme.teal, width: 3 },
+                line: { color: theme.muted, width: 2.4 },
+                hoverinfo: 'skip'
+            },
+            {
+                type: 'scatter3d',
+                mode: 'lines+markers',
+                meta: { role: 'candidate-floor-projection' },
+                name: 'Angle-area projection',
+                x: [...geometry.candidates]
+                    .sort((first, second) => first.plotAngleDeg - second.plotAngleDeg)
+                    .map(candidate => Number(candidate.plotAngleDeg)),
+                y: [...geometry.candidates]
+                    .sort((first, second) => first.plotAngleDeg - second.plotAngleDeg)
+                    .map(candidate => Number(
+                    candidate.host_area_ratio ?? candidate.area_ratio ?? candidate.area
+                )),
+                z: geometry.candidates.map(() => 0),
+                line: { color: theme.muted, width: 3 },
+                marker: {
+                    size: 3.2,
+                    color: theme.muted,
+                    opacity: 0.52
+                },
                 hoverinfo: 'skip'
             },
             {
@@ -4839,11 +5003,20 @@ class VAseApp {
                 text: hover,
                 hovertemplate: '%{text}<extra></extra>',
                 marker: {
-                    size: 5.5,
+                    size: 6.4,
                     color: geometry.candidates.map(candidate => (
-                        candidate.magic_reference ? theme.amber : theme.teal
+                        Number(candidate.max_principal_strain ?? candidate.strain) * 100
                     )),
-                    line: { color: theme.text, width: 0.55 }
+                    colorscale: 'Viridis',
+                    cmin: 0,
+                    cmax: geometry.axis.zRange[1],
+                    colorbar: {
+                        title: { text: 'strain / %', side: 'right' },
+                        thickness: 10,
+                        len: 0.66,
+                        x: 0.97
+                    },
+                    line: { color: theme.text, width: 0.7 }
                 }
             },
             {
@@ -4873,7 +5046,7 @@ class VAseApp {
             }
         ], {
             autosize: true,
-            margin: { l: 4, r: 4, t: 12, b: 2 },
+            margin: { l: 28, r: 52, t: 18, b: 28 },
             paper_bgcolor: 'rgba(0,0,0,0)',
             font: { color: theme.text, family: 'Inter, system-ui, sans-serif', size: 12 },
             scene: {
@@ -4886,44 +5059,51 @@ class VAseApp {
                     tickfont: { size: 11 },
                     showline: true,
                     linecolor: theme.text,
-                    linewidth: 5,
+                    linewidth: 4,
+                    showbackground: true,
+                    backgroundcolor: 'rgba(117,131,126,0.035)',
                     showspikes: false,
                     range: geometry.axis.x
                 },
                 yaxis: {
-                    title: { text: 'host area / A₀', font: { size: 12 } },
+                    title: { text: '' },
                     gridcolor: theme.line,
                     zerolinecolor: theme.line,
                     color: theme.text,
                     tickfont: { size: 11 },
                     showline: true,
                     linecolor: theme.line,
+                    showbackground: true,
+                    backgroundcolor: 'rgba(117,131,126,0.045)',
                     showspikes: false,
                     tickmode: 'array',
-                    tickvals: geometry.areaLayers.map(layer => layer.area),
+                    tickvals: geometry.areaTicks,
                     range: geometry.axis.yRange
                 },
                 zaxis: {
-                    title: { text: 'max strain / %', font: { size: 12 } },
+                    title: { text: '' },
                     gridcolor: theme.line,
                     zerolinecolor: theme.line,
                     color: theme.text,
                     tickfont: { size: 11 },
                     showline: true,
                     linecolor: theme.line,
+                    showbackground: true,
+                    backgroundcolor: 'rgba(117,131,126,0.025)',
                     showspikes: false,
                     range: geometry.axis.zRange
                 },
                 aspectmode: 'manual',
-                aspectratio: { x: 3.1, y: 1.25, z: 1.12 },
+                aspectratio: { x: 2.65, y: 1.40, z: 1.30 },
                 camera: {
-                    projection: { type: 'orthographic' },
-                    eye: { x: 0.18, y: -2.30, z: 1.18 },
-                    center: { x: 0, y: 0, z: -0.05 },
+                    projection: { type: 'perspective' },
+                    eye: { x: 0, y: -2.24, z: 1.38 },
+                    center: { x: 0, y: 0, z: -0.08 },
                     up: { x: 0, y: 0, z: 1 }
                 }
             },
             showlegend: false,
+            dragmode: 'orbit',
             uirevision: 'commensurate-search'
         }, {
             responsive: true,
@@ -5241,8 +5421,22 @@ class VAseApp {
             paper_bgcolor: 'rgba(0,0,0,0)',
             plot_bgcolor: 'rgba(0,0,0,0)',
             font: { color: theme.text, family: 'Inter, system-ui, sans-serif', size: 11 },
-            xaxis: { title: 'fractional translation u', range: [0, 1], gridcolor: theme.line, color: theme.muted },
-            yaxis: { title: 'fractional translation v', range: [0, 1], gridcolor: theme.line, color: theme.muted, scaleanchor: 'x' },
+            xaxis: {
+                title: 'fractional translation u',
+                range: [0, 1],
+                gridcolor: theme.line,
+                color: theme.muted,
+                constrain: 'domain'
+            },
+            yaxis: {
+                title: 'fractional translation v',
+                range: [0, 1],
+                gridcolor: theme.line,
+                color: theme.muted,
+                scaleanchor: 'x',
+                scaleratio: 1,
+                constrain: 'domain'
+            },
             legend: { orientation: 'h', x: 0, y: 1.12, bgcolor: 'rgba(0,0,0,0)' },
             uirevision: 'registry-map'
         }, {
@@ -6437,6 +6631,7 @@ class VAseApp {
         this.renderPairwiseBondControls({ capture: preserveDisplay });
         this.renderer.setDisplayOptions(this.state.display, { rebuild: false });
         this.renderer.rebuildAtoms(data, data.metadata.custom_colors || {});
+        this.syncForceVectorControls();
         this.syncAddAtomsSessionFromData(data);
         this.renderVolumetricControls();
         const nextVolumeSignature = JSON.stringify(
@@ -6489,6 +6684,7 @@ class VAseApp {
         }
         this.updateDocumentAvailability();
         this.scheduleDisplacementAnalysisRefresh();
+        this.updateForceVectorStatus();
         this.observeCollaborationFrame();
     }
 
@@ -10781,7 +10977,8 @@ class VAseApp {
                 'add-atoms',
                 'volumetric-data', 'volumetric-planes', 'rdf', 'commensurate',
                 'commensurate-proposal',
-                'registry-map', 'atom-colorscale', 'preferences', 'collaboration'
+                'registry-map', 'atom-colorscale', 'force-vectors',
+                'preferences', 'collaboration'
             ],
             apply: [
                 'expectedRevision', 'frame', 'mode', 'display', 'quality',
@@ -12485,6 +12682,7 @@ class VAseApp {
         setValue('move-increment', this.state.moveIncrement || 0);
         setValue('rotate-increment', this.state.rotateIncrementDeg || 0);
         this.syncDisplacementControls(display);
+        this.syncForceVectorControls(display);
         this.setSupercellInputs(display.supercell || [1, 1, 1]);
         this.setTranslationCoordinateMode(
             display.translationMode === 'fractional' ? 'fractional' : 'cartesian',
@@ -12762,6 +12960,13 @@ class VAseApp {
             displacementColor: this.validHexColor(nextDisplay.displacementColor)
                 ? nextDisplay.displacementColor
                 : '#e58b2a',
+            showForceVectors: Boolean(nextDisplay.showForceVectors),
+            forceVectorStyle: nextDisplay.forceVectorStyle === '2d' ? '2d' : '3d',
+            forceVectorScale: finiteClamped(nextDisplay.forceVectorScale, 1, 0.02, 5),
+            forceVectorThickness: finiteClamped(nextDisplay.forceVectorThickness, 0.08, 0.01, 0.5),
+            forceVectorColor: this.validHexColor(nextDisplay.forceVectorColor)
+                ? nextDisplay.forceVectorColor
+                : '#c43f5e',
             showVolumetric: Boolean(nextDisplay.showVolumetric),
             volumetricPrecision: nextDisplay.volumetricPrecision === 'float64'
                 ? 'float64'

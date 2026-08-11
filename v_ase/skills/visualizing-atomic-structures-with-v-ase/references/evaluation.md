@@ -151,7 +151,14 @@ Run all scenarios, not only static document checks:
    - set `maxAreaRatio` to 6 and verify the area-7 proposal is rejected;
    - enable the commensurate workspace before rotating and verify cells-only
      preview, monotonic progress, the smallest valid proposal, and a live
-     current-angle plane on the 3D overview;
+     current-angle plane on the 3D overview; require host and guest primitive
+     grids to extend at least one complete primitive cell beyond every common
+     cell vertex, expose their integer grid dimensions, and remain readable as
+     separate black/orange lattices around the teal proposal;
+   - verify the 3D overview has a horizontal angle axis, an orthogonal depth
+     axis for area ratio, a vertical strain axis, candidate stems/floor
+     projections, perspective depth, and readable axis titles rather than a
+     flat collection of disconnected lines;
    - switch to Paper strain projection and verify mean absolute strain, actual
      common-cell atom count, angle color, and an unchanged accepted candidate;
    - reconstruct the six published Stradi Table 3 mean-strain values from its
@@ -192,6 +199,10 @@ Run all scenarios, not only static document checks:
      colors change only from its values, not from per-frame normalization;
    - verify disabling the feature performs no scalar/LUT request and restores
      the prior label/per-atom colors immediately;
+   - enable force vectors on a trajectory with stored forces, require exact
+     normalized Cartesian arrow direction and `scale * |F|` length on every
+     frame, verify 2D/3D styling and supercell repetition, and ensure a missing
+     force frame does not evaluate its calculator;
    - verify standard, metal, rubber, 2D, and 3D;
    - undo and redo a label color, radius, and material change; verify both
      semantic display state and rendered pixels, with one history step per
@@ -201,7 +212,10 @@ Run all scenarios, not only static document checks:
    - inspect FixAtoms, FixScaled, FixedLine, FixedPlane, and Hookean;
    - verify persistent FixedPlane markers remain depth-tested while its
      motion-only plane remains readable above the moving atom scene;
-   - verify the active Hookean spring has nonzero depth and visible coil pitch.
+   - derive `rt` and `k` from the actual ASE Hookean constraint; verify zero
+     constraint force and no active spring at `r <= rt`, force magnitude
+     `k(r-rt)` plus a labeled 3D helix at `r > rt`, nonzero depth, and visible
+     coil pitch.
 8. **Trajectory**
    - open `examples/readme_scene_assets/crowded_c60_relaxation.traj` with
      `--index :` and assert `frameCount == 42` before testing frame controls;
@@ -217,6 +231,9 @@ Run all scenarios, not only static document checks:
      with the source fixture;
    - create single and signed isosurfaces, verify nonblank triangles, colors,
      opacity, and step-size behavior;
+   - move the README isovalue slider through several values, require the
+     histogram/slider marker and mesh to update at every level, and prove the
+     source distribution is computed once rather than regenerated per mesh;
    - compare zero and nonzero field smearing, verify FP32/FP64 source arrays
      remain unchanged, periodic axes wrap, and nonperiodic axes do not bleed
      across their boundary;
@@ -250,6 +267,8 @@ Run all scenarios, not only static document checks:
      with the plotted `g(r) = 1` reference;
    - calculate active, all, and no-partial modes; verify the
      concentration-weighted partial RDF relation reconstructs the total;
+   - generate the README amorphous pairwise example and require total, Cu-Cu,
+     Cu-Zr, and Zr-Zr curves even when first-seen label order is nonlexical;
    - reject partial PBC, retain an explicit long triclinic cutoff, verify the
      returned image extent/span, render the Plotly drawer, and export matching
      CSV columns and row count.
@@ -347,6 +366,12 @@ Run all scenarios, not only static document checks:
     - inspect graphene/hBN from top view with world axes hidden and confirm the
       neutral start, amber current, and cyan commensurate candidates remain
       distinguishable;
+    - inspect the commensurate cells-only image and require complete host and
+      guest primitive grids surrounding the proposal plus readable square-root
+      notation; inspect its 3D candidate plot from an oblique camera;
+    - inspect the XY registry image and require one full fractional periodic
+      map, current and optimum markers, a readable metric, and no atom-selection
+      warning;
     - select the ethane H-C-C-H order and verify the media visibly transitions
       through distance, angle, and torsion;
     - inspect the separate displacement image for nonzero vectors and readable
@@ -361,6 +386,13 @@ Run all scenarios, not only static document checks:
     - compare three identical Cu13 clusters and verify Standard, Metal, and
       Rubber remain visibly distinct without changing ASE element, radius, or
       color;
+    - play the colorscale trajectory with one locked global range and verify
+      the visible force arrows follow the stored Cartesian vectors;
+    - play the isovalue GIF and require continuous mesh changes at fixed camera
+      and background; play the plane GIF and require continuous slice changes
+      with fixed `vmin`/`vmax`, atoms, cell, camera, and background;
+    - inspect the pairwise RDF image and require all three Cu/Zr partial curves
+      plus total RDF and the `g(r)=1` reference;
     - inspect the Cu2O(111)/Cu(111) bonding scene from strict +Z and verify the
       complete 6 x 6 primitive oxide / 7 x 7 Cu coincidence cell remains in
       frame, one interfacial O is top-registered, only the documented
@@ -387,13 +419,17 @@ Every browser render test must check:
 - selected atoms use a yellow sphere outline with no billboard RingGeometry;
 - rotation axis, fixed start, moving current, and commensurate candidate guides
   remain visually distinguishable;
-- a commensurate common-cell preview shows an opaque core, a muted
-  one-primitive-cell shell, boundary-crossing bonds, paper-style notation, and
-  the highlighted target cell without clipping;
+- a commensurate common-cell preview shows complete host and guest primitive
+  lattices extending at least one primitive cell beyond the highlighted common
+  cell, readable grid dimensions and paper-style notation, plus opaque atoms,
+  a one-cell halo, and boundary-crossing bonds when atom preview is enabled;
+- the commensurate candidate graph reads as a 3D coordinate system with angle
+  horizontal, area ratio in depth, strain vertical, and candidate stems/floor
+  projections rather than disconnected 2D linework;
 - live View checkboxes hide and restore world axes and the unit cell without
   affecting the orientation gizmo;
 - Hookean spring has X and Z span around its axis and wire radius smaller than
-  its coil radius;
+  its coil radius, displays the ASE `rt`, and appears only beyond that cutoff;
 - signed volumetric surfaces have distinct positive/negative coverage, repeat
   with the displayed supercell, move by the same visual translation as atoms,
   appear automatically for a newly loaded grid, and update opacity live;
@@ -418,6 +454,9 @@ Every browser render test must check:
   retained cutoff, `g(r) = 1` bulk reference, and required periodic-image span
   without clipping; the amorphous regression reaches a flat long-range
   plateau;
+- stored-force arrows preserve exact Cartesian direction and configured scale
+  in both 2D and 3D, follow displayed replicas, and remain absent without
+  stored force data;
 - preview and exported image decode to the same composition;
 - README assets are inspected after regeneration, not merely written.
 
