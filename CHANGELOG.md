@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.1
+
+- Added a persistent Edit-mode Add Atoms workspace for single-atom placement
+  and deterministic random batches with multiple ASE elements, independent
+  labels, counts, seeds, and visible insertion regions.
+- Added volume-uniform fractional sampling for arbitrary triclinic unit cells
+  and Cartesian-box sampling restricted to one half-open primary periodic cell.
+- Added isolated pairwise repulsive placement with editable element-pair
+  minimum distances, MIC, temporary host FixAtoms, progress events, and exact
+  host coordinate, constraint, label, calculator, and per-atom array recovery.
+- Added complete GUI, live external-agent CLI/API, Skill, scientific,
+  performance, cancellation, trajectory-safety, and browser regressions for
+  random insertion and placement.
+
 ## 0.1.18
 
 - Made live AI capability names derive from the server schema so every

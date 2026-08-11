@@ -19,6 +19,7 @@ from examples.readme_scenes import (
     make_ferrocene_scene,
     make_material_preset_scene,
     make_phosphorene_twist_scene,
+    make_random_addition_scene,
     write_scene_assets,
 )
 from v_ase.io import atom_labels
@@ -32,6 +33,7 @@ def test_readme_scene_assets_write_reopenable_traj_files(tmp_path):
     written_names = {path.name for path in written}
 
     assert set(SCENE_NAMES) == {
+        "add-atoms",
         "phosphorene",
         "commensurate",
         "ai-edit",
@@ -65,6 +67,7 @@ def test_readme_scene_assets_write_reopenable_traj_files(tmp_path):
     assert "ai_pyridinic_n3_li_graphene.traj" in written_names
     assert "cu2o111_on_cu111_pairwise_bonds.traj" in written_names
     assert "material_presets.traj" in written_names
+    assert "triclinic_nanoporous_add_atoms.traj" in written_names
     assert not any(path.name.endswith("_motion.traj") for path in written)
 
     fixedline = read(tmp_path / "fixedline.traj")
@@ -168,6 +171,21 @@ def test_phosphorene_scene_uses_published_cell_angle_and_single_puckered_ridges(
         moving = ridge_ids >= ridge_start
         assert np.allclose(start[frozen], end[frozen])
         assert np.max(np.linalg.norm(end[moving] - start[moving], axis=1)) > 0.01
+
+
+def test_random_addition_readme_host_is_triclinic_periodic_and_reproducible():
+    host, metadata = make_random_addition_scene()
+
+    assert len(host) > 80
+    assert host.pbc.tolist() == [True, True, True]
+    assert abs(float(host.cell[1, 0])) > 1.0
+    assert abs(float(host.cell[2, 1])) > 1.0
+    assert set(atom_labels(host)) == {"Si_framework"}
+    assert metadata["entries"] == [
+        {"element": "Li", "label": "Li_mobile", "count": 18},
+        {"element": "H", "label": "H_probe", "count": 10},
+    ]
+    assert metadata["seed"] == 2021
 
 
 def test_relaxation_scene_is_an_actual_fire_trajectory_with_lower_repulsion():
@@ -351,7 +369,8 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     structure = readme.index("## Structure Manipulation")
     select = readme.index("### Select", structure)
     move = readme.index("### Move", select)
-    rotate = readme.index("### Rotate", move)
+    add_atoms = readme.index("### Add Atoms — New In v0.2.1", move)
+    rotate = readme.index("### Rotate", add_atoms)
     ferrocene = readme.index("#### Ferrocene: Use Fe As The Active Pivot", rotate)
     phosphorene = readme.index("#### Phosphorene: Build The Twist One Edit At A Time", ferrocene)
     commensurate = readme.index(
@@ -360,7 +379,7 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     )
     measurement = readme.index("## Measurement And Analysis", commensurate)
 
-    assert ai < structure < select < move < rotate < ferrocene < phosphorene < commensurate < measurement
+    assert ai < structure < select < move < add_atoms < rotate < ferrocene < phosphorene < commensurate < measurement
     normalized_readme = " ".join(
         line.lstrip("> ").strip() for line in readme.lower().splitlines()
     )
@@ -408,6 +427,9 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "**Field smearing σ**" in readme
     assert "**Mesh smoothing passes**" in readme
     assert "source scalar field" in readme
+    assert "18 `Li_mobile` and 10 `H_probe`" in readme
+    assert "half-open primary periodic cell" in readme
+    assert "every pre-existing coordinate, array" in readme
 
     for filename in (
         "readme_phosphorene_twist.gif",
@@ -421,6 +443,8 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
         "readme_displacement.png",
         "readme_volumetric.png",
         "readme_rdf.png",
+        "readme_add_atoms.gif",
+        "readme_add_atoms.png",
     ):
         assert (ROOT / "docs" / "assets" / filename).is_file()
         assert (ROOT / "docs" / "assets" / "github" / filename).is_file()
@@ -457,6 +481,23 @@ def test_phosphorene_capture_drives_the_production_selection_and_rotation_ui():
     assert 'page.locator("#btn-rotate-selection-exact")' in source
     assert "detailed = operation_index < 2" in source
     assert "np.allclose(actual_positions, twisted.positions" in source
+
+
+def test_add_atoms_capture_uses_the_real_batch_workspace_and_optimizer():
+    source = (ROOT / "scripts" / "capture_readme_screenshots.py").read_text()
+    capture = source.split("def capture_add_atoms_media", 1)[1].split(
+        "def capture_measurement_media", 1
+    )[0]
+
+    assert 'page.click("#btn-create-atom-toggle")' in capture
+    assert 'page.click("#add-atoms-tab-batch")' in capture
+    assert 'page.click("#btn-add-atoms-scatter")' in capture
+    assert 'page.click("#btn-add-atoms-relax")' in capture
+    assert 'page.click("#btn-add-atoms-finish")' in capture
+    assert "renderer.addAtomsRegionGroup.visible === true" in capture
+    assert "renderer.addAtomsRegionGroup.visible === false" in capture
+    assert "np.testing.assert_array_equal" in capture
+    assert "relaxed_positions[: len(host)]" in capture
 
 
 def test_readme_ferrocene_and_copper_bond_media_use_documented_visual_controls():

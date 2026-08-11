@@ -138,6 +138,37 @@ Edit additionally enables:
 - add, delete, copy, paste, undo, and redo;
 - constraints editing and calculator-backed relaxation.
 
+### Add Atoms Workspace
+
+Edit mode exposes one persistent Add Atoms workspace rather than treating
+creation as an isolated button click. **Single** retains cursor/view-center or
+exact-coordinate placement. **Random batch** accepts any number of independent
+ASE TYPE, visual LABEL, and Count rows plus a reproducible random seed.
+
+The default region is the complete unit-cell parallelepiped. Sampling uniform
+fractional coordinates in `[0, 1)^3` and multiplying by the full cell matrix is
+volume-uniform for orthogonal, monoclinic, and triclinic cells. The optional
+Cartesian region samples an axis-aligned box, then accepts only points inside
+the half-open primary periodic image. This prevents a skew cell's bounding-box
+corners and periodic faces from being counted twice. The active region is a
+teal viewport overlay and is removed on Finish or Cancel.
+
+Random placement initially permits overlaps. Its dedicated repulsive step uses
+explicit unordered chemical-element pair cutoffs, the ASE minimum-image
+convention, and a harmonic overlap penalty. Covalent and van der Waals radii
+are only deterministic starting suggestions; every pair distance remains
+editable. By default the pre-existing host is temporarily fixed while inserted
+atoms move. This temporary mask exists only on a detached optimizer copy: it is
+never appended to the document's ASE constraints. Cancel restores the exact
+pre-session structure; Finish rebuilds the host from that immutable baseline
+and appends only the final new atoms. Host coordinates, arrays, labels,
+calculator, and constraints therefore remain byte-for-byte or object-state
+equivalent as appropriate.
+
+Random insertion is current-frame scoped. A loaded trajectory must be reduced
+to the intended structure in a new document before the workspace starts, which
+avoids silently changing only one frame of a scientific trajectory.
+
 Display-only supercell images remain uneditable until **Set Supercell as Cell**
 creates a real ASE supercell.
 
@@ -292,6 +323,12 @@ The fallback repulsion calculator exposes a pair-cutoff scale and force
 strength under Structure > Relaxation. New calculator instances use a `0.70`
 cutoff scale and `1.0` strength. These are calculator parameters and do not
 change visualization bond cutoffs.
+
+The Add Atoms repulsion is separate from that whole-structure fallback. It
+evaluates only explicit element-pair minimum distances, can keep every host
+atom fixed, and emits bounded optimization progress over the document
+WebSocket. The pair table and optimizer allocate only while Add Atoms is
+active.
 
 Base-atom selections survive frame changes and are removed only when the new
 frame does not contain the selected index or its label is hidden. Measurements

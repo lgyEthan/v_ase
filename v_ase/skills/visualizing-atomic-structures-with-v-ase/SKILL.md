@@ -15,14 +15,19 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.1.18"
+python -m pip install "v_ase-gui==0.2.1"
 ```
 
 Start the terminal-oriented API session yourself:
 
 ```bash
 v_ase gui STRUCTURE --cli
+v_ase gui STRUCTURE --interactive --cli
 ```
+
+Use the combined form when an agent will perform physical atom edits. It opens
+the same live document directly in Edit mode while retaining the structured
+CLI/API bridge for agent control and human GUI inspection.
 
 This is a persistent server/event-stream process, not a finite command. Start
 it with the agent runtime's long-running process facility. As soon as the
@@ -173,6 +178,19 @@ Numeric LAMMPS atom columns are valid catalog fields alongside coordinates,
 stored forces, ASE arrays, charges, magnetic moments, and calculator results.
 For a rotation around one atom, pass that atom last in the explicit `indices`
 array and set `pivot: "active"`; verify that its coordinate is unchanged.
+For batch insertion, use `scatter-atoms` only on a single Edit-mode structure.
+It starts a reversible Add Atoms session and supports multiple element/label
+populations. `regionMode:"cell"` is volume-uniform in the full triclinic cell;
+`regionMode:"box"` samples the Cartesian box intersected with one half-open
+primary periodic cell. Verify `describe().addAtoms`, then optionally run
+`relax-added-atoms` with explicit pair cutoffs and MIC. Wait until
+`is_relaxing` is false before `finish-add-atoms`. Use `stop-added-atoms` only
+to interrupt the optimizer, and `cancel-add-atoms` to restore the exact host,
+constraints, per-atom arrays, and pre-session history. Never use batch
+insertion on a trajectory because it would create inconsistent frame topology.
+While staging, `describe().constraints.fixed_indices` may include the host as
+a semantic constraint summary for its temporary fixed overlay. The committed
+ASE constraints remain unchanged; verify this again after finish or cancel.
 For scalar-field sections, use `add-volumetric-plane` with a dataset ID and a
 nonzero hkl normal, `update-volumetric-planes` with the current plane IDs for
 atomic multi-plane edits, and `remove-volumetric-planes` to delete them. Read
@@ -250,6 +268,9 @@ handling, use the references below rather than improvising field names.
 - Never treat a visual label as an ASE element. Verify `chemicalSymbols`.
 - Never infer a periodic replica from screen position. Use `cellOffset`.
 - Never reuse indices after topology or frame changes without `describe()`.
+- Treat `scatter-atoms` as a reversible staging operation, not a committed
+  topology change. Do not finish it until inserted count, region, pairwise
+  cutoffs, MIC, and exact host preservation have been verified.
 - Keep `applyConstraints: true` unless the user explicitly requests free
   editing.
 - Treat ASE backend positions returned after an edit as authoritative.
@@ -265,6 +286,10 @@ handling, use the references below rather than improvising field names.
 For any nontrivial task, verify all applicable items:
 
 - structure: count, labels, elements, positions, cell, PBC, constraints;
+- batch insertion: single-structure eligibility, mixed entry counts, random
+  seed, exact triclinic/Cartesian region, half-open periodic membership,
+  pairwise cutoffs, MIC, temporary host freeze, asynchronous status, and exact
+  host coordinate/constraint/array preservation after finish or cancel;
 - AI contract: exact schema/capability operation and export set equality, an
   external `v_ase api` mutation visible in the normal GUI, and matching GUI
   and `describe().collaboration.revision` state;

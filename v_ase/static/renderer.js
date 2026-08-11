@@ -574,6 +574,9 @@ export class ASERenderer {
 
         this.cellGroup = new THREE.Group();
         this.scene.add(this.cellGroup);
+        this.addAtomsRegionGroup = new THREE.Group();
+        this.addAtomsRegionGroup.name = 'v_ase_add_atoms_region';
+        this.scene.add(this.addAtomsRegionGroup);
         this.bondGroup = new THREE.Group();
         this.scene.add(this.bondGroup);
         this.displacementGroup = new THREE.Group();
@@ -1091,7 +1094,8 @@ export class ASERenderer {
             this.constraintMarkGroup,
             this.constraintGuideGroup,
             this.constraintMotionGuideGroup,
-            this.hookeanGroup
+            this.hookeanGroup,
+            this.addAtomsRegionGroup
         ].forEach(group => {
             if (group) group.position.copy(translation);
         });
@@ -2973,6 +2977,108 @@ export class ASERenderer {
         const segments = edgePairs.map(([i, j]) => [corners[i], corners[j]]);
         this.addCellEdgeInstances(this.cellGroup, segments, { unitCell: true });
         this.updateCellVisibility();
+        this.requestRender();
+    }
+
+    clearAddAtomsRegion() {
+        if (!this.addAtomsRegionGroup) return;
+        this.clearGroup(this.addAtomsRegionGroup);
+        this.addAtomsRegionGroup.visible = false;
+        this.requestRender();
+    }
+
+    setAddAtomsRegion(region = null) {
+        if (!this.addAtomsRegionGroup) return;
+        this.clearGroup(this.addAtomsRegionGroup);
+        if (!region || region.visible === false) {
+            this.addAtomsRegionGroup.visible = false;
+            this.requestRender();
+            return;
+        }
+
+        let corners;
+        if (region.mode === 'box') {
+            const bounds = Array.isArray(region.bounds) ? region.bounds.map(Number) : [];
+            if (bounds.length !== 6 || bounds.some(value => !Number.isFinite(value))) {
+                this.addAtomsRegionGroup.visible = false;
+                return;
+            }
+            const [xmin, xmax, ymin, ymax, zmin, zmax] = bounds;
+            corners = [
+                [xmin, ymin, zmin], [xmax, ymin, zmin],
+                [xmin, ymax, zmin], [xmin, ymin, zmax],
+                [xmax, ymax, zmin], [xmax, ymin, zmax],
+                [xmin, ymax, zmax], [xmax, ymax, zmax]
+            ].map(value => new THREE.Vector3(...value));
+        } else {
+            const cell = Array.isArray(region.cell) ? region.cell : this.atomsData?.cell;
+            if (!Array.isArray(cell) || cell.length !== 3) {
+                this.addAtomsRegionGroup.visible = false;
+                return;
+            }
+            const a = new THREE.Vector3(...cell[0]);
+            const b = new THREE.Vector3(...cell[1]);
+            const c = new THREE.Vector3(...cell[2]);
+            const origin = new THREE.Vector3();
+            corners = [
+                origin,
+                a,
+                b,
+                c,
+                a.clone().add(b),
+                a.clone().add(c),
+                b.clone().add(c),
+                a.clone().add(b).add(c)
+            ];
+        }
+
+        const pairs = [[0,1],[0,2],[0,3],[1,4],[1,5],[2,4],[2,6],[3,5],[3,6],[4,7],[5,7],[6,7]];
+        const edgeMaterial = new THREE.MeshBasicMaterial({
+            color: 0x24a88f,
+            transparent: true,
+            opacity: 0.98,
+            depthTest: true,
+            depthWrite: false
+        });
+        const edgeMesh = this.addCellEdgeInstances(
+            this.addAtomsRegionGroup,
+            pairs.map(([first, second]) => [corners[first], corners[second]]),
+            { addAtomsRegion: true },
+            { material: edgeMaterial, radius: 0.035 }
+        );
+        if (edgeMesh) edgeMesh.renderOrder = 14;
+
+        const triangles = [
+            0, 2, 1, 1, 2, 4,
+            0, 1, 3, 1, 5, 3,
+            0, 3, 2, 2, 3, 6,
+            7, 5, 4, 4, 5, 1,
+            7, 4, 6, 6, 4, 2,
+            7, 6, 5, 5, 6, 3
+        ];
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute(
+            'position',
+            new THREE.Float32BufferAttribute(corners.flatMap(corner => corner.toArray()), 3)
+        );
+        geometry.setIndex(triangles);
+        geometry.computeVertexNormals();
+        const fill = new THREE.Mesh(
+            geometry,
+            new THREE.MeshBasicMaterial({
+                color: 0x24a88f,
+                transparent: true,
+                opacity: 0.055,
+                side: THREE.DoubleSide,
+                depthTest: true,
+                depthWrite: false
+            })
+        );
+        fill.renderOrder = 13;
+        fill.userData = { addAtomsRegion: true };
+        this.addAtomsRegionGroup.add(fill);
+        this.addAtomsRegionGroup.visible = true;
+        this.addAtomsRegionGroup.position.copy(this.visualTranslationVector());
         this.requestRender();
     }
 

@@ -5,18 +5,19 @@
 1. Per-Atom Property Colorscale
 2. Publication Image
 3. Natural-Language Defect Edit
-4. Phosphorene Cumulative Tail Rotation
-5. Rotate Around A Specific Atom
-6. Constraint-Aware Edit
-7. Ordered Measurement
-8. Trajectory Analysis And Video
-9. Volumetric Difference And Isosurface
-10. RDF And CSV
-11. Bounded Commensurate 2D Cells
-12. XY Registry Map
-13. Periodic Supercell Measurement
-14. Multi-Document Live Collaboration
-15. Offline View-Only Handoff
+4. Random Multi-Species Insertion And Repulsion
+5. Phosphorene Cumulative Tail Rotation
+6. Rotate Around A Specific Atom
+7. Constraint-Aware Edit
+8. Ordered Measurement
+9. Trajectory Analysis And Video
+10. Volumetric Difference And Isosurface
+11. RDF And CSV
+12. Bounded Commensurate 2D Cells
+13. XY Registry Map
+14. Periodic Supercell Measurement
+15. Multi-Document Live Collaboration
+16. Offline View-Only Handoff
 
 These templates are starting points. Preserve the plan, validate, execute, and
 verify sequence even when parameters change.
@@ -282,6 +283,89 @@ intermediate, and expected final structures are generated from
 - `examples/readme_scene_assets/ai_pyridinic_n3_graphene.cif`;
 - `examples/readme_scene_assets/ai_pyridinic_n3_li_graphene.cif`;
 - `examples/readme_scene_assets/ai_pyridinic_n3_li_graphene.traj`.
+
+## Random Multi-Species Insertion And Repulsion
+
+Use this low-freedom workflow to scatter several atom populations and move
+only those new atoms away from short contacts. It requires one periodic
+structure, not a trajectory.
+
+```javascript
+const baseline = await ai.describe({includePositions: true});
+if (baseline.frameCount !== 1) {
+  throw new Error("Open the target frame as a standalone structure first.");
+}
+await applyCurrent({mode: "edit"});
+await applyCurrent({operation: {
+  name: "scatter-atoms",
+  entries: [
+    {element: "Li", label: "Li_mobile", count: 30},
+    {element: "H", label: "H_probe", count: 10}
+  ],
+  regionMode: "cell",
+  seed: 2021,
+  freezeExisting: true,
+  cutoffBasis: "covalent",
+  cutoffScale: 0.7
+}});
+
+const scattered = await ai.describe({includePositions: true});
+if (
+  !scattered.addAtoms?.active
+  || scattered.addAtoms.new_count !== 40
+  || scattered.atomCount !== baseline.atomCount + 40
+) {
+  throw new Error("Random insertion did not produce the requested topology.");
+}
+
+await applyCurrent({operation: {
+  name: "relax-added-atoms",
+  pairCutoffs: scattered.addAtoms.pair_cutoffs,
+  freezeExisting: true,
+  strength: 2.0,
+  boundaryStrength: 5.0,
+  fmax: 0.05,
+  steps: 300,
+  mic: true
+}});
+```
+
+Consume events or poll compact `describe` state until
+`addAtoms.is_relaxing === false`. Do not issue another structural operation
+while it is active. If the optimizer must be interrupted, use
+`stop-added-atoms`, wait for the stopped state, inspect the latest positions,
+and either continue or cancel.
+
+```javascript
+let placed;
+for (;;) {
+  placed = await ai.describe({includePositions: false});
+  if (!placed.addAtoms?.is_relaxing) break;
+  await new Promise(resolve => setTimeout(resolve, 500));
+}
+if (placed.addAtoms.status === "error") {
+  await applyCurrent({operation: "cancel-add-atoms"});
+  throw new Error("Repulsive placement failed; the exact baseline was restored.");
+}
+await applyCurrent({operation: "finish-add-atoms"});
+
+const committed = await ai.describe({includePositions: true});
+if (committed.addAtoms !== null || committed.atomCount !== baseline.atomCount + 40) {
+  throw new Error("Add Atoms was not committed cleanly.");
+}
+for (let index = 0; index < baseline.atomCount; index += 1) {
+  const error = Math.hypot(...committed.positions[index].map(
+    (value, axis) => value - baseline.positions[index][axis]
+  ));
+  if (error > 1e-12) throw new Error(`Host atom ${index} moved by ${error} A.`);
+}
+```
+
+For a Cartesian region, replace the region fields with
+`regionMode:"box"` and six Angstrom bounds. Verify the returned region and
+sampling diagnostics before optimization. Use `cancel-add-atoms` at any point
+before finish to restore coordinates, constraints, arrays, labels, history,
+and redo state exactly.
 
 ## Phosphorene Cumulative Tail Rotation
 

@@ -542,6 +542,40 @@ def make_material_preset_scene() -> tuple[Atoms, dict[str, list[int]]]:
     return atoms, groups
 
 
+def make_random_addition_scene() -> tuple[Atoms, dict[str, object]]:
+    """Return a skewed nanoporous host for the v0.2.1 Add Atoms workflow."""
+    host = bulk("Si", "diamond", a=5.43, cubic=True).repeat((3, 3, 2))
+    scaled = host.get_scaled_positions(wrap=False)
+    cell = np.asarray([
+        [16.29, 0.00, 0.00],
+        [2.65, 16.29, 0.00],
+        [0.85, 1.35, 10.86],
+    ])
+    host.set_cell(cell, scale_atoms=False)
+    host.set_scaled_positions(scaled)
+    host.pbc = True
+
+    centered = scaled - 0.5
+    centered -= np.round(centered)
+    relative = centered @ cell
+    pore_radius = 3.15
+    keep = np.linalg.norm(relative[:, :2], axis=1) >= pore_radius
+    host = host[keep]
+    set_atom_labels(host, ["Si_framework"] * len(host))
+    host.info.update({
+        "readme_scene": "triclinic_nanoporous_random_addition",
+        "purpose": "v_ase 0.2.1 random multi-species insertion and repulsive placement",
+    })
+    return host, {
+        "entries": [
+            {"element": "Li", "label": "Li_mobile", "count": 18},
+            {"element": "H", "label": "H_probe", "count": 10},
+        ],
+        "seed": 2021,
+        "pore_radius": pore_radius,
+    }
+
+
 def make_black_phosphorene_unit_cell() -> Atoms:
     """Return the relaxed black-phosphorene cell reported by Villegas et al.
 
@@ -841,6 +875,24 @@ def make_showcase_scene() -> tuple[Atoms, dict[str, int]]:
 
 
 def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
+    if name == "add-atoms":
+        atoms, metadata = make_random_addition_scene()
+        entries = metadata["entries"]
+        info = SceneInfo(
+            name=name,
+            description=(
+                "Skewed nanoporous silicon host for random multi-species insertion "
+                "and isolated repulsive placement."
+            ),
+            static_file="triclinic_nanoporous_add_atoms.traj",
+            selected_indices=(),
+            notes=(
+                f"Scatter {entries[0]['count']} Li_mobile and {entries[1]['count']} "
+                "H_probe atoms with random seed 2021.",
+                "The host remains unchanged while only inserted atoms follow the pairwise repulsion.",
+            ),
+        )
+        return atoms, info
     if name == "fixedline":
         atoms, idx = make_cnt_fixedline_scene()
         info = SceneInfo(
@@ -990,6 +1042,7 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
 
 
 SCENE_NAMES = (
+    "add-atoms",
     "phosphorene",
     "commensurate",
     "ai-edit",

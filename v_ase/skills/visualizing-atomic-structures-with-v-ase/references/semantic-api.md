@@ -186,6 +186,11 @@ Pass `operation` as a name string or object:
 | `set-supercell` | `reps` | Materialize repeated cell in every frame |
 | `make-supercell` | integer `matrix` | Apply ASE `make_supercell` |
 | `add-atom` | `label`/`element`, `position` | Add one atom |
+| `scatter-atoms` | `entries` or `element`/`label`/`count`; optional `regionMode`, `bounds`, `seed`, `freezeExisting`, `cutoffBasis`, `cutoffScale`, `pairCutoffs` | Start one reversible random-insertion session on a single structure |
+| `relax-added-atoms` | optional `pairCutoffs`, `freezeExisting`, `strength`, `boundaryStrength`, `fmax`, `steps`, `mic` | Start asynchronous pairwise repulsive placement of staged atoms |
+| `stop-added-atoms` | none | Request optimizer stop while retaining current staged positions |
+| `finish-add-atoms` | none | Commit staged atoms after optimization is inactive |
+| `cancel-add-atoms` | none | Restore the exact structure and history from before scattering |
 | `delete-selection` | selection or `indices` | Delete and remap constraints |
 | `set-identity` | selection/`indices`, `label`, optional `element` | Set visual label and optional ASE element |
 | `set-constraints` | selection/`indices`; `fixAtoms`; `kind` = `fixed_line`/`fixed_plane`; `vector`; `clearDirectional` | Edit supported constraints |
@@ -212,6 +217,75 @@ Pass `operation` as a name string or object:
 | `remove-volumetric` | `datasetId` | Remove one grid from the document |
 | `calculate-rdf` | optional `cutoff`, `bins`, `pairMode`, `activePairs` | Calculate total and partial RDF curves |
 | `set-atom-colorscale` | optional `enabled`, `field`, `map`, `reverse`, `scope`, `rangeMode`, `minimum`, `maximum`, `gamma` | Lazily color all or selected atoms by a discovered numeric per-atom value with a trajectory-consistent range |
+
+### Batch Add Atoms State
+
+`scatter-atoms` accepts mixed populations:
+
+```javascript
+await ai.apply({
+  mode: "edit",
+  operation: {
+    name: "scatter-atoms",
+    entries: [
+      {element: "Li", label: "Li_mobile", count: 24},
+      {element: "H", label: "H_probe", count: 8}
+    ],
+    regionMode: "cell",
+    seed: 1847,
+    freezeExisting: true,
+    cutoffBasis: "covalent",
+    cutoffScale: 0.7
+  }
+});
+```
+
+`regionMode:"cell"` samples independent fractional coordinates in `[0,1)`
+and maps them through the complete ASE cell matrix. The constant Jacobian makes
+the Cartesian distribution volume-uniform for orthorhombic and triclinic
+cells. `regionMode:"box"` requires
+`bounds:[xmin,xmax,ymin,ymax,zmin,zmax]` in Angstrom and samples only its
+intersection with the half-open primary periodic cell, so one physical voxel
+is never counted once per periodic image. This is random scattering, not a
+regular or minimum-distance distribution.
+
+After scattering, read `describe().addAtoms`. It reports `entries`,
+`new_indices`, region geometry, seed, pair cutoffs, temporary fixed host
+indices, optimizer status, step, and maximum steps. The highlighted region is
+an Add Atoms overlay and disappears after finish or cancel. Existing atoms are
+temporarily fixed by default only inside the optimizer copy; this constraint
+is never added to the committed ASE object. During staging,
+`describe().constraints.fixed_indices` intentionally includes these host
+indices as a semantic constraint summary so the GUI and agent can identify the
+temporary fixed overlay. It does not mean `session.working_atoms.constraints`
+was mutated. The ASE constraints remain unchanged, and the temporary indices
+disappear from the summary after finish or cancel.
+
+```javascript
+await ai.apply({operation: {
+  name: "relax-added-atoms",
+  pairCutoffs: {"Cu-Li": 2.10, "Li-Li": 1.80, "H-Li": 1.20},
+  freezeExisting: true,
+  strength: 2.0,
+  boundaryStrength: 5.0,
+  fmax: 0.05,
+  steps: 250,
+  mic: true
+}});
+```
+
+The optimizer uses explicit element-pair minimum distances. A pair inside its
+cutoff receives a soft harmonic repulsion. With `mic:true`, ASE periodic
+neighbor vectors are used. Staged atoms are tag 3 in the temporary optimizer;
+the baseline host is reconstructed exactly when committing. Poll compact
+`describe` state or consume collaboration events until
+`addAtoms.is_relaxing` is false. Then use `finish-add-atoms`. Use
+`stop-added-atoms` to interrupt and retain the latest staged positions, or
+`cancel-add-atoms` to restore the complete pre-session state.
+
+Batch Add Atoms deliberately rejects trajectories. Open the intended frame as
+a standalone structure in a new document before scattering; never create one
+frame with a different atom count silently.
 
 ## Per-Atom Colorscales
 

@@ -231,6 +231,7 @@ export class ASEApi {
             '/api/reset-coordinates/',
             '/api/wrap/',
             '/api/add/',
+            '/api/add-session/start/',
             '/api/delete/',
             '/api/atom-identity/',
             '/api/constraints/',
@@ -252,7 +253,11 @@ export class ASEApi {
             '/api/settings/load/',
             '/api/calculator/',
             '/api/relax/start/',
-            '/api/relax/stop/'
+            '/api/relax/stop/',
+            '/api/add-session/relax/',
+            '/api/add-session/stop/',
+            '/api/add-session/finish/',
+            '/api/add-session/cancel/'
         ].some(prefix => path.includes(prefix));
     }
 
@@ -870,6 +875,36 @@ export class ASEApi {
         const payload = { symbols, positions };
         if (baseSymbols) payload.base_symbols = baseSymbols;
         return await this.jsonPost(`/api/add/{session_id}`, this.framePayload(payload));
+    }
+
+    async atomAdditionPairCutoffs(elements, basis = 'covalent', scale = 0.7) {
+        return await this.jsonPost(
+            `/api/add-session/pairs/{session_id}`,
+            { elements, basis, scale }
+        );
+    }
+
+    async startAtomAddition(payload) {
+        return await this.jsonPost(
+            `/api/add-session/start/{session_id}`,
+            this.framePayload(payload)
+        );
+    }
+
+    async relaxAtomAddition(payload) {
+        return await this.jsonPost(`/api/add-session/relax/{session_id}`, payload);
+    }
+
+    async stopAtomAdditionRelaxation() {
+        return await this.jsonPost(`/api/add-session/stop/{session_id}`, {});
+    }
+
+    async finishAtomAddition() {
+        return await this.jsonPost(`/api/add-session/finish/{session_id}`, {});
+    }
+
+    async cancelAtomAddition() {
+        return await this.jsonPost(`/api/add-session/cancel/{session_id}`, {});
     }
 
     async deleteAtoms(indices) {

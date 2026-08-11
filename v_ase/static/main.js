@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.1.18&rev=1';
-import { ASERenderer } from './renderer.js?v=0.1.18&rev=1';
-import { ASESelection } from './selection.js?v=0.1.18&rev=1';
-import { ASETransform } from './transform.js?v=0.1.18&rev=1';
+import { ASEApi } from './api.js?v=0.2.1&rev=1';
+import { ASERenderer } from './renderer.js?v=0.2.1&rev=1';
+import { ASESelection } from './selection.js?v=0.2.1&rev=1';
+import { ASETransform } from './transform.js?v=0.2.1&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.1.18&rev=1';
+} from './trajectory.js?v=0.2.1&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -489,7 +489,7 @@ class VAseApp {
     }
 
     canEditAtoms() {
-        return !this.state.vizOnly;
+        return !this.state.vizOnly && !this.addAtomsSessionActive();
     }
 
     canViewportSelectAtoms() {
@@ -497,17 +497,19 @@ class VAseApp {
     }
 
     updateEditingAvailability() {
+        const addAtomsActive = this.addAtomsSessionActive();
         document.body.dataset.vizOnly = this.state.vizOnly ? 'true' : 'false';
+        document.body.dataset.addAtomsActive = addAtomsActive ? 'true' : 'false';
         document.querySelectorAll('[data-edit-only]').forEach(el => {
             if ('disabled' in el) el.disabled = this.state.vizOnly;
         });
-        if (this.state.vizOnly && this.transform.mode !== 'IDLE') {
+        if ((this.state.vizOnly || addAtomsActive) && this.transform.mode !== 'IDLE') {
             this.cancelTransform();
         }
         document.querySelectorAll('[data-runtime-mode]').forEach(button => {
             const selected = button.dataset.runtimeMode === (this.state.vizOnly ? 'view' : 'edit');
             button.setAttribute('aria-pressed', selected ? 'true' : 'false');
-            button.disabled = this.state.modeSwitchInFlight;
+            button.disabled = this.state.modeSwitchInFlight || addAtomsActive;
         });
         this.syncVolumetricPlaneModeNote();
         this.updateSelectedAppearanceControls();
@@ -1549,6 +1551,14 @@ class VAseApp {
     setupCreateAtomWidget() {
         const widget = document.getElementById('create-atom-widget');
         if (!widget) return;
+        this.addAtomsUI = {
+            pane: 'single',
+            regionMode: 'cell',
+            pairCutoffs: {},
+            pairRequestToken: 0,
+            active: null,
+            entrySequence: 0
+        };
         const typeSelect = document.getElementById('create-atom-type');
         const labelInput = document.getElementById('create-atom-label');
         const toggle = document.getElementById('btn-create-atom-toggle');
@@ -1566,6 +1576,7 @@ class VAseApp {
             });
             typeSelect.value = 'H';
         }
+        this.addAddAtomsEntry({ element: 'H', label: 'H', count: 1 });
         const setExpanded = expanded => widget.classList.toggle('collapsed', !expanded);
         const setPositionInputs = vector => {
             ['x', 'y', 'z'].forEach((axis, idx) => {
@@ -1577,10 +1588,20 @@ class VAseApp {
             event.preventDefault();
             setExpanded(true);
             this.syncCreateAtomDefaults({ position: true });
+            if (this.addAtomsUI?.pane === 'batch') {
+                this.syncAddAtomsBounds();
+                this.updateAddAtomsRegionPreview();
+                void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
+            }
         });
         close?.addEventListener('click', event => {
             event.preventDefault();
+            if (this.addAtomsSessionActive()) {
+                this.toast('Finish or cancel the active Add Atoms session first.', 'warning');
+                return;
+            }
             setExpanded(false);
+            this.renderer.clearAddAtomsRegion();
         });
         typeSelect?.addEventListener('change', () => {
             if (!labelInput) return;
@@ -1601,7 +1622,448 @@ class VAseApp {
             event.preventDefault();
             this.createAtomFromWidget();
         });
+        document.getElementById('add-atoms-tab-single')?.addEventListener('click', () => {
+            this.setAddAtomsPane('single');
+        });
+        document.getElementById('add-atoms-tab-batch')?.addEventListener('click', () => {
+            this.setAddAtomsPane('batch');
+        });
+        document.getElementById('btn-add-atoms-entry')?.addEventListener('click', () => {
+            this.addAddAtomsEntry({ element: 'H', label: 'H', count: 1 });
+            void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
+        });
+        document.getElementById('add-atoms-region-cell')?.addEventListener('click', () => {
+            this.setAddAtomsRegionMode('cell');
+        });
+        document.getElementById('add-atoms-region-box')?.addEventListener('click', () => {
+            this.setAddAtomsRegionMode('box');
+        });
+        ['xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax'].forEach(name => {
+            document.getElementById(`add-atoms-${name}`)?.addEventListener('input', () => {
+                this.updateAddAtomsRegionPreview();
+            });
+        });
+        document.getElementById('add-atoms-cutoff-basis')?.addEventListener('change', () => {
+            void this.refreshAddAtomsPairCutoffs({ preserveManual: false });
+        });
+        document.getElementById('add-atoms-cutoff-scale')?.addEventListener('change', () => {
+            void this.refreshAddAtomsPairCutoffs({ preserveManual: false });
+        });
+        document.getElementById('btn-add-atoms-scatter')?.addEventListener('click', () => {
+            void this.scatterAtomsFromWidget();
+        });
+        document.getElementById('btn-add-atoms-relax')?.addEventListener('click', () => {
+            void this.relaxAddedAtomsFromWidget();
+        });
+        document.getElementById('btn-add-atoms-stop')?.addEventListener('click', () => {
+            void this.stopAddedAtomsRelaxation();
+        });
+        document.getElementById('btn-add-atoms-cancel')?.addEventListener('click', () => {
+            void this.cancelAddedAtomsSession();
+        });
+        document.getElementById('btn-add-atoms-finish')?.addEventListener('click', () => {
+            void this.finishAddedAtomsSession();
+        });
         this.makeCreateAtomWidgetDraggable(widget, head);
+    }
+
+    addAtomsSessionActive() {
+        return Boolean(this.addAtomsUI?.active?.active || this.state.atoms?.metadata?.atom_addition?.active);
+    }
+
+    setAddAtomsPane(pane) {
+        const target = pane === 'batch' ? 'batch' : 'single';
+        if (target === 'single' && this.addAtomsSessionActive()) {
+            this.toast('Finish or cancel the active Add Atoms session first.', 'warning');
+            return;
+        }
+        if (!this.addAtomsUI) return;
+        this.addAtomsUI.pane = target;
+        const single = target === 'single';
+        document.getElementById('add-atoms-tab-single')?.classList.toggle('active', single);
+        document.getElementById('add-atoms-tab-batch')?.classList.toggle('active', !single);
+        document.getElementById('add-atoms-tab-single')?.setAttribute('aria-selected', single ? 'true' : 'false');
+        document.getElementById('add-atoms-tab-batch')?.setAttribute('aria-selected', single ? 'false' : 'true');
+        document.getElementById('add-atoms-pane-single')?.classList.toggle('hidden', !single);
+        document.getElementById('add-atoms-pane-batch')?.classList.toggle('hidden', single);
+        if (single) {
+            this.renderer.clearAddAtomsRegion();
+        } else {
+            this.syncAddAtomsBounds();
+            this.updateAddAtomsRegionPreview();
+            void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
+        }
+    }
+
+    addAddAtomsEntry(entry = {}) {
+        const container = document.getElementById('add-atoms-entries');
+        if (!container || !this.addAtomsUI) return;
+        const row = document.createElement('div');
+        row.className = 'add-atoms-entry-row';
+        row.dataset.entryId = String(++this.addAtomsUI.entrySequence);
+        const type = document.createElement('select');
+        type.className = 'add-atoms-entry-type';
+        type.setAttribute('aria-label', 'Inserted atom element');
+        this.chemicalElementOptions().forEach(symbol => {
+            const option = document.createElement('option');
+            option.value = symbol;
+            option.textContent = symbol;
+            type.appendChild(option);
+        });
+        type.value = this.chemicalElementOptions().includes(entry.element) ? entry.element : 'H';
+        type.dataset.previous = type.value;
+        const label = document.createElement('input');
+        label.className = 'add-atoms-entry-label';
+        label.type = 'text';
+        label.value = this.normalizedTypeLabel(entry.label) || type.value;
+        label.setAttribute('aria-label', 'Inserted atom label');
+        const count = document.createElement('input');
+        count.className = 'add-atoms-entry-count';
+        count.type = 'number';
+        count.min = '1';
+        count.max = '100000';
+        count.step = '1';
+        count.value = String(Math.max(1, Number.parseInt(entry.count, 10) || 1));
+        count.setAttribute('aria-label', 'Inserted atom count');
+        const remove = document.createElement('button');
+        remove.className = 'remove-add-atoms-entry';
+        remove.type = 'button';
+        remove.textContent = '×';
+        remove.title = 'Remove atom type';
+        remove.setAttribute('aria-label', 'Remove atom type');
+        type.addEventListener('change', () => {
+            if (!label.value.trim() || label.value.trim() === type.dataset.previous) {
+                label.value = type.value;
+            }
+            type.dataset.previous = type.value;
+            void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
+        });
+        remove.addEventListener('click', () => {
+            if (container.children.length <= 1) {
+                this.toast('Add Atoms requires at least one atom type.', 'warning');
+                return;
+            }
+            row.remove();
+            void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
+        });
+        row.append(type, label, count, remove);
+        container.appendChild(row);
+        this.enhanceNumberInputHoldGuards(row);
+    }
+
+    readAddAtomsEntries() {
+        const entries = [...document.querySelectorAll('#add-atoms-entries .add-atoms-entry-row')].map(row => {
+            const element = row.querySelector('.add-atoms-entry-type')?.value || 'H';
+            const label = this.normalizedTypeLabel(row.querySelector('.add-atoms-entry-label')?.value);
+            const count = Number.parseInt(row.querySelector('.add-atoms-entry-count')?.value, 10);
+            if (!label) throw new Error('Every inserted atom type needs a label.');
+            if (!Number.isInteger(count) || count < 1) throw new Error('Atom counts must be positive integers.');
+            return { element, label, count };
+        });
+        const total = entries.reduce((sum, entry) => sum + entry.count, 0);
+        if (!entries.length || total < 1 || total > 100000) {
+            throw new Error('The total atom count must be from 1 through 100,000.');
+        }
+        return entries;
+    }
+
+    addAtomsCellBounds() {
+        const cell = this.state.atoms?.cell;
+        if (!Array.isArray(cell) || cell.length !== 3) return null;
+        const values = cell.map(row => row.map(Number));
+        if (values.flat().some(value => !Number.isFinite(value))) return null;
+        const corners = [];
+        for (let i = 0; i <= 1; i++) {
+            for (let j = 0; j <= 1; j++) {
+                for (let k = 0; k <= 1; k++) {
+                    corners.push([0, 1, 2].map(axis => (
+                        i * values[0][axis] + j * values[1][axis] + k * values[2][axis]
+                    )));
+                }
+            }
+        }
+        return [0, 1, 2].flatMap(axis => [
+            Math.min(...corners.map(corner => corner[axis])),
+            Math.max(...corners.map(corner => corner[axis]))
+        ]);
+    }
+
+    syncAddAtomsBounds({ force = false, bounds = null } = {}) {
+        const values = Array.isArray(bounds) && bounds.length === 6
+            ? bounds.map(Number)
+            : this.addAtomsCellBounds();
+        if (!values) return;
+        ['xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax'].forEach((name, index) => {
+            const input = document.getElementById(`add-atoms-${name}`);
+            if (input && (force || input.value === '')) input.value = Number(values[index].toFixed(6));
+        });
+    }
+
+    readAddAtomsBounds() {
+        const bounds = ['xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax'].map(name => (
+            Number(document.getElementById(`add-atoms-${name}`)?.value)
+        ));
+        if (bounds.some(value => !Number.isFinite(value))) throw new Error('Insertion box bounds must be finite.');
+        for (let axis = 0; axis < 3; axis++) {
+            if (bounds[axis * 2 + 1] <= bounds[axis * 2]) {
+                throw new Error(`${'xyz'[axis]} max must be greater than ${'xyz'[axis]} min.`);
+            }
+        }
+        return bounds;
+    }
+
+    setAddAtomsRegionMode(mode) {
+        if (!this.addAtomsUI || this.addAtomsSessionActive()) return;
+        this.addAtomsUI.regionMode = mode === 'box' ? 'box' : 'cell';
+        const box = this.addAtomsUI.regionMode === 'box';
+        document.getElementById('add-atoms-region-cell')?.classList.toggle('active', !box);
+        document.getElementById('add-atoms-region-box')?.classList.toggle('active', box);
+        document.getElementById('add-atoms-box-fields')?.classList.toggle('hidden', !box);
+        this.syncAddAtomsBounds();
+        this.updateAddAtomsRegionPreview();
+    }
+
+    updateAddAtomsRegionPreview() {
+        if (!this.addAtomsUI || this.addAtomsUI.pane !== 'batch') return;
+        const active = this.addAtomsUI.active;
+        const mode = active?.region_mode || this.addAtomsUI.regionMode;
+        try {
+            this.renderer.setAddAtomsRegion({
+                mode,
+                cell: active?.cell || this.state.atoms?.cell,
+                bounds: active?.bounds || (mode === 'box' ? this.readAddAtomsBounds() : null)
+            });
+        } catch {
+            this.renderer.clearAddAtomsRegion();
+        }
+    }
+
+    captureAddAtomsPairCutoffs() {
+        const result = { ...(this.addAtomsUI?.pairCutoffs || {}) };
+        document.querySelectorAll('#add-atoms-pair-table .add-atoms-pair-row').forEach(row => {
+            const value = Number(row.querySelector('input')?.value);
+            if (row.dataset.pair && Number.isFinite(value) && value >= 0) result[row.dataset.pair] = value;
+        });
+        return result;
+    }
+
+    renderAddAtomsPairCutoffs(cutoffs) {
+        const table = document.getElementById('add-atoms-pair-table');
+        if (!table || !this.addAtomsUI) return;
+        this.addAtomsUI.pairCutoffs = { ...cutoffs };
+        table.replaceChildren();
+        Object.entries(cutoffs).sort(([a], [b]) => a.localeCompare(b)).forEach(([pair, cutoff]) => {
+            const row = document.createElement('label');
+            row.className = 'add-atoms-pair-row';
+            row.dataset.pair = pair;
+            const name = document.createElement('span');
+            name.textContent = pair;
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.min = '0';
+            input.max = '20';
+            input.step = '0.01';
+            input.value = Number(cutoff).toFixed(3);
+            input.setAttribute('aria-label', `${pair} repulsion cutoff in angstrom`);
+            input.addEventListener('change', () => {
+                const value = Number(input.value);
+                if (Number.isFinite(value) && value >= 0) this.addAtomsUI.pairCutoffs[pair] = value;
+            });
+            row.append(name, input);
+            table.appendChild(row);
+        });
+        this.enhanceNumberInputHoldGuards(table);
+    }
+
+    async refreshAddAtomsPairCutoffs({ preserveManual = true } = {}) {
+        if (!this.addAtomsUI || this.addAtomsSessionActive()) return;
+        let entries;
+        try {
+            entries = this.readAddAtomsEntries();
+        } catch {
+            return;
+        }
+        const previous = preserveManual ? this.captureAddAtomsPairCutoffs() : {};
+        const basis = document.getElementById('add-atoms-cutoff-basis')?.value || 'covalent';
+        const scale = Number(document.getElementById('add-atoms-cutoff-scale')?.value || 0.7);
+        const token = ++this.addAtomsUI.pairRequestToken;
+        try {
+            const response = await this.api.atomAdditionPairCutoffs(
+                entries.map(entry => entry.element),
+                basis,
+                scale
+            );
+            if (token !== this.addAtomsUI.pairRequestToken) return;
+            const next = { ...(response.pair_cutoffs || {}) };
+            Object.keys(next).forEach(pair => {
+                if (Object.prototype.hasOwnProperty.call(previous, pair)) next[pair] = previous[pair];
+            });
+            this.renderAddAtomsPairCutoffs(next);
+        } catch (error) {
+            this.setAddAtomsStatus('error', error.message);
+        }
+    }
+
+    addAtomsNumber(id, fallback) {
+        const value = Number(document.getElementById(id)?.value);
+        return Number.isFinite(value) ? value : fallback;
+    }
+
+    setAddAtomsStatus(state, message) {
+        const status = document.getElementById('add-atoms-status');
+        if (status) status.dataset.state = state;
+        const text = document.getElementById('add-atoms-status-text');
+        if (text) text.textContent = message;
+    }
+
+    syncAddAtomsActionState() {
+        const summary = this.addAtomsUI?.active;
+        const active = Boolean(summary?.active);
+        const running = Boolean(summary?.is_relaxing);
+        document.getElementById('add-atoms-mode-badge')?.classList.toggle('hidden', !active);
+        const scatter = document.getElementById('btn-add-atoms-scatter');
+        const relax = document.getElementById('btn-add-atoms-relax');
+        const stop = document.getElementById('btn-add-atoms-stop');
+        const cancel = document.getElementById('btn-add-atoms-cancel');
+        const finish = document.getElementById('btn-add-atoms-finish');
+        if (scatter) scatter.disabled = active;
+        if (relax) relax.disabled = !active || running;
+        if (stop) stop.disabled = !active || !running;
+        if (cancel) cancel.disabled = !active || running;
+        if (finish) finish.disabled = !active || running;
+        document.querySelectorAll(
+            '#add-atoms-entries input, #add-atoms-entries select, #btn-add-atoms-entry, '
+            + '#add-atoms-entries .remove-add-atoms-entry, '
+            + '#add-atoms-region-cell, #add-atoms-region-box, #add-atoms-box-fields input, '
+            + '#add-atoms-seed, #add-atoms-cutoff-basis, #add-atoms-cutoff-scale'
+        ).forEach(control => { control.disabled = active; });
+    }
+
+    syncAddAtomsSessionFromData(data) {
+        if (!this.addAtomsUI) return;
+        const summary = data?.metadata?.atom_addition || null;
+        this.addAtomsUI.active = summary?.active ? { ...summary } : null;
+        if (summary?.active) {
+            this.addAtomsUI.pane = 'batch';
+            this.addAtomsUI.regionMode = summary.region_mode || 'cell';
+            const entries = document.getElementById('add-atoms-entries');
+            if (entries) {
+                entries.replaceChildren();
+                (summary.entries || []).forEach(entry => this.addAddAtomsEntry(entry));
+            }
+            const box = this.addAtomsUI.regionMode === 'box';
+            document.getElementById('add-atoms-region-cell')?.classList.toggle('active', !box);
+            document.getElementById('add-atoms-region-box')?.classList.toggle('active', box);
+            document.getElementById('add-atoms-box-fields')?.classList.toggle('hidden', !box);
+            this.syncAddAtomsBounds({ force: true, bounds: summary.bounds });
+            this.renderAddAtomsPairCutoffs(summary.pair_cutoffs || {});
+            const basis = document.getElementById('add-atoms-cutoff-basis');
+            if (basis) basis.value = summary.cutoff_basis || 'covalent';
+            const scale = document.getElementById('add-atoms-cutoff-scale');
+            if (scale) scale.value = Number(summary.cutoff_scale ?? 0.7).toFixed(2);
+            const seed = document.getElementById('add-atoms-seed');
+            if (seed) seed.value = summary.seed ?? '';
+            document.getElementById('add-atoms-freeze-existing').checked = summary.freeze_existing !== false;
+            this.setAddAtomsPane('batch');
+            const detail = summary.is_relaxing
+                ? `Repelling atoms · ${summary.step || 0}/${summary.max_steps || 0}`
+                : `${summary.new_count || 0} new atoms ready`;
+            this.setAddAtomsStatus(summary.is_relaxing ? 'running' : 'active', detail);
+        }
+        this.syncAddAtomsActionState();
+        this.updateEditingAvailability();
+    }
+
+    async scatterAtomsFromWidget() {
+        if (this.state.vizOnly) {
+            this.editOnlyToast();
+            return;
+        }
+        try {
+            const entries = this.readAddAtomsEntries();
+            const mode = this.addAtomsUI?.regionMode || 'cell';
+            const rawSeed = document.getElementById('add-atoms-seed')?.value?.trim();
+            const payload = {
+                entries,
+                region_mode: mode,
+                bounds: mode === 'box' ? this.readAddAtomsBounds() : undefined,
+                seed: rawSeed === '' ? null : Number(rawSeed),
+                freeze_existing: document.getElementById('add-atoms-freeze-existing')?.checked !== false,
+                cutoff_basis: document.getElementById('add-atoms-cutoff-basis')?.value || 'covalent',
+                cutoff_scale: this.addAtomsNumber('add-atoms-cutoff-scale', 0.7),
+                pair_cutoffs: this.captureAddAtomsPairCutoffs()
+            };
+            const data = await this.withBusy('Scattering atoms...', () => this.api.startAtomAddition(payload));
+            this.setAtomsData(data, { clearSelection: true });
+            const summary = data.metadata?.atom_addition;
+            (summary?.new_indices || []).forEach(index => this.state.selected.add(index));
+            this.updateSelectionVisuals();
+            this.updateUI();
+            const sampling = summary?.sampling || {};
+            const detail = sampling.acceptance_fraction < 0.999
+                ? ` (${(100 * sampling.acceptance_fraction).toFixed(1)}% box acceptance)`
+                : '';
+            this.toast(`Scattered ${summary?.new_count || 0} atoms${detail}.`, 'success');
+        } catch (error) {
+            this.setAddAtomsStatus('error', error.message);
+            this.toast(`Add Atoms failed: ${error.message}`, 'error');
+        }
+    }
+
+    async relaxAddedAtomsFromWidget() {
+        if (!this.addAtomsSessionActive()) return;
+        try {
+            const summary = await this.api.relaxAtomAddition({
+                pair_cutoffs: this.captureAddAtomsPairCutoffs(),
+                freeze_existing: document.getElementById('add-atoms-freeze-existing')?.checked !== false,
+                k_repulsion: this.addAtomsNumber('add-atoms-strength', 2.0),
+                fmax: this.addAtomsNumber('add-atoms-fmax', 0.05),
+                steps: Math.round(this.addAtomsNumber('add-atoms-steps', 250)),
+                mic: document.getElementById('add-atoms-mic')?.checked !== false
+            });
+            this.addAtomsUI.active = { ...summary };
+            this.setAddAtomsStatus('running', `Repelling atoms · 0/${summary.max_steps || 0}`);
+            this.syncAddAtomsActionState();
+        } catch (error) {
+            this.setAddAtomsStatus('error', error.message);
+            this.toast(`Repulsive placement failed: ${error.message}`, 'error');
+        }
+    }
+
+    async stopAddedAtomsRelaxation() {
+        try {
+            await this.api.stopAtomAdditionRelaxation();
+            this.setAddAtomsStatus('running', 'Stopping repulsive placement...');
+        } catch (error) {
+            this.toast(`Could not stop placement: ${error.message}`, 'error');
+        }
+    }
+
+    async cancelAddedAtomsSession() {
+        try {
+            const data = await this.api.cancelAtomAddition();
+            this.addAtomsUI.active = null;
+            this.setAtomsData(data, { clearSelection: true });
+            this.setAddAtomsStatus('idle', 'Ready to scatter atoms');
+            this.updateAddAtomsRegionPreview();
+            this.toast('Add Atoms cancelled. The original structure was restored.', 'success');
+        } catch (error) {
+            this.toast(`Cancel failed: ${error.message}`, 'error');
+        }
+    }
+
+    async finishAddedAtomsSession() {
+        try {
+            const data = await this.api.finishAtomAddition();
+            const added = Number(data.metadata?.atom_addition_result?.added || 0);
+            this.addAtomsUI.active = null;
+            this.setAtomsData(data, { clearSelection: true });
+            this.setAddAtomsPane('single');
+            this.setAddAtomsStatus('complete', `${added} atoms added`);
+            this.toast(`Added ${added} atoms to the structure.`, 'success');
+        } catch (error) {
+            this.toast(`Finish failed: ${error.message}`, 'error');
+        }
     }
 
     makeCreateAtomWidgetDraggable(widget, handle) {
@@ -5975,6 +6437,7 @@ class VAseApp {
         this.renderPairwiseBondControls({ capture: preserveDisplay });
         this.renderer.setDisplayOptions(this.state.display, { rebuild: false });
         this.renderer.rebuildAtoms(data, data.metadata.custom_colors || {});
+        this.syncAddAtomsSessionFromData(data);
         this.renderVolumetricControls();
         const nextVolumeSignature = JSON.stringify(
             this.volumetricDatasets().map(dataset => [
@@ -9830,6 +10293,11 @@ class VAseApp {
             ['/api/calculator/', ['structure'], ['calculator'], 'The ASE calculator configuration changed.'],
             ['/api/relax/start/', ['structure', 'trajectory'], ['relaxation.status'], 'Structure relaxation started.'],
             ['/api/relax/stop/', ['structure', 'trajectory'], ['relaxation.status'], 'Structure relaxation stopped.'],
+            ['/api/add-session/start/', ['structure'], ['structure.topology', 'addAtoms.status'], 'Random atoms were staged.'],
+            ['/api/add-session/relax/', ['structure'], ['structure.positions', 'addAtoms.status'], 'Repulsive atom placement started.'],
+            ['/api/add-session/stop/', ['structure'], ['addAtoms.status'], 'Repulsive atom placement stop was requested.'],
+            ['/api/add-session/finish/', ['structure'], ['structure.topology', 'addAtoms.status'], 'Staged atoms were committed.'],
+            ['/api/add-session/cancel/', ['structure'], ['structure', 'addAtoms.status'], 'Random atom insertion was cancelled and restored.'],
             ['/api/atom-identity/', ['structure'], ['structure.identity'], 'Atom identity changed.'],
             ['/api/constraints/', ['constraints'], ['constraints'], 'ASE constraints changed.'],
             ['/api/supercell/', ['structure'], ['structure.cell', 'structure.positions'], 'The working supercell changed.'],
@@ -10127,6 +10595,7 @@ class VAseApp {
             cell: this.clonePlain(atoms.cell || []),
             pbc: [...(atoms.pbc || [])],
             constraints: this.clonePlain(atoms.constraints || {}),
+            addAtoms: this.clonePlain(this.addAtomsUI?.active || atoms.metadata?.atom_addition || null),
             tags: [...(atoms.tags || [])],
             charges: [...(atoms.charges || [])],
             magneticMoments: [...(atoms.magmoms || [])],
@@ -10280,7 +10749,9 @@ class VAseApp {
         const exportParameters = this.clonePlain(discovery.export_parameters || {});
         const fallbackOperations = [
             'wrap', 'translate-all', 'set-supercell', 'make-supercell',
-            'add-atom', 'delete-selection', 'set-identity', 'set-constraints',
+            'add-atom', 'scatter-atoms', 'relax-added-atoms',
+            'stop-added-atoms', 'finish-add-atoms', 'cancel-add-atoms',
+            'delete-selection', 'set-identity', 'set-constraints',
             'move-selection', 'rotate-selection', 'rotate-to-commensurate',
             'load-commensurate-guest', 'remove-commensurate-guest',
             'calculate-commensurate', 'apply-commensurate-cell',
@@ -10307,6 +10778,7 @@ class VAseApp {
                 'atoms', 'labels', 'elements', 'positions', 'cell', 'pbc',
                 'constraints', 'forces', 'charges', 'tags', 'magnetic-moments',
                 'selection', 'measurement', 'trajectory', 'camera', 'display',
+                'add-atoms',
                 'volumetric-data', 'volumetric-planes', 'rdf', 'commensurate',
                 'commensurate-proposal',
                 'registry-map', 'atom-colorscale', 'preferences', 'collaboration'
@@ -10514,6 +10986,15 @@ class VAseApp {
             throw new Error('operation must be a string or object with a name.');
         }
         const name = String(operation.name || '').trim().toLowerCase();
+        const addAtomsControls = new Set([
+            'relax-added-atoms', 'stop-added-atoms',
+            'finish-add-atoms', 'cancel-add-atoms'
+        ]);
+        if (this.addAtomsSessionActive() && !addAtomsControls.has(name)) {
+            throw new Error(
+                'Finish or cancel the active Add Atoms session before applying another operation.'
+            );
+        }
         const applyConstraints = operation.applyConstraints ?? this.state.applyConstraints;
         const positions = () => this.backendPositionsPayload().map(position => [...position]);
         const setData = (data, clearSelection = false) => {
@@ -10659,6 +11140,89 @@ class VAseApp {
             if (!label) throw new Error('add-atom requires label or element.');
             const position = this.aiFiniteVector(operation.position, 'position');
             setData(await this.api.addAtom(label, position, operation.element || null));
+            return;
+        }
+        if (name === 'scatter-atoms') {
+            this.aiRequireEdit('scatter-atoms');
+            if (this.addAtomsSessionActive()) {
+                throw new Error('Finish or cancel the active Add Atoms session first.');
+            }
+            const hasEntries = Array.isArray(operation.entries);
+            if (!hasEntries && (!String(operation.element || '').trim() || operation.count == null)) {
+                throw new Error('scatter-atoms requires entries or both element and count.');
+            }
+            const entries = hasEntries ? operation.entries : [{
+                element: operation.element,
+                label: operation.label || operation.element,
+                count: operation.count
+            }];
+            if (!entries.length) throw new Error('scatter-atoms requires at least one atom entry.');
+            const regionMode = operation.regionMode === 'box' ? 'box' : 'cell';
+            const bounds = regionMode === 'box'
+                ? operation.bounds
+                : undefined;
+            if (regionMode === 'box') {
+                if (!Array.isArray(bounds) || bounds.length !== 6 || !bounds.every(value => Number.isFinite(Number(value)))) {
+                    throw new Error('Cartesian box bounds must contain six finite numbers.');
+                }
+            }
+            const data = setData(await this.api.startAtomAddition({
+                entries,
+                region_mode: regionMode,
+                bounds: bounds?.map(Number),
+                seed: operation.seed ?? null,
+                freeze_existing: operation.freezeExisting !== false,
+                cutoff_basis: operation.cutoffBasis || 'covalent',
+                cutoff_scale: Number(operation.cutoffScale ?? 0.7),
+                pair_cutoffs: operation.pairCutoffs || undefined
+            }), true);
+            const summary = data.metadata?.atom_addition;
+            (summary?.new_indices || []).forEach(index => this.state.selected.add(index));
+            this.updateSelectionVisuals();
+            this.updateUI();
+            return;
+        }
+        if (name === 'relax-added-atoms') {
+            this.aiRequireEdit('relax-added-atoms');
+            if (!this.addAtomsSessionActive()) {
+                throw new Error('Scatter atoms before starting repulsive placement.');
+            }
+            const summary = await this.api.relaxAtomAddition({
+                pair_cutoffs: operation.pairCutoffs || this.addAtomsUI?.active?.pair_cutoffs,
+                freeze_existing: (
+                    operation.freezeExisting
+                    ?? this.addAtomsUI?.active?.freeze_existing
+                    ?? true
+                ),
+                k_repulsion: Number(operation.strength ?? 2.0),
+                k_boundary: Number(operation.boundaryStrength ?? 5.0),
+                fmax: Number(operation.fmax ?? 0.05),
+                steps: Number(operation.steps ?? 250),
+                mic: operation.mic !== false
+            });
+            this.addAtomsUI.active = { ...summary };
+            this.setAddAtomsStatus('running', `Repelling atoms · 0/${summary.max_steps || 0}`);
+            this.syncAddAtomsActionState();
+            return;
+        }
+        if (name === 'stop-added-atoms') {
+            this.aiRequireEdit('stop-added-atoms');
+            await this.api.stopAtomAdditionRelaxation();
+            return;
+        }
+        if (name === 'finish-add-atoms') {
+            this.aiRequireEdit('finish-add-atoms');
+            const data = setData(await this.api.finishAtomAddition(), true);
+            this.addAtomsUI.active = null;
+            this.setAddAtomsPane('single');
+            return;
+        }
+        if (name === 'cancel-add-atoms') {
+            this.aiRequireEdit('cancel-add-atoms');
+            const data = setData(await this.api.cancelAtomAddition(), true);
+            this.addAtomsUI.active = null;
+            this.setAddAtomsStatus('idle', 'Ready to scatter atoms');
+            this.updateAddAtomsRegionPreview();
             return;
         }
         if (name === 'delete-selection') {
@@ -13806,6 +14370,63 @@ class VAseApp {
                     }
                     this.updateTrajectoryUI();
                 });
+            }
+            if (msg.type === 'add_atoms_relax_step') {
+                const addition = this.addAtomsUI?.active;
+                if (!addition || (msg.addition_id && addition.id !== msg.addition_id)) return;
+                if (Array.isArray(msg.positions)) {
+                    this.state.atoms.positions = msg.positions;
+                    this.state.originalPositions = msg.positions.map(position => [...position]);
+                    if (this.workspaceActive) this.renderer.updatePositions(msg.positions);
+                    else this.workspaceNeedsRefresh = true;
+                }
+                addition.is_relaxing = true;
+                addition.step = Number(msg.step) || 0;
+                addition.max_steps = Number(msg.max_steps) || addition.max_steps || 0;
+                if (this.state.atoms?.metadata) {
+                    this.state.atoms.metadata.atom_addition = { ...addition };
+                }
+                const fmax = Number(msg.fmax);
+                const suffix = Number.isFinite(fmax) ? ` · fmax ${fmax.toFixed(3)}` : '';
+                this.setAddAtomsStatus(
+                    'running',
+                    `Repelling atoms · ${addition.step}/${addition.max_steps}${suffix}`
+                );
+                this.syncAddAtomsActionState();
+            }
+            if (msg.type === 'add_atoms_relax_finished') {
+                const addition = this.addAtomsUI?.active;
+                if (!addition || (msg.addition_id && addition.id !== msg.addition_id)) return;
+                if (Array.isArray(msg.positions)) {
+                    this.state.atoms.positions = msg.positions;
+                    this.state.originalPositions = msg.positions.map(position => [...position]);
+                    if (this.workspaceActive) this.renderer.updatePositions(msg.positions);
+                    else this.workspaceNeedsRefresh = true;
+                }
+                addition.is_relaxing = false;
+                addition.step = Number(msg.step) || addition.step || 0;
+                addition.status = msg.status;
+                if (this.state.atoms?.metadata) {
+                    this.state.atoms.metadata.atom_addition = { ...addition };
+                }
+                const failed = msg.status === 'error';
+                this.setAddAtomsStatus(
+                    failed ? 'error' : 'active',
+                    failed
+                        ? (msg.message || 'Repulsive placement failed')
+                        : `Placement ${msg.status} · ${addition.step} steps`
+                );
+                this.syncAddAtomsActionState();
+                this.scheduleCollaborationEvent({
+                    source: 'system',
+                    categories: ['structure'],
+                    changedPaths: ['structure.positions', 'addAtoms.status'],
+                    summary: `Random atom placement ${msg.status}.`
+                });
+                this.toast(
+                    failed ? `Repulsive placement failed: ${msg.message || 'unknown error'}` : `Placement ${msg.status}.`,
+                    failed ? 'error' : 'success'
+                );
             }
         };
     }

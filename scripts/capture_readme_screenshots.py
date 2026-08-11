@@ -40,6 +40,7 @@ from examples.readme_scenes import (
     make_benzene_pi_volumetric_scene,
     make_material_preset_scene,
     make_phosphorene_twist_scene,
+    make_random_addition_scene,
     make_surface_fixedplane_scene,
     make_cnt_fixedline_scene,
 )
@@ -2022,6 +2023,7 @@ def capture_constraint_media(browser) -> None:
         page.close()
         editor.close()
 
+
     fixedplane_atoms, plane_idx = make_surface_fixedplane_scene()
     editor, page = open_scene(browser, fixedplane_atoms, show_bonds=True)
     try:
@@ -2103,6 +2105,193 @@ def capture_constraint_media(browser) -> None:
             page,
             ASSET_DIR / "readme_hookean.gif",
             hookean_group_frames(base, [indices["oxygen"], indices["hydroxyl_h"]], delta),
+        )
+    finally:
+        page.close()
+        editor.close()
+
+
+def capture_add_atoms_media(browser) -> None:
+    host, metadata = make_random_addition_scene()
+    editor, page = open_scene(browser, host, show_bonds=False, viz_only=False)
+    try:
+        center = np.sum(np.asarray(host.cell.array, dtype=float), axis=0) * 0.5
+        set_display(page, {
+            "viewportBackground": "white",
+            "projectionMode": "orthographic",
+            "showGrid": False,
+            "showAxes": False,
+            "showCell": True,
+            "showBonds": False,
+            "showOverlays": True,
+            "atomRadiusScale": 0.54,
+            "labelRadii": {
+                "Si_framework": 0.58,
+                "Li_mobile": 0.78,
+                "H_probe": 0.46,
+            },
+            "labelColors": {
+                "Si_framework": "#53636c",
+                "Li_mobile": "#78a848",
+                "H_probe": "#d7a736",
+            },
+            "labelMaterials": {
+                "Si_framework": "rubber",
+                "Li_mobile": "standard",
+                "H_probe": "standard",
+            },
+            "cellColor": "#96722f",
+            "cellThickness": 0.055,
+        })
+        page.evaluate("window.__V_ASE_APP__.renderer.setProjectionMode('orthographic')")
+        set_camera(
+            page,
+            target=center.tolist(),
+            position=(center + np.asarray([23.0, -30.0, 21.0])).tolist(),
+            up=(0, 0, 1),
+            fov=35,
+        )
+        page.evaluate("window.__V_ASE_APP__.renderer.fitCameraToStructure()")
+        set_readme_lighting(
+            page,
+            center.tolist(),
+            intensity=2.55,
+            position_offset=(-15.0, -18.0, 25.0),
+        )
+
+        page.click("#btn-create-atom-toggle")
+        page.click("#add-atoms-tab-batch")
+        page.wait_for_function(
+            "window.__V_ASE_APP__.renderer.addAtomsRegionGroup.visible === true"
+        )
+        page.evaluate("""() => {
+            const widget = document.getElementById('create-atom-widget');
+            widget.style.left = '22px';
+            widget.style.right = 'auto';
+            widget.style.top = '82px';
+            widget.style.bottom = 'auto';
+        }""")
+
+        # Keep the random batch inside the open pore so the real pairwise
+        # optimizer path is visible without slowing production relaxation.
+        half_box = np.asarray([2.2, 2.2, 4.0])
+        bounds = np.concatenate((center - half_box, center + half_box))
+        page.click("#add-atoms-region-box")
+        for selector, value in zip(
+            (
+                "#add-atoms-xmin", "#add-atoms-ymin", "#add-atoms-zmin",
+                "#add-atoms-xmax", "#add-atoms-ymax", "#add-atoms-zmax",
+            ),
+            bounds,
+        ):
+            page.fill(selector, f"{float(value):.4f}")
+            page.locator(selector).blur()
+
+        first = page.locator("#add-atoms-entries .add-atoms-entry-row").first
+        first.locator(".add-atoms-entry-type").select_option("Li")
+        first.locator(".add-atoms-entry-label").fill("Li_mobile")
+        first.locator(".add-atoms-entry-count").fill(str(metadata["entries"][0]["count"]))
+        page.click("#btn-add-atoms-entry")
+        second = page.locator("#add-atoms-entries .add-atoms-entry-row").nth(1)
+        second.locator(".add-atoms-entry-type").select_option("H")
+        second.locator(".add-atoms-entry-label").fill("H_probe")
+        second.locator(".add-atoms-entry-count").fill(str(metadata["entries"][1]["count"]))
+        page.fill("#add-atoms-seed", str(metadata["seed"]))
+        page.select_option("#add-atoms-cutoff-basis", "covalent")
+        page.fill("#add-atoms-cutoff-scale", "0.82")
+        page.fill("#add-atoms-strength", "2.5")
+        page.fill("#add-atoms-fmax", "0.002")
+        page.fill("#add-atoms-steps", "180")
+        page.wait_for_function(
+            "document.querySelectorAll('#add-atoms-pair-table .add-atoms-pair-row').length >= 6"
+        )
+
+        frames: list[Image.Image] = []
+        append_hold(frames, page, 7)
+        page.click("#btn-add-atoms-scatter")
+        added_count = sum(int(entry["count"]) for entry in metadata["entries"])
+        page.wait_for_function(
+            "count => window.__V_ASE_APP__.addAtomsUI?.active?.new_count === count",
+            arg=added_count,
+        )
+        page.wait_for_function(
+            "window.__V_ASE_APP__.renderer.addAtomsRegionGroup.visible === true"
+        )
+        scattered_positions = np.asarray(
+            page.evaluate("window.__V_ASE_APP__.state.atoms.positions"),
+            dtype=float,
+        )
+        np.testing.assert_array_equal(scattered_positions[: len(host)], host.positions)
+        append_hold(frames, page, 8)
+
+        page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            window.__VASE_ADD_ATOMS_TRACE__ = [];
+            const original = app.renderer.updatePositions.bind(app.renderer);
+            app.renderer.updatePositions = positions => {
+                if (app.addAtomsUI?.active?.is_relaxing && Array.isArray(positions)) {
+                    window.__VASE_ADD_ATOMS_TRACE__.push(
+                        positions.map(position => [...position])
+                    );
+                }
+                return original(positions);
+            };
+        }""")
+        page.click("#btn-add-atoms-relax")
+        page.wait_for_function(
+            "window.__V_ASE_APP__.addAtomsUI?.active?.is_relaxing === true"
+        )
+        page.wait_for_function(
+            "window.__V_ASE_APP__.addAtomsUI?.active?.is_relaxing === false",
+            timeout=20_000,
+        )
+        trace = page.evaluate("window.__VASE_ADD_ATOMS_TRACE__")
+        if len(trace) < 4:
+            raise AssertionError(
+                f"README Add Atoms optimizer produced only {len(trace)} recorded states."
+            )
+        sample_indices = np.unique(
+            np.linspace(0, len(trace) - 1, min(42, len(trace)), dtype=int)
+        )
+        for output_index, trace_index in enumerate(sample_indices, start=1):
+            update_positions(page, trace[int(trace_index)])
+            page.evaluate(
+                """([step, total]) => window.__V_ASE_APP__.setAddAtomsStatus(
+                    'running', `Repelling atoms · ${step}/${total}`
+                )""",
+                [output_index, len(sample_indices)],
+            )
+            frames.append(screenshot_frame(page))
+        relaxed_positions = np.asarray(
+            trace[-1],
+            dtype=float,
+        )
+        update_positions(page, relaxed_positions)
+        page.evaluate("""() => window.__V_ASE_APP__.setAddAtomsStatus(
+            'active', 'Pairwise placement complete · ready to finish'
+        )""")
+        np.testing.assert_array_equal(relaxed_positions[: len(host)], host.positions)
+        displacement = np.linalg.norm(
+            relaxed_positions[len(host):] - scattered_positions[len(host):],
+            axis=1,
+        )
+        if float(displacement.max(initial=0.0)) <= 0.05:
+            raise AssertionError("README Add Atoms repulsion did not move any inserted atom visibly.")
+        append_hold(frames, page, 8)
+
+        page.click("#btn-add-atoms-finish")
+        page.wait_for_function(
+            "window.__V_ASE_APP__.state.atoms.metadata.atom_addition === null"
+        )
+        page.wait_for_function(
+            "window.__V_ASE_APP__.renderer.addAtomsRegionGroup.visible === false"
+        )
+        append_hold(frames, page, 10)
+        save_gif(frames, ASSET_DIR / "readme_add_atoms.gif", duration=95)
+        frames[-1].save(
+            ASSET_DIR / "readme_add_atoms.png",
+            optimize=True,
+            compress_level=9,
         )
     finally:
         page.close()
@@ -2669,6 +2858,7 @@ def main() -> int:
             "materials",
             "ai",
             "collaboration",
+            "add-atoms",
             "constraints",
             "measurement",
             "relaxation",
@@ -2699,6 +2889,7 @@ def main() -> int:
                 "materials": capture_material_media,
                 "ai": capture_ai_edit_media,
                 "collaboration": capture_ai_collaboration_figure,
+                "add-atoms": capture_add_atoms_media,
                 "constraints": capture_constraint_media,
                 "measurement": capture_measurement_media,
                 "relaxation": capture_relaxation_media,

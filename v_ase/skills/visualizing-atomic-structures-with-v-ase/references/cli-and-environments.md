@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.1.18"
+python -m pip install "v_ase-gui==0.2.1"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.1.18"
+python -m pip install "v_ase-gui[rhino]==0.2.1"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, SciPy, scikit-image,
@@ -66,6 +66,16 @@ Interactive atom editing:
 ```bash
 v_ase gui STRUCTURE --interactive
 ```
+
+Interactive atom editing controlled through the same live agent bridge:
+
+```bash
+v_ase gui STRUCTURE --interactive --cli
+```
+
+Use this combined form for structural agent workflows such as batch atom
+insertion. The human and agent still share one document; `--interactive`
+chooses Edit mode and `--cli` exposes the structured transport.
 
 Useful options:
 

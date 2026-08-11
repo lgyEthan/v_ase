@@ -33,6 +33,9 @@ and documentation use `view()`.
   back to the ASE 3.23/3.24 public POSCAR reader; importing this module must
   never make ordinary structure loading depend on a newer ASE-internal name.
 - `v_ase/analysis.py`: triclinic-safe total/partial RDF and CSV.
+- `v_ase/add_atoms.py`: deterministic multi-species insertion regions,
+  triclinic/Cartesian sampling, temporary-host pairwise repulsion, and exact
+  Finish/Cancel reconstruction.
 - `v_ase/commensurate.py`: bounded 2D coincidence-cell search, scientific
   notation, common-cell geometry, and one-primitive-cell boundary shells.
 - `v_ase/session.py`: document state, history, calculator-preserving copies,
@@ -62,6 +65,10 @@ and documentation use `view()`.
 
 1. The caller's original `Atoms` object is never mutated.
 2. Structural edits use a working copy and preserve supported calculators.
+   Add Atoms additionally keeps an immutable pre-session baseline; temporary
+   host `FixAtoms` exists only on its detached optimization copy and never
+   mutates document constraints, arrays, labels, calculators, or host
+   coordinates.
 3. ASE is authoritative for constrained commits:
    `Atoms.set_positions(..., apply_constraint=True)`.
 4. Browser previews may be immediate, but committed coordinates return from the
@@ -81,6 +88,10 @@ and documentation use `view()`.
 11. Entering Edit materializes a lazy trajectory into complete ASE frames
     before edits are enabled. The current frame, coordinates, labels,
     constraints, and calculators remain synchronized.
+    Random batch insertion is intentionally rejected while a source contains
+    multiple frames; the user must open the target frame in a separate
+    document so a single-frame structural edit cannot masquerade as a
+    trajectory-wide edit.
 12. Settings survive structure refreshes and trajectory changes. Ordinary file
     replacement reconciles the active visual state; `.vase` replacement
     restores it.

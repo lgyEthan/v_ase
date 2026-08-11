@@ -145,6 +145,7 @@ def test_skill_version_install_and_environment_contract_are_current():
     assert f'v_ase-gui=={__version__}' in cli_text
     for required in (
         "v_ase gui STRUCTURE --cli",
+        "v_ase gui STRUCTURE --interactive --cli",
         "persistent process",
         "do **not** wait",
         "from v_ase.visualize import view",
@@ -158,6 +159,18 @@ def test_skill_version_install_and_environment_contract_are_current():
         "qe-cube",
     ):
         assert required in skill_text + cli_text
+
+
+def test_skill_distinguishes_temporary_add_atoms_overlay_from_ase_constraints():
+    documented = _documented_skill_text()
+
+    for required in (
+        "semantic constraint summary",
+        "describe().constraints.fixed_indices",
+        "ASE constraints remain unchanged",
+        "session.working_atoms.constraints",
+    ):
+        assert required in documented, required
 
 
 def test_skill_explains_vendor_neutral_agent_handoff():

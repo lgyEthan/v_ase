@@ -52,12 +52,12 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.1.18&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.1&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.1.18';
+            : '/static/vendor/three.module.js?v=0.2.1';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -116,7 +116,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.1.18</span>
+            <span class="version">0.2.1</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -347,13 +347,21 @@
     <datalist id="element-type-options"></datalist>
 
     <div id="create-atom-widget" class="create-atom-widget glass-panel collapsed" data-edit-only>
-        <button id="btn-create-atom-toggle" class="create-atom-toggle" type="button" title="Create atom">+ Atom</button>
-        <div id="create-atom-card" class="create-atom-card" aria-label="Create atom">
-            <div id="create-atom-drag" class="create-atom-head" title="Drag create atom panel">
-                <span>Create Atom</span>
-                <button id="btn-create-atom-close" type="button" aria-label="Close create atom panel">×</button>
+        <button id="btn-create-atom-toggle" class="create-atom-toggle" type="button" title="Add atoms">+ Add atoms</button>
+        <div id="create-atom-card" class="create-atom-card" aria-label="Add atoms">
+            <div id="create-atom-drag" class="create-atom-head" title="Drag Add Atoms panel">
+                <div class="create-atom-title">
+                    <span>Add Atoms</span>
+                    <span id="add-atoms-mode-badge" class="create-atom-mode-badge hidden">ACTIVE</span>
+                </div>
+                <button id="btn-create-atom-close" type="button" aria-label="Close Add Atoms panel">×</button>
             </div>
-            <div class="create-atom-body">
+            <div class="create-atom-tabs" role="tablist" aria-label="Atom insertion mode">
+                <button id="add-atoms-tab-single" class="active" type="button" role="tab" aria-selected="true">Single</button>
+                <button id="add-atoms-tab-batch" type="button" role="tab" aria-selected="false">Random batch</button>
+            </div>
+
+            <div id="add-atoms-pane-single" class="create-atom-body" role="tabpanel">
                 <label for="create-atom-type">Type</label>
                 <select id="create-atom-type" aria-label="New atom type"></select>
                 <label for="create-atom-label">Label</label>
@@ -367,7 +375,82 @@
                 <div class="create-atom-actions">
                     <button id="btn-create-atom-center" type="button">View Center</button>
                     <button id="btn-create-atom-selected" type="button">Selection</button>
-                    <button id="btn-create-atom-add" type="button">Add</button>
+                    <button id="btn-create-atom-add" class="primary" type="button">Add</button>
+                </div>
+            </div>
+
+            <div id="add-atoms-pane-batch" class="add-atoms-batch hidden" role="tabpanel">
+                <section class="add-atoms-section">
+                    <div class="add-atoms-section-head">
+                        <span>Atoms</span>
+                        <button id="btn-add-atoms-entry" class="icon-text-button" type="button" title="Add atom type">+ Type</button>
+                    </div>
+                    <div class="add-atoms-entry-header" aria-hidden="true">
+                        <span>Type</span><span>Label</span><span>Count</span><span></span>
+                    </div>
+                    <div id="add-atoms-entries" class="add-atoms-entries"></div>
+                </section>
+
+                <section class="add-atoms-section">
+                    <div class="add-atoms-section-head"><span>Insertion region</span></div>
+                    <div class="add-atoms-region-choice" role="group" aria-label="Insertion region">
+                        <button id="add-atoms-region-cell" class="active" type="button">Unit cell</button>
+                        <button id="add-atoms-region-box" type="button">Cartesian box</button>
+                    </div>
+                    <div id="add-atoms-box-fields" class="add-atoms-box-fields hidden">
+                        <label>x min<input id="add-atoms-xmin" type="number" step="0.1"></label>
+                        <label>x max<input id="add-atoms-xmax" type="number" step="0.1"></label>
+                        <label>y min<input id="add-atoms-ymin" type="number" step="0.1"></label>
+                        <label>y max<input id="add-atoms-ymax" type="number" step="0.1"></label>
+                        <label>z min<input id="add-atoms-zmin" type="number" step="0.1"></label>
+                        <label>z max<input id="add-atoms-zmax" type="number" step="0.1"></label>
+                    </div>
+                    <label class="add-atoms-inline-field" for="add-atoms-seed">
+                        <span>Random seed</span>
+                        <input id="add-atoms-seed" type="number" min="0" step="1" placeholder="Random">
+                    </label>
+                </section>
+
+                <section class="add-atoms-section">
+                    <div class="add-atoms-section-head"><span>Repulsive placement</span></div>
+                    <label class="add-atoms-check-row" for="add-atoms-freeze-existing">
+                        <input id="add-atoms-freeze-existing" type="checkbox" checked>
+                        <span>Temporarily fix existing atoms</span>
+                    </label>
+                    <div class="add-atoms-cutoff-row">
+                        <label>Cutoffs
+                            <select id="add-atoms-cutoff-basis">
+                                <option value="covalent">Covalent radii</option>
+                                <option value="vdw">van der Waals radii</option>
+                                <option value="pairwise">Pairwise</option>
+                            </select>
+                        </label>
+                        <label>Scale
+                            <input id="add-atoms-cutoff-scale" type="number" min="0.01" max="3" step="0.05" value="0.70">
+                        </label>
+                    </div>
+                    <div id="add-atoms-pair-table" class="add-atoms-pair-table"></div>
+                    <div class="add-atoms-relax-grid">
+                        <label>Strength<input id="add-atoms-strength" type="number" min="0" step="0.1" value="2.0"></label>
+                        <label>fmax<input id="add-atoms-fmax" type="number" min="0.001" step="0.01" value="0.05"></label>
+                        <label>Steps<input id="add-atoms-steps" type="number" min="1" step="10" value="250"></label>
+                    </div>
+                    <label class="add-atoms-check-row" for="add-atoms-mic">
+                        <input id="add-atoms-mic" type="checkbox" checked>
+                        <span>Minimum image convention</span>
+                    </label>
+                </section>
+
+                <div id="add-atoms-status" class="add-atoms-status" data-state="idle">
+                    <span class="add-atoms-status-dot" aria-hidden="true"></span>
+                    <span id="add-atoms-status-text">Ready to scatter atoms</span>
+                </div>
+                <div class="add-atoms-session-actions">
+                    <button id="btn-add-atoms-scatter" class="primary" type="button">Scatter</button>
+                    <button id="btn-add-atoms-relax" type="button" disabled>Repel</button>
+                    <button id="btn-add-atoms-stop" type="button" disabled>Stop</button>
+                    <button id="btn-add-atoms-cancel" type="button" disabled>Cancel</button>
+                    <button id="btn-add-atoms-finish" class="primary" type="button" disabled>Finish</button>
                 </div>
             </div>
         </div>
@@ -1527,7 +1610,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.1.18&rev=1';
+            : './static/main.js?v=0.2.1&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

@@ -7,16 +7,20 @@ import io
 import json
 import subprocess
 import sys
+import time
 
 import numpy as np
 import pytest
 import requests
 from ase import Atoms
+from ase.constraints import FixAtoms
 from PIL import Image
 from playwright._impl._errors import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
 from v_ase.ai import ai_handshake
+from v_ase.io import atom_labels, set_atom_labels
+from v_ase.session import sessions
 from v_ase.viewer import find_free_port, view
 
 
@@ -49,6 +53,143 @@ def _run_cli_command(url: str, method: str, params=None):
         timeout=30,
     )
     return json.loads(completed.stdout)["result"]
+
+
+def test_external_cli_agent_scatter_repels_and_commits_random_atoms():
+    host = Atoms(
+        "Cu4O2",
+        positions=[
+            [0.8, 0.9, 1.1], [4.9, 1.2, 1.6], [2.3, 4.4, 2.2],
+            [6.1, 4.9, 3.1], [2.8, 2.5, 4.8], [5.5, 3.0, 5.1],
+        ],
+        cell=[[7.6, 0.0, 0.0], [1.7, 6.5, 0.0], [-0.6, 1.1, 6.2]],
+        pbc=True,
+    )
+    set_atom_labels(host, ["Cu_host"] * 4 + ["O_host"] * 2)
+    host.set_tags([9, 8, 7, 6, 5, 4])
+    host.new_array("site_weight", np.asarray([0.1, 0.2, 0.3, 0.4, 0.5, 0.6]))
+    host.set_constraint(FixAtoms(indices=[0]))
+    baseline_positions = host.positions.copy()
+    baseline_arrays = {name: values.copy() for name, values in host.arrays.items()}
+    baseline_constraints = [repr(item) for item in host.constraints]
+
+    port = find_free_port()
+    editor = view(
+        host,
+        notebook=False,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+        open_browser=False,
+    )
+    handshake = ai_handshake(editor.url)
+    command_url = str(handshake["command_url"])
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 960})
+            page.goto(handshake["human_url"])
+            page.wait_for_function("window.v_aseAI")
+            page.wait_for_function(
+                """sessionId => {
+                    const frame = document.querySelector(
+                        `iframe[data-session-id="${sessionId}"]`
+                    );
+                    return Boolean(frame?.contentWindow?.__ASE_APP__);
+                }""",
+                arg=editor.session_id,
+            )
+            child = next(
+                frame for frame in page.frames if "workspace_child=1" in frame.url
+            )
+
+            capabilities = _run_cli_command(command_url, "capabilities")
+            assert {
+                "scatter-atoms", "relax-added-atoms", "stop-added-atoms",
+                "finish-add-atoms", "cancel-add-atoms",
+            } <= set(capabilities["operations"])
+
+            initial = _run_cli_command(
+                command_url,
+                "describe",
+                {"includePositions": True},
+            )
+            scattered = _run_cli_command(command_url, "apply", {
+                "expectedRevision": initial["collaboration"]["revision"],
+                "mode": "edit",
+                "operation": {
+                    "name": "scatter-atoms",
+                    "entries": [
+                        {"element": "Li", "label": "Li_mobile", "count": 7},
+                        {"element": "H", "label": "H_probe", "count": 3},
+                    ],
+                    "regionMode": "cell",
+                    "seed": 2021,
+                    "freezeExisting": True,
+                    "cutoffBasis": "covalent",
+                    "cutoffScale": 0.7,
+                },
+            })
+            assert scattered["addAtoms"]["new_count"] == 10
+            assert scattered["atomCount"] == len(host) + 10
+            child.wait_for_function(
+                "window.__ASE_APP__?.renderer?.addAtomsRegionGroup?.visible === true"
+            )
+            child.wait_for_function(
+                f"window.__ASE_APP__?.state?.atoms?.positions?.length === {len(host) + 10}"
+            )
+
+            running = _run_cli_command(command_url, "apply", {
+                "expectedRevision": scattered["collaboration"]["revision"],
+                "operation": {
+                    "name": "relax-added-atoms",
+                    "pairCutoffs": scattered["addAtoms"]["pair_cutoffs"],
+                    "freezeExisting": True,
+                    "strength": 2.0,
+                    "fmax": 0.1,
+                    "steps": 20,
+                    "mic": True,
+                },
+            })
+            assert running["addAtoms"]["is_relaxing"] is True
+
+            deadline = time.monotonic() + 20.0
+            placed = running
+            while placed["addAtoms"]["is_relaxing"] and time.monotonic() < deadline:
+                time.sleep(0.1)
+                placed = _run_cli_command(
+                    command_url,
+                    "describe",
+                    {"includePositions": False},
+                )
+            assert placed["addAtoms"]["is_relaxing"] is False
+            assert placed["addAtoms"]["status"] != "error"
+
+            committed = _run_cli_command(command_url, "apply", {
+                "expectedRevision": placed["collaboration"]["revision"],
+                "operation": "finish-add-atoms",
+            })
+            assert committed["addAtoms"] is None
+            assert committed["atomCount"] == len(host) + 10
+            assert committed["labels"][-10:] == ["Li_mobile"] * 7 + ["H_probe"] * 3
+            child.wait_for_function(
+                "window.__ASE_APP__?.renderer?.addAtomsRegionGroup?.visible === false"
+            )
+
+            backend = sessions[editor.session_id].working_atoms
+            np.testing.assert_array_equal(backend.positions[: len(host)], baseline_positions)
+            for name, values in baseline_arrays.items():
+                np.testing.assert_array_equal(backend.arrays[name][: len(host)], values)
+            assert [repr(item) for item in backend.constraints] == baseline_constraints
+            assert atom_labels(backend)[-10:] == ["Li_mobile"] * 7 + ["H_probe"] * 3
+            browser.close()
+    finally:
+        editor.close()
 
 
 def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(

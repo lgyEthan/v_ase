@@ -27,6 +27,7 @@ The description should trigger for these requests even when v_ase is not named:
 13. `[trigger]` Twist this 2D layer to the nearest commensurate cell below 16x area.
 14. `[trigger]` Match this hBN guest cell to a graphene host below one percent strain.
 15. `[trigger]` Map the best periodic XY registry for this selected adsorbate layer.
+16. `[trigger]` Randomly add 20 Li and 10 H atoms to this triclinic cell and repel only the new atoms from short contacts.
 
 It should not trigger for these nearby but unrelated requests:
 
@@ -61,7 +62,9 @@ Before every release:
 Current operation coverage:
 
 - wrap, translate-all, set-supercell, make-supercell;
-- add-atom, delete-selection, set-identity, set-constraints;
+- add-atom, scatter-atoms, relax-added-atoms, stop-added-atoms,
+  finish-add-atoms, cancel-add-atoms, delete-selection, set-identity,
+  set-constraints;
 - move-selection, rotate-selection, rotate-to-commensurate,
   load-commensurate-guest, remove-commensurate-guest,
   calculate-commensurate, apply-commensurate-cell,
@@ -87,7 +90,8 @@ Run all scenarios, not only static document checks:
 1. **Launch and discovery**
    - install the built wheel in a clean environment;
    - verify `v_ase --version` and `from v_ase.visualize import view`;
-   - launch `--cli`, parse handshake, fetch skill/schema/state;
+   - launch `v_ase gui STRUCTURE --interactive --cli`, parse the handshake,
+     and fetch skill/schema/state;
    - verify `command_transport` is `http-json-bridge`;
    - use a separate `v_ase api` process for ready/describe/apply/render/export
      without evaluating page-main-world JavaScript.
@@ -113,6 +117,24 @@ Run all scenarios, not only static document checks:
      remap its three neighbor indices after deletion, change them to ASE N with
      label `N_pyridinic`, and verify 71 atoms, three N elements, and three
      matching labels before rendering.
+   - on a complex single periodic structure, start Add Atoms with two
+     element/label populations and a fixed seed; verify the highlighted cell
+     or Cartesian region, requested counts, label order, and new selection;
+   - verify the staged host appears in the semantic constraint summary while
+     the ASE constraints remain unchanged, then verify the temporary summary
+     disappears after finish and cancel;
+   - verify 100,000 fractional samples in a skewed triclinic cell have the
+     expected mean, variance, and 4 x 4 x 4 voxel occupancy, and verify a
+     Cartesian AABB never returns two periodic representations of one voxel;
+   - run pairwise repulsive placement with MIC and the host temporarily fixed;
+     require finite progress events, then finish and prove every host
+     coordinate, constraint, tag, charge, custom array, label, and calculator
+     survives exactly while only staged atoms remain added;
+   - repeat and cancel; require exact structure/history/redo restoration and a
+     hidden insertion region; verify a trajectory is rejected before mutation;
+   - perform the same scatter, asynchronous placement, polling, and finish from
+     a fresh external CLI agent that knows only this Skill, and inspect the
+     resulting live GUI rather than accepting an HTTP success alone.
 5. **Periodic structure**
    - wrap atoms;
    - display a monoclinic supercell;

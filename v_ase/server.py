@@ -34,6 +34,15 @@ from .repulsion import (
     is_vase_repulsion_calculator,
     repulsion_metadata,
 )
+from .add_atoms import (
+    atom_addition_summary,
+    cancel_atom_addition,
+    default_pair_cutoffs,
+    finish_atom_addition,
+    start_atom_addition,
+    start_atom_addition_relaxation,
+    stop_atom_addition_relaxation,
+)
 from .commensurate import (
     COMMENSURATE_REFERENCES,
     MAX_LATTICE_MATCH_AREA_RATIO,
@@ -342,6 +351,8 @@ AI_CONTROL_SCHEMA = {
             "description": (
                 "One semantic structure operation. Supported names are wrap, "
                 "translate-all, set-supercell, make-supercell, add-atom, "
+                "scatter-atoms, relax-added-atoms, stop-added-atoms, "
+                "finish-add-atoms, cancel-add-atoms, "
                 "delete-selection, set-identity, set-constraints, "
                 "move-selection, rotate-selection, rotate-to-commensurate, "
                 "load-commensurate-guest, remove-commensurate-guest, "
@@ -364,6 +375,7 @@ AI_CONTROL_SCHEMA = {
                         "apply-commensurate-cell", "dismiss-commensurate-cell",
                         "remove-commensurate-guest", "calculate-rdf",
                         "set-personal-visual-default",
+                        "stop-added-atoms", "finish-add-atoms", "cancel-add-atoms",
                     ],
                 },
                 {
@@ -373,7 +385,9 @@ AI_CONTROL_SCHEMA = {
                         "name": {
                             "enum": [
                                 "wrap", "translate-all", "set-supercell",
-                                "make-supercell", "add-atom",
+                                "make-supercell", "add-atom", "scatter-atoms",
+                                "relax-added-atoms", "stop-added-atoms",
+                                "finish-add-atoms", "cancel-add-atoms",
                                 "delete-selection", "set-identity",
                                 "set-constraints", "move-selection",
                                 "rotate-selection", "rotate-to-commensurate",
@@ -398,6 +412,71 @@ AI_CONTROL_SCHEMA = {
                         },
                     },
                     "allOf": [
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {"name": {"const": "scatter-atoms"}},
+                            },
+                            "then": {
+                                "anyOf": [
+                                    {"required": ["entries"]},
+                                    {"required": ["element", "count"]},
+                                ],
+                                "properties": {
+                                    "entries": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "items": {
+                                            "type": "object",
+                                            "required": ["element", "count"],
+                                            "properties": {
+                                                "element": {"type": "string", "minLength": 1},
+                                                "label": {"type": "string", "minLength": 1},
+                                                "count": {
+                                                    "type": "integer", "minimum": 1, "maximum": 100000
+                                                },
+                                            },
+                                        },
+                                    },
+                                    "element": {"type": "string", "minLength": 1},
+                                    "label": {"type": "string", "minLength": 1},
+                                    "count": {"type": "integer", "minimum": 1, "maximum": 100000},
+                                    "regionMode": {"enum": ["cell", "box"]},
+                                    "bounds": {
+                                        "type": "array",
+                                        "items": {"type": "number"},
+                                        "minItems": 6,
+                                        "maxItems": 6,
+                                    },
+                                    "seed": {"type": ["integer", "null"], "minimum": 0},
+                                    "freezeExisting": {"type": "boolean"},
+                                    "cutoffBasis": {"enum": ["covalent", "vdw", "pairwise"]},
+                                    "cutoffScale": {
+                                        "type": "number", "exclusiveMinimum": 0, "maximum": 3
+                                    },
+                                    "pairCutoffs": {"type": "object"},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {"name": {"const": "relax-added-atoms"}},
+                            },
+                            "then": {
+                                "properties": {
+                                    "pairCutoffs": {"type": "object"},
+                                    "freezeExisting": {"type": "boolean"},
+                                    "strength": {"type": "number", "minimum": 0, "maximum": 1000},
+                                    "boundaryStrength": {
+                                        "type": "number", "exclusiveMinimum": 0, "maximum": 1000
+                                    },
+                                    "fmax": {"type": "number", "exclusiveMinimum": 0},
+                                    "steps": {"type": "integer", "minimum": 1, "maximum": 100000},
+                                    "mic": {"type": "boolean"},
+                                },
+                            },
+                        },
                         {
                             "if": {
                                 "required": ["name"],
@@ -846,6 +925,51 @@ AI_OPERATION_PARAMETERS = {
         "required": ["position", "label-or-element"],
         "optional": ["label", "element"],
     },
+    "scatter-atoms": {
+        "mode": "edit",
+        "required": ["entries-or-element-count"],
+        "optional": [
+            "entries", "element", "label", "count", "regionMode", "bounds",
+            "seed", "freezeExisting", "cutoffBasis", "cutoffScale", "pairCutoffs",
+        ],
+        "notes": (
+            "Starts an Add Atoms session and randomly scatters one or more element/label "
+            "populations. regionMode=cell samples a triclinic cell uniformly in fractional "
+            "space. regionMode=box samples the Cartesian box intersected with one half-open "
+            "primary periodic cell, so boundary images are not double weighted. The default "
+            "temporarily fixes every pre-existing atom. Follow with relax-added-atoms and "
+            "finish-add-atoms, or cancel-add-atoms to restore the exact baseline."
+        ),
+    },
+    "relax-added-atoms": {
+        "mode": "edit",
+        "required": ["active-add-atoms-session"],
+        "optional": [
+            "pairCutoffs", "freezeExisting", "strength", "boundaryStrength",
+            "fmax", "steps", "mic",
+        ],
+        "notes": (
+            "Starts asynchronous pairwise repulsive placement for the scattered atoms. "
+            "Poll describe.addAtoms or consume collaboration events until is_relaxing is false."
+        ),
+    },
+    "stop-added-atoms": {
+        "mode": "edit",
+        "required": ["active-add-atoms-relaxation"],
+        "optional": [],
+    },
+    "finish-add-atoms": {
+        "mode": "edit",
+        "required": ["inactive-add-atoms-relaxation"],
+        "optional": [],
+        "notes": "Commits only inserted atoms; every host coordinate, constraint, and array is restored exactly.",
+    },
+    "cancel-add-atoms": {
+        "mode": "edit",
+        "required": ["active-add-atoms-session"],
+        "optional": [],
+        "notes": "Restores the complete pre-session structure and history state.",
+    },
     "delete-selection": {
         "mode": "edit",
         "required": ["selection-or-indices"],
@@ -1256,6 +1380,12 @@ def session_atoms_to_json(session: EditorSession, include_inline_trajectory: boo
         (session.config or {}).get("stream_trajectory", False)
     )
     data["metadata"]["calculator_details"] = repulsion_metadata(session.working_atoms.calc)
+    addition = atom_addition_summary(session)
+    data["metadata"]["atom_addition"] = addition
+    if addition and addition["temporary_fixed_indices"]:
+        fixed = set(data["constraints"].get("fixed_indices") or [])
+        fixed.update(addition["temporary_fixed_indices"])
+        data["constraints"]["fixed_indices"] = sorted(fixed)
     data["metadata"]["volumetric_datasets"] = [
         dataset.summary()
         for dataset in session.volumetric_datasets
@@ -1461,7 +1591,12 @@ def schedule_workspace_autoclose(
     timer.start()
 
 
-def require_editable(session: EditorSession, action: str = "This operation"):
+def require_editable(
+    session: EditorSession,
+    action: str = "This operation",
+    *,
+    allow_atom_addition: bool = False,
+):
     if is_viz_only(session):
         raise HTTPException(
             status_code=403,
@@ -1469,6 +1604,16 @@ def require_editable(session: EditorSession, action: str = "This operation"):
                 f"{action} is disabled in View mode. "
                 "Switch the top-bar mode to Edit before modifying atoms."
             ),
+        )
+    if not allow_atom_addition:
+        require_no_atom_addition(session, action)
+
+
+def require_no_atom_addition(session: EditorSession, action: str = "This operation"):
+    if session.atom_addition is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Finish or cancel Add Atoms before {action.lower()}.",
         )
 
 
@@ -3137,6 +3282,7 @@ async def poll_ai_workspace_collaboration_events(
 @app.post("/api/mode/{session_id}")
 async def update_session_mode(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
+    require_no_atom_addition(session, "changing View/Edit mode")
     requested = payload.get("viz_only")
     if not isinstance(requested, bool):
         raise HTTPException(status_code=400, detail="viz_only must be true or false.")
@@ -4518,10 +4664,83 @@ async def redo(session_id: str):
     return session_update_to_json(session)
 
 
+@app.post("/api/add-session/pairs/{session_id}")
+async def atom_addition_pair_cutoffs(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(session, "Random atom insertion", allow_atom_addition=True)
+    elements = list(session.working_atoms.get_chemical_symbols())
+    elements.extend(payload.get("elements") or [])
+    if not elements:
+        elements = ["H"]
+    return {
+        "basis": str(payload.get("basis") or "covalent").lower(),
+        "scale": float(payload.get("scale", 0.7)),
+        "pair_cutoffs": default_pair_cutoffs(
+            elements,
+            basis=payload.get("basis") or "covalent",
+            scale=payload.get("scale", 0.7),
+        ),
+    }
+
+
+@app.post("/api/add-session/start/{session_id}")
+async def start_random_atom_addition(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(session, "Random atom insertion")
+    sync_session_frame_from_payload(session, payload)
+    try:
+        addition = await asyncio.to_thread(start_atom_addition, session, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    data = session_update_to_json(session)
+    data["metadata"]["atom_addition"].update({
+        "sampling": addition.get("sampling") or {},
+    })
+    return data
+
+
+@app.post("/api/add-session/relax/{session_id}")
+async def relax_random_atom_addition(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(session, "Random atom insertion", allow_atom_addition=True)
+    try:
+        return start_atom_addition_relaxation(session, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/add-session/stop/{session_id}")
+async def stop_random_atom_addition(session_id: str):
+    session = get_session(session_id)
+    return {"status": "stopping" if stop_atom_addition_relaxation(session) else "idle"}
+
+
+@app.post("/api/add-session/finish/{session_id}")
+async def finish_random_atom_addition(session_id: str):
+    session = get_session(session_id)
+    require_editable(session, "Random atom insertion", allow_atom_addition=True)
+    try:
+        result = finish_atom_addition(session)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    data = session_update_to_json(session)
+    data["metadata"]["atom_addition_result"] = result
+    return data
+
+
+@app.post("/api/add-session/cancel/{session_id}")
+async def cancel_random_atom_addition(session_id: str):
+    session = get_session(session_id)
+    require_editable(session, "Random atom insertion", allow_atom_addition=True)
+    cancel_atom_addition(session)
+    return session_update_to_json(session)
+
+
 @app.post("/api/add/{session_id}")
 async def add_atoms(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
     require_editable(session, "Adding atoms")
+    require_no_atom_addition(session, "adding a separate atom")
     sync_session_frame_from_payload(session, payload)
     symbols = payload.get("symbols")
     positions = payload.get("positions")
@@ -4667,6 +4886,7 @@ async def update_calculator(session_id: str, payload: Dict[str, Any]):
 @app.post("/api/frame/{session_id}")
 async def set_frame(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
+    require_no_atom_addition(session, "changing trajectory frames")
     frame_index = int(payload.get("index", 0))
     try:
         session.set_frame(frame_index)
@@ -5219,6 +5439,7 @@ async def registry_analysis_csv(session_id: str, payload: Dict[str, Any]):
 @app.post("/api/done/{session_id}")
 async def done(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
+    require_no_atom_addition(session, "closing the editor")
     sync_session_frame_from_payload(session, payload)
     if not is_viz_only(session):
         positions = np.array(payload["positions"])
@@ -5599,6 +5820,7 @@ if FASTAPI_AVAILABLE:
     @app.post("/api/relax/start/{session_id}")
     async def api_relax_start(session_id: str, payload: Dict[str, Any], bt: BackgroundTasks):
         session = get_session(session_id)
+        require_no_atom_addition(session, "starting structure relaxation")
         sync_session_frame_from_payload(session, payload)
         return await start_relaxation(session, payload, bt)
 

@@ -25,7 +25,7 @@ completed structure is inspected from above and below.
 | Work directly in v_ase | Included |
 | --- | --- |
 | Structures and trajectories | ASE-supported formats, live timeline, per-frame bonds |
-| Geometry editing | Ordered selection, `G` move, `R` rotate, axis locks, numeric input |
+| Geometry editing | Ordered selection, `G` move, `R` rotate, exact transforms, random multi-species insertion |
 | Scientific inspection | Distances, angles, torsions, displacement vectors, RDF, constraints |
 | Volumetric fields | VASP and Cube/XSF grids, isosurfaces, density differences |
 | Figure preparation | Appearance, bonds, lighting, exact preview, image/video export |
@@ -81,6 +81,7 @@ browser document releases the blocking terminal process.
 | --- | --- |
 | Inspect a structure | Middle-drag to orbit, wheel to zoom, left-click to select |
 | Edit coordinates | Enter **Edit**, select atoms, press `Esc` to focus the viewport, then use `G` or `R` |
+| Insert one or many atoms | In **Edit**, open **+ Add atoms** and choose **Single** or **Random batch** |
 | Measure geometry | Select 2, 3, or 4 atoms in the required order |
 | Play a trajectory | Use the bottom timeline or `Space`; FPS and Skip update live |
 | Plot an RDF | Use **Analysis > Radial Distribution Function** |
@@ -174,6 +175,38 @@ Press `G` after selecting atoms. Lock the move with `X`, `Y`, or `Z`, type an
 exact displacement in angstrom, then confirm with left-click or `Enter`.
 Configured ASE constraints remain authoritative when **Apply constraints** is
 enabled.
+
+### Add Atoms — New In v0.2.1
+
+![Random multi-species insertion and repulsive placement in a triclinic cell](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_atoms.gif)
+
+Open **+ Add atoms** in **Edit** mode:
+
+- **Single** places one atom at an exact position or the current view center.
+- **Random batch** accepts multiple Type, Label, and Count rows and scatters
+  them together. A random seed makes the initial placement reproducible.
+- **Unit cell** samples the full volume of an orthogonal or triclinic cell.
+  **Cartesian box** limits placement to a visible `xmin`/`xmax`,
+  `ymin`/`ymax`, `zmin`/`zmax` region inside its half-open primary periodic cell,
+  so skew-cell boundaries are not sampled twice.
+- **Temporarily fix existing atoms** keeps the loaded structure stationary
+  while only the inserted atoms follow the pairwise repulsion. It is enabled
+  by default.
+- Choose covalent, van der Waals, or explicit element-pair cutoffs, then click
+  **Repel** to remove short contacts with the minimum image convention.
+
+The teal cell or box exists only while Add Atoms is active. **Finish** commits
+the inserted atoms but reconstructs every pre-existing coordinate, array,
+label, calculator, and constraint from the original structure. **Cancel**
+removes the inserted atoms and restores that original structure completely.
+For trajectories, open the target frame in a new tab before starting a random
+batch.
+
+The animation uses the included
+[triclinic nanoporous Si example](examples/readme_scene_assets/triclinic_nanoporous_add_atoms.traj):
+18 `Li_mobile` and 10 `H_probe` atoms are scattered with seed `2021`, then
+placed using editable element-pair cutoffs while the `Si_framework` host stays
+fixed.
 
 ### Rotate
 

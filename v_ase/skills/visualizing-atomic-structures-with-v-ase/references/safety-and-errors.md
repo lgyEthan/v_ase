@@ -57,6 +57,16 @@ test edit and a new filename for output.
   Reset returns the visual translation to zero.
 - Trajectory interpolation requires stable atom count, ordering, elements, and
   labels.
+- Batch Add Atoms requires a single structure. Random scattering is staged and
+  reversible until `finish-add-atoms`; never force it into one trajectory
+  frame. `freezeExisting` is a temporary optimizer constraint only. Its host
+  indices may appear in `describe().constraints.fixed_indices` as a semantic
+  constraint summary for the overlay, while the ASE constraints remain
+  unchanged. Verify host coordinates, original constraints, and arrays after
+  finish or cancel.
+- Triclinic cell scattering is uniform in fractional coordinates. A Cartesian
+  box samples its intersection with one half-open primary periodic cell; do
+  not sample every overlapping periodic image or claim a regular distribution.
 - Angle and torsion measurements preserve selection order and do not use MIC.
 - Volumetric linear combinations are valid only for grids with the same
   dimensions, cell, origin, PBC, endpoint convention, and scalar units.
@@ -86,6 +96,11 @@ test edit and a new filename for output.
 | `requires Edit mode` | A physical operation was attempted in View | Send `apply` with `{"mode":"edit"}`, describe, retry |
 | HTTP 409, no live browser | `human_url` is not open or viewport is still loading | Open `human_url`, wait for atoms/empty workspace, retry |
 | index outside range | Topology/frame changed or stale index | Describe again and remap by label/position |
+| Random atom insertion requires a single structure | A trajectory is active | Open the intended frame as a standalone structure in a new document and retry |
+| Scatter atoms before starting repulsive placement | No active Add Atoms session | Run `scatter-atoms`, verify `describe().addAtoms`, then retry |
+| Repulsive placement is already running | A second optimizer start overlapped the first | Poll events/state; stop or wait before retrying |
+| Stop or wait for repulsive placement before finishing | Finish was requested while the background optimizer still owns staged coordinates | Run `stop-added-atoms` or wait, verify inactive state, then finish |
+| Cartesian insertion box has too little overlap | The requested AABB barely intersects the primary triclinic cell | Enlarge or move the box; never fill it from duplicate periodic images |
 | atom labels must match atom count | Inconsistent topology metadata | Reload/describe; do not invent missing identities |
 | wrap requires a cell | Cell is undefined | Stop and ask for a valid cell |
 | supercell rejected | Invalid repetition or integer matrix | Validate bounds and determinant |
@@ -132,12 +147,15 @@ message, and the last verified state.
 
 ## Long-Running Work
 
-Relaxation, large trajectory loading, high-resolution rendering, video
+Relaxation, Add Atoms repulsive placement, large trajectory loading, high-resolution rendering, video
 interpolation, Blender/3DM export, large displacement analysis, fine-grid
 isosurface extraction, and high-bin RDF calculations can take time.
 
 - Keep the v_ase process alive.
 - Do not issue overlapping destructive operations.
+- During Add Atoms, consume `add_atoms_relax_step` and
+  `add_atoms_relax_finished` events or poll `describe().addAtoms`; commit only
+  after `is_relaxing` becomes false.
 - Poll semantic state at a reasonable interval; one second is sufficient for
   normal relaxation UI updates.
 - For video, verify the expected output frame count:

@@ -1,5 +1,20 @@
 # v_ase README Scene Assets
 
+## add-atoms
+
+Skewed nanoporous silicon host for random multi-species insertion and isolated repulsive placement.
+
+- Static: `triclinic_nanoporous_add_atoms.traj`
+- Suggested selected indices: ``
+- Scatter 18 Li_mobile and 10 H_probe atoms with random seed 2021.
+- The host remains unchanged while only inserted atoms follow the pairwise repulsion.
+
+Open command:
+
+```bash
+v_ase gui examples/readme_scene_assets/triclinic_nanoporous_add_atoms.traj --show-bonds
+```
+
 ## phosphorene
 
 Short, wide 5 x 6 armchair black-phosphorene ribbon twisted to the paper-reported 13.85 degree model in 9 ridge edits.
@@ -23,7 +38,7 @@ v_ase gui examples/readme_scene_assets/phosphorene_twisted_nanoribbon_13p85deg.c
 Graphene/hBN stack for the periodic commensurate rotation guide.
 
 - Static: `graphene_hbn_commensurate.traj`
-- Suggested selected indices: `72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143`
+- Suggested selected indices: `2, 3`
 - Select the hBN layer, press R then Z, and rotate toward a displayed cell match.
 
 Open command:

@@ -162,6 +162,41 @@ reports `command_transport="http-json-bridge"`,
 `accepts_natural_language=false`, and `stdin_commands=false`, plus
 `events_url`, `event_protocol`, `event_delivery`, and `event_scope`.
 
+Edit-mode random insertion is available to external agents through the same
+live document and revision contract:
+
+```bash
+v_ase api "$COMMAND_URL" apply --params '{
+  "name": "scatter-atoms",
+  "parameters": {
+    "entries": [
+      {"element": "Li", "label": "Li_mobile", "count": 12},
+      {"element": "H", "label": "H_probe", "count": 8}
+    ],
+    "regionMode": "cell",
+    "seed": 2021,
+    "freezeExisting": true,
+    "cutoffBasis": "covalent",
+    "cutoffScale": 0.70
+  }
+}'
+v_ase api "$COMMAND_URL" apply --params '{
+  "name": "relax-added-atoms",
+  "parameters": {"strength": 2.5, "fmax": 0.01, "steps": 180}
+}'
+v_ase api "$COMMAND_URL" apply --params '{
+  "name": "finish-add-atoms",
+  "parameters": {}
+}'
+```
+
+`stop-added-atoms` interrupts the optimizer but leaves the insertion workspace
+open. `cancel-add-atoms` removes every inserted atom and restores the exact
+pre-session structure. A Cartesian-box request supplies `bounds` with
+`xmin/xmax/ymin/ymax/zmin/zmax`; it is clipped to the half-open primary
+periodic cell even for a triclinic lattice. `schema` is authoritative for all
+parameter names and allowed ranges.
+
 ```bash
 v_ase api "$COMMAND_URL" describe --params '{"includePositions":false}'
 v_ase api "$COMMAND_URL" apply --params-file command.json

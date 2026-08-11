@@ -3825,9 +3825,11 @@ body.resizing-pairwise-column * {
     left: 18px;
     bottom: 22px;
     z-index: 210;
-    width: 286px;
+    width: min(440px, calc(100vw - 36px));
+    max-height: calc(100vh - 112px);
     border-radius: 7px;
     background: var(--panel);
+    overflow: hidden;
 }
 
 .create-atom-widget.collapsed {
@@ -3840,7 +3842,7 @@ body.resizing-pairwise-column * {
 .create-atom-toggle {
     display: none;
     min-height: 34px;
-    padding: 6px 11px;
+    padding: 6px 13px;
     border: 1px solid var(--amber-border);
     border-radius: 17px;
     background: var(--panel-raised);
@@ -3859,7 +3861,7 @@ body.resizing-pairwise-column * {
 }
 
 .create-atom-head {
-    height: 38px;
+    height: 42px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -3870,6 +3872,23 @@ body.resizing-pairwise-column * {
     font-weight: 720;
     cursor: grab;
     touch-action: none;
+}
+
+.create-atom-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.create-atom-mode-badge {
+    padding: 2px 6px;
+    border: 1px solid var(--teal-border);
+    border-radius: 8px;
+    background: var(--teal-soft);
+    color: var(--teal);
+    font-size: 0.54rem;
+    font-weight: 780;
+    line-height: 1;
 }
 
 .create-atom-head button {
@@ -3888,6 +3907,294 @@ body.resizing-pairwise-column * {
     gap: 8px 10px;
     align-items: center;
     padding: 12px;
+}
+
+.create-atom-card {
+    max-height: calc(100vh - 112px);
+    overflow: hidden;
+}
+
+.create-atom-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2px;
+    padding: 4px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-subtle);
+}
+
+.create-atom-tabs button,
+.add-atoms-region-choice button,
+.add-atoms-section button,
+.add-atoms-session-actions button {
+    min-width: 0;
+    min-height: 31px;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-soft);
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.67rem;
+    font-weight: 680;
+}
+
+.create-atom-tabs button:hover,
+.add-atoms-region-choice button:hover,
+.add-atoms-section button:hover,
+.add-atoms-session-actions button:hover:not(:disabled) {
+    border-color: var(--line-strong);
+    background: var(--surface-hover);
+    color: var(--text);
+}
+
+.create-atom-tabs button.active,
+.add-atoms-region-choice button.active {
+    border-color: var(--teal-border);
+    background: var(--teal-soft);
+    color: var(--teal);
+}
+
+.add-atoms-batch {
+    max-height: calc(100vh - 160px);
+    padding: 10px;
+    overflow: auto;
+    overscroll-behavior: contain;
+}
+
+.add-atoms-section {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+}
+
+.add-atoms-section:first-child {
+    padding-top: 0;
+}
+
+.add-atoms-section-head {
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 7px;
+    color: var(--text);
+    font-size: 0.69rem;
+    font-weight: 740;
+}
+
+.add-atoms-section-head .icon-text-button {
+    min-height: 26px;
+    padding: 2px 8px;
+    border-color: var(--line-strong);
+}
+
+.add-atoms-entry-header,
+.add-atoms-entry-row {
+    display: grid;
+    grid-template-columns: 74px minmax(112px, 1fr) 70px 28px;
+    gap: 6px;
+    align-items: center;
+}
+
+.add-atoms-entry-header {
+    padding: 0 2px 5px;
+    color: var(--muted);
+    font-size: 0.56rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.add-atoms-entries {
+    display: grid;
+    gap: 6px;
+}
+
+.add-atoms-entry-row select,
+.add-atoms-entry-row input,
+.add-atoms-inline-field input,
+.add-atoms-box-fields input,
+.add-atoms-cutoff-row input,
+.add-atoms-cutoff-row select,
+.add-atoms-relax-grid input,
+.add-atoms-pair-row input {
+    width: 100%;
+    min-width: 0;
+    height: 30px;
+    padding: 4px 7px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--field);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.66rem;
+}
+
+.add-atoms-entry-row .remove-add-atoms-entry {
+    width: 28px;
+    height: 28px;
+    min-height: 28px;
+    padding: 0;
+    border-color: transparent;
+    color: var(--muted);
+    font-size: 1rem;
+}
+
+.add-atoms-region-choice {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    padding: 3px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface-subtle);
+}
+
+.add-atoms-box-fields {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+    margin-top: 8px;
+}
+
+.add-atoms-box-fields label,
+.add-atoms-cutoff-row label,
+.add-atoms-relax-grid label {
+    display: grid;
+    gap: 4px;
+    color: var(--muted);
+    font-size: 0.57rem;
+    font-weight: 650;
+}
+
+.add-atoms-inline-field,
+.add-atoms-check-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 8px;
+    color: var(--text-soft);
+    font-size: 0.64rem;
+}
+
+.add-atoms-inline-field input {
+    width: 112px;
+}
+
+.add-atoms-check-row {
+    justify-content: flex-start;
+    cursor: pointer;
+}
+
+.add-atoms-check-row input {
+    width: 15px;
+    height: 15px;
+    margin: 0;
+    accent-color: var(--teal);
+}
+
+.add-atoms-cutoff-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 92px;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.add-atoms-pair-table {
+    max-height: 142px;
+    display: grid;
+    gap: 4px;
+    margin-top: 8px;
+    overflow: auto;
+}
+
+.add-atoms-pair-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 96px;
+    gap: 7px;
+    align-items: center;
+}
+
+.add-atoms-pair-row span {
+    overflow: hidden;
+    color: var(--text-soft);
+    font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace);
+    font-size: 0.62rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.add-atoms-pair-row input {
+    text-align: right;
+}
+
+.add-atoms-relax-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+    margin-top: 8px;
+}
+
+.add-atoms-status {
+    min-height: 34px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 10px 0 8px;
+    padding: 7px 9px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface-subtle);
+    color: var(--text-soft);
+    font-size: 0.63rem;
+}
+
+.add-atoms-status-dot {
+    width: 7px;
+    height: 7px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: var(--muted);
+}
+
+.add-atoms-status[data-state="active"] .add-atoms-status-dot,
+.add-atoms-status[data-state="complete"] .add-atoms-status-dot {
+    background: var(--teal);
+}
+
+.add-atoms-status[data-state="running"] .add-atoms-status-dot {
+    background: var(--amber);
+    box-shadow: 0 0 0 3px var(--amber-soft);
+}
+
+.add-atoms-status[data-state="error"] .add-atoms-status-dot {
+    background: var(--red);
+}
+
+.add-atoms-session-actions {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 5px;
+}
+
+.add-atoms-session-actions button {
+    min-height: 32px;
+    padding: 4px;
+    border-color: var(--line-strong);
+    background: var(--surface-subtle);
+    font-size: 0.61rem;
+}
+
+.add-atoms-session-actions button.primary,
+.create-atom-actions button.primary {
+    border-color: var(--teal-border);
+    background: var(--teal-soft);
+    color: var(--teal);
+}
+
+.add-atoms-session-actions button:disabled {
+    opacity: 0.38;
+    cursor: not-allowed;
 }
 
 .create-atom-body label {

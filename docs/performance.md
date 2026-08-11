@@ -136,6 +136,30 @@ Bond controls use a dedicated animation-frame-coalesced update path. Editing a
 pair range or bond material does not reparse the Appearance table, supercell
 inputs, transform controls, or export settings.
 
+## Add Atoms Benchmark
+
+Random insertion generates coordinates in one vectorized NumPy allocation.
+Triclinic unit-cell mode maps a uniform fractional array through the complete
+cell matrix. Cartesian-box mode uses batched rejection against the half-open
+primary periodic cell; its cost therefore scales with both requested count and
+the box/cell intersection fraction. Pairwise placement uses ASE's periodic
+neighbor list rather than an all-pairs distance matrix, and only tag-3 mobile
+atoms receive forces when the host-fixing option is enabled.
+
+Reference result on the project development Mac with Python 3.13:
+
+| Check | Result |
+| --- | ---: |
+| 100,000 triclinic unit-cell samples | 0.0026 s |
+| 100,000 Cartesian-box samples, 79.6% accepted | 0.0271 s |
+| 15,000 host + 100 mobile MIC force evaluation | 0.989 s |
+| Nonzero host force entries while fixed | 0 |
+
+The scientific regressions separately verify deterministic seeds, fractional
+voxel occupancy, Cartesian-box containment, MIC across a periodic boundary,
+and exact host restoration during both normal completion and cancellation
+racing an in-flight optimizer commit.
+
 ## Browser Benchmark
 
 Run:
