@@ -22,17 +22,24 @@ amber box selects the remaining ridges, the Transform controls apply an exact
 X-axis rotation, and the sequence reaches a 13.85 degree twist before the
 completed structure is inspected from above and below.
 
-| Work directly in v_ase | Included |
-| --- | --- |
-| Structures and trajectories | ASE-supported formats, live timeline, per-frame bonds |
-| Geometry editing | Ordered selection, `G` move, `R` rotate, exact transforms, random multi-species insertion |
-| Scientific inspection | Distances, angles, torsions, displacement vectors, RDF, constraints |
-| Volumetric fields | VASP and Cube/XSF grids, isosurfaces, density differences |
-| Figure preparation | Appearance, bonds, lighting, exact preview, image/video export |
-| Reproducible sessions | Self-contained `.vase` projects and reusable visual settings |
-| Agent workflows | Semantic state/command API and a vendor-neutral AI skill |
+## Highlights
 
-## Quick Start
+| Why use v_ase? | What it provides |
+| --- | --- |
+| **ASE-native workflow** | Open ASE-supported structures and trajectories from the terminal or Python, retain scientific metadata, and return to the same environment after inspection or editing. |
+| **Direct 3D structure editing** | Select atoms visually, use `G` and `R`, enter exact transforms, create atoms, apply constraints, and inspect every change in the same local browser. [Explore editing](#edit-structures). |
+| **Periodic interfaces and analysis** | Build supercells, search commensurate 2D cells, optimize XY registry, measure ordered geometry, plot RDFs, and inspect volumetric fields. [Explore interfaces](#periodic-cells-and-interfaces) and [analysis](#analyze-structures-and-fields). |
+| **External AI collaboration** | Give a scientific request to an external AI Agent; the bundled Skill lets it operate exact revisioned state while you watch and refine the same GUI. [See the collaboration workflow](#work-with-an-ai-agent). |
+| **Publication and reusable output** | Prepare consistent atoms, bonds, lighting, images, videos, offline HTML views, Blender scenes, and self-contained `.vase` projects. [See export options](#export-and-save). |
+
+![Human and external AI agent working in one live v_ase document](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.png)
+
+Human instructions remain natural language, while the external Agent uses the
+bundled v_ase Skill and structured CLI/API for exact atom identities, camera
+settings, validation, and export. The user and Agent share one revisioned GUI
+document; v_ase does not embed an LLM.
+
+## Installation And Launch
 
 Install from PyPI:
 
@@ -75,7 +82,7 @@ v_ase gui structure.vasp --interactive
 No Node.js installation or hosted account is required. Closing the v_ase
 browser document releases the blocking terminal process.
 
-## Start Here
+## Find A Workflow
 
 | Goal | Action |
 | --- | --- |
@@ -885,8 +892,6 @@ teaches that Agent the exact state queries, edits, validation checks, camera
 commands, and exports. v_ase itself does not contain an LLM or interpret
 natural language.
 
-![Human and external AI agent working in one live v_ase document](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.png)
-
 1. **You → Agent:** state the source structure, scientific change, and desired
    final view in ordinary language.
 2. **Agent ↔ v_ase:** the Agent uses the Skill and structured CLI/API to inspect
@@ -1152,7 +1157,7 @@ in `~/.ssh/config` when a login node is required.
 
 ## License
 
-v_ase releases from `0.1.11` onward are licensed under the
+v_ase is licensed under the
 [GNU Affero General Public License v3.0 or later](LICENSE)
 (`AGPL-3.0-or-later`). You may use,
 modify, and redistribute the software under that license; distributions and

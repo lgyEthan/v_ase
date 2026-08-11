@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.4
+
+- Reorganized the user guide around an immediate product overview, concise
+  selling-point highlights, installation, task-oriented details, and final
+  troubleshooting, while keeping the full external-Agent workflow linked from
+  its prominent overview.
+- Reframed the FixedLine documentation scene so the complete nanotube channel
+  and moving constrained ion remain cleanly inside every animation frame.
+- Removed historical license-transition wording from public guidance and kept
+  the current `AGPL-3.0-or-later` terms stated consistently.
+
 ## 0.2.3
 
 - Extended Add Atoms Cartesian regions with allowed and prohibited roles,
@@ -152,12 +163,6 @@
   synchronized preference state across workspace tabs, and exposed the theme
   and default workflows through the semantic Agent API with a mandatory
   confirmation guard for deletion.
-
-## 0.1.11
-
-- Licensed v_ase releases from this version onward under
-  `AGPL-3.0-or-later`, synchronized the package metadata and user guidance,
-  and added a visible in-app license, source, and warranty notice.
 
 ## 0.1.10
 

@@ -568,7 +568,7 @@ def set_atomic_scale(page, pixels_per_angstrom: float):
     page.wait_for_timeout(250)
 
 
-def settle_view(page, *, target=None, position=None, fov=38):
+def settle_view(page, *, target=None, position=None, up=(0, 0, 1), fov=38):
     page.evaluate(
         """() => {
             const app = window.__V_ASE_APP__;
@@ -578,7 +578,7 @@ def settle_view(page, *, target=None, position=None, fov=38):
     )
     page.wait_for_timeout(400)
     if target is not None and position is not None:
-        set_camera(page, target=target, position=position, fov=fov)
+        set_camera(page, target=target, position=position, up=up, fov=fov)
 
 
 def update_positions(page, positions):
@@ -2290,13 +2290,17 @@ def capture_constraint_media(browser) -> None:
         set_selection(page, [line_idx["ion"]])
         configure_inspector(page, "structure", ["constraints", "transform"])
         target = np.asarray(fixedline_atoms.positions[line_idx["ion"]], dtype=float)
+        view_target = target - np.array([0.0, 0.0, 2.8])
         settle_view(
             page,
-            target=target.tolist(),
-            position=(target + np.array([5.2, -7.0, 4.0])).tolist(),
+            target=view_target.tolist(),
+            position=(view_target + np.array([7.0, -12.0, 0.0])).tolist(),
+            up=(12.0, 7.0, 0.0),
             fov=34,
         )
-        set_atomic_scale(page, 142.0)
+        # Align the long channel axis with the wide viewport so the complete
+        # CNT and every moving-ion frame remain visible at a useful scale.
+        set_atomic_scale(page, 68.0)
         set_readme_lighting(
             page,
             target.tolist(),
@@ -2304,6 +2308,7 @@ def capture_constraint_media(browser) -> None:
             position_offset=(-7.0, -10.0, 12.0),
         )
         collapse_inspector(page)
+        set_view_toggles(page, grid=False, axes=False, cell=False)
         set_selection(page, [])
         page.screenshot(path=ASSET_DIR / "readme_constraints.png")
         fixedline_frames: list[Image.Image] = []
