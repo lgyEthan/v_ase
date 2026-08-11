@@ -2999,6 +2999,7 @@ export class ASERenderer {
         if (!this.addAtomsRegionGroup) return;
         this.clearGroup(this.addAtomsRegionGroup);
         this.addAtomsRegionGroup.visible = false;
+        this.addAtomsRegionGroup.userData = {};
         this.requestRender();
     }
 
@@ -3049,7 +3050,7 @@ export class ASERenderer {
 
         const pairs = [[0,1],[0,2],[0,3],[1,4],[1,5],[2,4],[2,6],[3,5],[3,6],[4,7],[5,7],[6,7]];
         const edgeMaterial = new THREE.MeshBasicMaterial({
-            color: 0x24a88f,
+            color: region.role === 'prohibited' ? 0xd85b5b : 0x24a88f,
             transparent: true,
             opacity: 0.98,
             depthTest: true,
@@ -3092,9 +3093,27 @@ export class ASERenderer {
         fill.renderOrder = 13;
         fill.userData = { addAtomsRegion: true };
         this.addAtomsRegionGroup.add(fill);
+        this.addAtomsRegionGroup.userData = {
+            mode: region.mode === 'box' ? 'box' : 'cell',
+            role: region.role === 'prohibited' ? 'prohibited' : 'allowed',
+            pickables: region.mode === 'box' ? [fill] : [],
+            selected: Boolean(region.selected)
+        };
+        if (region.role === 'prohibited') fill.material.color.set(0xd85b5b);
+        if (region.selected) {
+            edgeMaterial.color.offsetHSL(0, 0, 0.12);
+            fill.material.opacity = 0.11;
+        }
         this.addAtomsRegionGroup.visible = true;
         this.addAtomsRegionGroup.position.copy(this.visualTranslationVector());
         this.requestRender();
+    }
+
+    pickAddAtomsRegion(event) {
+        const pickables = this.addAtomsRegionGroup?.userData?.pickables || [];
+        if (!event || !this.addAtomsRegionGroup?.visible || !pickables.length) return false;
+        this.sunRaycaster.setFromCamera(this.sunPointerNdc(event), this.camera);
+        return Boolean(this.sunRaycaster.intersectObjects(pickables, false)[0]);
     }
 
     normalizedCellColor() {
@@ -3359,6 +3378,9 @@ export class ASERenderer {
             previous.forceVectorScale !== this.displayOptions.forceVectorScale ||
             previous.forceVectorThickness !== this.displayOptions.forceVectorThickness ||
             previous.forceVectorColor !== this.displayOptions.forceVectorColor;
+        const volumetricVisibilityChanged = (
+            previous.showVolumetric !== this.displayOptions.showVolumetric
+        );
         if (previous.projectionMode !== this.displayOptions.projectionMode) {
             this.setProjectionMode(this.displayOptions.projectionMode);
         }
@@ -3370,6 +3392,9 @@ export class ASERenderer {
         if (!rebuild) {
             if (antiAliasingChanged) this.updateRenderQuality();
             if (translationChanged) this.applyVisualTranslation();
+            if (volumetricVisibilityChanged) {
+                this.setVolumetricSurfaceVisibility(this.displayOptions.showVolumetric === true);
+            }
             this.updateCellVisibility();
             if (this.axesHelper) this.axesHelper.visible = this.displayOptions.showAxes;
             if (this.gridGroup) this.gridGroup.visible = this.displayOptions.showGrid;
@@ -3430,6 +3455,9 @@ export class ASERenderer {
             this.setForceVectors(this.atomsData.forces, this.displayOptions);
         }
         if (translationChanged) this.applyVisualTranslation();
+        if (volumetricVisibilityChanged) {
+            this.setVolumetricSurfaceVisibility(this.displayOptions.showVolumetric === true);
+        }
         if ((radiusChanged || supercellChanged) && !visibilityChanged) {
             this.refreshStudioSunForStructure();
         }
@@ -4308,6 +4336,12 @@ export class ASERenderer {
         this.requestRender();
     }
 
+    setVolumetricSurfaceVisibility(visible) {
+        if (!this.volumetricGroup) return;
+        this.volumetricGroup.visible = visible === true;
+        this.requestRender();
+    }
+
     disposeVolumetricPlaneRecord(record) {
         if (!record) return;
         record.geometry?.dispose?.();
@@ -4530,6 +4564,7 @@ export class ASERenderer {
             };
         });
         this.rebuildVolumetricSurfaces();
+        this.setVolumetricSurfaceVisibility(this.displayOptions.showVolumetric === true);
     }
 
     updateVolumetricSurfaceStyle({
@@ -4584,6 +4619,7 @@ export class ASERenderer {
             });
         });
         this.volumetricGroup.position.copy(this.visualTranslationVector());
+        this.volumetricGroup.visible = this.displayOptions.showVolumetric === true;
         this.domElement.dataset.volumetricSurfaceCount = String(count);
         this.invalidateSunShadowBounds();
         this.applyShadowFlags();
@@ -5508,11 +5544,22 @@ export class ASERenderer {
             const materialPreset = this.commensuratePreviewMaterial(preview, row);
             const atomSegments = isFixed ? this.fixedAtomSegments(segmentCount) : segmentCount;
             const core = coreMask[row] !== false;
-            const key = `${core ? 'core' : 'halo'}:${isFixed ? 'fixed' : 'normal'}:${materialPreset}:${atomSegments}`;
+            const component = String(components[row] || 'lattice');
+            const key = `${component}:${isFixed ? 'fixed' : 'normal'}:${materialPreset}:${atomSegments}`;
             if (!groups.has(key)) {
-                groups.set(key, { core, isFixed, materialPreset, atomSegments, rows: [] });
+                groups.set(key, {
+                    component,
+                    isFixed,
+                    materialPreset,
+                    atomSegments,
+                    rows: [],
+                    coreRows: 0,
+                    haloRows: 0
+                });
             }
             groups.get(key).rows.push(row);
+            if (core) groups.get(key).coreRows += 1;
+            else groups.get(key).haloRows += 1;
         });
 
         groups.forEach(group => {
@@ -5528,21 +5575,18 @@ export class ASERenderer {
                 );
             }
             const material = this.createInstancedAtomMaterial(group.isFixed, group.materialPreset);
-            if (!group.core) {
-                material.transparent = true;
-                material.opacity = 0.30;
-                material.depthWrite = false;
-            }
             const mesh = new THREE.InstancedMesh(
                 this.geometryCache.get(geometryKey),
                 material,
                 group.rows.length
             );
             mesh.frustumCulled = false;
-            mesh.renderOrder = group.core ? 1 : 0;
+            mesh.renderOrder = 1;
             mesh.userData = {
                 commensuratePreviewAtoms: true,
-                commensurateCore: group.core,
+                commensurateComponent: group.component,
+                commensurateCoreRows: group.coreRows,
+                commensurateHaloRows: group.haloRows,
                 sharedGeometry: true
             };
             group.rows.forEach((row, instanceId) => {
@@ -5607,7 +5651,7 @@ export class ASERenderer {
         if (!this.displayOptions.showBonds) return [];
         const positions = preview.positions || [];
         const atomIndices = preview.atom_indices || [];
-        const coreMask = preview.core_mask || [];
+        const components = preview.components || [];
         if (!positions.length) return [];
         const maxCutoff = Math.max(0, this.commensuratePreviewMaximumBondCutoff(preview));
         if (maxCutoff <= 0) return [];
@@ -5642,7 +5686,11 @@ export class ASERenderer {
                         const rows = buckets.get(keyFor(center[0] + dx, center[1] + dy, center[2] + dz)) || [];
                         for (const secondRow of rows) {
                             if (secondRow <= firstRow) continue;
-                            if (coreMask[firstRow] === false && coreMask[secondRow] === false) continue;
+                            // Host/reference and guest/rotating lattices are
+                            // independent structures until materialization.
+                            // Never infer an inter-layer bond merely because
+                            // the preview places their atoms nearby.
+                            if (components[firstRow] !== components[secondRow]) continue;
                             const secondIndex = Number(atomIndices[secondRow]);
                             const pairKey = `${Math.min(firstIndex, secondIndex)}:${Math.max(firstIndex, secondIndex)}`;
                             if (hookeanExcluded.has(pairKey)) continue;
@@ -7369,55 +7417,7 @@ export class ASERenderer {
         lockPin.userData = { sharedMaterial: true, lockPin: true };
         group.add(lockPin);
 
-        const threshold = Number(spec.item?.threshold);
-        if (Number.isFinite(threshold) && threshold > 0) {
-            group.add(this.hookeanThresholdLabelSprite(threshold));
-        }
-
         this.hookeanGroup.add(group);
-    }
-
-    hookeanThresholdLabelSprite(threshold) {
-        const text = `rt ${Number(threshold).toFixed(2)} Å`;
-        const canvas = document.createElement('canvas');
-        canvas.width = 320;
-        canvas.height = 80;
-        const context = canvas.getContext('2d');
-        context.clearRect(0, 0, canvas.width, canvas.height);
-        context.font = '700 27px ui-monospace, SFMono-Regular, Menlo, monospace';
-        context.textAlign = 'center';
-        context.textBaseline = 'middle';
-        const width = Math.min(canvas.width - 8, Math.ceil(context.measureText(text).width + 38));
-        const left = (canvas.width - width) / 2;
-        context.fillStyle = 'rgba(255,255,255,0.92)';
-        context.strokeStyle = 'rgba(169,102,24,0.88)';
-        context.lineWidth = 2;
-        context.beginPath();
-        if (typeof context.roundRect === 'function') context.roundRect(left, 9, width, 62, 10);
-        else context.rect(left, 9, width, 62);
-        context.fill();
-        context.stroke();
-        context.fillStyle = '#70410f';
-        context.fillText(text, canvas.width / 2, canvas.height / 2);
-        const texture = new THREE.CanvasTexture(canvas);
-        texture.colorSpace = THREE.SRGBColorSpace;
-        texture.minFilter = THREE.LinearFilter;
-        const material = new THREE.SpriteMaterial({
-            map: texture,
-            transparent: true,
-            depthTest: false,
-            depthWrite: false,
-            toneMapped: false
-        });
-        const sprite = new THREE.Sprite(material);
-        sprite.scale.set(1.8, 0.45, 1);
-        sprite.renderOrder = 22;
-        sprite.userData = {
-            hookeanThresholdLabel: true,
-            hookeanThresholdText: text,
-            commensurateTexture: texture
-        };
-        return sprite;
     }
 
     addHookeanPlane(item) {
@@ -7492,7 +7492,8 @@ export class ASERenderer {
 
     hookeanState(length, threshold) {
         if (!Number.isFinite(threshold) || threshold <= 0) return 'active';
-        if (Math.abs(length - threshold) <= Math.max(0.035, threshold * 0.025)) return 'threshold';
+        const numericalTolerance = Math.max(1e-7, Math.abs(threshold) * 1e-7);
+        if (Math.abs(length - threshold) <= numericalTolerance) return 'threshold';
         return length < threshold ? 'inactive' : 'active';
     }
 
@@ -7533,7 +7534,6 @@ export class ASERenderer {
         const springLine = group.children.find(child => child.userData.springLine);
         const gapLine = group.children.find(child => child.userData.gapLine);
         const lockPin = group.children.find(child => child.userData.lockPin);
-        const thresholdLabel = group.children.find(child => child.userData.hookeanThresholdLabel);
 
         // Dead-zone rail: the Hookean force is inactive until this exact cutoff.
         this.setLinePoints(hookLine, [
@@ -7561,11 +7561,6 @@ export class ASERenderer {
                 lockPin.material = this.hookeanStateMaterial(state);
                 lockPin.userData.sharedMaterial = true;
             }
-        }
-
-        if (thresholdLabel) {
-            thresholdLabel.position.set(gateWidth + 0.72, thresholdY, 0);
-            thresholdLabel.visible = this.displayOptions.showOverlays !== false;
         }
 
         springLine.visible = state !== 'inactive' && springEnd > springStart;

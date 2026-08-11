@@ -146,6 +146,15 @@ Open **+ Add atoms** in **Edit** mode:
   **Cartesian box** limits placement to a visible `xmin`/`xmax`,
   `ymin`/`ymax`, `zmin`/`zmax` region inside its half-open primary periodic cell,
   so skew-cell boundaries are not sampled twice.
+- **Allowed** scatters atoms inside that box. **Prohibited** treats the box as
+  an exclusion volume and scatters atoms through the rest of the primary cell.
+- The box describes initial placement. **Allow inserted atoms to leave the
+  initial region** is on by default, so repulsive placement can find nearby
+  free volume outside it. Turn it off only when the final atoms must remain on
+  the chosen side of the boundary.
+- Select the visible box and press `G` to translate it; all six numeric bounds
+  update live. Rotation is unavailable because the region is defined by
+  Cartesian min/max values.
 - **Temporarily fix existing atoms** keeps the loaded structure stationary
   while only the inserted atoms follow the pairwise repulsion. It is enabled
   by default.
@@ -158,6 +167,10 @@ label, calculator, and constraint from the original structure. **Cancel**
 removes the inserted atoms and restores that original structure completely.
 For trajectories, open the target frame in a new tab before starting a random
 batch.
+
+Repulsive placement creates an **Add Atoms placement** timeline containing the
+accepted optimizer steps. It can be scrubbed or played while the mode remains
+active. Finishing or cancelling Add Atoms removes that temporary timeline.
 
 The animation uses the included
 [triclinic nanoporous Si example](examples/readme_scene_assets/triclinic_nanoporous_add_atoms.traj):
@@ -371,6 +384,20 @@ The shown graphene/h-BN example uses **Bond-strain RMS** with explicit C-B and
 C-N interfacial cutoffs, so the heatmap remains a geometric comparison rather
 than an implied energy surface.
 
+After calculating the map, **Rigid XY relaxation** can optimize exactly one
+common in-plane translation for the selected guest layer. The selected atoms'
+internal coordinates and z coordinates, every host atom, and the cell remain
+unchanged. v_ase uses the attached calculator, or the repulsive calculator when
+none is attached, and reports the selected component's net force projected into
+the interface plane in `eV/Å`.
+
+![Rigid XY translation relaxation following the registry map](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_registry_relax.gif)
+
+**Activate** enters the reversible mode, **Optimize Translation** records each
+accepted optimizer step on its own timeline, and **Apply & Exit** commits one
+undoable translation. **Cancel** restores the exact pre-mode structure. The
+mode timeline disappears when either exit action finishes.
+
 ## Analyze Structures And Fields
 
 ### Ordered Geometry
@@ -392,7 +419,18 @@ The connector, angle arc, torsion axis, and compact value badge stay attached
 to the selected atoms. Hover information is independent, so moving the pointer
 does not replace a saved measurement.
 
-### Trajectory Displacement
+### Trajectories And Displacement
+
+Multi-frame inputs add a timeline below the viewport. Scrubbing updates the
+frame continuously, selected atom indices persist when topology permits, FPS
+changes apply during playback, and **Skip** advances by `skip + 1` source
+frames per tick. Bond topology is evaluated independently for each frame, so
+bonds form or break when a pair crosses its cutoff.
+
+Video export uses FPS as playback speed. Optional `N x` interpolation creates
+`(source_frames - 1) * N + 1` output frames. Minimum-image interpolation uses
+periodic cells to avoid jumps across a boundary. Interpolation takes longer
+because more frames are rendered.
 
 ![Trajectory displacement analysis](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_displacement.png)
 
@@ -402,7 +440,7 @@ scale, thickness, color, and 2D/3D style are configurable. Displayed
 supercells repeat the vectors, and visual translation moves both endpoints
 without changing the physical displacement.
 
-### Per-Atom Properties And Force Vectors
+### Map Per-Atom Data
 
 **Atom colorscale** maps a numeric per-atom property onto any registered
 Matplotlib colormap. The property list is discovered from the open structure
@@ -411,14 +449,15 @@ of numeric `Atoms.arrays`, and per-atom calculator results such as charge,
 magnetic moment, local energy, uncertainty, or model-specific MLIP outputs.
 Numeric LAMMPS atom columns are exposed by their stored names.
 
-![Trajectory-wide uncertainty colorscale with locked limits and Cartesian force vectors](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_atom_colorscale.gif)
+![Trajectory-wide force-magnitude colorscale with locked limits and matching Cartesian force vectors](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_atom_colorscale.gif)
 
-The example scans the complete trajectory once and then locks one `vmin` and
-`vmax` for every frame. The red arrows use the stored Cartesian force vectors:
-their direction is unchanged, their length is `scale × |F|`, and no calculator
-is evaluated merely to draw them. Force arrows can use 2D or 3D geometry,
+The example maps stored `|force|` only onto the selected Cu substrate atoms and
+scans the complete trajectory once to lock one `vmin` and `vmax`. The arrows
+come from those same stored Cartesian vectors: their direction is unchanged,
+their length is `scale × |F|`, and the example verifies force balance rather
+than inventing decorative vectors. Force arrows can use 2D or 3D geometry,
 custom color, thickness, and scale. If a frame has no stored forces, v_ase
-reports that fact instead of inventing a vector.
+reports that fact instead of evaluating a calculator merely to draw arrows.
 
 Use **Selected atoms only** to preserve the established appearance of every
 other atom. **Fit current frame** resolves one range from the active frame and
@@ -458,7 +497,7 @@ loaded and does not regenerate the surface.
 
 ![Signed isosurface threshold moving across a fixed volumetric distribution](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric.gif)
 
-The animation moves the actual isovalue slider through the fixed distribution;
+The animation moves the actual isovalue slider across a broad fixed range;
 the positive and negative meshes update at every captured level. Drag
 **Isosurface opacity** to change only transparency without regenerating the
 mesh. Multiple compatible
@@ -468,10 +507,8 @@ browser receives only the generated surface mesh.
 Signed mode treats the isovalue as a nonzero magnitude and renders the
 positive and negative crossings that remain inside the displayed field range.
 
-The documentation field is generated locally from a deterministic analytic
-benzene pz-Gaussian model in `examples/readme_scenes.py`. It contains no
-external calculation, private dataset, or copied volumetric values and is used
-only to demonstrate controls; it is not presented as a DFT result.
+The example is a deterministic analytic benzene pz field generated by the
+repository. It demonstrates the controls and is not presented as a DFT result.
 
 **Planar Sections** samples the selected scalar field on one or more `(hkl)`
 planes. Each plane has a signed offset in Angstrom along its reciprocal-space
@@ -613,9 +650,10 @@ treatment. They remain identifiable without looking selected.
 Hookean constraints show their inactive cutoff and engaged state separately.
 For ASE `Hookean(a1, a2, rt, k)`, the spring is inactive while `r ≤ rt` and the
 restoring-force magnitude is `k(r - rt)` after `r > rt`. v_ase reads `rt` and
-`k` from the live ASE constraint, labels the exact `rt` value in Angstrom, and
-draws the shaded 3D helix only in the engaged region. The rendering does not
-change the ASE force law.
+`k` from the live ASE constraint. The displayed atom distance controls the
+exact inactive/threshold/engaged transition, and the 3D helix appears only
+when `r > rt`; no numeric annotation is added to clutter a dense structure.
+The rendering does not change the ASE force law.
 
 ![Hookean constraint](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_hookean.png)
 
@@ -629,10 +667,12 @@ v_ase gui examples/readme_scene_assets/hookean.traj --interactive
 
 ![Repulsive relaxation trajectory](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_relaxation.gif)
 
-**Structure > Relaxation** places every optimization step on a dedicated
+**Structure > Relaxation** places every optimization step on a dedicated mode
 timeline. A single loaded structure gains a relaxation movie after the first
 run. If a source trajectory is already open, source and relaxation timelines
-remain separate and the active timeline is clearly selected.
+remain separate and the active timeline is clearly selected. Leaving
+**Relaxation mode** removes only this temporary timeline; the current relaxed
+structure remains available for inspection, export, or undo.
 
 The included example starts from a deliberately compressed C60 geometry and
 runs ASE FIRE with v_ase's repulsive fallback calculator:
@@ -649,22 +689,6 @@ The fallback calculator is intended for removing obvious close contacts, not
 for predictive chemistry. Its cutoff scale and strength are editable. Attach a
 scientific ASE calculator when the optimized energy or forces will be used as
 physical results.
-
-## Trajectories
-
-Multi-frame inputs add a timeline below the viewport. Scrubbing updates the
-frame continuously, selected atom indices persist when topology permits, FPS
-changes apply during playback, and **Skip** advances by `skip + 1` source
-frames per tick.
-
-Bond topology is evaluated for each frame, so bonds form or break when a
-pair crosses its cutoff. Appearance, pair settings, supercell display, camera,
-and analysis settings remain active across the movie.
-
-Video export uses FPS as playback speed. Optional `N x` interpolation creates
-`(source_frames - 1) * N + 1` output frames. Minimum-image interpolation uses
-periodic cells to avoid jumps across a boundary. Interpolation takes longer
-because more frames are rendered.
 
 ## Style Atoms, Bonds, And Rendering
 
@@ -693,7 +717,7 @@ and radius, so only the optical material changes:
 
 Materials affect rendering only. ASE elements, coordinates, calculators, and
 constraints are unchanged. Numeric property coloring and force-vector analysis
-are documented under [Per-Atom Properties And Force Vectors](#per-atom-properties-and-force-vectors).
+are documented under [Map Per-Atom Data](#map-per-atom-data).
 
 ![Pairwise Cu O bonds in a Cu2O(111) film on Cu(111)](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_bonds.png)
 

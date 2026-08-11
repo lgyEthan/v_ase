@@ -329,7 +329,10 @@ await applyCurrent({operation: {
     {element: "Li", label: "Li_mobile", count: 30},
     {element: "H", label: "H_probe", count: 10}
   ],
-  regionMode: "cell",
+  regionMode: "box",
+  bounds: [1.0, 9.0, 1.0, 8.0, 0.0, 14.0],
+  regionRole: "allowed",
+  allowEscape: true,
   seed: 2021,
   freezeExisting: true,
   cutoffBasis: "covalent",
@@ -353,7 +356,8 @@ await applyCurrent({operation: {
   boundaryStrength: 5.0,
   fmax: 0.05,
   steps: 300,
-  mic: true
+  mic: true,
+  allowEscape: true
 }});
 ```
 
@@ -388,11 +392,16 @@ for (let index = 0; index < baseline.atomCount; index += 1) {
 }
 ```
 
-For a Cartesian region, replace the region fields with
-`regionMode:"box"` and six Angstrom bounds. Verify the returned region and
-sampling diagnostics before optimization. Use `cancel-add-atoms` at any point
-before finish to restore coordinates, constraints, arrays, labels, history,
-and redo state exactly.
+For a Cartesian region, use six Angstrom bounds. `regionRole:"allowed"`
+samples inside the box and `regionRole:"prohibited"` samples the remaining
+primary-cell volume. `allowEscape:true` is the default and means the box only
+defines initial positions; set it false only when repulsive placement must
+retain the region rule. `update-add-atoms-region` changes the active bounds,
+role, or escape policy without moving staged atoms. Verify the returned region,
+sampling diagnostics, mode-only placement timeline, and exact host invariants
+before optimization. Use `cancel-add-atoms` at any point before finish to
+restore coordinates, constraints, arrays, labels, history, and redo state
+exactly.
 
 ### Phosphorene Cumulative Tail Rotation
 
@@ -1011,6 +1020,29 @@ CSV rows must retain fractional X/Y, Cartesian translation, metric, selected
 indices, and metric definition. No paper citation is required for the generic
 geometry score. RDF, commensurate, and registry Plotly drawers all expose the
 same icon-only CSV control beside the graph title.
+
+When a calculator is available, refine only the common interface translation:
+
+```javascript
+await applyCurrent({operation: {
+  name: "start-registry-relaxation",
+  indices: [36, 37, 38, 39]
+}});
+await applyCurrent({operation: {
+  name: "run-registry-relaxation",
+  fmax: 0.05,
+  steps: 100
+}});
+```
+
+Wait for `analysis.registryRelaxation.is_relaxing === false`. Verify that every
+host coordinate, the cell, each selected atom's z coordinate, and all selected
+pairwise internal vectors are unchanged. Only one shared XY translation may
+change. `projected_force` is the selected component's net in-plane Cartesian
+force norm in `eV/angstrom`. Inspect the temporary `registry` timeline, then
+use `finish-registry-relaxation` to commit one undoable edit or
+`cancel-registry-relaxation` to restore the exact pre-mode structure. Both
+actions remove that temporary timeline.
 
 ### Periodic Supercell Measurement
 

@@ -42,6 +42,7 @@ from .add_atoms import (
     start_atom_addition,
     start_atom_addition_relaxation,
     stop_atom_addition_relaxation,
+    update_atom_addition_region,
 )
 from .commensurate import (
     COMMENSURATE_REFERENCES,
@@ -57,6 +58,14 @@ from .analysis import calculate_rdf, rdf_csv
 from .atom_scalars import atom_scalar_catalog, atom_scalar_values
 from .colormaps import colormap_catalog, colormap_lut
 from .registry import calculate_registry_map, registry_map_csv
+from .registry_relax import (
+    cancel_registry_relaxation_mode,
+    finish_registry_relaxation_mode,
+    registry_relaxation_summary,
+    run_registry_relaxation,
+    start_registry_relaxation_mode,
+    stop_registry_relaxation,
+)
 from .ai import AI_PROTOCOL, COLLABORATION_PROTOCOL, ai_skill_path
 from .project import (
     PROJECT_MIME,
@@ -351,14 +360,18 @@ AI_CONTROL_SCHEMA = {
             "description": (
                 "One semantic structure operation. Supported names are wrap, "
                 "translate-all, set-supercell, make-supercell, add-atom, "
-                "scatter-atoms, relax-added-atoms, stop-added-atoms, "
+                "scatter-atoms, update-add-atoms-region, relax-added-atoms, stop-added-atoms, "
                 "finish-add-atoms, cancel-add-atoms, "
                 "delete-selection, set-identity, set-constraints, "
                 "move-selection, rotate-selection, rotate-to-commensurate, "
                 "load-commensurate-guest, remove-commensurate-guest, "
                 "calculate-commensurate, apply-commensurate-cell, "
-                "dismiss-commensurate-cell, calculate-registry-map, undo, redo, "
-                "reset-coordinates, start-relaxation, stop-relaxation, and "
+                "dismiss-commensurate-cell, calculate-registry-map, "
+                "start-registry-relaxation, run-registry-relaxation, "
+                "stop-registry-relaxation, finish-registry-relaxation, "
+                "cancel-registry-relaxation, undo, redo, "
+                "reset-coordinates, start-relaxation, stop-relaxation, "
+                "exit-relaxation-mode, and "
                 "refresh-displacements, load-volumetric, show-volumetric, "
                 "add-volumetric-plane, update-volumetric-planes, "
                 "remove-volumetric-planes, combine-volumetric, "
@@ -376,6 +389,10 @@ AI_CONTROL_SCHEMA = {
                         "remove-commensurate-guest", "calculate-rdf",
                         "set-personal-visual-default",
                         "stop-added-atoms", "finish-add-atoms", "cancel-add-atoms",
+                        "update-add-atoms-region",
+                        "stop-registry-relaxation", "finish-registry-relaxation",
+                        "cancel-registry-relaxation",
+                        "exit-relaxation-mode",
                     ],
                 },
                 {
@@ -386,7 +403,7 @@ AI_CONTROL_SCHEMA = {
                             "enum": [
                                 "wrap", "translate-all", "set-supercell",
                                 "make-supercell", "add-atom", "scatter-atoms",
-                                "relax-added-atoms", "stop-added-atoms",
+                                "update-add-atoms-region", "relax-added-atoms", "stop-added-atoms",
                                 "finish-add-atoms", "cancel-add-atoms",
                                 "delete-selection", "set-identity",
                                 "set-constraints", "move-selection",
@@ -396,9 +413,16 @@ AI_CONTROL_SCHEMA = {
                                 "calculate-commensurate",
                                 "apply-commensurate-cell",
                                 "dismiss-commensurate-cell",
-                                "calculate-registry-map", "undo", "redo",
+                                "calculate-registry-map",
+                                "start-registry-relaxation",
+                                "run-registry-relaxation",
+                                "stop-registry-relaxation",
+                                "finish-registry-relaxation",
+                                "cancel-registry-relaxation",
+                                "undo", "redo",
                                 "reset-coordinates", "start-relaxation",
-                                "stop-relaxation", "refresh-displacements",
+                                "stop-relaxation", "exit-relaxation-mode",
+                                "refresh-displacements",
                                 "load-volumetric", "show-volumetric",
                                 "add-volumetric-plane",
                                 "update-volumetric-planes",
@@ -448,6 +472,8 @@ AI_CONTROL_SCHEMA = {
                                         "minItems": 6,
                                         "maxItems": 6,
                                     },
+                                    "regionRole": {"enum": ["allowed", "prohibited"]},
+                                    "allowEscape": {"type": "boolean"},
                                     "seed": {"type": ["integer", "null"], "minimum": 0},
                                     "freezeExisting": {"type": "boolean"},
                                     "cutoffBasis": {"enum": ["covalent", "vdw", "pairwise"]},
@@ -455,6 +481,24 @@ AI_CONTROL_SCHEMA = {
                                         "type": "number", "exclusiveMinimum": 0, "maximum": 3
                                     },
                                     "pairCutoffs": {"type": "object"},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {"name": {"const": "update-add-atoms-region"}},
+                            },
+                            "then": {
+                                "properties": {
+                                    "bounds": {
+                                        "type": "array",
+                                        "items": {"type": "number"},
+                                        "minItems": 6,
+                                        "maxItems": 6,
+                                    },
+                                    "regionRole": {"enum": ["allowed", "prohibited"]},
+                                    "allowEscape": {"type": "boolean"},
                                 },
                             },
                         },
@@ -708,6 +752,41 @@ AI_CONTROL_SCHEMA = {
                             "if": {
                                 "required": ["name"],
                                 "properties": {
+                                    "name": {"const": "start-registry-relaxation"},
+                                },
+                            },
+                            "then": {
+                                "properties": {
+                                    "indices": {
+                                        "type": "array",
+                                        "items": {"type": "integer", "minimum": 0},
+                                        "minItems": 1,
+                                        "uniqueItems": True,
+                                    },
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "run-registry-relaxation"},
+                                },
+                            },
+                            "then": {
+                                "properties": {
+                                    "fmax": {"type": "number", "exclusiveMinimum": 0},
+                                    "steps": {
+                                        "type": "integer", "minimum": 1, "maximum": 100000
+                                    },
+                                    "calculator": {"type": "object"},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
                                     "name": {"const": "load-volumetric"},
                                 },
                             },
@@ -930,15 +1009,27 @@ AI_OPERATION_PARAMETERS = {
         "required": ["entries-or-element-count"],
         "optional": [
             "entries", "element", "label", "count", "regionMode", "bounds",
+            "regionRole", "allowEscape",
             "seed", "freezeExisting", "cutoffBasis", "cutoffScale", "pairCutoffs",
         ],
         "notes": (
             "Starts an Add Atoms session and randomly scatters one or more element/label "
             "populations. regionMode=cell samples a triclinic cell uniformly in fractional "
             "space. regionMode=box samples the Cartesian box intersected with one half-open "
-            "primary periodic cell, so boundary images are not double weighted. The default "
+            "primary periodic cell, so boundary images are not double weighted. A box can be "
+            "an allowed insertion volume or a prohibited exclusion volume. allowEscape defaults "
+            "to true, so the region controls initial sampling without confining relaxation. The default "
             "temporarily fixes every pre-existing atom. Follow with relax-added-atoms and "
             "finish-add-atoms, or cancel-add-atoms to restore the exact baseline."
+        ),
+    },
+    "update-add-atoms-region": {
+        "mode": "edit",
+        "required": ["active-cartesian-add-atoms-session"],
+        "optional": ["bounds", "regionRole", "allowEscape"],
+        "notes": (
+            "Updates the active Cartesian insertion box without moving staged atoms. "
+            "The box cannot be rotated."
         ),
     },
     "relax-added-atoms": {
@@ -946,7 +1037,7 @@ AI_OPERATION_PARAMETERS = {
         "required": ["active-add-atoms-session"],
         "optional": [
             "pairCutoffs", "freezeExisting", "strength", "boundaryStrength",
-            "fmax", "steps", "mic",
+            "fmax", "steps", "mic", "allowEscape",
         ],
         "notes": (
             "Starts asynchronous pairwise repulsive placement for the scattered atoms. "
@@ -1075,6 +1166,44 @@ AI_OPERATION_PARAMETERS = {
             "short-contact or bond-strain; both are geometry scores, not energies."
         ),
     },
+    "start-registry-relaxation": {
+        "mode": "edit",
+        "required": ["selection-or-indices"],
+        "optional": ["indices"],
+        "notes": (
+            "Activates the rigid registry-translation mode for a selected guest or "
+            "interface component. Only one common translation in the periodic XY plane "
+            "can change; host coordinates, cell vectors, and all selected internal "
+            "relative coordinates remain invariant."
+        ),
+    },
+    "run-registry-relaxation": {
+        "mode": "edit",
+        "required": ["active-registry-relaxation"],
+        "optional": ["fmax", "steps", "calculator"],
+        "notes": (
+            "Optimizes the two rigid in-plane translation degrees of freedom with the "
+            "attached calculator or the default pairwise repulsion calculator. Consume "
+            "registry_relax_step events until is_relaxing is false."
+        ),
+    },
+    "stop-registry-relaxation": {
+        "mode": "edit",
+        "required": ["active-registry-relaxation"],
+        "optional": [],
+    },
+    "finish-registry-relaxation": {
+        "mode": "edit",
+        "required": ["inactive-registry-relaxation"],
+        "optional": [],
+        "notes": "Commits the rigid translation as one undoable structure edit and exits the mode.",
+    },
+    "cancel-registry-relaxation": {
+        "mode": "edit",
+        "required": ["active-registry-relaxation"],
+        "optional": [],
+        "notes": "Restores the exact pre-mode coordinates and exits without a history entry.",
+    },
     "undo": {"mode": "view-or-edit", "required": [], "optional": []},
     "redo": {"mode": "view-or-edit", "required": [], "optional": []},
     "reset-coordinates": {
@@ -1091,6 +1220,12 @@ AI_OPERATION_PARAMETERS = {
         "mode": "edit",
         "required": [],
         "optional": [],
+    },
+    "exit-relaxation-mode": {
+        "mode": "edit",
+        "required": ["inactive-structure-relaxation"],
+        "optional": [],
+        "notes": "Closes the dedicated optimization movie timeline without changing coordinates.",
     },
     "refresh-displacements": {
         "mode": "view-or-edit",
@@ -1382,6 +1517,7 @@ def session_atoms_to_json(session: EditorSession, include_inline_trajectory: boo
     data["metadata"]["calculator_details"] = repulsion_metadata(session.working_atoms.calc)
     addition = atom_addition_summary(session)
     data["metadata"]["atom_addition"] = addition
+    data["metadata"]["registry_relaxation"] = registry_relaxation_summary(session)
     if addition and addition["temporary_fixed_indices"]:
         fixed = set(data["constraints"].get("fixed_indices") or [])
         fixed.update(addition["temporary_fixed_indices"])
@@ -1596,6 +1732,7 @@ def require_editable(
     action: str = "This operation",
     *,
     allow_atom_addition: bool = False,
+    allow_registry_relaxation: bool = False,
 ):
     if is_viz_only(session):
         raise HTTPException(
@@ -1607,6 +1744,8 @@ def require_editable(
         )
     if not allow_atom_addition:
         require_no_atom_addition(session, action)
+    if not allow_registry_relaxation:
+        require_no_registry_relaxation(session, action)
 
 
 def require_no_atom_addition(session: EditorSession, action: str = "This operation"):
@@ -1614,6 +1753,14 @@ def require_no_atom_addition(session: EditorSession, action: str = "This operati
         raise HTTPException(
             status_code=409,
             detail=f"Finish or cancel Add Atoms before {action.lower()}.",
+        )
+
+
+def require_no_registry_relaxation(session: EditorSession, action: str = "This operation"):
+    if session.registry_relaxation is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Apply or cancel XY translation relaxation before {action.lower()}.",
         )
 
 
@@ -3283,6 +3430,7 @@ async def poll_ai_workspace_collaboration_events(
 async def update_session_mode(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
     require_no_atom_addition(session, "changing View/Edit mode")
+    require_no_registry_relaxation(session, "changing View/Edit mode")
     requested = payload.get("viz_only")
     if not isinstance(requested, bool):
         raise HTTPException(status_code=400, detail="viz_only must be true or false.")
@@ -3832,6 +3980,8 @@ async def load_structure_file(
 ):
     """Stream a browser-selected structure, trajectory, or project into a session."""
     session = get_session(session_id)
+    require_no_atom_addition(session, "Loading another file")
+    require_no_registry_relaxation(session, "Loading another file")
     display_name = _validated_uploaded_filename(filename)
     tmp_path = await _stream_uploaded_file(request, display_name)
     keep_temporary_file = False
@@ -3859,6 +4009,8 @@ async def load_structure_file(
 async def load_structure_path(session_id: str, payload: Dict[str, Any]):
     """Load a file selected from the terminal launch directory."""
     session = get_session(session_id)
+    require_no_atom_addition(session, "Loading another file")
+    require_no_registry_relaxation(session, "Loading another file")
     source_path = _resolve_launch_path(
         session,
         str(payload.get("path") or ""),
@@ -3897,6 +4049,8 @@ async def append_structure_file(
 ):
     """Append uploaded structures as movie frames without replacing visual settings."""
     session = get_session(session_id)
+    require_no_atom_addition(session, "Appending trajectory frames")
+    require_no_registry_relaxation(session, "Appending trajectory frames")
     display_name = _validated_uploaded_filename(filename)
     tmp_path = await _stream_uploaded_file(request, display_name)
     try:
@@ -3920,6 +4074,8 @@ async def append_structure_file(
 async def append_structure_path(session_id: str, payload: Dict[str, Any]):
     """Append a file selected from the terminal launch directory."""
     session = get_session(session_id)
+    require_no_atom_addition(session, "Appending trajectory frames")
+    require_no_registry_relaxation(session, "Appending trajectory frames")
     source_path = _resolve_launch_path(
         session,
         str(payload.get("path") or ""),
@@ -4599,6 +4755,8 @@ async def save_project(session_id: str, payload: Dict[str, Any]):
 @app.post("/api/project/load/{session_id}")
 async def load_project(session_id: str, request: Request):
     session = get_session(session_id)
+    require_no_atom_addition(session, "Loading a project")
+    require_no_registry_relaxation(session, "Loading a project")
     raw = await request.body()
     if not raw:
         raise HTTPException(status_code=400, detail="The .vase project is empty.")
@@ -4707,6 +4865,19 @@ async def relax_random_atom_addition(session_id: str, payload: Dict[str, Any]):
         return start_atom_addition_relaxation(session, payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch("/api/add-session/region/{session_id}")
+async def update_random_atom_addition_region(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(session, "Random atom insertion", allow_atom_addition=True)
+    try:
+        summary = update_atom_addition_region(session, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    data = session_update_to_json(session)
+    data["metadata"]["atom_addition"] = summary
+    return data
 
 
 @app.post("/api/add-session/stop/{session_id}")
@@ -4887,6 +5058,7 @@ async def update_calculator(session_id: str, payload: Dict[str, Any]):
 async def set_frame(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
     require_no_atom_addition(session, "changing trajectory frames")
+    require_no_registry_relaxation(session, "changing trajectory frames")
     frame_index = int(payload.get("index", 0))
     try:
         session.set_frame(frame_index)
@@ -5436,10 +5608,101 @@ async def registry_analysis_csv(session_id: str, payload: Dict[str, Any]):
     )
 
 
+@app.post("/api/registry-relax/start/{session_id}")
+async def start_registry_relaxation(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(session, "XY translation relaxation")
+    sync_session_frame_from_payload(session, payload)
+    positions = payload.get("positions")
+    if positions is not None:
+        coordinates = np.asarray(positions, dtype=float)
+        if coordinates.shape != (len(session.working_atoms), 3) or not np.all(np.isfinite(coordinates)):
+            raise HTTPException(status_code=400, detail="Registry positions must match the current atom count.")
+        session.working_atoms.set_positions(coordinates, apply_constraint=False)
+        session.sync_current_frame()
+    try:
+        summary = start_registry_relaxation_mode(
+            session,
+            payload.get("selected_indices") or [],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    data = session_update_to_json(session)
+    data["metadata"]["registry_relaxation"] = summary
+    return data
+
+
+@app.post("/api/registry-relax/run/{session_id}")
+async def run_registry_relaxation_endpoint(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(
+        session,
+        "XY translation relaxation",
+        allow_registry_relaxation=True,
+    )
+    calculator = payload.get("calculator") or {}
+    if is_vase_repulsion_calculator(session.working_atoms.calc):
+        configure_repulsion_calculators(
+            session,
+            device=calculator.get("device"),
+            cpu_threads=calculator.get("cpu_threads"),
+            cutoff_scale=calculator.get("cutoff_scale"),
+            k_repulsion=calculator.get("k_repulsion"),
+        )
+        mode = session.registry_relaxation
+        if mode is not None and is_vase_repulsion_calculator(mode.baseline_atoms.calc):
+            mode.baseline_atoms.calc.configure(
+                device=calculator.get("device"),
+                cpu_threads=calculator.get("cpu_threads"),
+                cutoff_scale=calculator.get("cutoff_scale"),
+                k_repulsion=calculator.get("k_repulsion"),
+            )
+    try:
+        return run_registry_relaxation(session, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/registry-relax/stop/{session_id}")
+async def stop_registry_relaxation_endpoint(session_id: str):
+    session = get_session(session_id)
+    return {"status": "stopping" if stop_registry_relaxation(session) else "idle"}
+
+
+@app.post("/api/registry-relax/finish/{session_id}")
+async def finish_registry_relaxation_endpoint(session_id: str):
+    session = get_session(session_id)
+    require_editable(
+        session,
+        "XY translation relaxation",
+        allow_registry_relaxation=True,
+    )
+    try:
+        result = finish_registry_relaxation_mode(session)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    data = session_update_to_json(session)
+    data["metadata"]["registry_relaxation_result"] = result
+    return data
+
+
+@app.post("/api/registry-relax/cancel/{session_id}")
+async def cancel_registry_relaxation_endpoint(session_id: str):
+    session = get_session(session_id)
+    require_editable(
+        session,
+        "XY translation relaxation",
+        allow_registry_relaxation=True,
+    )
+    cancel_registry_relaxation_mode(session)
+    return session_update_to_json(session)
+
+
 @app.post("/api/done/{session_id}")
 async def done(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
     require_no_atom_addition(session, "closing the editor")
+    require_no_registry_relaxation(session, "closing the editor")
     sync_session_frame_from_payload(session, payload)
     if not is_viz_only(session):
         positions = np.array(payload["positions"])
@@ -5821,6 +6084,7 @@ if FASTAPI_AVAILABLE:
     async def api_relax_start(session_id: str, payload: Dict[str, Any], bt: BackgroundTasks):
         session = get_session(session_id)
         require_no_atom_addition(session, "starting structure relaxation")
+        require_no_registry_relaxation(session, "starting structure relaxation")
         sync_session_frame_from_payload(session, payload)
         return await start_relaxation(session, payload, bt)
 

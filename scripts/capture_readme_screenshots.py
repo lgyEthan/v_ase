@@ -17,6 +17,7 @@ import numpy as np
 from ase import Atoms
 from ase.build import fcc111
 from ase.calculators.singlepoint import SinglePointCalculator
+from ase.geometry import find_mic
 from ase.io import read
 from ase.io.cube import write_cube
 from PIL import Image
@@ -1301,7 +1302,7 @@ def capture_commensurate_media(browser) -> None:
             rendered_frames.append(screenshot_frame(page))
         cells_only_frame = rendered_frames[-1].copy()
         page.wait_for_function(
-            "window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.padding_cells === 1"
+            "window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.padding_cells >= 2"
         )
         preview_context = page.evaluate("""() => {
             const app = window.__V_ASE_APP__;
@@ -1401,6 +1402,14 @@ def capture_commensurate_media(browser) -> None:
         page.wait_for_function(
             "window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.mode === 'host-guest'"
         )
+        page.locator("details.commensurate-advanced").evaluate("element => { element.open = true; }")
+        page.locator("#chk-commensurate-show-atoms").set_checked(True)
+        page.wait_for_function(
+            "window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.include_atoms === true"
+        )
+        page.wait_for_function(
+            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewBonds) > 0"
+        )
         angle_input = page.locator("#commensurate-guest-angle")
         angle_input.fill("16.10211375")
         angle_input.press("Tab")
@@ -1440,17 +1449,18 @@ def capture_commensurate_media(browser) -> None:
         page.wait_for_function("""() => {
             const traces = Array.from(document.getElementById('commensurate-plot').data || []);
             return traces.some(trace => trace.meta?.role === 'angle-area-floor')
-                && traces.some(trace => trace.meta?.role === 'candidate-stems')
-                && traces.some(trace => trace.meta?.role === 'commensurate-candidates');
+                && traces.some(trace => trace.meta?.role === 'candidate-floor-projection')
+                && traces.some(trace => trace.meta?.role === 'commensurate-candidates')
+                && traces.some(trace => trace.meta?.role === 'current-angle-plane');
         }""")
         page.evaluate("""() => {
             const drawer = document.getElementById('analysis-drawer');
-            drawer.style.height = '455px';
+            drawer.style.height = '410px';
             window.Plotly?.Plots?.resize?.(document.getElementById('commensurate-plot'));
         }""")
         graph_target = [
             preview_center[0],
-            preview_center[1] - max(preview_bounds["size"][:2]) * 0.62,
+            preview_center[1] - max(preview_bounds["size"][:2]) * 0.24,
             preview_center[2],
         ]
         set_camera(
@@ -1460,20 +1470,26 @@ def capture_commensurate_media(browser) -> None:
             up=(0.0, 1.0, 0.0),
             fov=32,
         )
-        set_atomic_scale(page, 32.0)
+        set_atomic_scale(page, 27.0)
         graph_state = page.evaluate("""() => {
             const plot = document.getElementById('commensurate-plot');
             return {
                 xTitle: plot.layout.scene?.xaxis?.title?.text,
                 perspective: plot.layout.scene?.camera?.projection?.type,
                 xAspect: Number(plot.layout.scene?.aspectratio?.x || 0),
-                zAspect: Number(plot.layout.scene?.aspectratio?.z || 0)
+                zAspect: Number(plot.layout.scene?.aspectratio?.z || 0),
+                roles: Array.from(plot.data || []).map(trace => trace.meta?.role || ''),
+                previewBonds: Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewBonds || 0)
             };
         }""")
         if graph_state["xTitle"] != "rotation θ / °":
             raise AssertionError("README commensurate graph does not expose rotation as its x axis.")
         if graph_state["perspective"] != "perspective" or graph_state["xAspect"] <= graph_state["zAspect"]:
             raise AssertionError("README commensurate graph is not presented as a legible 3D landscape.")
+        if "current-angle-outline" not in graph_state["roles"] or graph_state["previewBonds"] <= 0:
+            raise AssertionError(
+                "README host/guest example is missing its current-angle section or parent-lattice bonds."
+            )
         page.wait_for_timeout(350)
         screenshot_frame(page).save(
             ASSET_DIR / "readme_commensurate_host_guest.png",
@@ -1508,6 +1524,16 @@ def capture_registry_media(browser) -> None:
             #coord-readout { display: none !important; }
         """)
         set_selection(page, indices["hbn"])
+        cell = np.asarray(atoms.cell.array, dtype=float)
+        initial_registry_shift = 0.17 * cell[0] + 0.11 * cell[1]
+        run_external_ai_apply(command_url, {
+            "operation": {
+                "name": "move-selection",
+                "indices": indices["hbn"],
+                "vector": initial_registry_shift.tolist(),
+                "applyConstraints": False,
+            },
+        })
         result = run_external_ai_apply(command_url, {
             "operation": {
                 "name": "calculate-registry-map",
@@ -1534,7 +1560,6 @@ def capture_registry_media(browser) -> None:
             window.__V_ASE_APP__.renderer.fitCameraToStructure();
             window.__V_ASE_APP__.renderer.renderNow();
         }""")
-        cell = np.asarray(atoms.cell.array, dtype=float)
         target = np.mean(atoms.positions, axis=0) + 1.5 * (cell[0] + cell[1])
         set_camera(
             page,
@@ -1550,6 +1575,7 @@ def capture_registry_media(browser) -> None:
             const titleText = title => typeof title === 'string' ? title : title?.text;
             return {
                 traceCount: plot.data?.length || 0,
+                roles: Array.from(plot.data || []).map(trace => trace.meta?.role || ''),
                 xTitle: titleText(plot.layout?.xaxis?.title),
                 yTitle: titleText(plot.layout?.yaxis?.title),
                 xRange: plot.layout?.xaxis?.range,
@@ -1564,9 +1590,19 @@ def capture_registry_media(browser) -> None:
                 active: window.__V_ASE_APP__.state.activeAnalysisPlot
             };
         }""")
-        if plot_state["traceCount"] != 3 or plot_state["active"] != "registry":
-            raise AssertionError("README registry heatmap is not active with both map markers.")
-        if plot_state["xTitle"] != "fractional translation u" or plot_state["yTitle"] != "fractional translation v":
+        expected_roles = {
+            "registry-score",
+            "host-reference-cell",
+            "host-reference-basis",
+            "registry-optimum",
+            "registry-current",
+            "registry-current-vector",
+        }
+        if plot_state["traceCount"] != 6 or set(plot_state["roles"]) != expected_roles:
+            raise AssertionError("README registry heatmap is missing its host cell, basis, or map markers.")
+        if plot_state["active"] != "registry":
+            raise AssertionError("README registry heatmap is not the active analysis plot.")
+        if plot_state["xTitle"] != "host-cell fractional translation u" or plot_state["yTitle"] != "host-cell fractional translation v":
             raise AssertionError("README registry map is missing its periodic fractional axes.")
         if plot_state["xRange"] != [0, 1] or plot_state["yRange"] != [0, 1]:
             raise AssertionError("README registry map expanded beyond one periodic translation cell.")
@@ -1579,6 +1615,123 @@ def capture_registry_media(browser) -> None:
         screenshot_frame(page).save(
             ASSET_DIR / "readme_registry_map.png",
             optimize=True,
+        )
+
+        baseline_positions = np.asarray(
+            page.evaluate("window.__V_ASE_APP__.state.atoms.positions"),
+            dtype=float,
+        )
+        run_external_ai_apply(command_url, {
+            "operation": {
+                "name": "start-registry-relaxation",
+                "indices": indices["hbn"],
+            },
+        })
+        run_external_ai_apply(command_url, {
+            "operation": {
+                "name": "run-registry-relaxation",
+                "fmax": 0.002,
+                "steps": 80,
+                "calculator": {
+                    "cutoffScale": 2.15,
+                    "kRepulsion": 2.4,
+                },
+            },
+        })
+        page.wait_for_function("""() => {
+            const app = window.__V_ASE_APP__;
+            return app.state.registryRelaxation
+                && app.state.registryRelaxation.is_relaxing === false
+                && app.state.relaxTrajectory?.kind === 'registry'
+                && app.state.relaxTrajectory.frames.length >= 2;
+        }""", timeout=20_000)
+        relaxation = page.evaluate("""() => ({
+            frames: window.__V_ASE_APP__.state.relaxTrajectory.frames,
+            axes: window.__V_ASE_APP__.state.registryRelaxation.periodic_axes,
+            selected: window.__V_ASE_APP__.state.registryRelaxation.selected_indices
+        })""")
+        registry_frames = [np.asarray(frame, dtype=float) for frame in relaxation["frames"]]
+        selected = np.asarray(relaxation["selected"], dtype=int)
+        host = np.asarray([index for index in range(len(atoms)) if index not in set(selected)], dtype=int)
+        for frame in registry_frames:
+            np.testing.assert_allclose(frame[host], baseline_positions[host], atol=0.0)
+            np.testing.assert_allclose(
+                frame[selected] - frame[selected[0]],
+                baseline_positions[selected] - baseline_positions[selected[0]],
+                atol=2e-8,
+            )
+            np.testing.assert_allclose(frame[selected, 2], baseline_positions[selected, 2], atol=2e-8)
+
+        endpoint_shift = float(np.linalg.norm(
+            np.mean(registry_frames[-1][selected] - registry_frames[0][selected], axis=0)
+        ))
+        if endpoint_shift < 0.03:
+            raise AssertionError(
+                "README rigid registry relaxation did not produce a visible translation."
+            )
+
+        gif_frames: list[Image.Image] = []
+        source = registry_frames[0]
+        cell_inverse = np.linalg.inv(np.asarray(atoms.cell.array, dtype=float))
+        visual_frames = registry_frames
+        if len(registry_frames) < 10:
+            visual_frames = []
+            segment_steps = max(3, math.ceil(10 / max(1, len(registry_frames) - 1)))
+            for first, second in zip(registry_frames[:-1], registry_frames[1:]):
+                for alpha in np.linspace(0.0, 1.0, segment_steps, endpoint=False):
+                    visual_frames.append((1.0 - alpha) * first + alpha * second)
+            visual_frames.append(registry_frames[-1])
+        for frame_index, positions in enumerate(visual_frames):
+            translation = np.mean(positions[selected] - source[selected], axis=0)
+            fractional = translation @ cell_inverse
+            page.evaluate(
+                """({positions, index, frameCount, fractional, axes}) => {
+                    const app = window.__V_ASE_APP__;
+                    app.state.atoms.positions = positions.map(position => [...position]);
+                    app.renderer.updatePositions(app.state.atoms.positions);
+                    app.updateRegistryMapMarker([
+                        Number(fractional[Number(axes[0])]) || 0,
+                        Number(fractional[Number(axes[1])]) || 0
+                    ]);
+                    app.setRegistryRelaxStatus(
+                        'ready',
+                        'Relaxation trajectory',
+                        `u ${Number(fractional[Number(axes[0])] || 0).toFixed(4)} · `
+                        + `v ${Number(fractional[Number(axes[1])] || 0).toFixed(4)}`
+                    );
+                    if (app.state.relaxTrajectory?.active) {
+                        const sourceCount = app.state.relaxTrajectory.frames.length;
+                        app.state.relaxTrajectory.frame = Math.min(
+                            sourceCount - 1,
+                            Math.round(index * Math.max(1, sourceCount - 1) / Math.max(1, frameCount - 1))
+                        );
+                    }
+                    app.updateTrajectoryUI();
+                }""",
+                {
+                    "positions": positions.tolist(),
+                    "index": frame_index,
+                    "frameCount": len(visual_frames),
+                    "fractional": fractional.tolist(),
+                    "axes": relaxation["axes"],
+                },
+            )
+            page.wait_for_timeout(60)
+            gif_frames.append(screenshot_frame(page))
+        append_hold(gif_frames, page, 5)
+        run_external_ai_apply(command_url, {
+            "operation": {"name": "finish-registry-relaxation"},
+        })
+        page.wait_for_function("""() =>
+            window.__V_ASE_APP__.state.registryRelaxation === null
+            && window.__V_ASE_APP__.state.relaxTrajectory.active === false
+            && document.getElementById('trajectory-panel').classList.contains('hidden')
+        """)
+        append_hold(gif_frames, page, 7)
+        save_gif(
+            gif_frames,
+            ASSET_DIR / "readme_registry_relax.gif",
+            duration=115,
         )
     finally:
         page.close()
@@ -2270,13 +2423,12 @@ def capture_constraint_media(browser) -> None:
             const spring = group.children.find(child => child.userData?.springLine);
             spring.geometry.computeBoundingBox();
             const bounds = spring.geometry.boundingBox;
-            const label = group.children.find(child => child.userData?.hookeanThresholdLabel);
             return {
                 state: group.userData.hookeanState,
                 distance: group.userData.hookeanDistance,
                 threshold: group.userData.hookeanThreshold,
                 extension: group.userData.hookeanExtension,
-                label: label?.userData?.hookeanThresholdText,
+                spriteCount: group.children.filter(child => child.isSprite).length,
                 springXSpan: bounds.max.x - bounds.min.x,
                 springZSpan: bounds.max.z - bounds.min.z
             };
@@ -2293,8 +2445,8 @@ def capture_constraint_media(browser) -> None:
             atol=1e-7,
         ):
             raise AssertionError("README Hookean extension is not max(0, distance - rt).")
-        if rendered_hookean["label"] != f"rt {threshold:.2f} Å":
-            raise AssertionError("README Hookean cutoff label is not synchronized with ASE rt.")
+        if rendered_hookean["spriteCount"] != 0:
+            raise AssertionError("README Hookean visualization must not add numeric annotations.")
         if min(rendered_hookean["springXSpan"], rendered_hookean["springZSpan"]) <= 0.18:
             raise AssertionError("README Hookean spring does not retain visible 3D helical depth.")
         expected_force = spring_constant * (preview_distance - threshold)
@@ -2315,7 +2467,7 @@ def capture_constraint_media(browser) -> None:
 
 def capture_add_atoms_media(browser) -> None:
     host, metadata = make_random_addition_scene()
-    editor, page = open_scene(browser, host, show_bonds=False, viz_only=False)
+    editor, page = open_scene(browser, host, show_bonds=True, viz_only=False)
     try:
         center = np.sum(np.asarray(host.cell.array, dtype=float), axis=0) * 0.5
         set_display(page, {
@@ -2324,24 +2476,42 @@ def capture_add_atoms_media(browser) -> None:
             "showGrid": False,
             "showAxes": False,
             "showCell": True,
-            "showBonds": False,
+            "showBonds": True,
             "showOverlays": True,
-            "atomRadiusScale": 0.54,
+            "atomRadiusScale": 0.50,
             "labelRadii": {
-                "Si_framework": 0.58,
-                "Li_mobile": 0.78,
-                "H_probe": 0.46,
+                "C_channel": 0.54,
+                "Li_mobile": 0.74,
+                "H_probe": 0.38,
             },
             "labelColors": {
-                "Si_framework": "#53636c",
-                "Li_mobile": "#78a848",
-                "H_probe": "#d7a736",
+                "C_channel": "#506069",
+                "Li_mobile": "#73a649",
+                "H_probe": "#d5a52d",
             },
             "labelMaterials": {
-                "Si_framework": "rubber",
+                "C_channel": "rubber",
                 "Li_mobile": "standard",
                 "H_probe": "standard",
             },
+            "bondMode": "pairwise",
+            "pairwiseBondRanges": {
+                "C_channel-C_channel": {"enabled": True, "max": 1.55},
+                "C_channel-H_probe": {"enabled": False, "max": 0.0},
+                "C_channel-Li_mobile": {"enabled": False, "max": 0.0},
+                "H_probe-H_probe": {"enabled": False, "max": 0.0},
+                "H_probe-Li_mobile": {"enabled": False, "max": 0.0},
+                "Li_mobile-Li_mobile": {"enabled": False, "max": 0.0},
+            },
+            "pairwiseBondCutoffs": {
+                "C_channel-C_channel": 1.55,
+                "C_channel-H_probe": 0.0,
+                "C_channel-Li_mobile": 0.0,
+                "H_probe-H_probe": 0.0,
+                "H_probe-Li_mobile": 0.0,
+                "Li_mobile-Li_mobile": 0.0,
+            },
+            "bondThickness": 0.16,
             "cellColor": "#96722f",
             "cellThickness": 0.055,
         })
@@ -2349,7 +2519,7 @@ def capture_add_atoms_media(browser) -> None:
         set_camera(
             page,
             target=center.tolist(),
-            position=(center + np.asarray([23.0, -30.0, 21.0])).tolist(),
+            position=(center + np.asarray([18.0, -24.0, 18.0])).tolist(),
             up=(0, 0, 1),
             fov=35,
         )
@@ -2376,7 +2546,7 @@ def capture_add_atoms_media(browser) -> None:
 
         # Keep the random batch inside the open pore so the real pairwise
         # optimizer path is visible without slowing production relaxation.
-        half_box = np.asarray([2.2, 2.2, 4.0])
+        half_box = np.asarray(metadata["insertion_half_box"], dtype=float)
         bounds = np.concatenate((center - half_box, center + half_box))
         page.click("#add-atoms-region-box")
         for selector, value in zip(
@@ -2419,6 +2589,42 @@ def capture_add_atoms_media(browser) -> None:
         page.wait_for_function(
             "window.__V_ASE_APP__.renderer.addAtomsRegionGroup.visible === true"
         )
+        # Newly introduced labels are initialized by the live structure load;
+        # apply the publication palette after that catalog exists.
+        set_display(page, {
+            "labelRadii": {
+                "C_channel": 0.54,
+                "Li_mobile": 0.74,
+                "H_probe": 0.38,
+            },
+            "labelColors": {
+                "C_channel": "#506069",
+                "Li_mobile": "#73a649",
+                "H_probe": "#d5a52d",
+            },
+            "labelMaterials": {
+                "C_channel": "rubber",
+                "Li_mobile": "standard",
+                "H_probe": "standard",
+            },
+            "bondMode": "pairwise",
+            "pairwiseBondRanges": {
+                "C_channel-C_channel": {"enabled": True, "max": 1.55},
+                "C_channel-H_probe": {"enabled": False, "max": 0.0},
+                "C_channel-Li_mobile": {"enabled": False, "max": 0.0},
+                "H_probe-H_probe": {"enabled": False, "max": 0.0},
+                "H_probe-Li_mobile": {"enabled": False, "max": 0.0},
+                "Li_mobile-Li_mobile": {"enabled": False, "max": 0.0},
+            },
+            "pairwiseBondCutoffs": {
+                "C_channel-C_channel": 1.55,
+                "C_channel-H_probe": 0.0,
+                "C_channel-Li_mobile": 0.0,
+                "H_probe-H_probe": 0.0,
+                "H_probe-Li_mobile": 0.0,
+                "Li_mobile-Li_mobile": 0.0,
+            },
+        })
         scattered_positions = np.asarray(
             page.evaluate("window.__V_ASE_APP__.state.atoms.positions"),
             dtype=float,
@@ -2447,6 +2653,24 @@ def capture_add_atoms_media(browser) -> None:
             "window.__V_ASE_APP__.addAtomsUI?.active?.is_relaxing === false",
             timeout=20_000,
         )
+        page.wait_for_function("""() => {
+            const app = window.__V_ASE_APP__;
+            return app.state.relaxTrajectory?.active === true
+                && app.state.relaxTrajectory?.kind === 'add-atoms'
+                && app.state.relaxTrajectory.frames.length > 1;
+        }""")
+        page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            app.setAddAtomsPane('batch');
+            app.setAddAtomsRegionSelected(true, {update: false});
+            app.updateAddAtomsRegionPreview();
+            app.updateTrajectoryUI();
+        }""")
+        page.wait_for_function("""() =>
+            document.getElementById('add-atoms-tab-batch')?.classList.contains('active')
+            && !document.getElementById('trajectory-panel')?.classList.contains('hidden')
+            && !document.getElementById('add-atoms-mode-badge')?.classList.contains('hidden')
+        """)
         trace = page.evaluate("window.__VASE_ADD_ATOMS_TRACE__")
         if len(trace) < 4:
             raise AssertionError(
@@ -2472,6 +2696,13 @@ def capture_add_atoms_media(browser) -> None:
         page.evaluate("""() => window.__V_ASE_APP__.setAddAtomsStatus(
             'active', 'Pairwise placement complete · ready to finish'
         )""")
+        page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            app.setAddAtomsPane('batch');
+            app.setAddAtomsRegionSelected(true, {update: false});
+            app.updateAddAtomsRegionPreview();
+            app.updateTrajectoryUI();
+        }""")
         np.testing.assert_array_equal(relaxed_positions[: len(host)], host.positions)
         displacement = np.linalg.norm(
             relaxed_positions[len(host):] - scattered_positions[len(host):],
@@ -2480,6 +2711,7 @@ def capture_add_atoms_media(browser) -> None:
         if float(displacement.max(initial=0.0)) <= 0.05:
             raise AssertionError("README Add Atoms repulsion did not move any inserted atom visibly.")
         append_hold(frames, page, 8)
+        placement_frame = frames[-1].copy()
 
         page.click("#btn-add-atoms-finish")
         page.wait_for_function(
@@ -2490,7 +2722,7 @@ def capture_add_atoms_media(browser) -> None:
         )
         append_hold(frames, page, 10)
         save_gif(frames, ASSET_DIR / "readme_add_atoms.gif", duration=95)
-        frames[-1].save(
+        placement_frame.save(
             ASSET_DIR / "readme_add_atoms.png",
             optimize=True,
             compress_level=9,
@@ -2732,7 +2964,7 @@ def capture_volumetric_media(browser) -> None:
         maximum_level = float(max(abs(dataset["minimum"]), abs(dataset["maximum"])))
         level_values = [
             maximum_level * fraction
-            for fraction in (0.10, 0.14, 0.19, 0.25, 0.31, 0.25, 0.19, 0.14)
+            for fraction in (0.06, 0.10, 0.17, 0.26, 0.36, 0.46, 0.36, 0.26, 0.17, 0.10)
         ]
         for level in level_values:
             page.evaluate(
@@ -2829,8 +3061,8 @@ def capture_volumetric_media(browser) -> None:
         set_camera(
             page,
             target=center.tolist(),
-            position=(center + np.array([0.0, 0.0, 24.0])).tolist(),
-            up=(0.0, 1.0, 0.0),
+            position=(center + np.array([10.5, -12.5, 10.0])).tolist(),
+            up=(0.0, 0.0, 1.0),
             fov=32,
         )
         set_atomic_scale(page, 58.0)
@@ -2884,9 +3116,9 @@ def capture_volumetric_media(browser) -> None:
 
 
 def make_atom_colorscale_trajectory() -> list[Atoms]:
-    """Return a compact surface trajectory with a moving uncertainty hotspot."""
+    """Return a force-consistent probe trajectory over a copper surface."""
 
-    slab = fcc111("Cu", size=(6, 6, 3), vacuum=7.0, orthogonal=True)
+    slab = fcc111("Cu", size=(5, 4, 2), vacuum=7.0, orthogonal=True)
     cell = slab.cell.array
     top_z = float(np.max(slab.positions[:, 2]))
     x_min, y_min = np.min(slab.positions[:, :2], axis=0)
@@ -2897,34 +3129,34 @@ def make_atom_colorscale_trajectory() -> list[Atoms]:
         probe_y = float((y_min + y_max) * 0.5 + 0.55 * math.sin(2 * math.pi * fraction))
         probe = Atoms("O", positions=[[probe_x, probe_y, top_z + 1.65]], cell=cell, pbc=True)
         atoms = slab + probe
-        delta_xy = atoms.positions[:, :2] - np.array([probe_x, probe_y])
-        uncertainty = 0.035 + 0.82 * np.exp(-np.sum(delta_xy * delta_xy, axis=1) / 5.2)
-        uncertainty += 0.025 * (atoms.positions[:, 2] - np.min(atoms.positions[:, 2]))
-        uncertainty[-1] = 1.0
-        atoms.set_array("mlip_uncertainty", uncertainty.astype(np.float32))
+        # U_i = A exp(-|r_i,xy-r_probe,xy|^2 / 2 sigma^2) is a periodic
+        # in-plane registry potential.  The stored forces are its exact
+        # negative Cartesian gradient, including the equal-and-opposite probe
+        # force, so arrow direction and |F| color are one calculator result.
+        displacement = atoms.positions[:-1] - atoms.positions[-1]
+        displacement, _ = find_mic(displacement, cell, pbc=[True, True, False])
+        displacement[:, 2] = 0.0
+        sigma = 2.20
+        amplitude = 2.0
+        pair_energy = amplitude * np.exp(
+            -np.sum(displacement * displacement, axis=1) / (2.0 * sigma**2)
+        )
         forces = np.zeros((len(atoms), 3), dtype=float)
-        tangent = np.array([
-            x_max - x_min,
-            0.55 * 2.0 * math.pi * math.cos(2.0 * math.pi * fraction),
-            -0.45,
-        ])
-        tangent /= np.linalg.norm(tangent)
-        counter_target = np.array([
-            x_min + 0.24 * (x_max - x_min),
-            y_min + 0.28 * (y_max - y_min),
-        ])
-        counter = int(np.argmin(np.linalg.norm(
-            atoms.positions[:-1, :2] - counter_target,
-            axis=1,
-        )))
-        forces[-1] = 0.82 * tangent
-        forces[counter] = -forces[-1]
+        forces[:-1] = pair_energy[:, None] * displacement / sigma**2
+        forces[-1] = -np.sum(forces[:-1], axis=0)
+        if not np.allclose(np.sum(forces, axis=0), 0.0, atol=1e-12):
+            raise AssertionError("README force example violates equal-and-opposite force balance.")
+        # Keep the values portable across ASE frame copies as well as attached
+        # to the SinglePointCalculator.  v_ase discovers either representation
+        # without evaluating a calculator merely for display.
+        atoms.new_array("forces", forces.copy())
         atoms.calc = SinglePointCalculator(
             atoms,
-            energy=float(-0.5 + 0.03 * frame_index),
+            energy=float(np.sum(pair_energy)),
             forces=forces,
         )
-        atoms.info["readme_scene"] = "trajectory_consistent_atom_colorscale"
+        atoms.info["readme_scene"] = "force_consistent_atom_colorscale"
+        atoms.info["force_model"] = "periodic in-plane Gaussian Cu-O registry potential"
         atoms.info["frame_index"] = frame_index
         frames.append(atoms)
     return frames
@@ -2932,6 +3164,12 @@ def make_atom_colorscale_trajectory() -> list[Atoms]:
 
 def capture_atom_colorscale_media(browser) -> None:
     frames = make_atom_colorscale_trajectory()
+    substrate_force_norms = np.concatenate([
+        np.linalg.norm(frame.get_forces()[:-1], axis=1)
+        for frame in frames
+    ])
+    if float(np.ptp(substrate_force_norms)) < 0.5:
+        raise AssertionError("README force colorscale lacks a visible trajectory-wide range.")
     editor, page = open_scene(browser, frames, show_bonds=False, viz_only=True)
     try:
         set_display(page, {
@@ -2944,20 +3182,22 @@ def capture_atom_colorscale_media(browser) -> None:
             "lightingMode": "studio-shadow",
             "showForceVectors": True,
             "forceVectorStyle": "3d",
-            "forceVectorScale": 3.6,
-            "forceVectorThickness": 0.12,
+            "forceVectorScale": 2.50,
+            "forceVectorThickness": 0.050,
             "forceVectorColor": "#c43f5e",
         })
         configure_inspector(page, "structure", ["appearance"], width=475)
+        substrate_indices = list(range(len(frames[0]) - 1))
+        set_selection(page, substrate_indices)
         result = page.evaluate(
             """async () => {
                 await window.v_aseAI.apply({
                     operation: {
                         name: 'set-atom-colorscale',
                         enabled: true,
-                        field: 'array::mlip_uncertainty::scalar',
-                        map: 'viridis',
-                        scope: 'all',
+                        field: 'force:norm',
+                        map: 'plasma',
+                        scope: 'selected',
                         rangeMode: 'trajectory',
                         gamma: 0.82
                     }
@@ -2966,22 +3206,26 @@ def capture_atom_colorscale_media(browser) -> None:
             }"""
         )
         color_scale = result["display"]
-        if color_scale["atomColorScaleField"] != "array::mlip_uncertainty::scalar":
-            raise AssertionError("README colorscale did not select the trajectory scalar field.")
+        if color_scale["atomColorScaleField"] != "force:norm":
+            raise AssertionError("README colorscale did not select force magnitude.")
         if color_scale["atomColorScaleRangeMode"] != "trajectory":
             raise AssertionError("README colorscale did not lock a full-trajectory range.")
+        if color_scale["atomColorScaleScope"] != "selected":
+            raise AssertionError("README colorscale did not retain its selected-atom scope.")
         page.wait_for_selector("#atom-colorscale-legend:not(.hidden)")
         page.wait_for_function(
-            "window.__V_ASE_APP__.renderer.atomColorScaleColors?.filter(Boolean).length > 100"
+            "count => window.__V_ASE_APP__.renderer.atomColorScaleColors?.filter(Boolean).length === count",
+            arg=len(substrate_indices),
         )
         page.wait_for_function(
-            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.forceVectorCount) === 2"
+            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.forceVectorCount) >= 20"
         )
         page.evaluate(
             """() => {
                 const panel = document.querySelector('[data-panel="appearance"]');
                 panel?.scrollIntoView({block: 'start'});
                 document.getElementById('inspector-content').scrollTop = 0;
+                window.__V_ASE_APP__.renderer.selectionOutlines.visible = false;
             }"""
         )
         center = np.mean(frames[0].positions, axis=0)
@@ -3010,6 +3254,7 @@ def capture_atom_colorscale_media(browser) -> None:
                 arg=frame_index,
             )
             page.wait_for_timeout(55)
+            page.evaluate("window.__V_ASE_APP__.renderer.selectionOutlines.visible = false")
             ranges.append(page.evaluate(
                 """() => [
                     window.__V_ASE_APP__.state.display.atomColorScaleMin,
@@ -3032,7 +3277,7 @@ def capture_atom_colorscale_media(browser) -> None:
                     ) / (sourceLength * directionLength);
                 });
             }""")
-            if len(force_alignment) != 2 or min(force_alignment) < 1 - 1e-8:
+            if len(force_alignment) < 20 or min(force_alignment) < 1 - 1e-8:
                 raise AssertionError("README force arrows do not follow the stored Cartesian forces.")
             gif_frames.append(screenshot_frame(page))
         reference_range = np.asarray(ranges[0], dtype=float)

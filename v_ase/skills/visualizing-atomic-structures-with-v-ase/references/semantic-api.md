@@ -186,8 +186,9 @@ Pass `operation` as a name string or object:
 | `set-supercell` | `reps` | Materialize repeated cell in every frame |
 | `make-supercell` | integer `matrix` | Apply ASE `make_supercell` |
 | `add-atom` | `label`/`element`, `position` | Add one atom |
-| `scatter-atoms` | `entries` or `element`/`label`/`count`; optional `regionMode`, `bounds`, `seed`, `freezeExisting`, `cutoffBasis`, `cutoffScale`, `pairCutoffs` | Start one reversible random-insertion session on a single structure |
-| `relax-added-atoms` | optional `pairCutoffs`, `freezeExisting`, `strength`, `boundaryStrength`, `fmax`, `steps`, `mic` | Start asynchronous pairwise repulsive placement of staged atoms |
+| `scatter-atoms` | `entries` or `element`/`label`/`count`; optional `regionMode`, `bounds`, `regionRole`, `allowEscape`, `seed`, `freezeExisting`, `cutoffBasis`, `cutoffScale`, `pairCutoffs` | Start one reversible random-insertion session on a single structure |
+| `update-add-atoms-region` | Optional `bounds`, `regionRole`, `allowEscape` | Move or reconfigure the active Cartesian insertion box without moving staged atoms |
+| `relax-added-atoms` | optional `pairCutoffs`, `freezeExisting`, `strength`, `boundaryStrength`, `fmax`, `steps`, `mic`, `allowEscape` | Start asynchronous pairwise repulsive placement of staged atoms; the default lets atoms leave their initial insertion region |
 | `stop-added-atoms` | none | Request optimizer stop while retaining current staged positions |
 | `finish-add-atoms` | none | Commit staged atoms after optimization is inactive |
 | `cancel-add-atoms` | none | Restore the exact structure and history from before scattering |
@@ -203,10 +204,16 @@ Pass `operation` as a name string or object:
 | `apply-commensurate-cell` | active proposal | Materialize the validated common cell as the ASE unit cell |
 | `dismiss-commensurate-cell` | none | Close the proposal and restore the pre-preview camera |
 | `calculate-registry-map` | selection/`indices`; optional `metric`, `gridX`, `gridY` | Scan one periodic XY cell of selected-component translations and open the heatmap |
+| `start-registry-relaxation` | selection/`indices` | Enter rigid XY translation mode while preserving the host, cell, selected internal geometry, and selected z coordinates |
+| `run-registry-relaxation` | optional `fmax`, `steps`, `calculator` | Optimize only the two common in-plane translation coordinates and expose an operation-specific movie timeline |
+| `stop-registry-relaxation` | none | Request the active rigid translation optimizer to stop |
+| `finish-registry-relaxation` | none | Commit the rigid translation as one undoable edit and close its timeline |
+| `cancel-registry-relaxation` | none | Restore the exact pre-mode coordinates and close its timeline without adding history |
 | `undo` / `redo` | none | Traverse structure or visualization-setting history |
 | `reset-coordinates` | none | Restore loaded coordinates and original cell |
 | `start-relaxation` | `fmax`, `steps`, optional `calculator` | Start optimization |
 | `stop-relaxation` | none | Request optimizer stop |
+| `exit-relaxation-mode` | none | Close the completed optimization movie timeline without changing the optimized structure |
 | `refresh-displacements` | optional `display` | Recompute displacement vectors |
 | `load-volumetric` | `path`, optional `format`, `precision` | Load one VASP, Cube, or XSF grid as FP32 or FP64 |
 | `show-volumetric` | `datasetId`, `level`, optional surface controls | Build one isosurface |
@@ -231,7 +238,10 @@ await ai.apply({
       {element: "Li", label: "Li_mobile", count: 24},
       {element: "H", label: "H_probe", count: 8}
     ],
-    regionMode: "cell",
+    regionMode: "box",
+    bounds: [1.0, 8.0, 0.5, 7.5, 0.0, 12.0],
+    regionRole: "allowed",
+    allowEscape: true,
     seed: 1847,
     freezeExisting: true,
     cutoffBasis: "covalent",
@@ -248,6 +258,26 @@ cells. `regionMode:"box"` requires
 intersection with the half-open primary periodic cell, so one physical voxel
 is never counted once per periodic image. This is random scattering, not a
 regular or minimum-distance distribution.
+
+For a box, `regionRole:"allowed"` samples the intersection and
+`regionRole:"prohibited"` samples the rest of the primary cell. The box is an
+initial-placement definition. `allowEscape` defaults to `true`, which leaves
+repulsive placement unconstrained by that region. With `allowEscape:false`,
+the optimizer projects staged atoms back inside an allowed box or outside a
+prohibited box. Change the active box atomically without moving staged atoms:
+
+```javascript
+await ai.apply({operation: {
+  name: "update-add-atoms-region",
+  bounds: [1.5, 8.5, 0.5, 7.5, 0.0, 12.0],
+  regionRole: "prohibited",
+  allowEscape: false
+}});
+```
+
+The GUI maps translation of the selected box to `G` and updates all six bounds
+live. It rejects `R` because an axis-aligned Cartesian min/max box has no
+well-defined rotated representation in this workflow.
 
 After scattering, read `describe().addAtoms`. It reports `entries`,
 `new_indices`, region geometry, seed, pair cutoffs, temporary fixed host
@@ -270,7 +300,8 @@ await ai.apply({operation: {
   boundaryStrength: 5.0,
   fmax: 0.05,
   steps: 250,
-  mic: true
+  mic: true,
+  allowEscape: true
 }});
 ```
 
@@ -282,6 +313,9 @@ the baseline host is reconstructed exactly when committing. Poll compact
 `addAtoms.is_relaxing` is false. Then use `finish-add-atoms`. Use
 `stop-added-atoms` to interrupt and retain the latest staged positions, or
 `cancel-add-atoms` to restore the complete pre-session state.
+The optimizer frames appear on a temporary `add-atoms` mode timeline. Finish
+or cancel removes that timeline; neither action converts it into the loaded
+source trajectory.
 
 Batch Add Atoms deliberately rejects trajectories. Open the intended frame as
 a standalone structure in a new document before scattering; never create one
@@ -514,6 +548,33 @@ v_ase api "$COMMAND_URL" export --save registry.csv --params '{
   "gridY":48
 }'
 ```
+
+To refine the same selected component with a real calculator, activate the
+rigid translation mode after the map. This is not an atomic relaxation: all
+selected internal vectors and z coordinates, every host coordinate, and the
+cell remain fixed while only two common fractional in-plane translation
+coordinates change.
+
+```javascript
+await ai.apply({operation: {
+  name: "start-registry-relaxation",
+  indices: [40, 41, 42, 43]
+}});
+await ai.apply({operation: {
+  name: "run-registry-relaxation",
+  fmax: 0.05,
+  steps: 100
+}});
+```
+
+Consume `registry_relax_step` and `registry_relax_finished` events or poll
+`describe().analysis.registryRelaxation`. `projected_force` is the norm of the
+selected component's net Cartesian force projected into the periodic
+interface plane, in `eV/angstrom`; `generalized_gradient` is the derivative
+with respect to dimensionless cell-vector coordinates and has energy units.
+Use `finish-registry-relaxation` to commit one undoable rigid translation or
+`cancel-registry-relaxation` to restore the exact pre-mode coordinates. Both
+close the temporary `registry` movie timeline.
 
 ```javascript
 await ai.apply({

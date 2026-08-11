@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.2"
+python -m pip install "v_ase-gui==0.2.3"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -202,8 +202,17 @@ For batch insertion, use `scatter-atoms` only on a single Edit-mode structure.
 It starts a reversible Add Atoms session and supports multiple element/label
 populations. `regionMode:"cell"` is volume-uniform in the full triclinic cell;
 `regionMode:"box"` samples the Cartesian box intersected with one half-open
-primary periodic cell. Verify `describe().addAtoms`, then optionally run
-`relax-added-atoms` with explicit pair cutoffs and MIC. Wait until
+primary periodic cell. For a box, `regionRole:"allowed"` samples its interior
+and `regionRole:"prohibited"` samples the primary cell outside it. The box is
+an initial-placement region: `allowEscape` defaults to `true`, so repulsive
+placement may leave it. Set `allowEscape:false` only when the final staged
+atoms must remain in the allowed region or outside the prohibited region.
+`update-add-atoms-region` changes the six Cartesian bounds without moving
+staged atoms; the GUI exposes the same operation as `G` and deliberately
+rejects `R`. Verify `describe().addAtoms`, then optionally run
+`relax-added-atoms` with explicit pair cutoffs and MIC. Its temporary
+`Add Atoms placement` timeline must exist only while the staging mode remains
+active. Wait until
 `is_relaxing` is false before `finish-add-atoms`. Use `stop-added-atoms` only
 to interrupt the optimizer, and `cancel-add-atoms` to restore the exact host,
 constraints, per-atom arrays, and pre-session history. Never use batch
@@ -308,8 +317,10 @@ For any nontrivial task, verify all applicable items:
 - structure: count, labels, elements, positions, cell, PBC, constraints;
 - batch insertion: single-structure eligibility, mixed entry counts, random
   seed, exact triclinic/Cartesian region, half-open periodic membership,
-  pairwise cutoffs, MIC, temporary host freeze, asynchronous status, and exact
-  host coordinate/constraint/array preservation after finish or cancel;
+  allowed/prohibited role, default escape policy, live `G` box bounds,
+  rejected box rotation, pairwise cutoffs, MIC, temporary host freeze,
+  asynchronous status, mode-only movie timeline, and exact host
+  coordinate/constraint/array preservation after finish or cancel;
 - AI contract: exact schema/capability operation and export set equality, an
   external `v_ase api` mutation visible in the normal GUI, and matching GUI
   and `describe().collaboration.revision` state;
@@ -347,7 +358,9 @@ For any nontrivial task, verify all applicable items:
   least one primitive cell beyond the full proposal, grid dimensions and
   readable `N x M` coverage, optional one-primitive-cell atom/bond halo,
   horizontal rotation axis plus orthogonal area-depth and strain-height axes,
-  candidate stems/projections, live angle plane, graph CSV, and materialization support. With no
+  a gridded Plotly 3D candidate surface, candidate points, a live current-angle
+  plane, and dotted symmetry periods only when exact lattice symmetry justifies
+  them; verify graph CSV and materialization support. With no
   explicit angle, require the smallest-area admissible proposal; with an
   explicit angle, require the nearest admissible candidate. Confirm
   that the conservative max principal strain
@@ -358,14 +371,22 @@ For any nontrivial task, verify all applicable items:
 - XY registry map: selected moving component, periodic axes, grid dimensions,
   geometry metric, optimum and current fractional coordinates, lower-is-better
   warning, live XY move marker, and exported CSV; never call a geometry score
-  an energy minimum;
+  an energy minimum; for rigid XY relaxation verify the attached calculator or
+  explicit repulsive fallback, exactly two common in-plane translation degrees
+  of freedom, invariant host/cell/selected internal/z geometry, projected net
+  selected force in `eV/angstrom`, a mode-only timeline, one undo step on
+  finish, and exact pre-mode restoration on cancel;
 - constraints: persistent per-atom FixedLine/FixedPlane markers, one long
   original-position FixedLine direction guide during `G`, and one
   original-position FixedPlane motion guide per selected atom during `G`;
   FixedLine uses one center axis, while rings and discs are plane-only;
   for `Hookean(a1, a2, rt, k)`, require no active spring at `r <= rt`, a visible
-  3D helix at `r > rt`, an exact `rt` label, and ASE force magnitude
-  `k * (r - rt)` without altering backend constraint semantics;
+  annotation-free 3D helix at `r > rt`, and ASE force magnitude
+  `k * (r - rt)` without altering backend constraint semantics; verify the same
+  threshold transition on every trajectory frame;
+- relaxation modes: source, structure-relaxation, Add Atoms placement, and
+  rigid XY timelines remain distinguishable; closing a mode removes only its
+  temporary optimizer timeline and preserves the explicitly committed result;
 - render: exact dimensions, format, options, nonblank decoded pixels;
 - export: MIME type, filename, byte count, and reopenability where supported;
 - standalone HTML: both lightweight and project-embedded modes load from

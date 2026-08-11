@@ -411,14 +411,16 @@ def test_commensurate_csv_carries_candidate_matrices_and_citations():
 def test_host_guest_preview_keeps_cells_independent_and_can_hide_atoms():
     host_cell = graphene_cell()
     guest_cell = graphene_cell() * np.array([[2.50 / 2.46], [2.50 / 2.46], [1.0]])
-    candidate = find_lattice_matches(
+    search = find_lattice_matches(
         host_cell,
         [True, True, False],
         guest_cell,
         [True, True, False],
         max_area_ratio=4,
         strain_tolerance=0.02,
-    )["candidates"][0]
+    )
+    assert search["exact_rotational_symmetry_deg"] is None
+    candidate = search["candidates"][0]
     geometry = host_guest_supercell_geometry(
         host_cell=host_cell,
         host_positions=[[0, 0, 0], [1.23, 0.71, 0]],
@@ -614,6 +616,7 @@ def test_hexagonal_commensurate_series_reaches_the_tbg_reference_angle():
     )
 
     assert result["lattice_family"] == "hexagonal"
+    assert result["exact_rotational_symmetry_deg"] == pytest.approx(60.0)
     assert result["periodic_axes"] == [0, 1]
     assert result["axis_alignment"] == pytest.approx(1.0)
 
@@ -670,6 +673,21 @@ def test_magic_reference_is_not_claimed_for_non_carbon_hexagonal_cells():
     )
 
     assert candidate_near(result, 1.05012088)["magic_reference"] is False
+
+
+def test_approximate_hexagonal_family_does_not_claim_exact_rotational_symmetry():
+    strained = graphene_cell()
+    strained[1, 0] *= 1.0002
+    result = find_commensurate_angles(
+        strained,
+        [True, True, False],
+        "Z",
+        max_index=4,
+        strain_tolerance=0.01,
+    )
+
+    assert result["lattice_family"] == "hexagonal"
+    assert result["exact_rotational_symmetry_deg"] is None
 
 
 def test_hexagonal_boron_nitride_uses_the_same_exact_commensurate_geometry():
@@ -753,7 +771,7 @@ def rotated_first_layer(atoms, candidate):
     return positions, pivot
 
 
-def test_commensurate_geometry_has_exact_core_and_one_primitive_cell_halo():
+def test_commensurate_geometry_has_exact_core_inside_expanded_parent_lattices():
     atoms = bilayer_atoms()
     result = find_commensurate_angles(
         atoms.cell.array,
@@ -778,6 +796,8 @@ def test_commensurate_geometry_has_exact_core_and_one_primitive_cell_halo():
     assert geometry["core_atom_count"] == 28
     assert sum(geometry["core_mask"]) == 28
     assert geometry["preview_atom_count"] > geometry["core_atom_count"]
+    assert geometry["padding_cells"] >= 2
+    assert geometry["requested_padding_cells"] == 1
     assert set(geometry["components"]) == {"reference", "rotating"}
     assert len(geometry["host_lattice_origins"]) == geometry["area_ratio"]
     assert len(geometry["guest_lattice_origins"]) == geometry["area_ratio"]
@@ -880,7 +900,8 @@ def test_commensurate_preview_and_apply_use_bounded_area_and_preserve_constraint
 
     preview = asyncio.run(preview_commensurate_supercell(session.session_id, payload))
     assert preview["candidate"]["area_ratio"] == 7
-    assert preview["preview"]["padding_cells"] == 1
+    assert preview["preview"]["padding_cells"] >= 2
+    assert preview["preview"]["requested_padding_cells"] == 1
     assert preview["preview"]["core_atom_count"] == 28
     assert preview["materialization_supported"] is True
 

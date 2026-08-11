@@ -558,6 +558,53 @@ def _commensurate_grid_padding(area_ratio: int, atom_padding: int) -> int:
     return max(int(atom_padding) + 1, min(4, int(ceil(linear_extent / 3.0))))
 
 
+def _expanded_preview_points(
+    components: Sequence[tuple[Sequence[Sequence[int]], Sequence[int], int]],
+    *,
+    requested_padding: int,
+    area_ratio: int,
+    include_atoms: bool,
+    max_preview_atoms: int,
+) -> tuple[list[list[tuple[tuple[int, int, int], bool]]], int, int]:
+    """Expand every lattice consistently while respecting the preview budget.
+
+    The common cell must sit inside recognizable parent lattices rather than at
+    the edge of a one-cell atom halo.  Two or more primitive shells are cheap
+    for ordinary 2D cells, while the bounded fallback keeps large proposals
+    responsive without changing the scientific common-cell result.
+    """
+
+    minimum = max(0, int(requested_padding))
+    # ``padding=0`` is the private materialization path and must remain an
+    # exact common cell.  Any visible preview gets enough context to read both
+    # parent lattices as continuous sublattices.
+    desired = 0 if minimum == 0 else max(
+        2,
+        _commensurate_grid_padding(area_ratio, minimum),
+    )
+    if not include_atoms:
+        return [
+            _primitive_halo_points(core, axes, desired)
+            for core, axes, _ in components
+        ], desired, 0
+
+    limit = max(1, int(max_preview_atoms))
+    for padding in range(desired, -1, -1):
+        expanded = [
+            _primitive_halo_points(core, axes, padding)
+            for core, axes, _ in components
+        ]
+        count = sum(
+            len(points) * max(0, int(atom_count))
+            for points, (_, _, atom_count) in zip(expanded, components)
+        )
+        if count <= limit:
+            return expanded, padding, count
+    raise ValueError(
+        "The proposed common cell alone exceeds the interactive atom-preview limit."
+    )
+
+
 def _grid_lattice_metadata(
     points: Sequence[tuple[Sequence[int], bool]],
     periodic_axes: Sequence[int],
@@ -587,7 +634,7 @@ def commensurate_supercell_geometry(
     positions_include_display_rotation: bool = True,
     max_preview_atoms: int = 120_000,
 ) -> dict:
-    """Build an opaque common-cell preview plus one primitive-cell halo.
+    """Build an opaque common-cell preview inside expanded parent lattices.
 
     The reference component is repeated with the target boundary.  The selected
     component is repeated with the source boundary and receives the displayed
@@ -639,20 +686,19 @@ def commensurate_supercell_geometry(
     rotation = row_rotation_matrix(normal, display_angle)
     source_core = _integer_supercell_lattice_points(parent_cell, source_matrix)
     target_core = _integer_supercell_lattice_points(parent_cell, target_matrix)
-    source_points = _primitive_halo_points(source_core, periodic_axes, int(padding_cells))
-    target_points = _primitive_halo_points(target_core, periodic_axes, int(padding_cells))
-    grid_padding = _commensurate_grid_padding(source_area, int(padding_cells))
+    (source_points, target_points), atom_padding, preview_count = _expanded_preview_points(
+        (
+            (source_core, periodic_axes, len(selected)),
+            (target_core, periodic_axes, len(reference)),
+        ),
+        requested_padding=int(padding_cells),
+        area_ratio=source_area,
+        include_atoms=bool(include_atoms),
+        max_preview_atoms=int(max_preview_atoms),
+    )
+    grid_padding = _commensurate_grid_padding(source_area, atom_padding)
     source_grid_points = _primitive_halo_points(source_core, periodic_axes, grid_padding)
     target_grid_points = _primitive_halo_points(target_core, periodic_axes, grid_padding)
-    preview_count = (
-        len(source_points) * len(selected) + len(target_points) * len(reference)
-    ) if include_atoms else 0
-    if preview_count > int(max_preview_atoms):
-        raise ValueError(
-            f"Suggested preview would contain {preview_count:,} atoms; "
-            f"the interactive preview limit is {int(max_preview_atoms):,}."
-        )
-
     preview_positions: list[list[float]] = []
     atom_indices: list[int] = []
     lattice_indices: list[list[int]] = []
@@ -726,7 +772,8 @@ def commensurate_supercell_geometry(
         "core_mask": core_mask,
         "core_atom_count": source_area * len(coordinates),
         "preview_atom_count": preview_count,
-        "padding_cells": int(padding_cells),
+        "padding_cells": atom_padding,
+        "requested_padding_cells": int(padding_cells),
         "include_atoms": bool(include_atoms),
         "display_angle_deg": display_angle,
         "cell": host_cell.tolist(),
@@ -797,22 +844,20 @@ def host_guest_supercell_geometry(
     guest_axes = tuple(int(value) for value in candidate.get("guest_periodic_axes", (0, 1)))
     host_core = _integer_supercell_lattice_points(host_parent, host_matrix)
     guest_core = _integer_supercell_lattice_points(guest_parent, guest_matrix)
-    host_points = _primitive_halo_points(host_core, host_axes, int(padding_cells))
-    guest_points = _primitive_halo_points(guest_core, guest_axes, int(padding_cells))
     largest_area = max(len(host_core), len(guest_core))
-    grid_padding = _commensurate_grid_padding(largest_area, int(padding_cells))
+    (host_points, guest_points), atom_padding, preview_count = _expanded_preview_points(
+        (
+            (host_core, host_axes, len(host_coordinates)),
+            (guest_core, guest_axes, len(guest_coordinates)),
+        ),
+        requested_padding=int(padding_cells),
+        area_ratio=largest_area,
+        include_atoms=bool(include_atoms),
+        max_preview_atoms=int(max_preview_atoms),
+    )
+    grid_padding = _commensurate_grid_padding(largest_area, atom_padding)
     host_grid_points = _primitive_halo_points(host_core, host_axes, grid_padding)
     guest_grid_points = _primitive_halo_points(guest_core, guest_axes, grid_padding)
-    preview_count = (
-        len(host_points) * len(host_coordinates)
-        + len(guest_points) * len(guest_coordinates)
-    ) if include_atoms else 0
-    if preview_count > int(max_preview_atoms):
-        raise ValueError(
-            f"Suggested host/guest preview would contain {preview_count:,} atoms; "
-            f"the interactive preview limit is {int(max_preview_atoms):,}."
-        )
-
     display_angle = (
         float(candidate.get("angle_deg", 0.0))
         if display_angle_deg is None
@@ -885,7 +930,8 @@ def host_guest_supercell_geometry(
             + len(guest_core) * len(guest_coordinates)
         ) if include_atoms else 0,
         "preview_atom_count": preview_count,
-        "padding_cells": int(padding_cells),
+        "padding_cells": atom_padding,
+        "requested_padding_cells": int(padding_cells),
         "include_atoms": bool(include_atoms),
         "display_angle_deg": display_angle,
         "cell": common_cell.tolist(),
@@ -925,6 +971,30 @@ def _lattice_family(basis: np.ndarray) -> str:
     if length_mismatch <= 0.025 and abs(cosine) <= 0.025:
         return "square"
     return "oblique"
+
+
+def _exact_rotational_symmetry_period(basis: np.ndarray) -> float | None:
+    """Return an exact in-plane rotational period for ideal square/hex cells.
+
+    This is intentionally much stricter than the family classifier used to
+    choose a search algorithm.  Approximate experimental or strained cells do
+    not receive symmetry-equivalence guides in the plot.
+    """
+
+    vectors = np.asarray(basis, dtype=float)
+    if vectors.shape != (2, 2) or not np.all(np.isfinite(vectors)):
+        return None
+    lengths = np.linalg.norm(vectors, axis=1)
+    if np.min(lengths) <= 1e-12 or not np.isclose(
+        lengths[0], lengths[1], rtol=1e-9, atol=1e-10
+    ):
+        return None
+    cosine = float(np.dot(vectors[0], vectors[1]) / (lengths[0] * lengths[1]))
+    if np.isclose(abs(cosine), 0.5, rtol=0.0, atol=1e-9):
+        return 60.0
+    if np.isclose(cosine, 0.0, rtol=0.0, atol=1e-9):
+        return 90.0
+    return None
 
 
 def _hexagonal_candidates(basis: np.ndarray, max_index: int, carbon_only: bool) -> Iterable[dict]:
@@ -1552,6 +1622,7 @@ def find_lattice_matches(
         "axis": "Z",
         "mode": "host-guest",
         "lattice_family": "host-guest",
+        "exact_rotational_symmetry_deg": None,
         "host_periodic_axes": list(host_projected.periodic_axes),
         "guest_periodic_axes": list(guest_projected.periodic_axes),
         "host_axis_alignment": round(float(host_projected.axis_alignment), 8),
@@ -1772,6 +1843,9 @@ def find_commensurate_angles(
         "axis": axis_name,
         "mode": "same-lattice",
         "lattice_family": family,
+        "exact_rotational_symmetry_deg": _exact_rotational_symmetry_period(
+            projected.basis
+        ),
         "periodic_axes": list(projected.periodic_axes),
         "axis_alignment": round(float(projected.axis_alignment), 8),
         "strain_tolerance": strain_tolerance,

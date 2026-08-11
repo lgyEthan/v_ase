@@ -238,12 +238,13 @@ export class ASEApi {
             '/api/supercell/apply/',
             '/api/supercell/matrix/',
             '/api/commensurate/apply/',
+            '/api/registry-relax/finish/',
             '/api/translate/'
         ].some(prefix => path.includes(prefix));
     }
 
     isCollaborationMutation(path, options = {}) {
-        if (String(options.method || 'GET').toUpperCase() !== 'POST') return false;
+        if (!['POST', 'PATCH'].includes(String(options.method || 'GET').toUpperCase())) return false;
         return [
             '/api/file/load/',
             '/api/file/load-path/',
@@ -255,9 +256,14 @@ export class ASEApi {
             '/api/relax/start/',
             '/api/relax/stop/',
             '/api/add-session/relax/',
+            '/api/add-session/region/',
             '/api/add-session/stop/',
             '/api/add-session/finish/',
-            '/api/add-session/cancel/'
+            '/api/add-session/cancel/',
+            '/api/registry-relax/start/',
+            '/api/registry-relax/run/',
+            '/api/registry-relax/stop/',
+            '/api/registry-relax/cancel/'
         ].some(prefix => path.includes(prefix));
     }
 
@@ -895,6 +901,14 @@ export class ASEApi {
         return await this.jsonPost(`/api/add-session/relax/{session_id}`, payload);
     }
 
+    async updateAtomAdditionRegion(payload) {
+        return this.request(`/api/add-session/region/{session_id}`, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+    }
+
     async stopAtomAdditionRelaxation() {
         return await this.jsonPost(`/api/add-session/stop/{session_id}`, {});
     }
@@ -1072,6 +1086,29 @@ export class ASEApi {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(this.framePayload(options))
         }, { expect: 'blob' });
+    }
+
+    async startRegistryRelaxation(payload = {}) {
+        return await this.jsonPost(
+            `/api/registry-relax/start/{session_id}`,
+            this.framePayload(payload)
+        );
+    }
+
+    async runRegistryRelaxation(payload = {}) {
+        return await this.jsonPost(`/api/registry-relax/run/{session_id}`, payload);
+    }
+
+    async stopRegistryRelaxation() {
+        return await this.jsonPost(`/api/registry-relax/stop/{session_id}`, {});
+    }
+
+    async finishRegistryRelaxation() {
+        return await this.jsonPost(`/api/registry-relax/finish/{session_id}`, {});
+    }
+
+    async cancelRegistryRelaxation() {
+        return await this.jsonPost(`/api/registry-relax/cancel/{session_id}`, {});
     }
 
     async fetchAtomScalarCatalog(frameIndex = this.currentFrameIndex()) {

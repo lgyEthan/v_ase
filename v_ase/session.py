@@ -48,6 +48,8 @@ class EditorSession:
     # Active random insertion workflow.  The concrete dataclass lives in
     # v_ase.add_atoms to keep the session core independent of optimizer code.
     atom_addition: Any = field(default=None, repr=False)
+    # Active rigid XY translation workflow.  Stored as Any for the same reason.
+    registry_relaxation: Any = field(default=None, repr=False)
     
     # History
     history: List[SessionHistoryState] = field(default_factory=list)
@@ -555,6 +557,9 @@ def remove_workspace_session(workspace: EditorWorkspace, session_id: str) -> Non
         session.stop_relax = True
         session.relax_restart_requested = False
         session.relax_run_id += 1
+        if session.registry_relaxation is not None:
+            session.registry_relaxation.stop_requested = True
+            session.registry_relaxation.run_id += 1
         if session_id != workspace.host_session_id:
             sessions.pop(session_id, None)
             session.cleanup_temporary_files()
@@ -574,6 +579,9 @@ def finalize_workspace(workspace_id: str) -> None:
         host.stop_relax = True
         host.relax_restart_requested = False
         host.relax_run_id += 1
+        if host.registry_relaxation is not None:
+            host.registry_relaxation.stop_requested = True
+            host.registry_relaxation.run_id += 1
         host.result_atoms = copy_atoms_with_calc(
             host.working_atoms,
             attach_default=not bool((host.config or {}).get("viz_only", False)),
@@ -585,6 +593,9 @@ def finalize_workspace(workspace_id: str) -> None:
             session.stop_relax = True
             session.relax_restart_requested = False
             session.relax_run_id += 1
+            if session.registry_relaxation is not None:
+                session.registry_relaxation.stop_requested = True
+                session.registry_relaxation.run_id += 1
             if session_id != workspace.host_session_id:
                 sessions.pop(session_id, None)
                 session.cleanup_temporary_files()
@@ -634,6 +645,7 @@ def replace_session_frames(
     session.commensurate_guest_name = None
     session.commensurate_search_cache = None
     session.atom_addition = None
+    session.registry_relaxation = None
     session.current_frame = frame_index
     session.original_atoms = copy_atoms_with_calc(original_frames[0], attach_default=attach_default)
     session.working_atoms = copy_atoms_with_calc(working_frames[frame_index], attach_default=attach_default)
@@ -718,6 +730,7 @@ def append_session_frames(session: EditorSession, frames: List[Atoms]) -> int:
     )
     session.result_atoms = None
     session.atom_addition = None
+    session.registry_relaxation = None
     session.history.clear()
     session.redo_stack.clear()
     session.stop_relax = False

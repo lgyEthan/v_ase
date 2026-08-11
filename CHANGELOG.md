@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.3
+
+- Extended Add Atoms Cartesian regions with allowed and prohibited roles,
+  default post-scatter escape, optional confinement, live `G` translation,
+  and an operation-specific optimizer timeline that closes with the mode.
+- Expanded same-lattice and host/guest commensurate previews around the full
+  common cell with independent opaque atoms and bonds, distinct parent
+  lattices, exact-symmetry guides, and a cleaner interactive Plotly
+  angle-area-strain landscape with a live current-angle plane.
+- Added calculator-driven rigid XY registry relaxation that changes only two
+  common in-plane translation coordinates, reports projected interface force,
+  records a temporary timeline, commits as one undo step, and cancels exactly.
+- Strengthened trajectory-wide property coloring and force-vector examples,
+  widened the documented isosurface scan, rebuilt oblique fixed-range planar
+  field media, and verified annotation-free Hookean threshold rendering across
+  trajectory frames.
+- Synchronized the user guide, canonical Agent Skill and references, semantic
+  schema, generated README media, scientific regressions, and release assets.
+
 ## 0.2.2
 
 - Expanded commensurate host and guest primitive lattices beyond every

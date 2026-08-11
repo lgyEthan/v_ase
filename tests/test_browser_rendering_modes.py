@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from ase import Atoms
 from ase.build import molecule
-from ase.constraints import FixAtoms, FixedLine, FixedPlane, FixScaled
+from ase.constraints import FixAtoms, FixedLine, FixedPlane, FixScaled, Hookean
 from ase.io import read, write
 from PIL import Image
 from playwright._impl._errors import Error as PlaywrightError
@@ -468,6 +468,40 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                     and material["depthWrite"] is False
                     for material in opacity_state["materials"]
                 )
+
+                volumetric_visibility = page.evaluate(
+                    """async () => {
+                        const app = window.__ASE_APP__;
+                        const before = {
+                            count: app.renderer.volumetricSurfaces.length,
+                            visible: app.renderer.volumetricGroup.visible
+                        };
+                        await window.v_aseAI.apply({display: {showVolumetric: false}});
+                        const hidden = {
+                            count: app.renderer.volumetricSurfaces.length,
+                            visible: app.renderer.volumetricGroup.visible,
+                            state: app.state.display.showVolumetric
+                        };
+                        await window.v_aseAI.apply({display: {showVolumetric: true}});
+                        return {
+                            before,
+                            hidden,
+                            restored: {
+                                count: app.renderer.volumetricSurfaces.length,
+                                visible: app.renderer.volumetricGroup.visible,
+                                state: app.state.display.showVolumetric
+                            }
+                        };
+                    }"""
+                )
+                assert volumetric_visibility["before"]["count"] > 0
+                assert volumetric_visibility["before"]["visible"] is True
+                assert volumetric_visibility["hidden"]["count"] > 0
+                assert volumetric_visibility["hidden"]["visible"] is False
+                assert volumetric_visibility["hidden"]["state"] is False
+                assert volumetric_visibility["restored"]["count"] > 0
+                assert volumetric_visibility["restored"]["visible"] is True
+                assert volumetric_visibility["restored"]["state"] is True
 
                 planar_state = page.evaluate(
                     """async () => {
@@ -1935,6 +1969,91 @@ def test_ai_bridge_screen_relative_camera_and_constraint_vector_workflow():
         editor.close()
 
 
+def test_hookean_trajectory_uses_exact_rt_without_annotation():
+    frames = []
+    for distance in (3.0, 4.0, 5.0):
+        atoms = Atoms(
+            "H2",
+            positions=[[0.0, 0.0, 0.0], [distance, 0.0, 0.0]],
+            cell=[12.0, 8.0, 8.0],
+            pbc=False,
+        )
+        atoms.set_constraint(Hookean(0, 1, rt=4.0, k=5.0))
+        frames.append(atoms)
+
+    port = find_free_port()
+    editor = view(
+        frames,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.renderer?.hookeanGroup?.children?.length === 1"
+            )
+
+            def inspect_frame(index):
+                return page.evaluate("""async index => {
+                    await window.v_aseAI.apply({frame: index});
+                    const group = window.__ASE_APP__.renderer.hookeanGroup.children[0];
+                    const spring = group.children.find(child => child.userData.springLine);
+                    let springSpan = [0, 0];
+                    if (spring?.visible) {
+                        spring.geometry.computeBoundingBox();
+                        const box = spring.geometry.boundingBox;
+                        springSpan = [box.max.x - box.min.x, box.max.z - box.min.z];
+                    }
+                    return {
+                        state: group.userData.hookeanState,
+                        distance: group.userData.hookeanDistance,
+                        threshold: group.userData.hookeanThreshold,
+                        extension: group.userData.hookeanExtension,
+                        springVisible: Boolean(spring?.visible),
+                        springSpan,
+                        spriteCount: group.children.filter(child => child.isSprite).length
+                    };
+                }""", index)
+
+            inactive = inspect_frame(0)
+            threshold = inspect_frame(1)
+            active = inspect_frame(2)
+            assert inactive == {
+                "state": "inactive",
+                "distance": pytest.approx(3.0),
+                "threshold": pytest.approx(4.0),
+                "extension": pytest.approx(0.0),
+                "springVisible": False,
+                "springSpan": [0, 0],
+                "spriteCount": 0,
+            }
+            assert threshold["state"] == "threshold"
+            assert threshold["distance"] == pytest.approx(4.0)
+            assert threshold["threshold"] == pytest.approx(4.0)
+            assert threshold["extension"] == pytest.approx(0.0)
+            assert threshold["spriteCount"] == 0
+            assert active["state"] == "active"
+            assert active["distance"] == pytest.approx(5.0)
+            assert active["threshold"] == pytest.approx(4.0)
+            assert active["extension"] == pytest.approx(1.0)
+            assert active["springVisible"] is True
+            assert active["springSpan"][0] > 0.1
+            assert active["springSpan"][1] > 0.1
+            assert active["spriteCount"] == 0
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_force_vectors_follow_cartesian_forces_repeat_with_supercell_and_clear():
     atoms = Atoms(
         "CO",
@@ -2346,8 +2465,10 @@ def test_arrow_keys_step_only_the_selected_loaded_or_relaxation_timeline():
                     ],
                     frame: 0,
                     sourceFrame: 0,
-                    active: false,
-                    finished: true
+                    active: true,
+                    finished: true,
+                    kind: 'relaxation',
+                    label: ''
                 };
                 app.state.timelineSource = 'loaded';
                 app.updateTrajectoryUI();
@@ -3049,8 +3170,6 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
                 const proposal = app.state.commensurateProposal.data;
                 const atomMeshes = app.renderer.commensurateSupercellGroup.children
                     .filter(child => child.userData?.commensuratePreviewAtoms);
-                const coreMeshes = atomMeshes.filter(child => child.userData.commensurateCore);
-                const haloMeshes = atomMeshes.filter(child => !child.userData.commensurateCore);
                 const bounds = app.renderer.commensuratePreviewBounds(proposal.preview);
                 const projected = app.renderer.boxCorners(bounds)
                     .map(point => point.project(app.renderer.camera));
@@ -3063,10 +3182,16 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
                     padding: proposal.preview.padding_cells,
                     renderedAtoms: Number(app.renderer.domElement.dataset.commensuratePreviewAtoms),
                     renderedBonds: Number(app.renderer.domElement.dataset.commensuratePreviewBonds),
-                    coreMeshes: coreMeshes.length,
-                    haloMeshes: haloMeshes.length,
-                    coreOpacity: coreMeshes[0]?.material?.opacity,
-                    haloOpacity: haloMeshes[0]?.material?.opacity,
+                    components: atomMeshes.map(child => child.userData.commensurateComponent).sort(),
+                    coreRows: atomMeshes.reduce(
+                        (sum, child) => sum + Number(child.userData.commensurateCoreRows || 0),
+                        0
+                    ),
+                    haloRows: atomMeshes.reduce(
+                        (sum, child) => sum + Number(child.userData.commensurateHaloRows || 0),
+                        0
+                    ),
+                    opacities: atomMeshes.map(child => child.material.opacity),
                     suggestedCellEdges: app.renderer.commensurateSupercellGroup.children
                         .filter(child => child.userData?.commensurateSuggestedCell).length,
                     maxNdcX: Math.max(...projected.map(point => Math.abs(point.x))),
@@ -3080,13 +3205,13 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
             assert "√7 × √7" in preview["notation"]
             assert preview["coreAtomCount"] == 28
             assert preview["previewAtomCount"] > preview["coreAtomCount"]
-            assert preview["padding"] == 1
+            assert preview["padding"] >= 2
             assert preview["renderedAtoms"] == preview["previewAtomCount"]
             assert preview["renderedBonds"] > 0
-            assert preview["coreMeshes"] > 0
-            assert preview["haloMeshes"] > 0
-            assert preview["coreOpacity"] == pytest.approx(1.0)
-            assert preview["haloOpacity"] == pytest.approx(0.30)
+            assert preview["components"] == ["reference", "rotating"]
+            assert preview["coreRows"] == preview["coreAtomCount"]
+            assert preview["haloRows"] > 0
+            assert all(opacity == pytest.approx(1.0) for opacity in preview["opacities"])
             assert preview["suggestedCellEdges"] == 1
             assert preview["cameraSnapshot"] is True
             assert preview["atomCountBeforeApply"] == 4
@@ -3192,7 +3317,7 @@ def test_ai_can_rotate_to_preview_and_materialize_a_bounded_commensurate_cell():
             assert "√7 × √7" in commensurate["candidate"]["target_notation"]
             assert commensurate["coreAtomCount"] == 28
             assert commensurate["previewAtomCount"] > 28
-            assert commensurate["paddingCells"] == 1
+            assert commensurate["paddingCells"] >= 2
             assert commensurate["materializationSupported"] is True
 
             applied = page.evaluate("""async () => await window.v_aseAI.apply({
@@ -3327,7 +3452,8 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
             assert cells_only["plotReady"] is True
             assert cells_only["plot"]["type"] == "surface"
             assert "angle-area-floor" in cells_only["plot"]["roles"]
-            assert "candidate-stems" in cells_only["plot"]["roles"]
+            assert "candidate-stems" not in cells_only["plot"]["roles"]
+            assert "exact-symmetry-periods" in cells_only["plot"]["roles"]
             assert "commensurate-candidates" in cells_only["plot"]["roles"]
             assert "current-angle-plane" in cells_only["plot"]["roles"]
             assert cells_only["plot"]["projection"] == "perspective"
@@ -3378,11 +3504,25 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
                 });
                 const app = window.__ASE_APP__;
                 const csv = await window.v_aseAI.export({format: 'commensurate-csv'});
+                const preview = app.state.commensurateProposal?.data?.preview;
+                const pairs = app.renderer.commensuratePreviewBondPairs(preview);
+                const components = preview?.components || [];
                 return {
                     previewAtoms: Number(app.renderer.domElement.dataset.commensuratePreviewAtoms),
                     previewBonds: Number(app.renderer.domElement.dataset.commensuratePreviewBonds),
                     gap: Number(document.getElementById('commensurate-guest-gap').value),
                     guestOffset: app.state.commensurateProposal?.data?.preview?.guest_offset,
+                    crossComponentBonds: pairs.filter(
+                        ([first, second]) => components[first] !== components[second]
+                    ).length,
+                    hostBonds: pairs.filter(
+                        ([first, second]) => components[first] === 'host'
+                            && components[second] === 'host'
+                    ).length,
+                    guestBonds: pairs.filter(
+                        ([first, second]) => components[first] === 'guest'
+                            && components[second] === 'guest'
+                    ).length,
                     csv: atob(csv.dataUrl.split(',')[1])
                 };
             }""")
@@ -3390,6 +3530,9 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
             assert atom_preview["previewBonds"] > 0
             assert atom_preview["gap"] == pytest.approx(4.25)
             assert atom_preview["guestOffset"][2] == pytest.approx(4.25)
+            assert atom_preview["crossComponentBonds"] == 0
+            assert atom_preview["hostBonds"] > 0
+            assert atom_preview["guestBonds"] > 0
             assert "10.1016/j.cpc.2015.08.038" in atom_preview["csv"]
             assert "host_matrix" in atom_preview["csv"]
             assert "mean_absolute_strain" in atom_preview["csv"]
@@ -3446,6 +3589,66 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
                 "x_fractional,y_fractional,dx_angstrom,dy_angstrom,dz_angstrom,value"
                 in analyzed["csv"]
             )
+
+            registry_mode = page.evaluate("""async () => {
+                const capabilities = await window.v_aseAI.capabilities();
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'start-registry-relaxation',
+                        indices: [2, 3]
+                    }
+                });
+                const state = await window.v_aseAI.describe();
+                return {
+                    operations: capabilities.operations,
+                    relaxation: state.analysis.registryRelaxation,
+                    selected: state.selection.map(item => item.index)
+                };
+            }""")
+            assert {
+                "start-registry-relaxation",
+                "run-registry-relaxation",
+                "stop-registry-relaxation",
+                "finish-registry-relaxation",
+                "cancel-registry-relaxation",
+            }.issubset(registry_mode["operations"])
+            assert registry_mode["relaxation"]["selected_indices"] == [2, 3]
+            assert registry_mode["selected"] == [2, 3]
+
+            page.evaluate("""async () => {
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'run-registry-relaxation',
+                        fmax: 1000,
+                        steps: 2
+                    }
+                });
+            }""")
+            page.wait_for_function(
+                "!window.__ASE_APP__.state.registryRelaxation?.is_relaxing",
+                timeout=10_000,
+            )
+            timeline = page.evaluate("""() => ({
+                kind: window.__ASE_APP__.state.relaxTrajectory.kind,
+                active: window.__ASE_APP__.state.relaxTrajectory.active,
+                frames: window.__ASE_APP__.state.relaxTrajectory.frames.length,
+                mode: window.__ASE_APP__.state.registryRelaxation
+            })""")
+            assert timeline["kind"] == "registry"
+            assert timeline["active"] is True
+            assert timeline["frames"] >= 1
+            assert timeline["mode"]["status"] in {"finished", "stopped", "converged"}
+
+            closed_mode = page.evaluate("""async () => {
+                await window.v_aseAI.apply({operation: 'finish-registry-relaxation'});
+                return {
+                    mode: window.__ASE_APP__.state.registryRelaxation,
+                    timeline: window.__ASE_APP__.state.relaxTrajectory
+                };
+            }""")
+            assert closed_mode["mode"] is None
+            assert closed_mode["timeline"]["active"] is False
+            assert closed_mode["timeline"]["kind"] is None
             browser.close()
     finally:
         editor.close()

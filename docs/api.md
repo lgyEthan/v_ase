@@ -173,7 +173,10 @@ v_ase api "$COMMAND_URL" apply --params '{
       {"element": "Li", "label": "Li_mobile", "count": 12},
       {"element": "H", "label": "H_probe", "count": 8}
     ],
-    "regionMode": "cell",
+    "regionMode": "box",
+    "bounds": [1.0, 8.0, 0.5, 7.5, 0.0, 12.0],
+    "regionRole": "allowed",
+    "allowEscape": true,
     "seed": 2021,
     "freezeExisting": true,
     "cutoffBasis": "covalent",
@@ -182,7 +185,12 @@ v_ase api "$COMMAND_URL" apply --params '{
 }'
 v_ase api "$COMMAND_URL" apply --params '{
   "name": "relax-added-atoms",
-  "parameters": {"strength": 2.5, "fmax": 0.01, "steps": 180}
+  "parameters": {
+    "strength": 2.5,
+    "fmax": 0.01,
+    "steps": 180,
+    "allowEscape": true
+  }
 }'
 v_ase api "$COMMAND_URL" apply --params '{
   "name": "finish-add-atoms",
@@ -194,8 +202,13 @@ v_ase api "$COMMAND_URL" apply --params '{
 open. `cancel-add-atoms` removes every inserted atom and restores the exact
 pre-session structure. A Cartesian-box request supplies `bounds` with
 `xmin/xmax/ymin/ymax/zmin/zmax`; it is clipped to the half-open primary
-periodic cell even for a triclinic lattice. `schema` is authoritative for all
-parameter names and allowed ranges.
+periodic cell even for a triclinic lattice. `regionRole` selects an allowed
+insertion volume or a prohibited exclusion volume. `allowEscape` defaults to
+true because the box defines initial scattering; false confines later
+repulsive placement to the selected side. `update-add-atoms-region` moves or
+reconfigures the active box without moving staged atoms. The GUI maps that
+translation to `G` and rejects `R`. `schema` is authoritative for all parameter
+names and allowed ranges.
 
 ```bash
 v_ase api "$COMMAND_URL" describe --params '{"includePositions":false}'
@@ -497,14 +510,16 @@ optimistic-concurrency guard and rejects stale commands before they can
 overwrite a newer human GUI edit. It covers frame and mode changes, quality,
 display and camera state, selection, constrained transforms, identity and
 constraint edits, wrapping, physical translation, atom creation/deletion,
-supercells, history, reset, relaxation, and displacement analysis. Visual
+batch atom scattering and its region, supercells, history, reset, structure
+relaxation, rigid XY registry relaxation, and displacement analysis. Visual
 translation and display supercells are ordinary `display` settings available
 in View and Edit. `rotate-selection` accepts `pivot: "active"`; the last
 explicit atom index is the fixed rotation pivot.
-It also covers volumetric loading, compatible-grid combinations, isosurface
-settings/removal, and RDF calculation. `describe().analysis` returns
-volumetric dataset descriptors and the current RDF summary without serializing
-the scalar grid into agent context.
+It also covers commensurate search/materialization, XY registry maps,
+volumetric loading, compatible-grid combinations, isosurface settings/removal,
+and RDF calculation. `describe().analysis` returns commensurate and registry
+mode state, volumetric dataset descriptors, and the current RDF summary without
+serializing large numerical fields into agent context.
 `export()` covers image, video, POSCAR,
 ASE Pickle, Blender, Rhino 3DM, OBJ, standalone HTML, `.vase`, and visual
 settings, plus RDF CSV. Rendering and image export use the same capture path

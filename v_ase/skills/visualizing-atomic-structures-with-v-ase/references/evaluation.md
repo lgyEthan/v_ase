@@ -62,19 +62,23 @@ Before every release:
 Current operation coverage:
 
 - wrap, translate-all, set-supercell, make-supercell;
-- add-atom, scatter-atoms, relax-added-atoms, stop-added-atoms,
+- add-atom, scatter-atoms, update-add-atoms-region, relax-added-atoms, stop-added-atoms,
   finish-add-atoms, cancel-add-atoms, delete-selection, set-identity,
   set-constraints;
 - move-selection, rotate-selection, rotate-to-commensurate,
   load-commensurate-guest, remove-commensurate-guest,
   calculate-commensurate, apply-commensurate-cell,
-  dismiss-commensurate-cell, calculate-registry-map, undo, redo,
+  dismiss-commensurate-cell, calculate-registry-map,
+  start-registry-relaxation, run-registry-relaxation,
+  stop-registry-relaxation, finish-registry-relaxation,
+  cancel-registry-relaxation, undo, redo,
   reset-coordinates;
-- start-relaxation, stop-relaxation, refresh-displacements;
+- start-relaxation, stop-relaxation, exit-relaxation-mode,
+  refresh-displacements;
 - load-volumetric, show-volumetric, add-volumetric-plane,
   update-volumetric-planes, remove-volumetric-planes, combine-volumetric,
   remove-volumetric;
-- calculate-rdf;
+- calculate-rdf, set-atom-colorscale;
 - set-interface-theme, set-personal-visual-default,
   restore-app-visual-defaults.
 
@@ -126,10 +130,15 @@ Run all scenarios, not only static document checks:
    - verify 100,000 fractional samples in a skewed triclinic cell have the
      expected mean, variance, and 4 x 4 x 4 voxel occupancy, and verify a
      Cartesian AABB never returns two periodic representations of one voxel;
+   - test allowed and prohibited Cartesian boxes, default `allowEscape:true`,
+     confined `allowEscape:false`, live `G` translation of all six bounds, and
+     rejected `R` without moving staged atoms;
    - run pairwise repulsive placement with MIC and the host temporarily fixed;
      require finite progress events, then finish and prove every host
      coordinate, constraint, tag, charge, custom array, label, and calculator
      survives exactly while only staged atoms remain added;
+   - require an `add-atoms` movie timeline with at least two accepted frames
+     during placement and require it to disappear after finish or cancel;
    - repeat and cancel; require exact structure/history/redo restoration and a
      hidden insertion region; verify a trajectory is rejected before mutation;
    - perform the same scatter, asynchronous placement, polling, and finish from
@@ -156,9 +165,11 @@ Run all scenarios, not only static document checks:
      cell vertex, expose their integer grid dimensions, and remain readable as
      separate black/orange lattices around the teal proposal;
    - verify the 3D overview has a horizontal angle axis, an orthogonal depth
-     axis for area ratio, a vertical strain axis, candidate stems/floor
-     projections, perspective depth, and readable axis titles rather than a
-     flat collection of disconnected lines;
+     axis for area ratio, a vertical strain axis, a gridded candidate surface,
+     candidate markers, a live current-angle plane, perspective depth, and
+     readable axis titles rather than a flat collection of disconnected lines;
+     require dotted symmetry periods only for an exact detected lattice
+     symmetry and never infer them for a generic oblique host/guest pair;
    - switch to Paper strain projection and verify mean absolute strain, actual
      common-cell atom count, angle color, and an unchanged accepted candidate;
    - reconstruct the six published Stradi Table 3 mean-strain values from its
@@ -183,6 +194,11 @@ Run all scenarios, not only static document checks:
      determinant, PBC, constraints, and cleared proposal state.
    - reject materialization for trajectories and volumetric documents instead
      of applying one frame or dropping grids;
+   - after a registry map, activate rigid XY relaxation with a calculator;
+     compare its fractional energy gradient to central finite differences,
+     verify `projected_force` units and convergence, require host/cell/selected
+     internal/z invariants, inspect the mode-only timeline, cancel to exact
+     baseline, then finish another run and undo it in one step;
 6. **Appearance**
    - change radius, color, visibility, and material;
    - discover and render coordinate, stored force-norm, scalar-array,
@@ -214,8 +230,8 @@ Run all scenarios, not only static document checks:
      motion-only plane remains readable above the moving atom scene;
    - derive `rt` and `k` from the actual ASE Hookean constraint; verify zero
      constraint force and no active spring at `r <= rt`, force magnitude
-     `k(r-rt)` plus a labeled 3D helix at `r > rt`, nonzero depth, and visible
-     coil pitch.
+     `k(r-rt)` plus an annotation-free 3D helix at `r > rt`, nonzero depth, and
+     visible coil pitch on every trajectory frame.
 8. **Trajectory**
    - open `examples/readme_scene_assets/crowded_c60_relaxation.traj` with
      `--index :` and assert `frameCount == 42` before testing frame controls;
@@ -424,12 +440,14 @@ Every browser render test must check:
   cell, readable grid dimensions and paper-style notation, plus opaque atoms,
   a one-cell halo, and boundary-crossing bonds when atom preview is enabled;
 - the commensurate candidate graph reads as a 3D coordinate system with angle
-  horizontal, area ratio in depth, strain vertical, and candidate stems/floor
-  projections rather than disconnected 2D linework;
+  horizontal, area ratio in depth, strain vertical, a gridded floor projection,
+  discrete candidate points, and a moving current-angle plane rather than
+  stems or disconnected 2D linework;
 - live View checkboxes hide and restore world axes and the unit cell without
   affecting the orientation gizmo;
 - Hookean spring has X and Z span around its axis and wire radius smaller than
-  its coil radius, displays the ASE `rt`, and appears only beyond that cutoff;
+  its coil radius, adds no numeric annotation, and appears only beyond the ASE
+  `rt` cutoff;
 - signed volumetric surfaces have distinct positive/negative coverage, repeat
   with the displayed supercell, move by the same visual translation as atoms,
   appear automatically for a newly loaded grid, and update opacity live;

@@ -180,12 +180,14 @@ def test_random_addition_readme_host_is_triclinic_periodic_and_reproducible():
     assert host.pbc.tolist() == [True, True, True]
     assert abs(float(host.cell[1, 0])) > 1.0
     assert abs(float(host.cell[2, 1])) > 1.0
-    assert set(atom_labels(host)) == {"Si_framework"}
+    assert abs(float(np.linalg.det(host.cell.array))) > 1.0
+    assert set(atom_labels(host)) == {"C_channel"}
     assert metadata["entries"] == [
         {"element": "Li", "label": "Li_mobile", "count": 18},
         {"element": "H", "label": "H_probe", "count": 10},
     ]
     assert metadata["seed"] == 2021
+    assert metadata["channel_radius"] > 5.0
 
 
 def test_relaxation_scene_is_an_actual_fire_trajectory_with_lower_repulsion():

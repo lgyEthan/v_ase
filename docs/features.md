@@ -153,6 +153,14 @@ the half-open primary periodic image. This prevents a skew cell's bounding-box
 corners and periodic faces from being counted twice. The active region is a
 teal viewport overlay and is removed on Finish or Cancel.
 
+A Cartesian box can be **Allowed**, which samples its interior, or
+**Prohibited**, which samples the primary cell outside it. The box defines
+initial placement. Inserted atoms may leave that region during repulsive
+placement by default; optional confinement projects them back to the allowed
+side or out of the prohibited side. Selecting the box and pressing `G`
+translates it while all six bounds update live. `R` is rejected because a
+rotated region cannot be represented by Cartesian min/max fields.
+
 Random placement initially permits overlaps. Its dedicated repulsive step uses
 explicit unordered chemical-element pair cutoffs, the ASE minimum-image
 convention, and a harmonic overlap penalty. Covalent and van der Waals radii
@@ -164,6 +172,10 @@ pre-session structure; Finish rebuilds the host from that immutable baseline
 and appends only the final new atoms. Host coordinates, arrays, labels,
 calculator, and constraints therefore remain byte-for-byte or object-state
 equivalent as appropriate.
+
+Accepted repulsive steps are exposed through a temporary Add Atoms timeline.
+The timeline can be scrubbed or played while the workspace is active and is
+removed when Finish or Cancel closes the mode.
 
 Random insertion is current-frame scoped. A loaded trajectory must be reduced
 to the intended structure in a new document before the workspace starts, which
@@ -309,6 +321,28 @@ custom color, or midpoint-split endpoint colors. The new-document bond diameter
 is `0.25 A`, and bonds are visible by default. Saved explicit values and
 `--hide-bonds` remain authoritative.
 
+## Commensurate Cells And XY Registry
+
+Commensurate matching treats host and guest as independent periodic
+sublattices. Cells-only preview is the default. Optional atom preview expands
+both parent lattices by at least two primitive shells when the atom budget
+permits, keeps host and guest atoms opaque, infers bonds independently within
+each component, and never invents host-guest bonds. Host, guest, and proposed
+common cells use distinct guides.
+
+The Plotly angle-area-strain view uses discrete candidate points above an
+angle-area floor, a live current-angle plane, and dotted equivalent-angle
+guides only for exact square or hexagonal symmetry. It has no candidate stems.
+The accepted candidate set is unchanged by the visualization.
+
+The XY translation map spans one host-reference fractional cell. Its geometry
+score is a screening metric, not an energy. A separate rigid XY relaxation
+mode uses the attached calculator or the repulsive fallback to optimize only
+two common in-plane translation coordinates for the selected guest component.
+Host coordinates, cell, selected internal vectors, and selected z coordinates
+remain invariant. Accepted steps use a mode-only timeline; Apply & Exit creates
+one undo entry and Cancel restores the exact baseline.
+
 ## Trajectories And Relaxation
 
 Compatible in-memory trajectories can be serialized as contiguous float32
@@ -328,7 +362,8 @@ The Add Atoms repulsion is separate from that whole-structure fallback. It
 evaluates only explicit element-pair minimum distances, can keep every host
 atom fixed, and emits bounded optimization progress over the document
 WebSocket. The pair table and optimizer allocate only while Add Atoms is
-active.
+active. Its timeline is separate from the source trajectory and generic
+structure relaxation.
 
 Base-atom selections survive frame changes and are removed only when the new
 frame does not contain the selected index or its label is hidden. Measurements
@@ -365,6 +400,11 @@ timeline selector chooses which one receives transport controls, Space-bar
 playback, and Left/Right Arrow frame stepping. The other source remains visible
 as a secondary timeline. A loaded source frame still uses its relaxed override
 when one exists.
+
+Structure relaxation is an explicit mode. Leaving it removes its temporary
+optimizer timeline without deleting the current optimized structure. Add
+Atoms placement and rigid XY relaxation follow the same timeline ownership
+rule while retaining their own commit/cancel semantics.
 
 ## Displacement Analysis
 

@@ -181,6 +181,57 @@ def sample_cartesian_box_positions(
     }
 
 
+def sample_unit_cell_positions_outside_box(
+    cell: Any,
+    bounds: Sequence[Any],
+    count: int,
+    *,
+    seed: int | None = None,
+    max_batches: int = 256,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Sample uniformly from one triclinic cell excluding a Cartesian AABB.
+
+    Candidates are uniform in fractional coordinates, so every physical voxel
+    in the primary cell has the same probability before the Cartesian
+    exclusion test.  This avoids weighting overlapping images of a skew cell.
+    """
+    matrix = _finite_cell(cell)
+    lower, upper = _bounds_arrays(bounds)
+    requested = _validated_count(count)
+    generator = np.random.default_rng(seed)
+    accepted: list[np.ndarray] = []
+    accepted_count = 0
+    eligible_count = 0
+    attempted = 0
+
+    for _ in range(max(1, int(max_batches))):
+        remaining = requested - accepted_count
+        if remaining <= 0:
+            break
+        batch_size = min(1_000_000, max(2048, remaining * 6))
+        candidates = generator.random((batch_size, 3), dtype=np.float64) @ matrix
+        attempted += batch_size
+        inside = np.all((candidates >= lower) & (candidates <= upper), axis=1)
+        eligible = candidates[~inside]
+        eligible_count += len(eligible)
+        if len(eligible):
+            chunk = eligible[:remaining]
+            accepted.append(chunk)
+            accepted_count += len(chunk)
+
+    if accepted_count < requested:
+        raise ValueError(
+            "The prohibited Cartesian box leaves too little accessible volume "
+            "inside the primary unit cell. Shrink or move the box."
+        )
+    positions = np.concatenate(accepted, axis=0)[:requested]
+    return positions, {
+        "attempted": int(attempted),
+        "accepted": int(requested),
+        "acceptance_fraction": float(eligible_count / max(1, attempted)),
+    }
+
+
 def _validated_count(value: Any) -> int:
     try:
         count = int(value)
@@ -319,8 +370,9 @@ def project_positions_to_region(
     mode: str,
     bounds: Sequence[Any] | None,
     indices: Sequence[int],
+    prohibited: bool = False,
 ) -> np.ndarray:
-    """Project mobile positions into the selected convex insertion region."""
+    """Project mobile positions onto the allowed side of a region boundary."""
     matrix = _finite_cell(cell)
     inverse = np.linalg.inv(matrix)
     periodic = np.asarray(pbc, dtype=bool)
@@ -342,6 +394,19 @@ def project_positions_to_region(
 
     lower, upper = _bounds_arrays(bounds or cell_cartesian_bounds(matrix))
     current = output[mobile]
+    if prohibited:
+        inside = np.all((current >= lower) & (current <= upper), axis=1)
+        for row in np.flatnonzero(inside):
+            point = current[row]
+            distances = np.concatenate((point - lower, upper - point))
+            face = int(np.argmin(distances))
+            axis = face % 3
+            if face < 3:
+                point[axis] = lower[axis] - epsilon
+            else:
+                point[axis] = upper[axis] + epsilon
+        output[mobile] = current
+        return output
     # Alternating projections converge to the intersection of the Cartesian
     # box and the periodic primary-cell slabs without imposing an orthogonal
     # cell approximation.
@@ -407,6 +472,8 @@ class AtomAdditionSession:
     redo_before: list[Any]
     region_mode: str
     bounds: list[float]
+    region_role: str
+    allow_escape: bool
     entries: list[dict[str, Any]]
     elements: list[str]
     labels: list[str]
@@ -436,6 +503,8 @@ class AtomAdditionSession:
             "status": self.status,
             "region_mode": self.region_mode,
             "bounds": list(self.bounds),
+            "region_role": self.region_role,
+            "allow_escape": self.allow_escape,
             "cell": np.asarray(self.baseline_atoms.cell.array, dtype=float).tolist(),
             "pbc": np.asarray(self.baseline_atoms.pbc, dtype=bool).tolist(),
             "entries": [dict(entry) for entry in self.entries],
@@ -498,15 +567,28 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
         if mode == "cell"
         else normalize_cartesian_bounds(payload.get("bounds") or cell_cartesian_bounds(matrix))
     )
+    region_role = str(payload.get("region_role") or "allowed").strip().lower()
+    if region_role not in {"allowed", "prohibited"}:
+        raise ValueError("region_role must be allowed or prohibited.")
+    if mode == "cell" and region_role == "prohibited":
+        raise ValueError("The whole unit cell cannot be used as a prohibited insertion region.")
+    allow_escape = bool(payload.get("allow_escape", True))
     seed = _random_seed(payload.get("seed"))
     count = len(elements)
     if mode == "cell":
         positions = sample_unit_cell_positions(matrix, count, seed=seed)
         sampling = {"attempted": count, "accepted": count, "acceptance_fraction": 1.0}
-    else:
+    elif region_role == "allowed":
         positions, sampling = sample_cartesian_box_positions(
             matrix,
             baseline.pbc,
+            bounds,
+            count,
+            seed=seed,
+        )
+    else:
+        positions, sampling = sample_unit_cell_positions_outside_box(
+            matrix,
             bounds,
             count,
             seed=seed,
@@ -535,6 +617,8 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
         redo_before=redo_before,
         region_mode=mode,
         bounds=bounds,
+        region_role=region_role,
+        allow_escape=allow_escape,
         entries=entries,
         elements=elements,
         labels=labels,
@@ -553,6 +637,27 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
     summary = addition.summary()
     summary["sampling"] = sampling
     return summary
+
+
+def update_atom_addition_region(session: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    """Update the active Cartesian box without moving any atoms."""
+    addition = getattr(session, "atom_addition", None)
+    if not isinstance(addition, AtomAdditionSession):
+        raise ValueError("There is no active Add Atoms session.")
+    with addition.lock:
+        if addition.is_relaxing:
+            raise ValueError("Stop repulsive placement before moving the insertion box.")
+        if addition.region_mode != "box":
+            raise ValueError("Only a Cartesian insertion box can be moved.")
+        addition.bounds = normalize_cartesian_bounds(payload.get("bounds"))
+        if "region_role" in payload:
+            role = str(payload.get("region_role") or "").strip().lower()
+            if role not in {"allowed", "prohibited"}:
+                raise ValueError("region_role must be allowed or prohibited.")
+            addition.region_role = role
+        if "allow_escape" in payload:
+            addition.allow_escape = bool(payload.get("allow_escape"))
+        return addition.summary()
 
 
 def _restore_cancelled_addition(session: Any, addition: AtomAdditionSession) -> None:
@@ -644,14 +749,19 @@ def _temporary_optimizer_atoms(
     temporary.set_constraint(constraints)
     temporary.calc = AdditionRepulsionCalculator(
         min_bondinfo=pair_cutoffs,
-        region=(addition.bounds if addition.region_mode == "box" else None),
+        region=(
+            addition.bounds
+            if not addition.allow_escape and addition.region_mode == "box"
+            else None
+        ),
+        set_region_as_prohibited=addition.region_role == "prohibited",
         k_boundary=k_boundary,
         k_repulsion=k_repulsion,
         cutoff_scale=1.0,
         max_force_norm=10.0,
         mic=mic,
         work_on_relax_atoms_too=not addition.freeze_existing,
-        cell_region=addition.region_mode == "cell",
+        cell_region=not addition.allow_escape and addition.region_mode == "cell",
         device="cpu",
     )
     return temporary
@@ -675,15 +785,19 @@ def _publish_addition_positions(
             or getattr(session, "atom_addition", None) is not addition
         ):
             raise RuntimeError(_STOP_SIGNAL)
-        projected = project_positions_to_region(
-            temporary.positions,
-            cell=temporary.cell.array,
-            pbc=temporary.pbc,
-            mode=addition.region_mode,
-            bounds=addition.bounds,
-            indices=addition.new_indices,
-        )
-        temporary.set_positions(projected, apply_constraint=True)
+        if addition.allow_escape:
+            committed_positions = np.asarray(temporary.positions, dtype=float)
+        else:
+            committed_positions = project_positions_to_region(
+                temporary.positions,
+                cell=temporary.cell.array,
+                pbc=temporary.pbc,
+                mode=addition.region_mode,
+                bounds=addition.bounds,
+                indices=addition.new_indices,
+                prohibited=addition.region_role == "prohibited",
+            )
+        temporary.set_positions(committed_positions, apply_constraint=True)
         current = session.working_atoms
         if len(current) != len(temporary):
             raise RuntimeError(_STOP_SIGNAL)
@@ -826,6 +940,7 @@ def start_atom_addition_relaxation(
     )
     addition.pair_cutoffs = pair_cutoffs
     addition.freeze_existing = bool(payload.get("freeze_existing", addition.freeze_existing))
+    addition.allow_escape = bool(payload.get("allow_escape", addition.allow_escape))
     addition.status = "relaxing"
     addition.is_relaxing = True
     addition.stop_requested = False

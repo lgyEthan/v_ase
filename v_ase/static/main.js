@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.2&rev=1';
-import { ASERenderer } from './renderer.js?v=0.2.2&rev=1';
-import { ASESelection } from './selection.js?v=0.2.2&rev=1';
-import { ASETransform } from './transform.js?v=0.2.2&rev=1';
+import { ASEApi } from './api.js?v=0.2.3&rev=1';
+import { ASERenderer } from './renderer.js?v=0.2.3&rev=1';
+import { ASESelection } from './selection.js?v=0.2.3&rev=1';
+import { ASETransform } from './transform.js?v=0.2.3&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.2&rev=1';
+} from './trajectory.js?v=0.2.3&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -249,6 +249,8 @@ class VAseApp {
             commensuratePreviewTimer: null,
             commensuratePreviewAngle: 0,
             transformSubject: null,
+            addAtomsRegionSelected: false,
+            addAtomsRegionTransformOriginal: null,
             sunSelected: null,
             sunTransformOriginal: null,
             trajectoryTimer: null,
@@ -261,7 +263,9 @@ class VAseApp {
                 frame: 0,
                 sourceFrame: 0,
                 active: false,
-                finished: false
+                finished: false,
+                kind: null,
+                label: ''
             },
             labelOrder: [],
             trajectoryLabels: [],
@@ -299,6 +303,7 @@ class VAseApp {
             registrySelectionSignature: '',
             registryTranslationFractional: [0, 0],
             registryTransformStartFractional: null,
+            registryRelaxation: null,
             activeAnalysisPlot: null,
             plotlyPromise: null,
             videoExportId: null,
@@ -1560,6 +1565,7 @@ class VAseApp {
         this.addAtomsUI = {
             pane: 'single',
             regionMode: 'cell',
+            regionRole: 'allowed',
             pairCutoffs: {},
             pairRequestToken: 0,
             active: null,
@@ -1607,6 +1613,7 @@ class VAseApp {
                 return;
             }
             setExpanded(false);
+            this.setAddAtomsRegionSelected(false, { update: false });
             this.renderer.clearAddAtomsRegion();
         });
         typeSelect?.addEventListener('change', () => {
@@ -1644,10 +1651,23 @@ class VAseApp {
         document.getElementById('add-atoms-region-box')?.addEventListener('click', () => {
             this.setAddAtomsRegionMode('box');
         });
+        document.getElementById('add-atoms-region-allowed')?.addEventListener('click', () => {
+            this.setAddAtomsRegionRole('allowed');
+        });
+        document.getElementById('add-atoms-region-prohibited')?.addEventListener('click', () => {
+            this.setAddAtomsRegionRole('prohibited');
+        });
         ['xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax'].forEach(name => {
-            document.getElementById(`add-atoms-${name}`)?.addEventListener('input', () => {
+            const input = document.getElementById(`add-atoms-${name}`);
+            input?.addEventListener('input', () => {
                 this.updateAddAtomsRegionPreview();
             });
+            input?.addEventListener('change', () => {
+                void this.commitAddAtomsRegionControls();
+            });
+        });
+        document.getElementById('add-atoms-allow-escape')?.addEventListener('change', () => {
+            void this.commitAddAtomsRegionControls();
         });
         document.getElementById('add-atoms-cutoff-basis')?.addEventListener('change', () => {
             void this.refreshAddAtomsPairCutoffs({ preserveManual: false });
@@ -1693,6 +1713,7 @@ class VAseApp {
         document.getElementById('add-atoms-pane-single')?.classList.toggle('hidden', !single);
         document.getElementById('add-atoms-pane-batch')?.classList.toggle('hidden', single);
         if (single) {
+            this.setAddAtomsRegionSelected(false, { update: false });
             this.renderer.clearAddAtomsRegion();
         } else {
             this.syncAddAtomsBounds();
@@ -1822,11 +1843,46 @@ class VAseApp {
         if (!this.addAtomsUI || this.addAtomsSessionActive()) return;
         this.addAtomsUI.regionMode = mode === 'box' ? 'box' : 'cell';
         const box = this.addAtomsUI.regionMode === 'box';
+        if (!box) this.setAddAtomsRegionSelected(false, { update: false });
         document.getElementById('add-atoms-region-cell')?.classList.toggle('active', !box);
         document.getElementById('add-atoms-region-box')?.classList.toggle('active', box);
         document.getElementById('add-atoms-box-fields')?.classList.toggle('hidden', !box);
         this.syncAddAtomsBounds();
         this.updateAddAtomsRegionPreview();
+    }
+
+    setAddAtomsRegionRole(role) {
+        if (!this.addAtomsUI || this.addAtomsUI.regionMode !== 'box') return;
+        this.addAtomsUI.regionRole = role === 'prohibited' ? 'prohibited' : 'allowed';
+        const prohibited = this.addAtomsUI.regionRole === 'prohibited';
+        document.getElementById('add-atoms-region-allowed')?.classList.toggle('active', !prohibited);
+        document.getElementById('add-atoms-region-prohibited')?.classList.toggle('active', prohibited);
+        this.updateAddAtomsRegionPreview();
+        void this.commitAddAtomsRegionControls();
+    }
+
+    setAddAtomsRegionSelected(selected, { update = true } = {}) {
+        this.state.addAtomsRegionSelected = Boolean(
+            selected
+            && this.addAtomsUI?.pane === 'batch'
+            && (this.addAtomsUI?.active?.region_mode || this.addAtomsUI?.regionMode) === 'box'
+        );
+        if (update) this.updateAddAtomsRegionPreview();
+    }
+
+    async commitAddAtomsRegionControls() {
+        if (!this.addAtomsSessionActive() || this.addAtomsUI?.active?.is_relaxing) return;
+        if ((this.addAtomsUI?.active?.region_mode || this.addAtomsUI?.regionMode) !== 'box') return;
+        try {
+            const data = await this.api.updateAtomAdditionRegion({
+                bounds: this.readAddAtomsBounds(),
+                region_role: this.addAtomsUI.regionRole || 'allowed',
+                allow_escape: document.getElementById('add-atoms-allow-escape')?.checked !== false
+            });
+            this.syncAddAtomsSessionFromData(data);
+        } catch (error) {
+            this.toast(`Insertion box update failed: ${error.message}`, 'error');
+        }
     }
 
     updateAddAtomsRegionPreview() {
@@ -1837,7 +1893,9 @@ class VAseApp {
             this.renderer.setAddAtomsRegion({
                 mode,
                 cell: active?.cell || this.state.atoms?.cell,
-                bounds: active?.bounds || (mode === 'box' ? this.readAddAtomsBounds() : null)
+                bounds: mode === 'box' ? this.readAddAtomsBounds() : null,
+                role: active?.region_role || this.addAtomsUI.regionRole || 'allowed',
+                selected: this.state.addAtomsRegionSelected
             });
         } catch {
             this.renderer.clearAddAtomsRegion();
@@ -1940,9 +1998,13 @@ class VAseApp {
         document.querySelectorAll(
             '#add-atoms-entries input, #add-atoms-entries select, #btn-add-atoms-entry, '
             + '#add-atoms-entries .remove-add-atoms-entry, '
-            + '#add-atoms-region-cell, #add-atoms-region-box, #add-atoms-box-fields input, '
+            + '#add-atoms-region-cell, #add-atoms-region-box, '
             + '#add-atoms-seed, #add-atoms-cutoff-basis, #add-atoms-cutoff-scale'
         ).forEach(control => { control.disabled = active; });
+        document.querySelectorAll(
+            '#add-atoms-box-fields input, #add-atoms-region-allowed, '
+            + '#add-atoms-region-prohibited, #add-atoms-allow-escape'
+        ).forEach(control => { control.disabled = running; });
     }
 
     syncAddAtomsSessionFromData(data) {
@@ -1952,6 +2014,7 @@ class VAseApp {
         if (summary?.active) {
             this.addAtomsUI.pane = 'batch';
             this.addAtomsUI.regionMode = summary.region_mode || 'cell';
+            this.addAtomsUI.regionRole = summary.region_role || 'allowed';
             const entries = document.getElementById('add-atoms-entries');
             if (entries) {
                 entries.replaceChildren();
@@ -1961,6 +2024,8 @@ class VAseApp {
             document.getElementById('add-atoms-region-cell')?.classList.toggle('active', !box);
             document.getElementById('add-atoms-region-box')?.classList.toggle('active', box);
             document.getElementById('add-atoms-box-fields')?.classList.toggle('hidden', !box);
+            document.getElementById('add-atoms-region-allowed')?.classList.toggle('active', this.addAtomsUI.regionRole !== 'prohibited');
+            document.getElementById('add-atoms-region-prohibited')?.classList.toggle('active', this.addAtomsUI.regionRole === 'prohibited');
             this.syncAddAtomsBounds({ force: true, bounds: summary.bounds });
             this.renderAddAtomsPairCutoffs(summary.pair_cutoffs || {});
             const basis = document.getElementById('add-atoms-cutoff-basis');
@@ -1970,6 +2035,7 @@ class VAseApp {
             const seed = document.getElementById('add-atoms-seed');
             if (seed) seed.value = summary.seed ?? '';
             document.getElementById('add-atoms-freeze-existing').checked = summary.freeze_existing !== false;
+            document.getElementById('add-atoms-allow-escape').checked = summary.allow_escape !== false;
             this.setAddAtomsPane('batch');
             const detail = summary.is_relaxing
                 ? `Repelling atoms · ${summary.step || 0}/${summary.max_steps || 0}`
@@ -1993,6 +2059,8 @@ class VAseApp {
                 entries,
                 region_mode: mode,
                 bounds: mode === 'box' ? this.readAddAtomsBounds() : undefined,
+                region_role: mode === 'box' ? (this.addAtomsUI?.regionRole || 'allowed') : 'allowed',
+                allow_escape: document.getElementById('add-atoms-allow-escape')?.checked !== false,
                 seed: rawSeed === '' ? null : Number(rawSeed),
                 freeze_existing: document.getElementById('add-atoms-freeze-existing')?.checked !== false,
                 cutoff_basis: document.getElementById('add-atoms-cutoff-basis')?.value || 'covalent',
@@ -2001,6 +2069,7 @@ class VAseApp {
             };
             const data = await this.withBusy('Scattering atoms...', () => this.api.startAtomAddition(payload));
             this.setAtomsData(data, { clearSelection: true });
+            this.startModeTrajectory('add-atoms', 'Add Atoms placement');
             const summary = data.metadata?.atom_addition;
             (summary?.new_indices || []).forEach(index => this.state.selected.add(index));
             this.updateSelectionVisuals();
@@ -2019,13 +2088,20 @@ class VAseApp {
     async relaxAddedAtomsFromWidget() {
         if (!this.addAtomsSessionActive()) return;
         try {
+            if (
+                !this.state.relaxTrajectory?.active
+                || this.state.relaxTrajectory?.kind !== 'add-atoms'
+            ) {
+                this.startModeTrajectory('add-atoms', 'Add Atoms placement');
+            }
             const summary = await this.api.relaxAtomAddition({
                 pair_cutoffs: this.captureAddAtomsPairCutoffs(),
                 freeze_existing: document.getElementById('add-atoms-freeze-existing')?.checked !== false,
                 k_repulsion: this.addAtomsNumber('add-atoms-strength', 2.0),
                 fmax: this.addAtomsNumber('add-atoms-fmax', 0.05),
                 steps: Math.round(this.addAtomsNumber('add-atoms-steps', 250)),
-                mic: document.getElementById('add-atoms-mic')?.checked !== false
+                mic: document.getElementById('add-atoms-mic')?.checked !== false,
+                allow_escape: document.getElementById('add-atoms-allow-escape')?.checked !== false
             });
             this.addAtomsUI.active = { ...summary };
             this.setAddAtomsStatus('running', `Repelling atoms · 0/${summary.max_steps || 0}`);
@@ -2050,6 +2126,8 @@ class VAseApp {
             const data = await this.api.cancelAtomAddition();
             this.addAtomsUI.active = null;
             this.setAtomsData(data, { clearSelection: true });
+            this.setAddAtomsRegionSelected(false, { update: false });
+            this.clearModeTrajectory('add-atoms');
             this.setAddAtomsStatus('idle', 'Ready to scatter atoms');
             this.updateAddAtomsRegionPreview();
             this.toast('Add Atoms cancelled. The original structure was restored.', 'success');
@@ -2064,6 +2142,8 @@ class VAseApp {
             const added = Number(data.metadata?.atom_addition_result?.added || 0);
             this.addAtomsUI.active = null;
             this.setAtomsData(data, { clearSelection: true });
+            this.setAddAtomsRegionSelected(false, { update: false });
+            this.clearModeTrajectory('add-atoms');
             this.setAddAtomsPane('single');
             this.setAddAtomsStatus('complete', `${added} atoms added`);
             this.toast(`Added ${added} atoms to the structure.`, 'success');
@@ -3928,7 +4008,8 @@ class VAseApp {
         const token = ++this.state.volumetricRequestToken;
         const dataset = this.selectedVolumetricDataset();
         if (!dataset || !this.state.display.showVolumetric) {
-            this.renderer.clearVolumetricSurfaces();
+            if (dataset) this.renderer.setVolumetricSurfaceVisibility(false);
+            else this.renderer.clearVolumetricSurfaces();
             this.state.volumetricSurfaceSummary = null;
             this.setVolumeStatus('idle', dataset ? 'Isosurface hidden' : 'No scalar field', '');
             return;
@@ -4694,6 +4775,14 @@ class VAseApp {
             ? Math.max(0.5, (areaMaximum - areaMinimum) * 0.08)
             : 0.65;
         const areaTicks = [...new Set(areas)].sort((first, second) => first - second);
+        const exactSymmetryPeriod = Number(result?.exact_rotational_symmetry_deg);
+        const symmetryAngles = [];
+        if (Number.isFinite(exactSymmetryPeriod) && exactSymmetryPeriod > 0) {
+            const first = Math.ceil(angleMinimum / exactSymmetryPeriod) * exactSymmetryPeriod;
+            for (let value = first; value <= angleMaximum + 1e-8; value += exactSymmetryPeriod) {
+                symmetryAngles.push(Number(value.toFixed(10)));
+            }
+        }
         const nearest = [...candidates]
             .sort((first, second) => Math.abs(first.deltaDeg) - Math.abs(second.deltaDeg))[0] || null;
         const layers = new Map();
@@ -4717,6 +4806,10 @@ class VAseApp {
             candidates,
             angleLayers,
             areaTicks,
+            exactSymmetryPeriod: Number.isFinite(exactSymmetryPeriod)
+                ? exactSymmetryPeriod
+                : null,
+            symmetryAngles,
             nearest,
             axis: {
                 x: [angleMinimum, angleMaximum],
@@ -4829,75 +4922,22 @@ class VAseApp {
             });
             return;
         }
-        const sliceCurveX = [];
-        const sliceCurveY = [];
-        const sliceCurveZ = [];
-        geometry.angleLayers.forEach(layer => {
-            if (layer.candidates.length < 2) return;
-            layer.candidates.forEach(candidate => {
-                sliceCurveX.push(layer.angle);
-                sliceCurveY.push(Number(
-                    candidate.host_area_ratio ?? candidate.area_ratio ?? candidate.area
-                ));
-                sliceCurveZ.push(Number(candidate.max_principal_strain ?? candidate.strain) * 100);
-            });
-            sliceCurveX.push(null);
-            sliceCurveY.push(null);
-            sliceCurveZ.push(null);
+        const symmetryX = [];
+        const symmetryY = [];
+        const symmetryZ = [];
+        geometry.symmetryAngles.forEach(symmetryAngle => {
+            symmetryX.push(symmetryAngle, symmetryAngle, null);
+            symmetryY.push(geometry.axis.yRange[0], geometry.axis.yRange[1], null);
+            symmetryZ.push(0, 0, null);
         });
-        const stemX = [];
-        const stemY = [];
-        const stemZ = [];
-        geometry.candidates.forEach(candidate => {
-            const area = Number(candidate.host_area_ratio ?? candidate.area_ratio ?? candidate.area);
-            const strain = Number(candidate.max_principal_strain ?? candidate.strain) * 100;
-            stemX.push(candidate.plotAngleDeg, candidate.plotAngleDeg, null);
-            stemY.push(area, area, null);
-            stemZ.push(0, strain, null);
-        });
-        const floorGridX = [];
-        const floorGridY = [];
-        const floorGridZ = [];
-        const appendFloorLine = (first, second) => {
-            floorGridX.push(first[0], second[0], null);
-            floorGridY.push(first[1], second[1], null);
-            floorGridZ.push(0, 0, null);
+        const axisX = geometry.axis.x;
+        const axisY = geometry.axis.yRange;
+        const axisZ = geometry.axis.zRange;
+        const currentPlaneOutline = {
+            x: [angleDeg, angleDeg, angleDeg, angleDeg, angleDeg],
+            y: [axisY[0], axisY[1], axisY[1], axisY[0], axisY[0]],
+            z: [axisZ[0], axisZ[0], axisZ[1], axisZ[1], axisZ[0]]
         };
-        const angleSpan = geometry.axis.x[1] - geometry.axis.x[0];
-        for (let index = 0; index <= 6; index += 1) {
-            const x = geometry.axis.x[0] + angleSpan * index / 6;
-            appendFloorLine(
-                [x, geometry.axis.yRange[0]],
-                [x, geometry.axis.yRange[1]]
-            );
-        }
-        const areaGrid = geometry.areaTicks.length > 8
-            ? geometry.areaTicks.filter((_, index) => index % Math.ceil(geometry.areaTicks.length / 8) === 0)
-            : geometry.areaTicks;
-        [...new Set([
-            geometry.axis.yRange[0],
-            ...areaGrid,
-            geometry.axis.yRange[1]
-        ])].forEach(y => appendFloorLine(
-            [geometry.axis.x[0], y],
-            [geometry.axis.x[1], y]
-        ));
-        const axisTrace = (role, x, y, z, label) => ({
-            type: 'scatter3d',
-            mode: 'lines+text',
-            meta: { role },
-            name: label,
-            x,
-            y,
-            z,
-            text: ['', label],
-            textposition: 'top center',
-            textfont: { color: theme.text, size: 12 },
-            line: { color: theme.text, width: role === 'rotation-axis' ? 8 : 6 },
-            hoverinfo: 'skip'
-        });
-        const axisY0 = geometry.axis.yRange[0];
-        const axisZ1 = geometry.axis.zRange[1];
         await Plotly.react(plot, [
             {
                 type: 'surface',
@@ -4905,7 +4945,7 @@ class VAseApp {
                 meta: { role: 'angle-area-floor' },
                 showscale: false,
                 hoverinfo: 'skip',
-                opacity: 0.20,
+                opacity: 0.08,
                 x: geometry.floor.x,
                 y: [[geometry.axis.yRange[0], geometry.axis.yRange[0]], [geometry.axis.yRange[1], geometry.axis.yRange[1]]],
                 z: geometry.floor.z,
@@ -4915,76 +4955,31 @@ class VAseApp {
             {
                 type: 'scatter3d',
                 mode: 'lines',
-                meta: { role: 'angle-area-grid' },
-                name: 'Angle-area grid',
-                x: floorGridX,
-                y: floorGridY,
-                z: floorGridZ,
-                line: { color: theme.line, width: 2 },
-                hoverinfo: 'skip'
-            },
-            axisTrace(
-                'rotation-axis',
-                geometry.axis.x,
-                [axisY0, axisY0],
-                [0, 0],
-                ''
-            ),
-            axisTrace(
-                'area-axis',
-                [geometry.axis.x[0], geometry.axis.x[0]],
-                geometry.axis.yRange,
-                [0, 0],
-                'host area / A₀'
-            ),
-            axisTrace(
-                'strain-axis',
-                [geometry.axis.x[0], geometry.axis.x[0]],
-                [axisY0, axisY0],
-                [0, axisZ1],
-                'max strain / %'
-            ),
-            {
-                type: 'scatter3d',
-                mode: 'lines',
-                meta: { role: 'angle-slice-curves' },
-                name: 'Candidates at one angle',
-                x: sliceCurveX,
-                y: sliceCurveY,
-                z: sliceCurveZ,
-                line: { color: theme.teal, width: 5 },
+                meta: { role: 'exact-symmetry-periods' },
+                name: geometry.exactSymmetryPeriod
+                    ? `Exact ${geometry.exactSymmetryPeriod}° symmetry`
+                    : 'Exact symmetry',
+                x: symmetryX,
+                y: symmetryY,
+                z: symmetryZ,
+                line: { color: theme.muted, width: 3, dash: 'dot' },
                 hoverinfo: 'skip'
             },
             {
                 type: 'scatter3d',
-                mode: 'lines',
-                meta: { role: 'candidate-stems' },
-                name: 'Residual strain',
-                x: stemX,
-                y: stemY,
-                z: stemZ,
-                line: { color: theme.muted, width: 2.4 },
-                hoverinfo: 'skip'
-            },
-            {
-                type: 'scatter3d',
-                mode: 'lines+markers',
+                mode: 'markers',
                 meta: { role: 'candidate-floor-projection' },
                 name: 'Angle-area projection',
-                x: [...geometry.candidates]
-                    .sort((first, second) => first.plotAngleDeg - second.plotAngleDeg)
-                    .map(candidate => Number(candidate.plotAngleDeg)),
-                y: [...geometry.candidates]
-                    .sort((first, second) => first.plotAngleDeg - second.plotAngleDeg)
-                    .map(candidate => Number(
+                x: geometry.candidates.map(candidate => Number(candidate.plotAngleDeg)),
+                y: geometry.candidates.map(candidate => Number(
                     candidate.host_area_ratio ?? candidate.area_ratio ?? candidate.area
                 )),
                 z: geometry.candidates.map(() => 0),
-                line: { color: theme.muted, width: 3 },
                 marker: {
-                    size: 3.2,
+                    size: 3.8,
                     color: theme.muted,
-                    opacity: 0.52
+                    opacity: 0.34,
+                    symbol: 'circle-open'
                 },
                 hoverinfo: 'skip'
             },
@@ -5034,6 +5029,17 @@ class VAseApp {
             },
             {
                 type: 'scatter3d',
+                mode: 'lines',
+                name: 'Current-angle section',
+                meta: { role: 'current-angle-outline' },
+                x: currentPlaneOutline.x,
+                y: currentPlaneOutline.y,
+                z: currentPlaneOutline.z,
+                line: { color: theme.blue, width: 5 },
+                hoverinfo: 'skip'
+            },
+            {
+                type: 'scatter3d',
                 mode: 'markers+text',
                 name: 'Nearest suggestion',
                 meta: { role: 'nearest-angle' },
@@ -5059,14 +5065,15 @@ class VAseApp {
                     tickfont: { size: 11 },
                     showline: true,
                     linecolor: theme.text,
-                    linewidth: 4,
+                    linewidth: 2,
                     showbackground: true,
                     backgroundcolor: 'rgba(117,131,126,0.035)',
                     showspikes: false,
+                    nticks: 8,
                     range: geometry.axis.x
                 },
                 yaxis: {
-                    title: { text: '' },
+                    title: { text: 'host area / A₀', font: { size: 13 } },
                     gridcolor: theme.line,
                     zerolinecolor: theme.line,
                     color: theme.text,
@@ -5076,12 +5083,11 @@ class VAseApp {
                     showbackground: true,
                     backgroundcolor: 'rgba(117,131,126,0.045)',
                     showspikes: false,
-                    tickmode: 'array',
-                    tickvals: geometry.areaTicks,
+                    nticks: 6,
                     range: geometry.axis.yRange
                 },
                 zaxis: {
-                    title: { text: '' },
+                    title: { text: 'max strain / %', font: { size: 13 } },
                     gridcolor: theme.line,
                     zerolinecolor: theme.line,
                     color: theme.text,
@@ -5091,13 +5097,14 @@ class VAseApp {
                     showbackground: true,
                     backgroundcolor: 'rgba(117,131,126,0.025)',
                     showspikes: false,
+                    nticks: 6,
                     range: geometry.axis.zRange
                 },
                 aspectmode: 'manual',
-                aspectratio: { x: 2.65, y: 1.40, z: 1.30 },
+                aspectratio: { x: 2.65, y: 1.50, z: 1.30 },
                 camera: {
                     projection: { type: 'perspective' },
-                    eye: { x: 0, y: -2.24, z: 1.38 },
+                    eye: { x: 0.42, y: -2.30, z: 1.34 },
                     center: { x: 0, y: 0, z: -0.08 },
                     up: { x: 0, y: 0, z: 1 }
                 }
@@ -5138,13 +5145,27 @@ class VAseApp {
             }
             const traces = Array.from(plot.data || []);
             const planeIndex = traces.findIndex(trace => trace.meta?.role === 'current-angle-plane');
+            const planeOutlineIndex = traces.findIndex(trace => trace.meta?.role === 'current-angle-outline');
             const nearestIndex = traces.findIndex(trace => trace.meta?.role === 'nearest-angle');
-            if (planeIndex < 0 || nearestIndex < 0) return;
+            if (planeIndex < 0 || planeOutlineIndex < 0 || nearestIndex < 0) return;
             window.Plotly.restyle(plot, {
                 x: [geometry.plane.x],
                 y: [geometry.plane.y],
                 z: [geometry.plane.z]
             }, [planeIndex]);
+            const yRange = geometry.axis.yRange;
+            const zRange = geometry.axis.zRange;
+            window.Plotly.restyle(plot, {
+                x: [[
+                    this.state.commensuratePlotPendingAngle,
+                    this.state.commensuratePlotPendingAngle,
+                    this.state.commensuratePlotPendingAngle,
+                    this.state.commensuratePlotPendingAngle,
+                    this.state.commensuratePlotPendingAngle
+                ]],
+                y: [[yRange[0], yRange[1], yRange[1], yRange[0], yRange[0]]],
+                z: [[zRange[0], zRange[0], zRange[1], zRange[1], zRange[0]]]
+            }, [planeOutlineIndex]);
             window.Plotly.restyle(plot, {
                 x: [nearest ? [Number(nearest.targetAngleDeg)] : []],
                 y: [nearest ? [Number(
@@ -5376,13 +5397,25 @@ class VAseApp {
 
     async plotRegistryMap(result) {
         const Plotly = await this.ensurePlotly();
-        const plot = this.showAnalysisDrawer('registry', 'XY Translation Map');
+        const plot = this.showAnalysisDrawer('registry', 'Host-Reference XY Translation Map');
         if (!plot) return;
         const theme = this.plotTheme();
         const optimum = result.optimum_fractional || [0, 0];
+        const translationBasis = result.translation_basis_angstrom || [[1, 0, 0], [0, 1, 0]];
+        const aLength = Math.hypot(...translationBasis[0].map(Number));
+        const bLength = Math.hypot(...translationBasis[1].map(Number));
+        const basisDot = translationBasis[0].reduce(
+            (sum, value, index) => sum + Number(value) * Number(translationBasis[1][index] || 0),
+            0
+        );
+        const basisAngle = THREE.MathUtils.radToDeg(Math.acos(Math.max(
+            -1,
+            Math.min(1, basisDot / Math.max(aLength * bLength, 1e-12))
+        )));
         await Plotly.react(plot, [
             {
                 type: 'heatmap',
+                meta: { role: 'registry-score' },
                 x: result.x_fractional,
                 y: result.y_fractional,
                 z: result.values,
@@ -5392,7 +5425,29 @@ class VAseApp {
             },
             {
                 type: 'scatter',
+                mode: 'lines',
+                meta: { role: 'host-reference-cell' },
+                name: 'Unselected host / current cell',
+                x: [0, 1, 1, 0, 0],
+                y: [0, 0, 1, 1, 0],
+                line: { color: theme.text, width: 2.5 },
+                hovertemplate: 'Current periodic cell boundary<extra></extra>'
+            },
+            {
+                type: 'scatter',
+                mode: 'lines+markers',
+                meta: { role: 'host-reference-basis' },
+                name: 'Host-reference basis',
+                x: [0, 1, null, 0, 0],
+                y: [0, 0, null, 0, 1],
+                line: { color: theme.muted, width: 2 },
+                marker: { size: 5, color: theme.muted },
+                hovertemplate: 'Host/current cell basis<extra></extra>'
+            },
+            {
+                type: 'scatter',
                 mode: 'markers',
+                meta: { role: 'registry-optimum' },
                 name: 'Suggested minimum',
                 x: [Number(optimum[0])],
                 y: [Number(optimum[1])],
@@ -5406,6 +5461,7 @@ class VAseApp {
             {
                 type: 'scatter',
                 mode: 'markers',
+                meta: { role: 'registry-current' },
                 name: 'Current translation',
                 x: [0],
                 y: [0],
@@ -5414,6 +5470,16 @@ class VAseApp {
                     color: theme.amber,
                     line: { color: theme.text, width: 1.5 }
                 }
+            },
+            {
+                type: 'scatter',
+                mode: 'lines',
+                meta: { role: 'registry-current-vector' },
+                name: 'Selected guest translation',
+                x: [0, 0],
+                y: [0, 0],
+                line: { color: theme.amber, width: 3, dash: 'dot' },
+                hovertemplate: 'Rigid selected-guest translation<extra></extra>'
             }
         ], {
             autosize: true,
@@ -5422,14 +5488,14 @@ class VAseApp {
             plot_bgcolor: 'rgba(0,0,0,0)',
             font: { color: theme.text, family: 'Inter, system-ui, sans-serif', size: 11 },
             xaxis: {
-                title: 'fractional translation u',
+                title: 'host-cell fractional translation u',
                 range: [0, 1],
                 gridcolor: theme.line,
                 color: theme.muted,
                 constrain: 'domain'
             },
             yaxis: {
-                title: 'fractional translation v',
+                title: 'host-cell fractional translation v',
                 range: [0, 1],
                 gridcolor: theme.line,
                 color: theme.muted,
@@ -5438,6 +5504,12 @@ class VAseApp {
                 constrain: 'domain'
             },
             legend: { orientation: 'h', x: 0, y: 1.12, bgcolor: 'rgba(0,0,0,0)' },
+            annotations: [
+                { x: 1, y: 0, text: `a (${aLength.toFixed(3)} Å)`, showarrow: true, ax: -35, ay: -19, arrowcolor: theme.muted, font: { color: theme.text } },
+                { x: 0, y: 1, text: `b (${bLength.toFixed(3)} Å)`, showarrow: true, ax: 37, ay: 20, arrowcolor: theme.muted, font: { color: theme.text } },
+                { x: 1, y: 1, text: `γ ${basisAngle.toFixed(2)}°`, showarrow: false, xanchor: 'right', yanchor: 'bottom', font: { color: theme.muted, size: 10 } },
+                { x: 0.5, y: -0.16, xref: 'paper', yref: 'paper', text: 'Selected guest translated over one current host-reference periodic cell', showarrow: false, font: { color: theme.muted, size: 10 } }
+            ],
             uirevision: 'registry-map'
         }, {
             responsive: true,
@@ -5464,8 +5536,194 @@ class VAseApp {
         }
         if (this.state.activeAnalysisPlot === 'registry' && window.Plotly) {
             const plot = this.analysisPlotElement('registry');
-            if (plot) window.Plotly.restyle(plot, { x: [[wrapped[0]]], y: [[wrapped[1]]] }, [2]);
+            if (plot) {
+                const traces = Array.from(plot.data || []);
+                const markerIndex = traces.findIndex(trace => trace.meta?.role === 'registry-current');
+                const vectorIndex = traces.findIndex(trace => trace.meta?.role === 'registry-current-vector');
+                if (markerIndex >= 0) {
+                    window.Plotly.restyle(plot, { x: [[wrapped[0]]], y: [[wrapped[1]]] }, [markerIndex]);
+                }
+                if (vectorIndex >= 0) {
+                    window.Plotly.restyle(plot, {
+                        x: [[0, wrapped[0]]],
+                        y: [[0, wrapped[1]]]
+                    }, [vectorIndex]);
+                }
+            }
         }
+    }
+
+    setRegistryRelaxStatus(state, title, detail = '') {
+        const status = document.getElementById('registry-relax-status');
+        if (!status) return;
+        status.dataset.state = state;
+        const titleElement = status.querySelector('.analysis-status-title');
+        const detailElement = status.querySelector('.analysis-status-detail');
+        if (titleElement) titleElement.textContent = title;
+        if (detailElement) detailElement.textContent = detail;
+    }
+
+    syncRegistryRelaxationControls({ updateStatus = true } = {}) {
+        const mode = this.state.registryRelaxation;
+        const active = Boolean(mode);
+        const running = Boolean(mode?.is_relaxing);
+        document.getElementById('registry-relax-mode-badge')?.classList.toggle('hidden', !active);
+        const activate = document.getElementById('btn-registry-relax-activate');
+        const run = document.getElementById('btn-registry-relax-run');
+        const stop = document.getElementById('btn-registry-relax-stop');
+        const cancel = document.getElementById('btn-registry-relax-cancel');
+        const finish = document.getElementById('btn-registry-relax-finish');
+        if (activate) activate.disabled = active || this.state.vizOnly || !this.hasLoadedAtoms();
+        if (run) run.disabled = !active || running;
+        if (stop) stop.disabled = !running;
+        if (cancel) cancel.disabled = !active;
+        if (finish) finish.disabled = !active || running;
+        if (!updateStatus) return;
+        if (!active) {
+            this.setRegistryRelaxStatus(
+                'idle',
+                'Mode inactive',
+                'Select a movable layer, then activate rigid XY translation.'
+            );
+            return;
+        }
+        const fractional = mode.translation_fractional || [0, 0];
+        const force = Number(mode.projected_force ?? mode.generalized_force);
+        const forceDetail = Number.isFinite(force) ? ` · |Fxy| ${force.toFixed(4)} eV/Å` : '';
+        this.setRegistryRelaxStatus(
+            running ? 'loading' : (mode.status === 'error' ? 'warning' : 'ready'),
+            running ? `Optimizing · step ${Number(mode.step) || 0}/${Number(mode.max_steps) || 0}` : `Mode ${mode.status || 'active'}`,
+            `u ${Number(fractional[0] || 0).toFixed(4)} · v ${Number(fractional[1] || 0).toFixed(4)}${forceDetail}`
+        );
+    }
+
+    syncRegistryRelaxationFromData(data) {
+        this.state.registryRelaxation = data?.metadata?.registry_relaxation || null;
+        this.syncRegistryRelaxationControls();
+    }
+
+    registryRelaxationFromMessage(message) {
+        if (!message) return null;
+        return {
+            schema: message.schema || 'v_ase.registry-relaxation.v1',
+            session_id: message.session_id,
+            status: message.status,
+            is_relaxing: Boolean(message.is_relaxing),
+            selected_indices: [...(message.selected_indices || [])],
+            periodic_axes: [...(message.periodic_axes || [0, 1])],
+            translation_cartesian: [...(message.translation_cartesian || [0, 0, 0])],
+            translation_fractional: [...(message.translation_fractional || [0, 0])],
+            step: Number(message.step) || 0,
+            max_steps: Number(message.max_steps) || 0,
+            energy: Number.isFinite(Number(message.energy)) ? Number(message.energy) : null,
+            projected_force: Number.isFinite(Number(message.projected_force))
+                ? Number(message.projected_force)
+                : Number.isFinite(Number(message.generalized_force))
+                    ? Number(message.generalized_force)
+                    : null,
+            generalized_force: Number.isFinite(Number(message.generalized_force))
+                ? Number(message.generalized_force)
+                : null,
+            generalized_gradient: Number.isFinite(Number(message.generalized_gradient))
+                ? Number(message.generalized_gradient)
+                : null
+        };
+    }
+
+    async activateRegistryRelaxation(selectedIndices = null) {
+        const selected = Array.isArray(selectedIndices)
+            ? selectedIndices.map(Number).filter(index => this.isEditableIndex(index))
+            : this.state.registryResult
+                && this.registrySelectionKey() === this.state.registrySelectionSignature
+                ? [...(this.state.registryResult.selected_indices || [])]
+                : [...this.state.selected].filter(index => this.isEditableIndex(index));
+        if (!selected.length) throw new Error('Select the movable guest or interface atoms first.');
+        const data = await this.api.startRegistryRelaxation({
+            positions: this.backendPositionsPayload(),
+            selected_indices: selected
+        });
+        this.setAtomsData(data, {
+            clearSelection: false,
+            preserveRdf: true,
+            preserveColorScaleRange: true
+        });
+        this.setRegistryRelaxStatus(
+            'ready',
+            'Rigid XY mode active',
+            'Only one common in-plane translation can change.'
+        );
+        this.toast('Rigid XY translation mode activated.', 'success');
+    }
+
+    async runRegistryRelaxation({ fmax: requestedFmax, steps: requestedSteps, calculator } = {}) {
+        if (!this.state.registryRelaxation) throw new Error('Activate rigid XY translation first.');
+        const fmaxControl = document.getElementById('registry-relax-fmax');
+        const stepsControl = document.getElementById('registry-relax-steps');
+        const fmax = Math.max(
+            0.0001,
+            Number(requestedFmax ?? fmaxControl?.value) || 0.05
+        );
+        const steps = Math.max(1, Math.min(100000, Math.round(
+            Number(requestedSteps ?? stepsControl?.value) || 100
+        )));
+        if (fmaxControl) fmaxControl.value = `${fmax}`;
+        if (stepsControl) stepsControl.value = `${steps}`;
+        const requestedCalculator = calculator && typeof calculator === 'object'
+            ? {
+                device: calculator.device,
+                cpu_threads: calculator.cpu_threads ?? calculator.cpuThreads,
+                cutoff_scale: calculator.cutoff_scale ?? calculator.cutoffScale,
+                k_repulsion: calculator.k_repulsion ?? calculator.kRepulsion ?? calculator.strength
+            }
+            : null;
+        this.startModeTrajectory('registry', 'Rigid XY translation relaxation');
+        try {
+            const summary = await this.api.runRegistryRelaxation({
+                fmax,
+                steps,
+                calculator: requestedCalculator || this.currentCalculatorPayload()
+            });
+            // A very short optimization can publish its WebSocket completion
+            // before this HTTP start response resolves.  Never let that older
+            // response put an already-finished mode back into a running state.
+            const terminalStatuses = new Set(['converged', 'steps', 'stopped', 'error']);
+            const currentStatus = String(this.state.registryRelaxation?.status || '');
+            if (!terminalStatuses.has(currentStatus)) {
+                this.state.registryRelaxation = summary;
+            }
+            this.syncRegistryRelaxationControls();
+        } catch (error) {
+            this.clearModeTrajectory('registry');
+            throw error;
+        }
+    }
+
+    async stopRegistryRelaxation() {
+        await this.api.stopRegistryRelaxation();
+        this.setRegistryRelaxStatus('loading', 'Stopping optimization', 'The current calculator step will finish first.');
+    }
+
+    async finishRegistryRelaxation() {
+        const data = await this.api.finishRegistryRelaxation();
+        this.setAtomsData(data, {
+            clearSelection: false,
+            preserveRdf: false,
+            preserveColorScaleRange: true
+        });
+        this.clearModeTrajectory('registry');
+        this.toast('Rigid XY translation applied.', 'success');
+    }
+
+    async cancelRegistryRelaxation() {
+        const data = await this.api.cancelRegistryRelaxation();
+        this.setAtomsData(data, {
+            clearSelection: false,
+            preserveRdf: true,
+            preserveColorScaleRange: true
+        });
+        this.clearModeTrajectory('registry');
+        this.updateRegistryMapMarker([0, 0]);
+        this.toast('Rigid XY translation restored to its starting structure.', 'success');
     }
 
     constrainMoveToRegistryPlane(moveDelta) {
@@ -5514,6 +5772,26 @@ class VAseApp {
                 this.state.registryJobId = null;
             });
         });
+        document.getElementById('btn-registry-relax-activate')?.addEventListener('click', () => {
+            this.activateRegistryRelaxation().catch(error => {
+                this.toast(`Could not activate rigid XY translation: ${error.message}`, 'error');
+            });
+        });
+        document.getElementById('btn-registry-relax-run')?.addEventListener('click', () => {
+            this.runRegistryRelaxation().catch(error => {
+                this.toast(`XY translation optimization failed: ${error.message}`, 'error');
+            });
+        });
+        document.getElementById('btn-registry-relax-stop')?.addEventListener('click', () => {
+            this.stopRegistryRelaxation().catch(error => this.toast(`Stop failed: ${error.message}`, 'error'));
+        });
+        document.getElementById('btn-registry-relax-finish')?.addEventListener('click', () => {
+            this.finishRegistryRelaxation().catch(error => this.toast(`Apply failed: ${error.message}`, 'error'));
+        });
+        document.getElementById('btn-registry-relax-cancel')?.addEventListener('click', () => {
+            this.cancelRegistryRelaxation().catch(error => this.toast(`Cancel failed: ${error.message}`, 'error'));
+        });
+        this.syncRegistryRelaxationControls();
     }
 
     async exportActiveAnalysisData() {
@@ -6147,6 +6425,8 @@ class VAseApp {
             const hasRequestedAtomicScale = Number.isFinite(requestedAtomicScale) && requestedAtomicScale > 0;
             this.renderer.setDisplayOptions(this.state.display, { rebuild: false });
             this.renderer.rebuildAtoms(data, data.metadata.custom_colors || {});
+            this.syncAddAtomsSessionFromData(data);
+            this.syncRegistryRelaxationFromData(data);
             this.renderVolumetricControls();
             if (this.state.display.showVolumetric) {
                 this.updateVolumetricSurface().catch(error => {
@@ -6217,6 +6497,7 @@ class VAseApp {
         if (relaxBtn) relaxBtn.disabled = !meta.has_calculator || this.state.isRelaxing;
         const stopRelaxBtn = document.getElementById('btn-stop-relax');
         if (stopRelaxBtn) stopRelaxBtn.disabled = !this.state.isRelaxing;
+        this.syncRegistryRelaxationControls({ updateStatus: false });
 
         this.updateCommandReadout();
         const hoverReadout = document.getElementById('hover-readout');
@@ -6633,6 +6914,7 @@ class VAseApp {
         this.renderer.rebuildAtoms(data, data.metadata.custom_colors || {});
         this.syncForceVectorControls();
         this.syncAddAtomsSessionFromData(data);
+        this.syncRegistryRelaxationFromData(data);
         this.renderVolumetricControls();
         const nextVolumeSignature = JSON.stringify(
             this.volumetricDatasets().map(dataset => [
@@ -6752,7 +7034,9 @@ class VAseApp {
     }
 
     relaxFrameCount() {
-        return this.state.relaxTrajectory?.frames?.length || 0;
+        return this.state.relaxTrajectory?.active
+            ? (this.state.relaxTrajectory?.frames?.length || 0)
+            : 0;
     }
 
     timelineSourceAvailable(source) {
@@ -6776,6 +7060,10 @@ class VAseApp {
 
     timelineSourceName(source, { compact = false } = {}) {
         if (source === 'loaded') return compact ? 'SOURCE' : 'Source frames';
+        const mode = this.state.relaxTrajectory || {};
+        if (mode.kind === 'add-atoms') return compact ? 'ADD ATOMS' : 'Add Atoms placement';
+        if (mode.kind === 'registry') return compact ? 'XY REGISTRY' : 'Rigid XY translation relaxation';
+        if (mode.label) return compact ? String(mode.label).toUpperCase() : String(mode.label);
         const calculator = String(this.state.atoms?.metadata?.calculator || '').trim();
         const calculatorName = calculator && calculator.toLowerCase() !== 'none'
             ? calculator
@@ -6795,7 +7083,7 @@ class VAseApp {
         return this.state.atoms?.metadata?.current_frame || 0;
     }
 
-    startRelaxTrajectory() {
+    startModeTrajectory(kind = 'relaxation', label = '') {
         const meta = this.state.atoms?.metadata || {};
         const sourceFrame = Number.isFinite(Number(meta.current_frame)) ? Number(meta.current_frame) : 0;
         this.state.relaxTrajectory = {
@@ -6803,12 +7091,53 @@ class VAseApp {
             frame: 0,
             sourceFrame,
             active: true,
-            finished: false
+            finished: false,
+            kind,
+            label
         };
         this.state.timelineSource = 'relax';
         const positions = this.currentPositionsFromScene?.() || this.state.atoms?.positions || [];
         if (positions.length) this.appendRelaxFrame(positions, { force: true });
         this.updateTrajectoryUI();
+    }
+
+    startRelaxTrajectory() {
+        this.startModeTrajectory('relaxation', 'Relaxation');
+    }
+
+    clearModeTrajectory(kind = null) {
+        const trajectory = this.state.relaxTrajectory || {};
+        if (kind && trajectory.kind !== kind) return;
+        this.stopPlayback();
+        this.state.relaxTrajectory = {
+            frames: [],
+            frame: 0,
+            sourceFrame: 0,
+            active: false,
+            finished: false,
+            kind: null,
+            label: ''
+        };
+        if (this.state.timelineSource === 'relax') this.state.timelineSource = 'loaded';
+        this.updateTrajectoryUI();
+        this.syncRelaxationModeUI();
+    }
+
+    syncRelaxationModeUI() {
+        const generalMode = this.state.relaxTrajectory?.active
+            && this.state.relaxTrajectory?.kind === 'relaxation';
+        const badge = document.getElementById('relax-mode-badge');
+        const detail = document.getElementById('relax-mode-detail');
+        badge?.classList.toggle('hidden', !generalMode);
+        if (badge) badge.textContent = this.state.isRelaxing ? 'RUNNING' : 'REVIEW';
+        if (detail) {
+            detail.textContent = generalMode
+                ? (this.state.isRelaxing
+                    ? 'Optimization steps are being added to the Relaxation timeline.'
+                    : 'Review or play the Relaxation timeline, then exit the mode when finished.')
+                : 'Optimization frames use a separate movie timeline until this mode is closed.';
+        }
+        document.getElementById('btn-exit-relax-mode')?.classList.toggle('hidden', !generalMode);
     }
 
     samePositionFrame(a, b) {
@@ -6875,7 +7204,9 @@ class VAseApp {
             frame: 0,
             sourceFrame: 0,
             active: false,
-            finished: false
+            finished: false,
+            kind: null,
+            label: ''
         };
         if (this.state.timelineSource === 'relax') this.state.timelineSource = 'loaded';
     }
@@ -7083,6 +7414,7 @@ class VAseApp {
             panel.classList.toggle('hidden', loadedCount <= 1 && relaxCount <= 1);
             panel.dataset.primarySource = source;
         }
+        this.syncRelaxationModeUI();
         this.syncTimelineSourceSelect(source, loadedCount, relaxCount);
         const slider = document.getElementById('frame-slider');
         if (slider) {
@@ -8654,6 +8986,10 @@ class VAseApp {
             this.applyVolumetricPlaneTransformPreview();
             return;
         }
+        if (this.state.transformSubject === 'add-atoms-region') {
+            this.applyAddAtomsRegionTransformPreview();
+            return;
+        }
 
         const numVal = this.transform.getNumericValue();
         const hasNum = numVal !== null;
@@ -8825,6 +9161,9 @@ class VAseApp {
         if (this.state.transformSubject === 'volumetric-plane') {
             return this.commitVolumetricPlaneTransform();
         }
+        if (this.state.transformSubject === 'add-atoms-region') {
+            return this.commitAddAtomsRegionTransform();
+        }
         if (this.transform.mode === 'IDLE' || this.state.selected.size === 0) return;
         if (!this.canEditAtoms()) {
             this.cancelTransform();
@@ -8874,6 +9213,14 @@ class VAseApp {
     }
 
     enterTransformMode(mode) {
+        if (this.state.addAtomsRegionSelected) {
+            if (mode === 'ROTATE') {
+                this.toast('The Cartesian insertion box can be moved with G but cannot be rotated.', 'warning');
+                return;
+            }
+            this.enterAddAtomsRegionTransform();
+            return;
+        }
         if (this.state.selectedVolumetricPlanes.size) {
             this.enterVolumetricPlaneTransformMode(mode);
             return;
@@ -8936,6 +9283,10 @@ class VAseApp {
             this.cancelVolumetricPlaneTransform();
             return;
         }
+        if (this.state.transformSubject === 'add-atoms-region') {
+            this.cancelAddAtomsRegionTransform();
+            return;
+        }
         if (this.constraintTimeout) clearTimeout(this.constraintTimeout);
         this.renderer.updatePositions(this.state.originalPositions);
         this.state.transformReadout = '';
@@ -8950,6 +9301,107 @@ class VAseApp {
         this.renderer.controls.enabled = true;
         this.updateToolState();
         this.updateUI();
+    }
+
+    addAtomsRegionMoveDelta() {
+        const numeric = this.transform.getNumericValue();
+        const axis = new THREE.Vector3();
+        if (this.transform.axis === 'X') axis.set(1, 0, 0);
+        else if (this.transform.axis === 'Y') axis.set(0, 1, 0);
+        else if (this.transform.axis === 'Z') axis.set(0, 0, 1);
+        if (numeric !== null && this.transform.axis) return axis.multiplyScalar(numeric);
+
+        const camera = this.renderer.camera;
+        camera.updateMatrixWorld();
+        const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+        const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+        const distance = Math.max(this.transform.pivot.distanceTo(camera.position), 1e-6);
+        const zoom = Math.max(camera.zoom || 1, 1e-6);
+        const height = camera.isOrthographicCamera
+            ? (camera.top - camera.bottom) / zoom
+            : 2 * Math.tan((camera.fov || 50) * Math.PI / 360) * distance;
+        const width = camera.isOrthographicCamera
+            ? (camera.right - camera.left) / zoom
+            : height * (camera.aspect || this.renderer.viewportAspect?.() || 1);
+        const screen = right.multiplyScalar(this.transform.pointerDelta.x * width)
+            .add(up.multiplyScalar(this.transform.pointerDelta.y * height));
+        const axisUnit = axis.clone().normalize();
+        const delta = this.transform.axis
+            ? axisUnit.clone().multiplyScalar(screen.dot(axisUnit))
+            : screen;
+        return this.snapMoveDelta(delta, this.transform.axis ? axisUnit : null);
+    }
+
+    enterAddAtomsRegionTransform() {
+        if (!this.state.addAtomsRegionSelected || this.addAtomsUI?.active?.is_relaxing) {
+            if (this.addAtomsUI?.active?.is_relaxing) {
+                this.toast('Stop repulsive placement before moving the insertion box.', 'warning');
+            }
+            return;
+        }
+        let bounds;
+        try {
+            bounds = this.readAddAtomsBounds();
+        } catch (error) {
+            this.toast(error.message, 'error');
+            return;
+        }
+        const pivot = new THREE.Vector3(
+            (bounds[0] + bounds[1]) / 2,
+            (bounds[2] + bounds[3]) / 2,
+            (bounds[4] + bounds[5]) / 2
+        );
+        this.readTransformSettings();
+        this.state.addAtomsRegionTransformOriginal = [...bounds];
+        this.state.transformSubject = 'add-atoms-region';
+        this.state.transformReadout = '';
+        this.state.transformStartPointer.copy(this.state.lastPointer);
+        this.transform.enter('MOVE', pivot, this.renderer.camera, {
+            visualOffset: this.renderer.visualTranslationVector?.() || new THREE.Vector3()
+        });
+        this.renderer.controls.enabled = false;
+        this.updateToolState();
+        this.updateUI();
+    }
+
+    applyAddAtomsRegionTransformPreview() {
+        const original = this.state.addAtomsRegionTransformOriginal;
+        if (!Array.isArray(original) || original.length !== 6) return;
+        const delta = this.addAtomsRegionMoveDelta();
+        const moved = [
+            original[0] + delta.x, original[1] + delta.x,
+            original[2] + delta.y, original[3] + delta.y,
+            original[4] + delta.z, original[5] + delta.z
+        ];
+        this.syncAddAtomsBounds({ force: true, bounds: moved });
+        this.state.transformReadout = this.formatMoveReadout(delta);
+        this.updateAddAtomsRegionPreview();
+        this.transform.updateGuides(this.renderer.camera);
+        this.updateCommandReadout();
+    }
+
+    finishAddAtomsRegionTransform() {
+        this.state.addAtomsRegionTransformOriginal = null;
+        this.state.transformReadout = '';
+        this.transform.exit();
+        this.state.transformSubject = null;
+        this.renderer.controls.enabled = true;
+        this.updateToolState();
+        this.updateUI();
+    }
+
+    async commitAddAtomsRegionTransform() {
+        if (this.transform.mode === 'IDLE') return;
+        this.finishAddAtomsRegionTransform();
+        await this.commitAddAtomsRegionControls();
+        this.updateAddAtomsRegionPreview();
+    }
+
+    cancelAddAtomsRegionTransform() {
+        const original = this.state.addAtomsRegionTransformOriginal;
+        if (Array.isArray(original)) this.syncAddAtomsBounds({ force: true, bounds: original });
+        this.finishAddAtomsRegionTransform();
+        this.updateAddAtomsRegionPreview();
     }
 
     enterSunTransformMode(mode) {
@@ -10721,7 +11173,16 @@ class VAseApp {
                 categories.add('display');
                 changedPaths.add('preferences');
             }
-            else if (['start-relaxation', 'stop-relaxation'].includes(operation)) {
+            else if ([
+                'start-relaxation',
+                'stop-relaxation',
+                'exit-relaxation-mode',
+                'start-registry-relaxation',
+                'run-registry-relaxation',
+                'stop-registry-relaxation',
+                'finish-registry-relaxation',
+                'cancel-registry-relaxation'
+            ].includes(operation)) {
                 categories.add('trajectory');
                 categories.add('structure');
             } else {
@@ -10898,7 +11359,8 @@ class VAseApp {
                     currentFractional: [...(this.state.registryTranslationFractional || [0, 0])],
                     lowerIsBetter: this.state.registryResult.lower_is_better !== false,
                     warnings: [...(this.state.registryResult.warnings || [])]
-                } : null
+                } : null,
+                registryRelaxation: this.clonePlain(this.state.registryRelaxation)
             },
             collaboration: {
                 protocol: 'v_ase.collaboration.v1',
@@ -10945,14 +11407,18 @@ class VAseApp {
         const exportParameters = this.clonePlain(discovery.export_parameters || {});
         const fallbackOperations = [
             'wrap', 'translate-all', 'set-supercell', 'make-supercell',
-            'add-atom', 'scatter-atoms', 'relax-added-atoms',
+            'add-atom', 'scatter-atoms', 'update-add-atoms-region', 'relax-added-atoms',
             'stop-added-atoms', 'finish-add-atoms', 'cancel-add-atoms',
             'delete-selection', 'set-identity', 'set-constraints',
             'move-selection', 'rotate-selection', 'rotate-to-commensurate',
             'load-commensurate-guest', 'remove-commensurate-guest',
             'calculate-commensurate', 'apply-commensurate-cell',
-            'dismiss-commensurate-cell', 'calculate-registry-map', 'undo', 'redo',
+            'dismiss-commensurate-cell', 'calculate-registry-map',
+            'start-registry-relaxation', 'run-registry-relaxation',
+            'stop-registry-relaxation', 'finish-registry-relaxation',
+            'cancel-registry-relaxation', 'undo', 'redo',
             'reset-coordinates', 'start-relaxation', 'stop-relaxation',
+            'exit-relaxation-mode',
             'refresh-displacements', 'load-volumetric', 'show-volumetric',
             'add-volumetric-plane', 'update-volumetric-planes',
             'remove-volumetric-planes',
@@ -10977,7 +11443,7 @@ class VAseApp {
                 'add-atoms',
                 'volumetric-data', 'volumetric-planes', 'rdf', 'commensurate',
                 'commensurate-proposal',
-                'registry-map', 'atom-colorscale', 'force-vectors',
+                'registry-map', 'registry-relaxation', 'atom-colorscale', 'force-vectors',
                 'preferences', 'collaboration'
             ],
             apply: [
@@ -11185,11 +11651,22 @@ class VAseApp {
         const name = String(operation.name || '').trim().toLowerCase();
         const addAtomsControls = new Set([
             'relax-added-atoms', 'stop-added-atoms',
-            'finish-add-atoms', 'cancel-add-atoms'
+            'finish-add-atoms', 'cancel-add-atoms', 'update-add-atoms-region'
         ]);
         if (this.addAtomsSessionActive() && !addAtomsControls.has(name)) {
             throw new Error(
                 'Finish or cancel the active Add Atoms session before applying another operation.'
+            );
+        }
+        const registryRelaxationControls = new Set([
+            'run-registry-relaxation',
+            'stop-registry-relaxation',
+            'finish-registry-relaxation',
+            'cancel-registry-relaxation'
+        ]);
+        if (this.state.registryRelaxation && !registryRelaxationControls.has(name)) {
+            throw new Error(
+                'Finish or cancel the active rigid XY translation before applying another operation.'
             );
         }
         const applyConstraints = operation.applyConstraints ?? this.state.applyConstraints;
@@ -11367,22 +11844,66 @@ class VAseApp {
                 entries,
                 region_mode: regionMode,
                 bounds: bounds?.map(Number),
+                region_role: regionMode === 'box' && operation.regionRole === 'prohibited'
+                    ? 'prohibited'
+                    : 'allowed',
+                allow_escape: operation.allowEscape !== false,
                 seed: operation.seed ?? null,
                 freeze_existing: operation.freezeExisting !== false,
                 cutoff_basis: operation.cutoffBasis || 'covalent',
                 cutoff_scale: Number(operation.cutoffScale ?? 0.7),
                 pair_cutoffs: operation.pairCutoffs || undefined
             }), true);
+            this.startModeTrajectory('add-atoms', 'Add Atoms placement');
             const summary = data.metadata?.atom_addition;
             (summary?.new_indices || []).forEach(index => this.state.selected.add(index));
             this.updateSelectionVisuals();
             this.updateUI();
             return;
         }
+        if (name === 'update-add-atoms-region') {
+            this.aiRequireEdit('update-add-atoms-region');
+            if (!this.addAtomsSessionActive()) {
+                throw new Error('Scatter atoms before updating the Add Atoms region.');
+            }
+            const current = this.addAtomsUI?.active || {};
+            if (current.region_mode !== 'box') {
+                throw new Error('Only an active Cartesian Add Atoms box can be updated.');
+            }
+            const bounds = operation.bounds ?? current.bounds;
+            if (
+                !Array.isArray(bounds)
+                || bounds.length !== 6
+                || !bounds.every(value => Number.isFinite(Number(value)))
+            ) {
+                throw new Error('Cartesian box bounds must contain six finite numbers.');
+            }
+            const summary = await this.api.updateAtomAdditionRegion({
+                bounds: bounds.map(Number),
+                region_role: operation.regionRole === 'prohibited'
+                    ? 'prohibited'
+                    : (operation.regionRole === 'allowed' ? 'allowed' : current.region_role),
+                allow_escape: operation.allowEscape ?? current.allow_escape ?? true
+            });
+            this.addAtomsUI.active = { ...summary };
+            this.addAtomsUI.regionRole = summary.region_role || 'allowed';
+            this.syncAddAtomsBounds({ force: true, bounds: summary.bounds });
+            const allowEscape = document.getElementById('add-atoms-allow-escape');
+            if (allowEscape) allowEscape.checked = summary.allow_escape !== false;
+            this.updateAddAtomsRegionPreview();
+            this.syncAddAtomsActionState();
+            return;
+        }
         if (name === 'relax-added-atoms') {
             this.aiRequireEdit('relax-added-atoms');
             if (!this.addAtomsSessionActive()) {
                 throw new Error('Scatter atoms before starting repulsive placement.');
+            }
+            if (
+                !this.state.relaxTrajectory?.active
+                || this.state.relaxTrajectory?.kind !== 'add-atoms'
+            ) {
+                this.startModeTrajectory('add-atoms', 'Add Atoms placement');
             }
             const summary = await this.api.relaxAtomAddition({
                 pair_cutoffs: operation.pairCutoffs || this.addAtomsUI?.active?.pair_cutoffs,
@@ -11395,7 +11916,10 @@ class VAseApp {
                 k_boundary: Number(operation.boundaryStrength ?? 5.0),
                 fmax: Number(operation.fmax ?? 0.05),
                 steps: Number(operation.steps ?? 250),
-                mic: operation.mic !== false
+                mic: operation.mic !== false,
+                allow_escape: operation.allowEscape
+                    ?? this.addAtomsUI?.active?.allow_escape
+                    ?? true
             });
             this.addAtomsUI.active = { ...summary };
             this.setAddAtomsStatus('running', `Repelling atoms · 0/${summary.max_steps || 0}`);
@@ -11411,6 +11935,8 @@ class VAseApp {
             this.aiRequireEdit('finish-add-atoms');
             const data = setData(await this.api.finishAtomAddition(), true);
             this.addAtomsUI.active = null;
+            this.setAddAtomsRegionSelected(false, { update: false });
+            this.clearModeTrajectory('add-atoms');
             this.setAddAtomsPane('single');
             return;
         }
@@ -11418,6 +11944,8 @@ class VAseApp {
             this.aiRequireEdit('cancel-add-atoms');
             const data = setData(await this.api.cancelAtomAddition(), true);
             this.addAtomsUI.active = null;
+            this.setAddAtomsRegionSelected(false, { update: false });
+            this.clearModeTrajectory('add-atoms');
             this.setAddAtomsStatus('idle', 'Ready to scatter atoms');
             this.updateAddAtomsRegionPreview();
             return;
@@ -11655,6 +12183,40 @@ class VAseApp {
             });
             return;
         }
+        if (name === 'start-registry-relaxation') {
+            this.aiRequireEdit('start-registry-relaxation');
+            if (this.state.registryRelaxation) {
+                throw new Error('Rigid XY translation mode is already active.');
+            }
+            const indices = this.aiOperationIndices(operation);
+            this.aiSelectIndices(indices);
+            await this.activateRegistryRelaxation(indices);
+            return;
+        }
+        if (name === 'run-registry-relaxation') {
+            this.aiRequireEdit('run-registry-relaxation');
+            await this.runRegistryRelaxation({
+                fmax: operation.fmax,
+                steps: operation.steps,
+                calculator: operation.calculator
+            });
+            return;
+        }
+        if (name === 'stop-registry-relaxation') {
+            this.aiRequireEdit('stop-registry-relaxation');
+            await this.stopRegistryRelaxation();
+            return;
+        }
+        if (name === 'finish-registry-relaxation') {
+            this.aiRequireEdit('finish-registry-relaxation');
+            await this.finishRegistryRelaxation();
+            return;
+        }
+        if (name === 'cancel-registry-relaxation') {
+            this.aiRequireEdit('cancel-registry-relaxation');
+            await this.cancelRegistryRelaxation();
+            return;
+        }
         if (name === 'undo') {
             await this.performUndo();
             return;
@@ -11687,6 +12249,14 @@ class VAseApp {
         }
         if (name === 'stop-relaxation') {
             await this.api.relaxStop();
+            return;
+        }
+        if (name === 'exit-relaxation-mode') {
+            this.aiRequireEdit('exit-relaxation-mode');
+            if (this.state.isRelaxing) {
+                throw new Error('Stop the active structure relaxation before exiting its mode.');
+            }
+            this.clearModeTrajectory('relaxation');
             return;
         }
         if (name === 'refresh-displacements') {
@@ -13113,6 +13683,9 @@ class VAseApp {
                 this.updateVolumetricSurface({ recordHistory: false }).catch(error => {
                     this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);
                 });
+            } else {
+                this.renderer.setVolumetricSurfaceVisibility(false);
+                this.setVolumeStatus('idle', 'Isosurface hidden', '');
             }
             this.renderAllVolumetricPlanes().catch(error => {
                 this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
@@ -14576,12 +15149,74 @@ class VAseApp {
                     this.updateTrajectoryUI();
                 });
             }
+            if (msg.type === 'registry_relax_step') {
+                if (!this.state.registryRelaxation) return;
+                this.state.registryRelaxation = this.registryRelaxationFromMessage(msg);
+                if (Array.isArray(msg.positions)) {
+                    this.state.atoms.positions = msg.positions;
+                    this.state.originalPositions = msg.positions.map(position => [...position]);
+                    if (
+                        !this.state.relaxTrajectory?.active
+                        || this.state.relaxTrajectory?.kind !== 'registry'
+                    ) {
+                        this.startModeTrajectory('registry', 'Rigid XY translation relaxation');
+                    }
+                    this.appendRelaxFrame(msg.positions);
+                    if (this.workspaceActive) this.renderer.updatePositions(msg.positions);
+                    else this.workspaceNeedsRefresh = true;
+                }
+                this.updateRegistryMapMarker(msg.translation_fractional || [0, 0]);
+                this.syncRegistryRelaxationControls();
+            }
+            if (msg.type === 'registry_relax_finished') {
+                if (!this.state.registryRelaxation) return;
+                this.state.registryRelaxation = this.registryRelaxationFromMessage(msg);
+                if (Array.isArray(msg.positions)) {
+                    this.state.atoms.positions = msg.positions;
+                    this.state.originalPositions = msg.positions.map(position => [...position]);
+                    if (
+                        !this.state.relaxTrajectory?.active
+                        || this.state.relaxTrajectory?.kind !== 'registry'
+                    ) {
+                        this.startModeTrajectory('registry', 'Rigid XY translation relaxation');
+                    }
+                    this.appendRelaxFrame(msg.positions, { force: this.relaxFrameCount() <= 1 });
+                    if (this.workspaceActive) this.renderer.updatePositions(msg.positions);
+                    else this.workspaceNeedsRefresh = true;
+                }
+                if (this.state.relaxTrajectory?.kind === 'registry') {
+                    this.state.relaxTrajectory.finished = true;
+                    this.updateTrajectoryUI();
+                }
+                this.updateRegistryMapMarker(msg.translation_fractional || [0, 0]);
+                this.syncRegistryRelaxationControls();
+                const failed = msg.status === 'error';
+                this.toast(
+                    failed
+                        ? `XY translation optimization failed: ${msg.message || 'unknown error'}`
+                        : `XY translation optimization ${msg.status}.`,
+                    failed ? 'error' : 'success'
+                );
+                this.scheduleCollaborationEvent({
+                    source: 'system',
+                    categories: ['structure', 'trajectory', 'analysis'],
+                    changedPaths: ['structure.positions', 'analysis.registryRelaxation'],
+                    summary: `Rigid XY translation optimization ${msg.status}.`
+                });
+            }
             if (msg.type === 'add_atoms_relax_step') {
                 const addition = this.addAtomsUI?.active;
                 if (!addition || (msg.addition_id && addition.id !== msg.addition_id)) return;
                 if (Array.isArray(msg.positions)) {
                     this.state.atoms.positions = msg.positions;
                     this.state.originalPositions = msg.positions.map(position => [...position]);
+                    if (
+                        !this.state.relaxTrajectory?.active
+                        || this.state.relaxTrajectory?.kind !== 'add-atoms'
+                    ) {
+                        this.startModeTrajectory('add-atoms', 'Add Atoms placement');
+                    }
+                    this.appendRelaxFrame(msg.positions);
                     if (this.workspaceActive) this.renderer.updatePositions(msg.positions);
                     else this.workspaceNeedsRefresh = true;
                 }
@@ -14605,12 +15240,23 @@ class VAseApp {
                 if (Array.isArray(msg.positions)) {
                     this.state.atoms.positions = msg.positions;
                     this.state.originalPositions = msg.positions.map(position => [...position]);
+                    if (
+                        !this.state.relaxTrajectory?.active
+                        || this.state.relaxTrajectory?.kind !== 'add-atoms'
+                    ) {
+                        this.startModeTrajectory('add-atoms', 'Add Atoms placement');
+                    }
+                    this.appendRelaxFrame(msg.positions, { force: this.relaxFrameCount() <= 1 });
                     if (this.workspaceActive) this.renderer.updatePositions(msg.positions);
                     else this.workspaceNeedsRefresh = true;
                 }
                 addition.is_relaxing = false;
                 addition.step = Number(msg.step) || addition.step || 0;
                 addition.status = msg.status;
+                if (this.state.relaxTrajectory?.kind === 'add-atoms') {
+                    this.state.relaxTrajectory.finished = true;
+                    this.updateTrajectoryUI();
+                }
                 if (this.state.atoms?.metadata) {
                     this.state.atoms.metadata.atom_addition = { ...addition };
                 }
@@ -15141,7 +15787,15 @@ class VAseApp {
             this.state.trajectoryBinaryCache = null;
             this.state.trajectoryBinaryPromise = null;
             this.state.timelineSource = 'loaded';
-            this.state.relaxTrajectory = { frames: [], frame: 0, sourceFrame: 0, active: false, finished: false };
+            this.state.relaxTrajectory = {
+                frames: [],
+                frame: 0,
+                sourceFrame: 0,
+                active: false,
+                finished: false,
+                kind: null,
+                label: ''
+            };
             this.renderer.needsInitialCameraFit = !settings?.camera;
             this.setAtomsData(data, {
                 clearSelection: true,
@@ -15202,7 +15856,9 @@ class VAseApp {
                 frame: 0,
                 sourceFrame: 0,
                 active: false,
-                finished: false
+                finished: false,
+                kind: null,
+                label: ''
             };
             this.renderer.needsInitialCameraFit = wasEmpty;
             this.setAtomsData(data, {
@@ -16940,12 +17596,12 @@ class VAseApp {
                     this.state.isRelaxing = true;
                     this.toast(response.status === 'restarting' ? 'Relaxation restarting.' : 'Relaxation started.', 'success');
                 } else {
-                    this.state.relaxTrajectory.active = false;
+                    this.clearModeTrajectory('relaxation');
                     this.toast(response.message || 'Relaxation did not start.', 'warning');
                 }
                 this.updateUI();
             } catch (err) {
-                this.state.relaxTrajectory.active = false;
+                this.clearModeTrajectory('relaxation');
                 this.toast(`Relax failed: ${err.message}`, 'error');
             }
         };
@@ -16956,6 +17612,13 @@ class VAseApp {
             } catch (err) {
                 this.toast(`Stop relax failed: ${err.message}`, 'error');
             }
+        };
+        document.getElementById('btn-exit-relax-mode').onclick = () => {
+            if (this.state.isRelaxing) {
+                this.toast('Stop the active relaxation before leaving Relaxation mode.', 'warning');
+                return;
+            }
+            this.clearModeTrajectory('relaxation');
         };
         document.getElementById('calc-device')?.addEventListener('change', () => {
             const cpus = document.getElementById('calc-cpus');
@@ -17252,6 +17915,21 @@ class VAseApp {
                 canvas.focus({ preventScroll: true });
                 return;
             }
+            const addAtomsRegion = this.renderer.pickAddAtomsRegion?.(e);
+            if (addAtomsRegion) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.state.suppressNextPointerUp = true;
+                this.setSunSelected(false, { update: false });
+                this.setAddAtomsRegionSelected(true);
+                this.clearAtomSelection();
+                this.updateSelectionVisuals();
+                canvas.focus({ preventScroll: true });
+                return;
+            }
+            if (this.state.addAtomsRegionSelected) {
+                this.setAddAtomsRegionSelected(false);
+            }
             if (this.state.sunSelected) this.setSunSelected(false, { update: false });
             if (!this.canViewportSelectAtoms()) {
                 this.setHoveredAtom(null);
@@ -17514,6 +18192,16 @@ class VAseApp {
                     }
                     const mode = this.isPhysicalKey(e, 'KeyR', ['r']) ? 'ROTATE' : 'MOVE';
                     this.enterVolumetricPlaneTransformMode(mode);
+                    return;
+                }
+                if (this.state.addAtomsRegionSelected &&
+                    (this.isPhysicalKey(e, 'KeyG', ['g']) || this.isPhysicalKey(e, 'KeyR', ['r']))) {
+                    e.preventDefault();
+                    if (this.isPhysicalKey(e, 'KeyR', ['r'])) {
+                        this.toast('The Cartesian insertion box cannot be rotated. Press G to move it.', 'warning');
+                    } else {
+                        this.enterAddAtomsRegionTransform();
+                    }
                     return;
                 }
                 if (this.isPhysicalKey(e, 'KeyA', ['a'])) {

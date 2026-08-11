@@ -543,27 +543,25 @@ def make_material_preset_scene() -> tuple[Atoms, dict[str, list[int]]]:
 
 
 def make_random_addition_scene() -> tuple[Atoms, dict[str, object]]:
-    """Return a skewed nanoporous host for the v0.2.1 Add Atoms workflow."""
-    host = bulk("Si", "diamond", a=5.43, cubic=True).repeat((3, 3, 2))
-    scaled = host.get_scaled_positions(wrap=False)
+    """Return a skew-cell carbon channel with an unmistakable open volume."""
+    host = nanotube(8, 8, length=5, bond=1.42)
+    axial_length = float(host.cell.lengths()[2])
+    axial_fraction = host.positions[:, 2] / axial_length
     cell = np.asarray([
-        [16.29, 0.00, 0.00],
-        [2.65, 16.29, 0.00],
-        [0.85, 1.35, 10.86],
+        [16.0, 0.0, 0.0],
+        [2.4, 16.0, 0.0],
+        [1.0, 1.4, axial_length],
     ])
+    channel_origin = 0.5 * (cell[0] + cell[1])
+    host.positions[:, 0] += channel_origin[0] + axial_fraction * cell[2, 0]
+    host.positions[:, 1] += channel_origin[1] + axial_fraction * cell[2, 1]
+    host.positions[:, 2] = axial_fraction * cell[2, 2]
     host.set_cell(cell, scale_atoms=False)
-    host.set_scaled_positions(scaled)
     host.pbc = True
-
-    centered = scaled - 0.5
-    centered -= np.round(centered)
-    relative = centered @ cell
-    pore_radius = 3.15
-    keep = np.linalg.norm(relative[:, :2], axis=1) >= pore_radius
-    host = host[keep]
-    set_atom_labels(host, ["Si_framework"] * len(host))
+    host.wrap(eps=1e-10)
+    set_atom_labels(host, ["C_channel"] * len(host))
     host.info.update({
-        "readme_scene": "triclinic_nanoporous_random_addition",
+        "readme_scene": "triclinic_nanotube_random_addition",
         "purpose": "v_ase 0.2.1 random multi-species insertion and repulsive placement",
     })
     return host, {
@@ -572,7 +570,8 @@ def make_random_addition_scene() -> tuple[Atoms, dict[str, object]]:
             {"element": "H", "label": "H_probe", "count": 10},
         ],
         "seed": 2021,
-        "pore_radius": pore_radius,
+        "channel_radius": 5.42,
+        "insertion_half_box": [2.55, 2.55, axial_length * 0.39],
     }
 
 

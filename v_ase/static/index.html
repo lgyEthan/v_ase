@@ -52,12 +52,12 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.2&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.3&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.2.2';
+            : '/static/vendor/three.module.js?v=0.2.3';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -116,7 +116,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.2.2</span>
+            <span class="version">0.2.3</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -404,6 +404,12 @@
                         <label>y max<input id="add-atoms-ymax" type="number" step="0.1"></label>
                         <label>z min<input id="add-atoms-zmin" type="number" step="0.1"></label>
                         <label>z max<input id="add-atoms-zmax" type="number" step="0.1"></label>
+                        <div class="add-atoms-box-role-label">Box role</div>
+                        <div class="add-atoms-region-choice add-atoms-box-role" role="group" aria-label="Cartesian box role">
+                            <button id="add-atoms-region-allowed" class="active" type="button">Allowed</button>
+                            <button id="add-atoms-region-prohibited" type="button">Prohibited</button>
+                        </div>
+                        <p class="add-atoms-box-hint">Select the box in the viewport and press G to move it. Rotation is disabled.</p>
                     </div>
                     <label class="add-atoms-inline-field" for="add-atoms-seed">
                         <span>Random seed</span>
@@ -416,6 +422,10 @@
                     <label class="add-atoms-check-row" for="add-atoms-freeze-existing">
                         <input id="add-atoms-freeze-existing" type="checkbox" checked>
                         <span>Temporarily fix existing atoms</span>
+                    </label>
+                    <label class="add-atoms-check-row" for="add-atoms-allow-escape">
+                        <input id="add-atoms-allow-escape" type="checkbox" checked>
+                        <span>Allow inserted atoms to leave the initial region</span>
                     </label>
                     <div class="add-atoms-cutoff-row">
                         <label>Cutoffs
@@ -860,6 +870,31 @@
             <div id="registry-status" class="analysis-status" data-state="idle">
                 <span class="analysis-status-title">Select a movable layer</span>
                 <span class="analysis-status-detail">The active map constrains G movement to the periodic XY plane.</span>
+            </div>
+            <div class="registry-relax-card">
+                <div class="registry-relax-heading">
+                    <span>Rigid XY relaxation</span>
+                    <span id="registry-relax-mode-badge" class="analysis-mode-badge hidden">ACTIVE</span>
+                </div>
+                <p class="panel-note">
+                    Optimizes one common in-plane translation for the selected atoms. Their internal
+                    coordinates, the host atoms, and the cell remain unchanged.
+                </p>
+                <div class="registry-relax-grid">
+                    <label>fmax / eV Å<sup>−1</sup><input id="registry-relax-fmax" type="number" min="0.0001" step="0.01" value="0.05"></label>
+                    <label>Steps<input id="registry-relax-steps" type="number" min="1" max="100000" step="10" value="100"></label>
+                </div>
+                <div class="registry-relax-actions">
+                    <button id="btn-registry-relax-activate" type="button">Activate</button>
+                    <button id="btn-registry-relax-run" class="primary" type="button" disabled>Optimize Translation</button>
+                    <button id="btn-registry-relax-stop" type="button" disabled>Stop</button>
+                    <button id="btn-registry-relax-cancel" type="button" disabled>Cancel</button>
+                    <button id="btn-registry-relax-finish" class="primary" type="button" disabled>Apply &amp; Exit</button>
+                </div>
+                <div id="registry-relax-status" class="analysis-status compact" data-state="idle">
+                    <span class="analysis-status-title">Mode inactive</span>
+                    <span class="analysis-status-detail">Calculate a map or select a movable layer, then activate.</span>
+                </div>
             </div>
         </details>
 
@@ -1372,8 +1407,16 @@
                 <label>steps</label>
                 <input type="number" id="relax-steps" value="200" step="10" min="1">
             </div>
-            <button id="btn-relax" class="btn-block">Relax</button>
-            <button id="btn-stop-relax" class="btn-block">Stop Relax</button>
+            <div id="relax-mode-status" class="analysis-mode-card">
+                <div class="analysis-mode-card-head">
+                    <strong>Relaxation mode</strong>
+                    <span id="relax-mode-badge" class="analysis-mode-badge hidden">ACTIVE</span>
+                </div>
+                <p id="relax-mode-detail">Optimization frames use a separate movie timeline until this mode is closed.</p>
+            </div>
+            <button id="btn-relax" class="btn-block">Start Relaxation</button>
+            <button id="btn-stop-relax" class="btn-block">Stop Relaxation</button>
+            <button id="btn-exit-relax-mode" class="btn-block hidden">Exit Relaxation Mode</button>
         </details>
 
         <section class="panel-section export-section" data-panel="export" data-panel-group="export">
@@ -1647,7 +1690,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.2.2&rev=1';
+            : './static/main.js?v=0.2.3&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

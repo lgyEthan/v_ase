@@ -55,7 +55,7 @@ def test_registry_bond_strain_requires_and_uses_enabled_interfacial_pairs():
         pair_cutoffs={"C|N": {"enabled": True, "max": 1.7}},
     )
     assert result.baseline_pair_count >= 1
-    assert result.metric_label == "Interfacial bond-strain RMS"
+    assert result.metric_label == "Interfacial pair-length mismatch RMS"
 
     with pytest.raises(ValueError, match="enabled pairwise bond cutoff"):
         calculate_registry_map(atoms, [2], metric="bond-strain")
@@ -71,6 +71,8 @@ def test_registry_map_rejects_an_empty_selection_and_exports_csv():
     assert "v_ase.registry-map.v1" in text
     assert "x_fractional,y_fractional,dx_angstrom,dy_angstrom,dz_angstrom,value" in text
     assert "translation_basis_a_angstrom" in text
+    assert "reference_component,unselected-host" in text
+    assert "mobile_component,selected-guest" in text
     assert "Geometry-only score" in text
 
 
@@ -89,6 +91,9 @@ def test_registry_api_returns_the_plotted_grid_and_the_same_csv_columns():
     response = asyncio.run(registry_analysis_csv(session.session_id, payload))
 
     assert result["schema"] == "v_ase.registry-map.v1"
+    assert result["reference_component"] == "unselected-host"
+    assert result["mobile_component"] == "selected-guest"
+    assert result["translation_domain_fractional"] == [[0.0, 1.0], [0.0, 1.0]]
     assert np.asarray(result["values"]).shape == (5, 6)
     assert (
         b"x_fractional,y_fractional,dx_angstrom,dy_angstrom,dz_angstrom,value"

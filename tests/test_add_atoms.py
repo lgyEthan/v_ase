@@ -19,10 +19,13 @@ from v_ase.add_atoms import (
     cancel_atom_addition,
     cell_cartesian_bounds,
     finish_atom_addition,
+    project_positions_to_region,
     sample_cartesian_box_positions,
     sample_unit_cell_positions,
+    sample_unit_cell_positions_outside_box,
     start_atom_addition,
     start_atom_addition_relaxation,
+    update_atom_addition_region,
 )
 from v_ase.io import atom_labels, set_atom_labels
 from v_ase.session import EditorSession
@@ -122,6 +125,43 @@ def test_cartesian_box_sampling_uses_only_one_periodic_representation():
     assert 0.0 < diagnostics["acceptance_fraction"] < 1.0
 
 
+def test_prohibited_box_sampling_is_uniform_in_one_triclinic_cell():
+    bounds = [2.0, 4.5, 1.4, 3.8, 1.2, 4.1]
+    positions, diagnostics = sample_unit_cell_positions_outside_box(
+        TRICLINIC_CELL,
+        bounds,
+        30_000,
+        seed=907,
+    )
+    fractional = positions @ np.linalg.inv(TRICLINIC_CELL)
+    assert np.all(fractional >= 0.0)
+    assert np.all(fractional < 1.0)
+    lower = np.asarray(bounds[::2])
+    upper = np.asarray(bounds[1::2])
+    assert not np.any(np.all((positions >= lower) & (positions <= upper), axis=1))
+    assert 0.0 < diagnostics["acceptance_fraction"] < 1.0
+
+
+def test_prohibited_region_projection_moves_only_inside_mobile_atoms():
+    positions = np.asarray([
+        [2.0, 2.0, 2.0],
+        [2.5, 2.4, 2.3],
+        [5.0, 5.0, 5.0],
+    ])
+    projected = project_positions_to_region(
+        positions,
+        cell=np.diag([8.0, 8.0, 8.0]),
+        pbc=True,
+        mode="box",
+        bounds=[1.0, 3.0, 1.0, 3.0, 1.0, 3.0],
+        indices=[1, 2],
+        prohibited=True,
+    )
+    np.testing.assert_array_equal(projected[0], positions[0])
+    assert not np.all((projected[1] >= 1.0) & (projected[1] <= 3.0))
+    np.testing.assert_array_equal(projected[2], positions[2])
+
+
 def test_random_addition_cancel_restores_every_host_property_and_history():
     host = make_host()
     session = EditorSession("add-cancel", host.copy(), host.copy())
@@ -199,6 +239,41 @@ def test_random_addition_finish_reconstructs_host_from_immutable_baseline():
     np.testing.assert_allclose(session.working_atoms.positions[len(host) :], inserted_before)
     assert atom_labels(session.working_atoms)[len(host) :] == ["Li_inserted"] * 8
     assert session.atom_addition is None
+
+
+def test_add_atoms_box_role_and_escape_policy_are_independent_and_movable():
+    host = make_host()
+    session = EditorSession("add-region-policy", host.copy(), host.copy())
+    bounds = [2.0, 4.5, 1.4, 3.8, 1.2, 4.1]
+    summary = start_atom_addition(session, {
+        "element": "Li",
+        "label": "Li_inserted",
+        "count": 24,
+        "region_mode": "box",
+        "region_role": "prohibited",
+        "allow_escape": True,
+        "bounds": bounds,
+        "seed": 17,
+    })
+    assert summary["region_role"] == "prohibited"
+    assert summary["allow_escape"] is True
+    inserted = session.working_atoms.positions[summary["new_indices"]]
+    lower = np.asarray(bounds[::2])
+    upper = np.asarray(bounds[1::2])
+    assert not np.any(np.all((inserted >= lower) & (inserted <= upper), axis=1))
+
+    moved = [2.3, 4.8, 1.1, 3.5, 1.5, 4.4]
+    updated = update_atom_addition_region(session, {
+        "bounds": moved,
+        "allow_escape": False,
+    })
+    assert updated["bounds"] == moved
+    assert updated["region_role"] == "prohibited"
+    assert updated["allow_escape"] is False
+    np.testing.assert_array_equal(
+        session.working_atoms.positions[summary["new_indices"]],
+        inserted,
+    )
 
 
 def test_addition_repulsion_uses_mic_and_moves_only_tag_three_atoms():
@@ -418,6 +493,8 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
 
             page.click("#btn-create-atom-toggle")
             page.click("#add-atoms-tab-batch")
+            assert page.locator("#add-atoms-allow-escape").is_checked()
+            page.click("#add-atoms-region-box")
             page.wait_for_function(
                 "window.__ASE_APP__.renderer.addAtomsRegionGroup.visible === true"
             )
@@ -451,6 +528,32 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
                 "window.__ASE_APP__.state.selected.size"
             ) == 13
 
+            original_bounds = page.evaluate(
+                "[...window.__ASE_APP__.addAtomsUI.active.bounds]"
+            )
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.setAddAtomsRegionSelected(true);
+                app.renderer.domElement.focus();
+            }""")
+            page.keyboard.press("r")
+            assert page.evaluate("window.__ASE_APP__.transform.mode") == "IDLE"
+            page.keyboard.press("g")
+            page.keyboard.press("x")
+            page.keyboard.type("1")
+            page.keyboard.press("Enter")
+            page.wait_for_function(
+                "bounds => Math.abs(window.__ASE_APP__.addAtomsUI.active.bounds[0] - bounds[0] - 1) < 1e-8",
+                arg=original_bounds,
+            )
+            moved_bounds = page.evaluate(
+                "[...window.__ASE_APP__.addAtomsUI.active.bounds]"
+            )
+            assert moved_bounds[:2] == pytest.approx(
+                [original_bounds[0] + 1, original_bounds[1] + 1]
+            )
+            assert moved_bounds[2:] == pytest.approx(original_bounds[2:])
+
             backend = sessions[editor.session_id]
             assert [repr(item) for item in backend.working_atoms.constraints] == [
                 repr(item) for item in host.constraints
@@ -466,6 +569,14 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
                 "window.__ASE_APP__.addAtomsUI?.active?.is_relaxing === false",
                 timeout=20_000,
             )
+            mode_timeline = page.evaluate("""() => ({
+                active: window.__ASE_APP__.state.relaxTrajectory.active,
+                kind: window.__ASE_APP__.state.relaxTrajectory.kind,
+                frames: window.__ASE_APP__.state.relaxTrajectory.frames.length
+            })""")
+            assert mode_timeline["active"] is True
+            assert mode_timeline["kind"] == "add-atoms"
+            assert mode_timeline["frames"] >= 2
             assert_host_unchanged(host, backend.atom_addition.baseline_atoms)
 
             page.click("#btn-add-atoms-finish")
@@ -475,6 +586,10 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             assert page.evaluate(
                 "window.__ASE_APP__.renderer.addAtomsRegionGroup.visible"
             ) is False
+            assert page.evaluate("""() => ({
+                active: window.__ASE_APP__.state.relaxTrajectory.active,
+                kind: window.__ASE_APP__.state.relaxTrajectory.kind
+            })""") == {"active": False, "kind": None}
             assert_host_unchanged(host, backend.working_atoms)
             assert len(backend.working_atoms) == len(host) + 13
             assert atom_labels(backend.working_atoms)[-13:] == ["Li_mobile"] * 8 + ["H_probe"] * 5

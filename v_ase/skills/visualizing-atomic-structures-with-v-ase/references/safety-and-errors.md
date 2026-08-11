@@ -67,6 +67,14 @@ test edit and a new filename for output.
 - Triclinic cell scattering is uniform in fractional coordinates. A Cartesian
   box samples its intersection with one half-open primary periodic cell; do
   not sample every overlapping periodic image or claim a regular distribution.
+  `regionRole` controls initial allowed versus prohibited space.
+  `allowEscape:true` is the default and removes that boundary during repulsive
+  placement; do not describe the initial box as a permanent confinement unless
+  `allowEscape:false` is explicitly set.
+- Rigid registry relaxation is not an atomic relaxation. It may change only one
+  common selected-component translation in the periodic XY plane. Verify the
+  host, cell, selected internal geometry, and selected z coordinates exactly;
+  do not call the projected net force a per-atom force or an energy gradient.
 - Angle and torsion measurements preserve selection order and do not use MIC.
 - Volumetric linear combinations are valid only for grids with the same
   dimensions, cell, origin, PBC, endpoint convention, and scalar units.
@@ -101,6 +109,8 @@ test edit and a new filename for output.
 | Repulsive placement is already running | A second optimizer start overlapped the first | Poll events/state; stop or wait before retrying |
 | Stop or wait for repulsive placement before finishing | Finish was requested while the background optimizer still owns staged coordinates | Run `stop-added-atoms` or wait, verify inactive state, then finish |
 | Cartesian insertion box has too little overlap | The requested AABB barely intersects the primary triclinic cell | Enlarge or move the box; never fill it from duplicate periodic images |
+| whole unit cell cannot be prohibited | `regionMode:"cell"` was combined with `regionRole:"prohibited"` | Use a Cartesian box for the excluded volume or keep the full cell allowed |
+| insertion box cannot be rotated | `R` was requested for a Cartesian min/max region | Translate it with `G` or edit its six bounds; do not invent rotated AABB semantics |
 | atom labels must match atom count | Inconsistent topology metadata | Reload/describe; do not invent missing identities |
 | wrap requires a cell | Cell is undefined | Stop and ask for a valid cell |
 | supercell rejected | Invalid repetition or integer matrix | Validate bounds and determinant |
@@ -111,6 +121,9 @@ test edit and a new filename for output.
 | commensurate materialization unsupported | Trajectory, volumetric data, or an ambiguous cross-layer Hookean constraint is active | Keep/dismiss the preview; do not force an inferred topology or field transform |
 | registry map asks for selected guest/interface atoms | No selected indices were supplied | Select the moving layer/adsorbate and retry |
 | bond-strain registry has no enabled pair | No selected-to-host bond is inside an enabled pairwise cutoff | Enable scientifically intended label pairs or use the short-contact score; do not fabricate a cutoff |
+| activate XY translation relaxation first | A run/finish request has no active rigid-registry mode | Start the mode with the current selected component and re-describe before continuing |
+| leave at least one unselected host atom | The selected component contains the complete structure | Select only the movable layer; rigid translation needs an unselected reference component |
+| rigid registry relaxation requires global XY | The periodic interface is tilted or lacks two independent in-plane vectors | Reorient the cell explicitly or use ordinary relaxation; do not project coordinates silently |
 | repeated atoms cannot be selected | Edit keeps preview replicas noneditable | Use View for replica measurements or materialize with Set Supercell as Cell |
 | relaxation requires calculator | No ASE calculator is attached | Attach a supported calculator or do not relax |
 | optional 3DM export fails | `rhino3dm` is absent | Install `v_ase-gui[rhino]` |

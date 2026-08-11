@@ -81,8 +81,11 @@ class RegistryMapResult:
             "metric_label": self.metric_label,
             "selected_indices": list(self.selected_indices),
             "host_indices": list(self.host_indices),
+            "reference_component": "unselected-host",
+            "mobile_component": "selected-guest",
             "periodic_axes": list(self.periodic_axes),
             "translation_basis_angstrom": self.translation_basis.tolist(),
+            "translation_domain_fractional": [[0.0, 1.0], [0.0, 1.0]],
             "optimum_fractional": list(self.optimum_fractional),
             "optimum_value": self.optimum_value,
             "baseline_pair_count": self.baseline_pair_count,
@@ -197,7 +200,7 @@ def calculate_registry_map(
     metric_label = (
         "Normalized short-contact score"
         if mode == "short-contact"
-        else "Interfacial bond-strain RMS"
+        else "Interfacial pair-length mismatch RMS"
     )
     warnings = (
         "Geometry-only score; validate the suggested registry with an appropriate energy calculation.",
@@ -227,6 +230,9 @@ def registry_map_csv(result: RegistryMapResult) -> bytes:
     writer.writerow(["# metric_label", result.metric_label])
     writer.writerow(["# lower_is_better", "true"])
     writer.writerow(["# selected_indices", " ".join(str(value) for value in result.selected_indices)])
+    writer.writerow(["# mobile_component", "selected-guest"])
+    writer.writerow(["# reference_component", "unselected-host"])
+    writer.writerow(["# translation_domain_fractional", "0 <= u < 1; 0 <= v < 1"])
     writer.writerow(["# periodic_axes", *result.periodic_axes])
     writer.writerow([
         "# translation_basis_a_angstrom",
