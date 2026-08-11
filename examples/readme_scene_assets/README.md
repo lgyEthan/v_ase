@@ -2,17 +2,17 @@
 
 ## add-atoms
 
-Skewed nanoporous silicon host for random multi-species insertion and isolated repulsive placement.
+Dense bonded triclinic silicon framework for random multi-species insertion and interstitial repulsive placement.
 
-- Static: `triclinic_nanoporous_add_atoms.traj`
+- Static: `triclinic_bonded_si_add_atoms.traj`
 - Suggested selected indices: ``
-- Scatter 18 Li_mobile and 10 H_probe atoms with random seed 2021.
+- Scatter 10 Li_mobile and 8 H_probe atoms with random seed 2021.
 - The host remains unchanged while only inserted atoms follow the pairwise repulsion.
 
 Open command:
 
 ```bash
-v_ase gui examples/readme_scene_assets/triclinic_nanoporous_add_atoms.traj --show-bonds
+v_ase gui examples/readme_scene_assets/triclinic_bonded_si_add_atoms.traj --show-bonds
 ```
 
 ## phosphorene

@@ -14,6 +14,7 @@ from v_ase.registry_relax import (
     cancel_registry_relaxation_mode,
     finish_registry_relaxation_mode,
     run_registry_relaxation,
+    set_registry_translation,
     start_registry_relaxation_mode,
 )
 from v_ase.session import EditorSession, copy_atoms_with_calc
@@ -28,7 +29,12 @@ class RigidTranslationWell(Calculator):
         super().__init__()
         self.reference = np.asarray(reference, dtype=float).copy()
         self.selected = np.asarray(selected, dtype=int)
-        self.target = np.asarray(target, dtype=float)
+        requested = np.asarray(target, dtype=float)
+        self.target = (
+            np.asarray([requested[0], requested[1], 0.0], dtype=float)
+            if requested.shape == (2,)
+            else requested
+        )
         self.stiffness = float(stiffness)
 
     def calculate(self, atoms=None, properties=("energy", "forces"), system_changes=all_changes):
@@ -37,10 +43,10 @@ class RigidTranslationWell(Calculator):
             atoms.positions[self.selected] - self.reference[self.selected],
             axis=0,
         )
-        residual = displacement[:2] - self.target
+        residual = displacement - self.target
         energy = 0.5 * self.stiffness * float(np.dot(residual, residual))
         forces = np.zeros((len(atoms), 3), dtype=float)
-        forces[self.selected, :2] = -self.stiffness * residual / len(self.selected)
+        forces[self.selected] = -self.stiffness * residual / len(self.selected)
         self.results = {"energy": energy, "forces": forces}
 
 
@@ -77,7 +83,7 @@ def test_registry_relaxation_changes_only_one_common_xy_translation(monkeypatch)
 
     summary = start_registry_relaxation_mode(session, selected)
     assert summary["periodic_axes"] == [0, 1]
-    assert summary["coordinate_basis"] == "fractional-cell"
+    assert summary["coordinate_basis"] == "fractional-plane-lattice"
     assert summary["reference_component"] == "unselected-host"
     assert summary["mobile_component"] == "selected-guest"
     run_registry_relaxation(session, {"fmax": 1e-7, "steps": 100})
@@ -185,7 +191,7 @@ def test_registry_relaxation_finish_is_one_undoable_change(monkeypatch):
     np.testing.assert_array_equal(session.working_atoms.positions, baseline)
 
 
-def test_registry_mode_rejects_non_xy_interfaces_and_whole_structure_selection():
+def test_registry_mode_rejects_incompatible_periodic_planes_and_whole_structure_selection():
     session, selected = make_registry_session("registry-invalid")
     with np.testing.assert_raises_regex(ValueError, "unselected host"):
         start_registry_relaxation_mode(session, range(len(session.working_atoms)))
@@ -196,5 +202,73 @@ def test_registry_mode_rejects_non_xy_interfaces_and_whole_structure_selection()
         [0.0, 0.0, 12.0],
     ]
     session.working_atoms.pbc = [True, False, True]
-    with np.testing.assert_raises_regex(ValueError, "global XY plane"):
+    with np.testing.assert_raises_regex(ValueError, "does not contain two translations"):
         start_registry_relaxation_mode(session, selected)
+
+
+def test_registry_relaxation_supports_a_skew_non_axis_aligned_periodic_plane(monkeypatch):
+    session, selected = make_registry_session("registry-hkl")
+    monkeypatch.setattr("v_ase.registry_relax.ws_manager.broadcast_sync", lambda *_args, **_kwargs: None)
+    cell = np.asarray([
+        [6.0, 0.4, 0.2],
+        [1.2, 5.5, 0.3],
+        [0.7, 0.8, 10.0],
+    ])
+    session.working_atoms.cell = cell
+    session.working_atoms.pbc = True
+    baseline = session.working_atoms.positions.copy()
+    target_coordinates = np.asarray([0.08, -0.035])
+    target_translation = target_coordinates @ cell[[1, 2]]
+    session.working_atoms.calc = RigidTranslationWell(
+        baseline,
+        selected,
+        target=target_translation,
+    )
+
+    summary = start_registry_relaxation_mode(session, selected, hkl=(1, 0, 0))
+    assert summary["hkl"] == [1, 0, 0]
+    np.testing.assert_array_equal(summary["plane_integer_basis"], [[0, 1, 0], [0, 0, 1]])
+    run_registry_relaxation(session, {"fmax": 1e-8, "steps": 100})
+    wait_for_mode(session)
+
+    final = session.working_atoms.positions.copy()
+    np.testing.assert_allclose(final[:2], baseline[:2], atol=0.0)
+    np.testing.assert_allclose(
+        final[selected[1]] - final[selected[0]],
+        baseline[selected[1]] - baseline[selected[0]],
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        np.mean(final[selected] - baseline[selected], axis=0),
+        target_translation,
+        atol=2e-5,
+    )
+    np.testing.assert_allclose(
+        session.registry_relaxation.current_coordinates,
+        target_coordinates,
+        atol=2e-5,
+    )
+    np.testing.assert_allclose(session.working_atoms.cell.array, cell, atol=0.0)
+
+
+def test_manual_registry_translation_is_exact_reversible_and_preserves_the_cell():
+    session, selected = make_registry_session("registry-manual-hkl")
+    session.working_atoms.pbc = True
+    baseline = session.working_atoms.positions.copy()
+    baseline_cell = session.working_atoms.cell.array.copy()
+    start_registry_relaxation_mode(session, selected, hkl=(1, 0, 0))
+    mode = session.registry_relaxation
+    coordinates = np.asarray([0.23, -0.17])
+
+    summary = set_registry_translation(session, coordinates)
+    expected = baseline.copy()
+    expected[selected] += coordinates @ mode.translation_basis
+    np.testing.assert_allclose(session.working_atoms.positions, expected, atol=1e-12)
+    np.testing.assert_allclose(summary["translation_coordinates"], coordinates)
+    np.testing.assert_allclose(session.working_atoms.cell.array, baseline_cell, atol=0.0)
+
+    set_registry_translation(session, [0.0, 0.0])
+    np.testing.assert_allclose(session.working_atoms.positions, baseline, atol=0.0)
+    cancel_registry_relaxation_mode(session)
+    np.testing.assert_allclose(session.working_atoms.positions, baseline, atol=0.0)
+    assert not session.history

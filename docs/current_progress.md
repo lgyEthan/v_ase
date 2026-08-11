@@ -373,20 +373,21 @@ and documentation use `view()`.
     metadata. A deterministic graphene/Cu(111) host/guest fixture and complete
     numerical validation are provided under `examples/commensurate_host_guest`
     and `docs/commensurate_validation.md`.
-    The XY registry map scans a selected layer over one host-reference fractional in-plane
-    cell with either a short-contact or enabled-pair bond-strain geometry
-    score. It constrains live `G` motion to XY, tracks the current periodic
-    translation, and exports the complete plotted grid. These scores are
-    geometry screens, not energies. A separate calculator-driven mode optimizes
-    exactly two rigid in-plane translation coordinates while preserving host,
-    cell, selected internal, and selected z geometry. It reports projected net
-    selected force in eV/Angstrom, owns a temporary timeline, commits as one
-    undo step, and cancels to the exact baseline.
+    Planar Translation constructs a primitive periodic lattice in any compatible
+    `(hkl)` plane. Its optional map scans a selected rigid component over one
+    complete plane cell with either a short-contact or enabled-pair bond-strain
+    geometry score. Live `G` motion is projected into the same plane, the cell
+    and component internal vectors remain fixed, and CSV export includes the
+    exact integer and Cartesian bases. These scores are geometry screens, not
+    energies. A separate calculator-driven mode optimizes exactly two rigid
+    plane coordinates, reports projected net selected force in eV/Angstrom,
+    owns a temporary timeline, commits as one undo step, and cancels to the
+    exact baseline.
 65. Workspace activation and browser resizing update the camera-signature
     baseline but are not collaboration edits. A `describe()` revision is not
     invalidated by iframe activation or framebuffer aspect changes; deliberate
     human camera controls continue to publish revisioned camera events.
-66. Source, structure-relaxation, Add Atoms placement, and rigid XY timelines
+66. Source, structure-relaxation, Add Atoms placement, and rigid planar timelines
     have explicit owners. Closing a mode removes only its temporary optimizer
     timeline; commit/cancel behavior remains operation-specific.
 
@@ -522,7 +523,7 @@ Current benchmark method and results are in [performance.md](performance.md).
 3. Full `pytest` suite.
 4. Real Chromium browser workflows, including large trajectories, supercells,
    bonds, constraints, volumetric surfaces, RDF/CSV, same-lattice and
-   independent-host/guest common cells, XY registry maps, preview/export parity,
+   independent-host/guest common cells, planar translation maps, preview/export parity,
    and multiple documents.
 5. 15,000-atom browser benchmark with zero idle render frames.
 6. Blender runtime and 15,000-atom optimized scene benchmark when Blender is

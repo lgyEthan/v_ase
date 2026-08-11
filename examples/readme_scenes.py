@@ -247,33 +247,37 @@ def make_ai_pyridinic_graphene_scene() -> tuple[Atoms, Atoms, dict[str, object]]
     }
 
 
-def make_benzene_pi_volumetric_scene(
-    shape: tuple[int, int, int] = (56, 56, 56),
+def make_graphene_pi_volumetric_scene(
+    shape: tuple[int, int, int] = (104, 104, 104),
 ) -> tuple[Atoms, np.ndarray]:
-    """Return benzene and a signed, orbital-like pi scalar field.
+    """Return a graphene flake and a signed, orbital-like pi scalar field.
 
-    The field is generated analytically from carbon-centered pz Gaussians. It
-    is a deterministic visualization example rather than a DFT wavefunction.
+    The field is generated analytically from alternating carbon-centered pz
+    Gaussians. It is a deterministic visualization example rather than a DFT
+    wavefunction, and its multi-center variation makes moving plane slices
+    visually testable without redistributing electronic-structure data.
     """
 
-    atoms = molecule("C6H6")
-    cell = np.diag([14.0, 14.0, 14.0])
-    center = np.array([7.0, 7.0, 7.0])
+    atoms = graphene(formula="C2", a=2.46, size=(4, 3, 1), vacuum=0.0)
+    # Decimal cell lengths survive the text precision of the portable Cube
+    # writer exactly enough to match the live structure geometry.
+    cell = np.diag([17.5, 11.5, 13.0])
+    center = 0.5 * np.diag(cell)
     atoms.positions += center - np.mean(atoms.positions, axis=0)
     atoms.set_cell(cell)
     atoms.pbc = True
-    set_atom_labels(
-        atoms,
-        ["C_pi" if symbol == "C" else "H" for symbol in atoms.get_chemical_symbols()],
-    )
+    set_atom_labels(atoms, [
+        "C_pi_A" if index % 2 == 0 else "C_pi_B"
+        for index in range(len(atoms))
+    ])
 
     axes = [np.arange(size, dtype=float) / size for size in shape]
     fractional = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1)
     values = np.zeros(shape, dtype=np.float32)
-    for position, symbol in zip(
+    for atom_index, (position, symbol) in enumerate(zip(
         atoms.get_scaled_positions(wrap=True),
         atoms.get_chemical_symbols(),
-    ):
+    )):
         if symbol != "C":
             continue
         delta = fractional - position
@@ -284,14 +288,15 @@ def make_benzene_pi_volumetric_scene(
             cartesian,
             cartesian,
         )
-        values += (
+        phase = 1.0 if atom_index % 2 == 0 else -1.0
+        values += phase * (
             cartesian[..., 2]
-            * np.exp(-radius_squared / (2.0 * 0.72**2))
+            * np.exp(-radius_squared / (2.0 * 0.68**2))
         ).astype(np.float32)
 
     atoms.info.update({
-        "readme_scene": "benzene_signed_pi_isosurface",
-        "volumetric_model": "carbon-centered analytic pz Gaussian field",
+        "readme_scene": "graphene_signed_pi_isosurface",
+        "volumetric_model": "alternating carbon-centered analytic pz Gaussian field",
     })
     return atoms, values
 
@@ -543,35 +548,41 @@ def make_material_preset_scene() -> tuple[Atoms, dict[str, list[int]]]:
 
 
 def make_random_addition_scene() -> tuple[Atoms, dict[str, object]]:
-    """Return a skew-cell carbon channel with an unmistakable open volume."""
-    host = nanotube(8, 8, length=5, bond=1.42)
-    axial_length = float(host.cell.lengths()[2])
-    axial_fraction = host.positions[:, 2] / axial_length
+    """Return a dense triclinic Si framework with small interstitial voids."""
+
+    host = bulk("Si", "diamond", a=5.43, cubic=True).repeat((3, 3, 2))
+    fractional = host.get_scaled_positions(wrap=False)
+    lengths = host.cell.lengths()
     cell = np.asarray([
-        [16.0, 0.0, 0.0],
-        [2.4, 16.0, 0.0],
-        [1.0, 1.4, axial_length],
+        [lengths[0], 0.0, 0.0],
+        [2.15, lengths[1], 0.0],
+        [1.05, 1.35, lengths[2]],
     ])
-    channel_origin = 0.5 * (cell[0] + cell[1])
-    host.positions[:, 0] += channel_origin[0] + axial_fraction * cell[2, 0]
-    host.positions[:, 1] += channel_origin[1] + axial_fraction * cell[2, 1]
-    host.positions[:, 2] = axial_fraction * cell[2, 2]
     host.set_cell(cell, scale_atoms=False)
+    host.set_scaled_positions(fractional)
     host.pbc = True
     host.wrap(eps=1e-10)
-    set_atom_labels(host, ["C_channel"] * len(host))
+    center = 0.5 * np.sum(cell, axis=0)
+    # Two nearby vacancies make the final interstitial destinations legible,
+    # while the insertion box still begins inside a dense bonded framework.
+    distances = np.linalg.norm(host.positions - center, axis=1)
+    vacancy_indices = sorted(np.argsort(distances)[:2].tolist(), reverse=True)
+    for index in vacancy_indices:
+        del host[index]
+    set_atom_labels(host, ["Si_framework"] * len(host))
     host.info.update({
-        "readme_scene": "triclinic_nanotube_random_addition",
+        "readme_scene": "triclinic_bonded_si_random_addition",
         "purpose": "v_ase 0.2.1 random multi-species insertion and repulsive placement",
     })
     return host, {
         "entries": [
-            {"element": "Li", "label": "Li_mobile", "count": 18},
-            {"element": "H", "label": "H_probe", "count": 10},
+            {"element": "Li", "label": "Li_mobile", "count": 10},
+            {"element": "H", "label": "H_probe", "count": 8},
         ],
         "seed": 2021,
-        "channel_radius": 5.42,
-        "insertion_half_box": [2.55, 2.55, axial_length * 0.39],
+        "vacancy_count": len(vacancy_indices),
+        "insertion_center": center.tolist(),
+        "insertion_half_box": [3.15, 3.15, 2.85],
     }
 
 
@@ -880,10 +891,10 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
         info = SceneInfo(
             name=name,
             description=(
-                "Skewed nanoporous silicon host for random multi-species insertion "
-                "and isolated repulsive placement."
+                "Dense bonded triclinic silicon framework for random multi-species "
+                "insertion and interstitial repulsive placement."
             ),
-            static_file="triclinic_nanoporous_add_atoms.traj",
+            static_file="triclinic_bonded_si_add_atoms.traj",
             selected_indices=(),
             notes=(
                 f"Scatter {entries[0]['count']} Li_mobile and {entries[1]['count']} "

@@ -55,7 +55,7 @@ from .commensurate import (
     row_rotation_matrix,
 )
 from .analysis import calculate_rdf, rdf_csv
-from .atom_scalars import atom_scalar_catalog, atom_scalar_values
+from .atom_scalars import atom_force_vectors, atom_scalar_catalog, atom_scalar_values
 from .colormaps import colormap_catalog, colormap_lut
 from .registry import calculate_registry_map, registry_map_csv
 from .registry_relax import (
@@ -63,6 +63,7 @@ from .registry_relax import (
     finish_registry_relaxation_mode,
     registry_relaxation_summary,
     run_registry_relaxation,
+    set_registry_translation,
     start_registry_relaxation_mode,
     stop_registry_relaxation,
 )
@@ -238,6 +239,7 @@ def v_ase_license_text() -> str:
 MAX_INLINE_TRAJECTORY_CACHE_VALUES = 750_000
 MAX_BINARY_TRAJECTORY_CACHE_VALUES = 30_000_000
 MAX_ATOM_SCALAR_CACHE_VALUES = 20_000_000
+MAX_FORCE_VECTOR_CACHE_VALUES = 6_000_000
 MAX_UPLOADED_STRUCTURE_BYTES = 64 * 1024 * 1024 * 1024
 MAX_UPLOADED_IMAGE_BYTES = 512 * 1024 * 1024
 MAX_UPLOADED_VIDEO_BYTES = 2 * 1024 * 1024 * 1024
@@ -368,6 +370,7 @@ AI_CONTROL_SCHEMA = {
                 "calculate-commensurate, apply-commensurate-cell, "
                 "dismiss-commensurate-cell, calculate-registry-map, "
                 "start-registry-relaxation, run-registry-relaxation, "
+                "set-registry-translation, "
                 "stop-registry-relaxation, finish-registry-relaxation, "
                 "cancel-registry-relaxation, undo, redo, "
                 "reset-coordinates, start-relaxation, stop-relaxation, "
@@ -416,6 +419,7 @@ AI_CONTROL_SCHEMA = {
                                 "calculate-registry-map",
                                 "start-registry-relaxation",
                                 "run-registry-relaxation",
+                                "set-registry-translation",
                                 "stop-registry-relaxation",
                                 "finish-registry-relaxation",
                                 "cancel-registry-relaxation",
@@ -510,6 +514,16 @@ AI_CONTROL_SCHEMA = {
                             "then": {
                                 "properties": {
                                     "pairCutoffs": {"type": "object"},
+                                    "hkl": {
+                                        "type": "array",
+                                        "prefixItems": [
+                                            {"type": "integer"},
+                                            {"type": "integer"},
+                                            {"type": "integer"},
+                                        ],
+                                        "minItems": 3,
+                                        "maxItems": 3,
+                                    },
                                     "freezeExisting": {"type": "boolean"},
                                     "strength": {"type": "number", "minimum": 0, "maximum": 1000},
                                     "boundaryStrength": {
@@ -726,6 +740,28 @@ AI_CONTROL_SCHEMA = {
                             "if": {
                                 "required": ["name"],
                                 "properties": {
+                                    "name": {"const": "set-registry-translation"},
+                                },
+                            },
+                            "then": {
+                                "required": ["coordinates"],
+                                "properties": {
+                                    "coordinates": {
+                                        "type": "array",
+                                        "prefixItems": [
+                                            {"type": "number"},
+                                            {"type": "number"},
+                                        ],
+                                        "minItems": 2,
+                                        "maxItems": 2,
+                                    },
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
                                     "name": {"const": "calculate-registry-map"},
                                 },
                             },
@@ -745,6 +781,16 @@ AI_CONTROL_SCHEMA = {
                                         "type": "integer", "minimum": 4, "maximum": 160
                                     },
                                     "pairCutoffs": {"type": "object"},
+                                    "hkl": {
+                                        "type": "array",
+                                        "prefixItems": [
+                                            {"type": "integer"},
+                                            {"type": "integer"},
+                                            {"type": "integer"},
+                                        ],
+                                        "minItems": 3,
+                                        "maxItems": 3,
+                                    },
                                 },
                             },
                         },
@@ -762,6 +808,16 @@ AI_CONTROL_SCHEMA = {
                                         "items": {"type": "integer", "minimum": 0},
                                         "minItems": 1,
                                         "uniqueItems": True,
+                                    },
+                                    "hkl": {
+                                        "type": "array",
+                                        "prefixItems": [
+                                            {"type": "integer"},
+                                            {"type": "integer"},
+                                            {"type": "integer"},
+                                        ],
+                                        "minItems": 3,
+                                        "maxItems": 3,
                                     },
                                 },
                             },
@@ -1160,21 +1216,30 @@ AI_OPERATION_PARAMETERS = {
     "calculate-registry-map": {
         "mode": "view-or-edit",
         "required": ["selection-or-indices"],
-        "optional": ["indices", "metric", "gridX", "gridY", "pairCutoffs"],
+        "optional": ["indices", "metric", "gridX", "gridY", "pairCutoffs", "hkl"],
         "notes": (
-            "Scans one periodic XY cell for the selected movable layer. metric is "
-            "short-contact or bond-strain; both are geometry scores, not energies."
+            "Scans one primitive periodic translation cell in the requested (hkl) plane. "
+            "metric is short-contact or bond-strain; both are geometry scores, not energies."
         ),
     },
     "start-registry-relaxation": {
         "mode": "edit",
         "required": ["selection-or-indices"],
-        "optional": ["indices"],
+        "optional": ["indices", "hkl"],
         "notes": (
             "Activates the rigid registry-translation mode for a selected guest or "
-            "interface component. Only one common translation in the periodic XY plane "
+            "interface component. Only one common translation in the periodic (hkl) plane "
             "can change; host coordinates, cell vectors, and all selected internal "
             "relative coordinates remain invariant."
+        ),
+    },
+    "set-registry-translation": {
+        "mode": "edit",
+        "required": ["active-registry-relaxation", "coordinates"],
+        "optional": [],
+        "notes": (
+            "Sets the two unwrapped coefficients of the active primitive plane-lattice "
+            "basis without moving the cell or changing selected internal coordinates."
         ),
     },
     "run-registry-relaxation": {
@@ -1362,8 +1427,11 @@ AI_EXPORT_PARAMETERS = {
         ),
     },
     "registry-csv": {
-        "optional": ["indices", "metric", "gridX", "gridY", "pairCutoffs"],
-        "notes": "Exports the full periodic XY translation grid and metric values.",
+        "optional": ["indices", "metric", "gridX", "gridY", "pairCutoffs", "hkl"],
+        "notes": (
+            "Exports the complete periodic (hkl) translation grid, its exact "
+            "lattice basis, Cartesian vectors, and geometry metric values."
+        ),
     },
 }
 
@@ -1760,7 +1828,7 @@ def require_no_registry_relaxation(session: EditorSession, action: str = "This o
     if session.registry_relaxation is not None:
         raise HTTPException(
             status_code=409,
-            detail=f"Apply or cancel XY translation relaxation before {action.lower()}.",
+            detail=f"Apply or cancel planar translation relaxation before {action.lower()}.",
         )
 
 
@@ -5369,6 +5437,66 @@ async def per_atom_scalar_values(session_id: str, payload: Dict[str, Any]):
     )
 
 
+def _session_force_vector_values(session: EditorSession, payload: Dict[str, Any]):
+    requested_frame = int(payload.get("frame_index", session.current_frame))
+    requested_all_frames = bool(payload.get("all_frames", False))
+
+    with session.mode_transition_lock:
+        current_atoms = _atom_scalar_frame_atoms(session, requested_frame)
+        atom_count = len(current_atoms)
+        can_cache_trajectory = (
+            requested_all_frames
+            and session.frame_count > 1
+            and trajectory_layout_compatible(session)
+            and session.frame_count * atom_count * 3 <= MAX_FORCE_VECTOR_CACHE_VALUES
+        )
+        frame_indices = range(session.frame_count) if can_cache_trajectory else (requested_frame,)
+        start_frame = 0 if can_cache_trajectory else requested_frame
+        values = np.full((len(frame_indices), atom_count, 3), np.nan, dtype=np.float32)
+        for output_index, frame_index in enumerate(frame_indices):
+            fast_reader = getattr(session.trajectory_source, "read_force_vectors", None)
+            vectors = None
+            if callable(fast_reader) and frame_index != session.current_frame:
+                vectors = fast_reader(frame_index)
+            if vectors is None:
+                atoms = current_atoms if frame_index == requested_frame else _atom_scalar_frame_atoms(
+                    session, frame_index
+                )
+                if len(atoms) != atom_count:
+                    raise ValueError(
+                        "Trajectory atom counts differ; force vectors cannot be cached across frames."
+                    )
+                vectors = atom_force_vectors(atoms)
+            if vectors is not None:
+                values[output_index] = vectors
+        return start_frame, values
+
+
+@app.post("/api/analysis/force-vectors/{session_id}")
+async def per_atom_force_vectors(session_id: str, payload: Dict[str, Any]):
+    """Return stored frame forces as compact float32 Cartesian vectors."""
+
+    session = get_session(session_id)
+    try:
+        start_frame, values = await asyncio.to_thread(
+            _session_force_vector_values, session, payload
+        )
+    except (IndexError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    packed = np.asarray(values, dtype=np.float32, order="C")
+    return Response(
+        content=packed.tobytes(order="C"),
+        media_type="application/octet-stream",
+        headers={
+            "X-V-Ase-Frames": str(packed.shape[0]),
+            "X-V-Ase-Atoms": str(packed.shape[1]),
+            "X-V-Ase-Start-Frame": str(start_frame),
+            "X-V-Ase-Dtype": "float32",
+            "X-V-Ase-Cache": "trajectory" if packed.shape[0] > 1 else "frame",
+        },
+    )
+
+
 def _session_atom_scalar_range(session: EditorSession, payload: Dict[str, Any]):
     field_id = str(payload.get("field_id") or "").strip()
     if not field_id:
@@ -5548,9 +5676,14 @@ def _calculate_session_registry(
 ):
     with session.mode_transition_lock:
         sync_session_frame_from_payload(session, payload)
-        atoms = session.working_atoms.copy()
+        active_mode = session.registry_relaxation
+        atoms = (
+            copy_atoms_with_calc(active_mode.baseline_atoms)
+            if active_mode is not None
+            else session.working_atoms.copy()
+        )
         positions = payload.get("positions")
-        if positions is not None:
+        if positions is not None and active_mode is None:
             coordinates = np.asarray(positions, dtype=float)
             if coordinates.shape != (len(atoms), 3) or not np.all(np.isfinite(coordinates)):
                 raise ValueError("Registry-map positions must match the current atom count.")
@@ -5562,6 +5695,7 @@ def _calculate_session_registry(
         grid_y=int(payload.get("grid_y", 32)),
         metric=str(payload.get("metric") or "short-contact"),
         pair_cutoffs=payload.get("pair_cutoffs") or {},
+        hkl=payload.get("hkl") or [0, 0, 1],
         progress_callback=progress_callback,
     )
 
@@ -5611,7 +5745,7 @@ async def registry_analysis_csv(session_id: str, payload: Dict[str, Any]):
 @app.post("/api/registry-relax/start/{session_id}")
 async def start_registry_relaxation(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
-    require_editable(session, "XY translation relaxation")
+    require_editable(session, "planar translation relaxation")
     sync_session_frame_from_payload(session, payload)
     positions = payload.get("positions")
     if positions is not None:
@@ -5624,6 +5758,7 @@ async def start_registry_relaxation(session_id: str, payload: Dict[str, Any]):
         summary = start_registry_relaxation_mode(
             session,
             payload.get("selected_indices") or [],
+            payload.get("hkl") or [0, 0, 1],
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -5637,7 +5772,7 @@ async def run_registry_relaxation_endpoint(session_id: str, payload: Dict[str, A
     session = get_session(session_id)
     require_editable(
         session,
-        "XY translation relaxation",
+        "planar translation relaxation",
         allow_registry_relaxation=True,
     )
     calculator = payload.get("calculator") or {}
@@ -5669,12 +5804,29 @@ async def stop_registry_relaxation_endpoint(session_id: str):
     return {"status": "stopping" if stop_registry_relaxation(session) else "idle"}
 
 
+@app.post("/api/registry-relax/translate/{session_id}")
+async def translate_registry_relaxation_endpoint(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(
+        session,
+        "planar translation",
+        allow_registry_relaxation=True,
+    )
+    try:
+        summary = set_registry_translation(session, payload.get("coordinates") or [])
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    data = session_update_to_json(session)
+    data["metadata"]["registry_relaxation"] = summary
+    return data
+
+
 @app.post("/api/registry-relax/finish/{session_id}")
 async def finish_registry_relaxation_endpoint(session_id: str):
     session = get_session(session_id)
     require_editable(
         session,
-        "XY translation relaxation",
+        "planar translation relaxation",
         allow_registry_relaxation=True,
     )
     try:
@@ -5691,7 +5843,7 @@ async def cancel_registry_relaxation_endpoint(session_id: str):
     session = get_session(session_id)
     require_editable(
         session,
-        "XY translation relaxation",
+        "planar translation relaxation",
         allow_registry_relaxation=True,
     )
     cancel_registry_relaxation_mode(session)

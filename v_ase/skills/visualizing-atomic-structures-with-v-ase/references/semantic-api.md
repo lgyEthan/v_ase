@@ -203,9 +203,10 @@ Pass `operation` as a name string or object:
 | `calculate-commensurate` | optional `mode`, `axis`, `angleDeg`, `strainTarget`, `strainTolerance`, `maxIndex`, `maxAreaRatio`, `showAtoms` | Search bounded same-lattice or host/guest integer common cells and open the 3D overview plus paper strain projection; omitting `angleDeg` selects the smallest admissible cell, while supplying it selects the nearest admissible angle |
 | `apply-commensurate-cell` | active proposal | Materialize the validated common cell as the ASE unit cell |
 | `dismiss-commensurate-cell` | none | Close the proposal and restore the pre-preview camera |
-| `calculate-registry-map` | selection/`indices`; optional `metric`, `gridX`, `gridY` | Scan one periodic XY cell of selected-component translations and open the heatmap |
-| `start-registry-relaxation` | selection/`indices` | Enter rigid XY translation mode while preserving the host, cell, selected internal geometry, and selected z coordinates |
-| `run-registry-relaxation` | optional `fmax`, `steps`, `calculator` | Optimize only the two common in-plane translation coordinates and expose an operation-specific movie timeline |
+| `calculate-registry-map` | selection/`indices`; optional `metric`, `gridX`, `gridY`, `pairCutoffs`, `hkl` | Sample one primitive periodic `(hkl)` translation cell and open its physical-Angstrom geometry map |
+| `start-registry-relaxation` | selection/`indices`; optional `hkl` | Enter rigid planar-translation mode while preserving the host, cell, and selected internal geometry |
+| `set-registry-translation` | active mode, `coordinates` | Set the exact two coefficients of the active plane-lattice basis without moving the cell or host |
+| `run-registry-relaxation` | optional `fmax`, `steps`, `calculator` | Optimize only the two shared plane coordinates and expose an operation-specific movie timeline; no map is required |
 | `stop-registry-relaxation` | none | Request the active rigid translation optimizer to stop |
 | `finish-registry-relaxation` | none | Commit the rigid translation as one undoable edit and close its timeline |
 | `cancel-registry-relaxation` | none | Restore the exact pre-mode coordinates and close its timeline without adding history |
@@ -519,7 +520,7 @@ unmaterialized external guest. Never replace this workflow with ordinary
 different operations. A match minimizes a bounded cell-boundary mismatch, not
 an electronic energy.
 
-Registry-map scan after selecting the moving interface component:
+Optional planar-translation map after selecting the moving component:
 
 ```javascript
 const registry = await ai.apply({
@@ -528,7 +529,8 @@ const registry = await ai.apply({
     name: "calculate-registry-map",
     metric: "short-contact",
     gridX: 48,
-    gridY: 48
+    gridY: 48,
+    hkl: [1, 0, 0]
   }
 });
 ```
@@ -536,29 +538,35 @@ const registry = await ai.apply({
 `metric` is `"short-contact"` or `"bond-strain"`. Bond strain requires at
 least one enabled selected-to-host pairwise cutoff. Inspect
 `registry.analysis.registryMap`: the optimum and current coordinates are
-fractional in the two periodic in-plane cell vectors and lower is better.
-While the map is active, GUI `G` movement is restricted to XY and updates the
-current map marker. Export the calculated grid directly:
+coefficients of two primitive lattice translations lying in `(hkl)`, and lower
+is better. The map includes exact integer and Cartesian bases. While rigid mode
+is active, GUI `G` movement is projected into the requested plane and updates
+the current marker. Export the calculated grid directly:
 
 ```bash
 v_ase api "$COMMAND_URL" export --save registry.csv --params '{
   "format":"registry-csv",
   "metric":"short-contact",
   "gridX":48,
-  "gridY":48
+  "gridY":48,
+  "hkl":[1,0,0]
 }'
 ```
 
-To refine the same selected component with a real calculator, activate the
-rigid translation mode after the map. This is not an atomic relaxation: all
-selected internal vectors and z coordinates, every host coordinate, and the
-cell remain fixed while only two common fractional in-plane translation
-coordinates change.
+The map is optional. To move or refine the selected component with a real
+calculator, activate rigid translation directly. This is not an atomic
+relaxation: all selected internal vectors, every host coordinate, and the cell
+remain fixed while only two shared plane-lattice coordinates change.
 
 ```javascript
 await ai.apply({operation: {
   name: "start-registry-relaxation",
-  indices: [40, 41, 42, 43]
+  indices: [40, 41, 42, 43],
+  hkl: [1, 0, 0]
+}});
+await ai.apply({operation: {
+  name: "set-registry-translation",
+  coordinates: [0.125, -0.25]
 }});
 await ai.apply({operation: {
   name: "run-registry-relaxation",
@@ -685,7 +693,8 @@ Transform and commensurate settings:
 | `commensurateGuestAngleDeg` | selected or loaded guest rotation about global Z |
 | `commensurateGuestOffset` | guest Cartesian display/materialization offset |
 | `registryMetric` | `"short-contact"` or `"bond-strain"` |
-| `registryGridX`, `registryGridY` | fractional XY grid dimensions, 4 through 160 |
+| `registryGridX`, `registryGridY` | plane-lattice grid dimensions, 4 through 160 |
+| `registryHkl` | nonzero integer Miller triplet defining the periodic translation plane |
 
 Constraint visualization includes FixAtoms, FixScaled, FixedLine, FixedPlane,
 and Hookean. FixedLine uses one straight axis through the atom center and never
@@ -1068,7 +1077,7 @@ Supported formats:
 | `settings` | reusable visual settings without coordinates |
 | `rdf-csv` | total RDF and requested partial curves as CSV |
 | `commensurate-csv` | angle/area candidates, both strain definitions, atom counts, integer matrices, notation, and citations |
-| `registry-csv` | complete fractional XY registry grid and metric metadata |
+| `registry-csv` | complete `(hkl)` plane-lattice grid, integer and Cartesian bases, translation vectors, and metric metadata |
 
 Standalone HTML:
 

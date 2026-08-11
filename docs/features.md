@@ -321,7 +321,7 @@ custom color, or midpoint-split endpoint colors. The new-document bond diameter
 is `0.25 A`, and bonds are visible by default. Saved explicit values and
 `--hide-bonds` remain authoritative.
 
-## Commensurate Cells And XY Registry
+## Commensurate Cells And Planar Translation
 
 Commensurate matching treats host and guest as independent periodic
 sublattices. Cells-only preview is the default. Optional atom preview expands
@@ -335,12 +335,14 @@ angle-area floor, a live current-angle plane, and dotted equivalent-angle
 guides only for exact square or hexagonal symmetry. It has no candidate stems.
 The accepted candidate set is unchanged by the visualization.
 
-The XY translation map spans one host-reference fractional cell. Its geometry
-score is a screening metric, not an energy. A separate rigid XY relaxation
-mode uses the attached calculator or the repulsive fallback to optimize only
-two common in-plane translation coordinates for the selected guest component.
-Host coordinates, cell, selected internal vectors, and selected z coordinates
-remain invariant. Accepted steps use a mode-only timeline; Apply & Exit creates
+Planar Translation builds an exact primitive translation lattice in a requested
+periodic `(hkl)` plane. Its optional map spans one complete plane cell; the
+short-contact or pair-length score is geometric screening, not an energy. The
+reversible rigid mode works without a precomputed map and uses the attached
+calculator or repulsive fallback to optimize only two common plane coordinates
+for the selected component. Host coordinates, cell, and all selected internal
+vectors remain invariant. Selected z coordinates are additionally invariant
+for `(0 0 1)`. Accepted steps use a mode-only timeline; Apply & Exit creates
 one undo entry and Cancel restores the exact baseline.
 
 ## Trajectories And Relaxation
@@ -403,7 +405,7 @@ when one exists.
 
 Structure relaxation is an explicit mode. Leaving it removes its temporary
 optimizer timeline without deleting the current optimized structure. Add
-Atoms placement and rigid XY relaxation follow the same timeline ownership
+Atoms placement and rigid planar translation follow the same timeline ownership
 rule while retaining their own commit/cancel semantics.
 
 ## Displacement Analysis

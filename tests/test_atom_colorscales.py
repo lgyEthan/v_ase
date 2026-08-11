@@ -9,10 +9,11 @@ from ase.calculators.singlepoint import SinglePointCalculator
 from playwright._impl._errors import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
-from v_ase.atom_scalars import atom_scalar_catalog, atom_scalar_values
+from v_ase.atom_scalars import atom_force_vectors, atom_scalar_catalog, atom_scalar_values
 from v_ase.colormaps import colormap_catalog, colormap_lut
 from v_ase.export import _cad_scene_data
 from v_ase.server import (
+    per_atom_force_vectors,
     per_atom_scalar_catalog,
     per_atom_scalar_range,
     per_atom_scalar_values,
@@ -62,10 +63,37 @@ def test_catalog_discovers_coordinates_forces_arrays_and_calculator_results():
 
     assert np.allclose(atom_scalar_values(atoms, "position:z"), [2.0, 5.0])
     assert np.allclose(atom_scalar_values(atoms, "force:norm"), [5.0, 2.0])
+    assert np.allclose(atom_force_vectors(atoms), [[3.0, 4.0, 0.0], [0.0, 0.0, 2.0]])
     assert np.allclose(atom_scalar_values(atoms, uncertainty["id"]), [0.2, 0.7])
     assert np.allclose(atom_scalar_values(atoms, descriptor_norm["id"]), [5.0, 2.0])
     assert np.allclose(atom_scalar_values(atoms, descriptor_y["id"]), [4.0, 0.0])
     assert np.allclose(atom_scalar_values(atoms, charges["id"]), [-0.3, 0.3])
+
+
+def test_force_vector_api_returns_frame_specific_cartesian_vectors():
+    first = Atoms("H2", positions=[[0, 0, 0], [0, 0, 1]])
+    second = first.copy()
+    first.new_array("forces", np.array([[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]]))
+    second.new_array("forces", np.array([[0.0, 2.0, 0.0], [0.0, -2.0, 0.0]]))
+    session = EditorSession(
+        "force-vector-api",
+        first.copy(),
+        first.copy(),
+        original_frames=[first.copy(), second.copy()],
+        trajectory_frames=[first.copy(), second.copy()],
+    )
+    sessions[session.session_id] = session
+
+    response = asyncio.run(
+        per_atom_force_vectors(
+            session.session_id,
+            {"frame_index": 0, "all_frames": True},
+        )
+    )
+    vectors = np.frombuffer(response.body, dtype=np.float32).reshape(2, 2, 3)
+    assert response.headers["x-v-ase-cache"] == "trajectory"
+    np.testing.assert_allclose(vectors[0], [[1, 0, 0], [-1, 0, 0]])
+    np.testing.assert_allclose(vectors[1], [[0, 2, 0], [0, -2, 0]])
 
 
 def test_colormap_registry_exposes_all_registered_maps_and_stable_luts():
@@ -560,6 +588,58 @@ def test_large_browser_trajectory_scans_and_caches_colorscale_values_once():
                 );
                 return cache.frames === 2 && cache.atoms === 5000 && cache.values.length === 10000;
             }""") is True
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_browser_force_arrows_follow_each_trajectory_frame():
+    first = Atoms("H2", positions=[[0, 0, 0], [0, 0, 1.2]], cell=[5, 5, 5], pbc=True)
+    second = first.copy()
+    second.positions[:, 0] += 0.2
+    first.new_array("forces", np.array([[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]]))
+    second.new_array("forces", np.array([[0.0, 2.0, 0.0], [0.0, -2.0, 0.0]]))
+    port = find_free_port()
+    editor = view(
+        [first, second],
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 720})
+            force_requests = []
+            page.on(
+                "request",
+                lambda request: force_requests.append(request.post_data_json)
+                if "/api/analysis/force-vectors/" in request.url
+                else None,
+            )
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
+            first_vectors = page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                app.state.display.showForceVectors = true;
+                app.renderer.setDisplayOptions(app.state.display);
+                await app.updateForceVectorsForCurrentFrame();
+                return app.renderer.forceVectorGroup.userData.entries.map(entry => entry.vector);
+            }""")
+            second_vectors = page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                await app.loadFrame(1);
+                return app.renderer.forceVectorGroup.userData.entries.map(entry => entry.vector);
+            }""")
+            assert first_vectors == [[1, 0, 0], [-1, 0, 0]]
+            assert second_vectors == [[0, 2, 0], [0, -2, 0]]
+            assert first_vectors != second_vectors
+            assert force_requests == [{"frame_index": 0, "all_frames": True}]
             browser.close()
     finally:
         editor.close()

@@ -263,6 +263,7 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
                 "remove-commensurate-guest",
                 "calculate-commensurate",
                 "calculate-registry-map",
+                "set-registry-translation",
                 "set-interface-theme",
                 "set-personal-visual-default",
                 "restore-app-visual-defaults",
@@ -315,10 +316,17 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
             assert schema["operation_parameters"]["calculate-registry-map"]["required"] == [
                 "selection-or-indices"
             ]
+            assert "hkl" in schema["operation_parameters"]["calculate-registry-map"]["optional"]
+            assert "hkl" in schema["operation_parameters"]["start-registry-relaxation"]["optional"]
+            assert schema["operation_parameters"]["set-registry-translation"]["required"] == [
+                "active-registry-relaxation",
+                "coordinates",
+            ]
             assert "maxAreaRatio" in (
                 schema["export_parameters"]["commensurate-csv"]["optional"]
             )
             assert "gridX" in schema["export_parameters"]["registry-csv"]["optional"]
+            assert "hkl" in schema["export_parameters"]["registry-csv"]["optional"]
             assert schema["operation_parameters"]["set-interface-theme"]["required"] == [
                 "theme"
             ]

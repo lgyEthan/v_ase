@@ -233,20 +233,23 @@ layer-specific affine transform. The preview remains available when those
 conditions prevent materialization. The graph's save icon exports angle,
 matrices, area, strain, and the cited search references as CSV.
 
-## XY Registry After Cell Matching
+## Planar Translation After Cell Matching
 
 Commensurability closes the periodic boundary but does not choose the best
-relative in-plane origin. v_ase therefore keeps registry analysis separate. For
-a selected movable layer it scans one fractional XY period and displays either
-a covalent-radii-scaled short-contact score or the normalized RMS mismatch of
-enabled interfacial label-pair distances. Lower values mean less geometric
-penalty; neither score is a stacking energy.
+relative in-plane origin. v_ase therefore keeps rigid translation separate.
+For a selected movable component it constructs two primitive lattice vectors
+inside a requested periodic `(hkl)` plane. An optional map samples one complete
+plane-lattice period and displays either a covalent-radii-scaled short-contact
+score or the normalized RMS mismatch of enabled interfacial label-pair
+distances. Lower values mean less geometric penalty; neither score is a
+stacking energy.
 
-While the registry map is active, `G` is restricted to XY and its marker follows
-the current periodically wrapped translation. The map and CSV retain fractional
-coordinates, Cartesian shifts, selected indices, grid dimensions, and metric
-definition. An energy-based optimum still requires an external electronic-
-structure or force-field calculation.
+While rigid translation is active, `G` is projected into the chosen plane and
+its marker follows the unwrapped two-coordinate translation. The cell, host,
+and selected internal vectors stay fixed. The map and CSV retain `(hkl)`, exact
+integer and Cartesian bases, plane coordinates, Cartesian shifts, selected
+indices, grid dimensions, and metric definition. An energy-based optimum still
+requires an appropriate electronic-structure or force-field calculator.
 
 ## General Integer Cell Transform
 

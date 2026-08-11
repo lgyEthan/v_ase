@@ -12,7 +12,7 @@ from examples.readme_scenes import (
     SCENE_NAMES,
     make_ai_pyridinic_graphene_scene,
     make_amorphous_cuzr_rdf_scene,
-    make_benzene_pi_volumetric_scene,
+    make_graphene_pi_volumetric_scene,
     make_black_phosphorene_unit_cell,
     make_copper_oxide_bond_scene,
     make_crowded_c60_relaxation_scene,
@@ -67,7 +67,7 @@ def test_readme_scene_assets_write_reopenable_traj_files(tmp_path):
     assert "ai_pyridinic_n3_li_graphene.traj" in written_names
     assert "cu2o111_on_cu111_pairwise_bonds.traj" in written_names
     assert "material_presets.traj" in written_names
-    assert "triclinic_nanoporous_add_atoms.traj" in written_names
+    assert "triclinic_bonded_si_add_atoms.traj" in written_names
     assert not any(path.name.endswith("_motion.traj") for path in written)
 
     fixedline = read(tmp_path / "fixedline.traj")
@@ -181,13 +181,14 @@ def test_random_addition_readme_host_is_triclinic_periodic_and_reproducible():
     assert abs(float(host.cell[1, 0])) > 1.0
     assert abs(float(host.cell[2, 1])) > 1.0
     assert abs(float(np.linalg.det(host.cell.array))) > 1.0
-    assert set(atom_labels(host)) == {"C_channel"}
+    assert set(atom_labels(host)) == {"Si_framework"}
     assert metadata["entries"] == [
-        {"element": "Li", "label": "Li_mobile", "count": 18},
-        {"element": "H", "label": "H_probe", "count": 10},
+        {"element": "Li", "label": "Li_mobile", "count": 10},
+        {"element": "H", "label": "H_probe", "count": 8},
     ]
     assert metadata["seed"] == 2021
-    assert metadata["channel_radius"] > 5.0
+    assert metadata["vacancy_count"] == 2
+    assert np.asarray(metadata["insertion_center"]).shape == (3,)
 
 
 def test_relaxation_scene_is_an_actual_fire_trajectory_with_lower_repulsion():
@@ -318,10 +319,11 @@ def test_material_scene_keeps_elements_equal_while_labels_separate_presets():
 
 
 def test_analysis_examples_show_signed_isosurfaces_and_a_flat_amorphous_rdf_tail():
-    molecule, values = make_benzene_pi_volumetric_scene()
-    assert molecule.get_chemical_formula() == "C6H6"
+    molecule, values = make_graphene_pi_volumetric_scene()
+    assert molecule.get_chemical_formula() == "C24"
+    assert set(atom_labels(molecule)) == {"C_pi_A", "C_pi_B"}
     assert values.dtype == np.float32
-    assert values.shape == (56, 56, 56)
+    assert values.shape == (104, 104, 104)
     assert float(values.min()) < 0 < float(values.max())
     assert float(values.max()) == pytest.approx(-float(values.min()), rel=1e-6)
 
@@ -433,7 +435,7 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "**Field smearing σ**" in readme
     assert "**Mesh smoothing passes**" in readme
     assert "source scalar field" in readme
-    assert "18 `Li_mobile` and 10 `H_probe`" in readme
+    assert "10 `Li_mobile` and 8 `H_probe`" in readme
     assert "half-open primary periodic cell" in readme
     assert "every pre-existing coordinate, array" in readme
 

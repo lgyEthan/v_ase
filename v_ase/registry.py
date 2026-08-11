@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 from dataclasses import dataclass
 import io
+import math
 from typing import Any, Callable, Iterable, Sequence
 
 import numpy as np
@@ -12,12 +13,121 @@ from ase import Atoms
 from ase.data import covalent_radii
 from ase.geometry import find_mic
 
-from .commensurate import project_periodic_lattice
 from .io import atom_labels
 
 
 MAX_REGISTRY_GRID = 160
 ProgressCallback = Callable[[float, str], None]
+
+
+def normalized_hkl(hkl: Sequence[int | float]) -> tuple[int, int, int]:
+    """Return a primitive, sign-canonical Miller-index triplet."""
+
+    raw = np.asarray(hkl, dtype=float)
+    if raw.shape != (3,) or not np.all(np.isfinite(raw)):
+        raise ValueError("hkl must contain three finite integer values.")
+    rounded = np.rint(raw).astype(np.int64)
+    if not np.allclose(raw, rounded, atol=1e-10):
+        raise ValueError("hkl must contain integer Miller indices.")
+    divisor = math.gcd(math.gcd(abs(int(rounded[0])), abs(int(rounded[1]))), abs(int(rounded[2])))
+    if divisor == 0:
+        raise ValueError("hkl cannot be (0, 0, 0).")
+    primitive = rounded // divisor
+    first = next(int(value) for value in primitive if value != 0)
+    if first < 0:
+        primitive *= -1
+    return tuple(int(value) for value in primitive)
+
+
+def _extended_gcd(left: int, right: int) -> tuple[int, int, int]:
+    old_remainder, remainder = abs(int(left)), abs(int(right))
+    old_left, current_left = 1, 0
+    old_right, current_right = 0, 1
+    while remainder:
+        quotient = old_remainder // remainder
+        old_remainder, remainder = remainder, old_remainder - quotient * remainder
+        old_left, current_left = current_left, old_left - quotient * current_left
+        old_right, current_right = current_right, old_right - quotient * current_right
+    return (
+        old_remainder,
+        old_left if left >= 0 else -old_left,
+        old_right if right >= 0 else -old_right,
+    )
+
+
+@dataclass(frozen=True)
+class LatticePlane:
+    hkl: tuple[int, int, int]
+    integer_basis: np.ndarray
+    translation_basis: np.ndarray
+    plane_basis: np.ndarray
+    translation_basis_2d: np.ndarray
+    normal: np.ndarray
+    periodic_axes: tuple[int, ...]
+
+
+def lattice_plane(cell: Sequence[Sequence[float]], pbc: Sequence[bool], hkl=(0, 0, 1)) -> LatticePlane:
+    """Build a primitive periodic translation lattice for one ``(hkl)`` plane.
+
+    Cell vectors are rows.  Integer translation vectors ``t`` satisfy
+    ``h*t[0] + k*t[1] + l*t[2] = 0`` and therefore remain in the plane.
+    """
+
+    indices = normalized_hkl(hkl)
+    h, k, l = indices
+    if h == 0 and k == 0:
+        integer_basis = np.asarray([[1, 0, 0], [0, 1, 0]], dtype=np.int64)
+    else:
+        divisor, coefficient_h, coefficient_k = _extended_gcd(h, k)
+        integer_basis = np.asarray([
+            [k // divisor, -h // divisor, 0],
+            [coefficient_h * l, coefficient_k * l, -divisor],
+        ], dtype=np.int64)
+    first_nonzero = next(int(value) for value in integer_basis[0] if value != 0)
+    if first_nonzero < 0:
+        integer_basis *= -1
+    if not np.array_equal(np.cross(integer_basis[0], integer_basis[1]), np.asarray(indices)):
+        raise RuntimeError("Failed to construct a primitive lattice-plane basis.")
+
+    periodic = np.asarray(pbc, dtype=bool)
+    if periodic.shape != (3,):
+        raise ValueError("pbc must contain three values.")
+    blocked = np.flatnonzero(~periodic)
+    if blocked.size and np.any(integer_basis[:, blocked] != 0):
+        raise ValueError(
+            f"The ({h} {k} {l}) plane does not contain two translations allowed by the current PBC."
+        )
+
+    cell_array = np.asarray(cell, dtype=float)
+    if cell_array.shape != (3, 3) or not np.all(np.isfinite(cell_array)):
+        raise ValueError("A finite 3x3 unit cell is required for planar translation.")
+    translation_basis = integer_basis @ cell_array
+    normal = np.cross(translation_basis[0], translation_basis[1])
+    normal_length = float(np.linalg.norm(normal))
+    first_length = float(np.linalg.norm(translation_basis[0]))
+    if normal_length <= 1e-12 or first_length <= 1e-12:
+        raise ValueError("The selected hkl plane has a degenerate periodic translation basis.")
+    normal /= normal_length
+    first_unit = translation_basis[0] / first_length
+    second_unit = np.cross(normal, first_unit)
+    if float(np.dot(second_unit, translation_basis[1])) < 0:
+        second_unit *= -1
+    plane_basis = np.asarray([first_unit, second_unit], dtype=float)
+    translation_basis_2d = translation_basis @ plane_basis.T
+    used_axes = tuple(
+        int(axis)
+        for axis in range(3)
+        if periodic[axis] and np.any(integer_basis[:, axis] != 0)
+    )
+    return LatticePlane(
+        hkl=indices,
+        integer_basis=integer_basis,
+        translation_basis=np.asarray(translation_basis, dtype=float),
+        plane_basis=plane_basis,
+        translation_basis_2d=np.asarray(translation_basis_2d, dtype=float),
+        normal=normal,
+        periodic_axes=used_axes,
+    )
 
 
 def _canonical_pair(left: str, right: str) -> str:
@@ -64,8 +174,13 @@ class RegistryMapResult:
     metric_label: str
     selected_indices: tuple[int, ...]
     host_indices: tuple[int, ...]
-    periodic_axes: tuple[int, int]
+    hkl: tuple[int, int, int]
+    periodic_axes: tuple[int, ...]
+    plane_integer_basis: np.ndarray
     translation_basis: np.ndarray
+    plane_basis: np.ndarray
+    translation_basis_2d: np.ndarray
+    plane_normal: np.ndarray
     optimum_fractional: tuple[float, float]
     optimum_value: float
     baseline_pair_count: int
@@ -73,7 +188,7 @@ class RegistryMapResult:
 
     def payload(self) -> dict[str, Any]:
         return {
-            "schema": "v_ase.registry-map.v1",
+            "schema": "v_ase.registry-map.v2",
             "x_fractional": self.x_fractional.tolist(),
             "y_fractional": self.y_fractional.tolist(),
             "values": self.values.tolist(),
@@ -83,8 +198,13 @@ class RegistryMapResult:
             "host_indices": list(self.host_indices),
             "reference_component": "unselected-host",
             "mobile_component": "selected-guest",
+            "hkl": list(self.hkl),
             "periodic_axes": list(self.periodic_axes),
+            "plane_integer_basis": self.plane_integer_basis.tolist(),
             "translation_basis_angstrom": self.translation_basis.tolist(),
+            "plane_basis_cartesian": self.plane_basis.tolist(),
+            "translation_basis_2d_angstrom": self.translation_basis_2d.tolist(),
+            "plane_normal_cartesian": self.plane_normal.tolist(),
             "translation_domain_fractional": [[0.0, 1.0], [0.0, 1.0]],
             "optimum_fractional": list(self.optimum_fractional),
             "optimum_value": self.optimum_value,
@@ -103,6 +223,7 @@ def calculate_registry_map(
     grid_y: int = 32,
     metric: str = "short-contact",
     pair_cutoffs: Any = None,
+    hkl: Sequence[int | float] = (0, 0, 1),
     progress_callback: ProgressCallback | None = None,
 ) -> RegistryMapResult:
     """Scan one host unit cell of in-plane translations.
@@ -130,12 +251,7 @@ def calculate_registry_map(
     if mode not in {"short-contact", "bond-strain"}:
         raise ValueError("Registry metric must be short-contact or bond-strain.")
 
-    projected = project_periodic_lattice(atoms.cell.array, atoms.pbc, "Z")
-    if projected.axis_alignment < 0.985:
-        raise ValueError(
-            "Registry mapping is restricted to structures whose periodic interface plane is XY."
-        )
-    axis_a, axis_b = projected.periodic_axes
+    plane = lattice_plane(atoms.cell.array, atoms.pbc, hkl)
     cell = np.asarray(atoms.cell.array, dtype=float)
     positions = np.asarray(atoms.get_positions(), dtype=float)
     base_vectors = positions[np.asarray(selected)][:, None, :] - positions[np.asarray(host)][None, :, :]
@@ -179,7 +295,10 @@ def calculate_registry_map(
     completed = 0
     for y_index, y_fraction in enumerate(y_values):
         for x_index, x_fraction in enumerate(x_values):
-            translation = x_fraction * cell[axis_a] + y_fraction * cell[axis_b]
+            translation = (
+                x_fraction * plane.translation_basis[0]
+                + y_fraction * plane.translation_basis[1]
+            )
             _, distances = find_mic(flattened + translation, cell, pbc=atoms.pbc)
             distances = np.asarray(distances, dtype=float).reshape(len(selected), len(host))
             if mode == "short-contact":
@@ -213,8 +332,13 @@ def calculate_registry_map(
         metric_label=metric_label,
         selected_indices=selected,
         host_indices=host,
-        periodic_axes=(int(axis_a), int(axis_b)),
-        translation_basis=np.asarray([cell[axis_a], cell[axis_b]], dtype=float),
+        hkl=plane.hkl,
+        periodic_axes=plane.periodic_axes,
+        plane_integer_basis=plane.integer_basis,
+        translation_basis=plane.translation_basis,
+        plane_basis=plane.plane_basis,
+        translation_basis_2d=plane.translation_basis_2d,
+        plane_normal=plane.normal,
         optimum_fractional=(float(x_values[optimum_x]), float(y_values[optimum_y])),
         optimum_value=float(values[optimum_y, optimum_x]),
         baseline_pair_count=int(np.count_nonzero(baseline_mask)),
@@ -225,7 +349,7 @@ def calculate_registry_map(
 def registry_map_csv(result: RegistryMapResult) -> bytes:
     stream = io.StringIO(newline="")
     writer = csv.writer(stream)
-    writer.writerow(["# schema", "v_ase.registry-map.v1"])
+    writer.writerow(["# schema", "v_ase.registry-map.v2"])
     writer.writerow(["# metric", result.metric])
     writer.writerow(["# metric_label", result.metric_label])
     writer.writerow(["# lower_is_better", "true"])
@@ -233,7 +357,10 @@ def registry_map_csv(result: RegistryMapResult) -> bytes:
     writer.writerow(["# mobile_component", "selected-guest"])
     writer.writerow(["# reference_component", "unselected-host"])
     writer.writerow(["# translation_domain_fractional", "0 <= u < 1; 0 <= v < 1"])
+    writer.writerow(["# hkl", *result.hkl])
     writer.writerow(["# periodic_axes", *result.periodic_axes])
+    writer.writerow(["# plane_integer_basis_a", *result.plane_integer_basis[0]])
+    writer.writerow(["# plane_integer_basis_b", *result.plane_integer_basis[1]])
     writer.writerow([
         "# translation_basis_a_angstrom",
         *[f"{float(value):.12g}" for value in result.translation_basis[0]],

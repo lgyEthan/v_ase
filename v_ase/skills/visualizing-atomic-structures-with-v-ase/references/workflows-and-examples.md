@@ -19,7 +19,7 @@
    - RDF And CSV
 5. Match Periodic Interfaces
    - Bounded Commensurate 2D Cells
-   - XY Registry Map
+   - Rigid Planar Translation
    - Periodic Supercell Measurement
 6. Collaborate And Share
    - Multi-Document Live Collaboration
@@ -976,11 +976,14 @@ The CSV must include angle, matrices, area, max principal strain, mean absolute
 strain, host/guest/total atom counts, and the CellMatch and Stradi et al.
 references carried by the bounded-search implementation.
 
-### XY Registry Map
+### Rigid Planar Translation
 
-Run this after selecting the layer to translate. It scans one fractional XY
-period while leaving source coordinates unchanged. No selection must produce a
-clear error rather than an empty graph:
+Run this after selecting the component that should move together. Choose a
+nonzero integer `(hkl)` whose plane contains two translations allowed by the
+current PBC. The optional map samples one primitive plane-lattice period while
+leaving source coordinates unchanged. No selection, a whole-structure
+selection, or an incompatible partially periodic plane must produce a clear
+error rather than an empty graph:
 
 ```javascript
 await applyCurrent({
@@ -990,7 +993,8 @@ await applyCurrent({
     indices: [36, 37, 38, 39],
     metric: "short-contact",
     gridX: 48,
-    gridY: 48
+    gridY: 48,
+    hkl: [1, 0, 0]
   }
 });
 ```
@@ -1001,10 +1005,12 @@ their references and can receive explicit `pairCutoffs`. Both are geometry
 scores, not energies; lower values indicate less geometric penalty and must not
 be described as a relaxed stacking energy.
 
-While the map is active, `G` is constrained to XY. The live marker must track
-the selected layer's current fractional translation, including periodic wrap,
-and the map must show the unit-cell boundary. Export the complete grid through
-the graph's save icon or the exact semantic export:
+The GUI displays a blank physical plane before a map is calculated. While the
+rigid mode is active, `G` is projected into the requested plane and every
+selected atom receives one identical Cartesian vector. The live marker must
+track the unwrapped two-coordinate plane translation, and the graph must show
+the exact skew periodic boundary and basis in Angstrom. Export a calculated
+grid through the graph's save icon or the exact semantic export:
 
 ```bash
 v_ase api "$COMMAND_URL" export --save registry.csv --params '{
@@ -1012,21 +1018,30 @@ v_ase api "$COMMAND_URL" export --save registry.csv --params '{
   "indices":[36,37,38,39],
   "metric":"short-contact",
   "gridX":48,
-  "gridY":48
+  "gridY":48,
+  "hkl":[1,0,0]
 }'
 ```
 
-CSV rows must retain fractional X/Y, Cartesian translation, metric, selected
-indices, and metric definition. No paper citation is required for the generic
-geometry score. RDF, commensurate, and registry Plotly drawers all expose the
+CSV rows must retain the two plane-lattice coefficients, Cartesian translation,
+`(hkl)`, primitive integer and Cartesian bases, metric, selected indices, and
+metric definition. No paper citation is required for the generic geometry
+score. RDF, commensurate, and planar-translation Plotly drawers all expose the
 same icon-only CSV control beside the graph title.
 
-When a calculator is available, refine only the common interface translation:
+The map is not required for manual or optimized translation. Activate the mode,
+optionally set an exact initial vector, then refine only the common component
+translation with the current calculator:
 
 ```javascript
 await applyCurrent({operation: {
   name: "start-registry-relaxation",
-  indices: [36, 37, 38, 39]
+  indices: [36, 37, 38, 39],
+  hkl: [1, 0, 0]
+}});
+await applyCurrent({operation: {
+  name: "set-registry-translation",
+  coordinates: [0.125, -0.25]
 }});
 await applyCurrent({operation: {
   name: "run-registry-relaxation",
@@ -1035,14 +1050,16 @@ await applyCurrent({operation: {
 }});
 ```
 
-Wait for `analysis.registryRelaxation.is_relaxing === false`. Verify that every
-host coordinate, the cell, each selected atom's z coordinate, and all selected
-pairwise internal vectors are unchanged. Only one shared XY translation may
-change. `projected_force` is the selected component's net in-plane Cartesian
-force norm in `eV/angstrom`. Inspect the temporary `registry` timeline, then
-use `finish-registry-relaxation` to commit one undoable edit or
-`cancel-registry-relaxation` to restore the exact pre-mode structure. Both
-actions remove that temporary timeline.
+Wait for `analysis.registryRelaxation.is_relaxing === false`. Verify every host
+coordinate, the 3x3 cell, and all selected pairwise internal vectors exactly.
+Every selected displacement must equal
+`coordinates[0] * translation_basis_angstrom[0] + coordinates[1] *
+translation_basis_angstrom[1]`; no individual atom may relax. For `(0,0,1)`,
+selected z is also unchanged. `projected_force` is the selected component's net
+Cartesian force projected into the chosen plane, in `eV/angstrom`. Inspect the
+temporary `registry` timeline, then use `finish-registry-relaxation` to commit
+one undoable edit or `cancel-registry-relaxation` to restore the exact pre-mode
+structure. Both actions remove that temporary timeline.
 
 ### Periodic Supercell Measurement
 

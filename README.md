@@ -28,7 +28,7 @@ completed structure is inspected from above and below.
 | --- | --- |
 | **ASE-native workflow** | Open ASE-supported structures and trajectories from the terminal or Python, retain scientific metadata, and return to the same environment after inspection or editing. |
 | **Direct 3D structure editing** | Select atoms visually, use `G` and `R`, enter exact transforms, create atoms, apply constraints, and inspect every change in the same local browser. [Explore editing](#edit-structures). |
-| **Periodic interfaces and analysis** | Build supercells, search commensurate 2D cells, optimize XY registry, measure ordered geometry, plot RDFs, and inspect volumetric fields. [Explore interfaces](#periodic-cells-and-interfaces) and [analysis](#analyze-structures-and-fields). |
+| **Periodic interfaces and analysis** | Build supercells, search commensurate 2D cells, optimize a rigid translation in any compatible periodic `(hkl)` plane, measure ordered geometry, plot RDFs, and inspect volumetric fields. [Explore interfaces](#periodic-cells-and-interfaces) and [analysis](#analyze-structures-and-fields). |
 | **External AI collaboration** | Give a scientific request to an external AI Agent; the bundled Skill lets it operate exact revisioned state while you watch and refine the same GUI. [See the collaboration workflow](#work-with-an-ai-agent). |
 | **Publication and reusable output** | Prepare consistent atoms, bonds, lighting, images, videos, offline HTML views, Blender scenes, and self-contained `.vase` projects. [See export options](#export-and-save). |
 
@@ -110,7 +110,7 @@ The guide is organized by task:
 
 - [Edit structures](#edit-structures): select, move, insert, and rotate atoms.
 - [Match periodic cells and interfaces](#periodic-cells-and-interfaces):
-  replication, common cells, and XY registry.
+  replication, common cells, and rigid planar translation.
 - [Analyze structures and fields](#analyze-structures-and-fields): ordered
   geometry, trajectories, forces, RDF, and volumetric data.
 - [Use constraints and relaxation](#constraints-and-relaxation): ASE-enforced
@@ -180,10 +180,11 @@ accepted optimizer steps. It can be scrubbed or played while the mode remains
 active. Finishing or cancelling Add Atoms removes that temporary timeline.
 
 The animation uses the included
-[triclinic nanoporous Si example](examples/readme_scene_assets/triclinic_nanoporous_add_atoms.traj):
-18 `Li_mobile` and 10 `H_probe` atoms are scattered with seed `2021`, then
-placed using editable element-pair cutoffs while the `Si_framework` host stays
-fixed.
+[bonded triclinic Si example](examples/readme_scene_assets/triclinic_bonded_si_add_atoms.traj):
+10 `Li_mobile` and 8 `H_probe` atoms are scattered with seed `2021` inside a
+dense bonded framework containing two vacancies. Pairwise repulsion moves only
+the inserted atoms toward available interstitial and vacancy space while every
+`Si_framework` coordinate remains fixed.
 
 ### Rotate Selected Atoms
 
@@ -253,7 +254,7 @@ geometry editing and is not an energy-minimized final structure.
 ## Periodic Cells And Interfaces
 
 Display replication, integer cell transforms, common-cell matching, and
-periodic registry are related but distinct operations. Display replication
+periodic rigid translation are related but distinct operations. Display replication
 changes only what is visible. **Set Supercell as Cell** materializes a
 replicated structure. **Cell Transform** applies an integer matrix to the cell
 and every compatible trajectory frame.
@@ -363,13 +364,27 @@ frame. Display replication is separate again: it only repeats what is shown.
 The common-cell equations, limits, and assumptions are documented in
 [unit_cell_aware_rotate.md](docs/unit_cell_aware_rotate.md).
 
-### XY Registry Map
+### Planar Translation
 
-After choosing a periodic interface cell, select the layer or adsorbate that
-should translate and open **Analysis > XY Registry Map**. Starting the analysis
-without a selection produces a direct selection warning. v_ase scans one full
-periodic XY cell on the requested fractional grid while a staged progress
-display reports the active step.
+Select the layer, adsorbate, or other component that should move and open
+**Analysis > Planar Translation**. Choose a nonzero Miller plane `(h k l)`.
+v_ase constructs two primitive integer lattice translations lying exactly in
+that plane, so the workflow remains valid for skew and triclinic cells rather
+than assuming Cartesian XY. The requested plane must contain two translations
+allowed by the structure's PBC.
+
+**Activate Mode** immediately shows the physical periodic translation cell.
+Press `G` to move all selected atoms by one shared in-plane vector; the unit
+cell, unselected atoms, and every internal vector within the selected component
+remain fixed. The unit cell stays visible throughout the mode. The map is not a
+prerequisite: **Optimize Translation** can record calculator trials directly on
+the initially blank plane.
+
+Use **Calculate Map** only when a sampled geometric comparison is useful. v_ase
+scans one primitive periodic `(hkl)` translation cell on the requested grid
+while a staged progress display reports the active step. Starting either mode
+without selected moving atoms, or after selecting the complete structure,
+produces a direct error instead of an ambiguous calculation.
 
 The default **Short-contact score** is a dimensionless, covalent-radius-scaled
 geometry proxy. **Bond-strain RMS** instead uses enabled interfacial pairwise
@@ -378,32 +393,36 @@ scores are lower-is-better geometric screening metrics, not energies. Validate
 the proposed registry with an appropriate electronic-structure or force-field
 calculation before drawing physical conclusions.
 
-The Plotly heatmap marks the best grid point and the current translation. While
-the map is active, `G` is constrained to the periodic XY plane and the marker
-follows the move continuously in fractional coordinates. The graph's save icon
-exports the complete fractional X/Y grid, metric values, selected indices, and
-method notes as CSV. RDF, commensurate, and registry plots all expose the same
+The Plotly map uses physical Angstrom coordinates, draws the exact skew
+translation-cell boundary and basis, and marks the best sampled point and the
+current translation. While the mode is active, `G` stays in the chosen plane
+and the marker follows the shared vector continuously. The graph's save icon
+exports both plane-lattice coordinates and the corresponding Cartesian
+translation, metric values, selected indices, `(hkl)`, and basis vectors as
+CSV. RDF, commensurate, and planar-translation plots all expose the same
 adjacent save icon.
 
-![Periodic XY registry scan with current and optimum translations](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_registry_map.png)
+![Periodic planar translation scan with current and optimum translations](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_registry_map.png)
 
 The shown graphene/h-BN example uses **Bond-strain RMS** with explicit C-B and
 C-N interfacial cutoffs, so the heatmap remains a geometric comparison rather
 than an implied energy surface.
 
-After calculating the map, **Rigid XY relaxation** can optimize exactly one
-common in-plane translation for the selected guest layer. The selected atoms'
-internal coordinates and z coordinates, every host atom, and the cell remain
-unchanged. v_ase uses the attached calculator, or the repulsive calculator when
-none is attached, and reports the selected component's net force projected into
-the interface plane in `eV/Å`.
+**Optimize Translation** minimizes exactly two shared coordinates in the chosen
+periodic plane. It uses the attached calculator, or the repulsive calculator
+when none is attached, and reports the norm of the selected component's net
+force projected into that plane in `eV/Å`. No individual atom is relaxed: the
+cell, all unselected coordinates, and every selected pairwise internal vector
+remain unchanged. For `(0 0 1)` this also preserves every selected z
+coordinate; for a general plane the invariant is the complete rigid component.
 
-![Rigid XY translation relaxation following the registry map](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_registry_relax.gif)
+![Rigid planar translation trials without a precomputed colorscale map](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_registry_relax.gif)
 
-**Activate** enters the reversible mode, **Optimize Translation** records each
+**Activate Mode** enters the reversible mode, **Optimize Translation** records each
 accepted optimizer step on its own timeline, and **Apply & Exit** commits one
 undoable translation. **Cancel** restores the exact pre-mode structure. The
-mode timeline disappears when either exit action finishes.
+mode timeline disappears when either exit action finishes. Calculating a map
+later overlays its geometry score without changing any trial or coordinate.
 
 ## Analyze Structures And Fields
 
@@ -459,12 +478,13 @@ Numeric LAMMPS atom columns are exposed by their stored names.
 ![Trajectory-wide force-magnitude colorscale with locked limits and matching Cartesian force vectors](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_atom_colorscale.gif)
 
 The example maps stored `|force|` only onto the selected Cu substrate atoms and
-scans the complete trajectory once to lock one `vmin` and `vmax`. The arrows
-come from those same stored Cartesian vectors: their direction is unchanged,
-their length is `scale × |F|`, and the example verifies force balance rather
-than inventing decorative vectors. Force arrows can use 2D or 3D geometry,
-custom color, thickness, and scale. If a frame has no stored forces, v_ase
-reports that fact instead of evaluating a calculator merely to draw arrows.
+scans the complete trajectory once to lock one `vmin` and `vmax`. At every
+frame, both the colors and arrows are reloaded from that frame's stored force
+array. Arrow direction is the current Cartesian force direction and arrow
+length is `scale × |F|`; neither remains frozen while the atoms move. Force
+arrows can use 2D or 3D geometry, custom color, thickness, and scale. If a
+frame has no stored forces, v_ase reports that fact instead of evaluating a
+calculator merely to draw arrows.
 
 Use **Selected atoms only** to preserve the established appearance of every
 other atom. **Fit current frame** resolves one range from the active frame and
@@ -514,8 +534,9 @@ browser receives only the generated surface mesh.
 Signed mode treats the isovalue as a nonzero magnitude and renders the
 positive and negative crossings that remain inside the displayed field range.
 
-The example is a deterministic analytic benzene pz field generated by the
-repository. It demonstrates the controls and is not presented as a DFT result.
+The example is a deterministic analytic multi-center graphene pz field
+generated by the repository. It demonstrates the controls and is not
+presented as a DFT result.
 
 **Planar Sections** samples the selected scalar field on one or more `(hkl)`
 planes. Each plane has a signed offset in Angstrom along its reciprocal-space
@@ -540,9 +561,11 @@ settles.
 
 ![Interactive hkl scalar-field plane clipped to the displayed cell](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric_plane.gif)
 
-The plane is swept continuously through the field with one fixed `vmin` and
-`vmax`, so color changes represent sampled scalar values rather than automatic
-contrast changes. The camera, white background, atoms, and cell remain fixed.
+The `(1 0 0)` plane is swept continuously through a 104 × 104 × 104 field and
+settles at 1024-pixel sampling with one fixed `vmin` and `vmax`. Alternating
+positive and negative multi-center lobes therefore remain smooth and directly
+comparable throughout the animation. The oblique camera, white background,
+atoms, and cell remain fixed.
 The same external `v_ase api` operations available to an AI Agent add and move
 the plane; every committed offset is reflected in the live GUI and returned by
 `describe().analysis.volumetricPlanes`.
@@ -920,7 +943,7 @@ same chemical roles.
 
 The live schema covers structure edits, constraints, trajectories, cameras,
 appearance, force vectors, volumetric surfaces and planes, colorscales, RDF,
-commensurate cells, registry maps, rendering, and export. The bundled release
+commensurate cells, planar translation maps, rendering, and export. The bundled release
 tests require advertised operations, browser handlers, and Skill instructions
 to remain synchronized.
 

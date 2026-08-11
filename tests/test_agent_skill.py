@@ -471,6 +471,15 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         "gridX",
         "gridY",
         "pairCutoffs",
+        "hkl",
+    ]
+    assert schema["operation_parameters"]["start-registry-relaxation"]["optional"] == [
+        "indices",
+        "hkl",
+    ]
+    assert schema["operation_parameters"]["set-registry-translation"]["required"] == [
+        "active-registry-relaxation",
+        "coordinates",
     ]
     assert schema["operation_parameters"]["set-interface-theme"] == {
         "mode": "view-or-edit",
@@ -516,6 +525,7 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         "gridX",
         "gridY",
         "pairCutoffs",
+        "hkl",
     ]
     assert schema["accepts_natural_language"] is False
     assert schema["stdin_commands"] is False

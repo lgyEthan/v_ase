@@ -26,7 +26,7 @@ The description should trigger for these requests even when v_ase is not named:
 12. `[trigger]` Calculate total and Cu-O partial RDF curves and export CSV.
 13. `[trigger]` Twist this 2D layer to the nearest commensurate cell below 16x area.
 14. `[trigger]` Match this hBN guest cell to a graphene host below one percent strain.
-15. `[trigger]` Map the best periodic XY registry for this selected adsorbate layer.
+15. `[trigger]` Translate this selected layer rigidly in the periodic (1 0 0) plane and map its geometric score.
 16. `[trigger]` Randomly add 20 Li and 10 H atoms to this triclinic cell and repel only the new atoms from short contacts.
 
 It should not trigger for these nearby but unrelated requests:
@@ -69,7 +69,7 @@ Current operation coverage:
   load-commensurate-guest, remove-commensurate-guest,
   calculate-commensurate, apply-commensurate-cell,
   dismiss-commensurate-cell, calculate-registry-map,
-  start-registry-relaxation, run-registry-relaxation,
+  start-registry-relaxation, set-registry-translation, run-registry-relaxation,
   stop-registry-relaxation, finish-registry-relaxation,
   cancel-registry-relaxation, undo, redo,
   reset-coordinates;
@@ -194,11 +194,14 @@ Run all scenarios, not only static document checks:
      determinant, PBC, constraints, and cleared proposal state.
    - reject materialization for trajectories and volumetric documents instead
      of applying one frame or dropping grids;
-   - after a registry map, activate rigid XY relaxation with a calculator;
-     compare its fractional energy gradient to central finite differences,
+   - activate rigid planar translation with and without a precomputed map;
+     compare its two-coordinate energy gradient to central finite differences,
      verify `projected_force` units and convergence, require host/cell/selected
-     internal/z invariants, inspect the mode-only timeline, cancel to exact
+     internal invariants, inspect the mode-only timeline, cancel to exact
      baseline, then finish another run and undo it in one step;
+   - for skew cells, test `(0,0,1)`, `(1,0,0)`, and `(2,1,1)` against exact
+     integer lattice vectors satisfying `h*u+k*v+l*w=0`; reject a plane whose
+     primitive basis uses a disabled PBC vector;
 6. **Appearance**
    - change radius, color, visibility, and material;
    - discover and render coordinate, stored force-norm, scalar-array,
@@ -288,9 +291,10 @@ Run all scenarios, not only static document checks:
    - reject partial PBC, retain an explicit long triclinic cutoff, verify the
      returned image extent/span, render the Plotly drawer, and export matching
      CSV columns and row count.
-   - require a selected movable layer for the XY registry map, scan both
-     short-contact and bond-strain metrics, and verify the live marker follows
-     periodic fractional translation while `G` remains XY-constrained;
+   - require a selected movable component for the planar translation map, scan
+     both short-contact and bond-strain metrics, and verify the live marker
+     follows unwrapped plane-lattice coordinates while `G` remains constrained
+     to the requested `(hkl)` plane;
    - verify both registry metrics are reported as geometry scores rather than
      energies and that the registry CSV matches every plotted grid point;
    - verify RDF, commensurate, and registry graphs each expose one adjacent
@@ -385,9 +389,9 @@ Run all scenarios, not only static document checks:
     - inspect the commensurate cells-only image and require complete host and
       guest primitive grids surrounding the proposal plus readable square-root
       notation; inspect its 3D candidate plot from an oblique camera;
-    - inspect the XY registry image and require one full fractional periodic
-      map, current and optimum markers, a readable metric, and no atom-selection
-      warning;
+    - inspect the planar translation images and require one full physical
+      periodic cell, current and optimum markers, a readable metric, a visible
+      unit cell, and a separate no-colorscale optimizer-trial path;
     - select the ethane H-C-C-H order and verify the media visibly transitions
       through distance, angle, and torsion;
     - inspect the separate displacement image for nonzero vectors and readable
@@ -403,7 +407,8 @@ Run all scenarios, not only static document checks:
       Rubber remain visibly distinct without changing ASE element, radius, or
       color;
     - play the colorscale trajectory with one locked global range and verify
-      the visible force arrows follow the stored Cartesian vectors;
+      every visible force arrow changes with and exactly follows the active
+      frame's stored Cartesian vector;
     - play the isovalue GIF and require continuous mesh changes at fixed camera
       and background; play the plane GIF and require continuous slice changes
       with fixed `vmin`/`vmax`, atoms, cell, camera, and background;

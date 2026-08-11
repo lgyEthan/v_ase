@@ -11,13 +11,14 @@ from typing import Any, Sequence
 import numpy as np
 from scipy.optimize import minimize
 
-from .commensurate import project_periodic_lattice
 from .repulsion import ensure_default_calculator
+from .registry import lattice_plane
 from .session import copy_atoms_with_calc
 from .websocket_manager import ws_manager
 
 
 _STOP_SIGNAL = "REGISTRY_RELAXATION_STOPPED"
+MAX_RETAINED_TRIALS = 2_000
 
 
 @dataclass
@@ -26,10 +27,15 @@ class RegistryRelaxationSession:
     baseline_atoms: Any
     frame_index: int
     selected_indices: list[int]
-    periodic_axes: tuple[int, int]
+    hkl: tuple[int, int, int]
+    periodic_axes: tuple[int, ...]
+    plane_integer_basis: np.ndarray
+    plane_normal: np.ndarray
     plane_basis: np.ndarray
     translation_basis: np.ndarray
+    translation_basis_2d: np.ndarray
     current_coordinates: np.ndarray = field(default_factory=lambda: np.zeros(2))
+    trials: list[dict[str, Any]] = field(default_factory=list)
     status: str = "ready"
     is_relaxing: bool = False
     stop_requested: bool = False
@@ -54,12 +60,20 @@ class RegistryRelaxationSession:
             "status": self.status,
             "is_relaxing": self.is_relaxing,
             "selected_indices": list(self.selected_indices),
+            "hkl": list(self.hkl),
             "periodic_axes": list(self.periodic_axes),
-            "coordinate_basis": "fractional-cell",
+            "plane_integer_basis": self.plane_integer_basis.tolist(),
+            "plane_normal_cartesian": self.plane_normal.tolist(),
+            "plane_basis_cartesian": self.plane_basis.tolist(),
+            "translation_basis_angstrom": self.translation_basis.tolist(),
+            "translation_basis_2d_angstrom": self.translation_basis_2d.tolist(),
+            "coordinate_basis": "fractional-plane-lattice",
             "reference_component": "unselected-host",
             "mobile_component": "selected-guest",
             "translation_cartesian": self.translation_vector().tolist(),
             "translation_fractional": self.fractional_translation().tolist(),
+            "translation_coordinates": self.current_coordinates.tolist(),
+            "trials": list(self.trials),
             "step": int(self.step),
             "max_steps": int(self.max_steps),
             "energy": self.energy,
@@ -89,50 +103,32 @@ def _validated_selection(natoms: int, indices: Sequence[int]) -> list[int]:
     return selected
 
 
-def _orthonormal_plane_basis(cell: np.ndarray, axes: tuple[int, int]) -> np.ndarray:
-    first = np.asarray(cell[axes[0]], dtype=float)
-    second = np.asarray(cell[axes[1]], dtype=float)
-    first_length = float(np.linalg.norm(first))
-    normal = np.cross(first, second)
-    normal_length = float(np.linalg.norm(normal))
-    if first_length <= 1e-12 or normal_length <= 1e-12:
-        raise ValueError("Rigid registry relaxation requires two independent periodic vectors.")
-    first_unit = first / first_length
-    normal /= normal_length
-    second_unit = np.cross(normal, first_unit)
-    if float(np.dot(second_unit, second)) < 0:
-        second_unit *= -1.0
-    return np.asarray([first_unit, second_unit], dtype=float)
-
-
-def start_registry_relaxation_mode(session: Any, selected_indices: Sequence[int]) -> dict[str, Any]:
+def start_registry_relaxation_mode(
+    session: Any,
+    selected_indices: Sequence[int],
+    hkl: Sequence[int | float] = (0, 0, 1),
+) -> dict[str, Any]:
     if getattr(session, "registry_relaxation", None) is not None:
-        raise ValueError("Finish or cancel the active XY translation relaxation first.")
+        raise ValueError("Finish or cancel the active planar translation relaxation first.")
     if getattr(session, "atom_addition", None) is not None:
-        raise ValueError("Finish or cancel Add Atoms before XY translation relaxation.")
+        raise ValueError("Finish or cancel Add Atoms before planar translation relaxation.")
     if getattr(session, "is_relaxing", False):
         raise ValueError("Stop the active structure relaxation first.")
     selected = _validated_selection(len(session.working_atoms), selected_indices)
     baseline = copy_atoms_with_calc(session.working_atoms)
-    try:
-        projected = project_periodic_lattice(baseline.cell.array, baseline.pbc, "Z")
-    except ValueError as exc:
-        raise ValueError(
-            "Rigid registry relaxation requires an interface cell in the global XY plane."
-        ) from exc
-    if projected.axis_alignment < 0.985:
-        raise ValueError(
-            "Rigid registry relaxation requires an interface cell in the global XY plane."
-        )
-    axes = tuple(int(value) for value in projected.periodic_axes)
+    plane = lattice_plane(baseline.cell.array, baseline.pbc, hkl)
     mode = RegistryRelaxationSession(
         session_id=str(uuid.uuid4()),
         baseline_atoms=baseline,
         frame_index=int(session.current_frame),
         selected_indices=selected,
-        periodic_axes=axes,
-        plane_basis=_orthonormal_plane_basis(baseline.cell.array, axes),
-        translation_basis=np.asarray(baseline.cell.array[list(axes)], dtype=float),
+        hkl=plane.hkl,
+        periodic_axes=plane.periodic_axes,
+        plane_integer_basis=plane.integer_basis,
+        plane_normal=plane.normal,
+        plane_basis=plane.plane_basis,
+        translation_basis=plane.translation_basis,
+        translation_basis_2d=plane.translation_basis_2d,
     )
     session.registry_relaxation = mode
     return mode.summary()
@@ -190,6 +186,15 @@ def _publish_step(
         mode.energy = float(energy)
         mode.projected_force = float(projected_force)
         mode.generalized_gradient = float(generalized_gradient)
+        mode.trials.append({
+            "step": int(mode.step),
+            "coordinates": mode.current_coordinates.tolist(),
+            "translation_cartesian": mode.translation_vector().tolist(),
+            "energy": float(energy),
+            "projected_force": float(projected_force),
+        })
+        if len(mode.trials) > MAX_RETAINED_TRIALS:
+            mode.trials = mode.trials[::2]
         atoms.set_positions(_coordinates_for(mode, mode.current_coordinates), apply_constraint=False)
         session.working_atoms = copy_atoms_with_calc(atoms)
         session.sync_current_frame()
@@ -331,9 +336,9 @@ def _run_registry_relaxation(
 def run_registry_relaxation(session: Any, payload: dict[str, Any]) -> dict[str, Any]:
     mode = getattr(session, "registry_relaxation", None)
     if not isinstance(mode, RegistryRelaxationSession):
-        raise ValueError("Activate XY translation relaxation first.")
+        raise ValueError("Activate planar translation relaxation first.")
     if mode.is_relaxing:
-        raise ValueError("XY translation relaxation is already running.")
+        raise ValueError("Planar translation relaxation is already running.")
     fmax = float(payload.get("fmax", 0.05))
     steps = int(payload.get("steps", 100))
     if not np.isfinite(fmax) or fmax <= 0:
@@ -344,6 +349,7 @@ def run_registry_relaxation(session: Any, payload: dict[str, Any]) -> dict[str, 
     mode.is_relaxing = True
     mode.stop_requested = False
     mode.step = 0
+    mode.trials = []
     mode.max_steps = steps
     mode.run_id += 1
     thread = threading.Thread(
@@ -374,10 +380,10 @@ def stop_registry_relaxation(session: Any) -> bool:
 def finish_registry_relaxation_mode(session: Any) -> dict[str, Any]:
     mode = getattr(session, "registry_relaxation", None)
     if not isinstance(mode, RegistryRelaxationSession):
-        raise ValueError("There is no active XY translation relaxation to finish.")
+        raise ValueError("There is no active planar translation relaxation to finish.")
     with mode.lock:
         if mode.is_relaxing:
-            raise ValueError("Stop or wait for XY translation relaxation before applying it.")
+            raise ValueError("Stop or wait for planar translation relaxation before applying it.")
         final_atoms = copy_atoms_with_calc(session.working_atoms)
         session.working_atoms = copy_atoms_with_calc(mode.baseline_atoms)
         session.sync_current_frame()
@@ -399,3 +405,24 @@ def cancel_registry_relaxation_mode(session: Any) -> None:
         session.working_atoms = copy_atoms_with_calc(mode.baseline_atoms)
         session.sync_current_frame()
         session.registry_relaxation = None
+
+
+def set_registry_translation(session: Any, coordinates: Sequence[float]) -> dict[str, Any]:
+    """Preview one exact rigid translation in the active plane basis."""
+
+    mode = getattr(session, "registry_relaxation", None)
+    if not isinstance(mode, RegistryRelaxationSession):
+        raise ValueError("Activate planar translation mode first.")
+    with mode.lock:
+        if mode.is_relaxing:
+            raise ValueError("Stop planar translation relaxation before moving it manually.")
+        values = np.asarray(coordinates, dtype=float)
+        if values.shape != (2,) or not np.all(np.isfinite(values)):
+            raise ValueError("Planar translation coordinates must contain two finite values.")
+        mode.current_coordinates = values.copy()
+        mode.status = "preview"
+        atoms = copy_atoms_with_calc(mode.baseline_atoms)
+        atoms.set_positions(_coordinates_for(mode, values), apply_constraint=False)
+        session.working_atoms = atoms
+        session.sync_current_frame()
+        return mode.summary()

@@ -52,12 +52,12 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.4&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.5&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.2.4';
+            : '/static/vendor/three.module.js?v=0.2.5';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -116,7 +116,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.2.4</span>
+            <span class="version">0.2.5</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -850,42 +850,28 @@
         </details>
 
         <details class="panel-section" open data-panel="registry-map" data-panel-group="analysis">
-            <summary class="section-header">XY Translation Map</summary>
-            <p class="panel-note">Scans the selected atoms over one periodic XY cell. Lower values indicate less geometric mismatch; the map is not an energy surface.</p>
-            <div class="prop-row">
-                <label for="registry-metric">Metric</label>
-                <select id="registry-metric">
-                    <option value="short-contact" selected>Short-contact score</option>
-                    <option value="bond-strain">Interfacial bond strain</option>
-                </select>
-            </div>
-            <div class="prop-row registry-grid-row">
-                <label>Grid</label>
+            <summary class="section-header">Planar Translation</summary>
+            <p class="panel-note">Move the selected atoms as one rigid component in a periodic (hkl) plane. The cell, host atoms, and selected internal coordinates remain fixed.</p>
+            <div class="prop-row registry-hkl-row">
+                <label>Plane (h k l)</label>
                 <div class="num-group">
-                    <input id="registry-grid-x" type="number" min="4" max="160" step="1" value="32" aria-label="Registry map x samples">
-                    <input id="registry-grid-y" type="number" min="4" max="160" step="1" value="32" aria-label="Registry map y samples">
+                    <input id="registry-h" type="number" step="1" value="0" aria-label="Translation plane h">
+                    <input id="registry-k" type="number" step="1" value="0" aria-label="Translation plane k">
+                    <input id="registry-l" type="number" step="1" value="1" aria-label="Translation plane l">
                 </div>
-            </div>
-            <button id="btn-registry-calculate" class="btn-block" type="button">Calculate Translation Map</button>
-            <div id="registry-status" class="analysis-status" data-state="idle">
-                <span class="analysis-status-title">Select a movable layer</span>
-                <span class="analysis-status-detail">The active map constrains G movement to the periodic XY plane.</span>
             </div>
             <div class="registry-relax-card">
                 <div class="registry-relax-heading">
-                    <span>Rigid XY relaxation</span>
+                    <span>Rigid translation mode</span>
                     <span id="registry-relax-mode-badge" class="analysis-mode-badge hidden">ACTIVE</span>
                 </div>
-                <p class="panel-note">
-                    Optimizes one common in-plane translation for the selected atoms. Their internal
-                    coordinates, the host atoms, and the cell remain unchanged.
-                </p>
+                <p class="panel-note">Activate first, then use G or optimize the shared two-coordinate translation.</p>
                 <div class="registry-relax-grid">
                     <label>fmax / eV Å<sup>−1</sup><input id="registry-relax-fmax" type="number" min="0.0001" step="0.01" value="0.05"></label>
                     <label>Steps<input id="registry-relax-steps" type="number" min="1" max="100000" step="10" value="100"></label>
                 </div>
                 <div class="registry-relax-actions">
-                    <button id="btn-registry-relax-activate" type="button">Activate</button>
+                    <button id="btn-registry-relax-activate" type="button">Activate Mode</button>
                     <button id="btn-registry-relax-run" class="primary" type="button" disabled>Optimize Translation</button>
                     <button id="btn-registry-relax-stop" type="button" disabled>Stop</button>
                     <button id="btn-registry-relax-cancel" type="button" disabled>Cancel</button>
@@ -893,7 +879,30 @@
                 </div>
                 <div id="registry-relax-status" class="analysis-status compact" data-state="idle">
                     <span class="analysis-status-title">Mode inactive</span>
-                    <span class="analysis-status-detail">Calculate a map or select a movable layer, then activate.</span>
+                    <span class="analysis-status-detail">Select the movable atoms and activate the plane.</span>
+                </div>
+            </div>
+            <div class="registry-map-card">
+                <div class="registry-relax-heading"><span>Optional translation map</span></div>
+                <p class="panel-note">The plane is shown immediately. Calculate only when a sampled geometry score is needed.</p>
+                <div class="prop-row">
+                    <label for="registry-metric">Metric</label>
+                    <select id="registry-metric">
+                        <option value="short-contact" selected>Short-contact score</option>
+                        <option value="bond-strain">Interfacial bond strain</option>
+                    </select>
+                </div>
+                <div class="prop-row registry-grid-row">
+                    <label>Grid</label>
+                    <div class="num-group">
+                        <input id="registry-grid-x" type="number" min="4" max="160" step="1" value="32" aria-label="Translation map u samples">
+                        <input id="registry-grid-y" type="number" min="4" max="160" step="1" value="32" aria-label="Translation map v samples">
+                    </div>
+                </div>
+                <button id="btn-registry-calculate" class="btn-block" type="button">Calculate Map</button>
+                <div id="registry-status" class="analysis-status" data-state="idle">
+                    <span class="analysis-status-title">Map not calculated</span>
+                    <span class="analysis-status-detail">Activate translation mode to inspect the physical plane and cell boundary.</span>
                 </div>
             </div>
         </details>
@@ -1572,7 +1581,7 @@
         </header>
         <div id="rdf-plot" class="analysis-plot hidden" aria-label="Radial distribution function plot"></div>
         <div id="commensurate-plot" class="analysis-plot hidden" aria-label="Commensurate cell analysis graph"></div>
-        <div id="registry-plot" class="analysis-plot hidden" aria-label="XY translation registry map"></div>
+        <div id="registry-plot" class="analysis-plot hidden" aria-label="Planar translation map"></div>
     </section>
 
     <!-- Bottom Command Overlay -->
@@ -1690,7 +1699,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.2.4&rev=1';
+            : './static/main.js?v=0.2.5&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

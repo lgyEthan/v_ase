@@ -192,6 +192,14 @@ class FastLammpsDumpTrajectory:
             return flattened[:, component]
         return None
 
+    def read_force_vectors(self, frame_index: int) -> np.ndarray | None:
+        """Read Cartesian forces without constructing an ``Atoms`` object."""
+
+        if self.force_columns is None:
+            return None
+        table = self._read_numeric_table(frame_index)
+        return table[:, self.force_columns].astype(np.float32, copy=True)
+
     def read_atoms(self, frame_index: int) -> Atoms:
         if self.template_atoms is None:
             raise ValueError("Fast LAMMPS trajectory has no template Atoms object.")

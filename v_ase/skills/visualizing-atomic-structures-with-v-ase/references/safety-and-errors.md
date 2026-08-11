@@ -46,7 +46,7 @@ test edit and a new filename for output.
   independently loaded host/guest interface as separate workflows. Report
   which lattice receives residual strain; do not call a geometric match an
   energy minimum.
-- A registry map requires selected moving atoms plus unselected host atoms.
+- A planar-translation map requires selected moving atoms plus unselected host atoms.
   Its short-contact and bond-length strain values are geometry-only screening
   metrics. Do not present the minimum as a relaxed adsorption registry without
   a separate energy calculation.
@@ -71,10 +71,12 @@ test edit and a new filename for output.
   `allowEscape:true` is the default and removes that boundary during repulsive
   placement; do not describe the initial box as a permanent confinement unless
   `allowEscape:false` is explicitly set.
-- Rigid registry relaxation is not an atomic relaxation. It may change only one
-  common selected-component translation in the periodic XY plane. Verify the
-  host, cell, selected internal geometry, and selected z coordinates exactly;
-  do not call the projected net force a per-atom force or an energy gradient.
+- Rigid planar translation is not an atomic relaxation. It may change only one
+  common selected-component vector in a periodic `(hkl)` plane. Verify the
+  host, cell, and selected internal geometry exactly. Selected z is invariant
+  only for `(0,0,1)`; for other planes, verify the complete shared vector
+  instead. Do not call the projected net force a per-atom force or an energy
+  gradient.
 - Angle and torsion measurements preserve selection order and do not use MIC.
 - Volumetric linear combinations are valid only for grids with the same
   dimensions, cell, origin, PBC, endpoint convention, and scalar units.
@@ -119,11 +121,11 @@ test edit and a new filename for output.
 | host/guest matching needs a guest | `mode:"host-guest"` was requested before loading one | Run `load-commensurate-guest`, describe, then calculate again |
 | commensurate matching requires global XY/Z | Periodic plane is tilted or another axis was requested | Reorient/transform the cell explicitly or use ordinary atom rotation; do not project and materialize silently |
 | commensurate materialization unsupported | Trajectory, volumetric data, or an ambiguous cross-layer Hookean constraint is active | Keep/dismiss the preview; do not force an inferred topology or field transform |
-| registry map asks for selected guest/interface atoms | No selected indices were supplied | Select the moving layer/adsorbate and retry |
+| planar translation asks for selected moving atoms | No selected indices were supplied | Select the moving component and retry |
 | bond-strain registry has no enabled pair | No selected-to-host bond is inside an enabled pairwise cutoff | Enable scientifically intended label pairs or use the short-contact score; do not fabricate a cutoff |
-| activate XY translation relaxation first | A run/finish request has no active rigid-registry mode | Start the mode with the current selected component and re-describe before continuing |
+| activate planar translation first | A run/finish request has no active rigid-translation mode | Start the mode with the current selected component and `(hkl)`, then re-describe before continuing |
 | leave at least one unselected host atom | The selected component contains the complete structure | Select only the movable layer; rigid translation needs an unselected reference component |
-| rigid registry relaxation requires global XY | The periodic interface is tilted or lacks two independent in-plane vectors | Reorient the cell explicitly or use ordinary relaxation; do not project coordinates silently |
+| `(hkl)` plane is incompatible with PBC | Its primitive in-plane basis uses a nonperiodic cell vector or is degenerate | Choose a compatible plane or correct PBC; do not silently replace the requested Miller indices |
 | repeated atoms cannot be selected | Edit keeps preview replicas noneditable | Use View for replica measurements or materialize with Set Supercell as Cell |
 | relaxation requires calculator | No ASE calculator is attached | Attach a supported calculator or do not relax |
 | optional 3DM export fails | `rhino3dm` is absent | Install `v_ase-gui[rhino]` |

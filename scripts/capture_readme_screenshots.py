@@ -39,7 +39,7 @@ from examples.readme_scenes import (
     make_hookean_surface_scene,
     make_ai_pyridinic_graphene_scene,
     make_amorphous_cuzr_rdf_scene,
-    make_benzene_pi_volumetric_scene,
+    make_graphene_pi_volumetric_scene,
     make_material_preset_scene,
     make_phosphorene_twist_scene,
     make_random_addition_scene,
@@ -886,14 +886,20 @@ def run_external_ai_command(
     ]
     if params is not None:
         command.extend(["--params", json.dumps(params, separators=(",", ":"))])
-    completed = subprocess.run(
-        command,
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=timeout + 10.0,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout + 10.0,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise AssertionError(
+            f"v_ase api {method} failed with exit {exc.returncode}: "
+            f"stdout={exc.stdout!r}; stderr={exc.stderr!r}"
+        ) from exc
     try:
         envelope = json.loads(completed.stdout.strip())
     except json.JSONDecodeError as exc:
@@ -1525,19 +1531,11 @@ def capture_registry_media(browser) -> None:
         """)
         set_selection(page, indices["hbn"])
         cell = np.asarray(atoms.cell.array, dtype=float)
-        initial_registry_shift = 0.17 * cell[0] + 0.11 * cell[1]
-        run_external_ai_apply(command_url, {
-            "operation": {
-                "name": "move-selection",
-                "indices": indices["hbn"],
-                "vector": initial_registry_shift.tolist(),
-                "applyConstraints": False,
-            },
-        })
         result = run_external_ai_apply(command_url, {
             "operation": {
                 "name": "calculate-registry-map",
                 "indices": indices["hbn"],
+                "hkl": [0, 0, 1],
                 "metric": "bond-strain",
                 "gridX": 40,
                 "gridY": 40,
@@ -1550,7 +1548,7 @@ def capture_registry_media(browser) -> None:
         registry = result["analysis"]["registryMap"]
         if registry["grid"] != [40, 40] or registry["selectedIndices"] != indices["hbn"]:
             raise AssertionError("README registry map did not retain its selected layer or grid.")
-        if registry["metric"] != "bond-strain" or registry["optimumValue"] <= 0:
+        if registry["metric"] != "bond-strain":
             raise AssertionError("README registry map did not retain its physical bond-strain metric.")
         page.wait_for_selector("#registry-plot .plotly", state="attached")
         page.evaluate("""() => {
@@ -1583,7 +1581,11 @@ def capture_registry_media(browser) -> None:
                 xConstraint: plot.layout?.xaxis?.constrain,
                 yConstraint: plot.layout?.yaxis?.constrain,
                 valueSpan: (() => {
-                    const values = (plot.data?.[0]?.z || []).flat().map(Number).filter(Number.isFinite);
+                    const score = Array.from(plot.data || []).find(
+                        trace => trace.meta?.role === 'registry-score'
+                    );
+                    const values = Array.from(score?.marker?.color || [])
+                        .map(Number).filter(Number.isFinite);
                     return values.length ? Math.max(...values) - Math.min(...values) : 0;
                 })(),
                 optimum: window.__V_ASE_APP__.state.registryResult?.optimum_fractional,
@@ -1602,10 +1604,13 @@ def capture_registry_media(browser) -> None:
             raise AssertionError("README registry heatmap is missing its host cell, basis, or map markers.")
         if plot_state["active"] != "registry":
             raise AssertionError("README registry heatmap is not the active analysis plot.")
-        if plot_state["xTitle"] != "host-cell fractional translation u" or plot_state["yTitle"] != "host-cell fractional translation v":
-            raise AssertionError("README registry map is missing its periodic fractional axes.")
-        if plot_state["xRange"] != [0, 1] or plot_state["yRange"] != [0, 1]:
-            raise AssertionError("README registry map expanded beyond one periodic translation cell.")
+        if plot_state["xTitle"] != "plane x / Å" or plot_state["yTitle"] != "plane y / Å":
+            raise AssertionError("README registry map is missing its physical plane axes.")
+        if not (
+            plot_state["xRange"][1] > plot_state["xRange"][0]
+            and plot_state["yRange"][1] > plot_state["yRange"][0]
+        ):
+            raise AssertionError("README registry map has a degenerate physical plane boundary.")
         if plot_state["xConstraint"] != "domain" or plot_state["yConstraint"] != "domain":
             raise AssertionError("README registry map does not preserve a readable square domain.")
         if len(plot_state["optimum"] or []) != 2:
@@ -1621,10 +1626,22 @@ def capture_registry_media(browser) -> None:
             page.evaluate("window.__V_ASE_APP__.state.atoms.positions"),
             dtype=float,
         )
+        page.evaluate("""() => {
+            window.__V_ASE_APP__.invalidateRegistryResult(
+                'Map hidden while rigid translation trials are optimized.'
+            );
+        }""")
         run_external_ai_apply(command_url, {
             "operation": {
                 "name": "start-registry-relaxation",
                 "indices": indices["hbn"],
+                "hkl": [0, 0, 1],
+            },
+        })
+        run_external_ai_apply(command_url, {
+            "operation": {
+                "name": "set-registry-translation",
+                "coordinates": [0.17, 0.11],
             },
         })
         run_external_ai_apply(command_url, {
@@ -1647,9 +1664,12 @@ def capture_registry_media(browser) -> None:
         }""", timeout=20_000)
         relaxation = page.evaluate("""() => ({
             frames: window.__V_ASE_APP__.state.relaxTrajectory.frames,
-            axes: window.__V_ASE_APP__.state.registryRelaxation.periodic_axes,
+            hkl: window.__V_ASE_APP__.state.registryRelaxation.hkl,
+            basis: window.__V_ASE_APP__.state.registryRelaxation.translation_basis_angstrom,
             selected: window.__V_ASE_APP__.state.registryRelaxation.selected_indices
         })""")
+        if relaxation["hkl"] != [0, 0, 1]:
+            raise AssertionError("README rigid translation did not retain its requested plane.")
         registry_frames = [np.asarray(frame, dtype=float) for frame in relaxation["frames"]]
         selected = np.asarray(relaxation["selected"], dtype=int)
         host = np.asarray([index for index in range(len(atoms)) if index not in set(selected)], dtype=int)
@@ -1671,8 +1691,7 @@ def capture_registry_media(browser) -> None:
             )
 
         gif_frames: list[Image.Image] = []
-        source = registry_frames[0]
-        cell_inverse = np.linalg.inv(np.asarray(atoms.cell.array, dtype=float))
+        translation_basis = np.asarray(relaxation["basis"], dtype=float)
         visual_frames = registry_frames
         if len(registry_frames) < 10:
             visual_frames = []
@@ -1682,22 +1701,26 @@ def capture_registry_media(browser) -> None:
                     visual_frames.append((1.0 - alpha) * first + alpha * second)
             visual_frames.append(registry_frames[-1])
         for frame_index, positions in enumerate(visual_frames):
-            translation = np.mean(positions[selected] - source[selected], axis=0)
-            fractional = translation @ cell_inverse
+            translation = np.mean(
+                positions[selected] - baseline_positions[selected],
+                axis=0,
+            )
+            coordinates = np.linalg.lstsq(
+                translation_basis.T,
+                translation,
+                rcond=None,
+            )[0]
             page.evaluate(
-                """({positions, index, frameCount, fractional, axes}) => {
+                """({positions, index, frameCount, coordinates}) => {
                     const app = window.__V_ASE_APP__;
                     app.state.atoms.positions = positions.map(position => [...position]);
                     app.renderer.updatePositions(app.state.atoms.positions);
-                    app.updateRegistryMapMarker([
-                        Number(fractional[Number(axes[0])]) || 0,
-                        Number(fractional[Number(axes[1])]) || 0
-                    ]);
+                    app.updateRegistryMapMarker(coordinates);
                     app.setRegistryRelaxStatus(
                         'ready',
-                        'Relaxation trajectory',
-                        `u ${Number(fractional[Number(axes[0])] || 0).toFixed(4)} · `
-                        + `v ${Number(fractional[Number(axes[1])] || 0).toFixed(4)}`
+                        'Rigid translation trials',
+                        `q₁ ${Number(coordinates[0] || 0).toFixed(4)} · `
+                        + `q₂ ${Number(coordinates[1] || 0).toFixed(4)}`
                     );
                     if (app.state.relaxTrajectory?.active) {
                         const sourceCount = app.state.relaxTrajectory.frames.length;
@@ -1712,8 +1735,7 @@ def capture_registry_media(browser) -> None:
                     "positions": positions.tolist(),
                     "index": frame_index,
                     "frameCount": len(visual_frames),
-                    "fractional": fractional.tolist(),
-                    "axes": relaxation["axes"],
+                    "coordinates": coordinates.tolist(),
                 },
             )
             page.wait_for_timeout(60)
@@ -2485,33 +2507,33 @@ def capture_add_atoms_media(browser) -> None:
             "showOverlays": True,
             "atomRadiusScale": 0.50,
             "labelRadii": {
-                "C_channel": 0.54,
+                "Si_framework": 0.54,
                 "Li_mobile": 0.74,
                 "H_probe": 0.38,
             },
             "labelColors": {
-                "C_channel": "#506069",
+                "Si_framework": "#52728a",
                 "Li_mobile": "#73a649",
                 "H_probe": "#d5a52d",
             },
             "labelMaterials": {
-                "C_channel": "rubber",
+                "Si_framework": "rubber",
                 "Li_mobile": "standard",
                 "H_probe": "standard",
             },
             "bondMode": "pairwise",
             "pairwiseBondRanges": {
-                "C_channel-C_channel": {"enabled": True, "max": 1.55},
-                "C_channel-H_probe": {"enabled": False, "max": 0.0},
-                "C_channel-Li_mobile": {"enabled": False, "max": 0.0},
+                "Si_framework-Si_framework": {"enabled": True, "max": 2.55},
+                "H_probe-Si_framework": {"enabled": False, "max": 0.0},
+                "Li_mobile-Si_framework": {"enabled": False, "max": 0.0},
                 "H_probe-H_probe": {"enabled": False, "max": 0.0},
                 "H_probe-Li_mobile": {"enabled": False, "max": 0.0},
                 "Li_mobile-Li_mobile": {"enabled": False, "max": 0.0},
             },
             "pairwiseBondCutoffs": {
-                "C_channel-C_channel": 1.55,
-                "C_channel-H_probe": 0.0,
-                "C_channel-Li_mobile": 0.0,
+                "Si_framework-Si_framework": 2.55,
+                "H_probe-Si_framework": 0.0,
+                "Li_mobile-Si_framework": 0.0,
                 "H_probe-H_probe": 0.0,
                 "H_probe-Li_mobile": 0.0,
                 "Li_mobile-Li_mobile": 0.0,
@@ -2549,10 +2571,11 @@ def capture_add_atoms_media(browser) -> None:
             widget.style.bottom = 'auto';
         }""")
 
-        # Keep the random batch inside the open pore so the real pairwise
-        # optimizer path is visible without slowing production relaxation.
+        # Start inside a dense bonded region so relaxation visibly resolves
+        # overlaps into interstitial and vacancy space.
         half_box = np.asarray(metadata["insertion_half_box"], dtype=float)
-        bounds = np.concatenate((center - half_box, center + half_box))
+        insertion_center = np.asarray(metadata["insertion_center"], dtype=float)
+        bounds = np.concatenate((insertion_center - half_box, insertion_center + half_box))
         page.click("#add-atoms-region-box")
         for selector, value in zip(
             (
@@ -2598,33 +2621,33 @@ def capture_add_atoms_media(browser) -> None:
         # apply the publication palette after that catalog exists.
         set_display(page, {
             "labelRadii": {
-                "C_channel": 0.54,
+                "Si_framework": 0.54,
                 "Li_mobile": 0.74,
                 "H_probe": 0.38,
             },
             "labelColors": {
-                "C_channel": "#506069",
+                "Si_framework": "#52728a",
                 "Li_mobile": "#73a649",
                 "H_probe": "#d5a52d",
             },
             "labelMaterials": {
-                "C_channel": "rubber",
+                "Si_framework": "rubber",
                 "Li_mobile": "standard",
                 "H_probe": "standard",
             },
             "bondMode": "pairwise",
             "pairwiseBondRanges": {
-                "C_channel-C_channel": {"enabled": True, "max": 1.55},
-                "C_channel-H_probe": {"enabled": False, "max": 0.0},
-                "C_channel-Li_mobile": {"enabled": False, "max": 0.0},
+                "Si_framework-Si_framework": {"enabled": True, "max": 2.55},
+                "H_probe-Si_framework": {"enabled": False, "max": 0.0},
+                "Li_mobile-Si_framework": {"enabled": False, "max": 0.0},
                 "H_probe-H_probe": {"enabled": False, "max": 0.0},
                 "H_probe-Li_mobile": {"enabled": False, "max": 0.0},
                 "Li_mobile-Li_mobile": {"enabled": False, "max": 0.0},
             },
             "pairwiseBondCutoffs": {
-                "C_channel-C_channel": 1.55,
-                "C_channel-H_probe": 0.0,
-                "C_channel-Li_mobile": 0.0,
+                "Si_framework-Si_framework": 2.55,
+                "H_probe-Si_framework": 0.0,
+                "Li_mobile-Si_framework": 0.0,
                 "H_probe-H_probe": 0.0,
                 "H_probe-Li_mobile": 0.0,
                 "Li_mobile-Li_mobile": 0.0,
@@ -2870,8 +2893,8 @@ def capture_relaxation_media(browser) -> None:
 
 
 def capture_volumetric_media(browser) -> None:
-    atoms, values = make_benzene_pi_volumetric_scene()
-    cube_path = ROOT / ".v_ase-readme-benzene-pi.cube"
+    atoms, values = make_graphene_pi_volumetric_scene()
+    cube_path = ROOT / ".v_ase-readme-graphene-pi.cube"
     with cube_path.open("w", encoding="utf-8") as handle:
         write_cube(handle, atoms, data=values)
 
@@ -2888,12 +2911,12 @@ def capture_volumetric_media(browser) -> None:
             "viewportBackground": "white",
             "lightingMode": "studio-shadow",
             "labelColors": {
-                "C_pi": "#31373a",
-                "H": "#e4e7e9",
+                "C_pi_A": "#30383d",
+                "C_pi_B": "#607078",
             },
             "labelMaterials": {
-                "C_pi": "standard",
-                "H": "standard",
+                "C_pi_A": "standard",
+                "C_pi_B": "standard",
             },
         })
         configure_inspector(page, "analysis", ["volumetric"], width=470)
@@ -3025,14 +3048,14 @@ def capture_volumetric_media(browser) -> None:
             "operation": {
                 "name": "add-volumetric-plane",
                 "datasetId": dataset["id"],
-                "planeName": "(0 0 1) pi-field section",
-                "hkl": [0, 0, 1],
-                "resolution": 512,
+                "planeName": "(1 0 0) multi-center pi-field section",
+                "hkl": [1, 0, 0],
+                "resolution": 1024,
                 "colormap": "coolwarm",
                 "autoRange": False,
-                "vmin": -maximum_level * 0.42,
-                "vmax": maximum_level * 0.42,
-                "opacity": 0.68,
+                "vmin": -maximum_level * 0.30,
+                "vmax": maximum_level * 0.30,
+                "opacity": 0.84,
                 "visible": True,
             },
         })
@@ -3041,8 +3064,8 @@ def capture_volumetric_media(browser) -> None:
             "id": plane["id"],
             "minimum": plane["offsetRangeAngstrom"][0],
             "maximum": plane["offsetRangeAngstrom"][1],
-            "vmin": -maximum_level * 0.42,
-            "vmax": maximum_level * 0.42,
+            "vmin": -maximum_level * 0.30,
+            "vmax": maximum_level * 0.30,
         }
         page.wait_for_function(
             """() => window.__V_ASE_APP__.renderer.volumetricPlanes.size === 1"""
@@ -3066,7 +3089,7 @@ def capture_volumetric_media(browser) -> None:
         set_camera(
             page,
             target=center.tolist(),
-            position=(center + np.array([10.5, -12.5, 10.0])).tolist(),
+            position=(center + np.array([13.5, -15.5, 10.5])).tolist(),
             up=(0.0, 0.0, 1.0),
             fov=32,
         )
@@ -3074,8 +3097,8 @@ def capture_volumetric_media(browser) -> None:
         page.wait_for_timeout(180)
         span = plane_state["maximum"] - plane_state["minimum"]
         offsets = [
-            *np.linspace(0.38, 0.62, 25),
-            *np.linspace(0.61, 0.39, 23),
+            *np.linspace(0.12, 0.88, 33),
+            *np.linspace(0.86, 0.14, 31),
         ]
         plane_frames = []
         for fraction in offsets:
@@ -3249,6 +3272,7 @@ def capture_atom_colorscale_media(browser) -> None:
         )
         gif_frames = []
         ranges = []
+        force_signatures = []
         for frame_index in range(len(frames)):
             page.evaluate(
                 "async (index) => await window.__V_ASE_APP__.loadFrame(index)",
@@ -3266,12 +3290,12 @@ def capture_atom_colorscale_media(browser) -> None:
                     window.__V_ASE_APP__.state.display.atomColorScaleMax
                 ]"""
             ))
-            force_alignment = page.evaluate("""() => {
+            force_snapshot = page.evaluate("""expectedForces => {
                 const app = window.__V_ASE_APP__;
                 const entries = app.renderer.forceVectorGroup.userData.entries || [];
-                const forces = app.state.atoms.forces || [];
-                return entries.map(entry => {
-                    const source = forces[entry.index] || [0, 0, 0];
+                return {
+                    alignments: entries.map(entry => {
+                    const source = expectedForces[entry.index] || [0, 0, 0];
                     const direction = entry.vector || [0, 0, 0];
                     const sourceLength = Math.hypot(...source);
                     const directionLength = Math.hypot(...direction);
@@ -3280,14 +3304,23 @@ def capture_atom_colorscale_media(browser) -> None:
                         (sum, value, axis) => sum + value * source[axis],
                         0
                     ) / (sourceLength * directionLength);
-                });
-            }""")
-            if len(force_alignment) < 20 or min(force_alignment) < 1 - 1e-8:
+                    }),
+                    vectors: entries.map(entry => [entry.index, ...entry.vector])
+                };
+            }""", frames[frame_index].get_forces().tolist())
+            if len(force_snapshot["alignments"]) < 20 or min(force_snapshot["alignments"]) < 1 - 1e-8:
                 raise AssertionError("README force arrows do not follow the stored Cartesian forces.")
+            force_signatures.append(np.asarray(force_snapshot["vectors"], dtype=float))
             gif_frames.append(screenshot_frame(page))
         reference_range = np.asarray(ranges[0], dtype=float)
         if not all(np.allclose(np.asarray(item, dtype=float), reference_range) for item in ranges[1:]):
             raise AssertionError("README trajectory colorscale changed vmin/vmax between frames.")
+        if not any(
+            current.shape == force_signatures[0].shape
+            and not np.allclose(current[:, 1:], force_signatures[0][:, 1:])
+            for current in force_signatures[1:]
+        ):
+            raise AssertionError("README trajectory force arrows stayed fixed between frames.")
         save_gif(
             gif_frames + list(reversed(gif_frames[1:-1])),
             ASSET_DIR / "readme_atom_colorscale.gif",

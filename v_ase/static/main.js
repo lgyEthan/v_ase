@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.4&rev=1';
-import { ASERenderer } from './renderer.js?v=0.2.4&rev=1';
-import { ASESelection } from './selection.js?v=0.2.4&rev=1';
-import { ASETransform } from './transform.js?v=0.2.4&rev=1';
+import { ASEApi } from './api.js?v=0.2.5&rev=1';
+import { ASERenderer } from './renderer.js?v=0.2.5&rev=1';
+import { ASESelection } from './selection.js?v=0.2.5&rev=1';
+import { ASETransform } from './transform.js?v=0.2.5&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.4&rev=1';
+} from './trajectory.js?v=0.2.5&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -34,6 +34,7 @@ const ATOM_MATERIAL_PRESETS = Object.freeze(['standard', 'metal', 'rubber']);
 const MAX_COMMENSURATE_AREA_RATIO = 128;
 const MIN_ATOM_COLORSCALE_TRAJECTORY_CACHE_VALUES = 10_000;
 const MAX_ATOM_COLORSCALE_TRAJECTORY_CACHE_VALUES = 2_000_000;
+const MAX_FORCE_VECTOR_TRAJECTORY_CACHE_VALUES = 6_000_000;
 
 class VAseApp {
     constructor() {
@@ -217,7 +218,8 @@ class VAseApp {
                 rdfPairMode: 'active',
                 registryMetric: 'short-contact',
                 registryGridX: 32,
-                registryGridY: 32
+                registryGridY: 32,
+                registryHkl: [0, 0, 1]
             },
             antiAliasing: true,
             sphereQuality: 'auto',
@@ -302,7 +304,8 @@ class VAseApp {
             registryJobId: null,
             registrySelectionSignature: '',
             registryTranslationFractional: [0, 0],
-            registryTransformStartFractional: null,
+            registryTranslationCoordinates: [0, 0],
+            registryTransformStartCoordinates: null,
             registryRelaxation: null,
             activeAnalysisPlot: null,
             plotlyPromise: null,
@@ -326,6 +329,12 @@ class VAseApp {
             prefetchFrame: -1,
             prefetchPromise: null,
             prefetchTimer: null
+        };
+        this.forceVectorRuntime = {
+            requestToken: 0,
+            trajectoryCache: null,
+            frameCaches: new Map(),
+            pending: null
         };
         this.factoryDesignSettings = {
             schema: 'v_ase.visual_settings.v3',
@@ -2844,6 +2853,12 @@ class VAseApp {
             this.renderer.setDisplayOptions(this.state.display);
             this.scheduleVisualHistoryCommit('force-vectors');
         }
+        if (this.state.display.showForceVectors) {
+            this.updateForceVectorsForCurrentFrame().catch(error => {
+                this.renderer.clearForceVectors();
+                this.updateForceVectorStatus(error.message);
+            });
+        }
         this.updateForceVectorStatus();
     }
 
@@ -2869,7 +2884,7 @@ class VAseApp {
         this.updateForceVectorStatus();
     }
 
-    updateForceVectorStatus() {
+    updateForceVectorStatus(errorMessage = '') {
         const status = document.getElementById('force-vector-status');
         if (!status) return;
         const title = status.querySelector('.analysis-status-title');
@@ -2883,6 +2898,12 @@ class VAseApp {
         const nonzero = finite.filter(vector => (
             Number(vector[0]) ** 2 + Number(vector[1]) ** 2 + Number(vector[2]) ** 2 > 1e-14
         ));
+        if (errorMessage) {
+            status.dataset.state = 'warning';
+            if (title) title.textContent = 'Force vectors unavailable';
+            if (detail) detail.textContent = errorMessage;
+            return;
+        }
         if (!this.state.display.showForceVectors) {
             status.dataset.state = 'idle';
             if (title) title.textContent = 'Force vectors hidden';
@@ -2900,6 +2921,62 @@ class VAseApp {
         status.dataset.state = 'ready';
         if (title) title.textContent = `${nonzero.length} force vector${nonzero.length === 1 ? '' : 's'}`;
         if (detail) detail.textContent = 'Arrow direction follows the stored Cartesian force vector.';
+    }
+
+    invalidateForceVectorData() {
+        this.forceVectorRuntime.requestToken += 1;
+        this.forceVectorRuntime.trajectoryCache = null;
+        this.forceVectorRuntime.frameCaches.clear();
+        this.forceVectorRuntime.pending = null;
+    }
+
+    forceVectorsFromCache(cache, frameIndex) {
+        if (!cache || cache.atoms !== this.state.atoms?.positions?.length) return null;
+        const localFrame = Number(frameIndex) - Number(cache.startFrame || 0);
+        if (localFrame < 0 || localFrame >= cache.frames) return null;
+        const offset = localFrame * cache.atoms * 3;
+        return Array.from({ length: cache.atoms }, (_, atomIndex) => {
+            const base = offset + atomIndex * 3;
+            const vector = [cache.values[base], cache.values[base + 1], cache.values[base + 2]];
+            return vector.every(Number.isFinite) ? vector : [Number.NaN, Number.NaN, Number.NaN];
+        });
+    }
+
+    async updateForceVectorsForCurrentFrame() {
+        if (!this.state.display.showForceVectors || !this.state.atoms?.positions?.length) return;
+        const frameIndex = Number(this.state.atoms.metadata?.current_frame || 0);
+        const frameCount = Math.max(1, Number(this.state.atoms.metadata?.frame_count || 1));
+        const atomCount = this.state.atoms.positions.length;
+        let cache = this.forceVectorRuntime.trajectoryCache;
+        if (!cache) cache = this.forceVectorRuntime.frameCaches.get(frameIndex) || null;
+        let forces = this.forceVectorsFromCache(cache, frameIndex);
+        if (!forces) {
+            const token = ++this.forceVectorRuntime.requestToken;
+            const allFrames = frameCount > 1
+                && frameCount * atomCount * 3 <= MAX_FORCE_VECTOR_TRAJECTORY_CACHE_VALUES;
+            const request = this.api.fetchForceVectors(frameIndex, allFrames);
+            this.forceVectorRuntime.pending = request;
+            cache = await request;
+            if (token !== this.forceVectorRuntime.requestToken) return;
+            if (cache.cache === 'trajectory') {
+                this.forceVectorRuntime.trajectoryCache = cache;
+                this.forceVectorRuntime.frameCaches.clear();
+            } else {
+                this.forceVectorRuntime.frameCaches.set(frameIndex, cache);
+                while (this.forceVectorRuntime.frameCaches.size > 4) {
+                    this.forceVectorRuntime.frameCaches.delete(
+                        this.forceVectorRuntime.frameCaches.keys().next().value
+                    );
+                }
+            }
+            this.forceVectorRuntime.pending = null;
+            forces = this.forceVectorsFromCache(cache, frameIndex);
+        }
+        if (!forces || frameIndex !== Number(this.state.atoms.metadata?.current_frame || 0)) return;
+        this.state.atoms.forces = forces;
+        this.renderer.atomsData.forces = forces;
+        this.renderer.setForceVectors(forces, this.state.display);
+        this.updateForceVectorStatus();
     }
 
     volumetricDatasets() {
@@ -4945,7 +5022,7 @@ class VAseApp {
                 meta: { role: 'angle-area-floor' },
                 showscale: false,
                 hoverinfo: 'skip',
-                opacity: 0.08,
+                opacity: 0.16,
                 x: geometry.floor.x,
                 y: [[geometry.axis.yRange[0], geometry.axis.yRange[0]], [geometry.axis.yRange[1], geometry.axis.yRange[1]]],
                 z: geometry.floor.z,
@@ -5059,52 +5136,74 @@ class VAseApp {
                 bgcolor: 'rgba(0,0,0,0)',
                 xaxis: {
                     title: { text: 'rotation θ / °', font: { size: 13 } },
-                    gridcolor: theme.line,
-                    zerolinecolor: theme.line,
+                    showgrid: true,
+                    gridcolor: theme.muted,
+                    gridwidth: 2,
+                    zerolinecolor: theme.text,
+                    zerolinewidth: 2,
                     color: theme.text,
                     tickfont: { size: 11 },
                     showline: true,
                     linecolor: theme.text,
                     linewidth: 2,
                     showbackground: true,
-                    backgroundcolor: 'rgba(117,131,126,0.035)',
+                    backgroundcolor: 'rgba(117,131,126,0.10)',
                     showspikes: false,
-                    nticks: 8,
+                    ticks: 'outside',
+                    ticklen: 5,
+                    tickcolor: theme.text,
+                    nticks: 9,
                     range: geometry.axis.x
                 },
                 yaxis: {
                     title: { text: 'host area / A₀', font: { size: 13 } },
-                    gridcolor: theme.line,
-                    zerolinecolor: theme.line,
+                    showgrid: true,
+                    gridcolor: theme.muted,
+                    gridwidth: 2,
+                    zerolinecolor: theme.text,
+                    zerolinewidth: 2,
                     color: theme.text,
                     tickfont: { size: 11 },
                     showline: true,
-                    linecolor: theme.line,
+                    linecolor: theme.text,
+                    linewidth: 2,
                     showbackground: true,
-                    backgroundcolor: 'rgba(117,131,126,0.045)',
+                    backgroundcolor: 'rgba(117,131,126,0.11)',
                     showspikes: false,
-                    nticks: 6,
+                    ticks: 'outside',
+                    ticklen: 5,
+                    tickcolor: theme.text,
+                    nticks: 7,
                     range: geometry.axis.yRange
                 },
                 zaxis: {
                     title: { text: 'max strain / %', font: { size: 13 } },
-                    gridcolor: theme.line,
-                    zerolinecolor: theme.line,
+                    showgrid: true,
+                    gridcolor: theme.muted,
+                    gridwidth: 2,
+                    zerolinecolor: theme.text,
+                    zerolinewidth: 2,
                     color: theme.text,
                     tickfont: { size: 11 },
                     showline: true,
-                    linecolor: theme.line,
+                    linecolor: theme.text,
+                    linewidth: 2,
                     showbackground: true,
-                    backgroundcolor: 'rgba(117,131,126,0.025)',
+                    backgroundcolor: 'rgba(117,131,126,0.09)',
                     showspikes: false,
-                    nticks: 6,
+                    ticks: 'outside',
+                    ticklen: 5,
+                    tickcolor: theme.text,
+                    nticks: 7,
                     range: geometry.axis.zRange
                 },
                 aspectmode: 'manual',
-                aspectratio: { x: 2.65, y: 1.50, z: 1.30 },
+                aspectratio: { x: 2.80, y: 1.45, z: 1.40 },
                 camera: {
                     projection: { type: 'perspective' },
-                    eye: { x: 0.42, y: -2.30, z: 1.34 },
+                    // Looking almost along -Y keeps rotation as the unmistakable
+                    // horizontal axis while the other two dimensions retain depth.
+                    eye: { x: 0.08, y: -2.35, z: 1.42 },
                     center: { x: 0, y: 0, z: -0.08 },
                     up: { x: 0, y: 0, z: 1 }
                 }
@@ -5291,6 +5390,25 @@ class VAseApp {
         return result;
     }
 
+    registryHkl(overrides = {}) {
+        const requested = Array.isArray(overrides.hkl)
+            ? overrides.hkl
+            : [
+                document.getElementById('registry-h')?.value ?? 0,
+                document.getElementById('registry-k')?.value ?? 0,
+                document.getElementById('registry-l')?.value ?? 1
+            ];
+        const hkl = requested.map(value => Number(value));
+        if (hkl.length !== 3 || hkl.some(value => !Number.isInteger(value))) {
+            throw new Error('The translation plane requires three integer Miller indices.');
+        }
+        if (hkl.every(value => value === 0)) {
+            throw new Error('The translation plane cannot be (0 0 0).');
+        }
+        this.state.display.registryHkl = hkl;
+        return hkl;
+    }
+
     registryOptions(jobId = null, overrides = {}) {
         const requestedMetric = overrides.metric
             ?? document.getElementById('registry-metric')?.value;
@@ -5304,6 +5422,7 @@ class VAseApp {
         this.state.display.registryMetric = metric;
         this.state.display.registryGridX = gridX;
         this.state.display.registryGridY = gridY;
+        const hkl = this.registryHkl(overrides);
         return {
             positions: this.backendPositionsPayload(),
             selected_indices: Array.isArray(overrides.selectedIndices)
@@ -5312,6 +5431,7 @@ class VAseApp {
             grid_x: gridX,
             grid_y: gridY,
             metric,
+            hkl,
             pair_cutoffs: overrides.pairCutoffs ?? this.registryPairCutoffs(),
             job_id: jobId
         };
@@ -5340,6 +5460,7 @@ class VAseApp {
         this.state.registryResult = null;
         this.state.registrySelectionSignature = '';
         this.state.registryTranslationFractional = [0, 0];
+        if (!this.state.registryRelaxation) this.state.registryTranslationCoordinates = [0, 0];
         const plot = this.analysisPlotElement('registry');
         if (plot && window.Plotly?.purge) window.Plotly.purge(plot);
         if (this.state.activeAnalysisPlot === 'registry') this.closeAnalysisDrawer();
@@ -5351,7 +5472,7 @@ class VAseApp {
             ? [...overrides.selectedIndices]
             : [...this.state.selected].filter(index => this.isEditableIndex(index));
         if (!selection.length) {
-            throw new Error('Select the guest or movable layer before calculating an XY translation map.');
+            throw new Error('Select the movable atoms before calculating a planar translation map.');
         }
         if (selection.length >= (this.state.atoms?.positions?.length || 0)) {
             throw new Error('Leave at least one host atom unselected as the registry reference.');
@@ -5363,9 +5484,10 @@ class VAseApp {
             ...overrides,
             selectedIndices: selection
         });
-        this.setRegistryStatus('loading', 'Scanning periodic translations', 'Evaluating one periodic XY cell.');
+        const hklLabel = `(${options.hkl.join(' ')})`;
+        this.setRegistryStatus('loading', 'Scanning periodic translations', `Evaluating one periodic ${hklLabel} cell.`);
         this.setBusy('Preparing periodic interfacial distances...', {
-            title: 'XY translation map',
+            title: `${hklLabel} translation map`,
             progress: 1
         });
         await new Promise(resolve => requestAnimationFrame(resolve));
@@ -5395,122 +5517,205 @@ class VAseApp {
         }
     }
 
-    async plotRegistryMap(result) {
+    registryPlaneSource() {
+        return this.state.registryRelaxation || this.state.registryResult;
+    }
+
+    registryPlotPoint(coordinates, source = this.registryPlaneSource()) {
+        const basis = source?.translation_basis_2d_angstrom || [[1, 0], [0, 1]];
+        const u = Number(coordinates?.[0]) || 0;
+        const v = Number(coordinates?.[1]) || 0;
+        return [
+            u * Number(basis[0]?.[0] || 0) + v * Number(basis[1]?.[0] || 0),
+            u * Number(basis[0]?.[1] || 0) + v * Number(basis[1]?.[1] || 0)
+        ];
+    }
+
+    async plotRegistryPlane(source = this.registryPlaneSource()) {
+        if (!source) return;
         const Plotly = await this.ensurePlotly();
-        const plot = this.showAnalysisDrawer('registry', 'Host-Reference XY Translation Map');
+        const hkl = source.hkl || [0, 0, 1];
+        const plot = this.showAnalysisDrawer('registry', `(${hkl.join(' ')}) Rigid Translation`);
         if (!plot) return;
         const theme = this.plotTheme();
-        const optimum = result.optimum_fractional || [0, 0];
-        const translationBasis = result.translation_basis_angstrom || [[1, 0, 0], [0, 1, 0]];
-        const aLength = Math.hypot(...translationBasis[0].map(Number));
-        const bLength = Math.hypot(...translationBasis[1].map(Number));
-        const basisDot = translationBasis[0].reduce(
-            (sum, value, index) => sum + Number(value) * Number(translationBasis[1][index] || 0),
-            0
-        );
-        const basisAngle = THREE.MathUtils.radToDeg(Math.acos(Math.max(
-            -1,
-            Math.min(1, basisDot / Math.max(aLength * bLength, 1e-12))
-        )));
-        await Plotly.react(plot, [
-            {
-                type: 'heatmap',
+        const candidateResult = this.state.registryResult;
+        const activeMode = this.state.registryRelaxation;
+        const sameArray = (left, right) => JSON.stringify(left || []) === JSON.stringify(right || []);
+        const result = !candidateResult || !activeMode || (
+            sameArray(candidateResult.hkl, activeMode.hkl)
+            && sameArray(
+                [...(candidateResult.selected_indices || [])].sort((a, b) => a - b),
+                [...(activeMode.selected_indices || [])].sort((a, b) => a - b)
+            )
+        ) ? candidateResult : null;
+        const basis = source.translation_basis_2d_angstrom || [[1, 0], [0, 1]];
+        const origin = [0, 0];
+        const first = this.registryPlotPoint([1, 0], source);
+        const second = this.registryPlotPoint([0, 1], source);
+        const corner = this.registryPlotPoint([1, 1], source);
+        const traces = [];
+        if (result?.values?.length) {
+            const x = [];
+            const y = [];
+            const color = [];
+            const customdata = [];
+            (result.y_fractional || []).forEach((v, row) => {
+                (result.x_fractional || []).forEach((u, column) => {
+                    const point = this.registryPlotPoint([u, v], result);
+                    x.push(point[0]);
+                    y.push(point[1]);
+                    color.push(Number(result.values?.[row]?.[column]));
+                    customdata.push([Number(u), Number(v)]);
+                });
+            });
+            traces.push({
+                type: 'scattergl',
+                mode: 'markers',
                 meta: { role: 'registry-score' },
-                x: result.x_fractional,
-                y: result.y_fractional,
-                z: result.values,
-                colorscale: [[0, theme.teal], [0.5, theme.blue], [1, theme.amber]],
-                colorbar: { title: result.metric_label, thickness: 11 },
-                hovertemplate: 'u=%{x:.4f}<br>v=%{y:.4f}<br>value=%{z:.6g}<extra></extra>'
-            },
-            {
-                type: 'scatter',
-                mode: 'lines',
-                meta: { role: 'host-reference-cell' },
-                name: 'Unselected host / current cell',
-                x: [0, 1, 1, 0, 0],
-                y: [0, 0, 1, 1, 0],
-                line: { color: theme.text, width: 2.5 },
-                hovertemplate: 'Current periodic cell boundary<extra></extra>'
-            },
-            {
-                type: 'scatter',
-                mode: 'lines+markers',
-                meta: { role: 'host-reference-basis' },
-                name: 'Host-reference basis',
-                x: [0, 1, null, 0, 0],
-                y: [0, 0, null, 0, 1],
-                line: { color: theme.muted, width: 2 },
-                marker: { size: 5, color: theme.muted },
-                hovertemplate: 'Host/current cell basis<extra></extra>'
-            },
-            {
+                name: result.metric_label,
+                x,
+                y,
+                customdata,
+                marker: {
+                    symbol: 'square',
+                    size: Math.max(4, Math.min(15, 360 / Math.max(
+                        Number(result.x_fractional?.length || 1),
+                        Number(result.y_fractional?.length || 1)
+                    ))),
+                    color,
+                    colorscale: [[0, theme.teal], [0.5, theme.blue], [1, theme.amber]],
+                    colorbar: { title: result.metric_label, thickness: 11 },
+                    showscale: true,
+                    opacity: 0.92
+                },
+                hovertemplate: 'x=%{x:.4f} Å<br>y=%{y:.4f} Å<br>u=%{customdata[0]:.4f}<br>v=%{customdata[1]:.4f}<br>value=%{marker.color:.6g}<extra></extra>'
+            });
+        }
+        traces.push({
+            type: 'scatter',
+            mode: 'lines',
+            meta: { role: 'host-reference-cell' },
+            name: `Periodic (${hkl.join(' ')}) cell`,
+            x: [origin[0], first[0], corner[0], second[0], origin[0]],
+            y: [origin[1], first[1], corner[1], second[1], origin[1]],
+            line: { color: theme.text, width: 3 },
+            hovertemplate: 'Periodic translation-cell boundary<extra></extra>'
+        });
+        traces.push({
+            type: 'scatter',
+            mode: 'lines+markers',
+            meta: { role: 'host-reference-basis' },
+            name: 'Plane basis',
+            x: [0, first[0], null, 0, second[0]],
+            y: [0, first[1], null, 0, second[1]],
+            line: { color: theme.muted, width: 2 },
+            marker: { size: 5, color: theme.muted },
+            hovertemplate: 'Primitive periodic plane basis<extra></extra>'
+        });
+        if (result?.optimum_fractional) {
+            const optimum = this.registryPlotPoint(result.optimum_fractional, result);
+            traces.push({
                 type: 'scatter',
                 mode: 'markers',
                 meta: { role: 'registry-optimum' },
                 name: 'Suggested minimum',
-                x: [Number(optimum[0])],
-                y: [Number(optimum[1])],
+                x: [optimum[0]],
+                y: [optimum[1]],
+                marker: { symbol: 'diamond-open', size: 12, color: theme.text, line: { width: 2 } }
+            });
+        }
+        const trials = this.state.registryRelaxation?.trials || [];
+        if (trials.length) {
+            const trialPoints = trials.map(trial => this.registryPlotPoint(trial.coordinates, source));
+            traces.push({
+                type: 'scatter',
+                mode: 'lines+markers',
+                meta: { role: 'registry-trials' },
+                name: 'Optimization trials',
+                x: trialPoints.map(point => point[0]),
+                y: trialPoints.map(point => point[1]),
+                customdata: trials.map(trial => [trial.step, trial.energy, trial.projected_force]),
+                line: { color: theme.amber, width: 2 },
                 marker: {
-                    symbol: 'diamond-open',
-                    size: 12,
-                    color: theme.text,
-                    line: { width: 2 }
-                }
-            },
+                    size: 7,
+                    color: trials.map(trial => Number(trial.energy)),
+                    colorscale: 'Viridis',
+                    showscale: false,
+                    line: { color: theme.text, width: 0.7 }
+                },
+                hovertemplate: 'trial %{customdata[0]}<br>x=%{x:.4f} Å<br>y=%{y:.4f} Å<br>E=%{customdata[1]:.6g} eV<br>|Fplane|=%{customdata[2]:.6g} eV/Å<extra></extra>'
+            });
+        }
+        const currentCoordinates = this.state.registryTranslationCoordinates || [0, 0];
+        const current = this.registryPlotPoint(currentCoordinates, source);
+        traces.push(
             {
                 type: 'scatter',
                 mode: 'markers',
                 meta: { role: 'registry-current' },
                 name: 'Current translation',
-                x: [0],
-                y: [0],
-                marker: {
-                    size: 10,
-                    color: theme.amber,
-                    line: { color: theme.text, width: 1.5 }
-                }
+                x: [current[0]],
+                y: [current[1]],
+                marker: { size: 11, color: theme.amber, line: { color: theme.text, width: 1.5 } }
             },
             {
                 type: 'scatter',
                 mode: 'lines',
                 meta: { role: 'registry-current-vector' },
-                name: 'Selected guest translation',
-                x: [0, 0],
-                y: [0, 0],
+                name: 'Rigid translation vector',
+                x: [0, current[0]],
+                y: [0, current[1]],
                 line: { color: theme.amber, width: 3, dash: 'dot' },
-                hovertemplate: 'Rigid selected-guest translation<extra></extra>'
+                hovertemplate: 'Selected atoms move as one rigid component<extra></extra>'
             }
-        ], {
+        );
+        const boundsX = [0, first[0], second[0], corner[0]];
+        const boundsY = [0, first[1], second[1], corner[1]];
+        const span = Math.max(
+            Math.max(...boundsX) - Math.min(...boundsX),
+            Math.max(...boundsY) - Math.min(...boundsY),
+            1
+        );
+        const padding = span * 0.12;
+        await Plotly.react(plot, traces, {
             autosize: true,
-            margin: { l: 52, r: 18, t: 14, b: 46 },
+            margin: { l: 58, r: 22, t: 20, b: 52 },
             paper_bgcolor: 'rgba(0,0,0,0)',
             plot_bgcolor: 'rgba(0,0,0,0)',
             font: { color: theme.text, family: 'Inter, system-ui, sans-serif', size: 11 },
             xaxis: {
-                title: 'host-cell fractional translation u',
-                range: [0, 1],
+                title: 'plane x / Å',
+                range: [Math.min(...boundsX) - padding, Math.max(...boundsX) + padding],
+                showgrid: true,
                 gridcolor: theme.line,
+                zeroline: true,
+                zerolinecolor: theme.muted,
                 color: theme.muted,
                 constrain: 'domain'
             },
             yaxis: {
-                title: 'host-cell fractional translation v',
-                range: [0, 1],
+                title: 'plane y / Å',
+                range: [Math.min(...boundsY) - padding, Math.max(...boundsY) + padding],
+                showgrid: true,
                 gridcolor: theme.line,
+                zeroline: true,
+                zerolinecolor: theme.muted,
                 color: theme.muted,
                 scaleanchor: 'x',
                 scaleratio: 1,
                 constrain: 'domain'
             },
             legend: { orientation: 'h', x: 0, y: 1.12, bgcolor: 'rgba(0,0,0,0)' },
-            annotations: [
-                { x: 1, y: 0, text: `a (${aLength.toFixed(3)} Å)`, showarrow: true, ax: -35, ay: -19, arrowcolor: theme.muted, font: { color: theme.text } },
-                { x: 0, y: 1, text: `b (${bLength.toFixed(3)} Å)`, showarrow: true, ax: 37, ay: 20, arrowcolor: theme.muted, font: { color: theme.text } },
-                { x: 1, y: 1, text: `γ ${basisAngle.toFixed(2)}°`, showarrow: false, xanchor: 'right', yanchor: 'bottom', font: { color: theme.muted, size: 10 } },
-                { x: 0.5, y: -0.16, xref: 'paper', yref: 'paper', text: 'Selected guest translated over one current host-reference periodic cell', showarrow: false, font: { color: theme.muted, size: 10 } }
-            ],
-            uirevision: 'registry-map'
+            annotations: [{
+                x: 0.5,
+                y: -0.18,
+                xref: 'paper',
+                yref: 'paper',
+                text: `Physical (${hkl.join(' ')}) periodic plane · b₁ (${Math.hypot(...basis[0]).toFixed(3)} Å) · b₂ (${Math.hypot(...basis[1]).toFixed(3)} Å)`,
+                showarrow: false,
+                font: { color: theme.muted, size: 10 }
+            }],
+            uirevision: `registry-plane-${hkl.join('-')}`
         }, {
             responsive: true,
             displaylogo: false,
@@ -5519,12 +5724,22 @@ class VAseApp {
         });
     }
 
-    updateRegistryMapMarker(fractional) {
-        if (!this.state.registryResult) return;
-        const wrapped = [
-            ((Number(fractional?.[0]) || 0) % 1 + 1) % 1,
-            ((Number(fractional?.[1]) || 0) % 1 + 1) % 1
+    async plotRegistryMap(result) {
+        await this.plotRegistryPlane(result);
+    }
+
+    updateRegistryMapMarker(coordinates, { refreshTrials = false } = {}) {
+        const source = this.registryPlaneSource();
+        if (!source) return;
+        const unwrapped = [
+            Number(coordinates?.[0]) || 0,
+            Number(coordinates?.[1]) || 0
         ];
+        const wrapped = [
+            ((unwrapped[0] % 1) + 1) % 1,
+            ((unwrapped[1] % 1) + 1) % 1
+        ];
+        this.state.registryTranslationCoordinates = unwrapped;
         this.state.registryTranslationFractional = wrapped;
         const result = this.state.registryResult;
         if (result) {
@@ -5540,14 +5755,36 @@ class VAseApp {
                 const traces = Array.from(plot.data || []);
                 const markerIndex = traces.findIndex(trace => trace.meta?.role === 'registry-current');
                 const vectorIndex = traces.findIndex(trace => trace.meta?.role === 'registry-current-vector');
+                const current = this.registryPlotPoint(unwrapped, source);
                 if (markerIndex >= 0) {
-                    window.Plotly.restyle(plot, { x: [[wrapped[0]]], y: [[wrapped[1]]] }, [markerIndex]);
+                    window.Plotly.restyle(plot, { x: [[current[0]]], y: [[current[1]]] }, [markerIndex]);
                 }
                 if (vectorIndex >= 0) {
                     window.Plotly.restyle(plot, {
-                        x: [[0, wrapped[0]]],
-                        y: [[0, wrapped[1]]]
+                        x: [[0, current[0]]],
+                        y: [[0, current[1]]]
                     }, [vectorIndex]);
+                }
+                if (refreshTrials) {
+                    const trials = this.state.registryRelaxation?.trials || [];
+                    const trialIndex = traces.findIndex(trace => trace.meta?.role === 'registry-trials');
+                    if (trials.length && trialIndex < 0) {
+                        this.plotRegistryPlane(source).catch(error => {
+                            console.error('Could not refresh planar-translation trials:', error);
+                        });
+                    } else if (trialIndex >= 0) {
+                        const points = trials.map(trial => this.registryPlotPoint(trial.coordinates, source));
+                        window.Plotly.restyle(plot, {
+                            x: [points.map(point => point[0])],
+                            y: [points.map(point => point[1])],
+                            customdata: [trials.map(trial => [
+                                trial.step,
+                                trial.energy,
+                                trial.projected_force
+                            ])],
+                            'marker.color': [trials.map(trial => Number(trial.energy))]
+                        }, [trialIndex]);
+                    }
                 }
             }
         }
@@ -5578,27 +5815,49 @@ class VAseApp {
         if (stop) stop.disabled = !running;
         if (cancel) cancel.disabled = !active;
         if (finish) finish.disabled = !active || running;
+        ['registry-h', 'registry-k', 'registry-l'].forEach(id => {
+            const control = document.getElementById(id);
+            if (control) control.disabled = active;
+        });
+        const cellToggle = document.getElementById('chk-cell');
+        if (cellToggle) {
+            if (active) cellToggle.checked = true;
+            cellToggle.disabled = active;
+        }
         if (!updateStatus) return;
         if (!active) {
             this.setRegistryRelaxStatus(
                 'idle',
                 'Mode inactive',
-                'Select a movable layer, then activate rigid XY translation.'
+                'Select a movable component, choose an (hkl) plane, then activate rigid translation.'
             );
             return;
         }
-        const fractional = mode.translation_fractional || [0, 0];
+        const coordinates = mode.translation_coordinates || [0, 0];
         const force = Number(mode.projected_force ?? mode.generalized_force);
-        const forceDetail = Number.isFinite(force) ? ` · |Fxy| ${force.toFixed(4)} eV/Å` : '';
+        const forceDetail = Number.isFinite(force) ? ` · |Fplane| ${force.toFixed(4)} eV/Å` : '';
+        const hkl = mode.hkl || [0, 0, 1];
         this.setRegistryRelaxStatus(
             running ? 'loading' : (mode.status === 'error' ? 'warning' : 'ready'),
             running ? `Optimizing · step ${Number(mode.step) || 0}/${Number(mode.max_steps) || 0}` : `Mode ${mode.status || 'active'}`,
-            `u ${Number(fractional[0] || 0).toFixed(4)} · v ${Number(fractional[1] || 0).toFixed(4)}${forceDetail}`
+            `(${hkl.join(' ')}) · u ${Number(coordinates[0] || 0).toFixed(4)} · v ${Number(coordinates[1] || 0).toFixed(4)}${forceDetail}`
         );
     }
 
     syncRegistryRelaxationFromData(data) {
-        this.state.registryRelaxation = data?.metadata?.registry_relaxation || null;
+        const summary = data?.metadata?.registry_relaxation || null;
+        this.state.registryRelaxation = summary ? this.registryRelaxationFromMessage(summary) : null;
+        if (this.state.registryRelaxation) {
+            this.state.registryTranslationCoordinates = [
+                ...(this.state.registryRelaxation.translation_coordinates || [0, 0])
+            ];
+            this.state.registryTranslationFractional = [
+                ...(this.state.registryRelaxation.translation_fractional || [0, 0])
+            ];
+        } else {
+            this.state.registryTranslationCoordinates = [0, 0];
+            this.state.registryTranslationFractional = [0, 0];
+        }
         this.syncRegistryRelaxationControls();
     }
 
@@ -5610,9 +5869,21 @@ class VAseApp {
             status: message.status,
             is_relaxing: Boolean(message.is_relaxing),
             selected_indices: [...(message.selected_indices || [])],
+            hkl: [...(message.hkl || [0, 0, 1])],
             periodic_axes: [...(message.periodic_axes || [0, 1])],
+            plane_integer_basis: (message.plane_integer_basis || []).map(row => [...row]),
+            plane_normal_cartesian: [...(message.plane_normal_cartesian || [0, 0, 1])],
+            plane_basis_cartesian: (message.plane_basis_cartesian || []).map(row => [...row]),
+            translation_basis_angstrom: (message.translation_basis_angstrom || []).map(row => [...row]),
+            translation_basis_2d_angstrom: (message.translation_basis_2d_angstrom || []).map(row => [...row]),
             translation_cartesian: [...(message.translation_cartesian || [0, 0, 0])],
             translation_fractional: [...(message.translation_fractional || [0, 0])],
+            translation_coordinates: [...(message.translation_coordinates || [0, 0])],
+            trials: (message.trials || []).map(trial => ({
+                ...trial,
+                coordinates: [...(trial.coordinates || [0, 0])],
+                translation_cartesian: [...(trial.translation_cartesian || [0, 0, 0])]
+            })),
             step: Number(message.step) || 0,
             max_steps: Number(message.max_steps) || 0,
             energy: Number.isFinite(Number(message.energy)) ? Number(message.energy) : null,
@@ -5640,23 +5911,31 @@ class VAseApp {
         if (!selected.length) throw new Error('Select the movable guest or interface atoms first.');
         const data = await this.api.startRegistryRelaxation({
             positions: this.backendPositionsPayload(),
-            selected_indices: selected
+            selected_indices: selected,
+            hkl: this.registryHkl()
         });
         this.setAtomsData(data, {
             clearSelection: false,
             preserveRdf: true,
             preserveColorScaleRange: true
         });
+        this.aiSelectIndices(selected);
+        const cellToggle = document.getElementById('chk-cell');
+        if (cellToggle) cellToggle.checked = true;
+        this.state.display.showCell = true;
+        this.renderer.setDisplayOptions(this.state.display, { rebuild: false });
+        await this.plotRegistryPlane(this.state.registryRelaxation);
+        const hkl = this.state.registryRelaxation?.hkl || [0, 0, 1];
         this.setRegistryRelaxStatus(
             'ready',
-            'Rigid XY mode active',
-            'Only one common in-plane translation can change.'
+            `Rigid (${hkl.join(' ')}) translation active`,
+            'G moves every selected atom by one common vector in this plane.'
         );
-        this.toast('Rigid XY translation mode activated.', 'success');
+        this.toast(`Rigid (${hkl.join(' ')}) translation mode activated.`, 'success');
     }
 
     async runRegistryRelaxation({ fmax: requestedFmax, steps: requestedSteps, calculator } = {}) {
-        if (!this.state.registryRelaxation) throw new Error('Activate rigid XY translation first.');
+        if (!this.state.registryRelaxation) throw new Error('Activate rigid planar translation first.');
         const fmaxControl = document.getElementById('registry-relax-fmax');
         const stepsControl = document.getElementById('registry-relax-steps');
         const fmax = Math.max(
@@ -5676,7 +5955,7 @@ class VAseApp {
                 k_repulsion: calculator.k_repulsion ?? calculator.kRepulsion ?? calculator.strength
             }
             : null;
-        this.startModeTrajectory('registry', 'Rigid XY translation relaxation');
+        this.startModeTrajectory('registry', 'Rigid planar translation relaxation');
         try {
             const summary = await this.api.runRegistryRelaxation({
                 fmax,
@@ -5711,7 +5990,7 @@ class VAseApp {
             preserveColorScaleRange: true
         });
         this.clearModeTrajectory('registry');
-        this.toast('Rigid XY translation applied.', 'success');
+        this.toast('Rigid planar translation applied.', 'success');
     }
 
     async cancelRegistryRelaxation() {
@@ -5722,30 +6001,37 @@ class VAseApp {
             preserveColorScaleRange: true
         });
         this.clearModeTrajectory('registry');
-        this.updateRegistryMapMarker([0, 0]);
-        this.toast('Rigid XY translation restored to its starting structure.', 'success');
+        this.state.registryTranslationCoordinates = [0, 0];
+        this.state.registryTranslationFractional = [0, 0];
+        this.toast('Rigid planar translation restored to its starting structure.', 'success');
     }
 
     constrainMoveToRegistryPlane(moveDelta) {
-        const result = this.state.registryResult;
-        if (!result || this.registrySelectionKey() !== this.state.registrySelectionSignature) {
+        const mode = this.state.registryRelaxation;
+        if (!mode) {
             return moveDelta;
         }
-        const axes = result.periodic_axes || [0, 1];
-        const cell = this.state.atoms?.cell || [];
-        const first = new THREE.Vector3(...(cell[Number(axes[0])] || [1, 0, 0]));
-        const second = new THREE.Vector3(...(cell[Number(axes[1])] || [0, 1, 0]));
-        const normal = first.clone().cross(second);
-        if (normal.lengthSq() <= 1e-14) return moveDelta;
-        normal.normalize();
-        moveDelta.addScaledVector(normal, -moveDelta.dot(normal));
-        const fractional = this.renderer.cartToFrac?.(moveDelta) || new THREE.Vector3();
-        const start = this.state.registryTransformStartFractional
-            || this.state.registryTranslationFractional
+        const basis = (mode.translation_basis_angstrom || []).map(row => new THREE.Vector3(...row));
+        if (basis.length !== 2) return moveDelta;
+        const g00 = basis[0].dot(basis[0]);
+        const g01 = basis[0].dot(basis[1]);
+        const g11 = basis[1].dot(basis[1]);
+        const determinant = g00 * g11 - g01 * g01;
+        if (!Number.isFinite(determinant) || Math.abs(determinant) <= 1e-14) return moveDelta;
+        const rhs0 = moveDelta.dot(basis[0]);
+        const rhs1 = moveDelta.dot(basis[1]);
+        const coefficients = [
+            (g11 * rhs0 - g01 * rhs1) / determinant,
+            (-g01 * rhs0 + g00 * rhs1) / determinant
+        ];
+        moveDelta.copy(basis[0]).multiplyScalar(coefficients[0])
+            .addScaledVector(basis[1], coefficients[1]);
+        const start = this.state.registryTransformStartCoordinates
+            || mode.translation_coordinates
             || [0, 0];
         this.updateRegistryMapMarker([
-            Number(start[0]) + Number(fractional.getComponent(Number(axes[0])) || 0),
-            Number(start[1]) + Number(fractional.getComponent(Number(axes[1])) || 0)
+            Number(start[0]) + coefficients[0],
+            Number(start[1]) + coefficients[1]
         ]);
         return moveDelta;
     }
@@ -5757,8 +6043,21 @@ class VAseApp {
         if (metric) metric.value = this.state.display.registryMetric || 'short-contact';
         if (gridX) gridX.value = `${this.state.display.registryGridX || 32}`;
         if (gridY) gridY.value = `${this.state.display.registryGridY || 32}`;
-        ['registry-metric', 'registry-grid-x', 'registry-grid-y'].forEach(id => {
+        const storedHkl = this.state.display.registryHkl || [0, 0, 1];
+        ['registry-h', 'registry-k', 'registry-l'].forEach((id, index) => {
+            const control = document.getElementById(id);
+            if (control) control.value = `${storedHkl[index]}`;
+        });
+        ['registry-metric', 'registry-grid-x', 'registry-grid-y', 'registry-h', 'registry-k', 'registry-l'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', () => {
+                if (id.startsWith('registry-') && ['registry-h', 'registry-k', 'registry-l'].includes(id)) {
+                    try {
+                        this.registryHkl();
+                    } catch (error) {
+                        this.toast(error.message, 'error');
+                        return;
+                    }
+                }
                 if (this.state.registryResult) {
                     this.invalidateRegistryResult('Map settings changed. Calculate the map again.');
                 }
@@ -5774,12 +6073,12 @@ class VAseApp {
         });
         document.getElementById('btn-registry-relax-activate')?.addEventListener('click', () => {
             this.activateRegistryRelaxation().catch(error => {
-                this.toast(`Could not activate rigid XY translation: ${error.message}`, 'error');
+                this.toast(`Could not activate rigid planar translation: ${error.message}`, 'error');
             });
         });
         document.getElementById('btn-registry-relax-run')?.addEventListener('click', () => {
             this.runRegistryRelaxation().catch(error => {
-                this.toast(`XY translation optimization failed: ${error.message}`, 'error');
+                this.toast(`Planar translation optimization failed: ${error.message}`, 'error');
             });
         });
         document.getElementById('btn-registry-relax-stop')?.addEventListener('click', () => {
@@ -6403,6 +6702,7 @@ class VAseApp {
             const data = await this.api.fetchAtoms();
             if (!data || !data.positions) return;
 
+            this.invalidateForceVectorData();
             this.state.atoms = data;
             this.syncTrajectoryIdentity(data);
             this.rebuildLabelIndexCache(data.symbols || []);
@@ -6858,6 +7158,7 @@ class VAseApp {
     ) {
         this.clearCommensurateSupercellProposal({ keepStatus: true });
         this.invalidateAtomColorScaleData({ preserveRange: preserveColorScaleRange });
+        this.invalidateForceVectorData();
         if (!preserveRdf) this.invalidateRdfResult();
         const previousLatticeSignature = JSON.stringify({
             cell: this.state.atoms?.cell || null,
@@ -7062,7 +7363,7 @@ class VAseApp {
         if (source === 'loaded') return compact ? 'SOURCE' : 'Source frames';
         const mode = this.state.relaxTrajectory || {};
         if (mode.kind === 'add-atoms') return compact ? 'ADD ATOMS' : 'Add Atoms placement';
-        if (mode.kind === 'registry') return compact ? 'XY REGISTRY' : 'Rigid XY translation relaxation';
+        if (mode.kind === 'registry') return compact ? 'PLANE SHIFT' : 'Rigid planar translation relaxation';
         if (mode.label) return compact ? String(mode.label).toUpperCase() : String(mode.label);
         const calculator = String(this.state.atoms?.metadata?.calculator || '').trim();
         const calculatorName = calculator && calculator.toLowerCase() !== 'none'
@@ -9129,6 +9430,10 @@ class VAseApp {
     async previewConstraints() {
         if (!this.state.applyConstraints) return;
         if (this.state.transformSubject !== 'atoms') return;
+        // Registry translation is a rigid two-degree-of-freedom mode. Applying
+        // per-atom ASE constraints during its preview would deform the selected
+        // component and violate that mode's defining invariant.
+        if (this.state.registryRelaxation) return;
         if (this.transform.mode !== 'MOVE' || this.state.selected.size === 0) return;
         const newPositions = this.currentPositionsFromScene();
         try {
@@ -9156,6 +9461,36 @@ class VAseApp {
         }
     }
 
+    async commitRegistryTransform() {
+        const coordinates = [...(this.state.registryTranslationCoordinates || [0, 0])];
+        if (this.constraintTimeout) clearTimeout(this.constraintTimeout);
+        const previewPositions = this.currentPositionsFromScene();
+        this.state.atoms.positions = previewPositions.map(position => [...position]);
+        this.state.originalPositions = previewPositions.map(position => [...position]);
+        this.state.transformReadout = '';
+        this.renderer.clearConstraintMotionGuides?.();
+        this.transform.exit();
+        this.state.transformSubject = null;
+        this.state.registryTransformStartCoordinates = null;
+        this.renderer.controls.enabled = true;
+        this.updateToolState();
+        this.updateSelectionVisuals();
+        this.updateUI();
+        try {
+            const data = await this.api.translateRegistryRelaxation(coordinates);
+            this.setAtomsData(data, {
+                clearSelection: false,
+                preserveRdf: true,
+                preserveColorScaleRange: true
+            });
+            this.updateRegistryMapMarker(coordinates);
+            return data;
+        } catch (error) {
+            this.toast(`Planar translation failed: ${error.message}`, 'error');
+            throw error;
+        }
+    }
+
     commitTransform() {
         if (this.state.transformSubject === 'sun') return this.commitSunTransform();
         if (this.state.transformSubject === 'volumetric-plane') {
@@ -9169,6 +9504,9 @@ class VAseApp {
             this.cancelTransform();
             this.editOnlyToast();
             return;
+        }
+        if (this.state.registryRelaxation && this.transform.mode === 'MOVE') {
+            return this.commitRegistryTransform();
         }
         if (this.constraintTimeout) clearTimeout(this.constraintTimeout);
         const proposalCandidate = this.transform.mode === 'ROTATE'
@@ -9193,7 +9531,7 @@ class VAseApp {
         // and may correct constrained positions authoritatively.
         this.transform.exit();
         this.state.transformSubject = null;
-        this.state.registryTransformStartFractional = null;
+        this.state.registryTransformStartCoordinates = null;
         this.renderer.controls.enabled = true;
         this.updateToolState();
         this.updateSelectionVisuals();
@@ -9235,6 +9573,24 @@ class VAseApp {
         }
         const editableSelection = [...this.state.selected].filter(idx => this.isEditableIndex(idx));
         if (editableSelection.length === 0) return;
+        if (this.state.registryRelaxation) {
+            if (mode !== 'MOVE') {
+                this.toast('Planar translation mode only permits G. Finish or cancel it before rotating atoms.', 'warning');
+                return;
+            }
+            if (this.state.registryRelaxation.is_relaxing) {
+                this.toast('Stop the planar translation optimization before moving the component manually.', 'warning');
+                return;
+            }
+            const required = [...(this.state.registryRelaxation.selected_indices || [])]
+                .map(Number)
+                .sort((left, right) => left - right);
+            const current = [...editableSelection].map(Number).sort((left, right) => left - right);
+            if (JSON.stringify(required) !== JSON.stringify(current)) {
+                this.toast('Select exactly the component used to activate planar translation before pressing G.', 'warning');
+                return;
+            }
+        }
 
         this.state.originalPositions = this.currentPositionsFromScene().map(p => [...p]);
         this.readTransformSettings();
@@ -9248,8 +9604,8 @@ class VAseApp {
         this.state.rotationLastAngle = 0;
         this.state.rotationPointerActive = false;
         this.state.transformSubject = 'atoms';
-        this.state.registryTransformStartFractional = mode === 'MOVE' && this.state.registryResult
-            ? [...this.state.registryTranslationFractional]
+        this.state.registryTransformStartCoordinates = mode === 'MOVE' && this.state.registryRelaxation
+            ? [...(this.state.registryTranslationCoordinates || [0, 0])]
             : null;
         this.transform.enter(mode, pivot, this.renderer.camera, {
             visualOffset: this.renderer.visualTranslationVector?.() || new THREE.Vector3()
@@ -9294,10 +9650,10 @@ class VAseApp {
         this.renderer.clearConstraintMotionGuides?.();
         this.transform.exit();
         this.state.transformSubject = null;
-        if (this.state.registryTransformStartFractional) {
-            this.updateRegistryMapMarker(this.state.registryTransformStartFractional);
+        if (this.state.registryTransformStartCoordinates) {
+            this.updateRegistryMapMarker(this.state.registryTransformStartCoordinates);
         }
-        this.state.registryTransformStartFractional = null;
+        this.state.registryTransformStartCoordinates = null;
         this.renderer.controls.enabled = true;
         this.updateToolState();
         this.updateUI();
@@ -11353,10 +11709,18 @@ class VAseApp {
                         Number(this.state.registryResult.y_fractional?.length || 0)
                     ],
                     selectedIndices: [...(this.state.registryResult.selected_indices || [])],
+                    hkl: [...(this.state.registryResult.hkl || [0, 0, 1])],
                     periodicAxes: [...(this.state.registryResult.periodic_axes || [])],
+                    planeIntegerBasis: this.clonePlain(
+                        this.state.registryResult.plane_integer_basis || []
+                    ),
+                    translationBasisAngstrom: this.clonePlain(
+                        this.state.registryResult.translation_basis_angstrom || []
+                    ),
                     optimumFractional: [...(this.state.registryResult.optimum_fractional || [])],
                     optimumValue: Number(this.state.registryResult.optimum_value),
                     currentFractional: [...(this.state.registryTranslationFractional || [0, 0])],
+                    currentCoordinates: [...(this.state.registryTranslationCoordinates || [0, 0])],
                     lowerIsBetter: this.state.registryResult.lower_is_better !== false,
                     warnings: [...(this.state.registryResult.warnings || [])]
                 } : null,
@@ -11415,6 +11779,7 @@ class VAseApp {
             'calculate-commensurate', 'apply-commensurate-cell',
             'dismiss-commensurate-cell', 'calculate-registry-map',
             'start-registry-relaxation', 'run-registry-relaxation',
+            'set-registry-translation',
             'stop-registry-relaxation', 'finish-registry-relaxation',
             'cancel-registry-relaxation', 'undo', 'redo',
             'reset-coordinates', 'start-relaxation', 'stop-relaxation',
@@ -11659,6 +12024,7 @@ class VAseApp {
             );
         }
         const registryRelaxationControls = new Set([
+            'set-registry-translation',
             'run-registry-relaxation',
             'stop-registry-relaxation',
             'finish-registry-relaxation',
@@ -11666,7 +12032,7 @@ class VAseApp {
         ]);
         if (this.state.registryRelaxation && !registryRelaxationControls.has(name)) {
             throw new Error(
-                'Finish or cancel the active rigid XY translation before applying another operation.'
+                'Finish or cancel the active rigid planar translation before applying another operation.'
             );
         }
         const applyConstraints = operation.applyConstraints ?? this.state.applyConstraints;
@@ -12171,14 +12537,20 @@ class VAseApp {
             const metricControl = document.getElementById('registry-metric');
             const gridXControl = document.getElementById('registry-grid-x');
             const gridYControl = document.getElementById('registry-grid-y');
+            const hkl = this.registryHkl({ hkl: operation.hkl || this.state.display.registryHkl });
             if (metricControl) metricControl.value = metric;
             if (gridXControl) gridXControl.value = `${gridX}`;
             if (gridYControl) gridYControl.value = `${gridY}`;
+            ['registry-h', 'registry-k', 'registry-l'].forEach((id, index) => {
+                const control = document.getElementById(id);
+                if (control) control.value = `${hkl[index]}`;
+            });
             await this.calculateRegistryMap({
                 selectedIndices: indices,
                 metric,
                 gridX,
                 gridY,
+                hkl,
                 pairCutoffs: operation.pairCutoffs
             });
             return;
@@ -12186,11 +12558,39 @@ class VAseApp {
         if (name === 'start-registry-relaxation') {
             this.aiRequireEdit('start-registry-relaxation');
             if (this.state.registryRelaxation) {
-                throw new Error('Rigid XY translation mode is already active.');
+                throw new Error('Rigid planar translation mode is already active.');
             }
             const indices = this.aiOperationIndices(operation);
             this.aiSelectIndices(indices);
+            const hkl = this.registryHkl({ hkl: operation.hkl || this.state.display.registryHkl });
+            ['registry-h', 'registry-k', 'registry-l'].forEach((id, index) => {
+                const control = document.getElementById(id);
+                if (control) control.value = `${hkl[index]}`;
+            });
             await this.activateRegistryRelaxation(indices);
+            return;
+        }
+        if (name === 'set-registry-translation') {
+            this.aiRequireEdit('set-registry-translation');
+            if (!this.state.registryRelaxation) {
+                throw new Error('Activate rigid planar translation before setting its coordinates.');
+            }
+            const coordinates = operation.coordinates;
+            if (
+                !Array.isArray(coordinates)
+                || coordinates.length !== 2
+                || !coordinates.every(value => Number.isFinite(Number(value)))
+            ) {
+                throw new Error('set-registry-translation requires two finite plane-lattice coordinates.');
+            }
+            const normalized = coordinates.map(Number);
+            const data = await this.api.translateRegistryRelaxation(normalized);
+            this.setAtomsData(data, {
+                clearSelection: false,
+                preserveRdf: true,
+                preserveColorScaleRange: true
+            });
+            this.updateRegistryMapMarker(normalized);
             return;
         }
         if (name === 'run-registry-relaxation') {
@@ -15159,13 +15559,13 @@ class VAseApp {
                         !this.state.relaxTrajectory?.active
                         || this.state.relaxTrajectory?.kind !== 'registry'
                     ) {
-                        this.startModeTrajectory('registry', 'Rigid XY translation relaxation');
+                        this.startModeTrajectory('registry', 'Rigid planar translation relaxation');
                     }
                     this.appendRelaxFrame(msg.positions);
                     if (this.workspaceActive) this.renderer.updatePositions(msg.positions);
                     else this.workspaceNeedsRefresh = true;
                 }
-                this.updateRegistryMapMarker(msg.translation_fractional || [0, 0]);
+                this.updateRegistryMapMarker(msg.translation_coordinates || [0, 0], { refreshTrials: true });
                 this.syncRegistryRelaxationControls();
             }
             if (msg.type === 'registry_relax_finished') {
@@ -15178,7 +15578,7 @@ class VAseApp {
                         !this.state.relaxTrajectory?.active
                         || this.state.relaxTrajectory?.kind !== 'registry'
                     ) {
-                        this.startModeTrajectory('registry', 'Rigid XY translation relaxation');
+                        this.startModeTrajectory('registry', 'Rigid planar translation relaxation');
                     }
                     this.appendRelaxFrame(msg.positions, { force: this.relaxFrameCount() <= 1 });
                     if (this.workspaceActive) this.renderer.updatePositions(msg.positions);
@@ -15188,20 +15588,20 @@ class VAseApp {
                     this.state.relaxTrajectory.finished = true;
                     this.updateTrajectoryUI();
                 }
-                this.updateRegistryMapMarker(msg.translation_fractional || [0, 0]);
+                this.updateRegistryMapMarker(msg.translation_coordinates || [0, 0], { refreshTrials: true });
                 this.syncRegistryRelaxationControls();
                 const failed = msg.status === 'error';
                 this.toast(
                     failed
-                        ? `XY translation optimization failed: ${msg.message || 'unknown error'}`
-                        : `XY translation optimization ${msg.status}.`,
+                        ? `Planar translation optimization failed: ${msg.message || 'unknown error'}`
+                        : `Planar translation optimization ${msg.status}.`,
                     failed ? 'error' : 'success'
                 );
                 this.scheduleCollaborationEvent({
                     source: 'system',
                     categories: ['structure', 'trajectory', 'analysis'],
                     changedPaths: ['structure.positions', 'analysis.registryRelaxation'],
-                    summary: `Rigid XY translation optimization ${msg.status}.`
+                    summary: `Rigid planar translation optimization ${msg.status}.`
                 });
             }
             if (msg.type === 'add_atoms_relax_step') {
@@ -17019,6 +17419,9 @@ class VAseApp {
                 quiet: true,
                 refreshBonds: !this.state.trajectoryTimer
             });
+        }
+        if (this.state.display.showForceVectors) {
+            await this.updateForceVectorsForCurrentFrame();
         }
         this.observeCollaborationFrame();
         if (this.state.display.showDisplacements) {

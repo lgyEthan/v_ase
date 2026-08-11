@@ -511,11 +511,11 @@ overwrite a newer human GUI edit. It covers frame and mode changes, quality,
 display and camera state, selection, constrained transforms, identity and
 constraint edits, wrapping, physical translation, atom creation/deletion,
 batch atom scattering and its region, supercells, history, reset, structure
-relaxation, rigid XY registry relaxation, and displacement analysis. Visual
+relaxation, rigid periodic-plane translation, and displacement analysis. Visual
 translation and display supercells are ordinary `display` settings available
 in View and Edit. `rotate-selection` accepts `pivot: "active"`; the last
 explicit atom index is the fixed rotation pivot.
-It also covers commensurate search/materialization, XY registry maps,
+It also covers commensurate search/materialization, optional `(hkl)` translation maps,
 volumetric loading, compatible-grid combinations, isosurface settings/removal,
 and RDF calculation. `describe().analysis` returns commensurate and registry
 mode state, volumetric dataset descriptors, and the current RDF summary without

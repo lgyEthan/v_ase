@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.4"
+python -m pip install "v_ase-gui==0.2.5"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -129,7 +129,7 @@ resulting semantic state and rendered output.
   release publishing. Use exact documented commands and verify afterward.
 - **Medium freedom**: camera placement, bond cutoffs, materials, lighting,
   per-atom colorscale field/range/map, displacement/RDF parameters, bounded
-  commensurate search limits, XY registry grid/metric selection, isovalue and
+  commensurate search limits, planar-translation `(hkl)`/grid/metric selection, isovalue and
   surface styling, interpolation, and rendering quality. Start with the
   documented templates, then tune against the requested result.
 - **High freedom**: choosing a visually clear viewpoint, palette, or
@@ -145,7 +145,7 @@ reference before executing a multi-step workflow:
 | --- | --- |
 | Inspect and measure | `describe`, `selection`, ordered `measurement` |
 | Edit a structure | `move-selection`, `rotate-selection`, `add-atom`, `scatter-atoms`, constraints |
-| Work with periodic interfaces | display replication, cell transforms, commensurate search, XY registry |
+| Work with periodic interfaces | display replication, cell transforms, commensurate search, rigid `(hkl)` translation |
 | Analyze trajectories | frame selection, displacement, RDF, colorscale, stored force vectors |
 | Analyze scalar fields | volumetric datasets, isosurfaces, planes, field combinations |
 | Style and render | `display`, `quality`, `camera`, `render` |
@@ -195,7 +195,9 @@ Stored Cartesian forces can also be shown directly with display fields
 `showForceVectors`, `forceVectorStyle`, `forceVectorScale`,
 `forceVectorThickness`, and `forceVectorColor`. Arrow direction must equal the
 stored vector direction and arrow length is `forceVectorScale * |F|`; never
-evaluate an attached calculator merely to create an arrow.
+evaluate an attached calculator merely to create an arrow. On trajectories,
+reload both scalar colors and Cartesian vectors from the same active frame;
+never reuse a force-vector buffer from another frame.
 For a rotation around one atom, pass that atom last in the explicit `indices`
 array and set `pivot: "active"`; verify that its coordinate is unchanged.
 For batch insertion, use `scatter-atoms` only on a single Edit-mode structure.
@@ -368,14 +370,15 @@ For any nontrivial task, verify all applicable items:
   absolute strain against actual host-plus-guest atom count. `maxAreaRatio`
   defaults to 16 and accepts only 1 through 128. Never call
   `apply-commensurate-cell` without explicit user intent;
-- XY registry map: selected moving component, periodic axes, grid dimensions,
-  geometry metric, optimum and current fractional coordinates, lower-is-better
-  warning, live XY move marker, and exported CSV; never call a geometry score
-  an energy minimum; for rigid XY relaxation verify the attached calculator or
-  explicit repulsive fallback, exactly two common in-plane translation degrees
-  of freedom, invariant host/cell/selected internal/z geometry, projected net
-  selected force in `eV/angstrom`, a mode-only timeline, one undo step on
-  finish, and exact pre-mode restoration on cancel;
+- planar translation: nonzero integer `(hkl)`, two exact primitive periodic
+  lattice translations satisfying `h*u + k*v + l*w = 0`, selected moving
+  component, unselected host, visible physical plane cell, and a live shared
+  translation marker. The sampled short-contact or pair-length map is optional
+  and is a lower-is-better geometry screen, never an energy. For rigid
+  optimization verify the attached calculator or explicit repulsive fallback,
+  exactly two common plane coordinates, invariant host/cell/selected internal
+  geometry, projected net selected force in `eV/angstrom`, a mode-only
+  timeline, one undo step on finish, and exact pre-mode restoration on cancel;
 - constraints: persistent per-atom FixedLine/FixedPlane markers, one long
   original-position FixedLine direction guide during `G`, and one
   original-position FixedPlane motion guide per selected atom during `G`;
@@ -385,7 +388,7 @@ For any nontrivial task, verify all applicable items:
   `k * (r - rt)` without altering backend constraint semantics; verify the same
   threshold transition on every trajectory frame;
 - relaxation modes: source, structure-relaxation, Add Atoms placement, and
-  rigid XY timelines remain distinguishable; closing a mode removes only its
+  rigid planar-translation timelines remain distinguishable; closing a mode removes only its
   temporary optimizer timeline and preserves the explicitly committed result;
 - render: exact dimensions, format, options, nonblank decoded pixels;
 - export: MIME type, filename, byte count, and reopenability where supported;

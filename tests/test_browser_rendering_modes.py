@@ -3562,11 +3562,11 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
                         xRange: document.getElementById('registry-plot')?.layout?.xaxis?.range,
                         yRange: document.getElementById('registry-plot')?.layout?.yaxis?.range,
                         xConstraint: document.getElementById('registry-plot')?.layout?.xaxis?.constrain,
-                        yConstraint: document.getElementById('registry-plot')?.layout?.yaxis?.constrain
+                        yConstraint: document.getElementById('registry-plot')?.layout?.yaxis?.constrain,
+                        yScaleAnchor: document.getElementById('registry-plot')?.layout?.yaxis?.scaleanchor,
+                        traceRoles: (document.getElementById('registry-plot')?.data || [])
+                            .map(trace => trace.meta?.role)
                     },
-                    constrainedDelta: app.constrainMoveToRegistryPlane(
-                        app.renderer.controls.target.clone().set(0.4, -0.2, 1.7)
-                    ).toArray(),
                     exportLabel: document.getElementById('btn-analysis-export')?.getAttribute('aria-label')
                 };
             }""")
@@ -3577,13 +3577,18 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
             assert registry["periodicAxes"] == [0, 1]
             assert analyzed["plotReady"] is True
             assert analyzed["activePlot"] == "registry"
-            assert analyzed["plotDomain"] == {
-                "xRange": [0, 1],
-                "yRange": [0, 1],
-                "xConstraint": "domain",
-                "yConstraint": "domain",
-            }
-            assert analyzed["constrainedDelta"][2] == pytest.approx(0.0, abs=1e-12)
+            assert analyzed["plotDomain"]["xRange"][1] > analyzed["plotDomain"]["xRange"][0]
+            assert analyzed["plotDomain"]["yRange"][1] > analyzed["plotDomain"]["yRange"][0]
+            assert analyzed["plotDomain"]["xConstraint"] == "domain"
+            assert analyzed["plotDomain"]["yConstraint"] == "domain"
+            assert analyzed["plotDomain"]["yScaleAnchor"] == "x"
+            assert {
+                "registry-score",
+                "host-reference-cell",
+                "host-reference-basis",
+                "registry-current",
+                "registry-current-vector",
+            }.issubset(set(analyzed["plotDomain"]["traceRoles"]))
             assert analyzed["exportLabel"] == "Save graph data as CSV"
             assert (
                 "x_fractional,y_fractional,dx_angstrom,dy_angstrom,dz_angstrom,value"
@@ -3592,28 +3597,61 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
 
             registry_mode = page.evaluate("""async () => {
                 const capabilities = await window.v_aseAI.capabilities();
+                const app = window.__ASE_APP__;
+                const before = app.state.atoms.positions.map(position => [...position]);
+                const cellBefore = app.state.atoms.cell.map(vector => [...vector]);
                 await window.v_aseAI.apply({
                     operation: {
                         name: 'start-registry-relaxation',
-                        indices: [2, 3]
+                        indices: [2, 3],
+                        hkl: [0, 0, 1]
+                    }
+                });
+                const constrained = app.constrainMoveToRegistryPlane(
+                    app.renderer.controls.target.clone().set(0.4, -0.2, 1.7)
+                ).toArray();
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'set-registry-translation',
+                        coordinates: [0.25, -0.20]
                     }
                 });
                 const state = await window.v_aseAI.describe();
+                const after = app.state.atoms.positions.map(position => [...position]);
                 return {
                     operations: capabilities.operations,
                     relaxation: state.analysis.registryRelaxation,
-                    selected: state.selection.map(item => item.index)
+                    selected: state.selection.map(item => item.index),
+                    constrained,
+                    cellBefore,
+                    cellAfter: app.state.atoms.cell,
+                    hostBefore: before.slice(0, 2),
+                    hostAfter: after.slice(0, 2),
+                    selectedDeltaBefore: before[3].map((value, axis) => value - before[2][axis]),
+                    selectedDeltaAfter: after[3].map((value, axis) => value - after[2][axis])
                 };
             }""")
             assert {
                 "start-registry-relaxation",
+                "set-registry-translation",
                 "run-registry-relaxation",
                 "stop-registry-relaxation",
                 "finish-registry-relaxation",
                 "cancel-registry-relaxation",
             }.issubset(registry_mode["operations"])
             assert registry_mode["relaxation"]["selected_indices"] == [2, 3]
+            assert registry_mode["relaxation"]["hkl"] == [0, 0, 1]
+            assert registry_mode["relaxation"]["translation_coordinates"] == pytest.approx(
+                [0.25, -0.20]
+            )
             assert registry_mode["selected"] == [2, 3]
+            assert registry_mode["constrained"][2] == pytest.approx(0.0, abs=1e-12)
+            np.testing.assert_allclose(registry_mode["cellAfter"], registry_mode["cellBefore"])
+            np.testing.assert_allclose(registry_mode["hostAfter"], registry_mode["hostBefore"])
+            np.testing.assert_allclose(
+                registry_mode["selectedDeltaAfter"],
+                registry_mode["selectedDeltaBefore"],
+            )
 
             page.evaluate("""async () => {
                 await window.v_aseAI.apply({

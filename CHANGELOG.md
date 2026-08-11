@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.2.5
+
+- Made stored-force arrows frame-aware so trajectory playback refreshes both
+  atom colors and Cartesian vectors from the active frame without evaluating
+  an attached calculator.
+- Replaced the random-insertion demonstration with a dense bonded triclinic
+  silicon framework, making vacancy and interstitial placement under MIC
+  repulsion directly visible.
+- Rebuilt the volumetric section example around a high-resolution signed
+  multi-center field on a `(1 0 0)` plane with a fixed color range and an
+  oblique three-dimensional view.
+- Reworked commensurate analysis into a readable three-axis landscape with
+  floor and back grids, axis ticks, candidate points, and a live angle plane.
+- Generalized rigid translation from an XY-only operation to any compatible
+  periodic Miller plane, using exact integer lattice bases, one shared
+  translation for selected atoms, an optional sampled map, and a map-free
+  optimizer-trial timeline.
+- Synchronized the GUI, semantic API, Agent Skill, scientific regressions,
+  README guidance, and generated media for the updated workflows.
+
 ## 0.2.4
 
 - Reorganized the user guide around an immediate product overview, concise

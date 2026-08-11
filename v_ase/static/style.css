@@ -4234,6 +4234,16 @@ body.resizing-pairwise-column * {
     background: var(--surface-subtle);
 }
 
+.registry-map-card {
+    margin-top: 10px;
+    padding-top: 11px;
+    border-top: 1px solid var(--line);
+}
+
+.registry-hkl-row .num-group {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .registry-relax-heading {
     display: flex;
     align-items: center;

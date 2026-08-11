@@ -90,6 +90,15 @@ def _force_array(atoms) -> np.ndarray | None:
     return flattened if flattened.shape[1] else None
 
 
+def atom_force_vectors(atoms) -> np.ndarray | None:
+    """Return stored Cartesian per-atom forces without evaluating a calculator."""
+
+    array = _force_array(atoms)
+    if array is None or array.shape[1] < 3:
+        return None
+    return np.asarray(array[:, :3], dtype=np.float64)
+
+
 def _array_field_descriptors(source: str, name: str, value, natoms: int) -> list[AtomScalarField]:
     array = _numeric_per_atom_array(value, natoms)
     if array is None:
@@ -151,7 +160,7 @@ def atom_scalar_catalog(atoms) -> list[dict]:
         AtomScalarField("position:y", "y coordinate", "Position", "position", "positions", "component", 1, "A"),
         AtomScalarField("position:z", "z coordinate", "Position", "position", "positions", "component", 2, "A"),
     ]
-    if _force_array(atoms) is not None:
+    if atom_force_vectors(atoms) is not None:
         fields.append(
             AtomScalarField("force:norm", "Force |norm|", "Calculator results", "force", "forces", "norm", None, "eV/A")
         )
@@ -214,4 +223,3 @@ def atom_scalar_values(atoms, field_id: str) -> np.ndarray:
     else:
         raise ValueError(f"Unknown reduction '{reduction}' for per-atom field '{name}'.")
     return np.asarray(result, dtype=np.float64)
-

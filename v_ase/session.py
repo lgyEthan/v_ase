@@ -48,7 +48,7 @@ class EditorSession:
     # Active random insertion workflow.  The concrete dataclass lives in
     # v_ase.add_atoms to keep the session core independent of optimizer code.
     atom_addition: Any = field(default=None, repr=False)
-    # Active rigid XY translation workflow.  Stored as Any for the same reason.
+    # Active rigid periodic-plane translation workflow. Stored as Any for the same reason.
     registry_relaxation: Any = field(default=None, repr=False)
     
     # History

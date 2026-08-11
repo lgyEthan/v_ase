@@ -3,7 +3,7 @@ import pytest
 import asyncio
 from ase import Atoms
 
-from v_ase.registry import calculate_registry_map, registry_map_csv
+from v_ase.registry import calculate_registry_map, lattice_plane, registry_map_csv
 from v_ase.server import registry_analysis, registry_analysis_csv
 from v_ase.session import EditorSession, sessions
 
@@ -68,7 +68,7 @@ def test_registry_map_rejects_an_empty_selection_and_exports_csv():
 
     result = calculate_registry_map(atoms, [2], grid_x=4, grid_y=4)
     text = registry_map_csv(result).decode("utf-8")
-    assert "v_ase.registry-map.v1" in text
+    assert "v_ase.registry-map.v2" in text
     assert "x_fractional,y_fractional,dx_angstrom,dy_angstrom,dz_angstrom,value" in text
     assert "translation_basis_a_angstrom" in text
     assert "reference_component,unselected-host" in text
@@ -90,7 +90,7 @@ def test_registry_api_returns_the_plotted_grid_and_the_same_csv_columns():
     result = asyncio.run(registry_analysis(session.session_id, payload))
     response = asyncio.run(registry_analysis_csv(session.session_id, payload))
 
-    assert result["schema"] == "v_ase.registry-map.v1"
+    assert result["schema"] == "v_ase.registry-map.v2"
     assert result["reference_component"] == "unselected-host"
     assert result["mobile_component"] == "selected-guest"
     assert result["translation_domain_fractional"] == [[0.0, 1.0], [0.0, 1.0]]
@@ -99,3 +99,47 @@ def test_registry_api_returns_the_plotted_grid_and_the_same_csv_columns():
         b"x_fractional,y_fractional,dx_angstrom,dy_angstrom,dz_angstrom,value"
         in response.body
     )
+
+
+def test_arbitrary_hkl_plane_uses_exact_periodic_lattice_vectors_in_a_skew_cell():
+    cell = np.asarray([
+        [5.7, 0.2, 0.4],
+        [1.1, 5.1, 0.3],
+        [0.6, 0.8, 8.4],
+    ])
+    plane = lattice_plane(cell, [True, True, True], (2, 1, 1))
+
+    assert plane.hkl == (2, 1, 1)
+    np.testing.assert_array_equal(plane.integer_basis @ np.asarray(plane.hkl), [0, 0])
+    np.testing.assert_array_equal(
+        np.cross(plane.integer_basis[0], plane.integer_basis[1]),
+        plane.hkl,
+    )
+    np.testing.assert_allclose(plane.translation_basis, plane.integer_basis @ cell)
+    np.testing.assert_allclose(
+        plane.translation_basis @ plane.normal,
+        [0.0, 0.0],
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        plane.translation_basis_2d,
+        plane.translation_basis @ plane.plane_basis.T,
+        atol=1e-12,
+    )
+
+    atoms = Atoms(
+        "C2N",
+        positions=[[0.2, 0.3, 0.4], [2.1, 1.7, 0.8], [1.0, 1.2, 2.4]],
+        cell=cell,
+        pbc=True,
+    )
+    result = calculate_registry_map(atoms, [2], grid_x=5, grid_y=4, hkl=(2, 1, 1))
+    assert result.values.shape == (4, 5)
+    assert result.hkl == (2, 1, 1)
+    np.testing.assert_array_equal(result.plane_integer_basis, plane.integer_basis)
+    np.testing.assert_allclose(result.translation_basis, plane.translation_basis)
+
+
+def test_hkl_plane_rejects_translations_along_a_nonperiodic_cell_vector():
+    with pytest.raises(ValueError, match="does not contain two translations"):
+        lattice_plane(np.diag([4.0, 5.0, 6.0]), [True, False, True], (0, 0, 1))

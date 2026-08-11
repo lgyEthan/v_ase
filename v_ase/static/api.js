@@ -262,6 +262,7 @@ export class ASEApi {
             '/api/add-session/cancel/',
             '/api/registry-relax/start/',
             '/api/registry-relax/run/',
+            '/api/registry-relax/translate/',
             '/api/registry-relax/stop/',
             '/api/registry-relax/cancel/'
         ].some(prefix => path.includes(prefix));
@@ -1103,6 +1104,12 @@ export class ASEApi {
         return await this.jsonPost(`/api/registry-relax/stop/{session_id}`, {});
     }
 
+    async translateRegistryRelaxation(coordinates) {
+        return await this.jsonPost(`/api/registry-relax/translate/{session_id}`, {
+            coordinates: Array.isArray(coordinates) ? coordinates.map(Number) : []
+        });
+    }
+
     async finishRegistryRelaxation() {
         return await this.jsonPost(`/api/registry-relax/finish/{session_id}`, {});
     }
@@ -1166,6 +1173,57 @@ export class ASEApi {
         const values = new Float32Array(await res.arrayBuffer());
         if (!frames || !atoms || values.length !== frames * atoms) {
             throw new Error('Per-atom scalar cache shape does not match the received binary payload.');
+        }
+        return { frames, atoms, startFrame, cache, values };
+    }
+
+    async fetchForceVectors(frameIndex = this.currentFrameIndex(), allFrames = false) {
+        if (this.mock) {
+            const atoms = this.mockState.atoms;
+            const source = Array.isArray(atoms.forces) ? atoms.forces : [];
+            const values = new Float32Array(atoms.positions.length * 3);
+            values.fill(Number.NaN);
+            source.forEach((force, atomIndex) => {
+                if (!Array.isArray(force) || atomIndex >= atoms.positions.length) return;
+                for (let axis = 0; axis < 3; axis += 1) {
+                    const value = Number(force[axis]);
+                    values[atomIndex * 3 + axis] = Number.isFinite(value) ? value : Number.NaN;
+                }
+            });
+            return {
+                frames: 1,
+                atoms: atoms.positions.length,
+                startFrame: Math.max(0, parseInt(frameIndex, 10) || 0),
+                cache: 'frame',
+                values
+            };
+        }
+        const apiPath = this.sessionPath('/api/analysis/force-vectors/{session_id}');
+        const res = await fetch(new URL(apiPath, this.baseUrl), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                frame_index: Math.max(0, parseInt(frameIndex, 10) || 0),
+                all_frames: Boolean(allFrames)
+            })
+        });
+        if (!res.ok) {
+            let message = '';
+            try {
+                const data = await res.json();
+                message = data.detail || JSON.stringify(data);
+            } catch {
+                message = await res.text().catch(() => '');
+            }
+            throw new Error(message || `Force-vector request failed (${res.status})`);
+        }
+        const frames = parseInt(res.headers.get('X-V-Ase-Frames') || '0', 10);
+        const atoms = parseInt(res.headers.get('X-V-Ase-Atoms') || '0', 10);
+        const startFrame = parseInt(res.headers.get('X-V-Ase-Start-Frame') || '0', 10);
+        const cache = res.headers.get('X-V-Ase-Cache') || 'frame';
+        const values = new Float32Array(await res.arrayBuffer());
+        if (!frames || !atoms || values.length !== frames * atoms * 3) {
+            throw new Error('Force-vector cache shape does not match the received binary payload.');
         }
         return { frames, atoms, startFrame, cache, values };
     }
