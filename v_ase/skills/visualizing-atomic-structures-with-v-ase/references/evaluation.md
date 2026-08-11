@@ -159,11 +159,13 @@ Run all scenarios, not only static document checks:
      they remain inside the viewport, then dismiss and verify camera restore;
    - set `maxAreaRatio` to 6 and verify the area-7 proposal is rejected;
    - enable the commensurate workspace before rotating and verify cells-only
-     preview, monotonic progress, the smallest valid proposal, and a live
+     preview, monotonic progress, the preserved direct angle, no teal common
+     cell or materialization control at an unmatched initial angle, and a live
      current-angle plane on the 3D overview; require host and guest primitive
      grids to extend at least one complete primitive cell beyond every common
      cell vertex, expose their integer grid dimensions, and remain readable as
-     separate black/orange lattices around the teal proposal;
+     separate black/orange lattices; at an exact candidate angle require one
+     thinner teal common-cell boundary around those parent lattices;
    - verify the 3D overview has a horizontal angle axis, an orthogonal depth
      axis for area ratio, a vertical strain axis, a gridded candidate surface,
      candidate markers, a live current-angle plane, perspective depth, and
@@ -440,10 +442,12 @@ Every browser render test must check:
 - selected atoms use a yellow sphere outline with no billboard RingGeometry;
 - rotation axis, fixed start, moving current, and commensurate candidate guides
   remain visually distinguishable;
-- a commensurate common-cell preview shows complete host and guest primitive
+- a resolved commensurate common-cell preview shows complete host and guest primitive
   lattices extending at least one primitive cell beyond the highlighted common
   cell, readable grid dimensions and paper-style notation, plus opaque atoms,
   a one-cell halo, and boundary-crossing bonds when atom preview is enabled;
+- an unmatched direct commensurate angle shows no teal common cell and keeps
+  the black host and orange guest parent lattices visually dominant;
 - the commensurate candidate graph reads as a 3D coordinate system with angle
   horizontal, area ratio in depth, strain vertical, a gridded floor projection,
   discrete candidate points, and a moving current-angle plane rather than

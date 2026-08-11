@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.5"
+python -m pip install "v_ase-gui==0.2.6"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -362,9 +362,12 @@ For any nontrivial task, verify all applicable items:
   horizontal rotation axis plus orthogonal area-depth and strain-height axes,
   a gridded Plotly 3D candidate surface, candidate points, a live current-angle
   plane, and dotted symmetry periods only when exact lattice symmetry justifies
-  them; verify graph CSV and materialization support. With no
-  explicit angle, require the smallest-area admissible proposal; with an
-  explicit angle, require the nearest admissible candidate. Confirm
+  them; verify graph CSV and materialization support. GUI activation,
+  selection, and guest loading preserve the current direct angle: black host
+  and orange guest lattices remain primary, and the thinner teal common-cell
+  boundary appears only when that angle resolves a bounded match. For an
+  explicit semantic search with no angle, require the smallest-area admissible
+  proposal; with an explicit angle, require the nearest admissible candidate. Confirm
   that the conservative max principal strain
   controls acceptance, while the Paper strain projection reports mean
   absolute strain against actual host-plus-guest atom count. `maxAreaRatio`

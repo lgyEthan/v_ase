@@ -486,8 +486,12 @@ mean absolute strain, and host/guest/total atom counts. Use
 candidate angle. A loaded guest replaces any selected same-lattice guest for
 the search. Set `showAtoms:true` only when the human needs the atom/bond halo;
 cells-only is clearer and cheaper. Host primitive cells/vectors are black,
-guest cells/vectors are orange, and the proposed common cell is teal. Changing
-the direct guest angle must not move or reframe the camera.
+guest cells/vectors are orange, and they remain the dominant guides at
+unmatched angles. The thinner teal common cell appears only when the direct
+guest angle resolves a bounded candidate. GUI enable/select/load actions
+preserve the direct angle and must not move or reframe the camera. An explicit
+`calculate-commensurate` operation without `angleDeg` retains its documented
+smallest-admissible behavior.
 
 The **3D overview** puts rotation on the explicit horizontal x axis, common-cell
 area ratio on depth layers, and max principal strain on the vertical axis; its

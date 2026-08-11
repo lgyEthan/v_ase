@@ -328,7 +328,10 @@ sublattices. Cells-only preview is the default. Optional atom preview expands
 both parent lattices by at least two primitive shells when the atom budget
 permits, keeps host and guest atoms opaque, infers bonds independently within
 each component, and never invents host-guest bonds. Host, guest, and proposed
-common cells use distinct guides.
+common cells use distinct guides. GUI activation, layer selection, and guest
+loading preserve the current direct angle. The black host and orange guest
+lattices remain primary; the thinner teal common-cell guide is hidden until
+the current angle resolves an actual bounded candidate.
 
 The Plotly angle-area-strain view uses discrete candidate points above an
 angle-area floor, a live current-angle plane, and dotted equivalent-angle

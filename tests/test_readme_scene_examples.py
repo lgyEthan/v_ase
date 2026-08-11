@@ -67,7 +67,7 @@ def test_readme_scene_assets_write_reopenable_traj_files(tmp_path):
     assert "ai_pyridinic_n3_li_graphene.traj" in written_names
     assert "cu2o111_on_cu111_pairwise_bonds.traj" in written_names
     assert "material_presets.traj" in written_names
-    assert "triclinic_bonded_si_add_atoms.traj" in written_names
+    assert "rocksalt_vacancy_add_atoms.traj" in written_names
     assert not any(path.name.endswith("_motion.traj") for path in written)
 
     fixedline = read(tmp_path / "fixedline.traj")
@@ -173,21 +173,19 @@ def test_phosphorene_scene_uses_published_cell_angle_and_single_puckered_ridges(
         assert np.max(np.linalg.norm(end[moving] - start[moving], axis=1)) > 0.01
 
 
-def test_random_addition_readme_host_is_triclinic_periodic_and_reproducible():
+def test_random_addition_readme_host_is_rocksalt_periodic_and_reproducible():
     host, metadata = make_random_addition_scene()
 
-    assert len(host) > 80
+    assert len(host) > 100
     assert host.pbc.tolist() == [True, True, True]
-    assert abs(float(host.cell[1, 0])) > 1.0
-    assert abs(float(host.cell[2, 1])) > 1.0
     assert abs(float(np.linalg.det(host.cell.array))) > 1.0
-    assert set(atom_labels(host)) == {"Si_framework"}
+    assert set(atom_labels(host)) == {"Na_lattice", "Cl_lattice"}
     assert metadata["entries"] == [
-        {"element": "Li", "label": "Li_mobile", "count": 10},
-        {"element": "H", "label": "H_probe", "count": 8},
+        {"element": "Na", "label": "Na_inserted", "count": 6},
+        {"element": "Cl", "label": "Cl_inserted", "count": 6},
     ]
     assert metadata["seed"] == 2021
-    assert metadata["vacancy_count"] == 2
+    assert metadata["vacancy_count"] == 19
     assert np.asarray(metadata["insertion_center"]).shape == (3,)
 
 
@@ -435,7 +433,9 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "**Field smearing σ**" in readme
     assert "**Mesh smoothing passes**" in readme
     assert "source scalar field" in readme
-    assert "10 `Li_mobile` and 8 `H_probe`" in readme
+    assert "Six `Na_inserted` and six" in readme
+    assert "`Cl_inserted` atoms start inside it" in readme
+    assert "The magenta box is an exclusion volume" in readme
     assert "half-open primary periodic cell" in readme
     assert "every pre-existing coordinate, array" in readme
 
@@ -444,6 +444,7 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
         "readme_ferrocene_pivot.gif",
         "readme_commensurate.gif",
         "readme_ai_edit.gif",
+        "readme_ai_collaboration.gif",
         "readme_ai_collaboration.png",
         "readme_ai_collaboration_live.png",
         "readme_materials.png",
@@ -452,7 +453,10 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
         "readme_volumetric.png",
         "readme_rdf.png",
         "readme_add_atoms.gif",
+        "readme_add_atoms_allowed.gif",
+        "readme_add_atoms_prohibited.gif",
         "readme_add_atoms.png",
+        "readme_commensurate_host_guest.gif",
     ):
         assert (ROOT / "docs" / "assets" / filename).is_file()
         assert (ROOT / "docs" / "assets" / "github" / filename).is_file()
@@ -464,11 +468,11 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
         ROOT / "docs" / "design" / "ai_collaboration_figure.html"
     ).read_text(encoding="utf-8")
     for required in (
-        "SKILL + CLI",
-        "APPLY + VALIDATE",
-        "The same live v_ase GUI",
-        "INSPECT + REFINE",
-        "Reads the v_ase Skill",
+        "Uses the v_ase Skill and CLI",
+        "v_ase applies and shows each change",
+        "Live v_ase GUI",
+        "You can refine the same GUI",
+        "Exact atoms, edits, camera",
         "+Z top view with +Y up",
     ):
         assert required in figure_source
@@ -493,7 +497,7 @@ def test_phosphorene_capture_drives_the_production_selection_and_rotation_ui():
 
 def test_add_atoms_capture_uses_the_real_batch_workspace_and_optimizer():
     source = (ROOT / "scripts" / "capture_readme_screenshots.py").read_text()
-    capture = source.split("def capture_add_atoms_media", 1)[1].split(
+    capture = source.split("def _capture_add_atoms_variant", 1)[1].split(
         "def capture_measurement_media", 1
     )[0]
 
@@ -506,6 +510,10 @@ def test_add_atoms_capture_uses_the_real_batch_workspace_and_optimizer():
     assert "renderer.addAtomsRegionGroup.visible === false" in capture
     assert "np.testing.assert_array_equal" in capture
     assert "relaxed_positions[: len(host)]" in capture
+    assert 'region_role="allowed"' in capture
+    assert 'region_role="prohibited"' in capture
+    assert 'gif_name="readme_add_atoms_allowed.gif"' in capture
+    assert 'gif_name="readme_add_atoms_prohibited.gif"' in capture
 
 
 def test_readme_ferrocene_and_copper_bond_media_use_documented_visual_controls():

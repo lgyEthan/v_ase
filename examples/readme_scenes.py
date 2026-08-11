@@ -548,41 +548,36 @@ def make_material_preset_scene() -> tuple[Atoms, dict[str, list[int]]]:
 
 
 def make_random_addition_scene() -> tuple[Atoms, dict[str, object]]:
-    """Return a dense triclinic Si framework with small interstitial voids."""
+    """Return a recognizable rocksalt crystal with a central vacancy pocket."""
 
-    host = bulk("Si", "diamond", a=5.43, cubic=True).repeat((3, 3, 2))
-    fractional = host.get_scaled_positions(wrap=False)
-    lengths = host.cell.lengths()
-    cell = np.asarray([
-        [lengths[0], 0.0, 0.0],
-        [2.15, lengths[1], 0.0],
-        [1.05, 1.35, lengths[2]],
-    ])
-    host.set_cell(cell, scale_atoms=False)
-    host.set_scaled_positions(fractional)
+    host = bulk("NaCl", "rocksalt", a=5.64, cubic=True).repeat((3, 3, 2))
     host.pbc = True
     host.wrap(eps=1e-10)
+    cell = np.asarray(host.cell.array, dtype=float)
     center = 0.5 * np.sum(cell, axis=0)
-    # Two nearby vacancies make the final interstitial destinations legible,
-    # while the insertion box still begins inside a dense bonded framework.
+    # Removing the central coordination shells exposes one legible cavity but
+    # leaves enough alternating Na/Cl lattice around it to identify the host.
     distances = np.linalg.norm(host.positions - center, axis=1)
-    vacancy_indices = sorted(np.argsort(distances)[:2].tolist(), reverse=True)
+    vacancy_indices = sorted(np.flatnonzero(distances < 4.05).tolist(), reverse=True)
     for index in vacancy_indices:
         del host[index]
-    set_atom_labels(host, ["Si_framework"] * len(host))
+    set_atom_labels(host, [
+        "Na_lattice" if symbol == "Na" else "Cl_lattice"
+        for symbol in host.get_chemical_symbols()
+    ])
     host.info.update({
-        "readme_scene": "triclinic_bonded_si_random_addition",
+        "readme_scene": "vacancy_rich_rocksalt_random_addition",
         "purpose": "v_ase 0.2.1 random multi-species insertion and repulsive placement",
     })
     return host, {
         "entries": [
-            {"element": "Li", "label": "Li_mobile", "count": 10},
-            {"element": "H", "label": "H_probe", "count": 8},
+            {"element": "Na", "label": "Na_inserted", "count": 6},
+            {"element": "Cl", "label": "Cl_inserted", "count": 6},
         ],
         "seed": 2021,
         "vacancy_count": len(vacancy_indices),
         "insertion_center": center.tolist(),
-        "insertion_half_box": [3.15, 3.15, 2.85],
+        "insertion_half_box": [4.20, 4.20, 3.65],
     }
 
 
@@ -891,15 +886,16 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
         info = SceneInfo(
             name=name,
             description=(
-                "Dense bonded triclinic silicon framework for random multi-species "
-                "insertion and interstitial repulsive placement."
+                "Vacancy-rich rocksalt NaCl for random multi-species insertion "
+                "and repulsive placement."
             ),
-            static_file="triclinic_bonded_si_add_atoms.traj",
+            static_file="rocksalt_vacancy_add_atoms.traj",
             selected_indices=(),
             notes=(
-                f"Scatter {entries[0]['count']} Li_mobile and {entries[1]['count']} "
-                "H_probe atoms with random seed 2021.",
-                "The host remains unchanged while only inserted atoms follow the pairwise repulsion.",
+                f"Scatter {entries[0]['count']} Na_inserted and {entries[1]['count']} "
+                "Cl_inserted atoms with random seed 2021.",
+                "Allowed mode starts inside the central box; Prohibited mode starts outside it.",
+                "The alternating Na/Cl host remains unchanged while only inserted atoms follow pairwise repulsion.",
             ),
         )
         return atoms, info

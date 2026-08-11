@@ -5822,13 +5822,13 @@ export class ASERenderer {
                 }
             );
         };
-        const addPrimitiveGrid = (origins, vectors, color, metadata) => {
+        const addPrimitiveGrid = (origins, vectors, color, metadata, opacity = 0.42) => {
             const segments = this.commensuratePrimitiveSegments(origins, vectors);
             if (!segments.length) return;
             const material = new THREE.MeshBasicMaterial({
                 color,
                 transparent: true,
-                opacity: 0.64,
+                opacity,
                 depthTest: true,
                 depthWrite: false,
                 toneMapped: false
@@ -5839,7 +5839,7 @@ export class ASERenderer {
                 metadata,
                 {
                     material,
-                    radius: Math.max(0.018, this.normalizedCellThickness() * 0.48)
+                    radius: Math.max(0.014, this.normalizedCellThickness() * 0.34)
                 }
             );
         };
@@ -5942,13 +5942,15 @@ export class ASERenderer {
             preview.host_grid_lattice_origins || preview.host_lattice_origins,
             preview.host_primitive_vectors,
             hostColor,
-            { commensurateHostPrimitiveGrid: true }
+            { commensurateHostPrimitiveGrid: true },
+            0.38
         );
         addPrimitiveGrid(
             preview.guest_grid_lattice_origins || preview.guest_lattice_origins,
             preview.guest_primitive_vectors,
             guestColor,
-            { commensurateGuestPrimitiveGrid: true }
+            { commensurateGuestPrimitiveGrid: true },
+            0.44
         );
         addPrimitiveVectors(
             preview.host_lattice_origins,
@@ -5965,18 +5967,18 @@ export class ASERenderer {
         addBoundary(
             preview.host_cell,
             hostColor,
-            1,
+            0.94,
             { commensurateHostCell: true },
             [0, 0, 0],
-            1.18
+            1.08
         );
         addBoundary(
             preview.guest_cell,
             guestColor,
-            1,
+            0.94,
             { commensurateGuestCell: true },
             guestOrigin,
-            1.18
+            1.08
         );
         addCellLabel(
             `HOST ${hostGridLabel} · ${preview.host_notation || ''}`.trim(),
@@ -5998,10 +6000,10 @@ export class ASERenderer {
             addBoundary(
                 preview.common_cell || preview.cell,
                 0x159b8c,
-                1,
+                0.84,
                 { commensurateSuggestedCell: true },
                 [0, 0, 0],
-                1.75
+                1.08
             );
         }
         this.commensurateSupercellGroup.position.copy(this.visualTranslationVector());

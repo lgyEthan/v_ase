@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.5&rev=1';
-import { ASERenderer } from './renderer.js?v=0.2.5&rev=1';
-import { ASESelection } from './selection.js?v=0.2.5&rev=1';
-import { ASETransform } from './transform.js?v=0.2.5&rev=1';
+import { ASEApi } from './api.js?v=0.2.6&rev=1';
+import { ASERenderer } from './renderer.js?v=0.2.6&rev=1';
+import { ASESelection } from './selection.js?v=0.2.6&rev=1';
+import { ASETransform } from './transform.js?v=0.2.6&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.5&rev=1';
+} from './trajectory.js?v=0.2.6&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -14618,12 +14618,12 @@ class VAseApp {
         const signature = selected.join(',');
         if (signature === this.state.commensurateSelectionSignature) return;
         this.state.commensurateSelectionSignature = signature;
-        const candidate = selected.length ? this.commensurateSmallestCandidate() : null;
+        const currentDeg = Number(this.state.display.commensurateGuestAngleDeg || 0);
+        const candidate = selected.length ? this.commensurateCandidateAtAngle(currentDeg) : null;
         if (!candidate) {
             this.renderPrimitiveCommensurateCells();
             return;
         }
-        const currentDeg = this.useCommensurateSuggestedAngle(candidate);
         this.prepareCommensurateSupercellProposal(
             this.commensuratePreviewContext(candidate, currentDeg)
         ).catch(error => {
@@ -14797,7 +14797,7 @@ class VAseApp {
         const mode = document.getElementById('commensurate-mode');
         if (mode) mode.value = 'host-guest';
         this.syncCommensurateWorkspaceControls();
-        await this.refreshCommensurateWorkspace({ showBusy: true, preferSmallest: true });
+        await this.refreshCommensurateWorkspace({ showBusy: true, preferSmallest: false });
     }
 
     async removeCommensurateGuest() {
@@ -14807,7 +14807,7 @@ class VAseApp {
         const mode = document.getElementById('commensurate-mode');
         if (mode) mode.value = 'same-lattice';
         this.syncCommensurateWorkspaceControls();
-        await this.refreshCommensurateWorkspace({ showBusy: true, preferSmallest: true });
+        await this.refreshCommensurateWorkspace({ showBusy: true, preferSmallest: false });
     }
 
     async refreshCommensurateWorkspace({ showBusy = true, preferSmallest = false } = {}) {
@@ -15014,6 +15014,20 @@ class VAseApp {
         );
     }
 
+    commensurateProposalIsResolved(context) {
+        const candidate = context?.candidate;
+        if (!candidate || candidate.identity) return false;
+        const displayAngle = Number(context?.displayAngleDeg || 0);
+        if (
+            this.commensurateMode() === 'same-lattice'
+            && Math.abs(displayAngle) <= 0.03
+        ) return false;
+        const target = Number(candidate.targetAngleDeg ?? candidate.angle_deg);
+        if (Number.isFinite(target)) return Math.abs(target - displayAngle) <= 0.03;
+        const delta = Number(candidate.deltaDeg);
+        return Number.isFinite(delta) && Math.abs(delta) <= 0.03;
+    }
+
     async prepareCommensurateSupercellProposal(context) {
         if (!context?.candidate || !this.state.display.commensurateGuide) return;
         const token = ++this.state.commensurateProposalToken;
@@ -15022,10 +15036,34 @@ class VAseApp {
             const payload = this.commensurateProposalPayload(context);
             const data = await this.api.previewCommensurateSupercell(payload);
             if (token !== this.state.commensurateProposalToken) return;
+            const resolved = this.commensurateProposalIsResolved(context);
+            if (data.preview) data.preview.has_suggestion = resolved;
+            data.match_resolved = resolved;
             const proposal = { context, data };
             this.state.commensurateProposal = proposal;
             this.renderer.setCommensurateSupercellPreview?.(data);
-            this.renderCommensurateSupercellProposal(proposal);
+            if (resolved) {
+                this.renderCommensurateSupercellProposal(proposal);
+            } else {
+                document.getElementById('commensurate-supercell-proposal')?.classList.add('hidden');
+                const candidate = data.candidate || context.candidate || {};
+                const target = Number(candidate.targetAngleDeg ?? candidate.angle_deg);
+                const delta = Number.isFinite(target)
+                    ? Math.abs(target - Number(context.displayAngleDeg || 0))
+                    : NaN;
+                const strain = Number(candidate.max_principal_strain ?? candidate.strain);
+                const strainText = Number.isFinite(strain)
+                    ? `; max principal strain ${(strain * 100).toFixed(4)}%`
+                    : '';
+                const area = Number(candidate.area ?? candidate.area_ratio);
+                const areaText = Number.isFinite(area) ? `; N=${area}` : '';
+                this.updateCommensurateStatus(
+                    Number.isFinite(delta)
+                        ? `Host and guest lattices at ${Number(context.displayAngleDeg || 0).toFixed(4)} deg. Nearest bounded match: ${target.toFixed(4)} deg (delta ${delta.toFixed(4)} deg${strainText}${areaText}).`
+                        : 'Host and guest primitive lattices are shown; rotate the guest to a bounded match.',
+                    'ready'
+                );
+            }
         } catch (error) {
             if (token !== this.state.commensurateProposalToken) return;
             this.state.commensurateProposal = null;
@@ -18194,7 +18232,7 @@ class VAseApp {
                 .catch(err => this.toast(`Rotation failed: ${err.message}`, 'error'));
         });
         const refreshCommensurateSearch = ({ showBusy = true } = {}) => {
-            this.refreshCommensurateWorkspace({ showBusy, preferSmallest: true }).catch(error => {
+            this.refreshCommensurateWorkspace({ showBusy, preferSmallest: false }).catch(error => {
                 this.toast(`Commensurate search failed: ${error.message}`, 'error');
             });
         };

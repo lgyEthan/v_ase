@@ -852,10 +852,15 @@ Validation:
 Use this workflow only for cells with two periodic in-plane vectors. The
 commensurate rotation axis is global Z and the lattice search is restricted to
 the XY plane. Enabling the workspace calculates a bounded family of integer
-host/guest supercells immediately. It previews the smallest valid match under
-the strain cutoff and the default `maxAreaRatio` of 16; it never silently
-materializes the proposal. The interactive area bound is `1..128`; do not
-silently clamp or sample a larger request.
+host/guest supercells immediately. In the GUI it preserves the current direct
+guest angle instead of jumping to the smallest candidate. Black host and
+orange guest parent lattices remain visible at unmatched angles; the thinner
+teal common-cell boundary and materialization controls appear only when the
+current angle resolves a bounded match. An explicit semantic
+`calculate-commensurate` request with no `angleDeg` still selects the smallest
+valid match under the strain cutoff and default `maxAreaRatio` of 16. The
+interactive area bound is `1..128`; do not silently clamp or sample a larger
+request, and never silently materialize a proposal.
 
 #### Same-lattice twist
 
@@ -883,7 +888,7 @@ const analyzed = await applyCurrent({
 Validate `analyzed.analysis.commensurate`: it must contain the candidate table,
 positive-determinant host/guest integer matrices, area ratios, max principal
 strain, mean absolute strain, actual atom counts, the current-angle marker, and
-the smallest valid proposal. **3D overview** uses angle, area ratio, and max
+the candidate selected by the explicit request. **3D overview** uses angle, area ratio, and max
 principal strain. **Paper strain projection** uses mean absolute strain on x,
 actual host-plus-guest atom count on y, and angle as marker color. Both views
 must use the same accepted candidate set. The moving angle plane and current
@@ -934,8 +939,9 @@ await applyCurrent({
 ```
 
 Use `strainTarget: "guest"` unless the user explicitly asks to deform the host.
-Verify the distinct host, guest, and proposed common-cell outlines and both
-integer matrices. With `showAtoms: true`, require opaque core atoms, a
+Verify the distinct host and guest parent-lattice outlines and both integer
+matrices. Require the common-cell outline only after the direct angle resolves
+the selected candidate. With `showAtoms: true`, require opaque core atoms, a
 one-primitive-cell boundary shell, and all preview bonds across the proposed
 supercell. Remove a guest with `remove-commensurate-guest`.
 

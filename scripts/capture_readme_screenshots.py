@@ -1366,6 +1366,7 @@ def capture_commensurate_media(browser) -> None:
 
     fixture = ROOT / "examples" / "commensurate_host_guest"
     host = read(fixture / "graphene_host.extxyz")
+    host_guest_target_angle = 16.10211375
     editor, page = open_scene(browser, host, show_bonds=True, viz_only=True)
     try:
         set_display(page, {
@@ -1417,12 +1418,12 @@ def capture_commensurate_media(browser) -> None:
             "Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewBonds) > 0"
         )
         angle_input = page.locator("#commensurate-guest-angle")
-        angle_input.fill("16.10211375")
+        angle_input.fill(f"{host_guest_target_angle:.8f}")
         angle_input.press("Tab")
-        page.wait_for_function("""() => {
+        page.wait_for_function("""angle => {
             const app = window.__V_ASE_APP__;
-            return Math.abs(Number(app.state.commensurateProposal?.data?.preview?.display_angle_deg) - 16.10211375) < 1e-5;
-        }""")
+            return Math.abs(Number(app.state.commensurateProposal?.data?.preview?.display_angle_deg) - Number(angle)) < 1e-5;
+        }""", arg=host_guest_target_angle)
         preview_bounds = page.evaluate("""() => {
             const app = window.__V_ASE_APP__;
             const bounds = app.renderer.commensuratePreviewBounds(
@@ -1496,8 +1497,61 @@ def capture_commensurate_media(browser) -> None:
             raise AssertionError(
                 "README host/guest example is missing its current-angle section or parent-lattice bonds."
             )
-        page.wait_for_timeout(350)
-        screenshot_frame(page).save(
+        graph_frames: list[Image.Image] = []
+        animation_angles = [
+            host_guest_target_angle * (0.5 - 0.5 * math.cos(math.pi * index / 21))
+            for index in range(22)
+        ]
+        for frame_index, angle in enumerate(animation_angles):
+            page.evaluate(
+                """angle => {
+                    const input = document.getElementById('commensurate-guest-angle');
+                    input.value = Number(angle).toFixed(8);
+                    input.dispatchEvent(new Event('input', {bubbles: true}));
+                }""",
+                angle,
+            )
+            page.wait_for_function(
+                """angle => Math.abs(
+                    Number(window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.display_angle_deg)
+                    - Number(angle)
+                ) < 1e-5""",
+                arg=angle,
+                timeout=30_000,
+            )
+            if frame_index == 0:
+                unresolved = page.evaluate("""() => ({
+                    resolved: window.__V_ASE_APP__.state.commensurateProposal?.data?.match_resolved,
+                    commonCells: window.__V_ASE_APP__.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateSuggestedCell).length
+                })""")
+                if unresolved["resolved"] or unresolved["commonCells"]:
+                    raise AssertionError("README commensurate animation emphasizes a common cell before matching.")
+            page.evaluate("""async () => {
+                await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            }""")
+            page.wait_for_timeout(70)
+            graph_frames.append(screenshot_frame(page))
+        resolved = page.evaluate("""() => ({
+            resolved: window.__V_ASE_APP__.state.commensurateProposal?.data?.match_resolved,
+            angle: window.__V_ASE_APP__.state.commensurateProposal?.context?.displayAngleDeg,
+            target: window.__V_ASE_APP__.state.commensurateProposal?.context?.candidate?.targetAngleDeg,
+            delta: window.__V_ASE_APP__.state.commensurateProposal?.context?.candidate?.deltaDeg,
+            mode: window.__V_ASE_APP__.state.display.commensurateMode,
+            commonCells: window.__V_ASE_APP__.renderer.commensurateSupercellGroup.children
+                .filter(child => child.userData?.commensurateSuggestedCell).length
+        })""")
+        if not resolved["resolved"] or resolved["commonCells"] != 1:
+            raise AssertionError(
+                f"README commensurate animation did not resolve its final common cell: {resolved!r}"
+            )
+        graph_frames = [graph_frames[0]] * 6 + graph_frames + [graph_frames[-1]] * 10
+        save_gif(
+            graph_frames,
+            ASSET_DIR / "readme_commensurate_host_guest.gif",
+            duration=125,
+        )
+        graph_frames[-1].save(
             ASSET_DIR / "readme_commensurate_host_guest.png",
             optimize=True,
         )
@@ -2131,6 +2185,27 @@ def capture_ai_collaboration_figure(browser) -> None:
             "describe",
             {"includePositions": True},
         )
+        child = next(
+            frame for frame in page.frames
+            if "workspace_child=1" in frame.url
+        )
+        collapse_inspector(child)
+        page.wait_for_timeout(180)
+
+        stage_records: list[dict[str, object]] = []
+
+        def record_stage(stage: str, operation: str, state: dict[str, object]) -> None:
+            page.wait_for_timeout(140)
+            screenshot = page.screenshot(type="png")
+            stage_records.append({
+                "stage": stage,
+                "operation": operation,
+                "revision": int(state.get("collaboration", {}).get("revision", 0)),
+                "image": "data:image/png;base64," + base64.b64encode(screenshot).decode("ascii"),
+            })
+
+        record_stage("human", "Natural-language request ready", initial)
+        record_stage("agent", "Read exact atom identities and coordinates", initial)
 
         async_commands = [
             {
@@ -2190,15 +2265,16 @@ def capture_ai_collaboration_figure(browser) -> None:
                 },
             },
         ]
-        state = initial
-        for command in async_commands:
-            state = run_external_ai_apply(command_url, command)
-
-        child = next(
-            frame for frame in page.frames
-            if "workspace_child=1" in frame.url
+        operation_labels = (
+            "Create the vacancy",
+            "Convert the three neighboring atoms to N",
+            "Place Li 2.15 Å above the site",
+            "Set +Z top view, +Y up, and render settings",
         )
-        collapse_inspector(child)
+        state = initial
+        for command, operation_label in zip(async_commands, operation_labels):
+            state = run_external_ai_apply(command_url, command)
+            record_stage("vase", operation_label, state)
         agent_revision = state["collaboration"]["revision"]
 
         # This is deliberately a GUI-originated edit, not an AI bridge call.
@@ -2216,6 +2292,12 @@ def capture_ai_collaboration_figure(browser) -> None:
             arg=agent_revision,
         )
         page.wait_for_timeout(450)
+        human_state = run_external_ai_command(
+            command_url,
+            "describe",
+            {"includePositions": False},
+        )
+        record_stage("human", "Human adjusts atom radius in the same GUI", human_state)
 
         stream = page.evaluate(
             """async ({workspaceId, after}) => {
@@ -2261,6 +2343,8 @@ def capture_ai_collaboration_figure(browser) -> None:
             raise AssertionError("Collaboration result is not the requested +Z top view.")
         if not np.allclose(final_state["camera"]["up"], [0.0, 1.0, 0.0], atol=1e-7):
             raise AssertionError("Collaboration result does not keep +Y pointing upward.")
+        record_stage("agent", "Read the new revision and verify the final state", final_state)
+        record_stage("vase", "Verified result ready in the shared GUI", final_state)
 
         live_path = ASSET_DIR / "readme_ai_collaboration_live.png"
         live_image = Image.open(BytesIO(page.screenshot(type="png"))).convert("RGB")
@@ -2278,9 +2362,30 @@ def capture_ai_collaboration_figure(browser) -> None:
                     return image?.complete && image.naturalWidth > 0;
                 }"""
             )
-            figure_page.locator("body").screenshot(
-                path=ASSET_DIR / "readme_ai_collaboration.png",
-                type="png",
+            collaboration_frames: list[Image.Image] = []
+            for record_index, record in enumerate(stage_records):
+                figure_page.evaluate(
+                    "record => window.setCollaborationStage(record)",
+                    record,
+                )
+                figure_page.wait_for_function(
+                    "document.getElementById('gui-image')?.complete"
+                )
+                figure_page.wait_for_timeout(70)
+                frame = Image.open(BytesIO(
+                    figure_page.locator("body").screenshot(type="png")
+                )).convert("RGB")
+                hold = 8 if record_index in {0, len(stage_records) - 1} else 5
+                collaboration_frames.extend([frame.copy() for _ in range(hold)])
+            save_gif(
+                collaboration_frames,
+                ASSET_DIR / "readme_ai_collaboration.gif",
+                duration=135,
+            )
+            collaboration_frames[-1].save(
+                ASSET_DIR / "readme_ai_collaboration.png",
+                optimize=True,
+                compress_level=9,
             )
         finally:
             figure_page.close()
@@ -2290,6 +2395,7 @@ def capture_ai_collaboration_figure(browser) -> None:
         for name in (
             "readme_ai_collaboration_live.png",
             "readme_ai_collaboration.png",
+            "readme_ai_collaboration.gif",
         ):
             shutil.copy2(ASSET_DIR / name, github_dir / name)
     finally:
@@ -2320,8 +2426,8 @@ def capture_constraint_media(browser) -> None:
             up=(12.0, 7.0, 0.0),
             fov=34,
         )
-        # Align the long channel axis with the wide viewport so the complete
-        # CNT and every moving-ion frame remain visible at a useful scale.
+        # Align the channel axis with the wide viewport so the complete CNT,
+        # moving ion, and centerline stay visible throughout the trajectory.
         set_atomic_scale(page, 68.0)
         set_readme_lighting(
             page,
@@ -2492,7 +2598,15 @@ def capture_constraint_media(browser) -> None:
         editor.close()
 
 
-def capture_add_atoms_media(browser) -> None:
+def _capture_add_atoms_variant(
+    browser,
+    *,
+    region_role: str,
+    gif_name: str,
+    save_static: bool = False,
+) -> None:
+    if region_role not in {"allowed", "prohibited"}:
+        raise ValueError(f"Unsupported Add Atoms region role: {region_role}")
     host, metadata = make_random_addition_scene()
     editor, page = open_scene(browser, host, show_bonds=True, viz_only=False)
     try:
@@ -2505,40 +2619,33 @@ def capture_add_atoms_media(browser) -> None:
             "showCell": True,
             "showBonds": True,
             "showOverlays": True,
-            "atomRadiusScale": 0.50,
+            "atomRadiusScale": 0.44,
             "labelRadii": {
-                "Si_framework": 0.54,
-                "Li_mobile": 0.74,
-                "H_probe": 0.38,
+                "Na_lattice": 0.46,
+                "Cl_lattice": 0.54,
+                "Na_inserted": 0.67,
+                "Cl_inserted": 0.72,
             },
             "labelColors": {
-                "Si_framework": "#52728a",
-                "Li_mobile": "#73a649",
-                "H_probe": "#d5a52d",
+                "Na_lattice": "#8b71b5",
+                "Cl_lattice": "#63a84f",
+                "Na_inserted": "#f0a126",
+                "Cl_inserted": "#24a8c4",
             },
             "labelMaterials": {
-                "Si_framework": "rubber",
-                "Li_mobile": "standard",
-                "H_probe": "standard",
+                "Na_lattice": "standard",
+                "Cl_lattice": "standard",
+                "Na_inserted": "metal",
+                "Cl_inserted": "metal",
             },
             "bondMode": "pairwise",
             "pairwiseBondRanges": {
-                "Si_framework-Si_framework": {"enabled": True, "max": 2.55},
-                "H_probe-Si_framework": {"enabled": False, "max": 0.0},
-                "Li_mobile-Si_framework": {"enabled": False, "max": 0.0},
-                "H_probe-H_probe": {"enabled": False, "max": 0.0},
-                "H_probe-Li_mobile": {"enabled": False, "max": 0.0},
-                "Li_mobile-Li_mobile": {"enabled": False, "max": 0.0},
+                "Cl_lattice-Na_lattice": {"enabled": True, "max": 3.02},
             },
             "pairwiseBondCutoffs": {
-                "Si_framework-Si_framework": 2.55,
-                "H_probe-Si_framework": 0.0,
-                "Li_mobile-Si_framework": 0.0,
-                "H_probe-H_probe": 0.0,
-                "H_probe-Li_mobile": 0.0,
-                "Li_mobile-Li_mobile": 0.0,
+                "Cl_lattice-Na_lattice": 3.02,
             },
-            "bondThickness": 0.16,
+            "bondThickness": 0.13,
             "cellColor": "#96722f",
             "cellThickness": 0.055,
         })
@@ -2546,7 +2653,7 @@ def capture_add_atoms_media(browser) -> None:
         set_camera(
             page,
             target=center.tolist(),
-            position=(center + np.asarray([18.0, -24.0, 18.0])).tolist(),
+            position=(center + np.asarray([19.0, -23.0, 16.0])).tolist(),
             up=(0, 0, 1),
             fov=35,
         )
@@ -2586,15 +2693,17 @@ def capture_add_atoms_media(browser) -> None:
         ):
             page.fill(selector, f"{float(value):.4f}")
             page.locator(selector).blur()
+        page.click(f"#add-atoms-region-{region_role}")
+        page.locator("#add-atoms-allow-escape").set_checked(region_role == "allowed")
 
         first = page.locator("#add-atoms-entries .add-atoms-entry-row").first
-        first.locator(".add-atoms-entry-type").select_option("Li")
-        first.locator(".add-atoms-entry-label").fill("Li_mobile")
+        first.locator(".add-atoms-entry-type").select_option(metadata["entries"][0]["element"])
+        first.locator(".add-atoms-entry-label").fill(metadata["entries"][0]["label"])
         first.locator(".add-atoms-entry-count").fill(str(metadata["entries"][0]["count"]))
         page.click("#btn-add-atoms-entry")
         second = page.locator("#add-atoms-entries .add-atoms-entry-row").nth(1)
-        second.locator(".add-atoms-entry-type").select_option("H")
-        second.locator(".add-atoms-entry-label").fill("H_probe")
+        second.locator(".add-atoms-entry-type").select_option(metadata["entries"][1]["element"])
+        second.locator(".add-atoms-entry-label").fill(metadata["entries"][1]["label"])
         second.locator(".add-atoms-entry-count").fill(str(metadata["entries"][1]["count"]))
         page.fill("#add-atoms-seed", str(metadata["seed"]))
         page.select_option("#add-atoms-cutoff-basis", "covalent")
@@ -2602,8 +2711,14 @@ def capture_add_atoms_media(browser) -> None:
         page.fill("#add-atoms-strength", "2.5")
         page.fill("#add-atoms-fmax", "0.002")
         page.fill("#add-atoms-steps", "180")
+        unique_elements = {
+            *host.get_chemical_symbols(),
+            *(entry["element"] for entry in metadata["entries"]),
+        }
+        expected_pair_rows = len(unique_elements) * (len(unique_elements) + 1) // 2
         page.wait_for_function(
-            "document.querySelectorAll('#add-atoms-pair-table .add-atoms-pair-row').length >= 6"
+            "count => document.querySelectorAll('#add-atoms-pair-table .add-atoms-pair-row').length >= count",
+            arg=expected_pair_rows,
         )
 
         frames: list[Image.Image] = []
@@ -2621,36 +2736,29 @@ def capture_add_atoms_media(browser) -> None:
         # apply the publication palette after that catalog exists.
         set_display(page, {
             "labelRadii": {
-                "Si_framework": 0.54,
-                "Li_mobile": 0.74,
-                "H_probe": 0.38,
+                "Na_lattice": 0.46,
+                "Cl_lattice": 0.54,
+                "Na_inserted": 0.67,
+                "Cl_inserted": 0.72,
             },
             "labelColors": {
-                "Si_framework": "#52728a",
-                "Li_mobile": "#73a649",
-                "H_probe": "#d5a52d",
+                "Na_lattice": "#8b71b5",
+                "Cl_lattice": "#63a84f",
+                "Na_inserted": "#f0a126",
+                "Cl_inserted": "#24a8c4",
             },
             "labelMaterials": {
-                "Si_framework": "rubber",
-                "Li_mobile": "standard",
-                "H_probe": "standard",
+                "Na_lattice": "standard",
+                "Cl_lattice": "standard",
+                "Na_inserted": "metal",
+                "Cl_inserted": "metal",
             },
             "bondMode": "pairwise",
             "pairwiseBondRanges": {
-                "Si_framework-Si_framework": {"enabled": True, "max": 2.55},
-                "H_probe-Si_framework": {"enabled": False, "max": 0.0},
-                "Li_mobile-Si_framework": {"enabled": False, "max": 0.0},
-                "H_probe-H_probe": {"enabled": False, "max": 0.0},
-                "H_probe-Li_mobile": {"enabled": False, "max": 0.0},
-                "Li_mobile-Li_mobile": {"enabled": False, "max": 0.0},
+                "Cl_lattice-Na_lattice": {"enabled": True, "max": 3.02},
             },
             "pairwiseBondCutoffs": {
-                "Si_framework-Si_framework": 2.55,
-                "H_probe-Si_framework": 0.0,
-                "Li_mobile-Si_framework": 0.0,
-                "H_probe-H_probe": 0.0,
-                "H_probe-Li_mobile": 0.0,
-                "Li_mobile-Li_mobile": 0.0,
+                "Cl_lattice-Na_lattice": 3.02,
             },
         })
         scattered_positions = np.asarray(
@@ -2658,6 +2766,15 @@ def capture_add_atoms_media(browser) -> None:
             dtype=float,
         )
         np.testing.assert_array_equal(scattered_positions[: len(host)], host.positions)
+        inserted = scattered_positions[len(host):]
+        inserted_inside = np.all(
+            (inserted >= bounds[:3]) & (inserted <= bounds[3:]),
+            axis=1,
+        )
+        if region_role == "allowed" and not bool(np.all(inserted_inside)):
+            raise AssertionError("Allowed Add Atoms demo scattered outside its visible box.")
+        if region_role == "prohibited" and bool(np.any(inserted_inside)):
+            raise AssertionError("Prohibited Add Atoms demo scattered inside its exclusion box.")
         append_hold(frames, page, 8)
 
         page.evaluate("""() => {
@@ -2721,9 +2838,9 @@ def capture_add_atoms_media(browser) -> None:
             dtype=float,
         )
         update_positions(page, relaxed_positions)
-        page.evaluate("""() => window.__V_ASE_APP__.setAddAtomsStatus(
-            'active', 'Pairwise placement complete · ready to finish'
-        )""")
+        page.evaluate("""role => window.__V_ASE_APP__.setAddAtomsStatus(
+            'active', `${role === 'allowed' ? 'Allowed volume' : 'Exclusion volume'} · pairwise placement complete`
+        )""", region_role)
         page.evaluate("""() => {
             const app = window.__V_ASE_APP__;
             app.setAddAtomsPane('batch');
@@ -2738,6 +2855,14 @@ def capture_add_atoms_media(browser) -> None:
         )
         if float(displacement.max(initial=0.0)) <= 0.05:
             raise AssertionError("README Add Atoms repulsion did not move any inserted atom visibly.")
+        if region_role == "prohibited":
+            final_inserted = relaxed_positions[len(host):]
+            final_inside = np.all(
+                (final_inserted >= bounds[:3]) & (final_inserted <= bounds[3:]),
+                axis=1,
+            )
+            if bool(np.any(final_inside)):
+                raise AssertionError("Prohibited Add Atoms relaxation entered the exclusion box.")
         append_hold(frames, page, 8)
         placement_frame = frames[-1].copy()
 
@@ -2749,15 +2874,34 @@ def capture_add_atoms_media(browser) -> None:
             "window.__V_ASE_APP__.renderer.addAtomsRegionGroup.visible === false"
         )
         append_hold(frames, page, 10)
-        save_gif(frames, ASSET_DIR / "readme_add_atoms.gif", duration=95)
-        placement_frame.save(
-            ASSET_DIR / "readme_add_atoms.png",
-            optimize=True,
-            compress_level=9,
-        )
+        save_gif(frames, ASSET_DIR / gif_name, duration=105)
+        if save_static:
+            placement_frame.save(
+                ASSET_DIR / "readme_add_atoms.png",
+                optimize=True,
+                compress_level=9,
+            )
     finally:
         page.close()
         editor.close()
+
+
+def capture_add_atoms_media(browser) -> None:
+    _capture_add_atoms_variant(
+        browser,
+        region_role="allowed",
+        gif_name="readme_add_atoms_allowed.gif",
+        save_static=True,
+    )
+    shutil.copy2(
+        ASSET_DIR / "readme_add_atoms_allowed.gif",
+        ASSET_DIR / "readme_add_atoms.gif",
+    )
+    _capture_add_atoms_variant(
+        browser,
+        region_role="prohibited",
+        gif_name="readme_add_atoms_prohibited.gif",
+    )
 
 
 def capture_measurement_media(browser) -> None:
@@ -2990,17 +3134,18 @@ def capture_volumetric_media(browser) -> None:
             raise AssertionError("README isosurface opacity was not applied to its materials.")
         level_frames = []
         maximum_level = float(max(abs(dataset["minimum"]), abs(dataset["maximum"])))
-        level_values = [
-            maximum_level * fraction
-            for fraction in (0.06, 0.10, 0.17, 0.26, 0.36, 0.46, 0.36, 0.26, 0.17, 0.10)
+        level_fractions = [
+            *np.linspace(0.05, 0.46, 12),
+            *np.linspace(0.46, 0.05, 12)[1:],
         ]
+        level_values = [maximum_level * float(fraction) for fraction in level_fractions]
         for level in level_values:
             page.evaluate(
-                """(level) => {
-                    const slider = document.getElementById('volume-level-slider');
-                    slider.value = `${level}`;
-                    slider.dispatchEvent(new Event('input', {bubbles: true}));
-                    slider.dispatchEvent(new Event('change', {bubbles: true}));
+                """async level => {
+                    const app = window.__V_ASE_APP__;
+                    app.state.display.volumetricLevel = Number(level);
+                    app.syncVolumetricControls();
+                    await app.updateVolumetricSurface({recordHistory: false});
                 }""",
                 level,
             )
@@ -3020,7 +3165,7 @@ def capture_volumetric_media(browser) -> None:
         save_gif(
             level_frames,
             ASSET_DIR / "readme_volumetric.gif",
-            duration=145,
+            duration=195,
         )
         page.evaluate(
             """level => {
@@ -3146,7 +3291,7 @@ def capture_volumetric_media(browser) -> None:
 def make_atom_colorscale_trajectory() -> list[Atoms]:
     """Return a force-consistent probe trajectory over a copper surface."""
 
-    slab = fcc111("Cu", size=(5, 4, 2), vacuum=7.0, orthogonal=True)
+    slab = fcc111("Cu", size=(8, 6, 2), vacuum=7.0, orthogonal=True)
     cell = slab.cell.array
     top_z = float(np.max(slab.positions[:, 2]))
     x_min, y_min = np.min(slab.positions[:, :2], axis=0)
@@ -3215,7 +3360,18 @@ def capture_atom_colorscale_media(browser) -> None:
             "forceVectorColor": "#c43f5e",
         })
         configure_inspector(page, "structure", ["appearance"], width=475)
-        substrate_indices = list(range(len(frames[0]) - 1))
+        substrate_positions = frames[0].positions[:-1, :2]
+        lower = np.min(substrate_positions, axis=0)
+        upper = np.max(substrate_positions, axis=0)
+        fractional_xy = (substrate_positions - lower) / np.maximum(upper - lower, 1e-12)
+        substrate_indices = np.flatnonzero(
+            (fractional_xy[:, 0] >= 0.20)
+            & (fractional_xy[:, 0] <= 0.80)
+            & (fractional_xy[:, 1] >= 0.25)
+            & (fractional_xy[:, 1] <= 0.75)
+        ).tolist()
+        if not (20 <= len(substrate_indices) < (len(frames[0]) - 1) / 2):
+            raise AssertionError("README selected colorscale region is not a clear minority of the slab.")
         set_selection(page, substrate_indices)
         result = page.evaluate(
             """async () => {
@@ -3260,10 +3416,10 @@ def capture_atom_colorscale_media(browser) -> None:
         settle_view(
             page,
             target=center.tolist(),
-            position=(center + np.array([10.5, -13.0, 14.5])).tolist(),
+            position=(center + np.array([14.0, -17.0, 17.0])).tolist(),
             fov=34,
         )
-        set_atomic_scale(page, 47.0)
+        set_atomic_scale(page, 35.0)
         set_readme_lighting(
             page,
             center.tolist(),

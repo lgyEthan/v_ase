@@ -142,7 +142,21 @@ enabled.
 
 ### Add Atoms — New In v0.2.1
 
-![Random multi-species insertion and repulsive placement in a triclinic cell](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_atoms.gif)
+#### Allowed Placement Volume
+
+![Na and Cl atoms inserted inside an allowed box and relaxed into a vacancy-rich NaCl structure](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_atoms_allowed.gif)
+
+The teal box is the initial placement volume. Six `Na_inserted` and six
+`Cl_inserted` atoms start inside it, while pairwise repulsion moves only those
+new atoms into the visible vacancy pocket and nearby free volume.
+
+#### Prohibited Placement Volume
+
+![Na and Cl atoms inserted outside a prohibited box and kept outside during relaxation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_atoms_prohibited.gif)
+
+The magenta box is an exclusion volume. The same reproducible batch starts in
+the surrounding primary cell and remains outside the box during repulsive
+placement.
 
 Open **+ Add atoms** in **Edit** mode:
 
@@ -179,12 +193,11 @@ Repulsive placement creates an **Add Atoms placement** timeline containing the
 accepted optimizer steps. It can be scrubbed or played while the mode remains
 active. Finishing or cancelling Add Atoms removes that temporary timeline.
 
-The animation uses the included
-[bonded triclinic Si example](examples/readme_scene_assets/triclinic_bonded_si_add_atoms.traj):
-10 `Li_mobile` and 8 `H_probe` atoms are scattered with seed `2021` inside a
-dense bonded framework containing two vacancies. Pairwise repulsion moves only
-the inserted atoms toward available interstitial and vacancy space while every
-`Si_framework` coordinate remains fixed.
+Both animations use the included
+[vacancy-rich rocksalt example](examples/readme_scene_assets/rocksalt_vacancy_add_atoms.traj).
+The alternating Na/Cl lattice and central cavity make the initial random
+placement, allowed or excluded region, and subsequent relaxation directly
+visible. Every `Na_lattice` and `Cl_lattice` coordinate remains fixed.
 
 ### Rotate Selected Atoms
 
@@ -274,9 +287,12 @@ When enabled, the first preview is cells-only:
   periodic cell.
 
 Host primitive cells and vectors are black on the default white background,
-guest cells are orange, and the suggested common-cell boundary is teal. As a
-candidate or guest angle changes, both primitive lattices remain tiled through
-their proposed supercells in real time. The current camera is preserved.
+and guest cells are orange. They remain the dominant guides while the guest
+rotates. A thinner teal boundary appears only when the current angle resolves
+an actual common-cell candidate; it is not shown as a misleading proposal at
+the initial unmatched angle. Both parent lattices remain tiled far enough to
+contain the resolved common cell in real time, and the current camera is
+preserved.
 **Show preview atoms** optionally adds opaque supercell atoms, a
 one-primitive-cell halo, and all enabled bonds across the preview boundary.
 
@@ -311,10 +327,12 @@ in-plane deformation and defaults to the guest.
 
 The proposal reports both integer matrices, both area ratios, residual strain,
 and readable surface notation such as `(√7 × √7) R19.11°`. The default maximum
-area ratio is `16`. On first selection or guest load, v_ase proposes the
-smallest-area cell that satisfies the strain bound. Moving the guest angle then
-tracks the valid candidate nearest that angle. No proposal is made when every
-valid cell exceeds the chosen area or strain bound.
+area ratio is `16`. Enabling the workspace, selecting a layer, or loading a
+guest preserves the current angle instead of jumping to a candidate. The graph
+and candidate list expose bounded matches; moving the guest angle resolves the
+valid candidate at that angle. No common-cell boundary is shown when every
+candidate exceeds the chosen area or strain bound, or while the current angle
+remains unmatched.
 
 Commensurate matching is deliberately restricted to two periodic vectors in
 the global XY plane and rotation about global Z. This is the rigorously defined
@@ -336,7 +354,7 @@ minimum.
 
 ### Separate Host And Guest Example
 
-![Graphene and Cu(111) host/guest common-cell search](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_commensurate_host_guest.png)
+![Graphene and Cu(111) host/guest common-cell search with a live angle plane](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_commensurate_host_guest.gif)
 
 The repository includes a deterministic graphene/Cu(111) validation pair:
 
@@ -909,6 +927,8 @@ OBJ export has no optional Python dependency.
 
 ## Work With An AI Agent
 
+![A natural-language request passing through an external AI Agent into the same live revisioned v_ase GUI](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.gif)
+
 You describe the scientific result to an external AI Agent. The bundled
 [v_ase Skill](v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md)
 teaches that Agent the exact state queries, edits, validation checks, camera
@@ -924,6 +944,9 @@ natural language.
    before it continues.
 
 Throughout this cycle, the result appears in the same live GUI.
+The animation follows the complete cycle: the human request, each structured
+Agent operation, the changing live structure and revision number, a manual GUI
+refinement, and the Agent's final reread and verification.
 
 For example:
 

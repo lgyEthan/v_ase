@@ -2,17 +2,18 @@
 
 ## add-atoms
 
-Dense bonded triclinic silicon framework for random multi-species insertion and interstitial repulsive placement.
+Vacancy-rich rocksalt NaCl for random multi-species insertion and repulsive placement.
 
-- Static: `triclinic_bonded_si_add_atoms.traj`
+- Static: `rocksalt_vacancy_add_atoms.traj`
 - Suggested selected indices: ``
-- Scatter 10 Li_mobile and 8 H_probe atoms with random seed 2021.
-- The host remains unchanged while only inserted atoms follow the pairwise repulsion.
+- Scatter 6 Na_inserted and 6 Cl_inserted atoms with random seed 2021.
+- Allowed mode starts inside the central box; Prohibited mode starts outside it.
+- The alternating Na/Cl host remains unchanged while only inserted atoms follow pairwise repulsion.
 
 Open command:
 
 ```bash
-v_ase gui examples/readme_scene_assets/triclinic_bonded_si_add_atoms.traj --show-bonds
+v_ase gui examples/readme_scene_assets/rocksalt_vacancy_add_atoms.traj --show-bonds
 ```
 
 ## phosphorene

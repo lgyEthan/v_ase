@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.6
+
+- Reworked the commensurate workspace so GUI activation, layer selection, and
+  guest loading preserve the current angle; black host and orange guest
+  lattices remain primary, while a thinner teal common cell appears only at a
+  resolved bounded match.
+- Rebuilt the commensurate host/guest animation around live guest rotation and
+  the moving three-dimensional angle plane.
+- Replaced the Add Atoms documentation scene with a recognizable vacancy-rich
+  NaCl lattice and separate Allowed and Prohibited placement animations.
+- Enlarged the trajectory colorscale demonstration, slowed the isovalue sweep,
+  restored the legible axial FixedLine CNT view, and added a complete
+  natural-language-to-Agent-to-live-GUI collaboration animation.
+- Synchronized the README, canonical Agent Skill, evaluation contract,
+  generated scene assets, and browser regressions with the updated behavior.
+
 ## 0.2.5
 
 - Made stored-force arrows frame-aware so trajectory playback refreshes both

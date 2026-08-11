@@ -3128,6 +3128,10 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
                         ?.material?.color?.getHexString(),
                     hostCell: group.filter(child => child.userData?.commensurateHostCell).length,
                     guestCell: group.filter(child => child.userData?.commensurateGuestCell).length,
+                    commonCell: group.filter(child => child.userData?.commensurateSuggestedCell).length,
+                    matchResolved: Boolean(app.state.commensurateProposal?.data?.match_resolved),
+                    proposalVisible: !document.getElementById('commensurate-supercell-proposal')
+                        ?.classList.contains('hidden'),
                     camera: {
                         position: app.renderer.camera.position.toArray(),
                         target: app.renderer.controls.target.toArray(),
@@ -3143,6 +3147,9 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
             assert cells_only["guestColor"] == "f58220"
             assert cells_only["hostCell"] == 1
             assert cells_only["guestCell"] == 1
+            assert cells_only["commonCell"] == 0
+            assert cells_only["matchResolved"] is False
+            assert cells_only["proposalVisible"] is False
             np.testing.assert_allclose(cells_only["camera"]["position"], camera_before["position"])
             np.testing.assert_allclose(cells_only["camera"]["target"], camera_before["target"])
             assert cells_only["camera"]["zoom"] == pytest.approx(camera_before["zoom"])
