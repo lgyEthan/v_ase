@@ -136,6 +136,10 @@ def test_readme_agent_media_uses_the_external_cli_bridge():
     assert "window.v_aseAI.apply" not in ai_edit
     assert "window.v_aseAI.apply" not in collaboration
     assert "window.v_aseAI.apply" not in volumetric
+    assert 'f"CLI: {operation_label}"' in collaboration
+    assert '"flow": flow' in collaboration
+    assert 'if len(human_events) < 2' in collaboration
+    assert 'child.locator("#app-viewport").screenshot' in collaboration
 
 
 def test_skill_version_install_and_environment_contract_are_current():

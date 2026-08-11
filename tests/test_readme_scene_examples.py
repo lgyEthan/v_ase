@@ -469,10 +469,15 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     ).read_text(encoding="utf-8")
     for required in (
         "Uses the v_ase Skill and CLI",
-        "v_ase applies and shows each change",
+        "Applies and shows every change",
         "Live v_ase GUI",
-        "You can refine the same GUI",
-        "Exact atoms, edits, camera",
+        "Ask naturally. Watch, refine, and continue.",
+        "Natural language",
+        "Structured CLI edit",
+        "Revision event",
+        "Live result returns to you",
+        "Your GUI edit becomes the next revision",
+        "Exact atom identities, operations, camera state",
         "+Z top view with +Y up",
     ):
         assert required in figure_source
@@ -488,6 +493,17 @@ def test_phosphorene_capture_drives_the_production_selection_and_rotation_ui():
     assert "page.mouse.move(" in source
     assert "page.mouse.up(button=\"left\")" in source
     assert "selected != expected" in source
+
+
+def test_full_readme_capture_does_not_repeat_the_analysis_group():
+    source = (ROOT / "scripts" / "capture_readme_screenshots.py").read_text()
+    default_capture = source.split("if args.only:", 1)[1].split(
+        "finally:", 1
+    )[0]
+
+    assert 'for name, capture in captures.items()' in default_capture
+    assert 'if name == "analysis":' in default_capture
+    assert "continue" in default_capture
     assert 'page.select_option("#selection-rotate-axis", "X")' in source
     assert 'page.locator("#selection-rotate-angle")' in source
     assert 'page.locator("#btn-rotate-selection-exact")' in source

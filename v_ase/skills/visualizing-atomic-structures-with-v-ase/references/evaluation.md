@@ -404,7 +404,9 @@ Run all scenarios, not only static document checks:
       render;
     - inspect the collaboration figure and verify it contains the actual live
       N3/Li GUI, a human natural-language request, structured agent steps, two
-      real GUI-originated NDJSON events, and the re-synchronization rule;
+      real GUI-originated NDJSON events, separate command/result states, and
+      clearly visible return paths for live results and revision
+      re-synchronization;
     - compare three identical Cu13 clusters and verify Standard, Metal, and
       Rubber remain visibly distinct without changing ASE element, radius, or
       color;

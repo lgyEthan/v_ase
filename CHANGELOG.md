@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.7
+
+- Rebuilt the external-Agent collaboration figure and animation as an explicit
+  bidirectional cycle: natural-language request, structured CLI command, live
+  GUI result, human refinement, revision event, and Agent re-synchronization.
+- Strengthened the generated collaboration example to record command and
+  result states separately and verify two distinct GUI-originated events.
+- Removed per-update candidate-array allocation and sorting from live
+  commensurate angle selection while preserving the established scientific
+  ranking and bounded-area behavior.
+- Eliminated a duplicate analysis pass from full README media generation while
+  retaining the explicit `--only analysis` capture target.
+- Synchronized the README, canonical Agent Skill, collaboration/evaluation
+  contract, regression checks, and generated GitHub media.
+
 ## 0.2.6
 
 - Reworked the commensurate workspace so GUI activation, layer selection, and

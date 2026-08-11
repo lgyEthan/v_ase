@@ -12,144 +12,172 @@
     margin: 0;
     overflow: hidden;
     background: #fff;
-    color: #162124;
+    color: #172326;
     font-family: Inter, "SF Pro Display", "Segoe UI", Arial, sans-serif;
     letter-spacing: 0;
   }
-  body { padding: 52px 66px 46px; }
+  body { padding: 46px 62px 34px; }
   header {
     display: flex;
     align-items: flex-end;
     justify-content: space-between;
-    gap: 80px;
-    padding-bottom: 28px;
-    border-bottom: 3px solid #dbe2e1;
+    gap: 70px;
+    min-height: 126px;
+    padding-bottom: 22px;
+    border-bottom: 3px solid #d8e0df;
   }
   .eyebrow {
-    color: #117b6e;
-    font-size: 25px;
+    color: #0e7b6e;
+    font-size: 24px;
     font-weight: 900;
     text-transform: uppercase;
   }
   h1 {
-    margin: 7px 0 0;
-    font-size: 62px;
-    line-height: 1.03;
+    margin: 6px 0 0;
+    font-size: 58px;
+    line-height: 1.02;
   }
   .header-note {
-    width: 690px;
-    margin: 0 0 5px;
-    color: #4c5a5e;
+    width: 730px;
+    margin: 0 0 4px;
+    color: #46575a;
     font-size: 25px;
-    line-height: 1.34;
+    font-weight: 620;
+    line-height: 1.35;
   }
   main {
     position: relative;
-    display: grid;
-    grid-template-columns: 570px 570px minmax(0, 1fr);
-    gap: 76px;
-    height: 935px;
-    padding-top: 40px;
+    height: 956px;
   }
-  .arrow {
+  .flows {
     position: absolute;
-    top: 225px;
-    width: 68px;
-    height: 4px;
-    background: #7b888a;
+    inset: 0;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
   }
-  .arrow::after {
-    content: "";
-    position: absolute;
-    right: -1px;
-    top: -8px;
-    border-left: 17px solid #7b888a;
-    border-top: 10px solid transparent;
-    border-bottom: 10px solid transparent;
+  .flow-path {
+    fill: none;
+    stroke: #90a09f;
+    stroke-width: 9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: .28;
+    transition: opacity .12s ease, stroke-width .12s ease;
   }
-  .arrow.one { left: 574px; }
-  .arrow.two { left: 1220px; background: #168f80; }
-  .arrow.two::after { border-left-color: #168f80; }
+  .flow-path.command { stroke: #168b7c; }
+  .flow-path.request, .flow-path.refine { stroke: #d99a2d; }
+  .flow-path.revision { stroke: #33484d; }
+  .flow-path.live { stroke: #168b7c; }
+  body[data-flow="request"] .flow-path.request,
+  body[data-flow="command"] .flow-path.command,
+  body[data-flow="revision"] .flow-path.revision,
+  body[data-flow="live"] .flow-path.live,
+  body[data-flow="refine"] .flow-path.refine,
+  body[data-flow="complete"] .flow-path {
+    opacity: 1;
+    stroke-width: 13;
+  }
+  body[data-flow="complete"] .flow-path {
+    opacity: .82;
+    stroke-width: 9;
+  }
+  .flow-label {
+    fill: #627174;
+    font-size: 20px;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+  .flow-label.request, .flow-label.refine { fill: #9f6a12; }
+  .flow-label.command, .flow-label.live { fill: #0d7468; }
+  .flow-label.revision { fill: #33484d; }
   .stage {
+    position: absolute;
+    z-index: 2;
     min-width: 0;
-    padding-top: 18px;
-    border-top: 8px solid #cbd3d2;
-    transition: border-color .15s ease, opacity .15s ease;
+    padding-top: 15px;
+    border-top: 7px solid #cbd4d3;
+    transition: border-color .12s ease, opacity .12s ease;
   }
-  .stage.active { border-top-color: #e4a638; }
-  .stage:not(.active) { opacity: .68; }
+  .stage.active { border-top-color: #e2a338; }
+  .stage:not(.active) { opacity: .76; }
+  .human { left: 0; top: 92px; width: 515px; }
+  .agent { left: 664px; top: 92px; width: 520px; }
+  .vase { right: 0; top: 92px; width: 894px; }
   .step {
-    color: #637174;
-    font-size: 23px;
+    color: #617174;
+    font-size: 21px;
     font-weight: 900;
     text-transform: uppercase;
   }
   h2 {
-    margin: 8px 0 0;
-    font-size: 39px;
+    margin: 7px 0 0;
+    font-size: 38px;
     line-height: 1.08;
   }
   .human .prompt {
-    margin-top: 34px;
-    padding: 25px 0 25px 27px;
-    border-left: 7px solid #d99b2f;
-    color: #263235;
-    font-size: 29px;
-    font-weight: 680;
-    line-height: 1.43;
+    margin-top: 30px;
+    padding: 22px 0 22px 24px;
+    border-left: 7px solid #d99a2d;
+    color: #243235;
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.4;
   }
-  .human .prompt strong { color: #0e766b; }
+  .human .prompt strong { color: #0d7468; }
   .plain-note {
-    margin-top: 24px;
-    color: #5c6a6d;
+    margin-top: 20px;
+    color: #536366;
     font-size: 21px;
     line-height: 1.4;
   }
   .agents {
     display: flex;
-    gap: 30px;
-    margin-top: 32px;
+    align-items: flex-start;
+    gap: 25px;
+    margin-top: 28px;
   }
   .agent-mark {
     display: grid;
     justify-items: center;
-    gap: 10px;
-    width: 150px;
-    color: #2b3639;
-    font-size: 20px;
+    gap: 8px;
+    width: 145px;
+    color: #263538;
+    font-size: 19px;
     font-weight: 850;
     text-align: center;
   }
   .agent-mark img {
-    width: 100px;
-    height: 100px;
+    width: 90px;
+    height: 90px;
     object-fit: contain;
   }
   .skill {
-    margin-top: 30px;
-    padding-top: 23px;
-    border-top: 3px solid #44b8aa;
+    margin-top: 25px;
+    padding-top: 20px;
+    border-top: 3px solid #46b4a7;
   }
   .skill strong {
     display: block;
-    color: #12796e;
+    color: #0f786c;
     font-size: 26px;
   }
   .skill span {
     display: block;
-    margin-top: 7px;
-    color: #556467;
-    font-size: 21px;
-    line-height: 1.35;
+    margin-top: 6px;
+    color: #526265;
+    font-size: 20px;
+    line-height: 1.34;
   }
   .operation {
-    margin-top: 30px;
+    margin-top: 25px;
     min-height: 112px;
-    padding: 21px 24px;
-    border: 3px solid #2d3b3e;
-    border-radius: 6px;
-    color: #1e2a2d;
-    font-size: 27px;
+    padding: 18px 21px;
+    border: 3px solid #334448;
+    border-radius: 5px;
+    color: #1c2a2d;
+    font-size: 25px;
     font-weight: 820;
     line-height: 1.3;
   }
@@ -157,104 +185,109 @@
     content: "CURRENT OPERATION";
     display: block;
     margin-bottom: 7px;
-    color: #8a641e;
+    color: #95620f;
     font-size: 17px;
     font-weight: 900;
   }
-  .vase {
-    display: flex;
-    flex-direction: column;
-  }
   .vase-head {
     display: grid;
-    grid-template-columns: 320px minmax(0, 1fr);
+    grid-template-columns: 272px minmax(0, 1fr);
     align-items: center;
-    gap: 28px;
+    gap: 25px;
   }
   .vase-logo {
-    width: 320px;
-    height: 95px;
+    width: 272px;
+    height: 82px;
     object-fit: contain;
   }
-  .vase-head h2 { font-size: 37px; }
+  .vase-head h2 { font-size: 34px; }
   .vase-head p {
-    margin: 7px 0 0;
-    color: #59676a;
-    font-size: 20px;
+    margin: 6px 0 0;
+    color: #526265;
+    font-size: 19px;
   }
   .gui {
-    margin-top: 24px;
-    min-height: 695px;
+    margin-top: 20px;
+    height: 620px;
     overflow: hidden;
-    border: 3px solid #263336;
-    border-radius: 7px;
-    background: #111719;
-    box-shadow: 0 18px 42px rgba(21, 32, 35, .16);
+    border: 3px solid #243437;
+    border-radius: 6px;
+    background: #f5f7f7;
+    box-shadow: 0 16px 38px rgba(23, 35, 38, .15);
   }
   .gui-bar {
     display: flex;
     align-items: center;
-    height: 58px;
-    gap: 10px;
-    padding: 0 18px;
-    border-bottom: 1px solid #445052;
-    color: #e2e8e9;
-    font-size: 20px;
+    height: 52px;
+    gap: 9px;
+    padding: 0 16px;
+    border-bottom: 1px solid #425053;
+    background: #12191b;
+    color: #e7eeee;
+    font-size: 19px;
     font-weight: 800;
   }
-  .dot { width: 12px; height: 12px; border-radius: 50%; background: #e26861; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; background: #e26861; }
   .dot.amber { background: #dfa43c; }
   .dot.green { background: #49b174; }
   .revision {
     margin-left: auto;
     color: #8be1d5;
-    font-size: 17px;
+    font-size: 16px;
     text-transform: uppercase;
   }
   .gui img {
     display: block;
     width: 100%;
-    height: 637px;
+    height: 568px;
     object-fit: cover;
     object-position: center;
   }
-  .return {
+  .cycle-note {
     position: absolute;
-    left: 198px;
-    bottom: 26px;
+    left: 124px;
+    bottom: 7px;
+    z-index: 2;
+    width: 1970px;
     display: flex;
-    align-items: center;
-    gap: 17px;
-    color: #435154;
-    font-size: 23px;
-    font-weight: 830;
-  }
-  .return-arrow {
-    width: 118px;
-    height: 38px;
-    border-left: 5px solid #647275;
-    border-bottom: 5px solid #647275;
-    transform: skewX(-34deg);
+    justify-content: space-between;
+    color: #35464a;
+    font-size: 21px;
+    font-weight: 850;
+    text-transform: uppercase;
   }
 </style>
 </head>
-<body>
+<body data-flow="request">
   <header>
     <div>
       <div class="eyebrow">Work with an AI Agent</div>
-      <h1>Ask naturally. Watch exact changes happen in v_ase.</h1>
+      <h1>Ask naturally. Watch, refine, and continue.</h1>
     </div>
-    <p class="header-note">The Agent operates structured v_ase state. You keep the normal live GUI and can refine it at any time.</p>
+    <p class="header-note">The Agent operates exact v_ase state through the Skill and CLI. You keep the normal live GUI, and every manual refinement returns as a new revision.</p>
   </header>
   <main>
-    <span class="arrow one" aria-hidden="true"></span>
-    <span class="arrow two" aria-hidden="true"></span>
+    <svg class="flows" viewBox="0 0 2276 956" aria-hidden="true">
+      <defs>
+        <marker id="arrow-amber" markerWidth="28" markerHeight="24" refX="23" refY="6" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L24,6 L0,12 z" fill="#d99a2d"/></marker>
+        <marker id="arrow-teal" markerWidth="28" markerHeight="24" refX="23" refY="6" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L24,6 L0,12 z" fill="#168b7c"/></marker>
+        <marker id="arrow-dark" markerWidth="28" markerHeight="24" refX="23" refY="6" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L24,6 L0,12 z" fill="#33484d"/></marker>
+      </defs>
+      <path class="flow-path request" d="M525 62 H640" marker-end="url(#arrow-amber)"/>
+      <text class="flow-label request" x="515" y="29">Natural language</text>
+      <path class="flow-path command" d="M1195 62 H1362" marker-end="url(#arrow-teal)"/>
+      <text class="flow-label command" x="1190" y="29">Structured CLI edit</text>
+      <path class="flow-path revision" d="M1360 552 H1210" marker-end="url(#arrow-dark)"/>
+      <text class="flow-label revision" x="1282" y="588" text-anchor="middle"><tspan x="1282">Revision event</tspan><tspan x="1282" dy="21">+ exact state</tspan></text>
+      <path class="flow-path live" d="M1810 804 V895 H170 C112 895 78 858 78 800 V690" marker-end="url(#arrow-teal)"/>
+      <path class="flow-path refine" d="M255 690 V770 C255 806 282 825 322 825 H1370" marker-end="url(#arrow-amber)"/>
+    </svg>
 
     <section class="stage human active" data-stage="human">
       <div class="step">1 · You</div>
       <h2>Describe the scientific result</h2>
       <div class="prompt">“From <strong>6 × 6 graphene</strong>, create a pyridinic N<sub>3</sub> vacancy, place Li <strong>2.15 Å</strong> above it, and show a <strong>+Z top view with +Y up</strong>.”</div>
-      <p class="plain-note">No v_ase command syntax is required from the human.</p>
+      <p class="plain-note">Watch every change in the live viewport. Adjust the same scene yourself whenever needed.</p>
     </section>
 
     <section class="stage agent" data-stage="agent">
@@ -265,14 +298,14 @@
         <div class="agent-mark"><img src="brand_assets/anthropic.svg" alt="Anthropic"><span>Claude Code</span></div>
         <div class="agent-mark"><img src="brand_assets/github-copilot.svg" alt="GitHub"><span>Copilot</span></div>
       </div>
-      <div class="skill"><strong>v_ase Skill</strong><span>Exact atoms, edits, camera, revision checks, and validation.</span></div>
+      <div class="skill"><strong>v_ase Skill</strong><span>Exact atom identities, operations, camera state, revision checks, and validation.</span></div>
       <div class="operation" id="operation">Read exact structure state</div>
     </section>
 
     <section class="stage vase" data-stage="vase">
       <div class="vase-head">
         <img class="vase-logo" src="../assets/v_ase-logo.png" alt="v_ase">
-        <div><div class="step">3 · Shared live document</div><h2>v_ase applies and shows each change</h2><p>Structure · labels · camera · rendering · verification</p></div>
+        <div><div class="step">3 · Shared live document</div><h2>Applies and shows every change</h2><p>Structure · labels · camera · rendering · verification</p></div>
       </div>
       <div class="gui">
         <div class="gui-bar"><span class="dot"></span><span class="dot amber"></span><span class="dot green"></span><span>Live v_ase GUI</span><span class="revision" id="revision">revision 0</span></div>
@@ -280,16 +313,27 @@
       </div>
     </section>
 
-    <div class="return"><span class="return-arrow" aria-hidden="true"></span><span>You can refine the same GUI; the Agent reads the new revision.</span></div>
+    <div class="cycle-note"><span>Live result returns to you</span><span>Your GUI edit becomes the next revision</span></div>
   </main>
 <script>
-  window.setCollaborationStage = ({stage = 'human', operation = '', revision = 0, image = ''} = {}) => {
+  window.setCollaborationStage = async ({
+    stage = 'human',
+    flow = 'request',
+    operation = '',
+    revision = 0,
+    image = ''
+  } = {}) => {
+    document.body.dataset.flow = flow;
     document.querySelectorAll('.stage').forEach(element => {
       element.classList.toggle('active', element.dataset.stage === stage);
     });
     document.getElementById('operation').textContent = operation || 'Read exact structure state';
     document.getElementById('revision').textContent = `revision ${revision}`;
-    if (image) document.getElementById('gui-image').src = image;
+    if (image) {
+      const guiImage = document.getElementById('gui-image');
+      guiImage.src = image;
+      await guiImage.decode();
+    }
   };
 </script>
 </body>

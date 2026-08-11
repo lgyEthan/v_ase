@@ -1702,3 +1702,18 @@ def test_transform_panel_can_apply_an_exact_selection_rotation():
     assert "this.enterTransformMode('ROTATE')" in main_js
     assert "this.transform.buffer = String(angleDegrees)" in main_js
     assert "await this.commitTransform()" in main_js
+
+
+def test_live_commensurate_candidate_selection_avoids_array_sorting():
+    main_js = (ROOT / "v_ase" / "static" / "main.js").read_text()
+    angle_selector = main_js.split(
+        "commensurateCandidateAtAngle(angleDeg = 0)", 1
+    )[1].split("commensurateSmallestCandidate()", 1)[0]
+    smallest_selector = main_js.split(
+        "commensurateSmallestCandidate()", 1
+    )[1].split("useCommensurateSuggestedAngle", 1)[0]
+
+    assert ".sort(" not in angle_selector
+    assert ".sort(" not in smallest_selector
+    assert "for (const candidate of this.state.commensurateCandidates || [])" in angle_selector
+    assert "for (const candidate of this.state.commensurateCandidates || [])" in smallest_selector

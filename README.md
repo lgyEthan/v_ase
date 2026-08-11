@@ -36,8 +36,9 @@ completed structure is inspected from above and below.
 
 Human instructions remain natural language, while the external Agent uses the
 bundled v_ase Skill and structured CLI/API for exact atom identities, camera
-settings, validation, and export. The user and Agent share one revisioned GUI
-document; v_ase does not embed an LLM.
+settings, validation, and export. You watch every result in the same GUI,
+refine it directly when needed, and v_ase returns that edit to the Agent as a
+new revision. v_ase does not embed an LLM.
 
 ## Installation And Launch
 
@@ -937,16 +938,18 @@ natural language.
 
 1. **You → Agent:** state the source structure, scientific change, and desired
    final view in ordinary language.
-2. **Agent ↔ v_ase:** the Agent uses the Skill and structured CLI/API to inspect
-   exact atoms, apply one revision-checked operation at a time, and verify it.
-3. **v_ase → you:** the same document stays open in the normal GUI. A manual
-   GUI edit becomes the next document revision, which the Agent must read
-   before it continues.
+2. **Agent → v_ase:** the Agent uses the Skill and structured CLI/API to inspect
+   exact atoms and apply one revision-checked operation at a time.
+3. **v_ase → you:** the same document stays open in the normal GUI, where every
+   operation appears immediately for inspection.
+4. **You → v_ase → Agent:** refine that GUI directly. A manual GUI edit becomes
+   the next document revision; v_ase sends its exact state back to the Agent,
+   which re-synchronizes before continuing.
 
-Throughout this cycle, the result appears in the same live GUI.
-The animation follows the complete cycle: the human request, each structured
-Agent operation, the changing live structure and revision number, a manual GUI
-refinement, and the Agent's final reread and verification.
+Throughout this feedback cycle, the result appears in the same live GUI. The
+animation distinguishes the natural-language request, each structured CLI
+edit, the resulting live structure, a manual GUI refinement, and the revision
+event that makes the Agent reread and verify the current state.
 
 For example:
 

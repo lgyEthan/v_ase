@@ -41,6 +41,9 @@ label, element, and per-atom appearance without per-frame colorscale work.
 v_ase is the scientific application in the collaboration cycle. Structured
 Agent commands and human GUI edits enter the same v_ase document; the live GUI,
 exact semantic state, and revisions leave v_ase for the researcher and Agent.
+The visible cycle is bidirectional: Agent commands appear in the researcher's
+GUI, direct GUI refinements emit a new revision, and the Agent must re-read that
+revision before its next mutation.
 `v_ase gui FILE --cli` controls the same workspace a researcher opens through
 `human_url`. The first stdout line is the `v_ase.ai.v1` discovery handshake;
 later lines are compact `v_ase.collaboration.v1` NDJSON events. Commands are

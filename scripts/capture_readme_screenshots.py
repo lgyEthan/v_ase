@@ -2194,18 +2194,32 @@ def capture_ai_collaboration_figure(browser) -> None:
 
         stage_records: list[dict[str, object]] = []
 
-        def record_stage(stage: str, operation: str, state: dict[str, object]) -> None:
+        def viewport_screenshot() -> bytes:
+            return child.locator("#app-viewport").screenshot(type="png")
+
+        def record_stage(
+            stage: str,
+            operation: str,
+            state: dict[str, object],
+            flow: str,
+        ) -> None:
             page.wait_for_timeout(140)
-            screenshot = page.screenshot(type="png")
+            screenshot = viewport_screenshot()
             stage_records.append({
                 "stage": stage,
+                "flow": flow,
                 "operation": operation,
                 "revision": int(state.get("collaboration", {}).get("revision", 0)),
                 "image": "data:image/png;base64," + base64.b64encode(screenshot).decode("ascii"),
             })
 
-        record_stage("human", "Natural-language request ready", initial)
-        record_stage("agent", "Read exact atom identities and coordinates", initial)
+        record_stage("human", "Natural-language request ready", initial, "request")
+        record_stage(
+            "agent",
+            "Read exact atom identities, coordinates, and revision",
+            initial,
+            "revision",
+        )
 
         async_commands = [
             {
@@ -2273,11 +2287,22 @@ def capture_ai_collaboration_figure(browser) -> None:
         )
         state = initial
         for command, operation_label in zip(async_commands, operation_labels):
+            record_stage(
+                "agent",
+                f"CLI: {operation_label}",
+                state,
+                "command",
+            )
             state = run_external_ai_apply(command_url, command)
-            record_stage("vase", operation_label, state)
+            record_stage(
+                "vase",
+                f"Applied: {operation_label}",
+                state,
+                "live",
+            )
         agent_revision = state["collaboration"]["revision"]
 
-        # This is deliberately a GUI-originated edit, not an AI bridge call.
+        # These are deliberately separate GUI-originated edits, not AI bridge calls.
         child.evaluate("""() => {
             const app = window.__ASE_APP__;
             app.renderer.setPixelsPerAngstrom(82);
@@ -2291,13 +2316,31 @@ def capture_ai_collaboration_figure(browser) -> None:
             "revision => window.__ASE_APP__.collaborationRevision > revision",
             arg=agent_revision,
         )
-        page.wait_for_timeout(450)
+        revision_after_radius = child.evaluate(
+            "() => window.__ASE_APP__.collaborationRevision"
+        )
+        child.evaluate("""() => {
+            const thickness = document.getElementById('bond-thickness');
+            thickness.value = '0.22';
+            thickness.dispatchEvent(new Event('input', {bubbles: true}));
+            thickness.dispatchEvent(new Event('change', {bubbles: true}));
+        }""")
+        child.wait_for_function(
+            "revision => window.__ASE_APP__.collaborationRevision > revision",
+            arg=revision_after_radius,
+        )
+        page.wait_for_timeout(420)
         human_state = run_external_ai_command(
             command_url,
             "describe",
             {"includePositions": False},
         )
-        record_stage("human", "Human adjusts atom radius in the same GUI", human_state)
+        record_stage(
+            "human",
+            "Human refines radius and bonds in the same GUI",
+            human_state,
+            "refine",
+        )
 
         stream = page.evaluate(
             """async ({workspaceId, after}) => {
@@ -2313,8 +2356,10 @@ def capture_ai_collaboration_figure(browser) -> None:
             event for event in stream["events"]
             if event.get("source") == "human"
         ]
-        if not human_events:
-            raise AssertionError("The collaboration demo did not emit a human GUI event.")
+        if len(human_events) < 2:
+            raise AssertionError(
+                "The collaboration demo did not emit two distinct human GUI events."
+            )
         required_categories = {"display"}
         observed_categories = {
             category
@@ -2343,11 +2388,21 @@ def capture_ai_collaboration_figure(browser) -> None:
             raise AssertionError("Collaboration result is not the requested +Z top view.")
         if not np.allclose(final_state["camera"]["up"], [0.0, 1.0, 0.0], atol=1e-7):
             raise AssertionError("Collaboration result does not keep +Y pointing upward.")
-        record_stage("agent", "Read the new revision and verify the final state", final_state)
-        record_stage("vase", "Verified result ready in the shared GUI", final_state)
+        record_stage(
+            "agent",
+            "Read the human revision, re-synchronize, and verify",
+            final_state,
+            "revision",
+        )
+        record_stage(
+            "vase",
+            "Verified result remains in the shared live GUI",
+            final_state,
+            "complete",
+        )
 
         live_path = ASSET_DIR / "readme_ai_collaboration_live.png"
-        live_image = Image.open(BytesIO(page.screenshot(type="png"))).convert("RGB")
+        live_image = Image.open(BytesIO(viewport_screenshot())).convert("RGB")
         live_image.save(live_path, optimize=True, compress_level=9)
 
         figure_page = browser.new_page(
@@ -2367,9 +2422,6 @@ def capture_ai_collaboration_figure(browser) -> None:
                 figure_page.evaluate(
                     "record => window.setCollaborationStage(record)",
                     record,
-                )
-                figure_page.wait_for_function(
-                    "document.getElementById('gui-image')?.complete"
                 )
                 figure_page.wait_for_timeout(70)
                 frame = Image.open(BytesIO(
@@ -3660,7 +3712,9 @@ def main() -> int:
             if args.only:
                 captures[args.only](browser)
             else:
-                for capture in captures.values():
+                for name, capture in captures.items():
+                    if name == "analysis":
+                        continue
                     capture(browser)
         finally:
             browser.close()

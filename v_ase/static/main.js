@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.6&rev=1';
-import { ASERenderer } from './renderer.js?v=0.2.6&rev=1';
-import { ASESelection } from './selection.js?v=0.2.6&rev=1';
-import { ASETransform } from './transform.js?v=0.2.6&rev=1';
+import { ASEApi } from './api.js?v=0.2.7&rev=1';
+import { ASERenderer } from './renderer.js?v=0.2.7&rev=1';
+import { ASESelection } from './selection.js?v=0.2.7&rev=1';
+import { ASETransform } from './transform.js?v=0.2.7&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.6&rev=1';
+} from './trajectory.js?v=0.2.7&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -14690,38 +14690,72 @@ class VAseApp {
 
     commensurateCandidateAtAngle(angleDeg = 0) {
         const maxArea = Math.max(1, Number(this.state.display.commensurateMaxAreaRatio) || 16);
-        return (this.state.commensurateCandidates || [])
-            .filter(candidate => (
-                candidate.supercell_supported !== false
-                && Number(candidate.area_ratio ?? candidate.area) <= maxArea
-            ))
-            .map(candidate => this.candidateInstanceNearAngle(candidate, angleDeg))
-            .sort((first, second) => (
-                Math.abs(first.deltaDeg) - Math.abs(second.deltaDeg)
-                || Number(first.area_ratio ?? first.area) - Number(second.area_ratio ?? second.area)
-                || Number(first.strain) - Number(second.strain)
-            ))[0] || null;
+        let best = null;
+        let bestDelta = Infinity;
+        let bestArea = Infinity;
+        let bestStrain = Infinity;
+        for (const candidate of this.state.commensurateCandidates || []) {
+            const area = Number(candidate.area_ratio ?? candidate.area);
+            if (candidate.supercell_supported === false || !(area <= maxArea)) continue;
+            const instance = this.candidateInstanceNearAngle(candidate, angleDeg);
+            const delta = Math.abs(Number(instance.deltaDeg));
+            const strain = Number(instance.strain);
+            if (
+                best === null
+                || delta < bestDelta
+                || (delta === bestDelta && area < bestArea)
+                || (delta === bestDelta && area === bestArea && strain < bestStrain)
+            ) {
+                best = instance;
+                bestDelta = delta;
+                bestArea = area;
+                bestStrain = strain;
+            }
+        }
+        return best;
     }
 
     commensurateSmallestCandidate() {
         const maxArea = Math.max(1, Number(this.state.display.commensurateMaxAreaRatio) || 16);
-        return (this.state.commensurateCandidates || [])
-            .filter(candidate => (
-                candidate.supercell_supported !== false
-                && Number(candidate.area_ratio ?? candidate.area) <= maxArea
-            ))
-            .map(candidate => this.candidateInstanceNearAngle(candidate, 0))
-            .sort((first, second) => (
-                Number(first.area_ratio ?? first.area) - Number(second.area_ratio ?? second.area)
+        let best = null;
+        let bestArea = Infinity;
+        let bestCombinedArea = Infinity;
+        let bestStrain = Infinity;
+        let bestAngle = Infinity;
+        for (const candidate of this.state.commensurateCandidates || []) {
+            const area = Number(candidate.area_ratio ?? candidate.area);
+            if (candidate.supercell_supported === false || !(area <= maxArea)) continue;
+            const instance = this.candidateInstanceNearAngle(candidate, 0);
+            const combinedArea = (
+                Number(instance.host_area_ratio ?? instance.area_ratio ?? instance.area)
+                + Number(instance.guest_area_ratio ?? instance.area_ratio ?? instance.area)
+            );
+            const strain = Number(instance.strain);
+            const angle = Math.abs(Number(instance.targetAngleDeg));
+            if (
+                best === null
+                || area < bestArea
+                || (area === bestArea && combinedArea < bestCombinedArea)
                 || (
-                    Number(first.host_area_ratio ?? first.area_ratio ?? first.area)
-                    + Number(first.guest_area_ratio ?? first.area_ratio ?? first.area)
-                    - Number(second.host_area_ratio ?? second.area_ratio ?? second.area)
-                    - Number(second.guest_area_ratio ?? second.area_ratio ?? second.area)
+                    area === bestArea
+                    && combinedArea === bestCombinedArea
+                    && strain < bestStrain
                 )
-                || Number(first.strain) - Number(second.strain)
-                || Math.abs(Number(first.targetAngleDeg)) - Math.abs(Number(second.targetAngleDeg))
-            ))[0] || null;
+                || (
+                    area === bestArea
+                    && combinedArea === bestCombinedArea
+                    && strain === bestStrain
+                    && angle < bestAngle
+                )
+            ) {
+                best = instance;
+                bestArea = area;
+                bestCombinedArea = combinedArea;
+                bestStrain = strain;
+                bestAngle = angle;
+            }
+        }
+        return best;
     }
 
     useCommensurateSuggestedAngle(candidate) {

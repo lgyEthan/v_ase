@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.6"
+python -m pip install "v_ase-gui==0.2.7"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -77,13 +77,18 @@ identifier; do not publish it while a private structure is open.
 The `v_ase api` command accepts structured JSON only. It is not an LLM and does
 not accept natural-language instructions.
 
-The control path is:
+The bidirectional control path is:
 
 ```text
 user request -> external agent + this Skill -> CLI handshake/event stream
 -> v_ase api -> HTTP JSON bridge -> same live human GUI
 -> human GUI edit -> NDJSON event -> agent re-describes and continues
 ```
+
+Treat the final two arrows as a required feedback cycle, not a one-way handoff.
+Every Agent command must become visible in `human_url`. Every later human GUI
+edit must be consumed as a revision event, followed by a fresh `describe`
+before the Agent sends another mutation.
 
 Use the `describe` method with `{"includePositions":false}` for compact metadata
 inspection and request full positions only when coordinate-dependent work
