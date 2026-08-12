@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.9"
+python -m pip install "v_ase-gui==0.2.10"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -77,15 +77,15 @@ identifier; do not publish it while a private structure is open.
 The `v_ase api` command accepts structured JSON only. It is not an LLM and does
 not accept natural-language instructions.
 
-The bidirectional control path is:
+The shared document has three required bidirectional links:
 
 ```text
-user request -> external agent + this Skill -> CLI handshake/event stream
--> v_ase api -> HTTP JSON bridge -> same live human GUI
--> human GUI edit -> NDJSON event -> agent re-describes and continues
+user <-> external agent       natural-language request and feedback
+external agent <-> v_ase CLI structured operations, exact state, revisions
+user <-> v_ase GUI           live inspection and direct visual refinement
 ```
 
-Treat the final two arrows as a required feedback cycle, not a one-way handoff.
+Treat all three links as a required feedback cycle, not a one-way handoff.
 Every Agent command must become visible in `human_url`. Every later human GUI
 edit must be consumed as a revision event, followed by a fresh `describe`
 before the Agent sends another mutation.
@@ -397,17 +397,19 @@ For any nontrivial task, verify all applicable items:
   state, selected same-lattice guest versus loaded guest structure, 3 Angstrom
   default loaded-guest gap, direct guest angle, preserved camera, candidate
   angle, smallest admissible area ratio, Host/Guest strain target,
-  host/guest integer matrices, readable square-root notation, black/orange/teal
-  host/guest/common cells, cells-only default, primitive lattices tiled at
-  least one primitive cell beyond the full proposal, grid dimensions and
+  host/guest integer matrices, readable square-root notation, black/orange/green
+  host/guest/common cells, cells-only default, candidate-independent parent
+  lattice windows, grid dimensions and
   readable `N x M` coverage, optional one-primitive-cell atom/bond halo,
   horizontal rotation axis plus orthogonal area-depth and strain-height axes,
   a gridded Plotly 3D candidate surface, candidate points, a live current-angle
   plane, and dotted symmetry periods only when exact lattice symmetry justifies
   them; verify graph CSV and materialization support. GUI activation,
   selection, and guest loading preserve the current direct angle: black host
-  and orange guest lattices remain primary, and the thinner teal common-cell
-  boundary appears only when that angle resolves a bounded match. For an
+  and orange guest parent grids retain identical dimensions while the mobile
+  lattice rotates, and the green common-cell boundary appears only when that
+  angle resolves a bounded match. Only the candidate boundary may change size.
+  For an
   explicit semantic search with no angle, require the smallest-area admissible
   proposal; with an explicit angle, require the nearest admissible candidate. Confirm
   that the conservative max principal strain

@@ -13,20 +13,19 @@
 
 ## Shared-Document Model
 
-The external agent and researcher operate the same live document in a cycle
-centered on v_ase:
+The external agent and researcher operate the same live document through three
+bidirectional links:
 
 ```text
-researcher --natural language--> external agent
-external agent --structured command--> v_ase
-v_ase --live 3D document--> researcher GUI
-researcher GUI --committed edit--> same v_ase document
-v_ase --exact state + revision--> external agent
+researcher <-> external agent   natural-language request and feedback
+external agent <-> v_ase CLI   structured operations, exact state, revisions
+researcher <-> v_ase GUI       live inspection and direct visual refinement
 ```
 
 This is a visible feedback cycle: the researcher watches Agent operations in
 the live GUI, can refine the same document directly, and the Agent receives
-that committed GUI edit as a new revision before continuing. A one-way
+that committed GUI edit through the CLI event stream as a new revision before
+continuing. A one-way
 request-to-render pipeline does not satisfy this collaboration contract.
 
 v_ase is the scientific application in this cycle, not the AI. It owns and

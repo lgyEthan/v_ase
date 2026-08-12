@@ -545,19 +545,21 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
         ROOT / "docs" / "design" / "ai_collaboration_figure.html"
     ).read_text(encoding="utf-8")
     for required in (
-        "Uses the v_ase Skill and CLI",
-        "Applies and shows every change",
+        "External AI Agent",
+        "CLI control, normal GUI",
         "Live v_ase GUI",
         "Ask naturally. Watch, refine, and continue.",
-        "Natural language",
-        "Structured CLI edit",
-        "Revision event",
-        "Live result returns to you",
-        "Your GUI edit becomes the next revision",
-        "Exact atom identities, operations, camera state",
+        "You ↔ AI Agent",
+        "AI Agent ↔ v_ase CLI",
+        "You ↔ v_ase GUI",
+        "Structured operations ↔ exact state + revisions",
+        "Every Agent command and every human GUI edit",
         "+Z top view with +Y up",
     ):
         assert required in figure_source
+    assert figure_source.count('class="flow-arrow ') == 6
+    for flow in ("human-agent", "agent-vase", "human-vase"):
+        assert f'class="flow-path {flow}"' in figure_source
     assert 'class="vase-logo"' in figure_source
     assert "LIVE FEEDBACK LOOP" not in figure_source
     assert 'class="feedback"' not in figure_source

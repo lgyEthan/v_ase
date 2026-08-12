@@ -584,8 +584,10 @@ candidate angle. A loaded guest replaces any selected same-lattice guest for
 the search. Set `showAtoms:true` only when the human needs the atom/bond halo;
 cells-only is clearer and cheaper. Host primitive cells/vectors are black,
 guest cells/vectors are orange, and they remain the dominant guides at
-unmatched angles. The thinner teal common cell appears only when the direct
-guest angle resolves a bounded candidate. GUI enable/select/load actions
+unmatched angles. Their parent-grid dimensions remain fixed across angle and
+candidate changes. The green common cell appears only when the direct guest
+angle resolves a bounded candidate, and only that candidate guide may change
+size. GUI enable/select/load actions
 preserve the direct angle and must not move or reframe the camera. An explicit
 `calculate-commensurate` operation without `angleDeg` retains its documented
 smallest-admissible behavior.

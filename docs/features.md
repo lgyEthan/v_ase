@@ -369,14 +369,16 @@ is `0.25 A`, and bonds are visible by default. Saved explicit values and
 ## Commensurate Cells And Planar Translation
 
 Commensurate matching treats host and guest as independent periodic
-sublattices. Cells-only preview is the default. Optional atom preview expands
-both parent lattices by at least two primitive shells when the atom budget
+sublattices. Cells-only preview is the default. Optional atom preview repeats
+both parent lattices across the fixed display window when the atom budget
 permits, keeps host and guest atoms opaque, infers bonds independently within
 each component, and never invents host-guest bonds. Host, guest, and proposed
 common cells use distinct guides. GUI activation, layer selection, and guest
 loading preserve the current direct angle. The black host and orange guest
-lattices remain primary; the thinner teal common-cell guide is hidden until
-the current angle resolves an actual bounded candidate.
+lattices remain primary and keep a candidate-independent display extent while
+the mobile lattice rotates; the green common-cell guide is hidden until the
+current angle resolves an actual bounded candidate. Only that candidate guide
+changes size when the resolved integer cell changes.
 
 The Plotly angle-area-strain view uses discrete candidate points above an
 angle-area floor, a live current-angle plane, and dotted equivalent-angle

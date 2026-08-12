@@ -361,14 +361,15 @@ and documentation use `view()`.
     integer host/guest supercells up to the configured area ratio (default
     `16`, explicit maximum `128`) and maximum-principal-strain cutoff. GUI
     activation, selection, and guest loading preserve the current angle;
-    black/orange parent lattices remain primary and the thinner teal common
-    cell appears only when that angle resolves a bounded match. Explicit
+    black/orange parent lattices remain primary, retain one candidate-independent
+    display extent while the mobile lattice rotates, and the green common cell
+    appears only when that angle resolves a bounded match. Explicit
     semantic calculation without an angle still selects the smallest
     admissible common cell.
     Same-lattice twist uses a selected rotating layer; host/guest mode loads a
     separate guest structure and can place residual in-plane strain on the
     guest (default) or host. Cells-only preview is the default. Optional atoms
-    expand both opaque parent lattices by at least two primitive shells when
+    repeat both opaque parent lattices across the fixed preview window when
     the preview budget permits. Host and guest bonds are inferred independently
     and cross-component bonds are excluded. The proposal is independent of display replication and
     manual Cell Transform, and it becomes ASE state only after the explicit

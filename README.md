@@ -342,11 +342,13 @@ When enabled, the first preview is cells-only:
 
 Host primitive cells and vectors are black on the default white background,
 and guest cells are orange. They remain the dominant guides while the guest
-rotates. A thinner teal boundary appears only when the current angle resolves
+rotates. Their displayed grid dimensions are chosen once from the configured
+bounded search and remain fixed while the angle and candidate change. A green
+common-cell boundary appears only when the current angle resolves
 an actual common-cell candidate; it is not shown as a misleading proposal at
-the initial unmatched angle. Both parent lattices remain tiled far enough to
-contain the resolved common cell in real time, and the current camera is
-preserved.
+the initial unmatched angle. The candidate-dependent green boundary may change
+size, but it never resizes either black/orange parent superlattice. The current
+camera is preserved.
 **Show preview atoms** optionally adds opaque supercell atoms, a
 one-primitive-cell halo, and all enabled bonds across the preview boundary.
 
@@ -991,20 +993,25 @@ teaches that Agent the exact state queries, edits, validation checks, camera
 commands, and exports. v_ase itself does not contain an LLM or interpret
 natural language.
 
-1. **You → Agent:** state the source structure, scientific change, and desired
-   final view in ordinary language.
-2. **Agent → v_ase:** the Agent uses the Skill and structured CLI/API to inspect
-   exact atoms and apply one revision-checked operation at a time.
-3. **v_ase → you:** the same document stays open in the normal GUI, where every
-   operation appears immediately for inspection.
-4. **You → v_ase → Agent:** refine that GUI directly. A manual GUI edit becomes
-   the next document revision; v_ase sends its exact state back to the Agent,
-   which re-synchronizes before continuing.
+The three links are all bidirectional:
+
+The same document stays open in the normal GUI while the Agent uses the Skill
+and structured CLI/API to inspect and change its exact revisioned state.
+
+1. **You ↔ AI Agent:** request the scientific result in natural language; the
+   Agent can ask for clarification and report what it changed.
+2. **AI Agent ↔ v_ase CLI:** the Agent sends structured, revision-checked
+   operations and receives exact atomistic state plus every newer revision.
+3. **You ↔ v_ase GUI:** watch the same live result and fine-tune it directly.
+   Each committed GUI edit returns through the CLI event stream, so the Agent
+   reads that human change before continuing.
 
 Throughout this feedback cycle, the result appears in the same live GUI. The
 animation distinguishes the natural-language request, each structured CLI
 edit, the resulting live structure, a manual GUI refinement, and the revision
 event that makes the Agent reread and verify the current state.
+A manual GUI edit becomes the next document revision rather than an invisible
+side change.
 
 For example:
 
@@ -1048,10 +1055,9 @@ desktop agents, Gemini-based agents, agentic IDEs, or another agent that can
 run local commands.
 
 ```text
-your natural-language request
-  -> external AI agent + v_ase Skill
-  -> v_ase structured CLI
-  <-> the same live v_ase GUI you can watch and edit
+You <-> AI Agent       natural-language request and feedback
+AI Agent <-> v_ase CLI structured operations, exact state, and revisions
+You <-> v_ase GUI      live inspection and direct visual refinement
 ```
 
 `--cli` is not an embedded AI model. It is the structured connection the

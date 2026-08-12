@@ -16,14 +16,14 @@
     font-family: Inter, "SF Pro Display", "Segoe UI", Arial, sans-serif;
     letter-spacing: 0;
   }
-  body { padding: 46px 62px 34px; }
+  body { padding: 42px 62px 30px; }
   header {
     display: flex;
     align-items: flex-end;
     justify-content: space-between;
-    gap: 70px;
-    min-height: 126px;
-    padding-bottom: 22px;
+    gap: 72px;
+    min-height: 132px;
+    padding-bottom: 20px;
     border-bottom: 3px solid #d8e0df;
   }
   .eyebrow {
@@ -38,73 +38,95 @@
     line-height: 1.02;
   }
   .header-note {
-    width: 730px;
+    width: 720px;
     margin: 0 0 4px;
     color: #46575a;
     font-size: 25px;
-    font-weight: 620;
-    line-height: 1.35;
+    font-weight: 650;
+    line-height: 1.34;
   }
   main {
     position: relative;
-    height: 956px;
+    height: 970px;
   }
   .flows {
     position: absolute;
     inset: 0;
-    z-index: 1;
+    z-index: 3;
     width: 100%;
     height: 100%;
     pointer-events: none;
   }
   .flow-path {
     fill: none;
-    stroke: #90a09f;
-    stroke-width: 9;
+    stroke-width: 10;
     stroke-linecap: round;
     stroke-linejoin: round;
-    opacity: .28;
+    opacity: .24;
     transition: opacity .12s ease, stroke-width .12s ease;
   }
-  .flow-path.command { stroke: #168b7c; }
-  .flow-path.request, .flow-path.refine { stroke: #d99a2d; }
-  .flow-path.revision { stroke: #33484d; }
-  .flow-path.live { stroke: #168b7c; }
-  body[data-flow="request"] .flow-path.request,
-  body[data-flow="command"] .flow-path.command,
-  body[data-flow="revision"] .flow-path.revision,
-  body[data-flow="live"] .flow-path.live,
-  body[data-flow="refine"] .flow-path.refine,
-  body[data-flow="complete"] .flow-path {
+  .flow-path.human-agent { stroke: #d99a2d; }
+  .flow-path.agent-vase { stroke: #168b7c; }
+  .flow-path.human-vase { stroke: #33484d; }
+  .flow-arrow {
+    opacity: .24;
+    transition: opacity .12s ease;
+  }
+  .flow-arrow.human-agent { fill: #d99a2d; }
+  .flow-arrow.agent-vase { fill: #168b7c; }
+  .flow-arrow.human-vase { fill: #33484d; }
+  body[data-flow="request"] .flow-path.human-agent,
+  body[data-flow="request"] .flow-arrow.human-agent,
+  body[data-flow="command"] .flow-path.agent-vase,
+  body[data-flow="command"] .flow-arrow.agent-vase,
+  body[data-flow="revision"] .flow-path.agent-vase,
+  body[data-flow="revision"] .flow-arrow.agent-vase,
+  body[data-flow="live"] .flow-path.human-vase,
+  body[data-flow="live"] .flow-arrow.human-vase,
+  body[data-flow="refine"] .flow-path.human-vase,
+  body[data-flow="refine"] .flow-arrow.human-vase,
+  body[data-flow="complete"] .flow-path,
+  body[data-flow="complete"] .flow-arrow {
     opacity: 1;
-    stroke-width: 13;
   }
+  body[data-flow="request"] .flow-path.human-agent,
+  body[data-flow="command"] .flow-path.agent-vase,
+  body[data-flow="revision"] .flow-path.agent-vase,
+  body[data-flow="live"] .flow-path.human-vase,
+  body[data-flow="refine"] .flow-path.human-vase,
   body[data-flow="complete"] .flow-path {
-    opacity: .82;
-    stroke-width: 9;
+    stroke-width: 14;
   }
+  body[data-flow="complete"] .flow-path { stroke-width: 10; opacity: .88; }
   .flow-label {
-    fill: #627174;
     font-size: 20px;
     font-weight: 900;
+    text-anchor: middle;
     text-transform: uppercase;
   }
-  .flow-label.request, .flow-label.refine { fill: #9f6a12; }
-  .flow-label.command, .flow-label.live { fill: #0d7468; }
-  .flow-label.revision { fill: #33484d; }
+  .flow-label.human-agent { fill: #97620d; }
+  .flow-label.agent-vase { fill: #0b7468; }
+  .flow-label.human-vase { fill: #33484d; }
+  .flow-sub {
+    font-size: 17px;
+    font-weight: 760;
+    letter-spacing: 0;
+    text-transform: none;
+  }
   .stage {
     position: absolute;
     z-index: 2;
     min-width: 0;
-    padding-top: 15px;
+    padding-top: 14px;
     border-top: 7px solid #cbd4d3;
+    background: #fff;
     transition: border-color .12s ease, opacity .12s ease;
   }
   .stage.active { border-top-color: #e2a338; }
   .stage:not(.active) { opacity: .76; }
-  .human { left: 0; top: 92px; width: 515px; }
-  .agent { left: 664px; top: 92px; width: 520px; }
-  .vase { right: 0; top: 92px; width: 894px; }
+  .human { left: 0; top: 94px; width: 510px; }
+  .agent { left: 24px; top: 595px; width: 500px; }
+  .vase { right: 0; top: 82px; width: 1135px; }
   .step {
     color: #617174;
     font-size: 21px;
@@ -113,102 +135,87 @@
   }
   h2 {
     margin: 7px 0 0;
-    font-size: 38px;
-    line-height: 1.08;
+    font-size: 39px;
+    line-height: 1.06;
   }
-  .human .prompt {
-    margin-top: 30px;
-    padding: 22px 0 22px 24px;
+  .prompt {
+    margin-top: 23px;
+    padding: 18px 0 18px 22px;
     border-left: 7px solid #d99a2d;
     color: #243235;
-    font-size: 28px;
-    font-weight: 700;
-    line-height: 1.4;
+    font-size: 27px;
+    font-weight: 720;
+    line-height: 1.37;
   }
-  .human .prompt strong { color: #0d7468; }
+  .prompt strong { color: #0d7468; }
   .plain-note {
-    margin-top: 20px;
+    margin: 17px 0 0;
     color: #536366;
     font-size: 21px;
-    line-height: 1.4;
+    font-weight: 620;
+    line-height: 1.35;
   }
   .agents {
     display: flex;
     align-items: flex-start;
-    gap: 25px;
-    margin-top: 28px;
+    gap: 24px;
+    margin-top: 22px;
   }
   .agent-mark {
     display: grid;
     justify-items: center;
-    gap: 8px;
-    width: 145px;
+    gap: 7px;
+    width: 132px;
     color: #263538;
-    font-size: 19px;
+    font-size: 18px;
     font-weight: 850;
     text-align: center;
   }
-  .agent-mark img {
-    width: 90px;
-    height: 90px;
-    object-fit: contain;
-  }
+  .agent-mark img { width: 80px; height: 80px; object-fit: contain; }
   .skill {
-    margin-top: 25px;
-    padding-top: 20px;
+    margin-top: 19px;
+    padding-top: 17px;
     border-top: 3px solid #46b4a7;
   }
-  .skill strong {
-    display: block;
-    color: #0f786c;
-    font-size: 26px;
-  }
+  .skill strong { display: block; color: #0f786c; font-size: 25px; }
   .skill span {
     display: block;
-    margin-top: 6px;
+    margin-top: 5px;
     color: #526265;
-    font-size: 20px;
-    line-height: 1.34;
+    font-size: 19px;
+    line-height: 1.32;
   }
   .operation {
-    margin-top: 25px;
-    min-height: 112px;
-    padding: 18px 21px;
+    margin-top: 16px;
+    min-height: 87px;
+    padding: 14px 18px;
     border: 3px solid #334448;
     border-radius: 5px;
     color: #1c2a2d;
-    font-size: 25px;
+    font-size: 22px;
     font-weight: 820;
-    line-height: 1.3;
+    line-height: 1.28;
   }
   .operation::before {
     content: "CURRENT OPERATION";
     display: block;
-    margin-bottom: 7px;
+    margin-bottom: 5px;
     color: #95620f;
-    font-size: 17px;
+    font-size: 16px;
     font-weight: 900;
   }
   .vase-head {
     display: grid;
-    grid-template-columns: 272px minmax(0, 1fr);
+    grid-template-columns: 296px minmax(0, 1fr);
     align-items: center;
-    gap: 25px;
+    gap: 28px;
   }
-  .vase-logo {
-    width: 272px;
-    height: 82px;
-    object-fit: contain;
-  }
-  .vase-head h2 { font-size: 34px; }
-  .vase-head p {
-    margin: 6px 0 0;
-    color: #526265;
-    font-size: 19px;
-  }
+  .vase-logo { width: 296px; height: 88px; object-fit: contain; }
+  .vase-head h2 { font-size: 35px; }
+  .vase-head p { margin: 6px 0 0; color: #526265; font-size: 20px; }
   .gui {
-    margin-top: 20px;
-    height: 620px;
+    margin-top: 18px;
+    height: 686px;
     overflow: hidden;
     border: 3px solid #243437;
     border-radius: 6px;
@@ -230,32 +237,8 @@
   .dot { width: 11px; height: 11px; border-radius: 50%; background: #e26861; }
   .dot.amber { background: #dfa43c; }
   .dot.green { background: #49b174; }
-  .revision {
-    margin-left: auto;
-    color: #8be1d5;
-    font-size: 16px;
-    text-transform: uppercase;
-  }
-  .gui img {
-    display: block;
-    width: 100%;
-    height: 568px;
-    object-fit: cover;
-    object-position: center;
-  }
-  .cycle-note {
-    position: absolute;
-    left: 124px;
-    bottom: 7px;
-    z-index: 2;
-    width: 1970px;
-    display: flex;
-    justify-content: space-between;
-    color: #35464a;
-    font-size: 21px;
-    font-weight: 850;
-    text-transform: uppercase;
-  }
+  .revision { margin-left: auto; color: #8be1d5; font-size: 16px; text-transform: uppercase; }
+  .gui img { display: block; width: 100%; height: 634px; object-fit: cover; object-position: center; }
 </style>
 </head>
 <body data-flow="request">
@@ -264,56 +247,64 @@
       <div class="eyebrow">Work with an AI Agent</div>
       <h1>Ask naturally. Watch, refine, and continue.</h1>
     </div>
-    <p class="header-note">The Agent operates exact v_ase state through the Skill and CLI. You keep the normal live GUI, and every manual refinement returns as a new revision.</p>
+    <p class="header-note">Three bidirectional links keep you, the external Agent, and the same live v_ase document synchronized.</p>
   </header>
   <main>
-    <svg class="flows" viewBox="0 0 2276 956" aria-hidden="true">
-      <defs>
-        <marker id="arrow-amber" markerWidth="28" markerHeight="24" refX="23" refY="6" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L24,6 L0,12 z" fill="#d99a2d"/></marker>
-        <marker id="arrow-teal" markerWidth="28" markerHeight="24" refX="23" refY="6" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L24,6 L0,12 z" fill="#168b7c"/></marker>
-        <marker id="arrow-dark" markerWidth="28" markerHeight="24" refX="23" refY="6" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L24,6 L0,12 z" fill="#33484d"/></marker>
-      </defs>
-      <path class="flow-path request" d="M525 62 H640" marker-end="url(#arrow-amber)"/>
-      <text class="flow-label request" x="515" y="29">Natural language</text>
-      <path class="flow-path command" d="M1195 62 H1362" marker-end="url(#arrow-teal)"/>
-      <text class="flow-label command" x="1190" y="29">Structured CLI edit</text>
-      <path class="flow-path revision" d="M1360 552 H1210" marker-end="url(#arrow-dark)"/>
-      <text class="flow-label revision" x="1282" y="588" text-anchor="middle"><tspan x="1282">Revision event</tspan><tspan x="1282" dy="21">+ exact state</tspan></text>
-      <path class="flow-path live" d="M1810 804 V895 H170 C112 895 78 858 78 800 V690" marker-end="url(#arrow-teal)"/>
-      <path class="flow-path refine" d="M255 690 V770 C255 806 282 825 322 825 H1370" marker-end="url(#arrow-amber)"/>
+    <svg class="flows" viewBox="0 0 2276 970" aria-hidden="true">
+      <path class="flow-path human-vase" d="M540 220 C700 102 904 102 1115 220"/>
+      <polygon class="flow-arrow human-vase" points="-24,-12 0,0 -24,12" transform="translate(540 220) rotate(143.6)"/>
+      <polygon class="flow-arrow human-vase" points="-24,-12 0,0 -24,12" transform="translate(1115 220) rotate(29.2)"/>
+      <text class="flow-label human-vase" x="824" y="105">
+        <tspan x="824">You ↔ v_ase GUI</tspan>
+        <tspan class="flow-sub" x="824" dy="25">Live result ↔ direct visual refinement</tspan>
+      </text>
+
+      <path class="flow-path human-agent" d="M535 410 C650 450 650 535 535 615"/>
+      <polygon class="flow-arrow human-agent" points="-24,-12 0,0 -24,12" transform="translate(535 410) rotate(-160.8)"/>
+      <polygon class="flow-arrow human-agent" points="-24,-12 0,0 -24,12" transform="translate(535 615) rotate(145.2)"/>
+      <text class="flow-label human-agent" x="716" y="493">
+        <tspan x="716">You ↔ AI Agent</tspan>
+        <tspan class="flow-sub" x="716" dy="25">Natural-language request ↔ feedback</tspan>
+      </text>
+
+      <path class="flow-path agent-vase" d="M550 790 C740 925 934 916 1118 760"/>
+      <polygon class="flow-arrow agent-vase" points="-24,-12 0,0 -24,12" transform="translate(550 790) rotate(-144.6)"/>
+      <polygon class="flow-arrow agent-vase" points="-24,-12 0,0 -24,12" transform="translate(1118 760) rotate(-40.3)"/>
+      <text class="flow-label agent-vase" x="842" y="932">
+        <tspan x="842">AI Agent ↔ v_ase CLI</tspan>
+        <tspan class="flow-sub" x="842" dy="25">Structured operations ↔ exact state + revisions</tspan>
+      </text>
     </svg>
 
     <section class="stage human active" data-stage="human">
-      <div class="step">1 · You</div>
-      <h2>Describe the scientific result</h2>
+      <div class="step">You</div>
+      <h2>Request the scientific result</h2>
       <div class="prompt">“From <strong>6 × 6 graphene</strong>, create a pyridinic N<sub>3</sub> vacancy, place Li <strong>2.15 Å</strong> above it, and show a <strong>+Z top view with +Y up</strong>.”</div>
-      <p class="plain-note">Watch every change in the live viewport. Adjust the same scene yourself whenever needed.</p>
+      <p class="plain-note">Watch the live result and refine its appearance directly in the GUI.</p>
     </section>
 
     <section class="stage agent" data-stage="agent">
-      <div class="step">2 · External AI Agent</div>
-      <h2>Uses the v_ase Skill and CLI</h2>
+      <div class="step">External AI Agent</div>
+      <h2>Understands and operates</h2>
       <div class="agents">
         <div class="agent-mark"><img src="brand_assets/openai-symbol.svg" alt="OpenAI"><span>Codex</span></div>
         <div class="agent-mark"><img src="brand_assets/anthropic.svg" alt="Anthropic"><span>Claude Code</span></div>
         <div class="agent-mark"><img src="brand_assets/github-copilot.svg" alt="GitHub"><span>Copilot</span></div>
       </div>
-      <div class="skill"><strong>v_ase Skill</strong><span>Exact atom identities, operations, camera state, revision checks, and validation.</span></div>
+      <div class="skill"><strong>v_ase Skill</strong><span>Maps intent to exact atom, camera, analysis, and export operations.</span></div>
       <div class="operation" id="operation">Read exact structure state</div>
     </section>
 
     <section class="stage vase" data-stage="vase">
       <div class="vase-head">
         <img class="vase-logo" src="../assets/v_ase-logo.png" alt="v_ase">
-        <div><div class="step">3 · Shared live document</div><h2>Applies and shows every change</h2><p>Structure · labels · camera · rendering · verification</p></div>
+        <div><div class="step">Shared live document</div><h2>CLI control, normal GUI</h2><p>Every Agent command and every human GUI edit advances one revisioned state.</p></div>
       </div>
       <div class="gui">
         <div class="gui-bar"><span class="dot"></span><span class="dot amber"></span><span class="dot green"></span><span>Live v_ase GUI</span><span class="revision" id="revision">revision 0</span></div>
         <img id="gui-image" src="../assets/readme_ai_collaboration_live.png" alt="Live v_ase result">
       </div>
     </section>
-
-    <div class="cycle-note"><span>Live result returns to you</span><span>Your GUI edit becomes the next revision</span></div>
   </main>
 <script>
   window.setCollaborationStage = async ({

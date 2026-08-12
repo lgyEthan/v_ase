@@ -4711,6 +4711,8 @@ async def preview_commensurate_supercell(session_id: str, payload: Dict[str, Any
                 padding_cells=1,
                 include_atoms=bool(payload.get("show_atoms", False)),
                 display_angle_deg=payload.get("display_angle_deg"),
+                parent_lattice_preview=True,
+                parent_grid_radius=max(2, min(64, int(payload.get("parent_grid_radius", 4)))),
             )
             geometry = _enrich_commensurate_preview_visuals(geometry, atoms, guest)
         else:
@@ -4727,6 +4729,8 @@ async def preview_commensurate_supercell(session_id: str, payload: Dict[str, Any
                 positions_include_display_rotation=bool(
                     payload.get("positions_include_display_rotation", True)
                 ),
+                parent_lattice_preview=True,
+                parent_grid_radius=max(2, min(64, int(payload.get("parent_grid_radius", 4)))),
             )
             geometry = _enrich_commensurate_preview_visuals(geometry, atoms)
     except ValueError as exc:

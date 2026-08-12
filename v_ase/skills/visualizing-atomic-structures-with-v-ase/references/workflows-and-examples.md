@@ -935,9 +935,11 @@ commensurate rotation axis is global Z and the lattice search is restricted to
 the XY plane. Enabling the workspace calculates a bounded family of integer
 host/guest supercells immediately. In the GUI it preserves the current direct
 guest angle instead of jumping to the smallest candidate. Black host and
-orange guest parent lattices remain visible at unmatched angles; the thinner
-teal common-cell boundary and materialization controls appear only when the
-current angle resolves a bounded match. An explicit semantic
+orange guest parent lattices remain visible at unmatched angles; the green
+common-cell boundary and materialization controls appear only when the current
+angle resolves a bounded match. The parent-grid dimensions are fixed for the
+configured bounded search and must not resize as the angle or nearest candidate
+changes; only the green candidate boundary changes size. An explicit semantic
 `calculate-commensurate` request with no `angleDeg` still selects the smallest
 valid match under the strain cutoff and default `maxAreaRatio` of 16. The
 interactive area bound is `1..128`; do not silently clamp or sample a larger

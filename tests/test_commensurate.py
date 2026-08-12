@@ -450,6 +450,29 @@ def test_host_guest_preview_keeps_cells_independent_and_can_hide_atoms():
     assert cells_only["positions"] == []
     assert cells_only["preview_atom_count"] == 0
 
+    parent_preview = host_guest_supercell_geometry(
+        host_cell=host_cell,
+        host_positions=[[0, 0, 0], [1.23, 0.71, 0]],
+        guest_cell=guest_cell,
+        guest_positions=[[0, 0, 0], [1.25, 0.72, 0]],
+        candidate=candidate,
+        guest_offset=[0, 0, 3.35],
+        display_angle_deg=13.0,
+        parent_lattice_preview=True,
+        parent_grid_radius=6,
+        include_atoms=False,
+    )
+    assert parent_preview["parent_lattices_fixed"] is True
+    assert parent_preview["host_grid_shape"] == [13, 13]
+    assert parent_preview["guest_grid_shape"] == [13, 13]
+    assert np.asarray(parent_preview["host_parent_cell"]) == pytest.approx(host_cell)
+    rotation = row_rotation_matrix([0, 0, 1], 13.0)
+    assert np.asarray(parent_preview["guest_parent_cell"]) == pytest.approx(
+        guest_cell @ rotation
+    )
+    assert len(parent_preview["host_grid_lattice_origins"]) == 13 * 13
+    assert len(parent_preview["guest_grid_lattice_origins"]) == 13 * 13
+
 
 def test_host_guest_api_previews_cells_then_materializes_one_editable_structure():
     host = Atoms(
@@ -816,6 +839,63 @@ def test_commensurate_geometry_has_exact_core_inside_expanded_parent_lattices():
     assert np.asarray(geometry["guest_primitive_vectors"]).shape == (2, 3)
     assert np.asarray(geometry["cell"]) == pytest.approx(
         np.asarray(candidate["target_matrix_3d"]) @ atoms.cell.array
+    )
+
+
+def test_parent_lattice_preview_extent_is_independent_of_common_cell_candidate():
+    atoms = bilayer_atoms()
+    result = find_commensurate_angles(
+        atoms.cell.array,
+        atoms.pbc,
+        "Z",
+        max_index=6,
+        strain_tolerance=1e-6,
+        chemical_symbols=atoms.get_chemical_symbols(),
+    )
+    candidates = (
+        candidate_near(result, 21.7867893),
+        candidate_near(result, 13.1735511),
+    )
+    pivot = atoms.positions[:2].mean(axis=0)
+    previews = [
+        commensurate_supercell_geometry(
+            cell=atoms.cell.array,
+            positions=atoms.positions,
+            selected_indices=[0, 1],
+            candidate=candidate,
+            pivot=pivot,
+            display_angle_deg=candidate["angle_deg"],
+            positions_include_display_rotation=False,
+            parent_lattice_preview=True,
+            parent_grid_radius=8,
+            include_atoms=False,
+        )
+        for candidate in candidates
+    ]
+
+    for preview in previews:
+        assert preview["parent_lattices_fixed"] is True
+        assert preview["host_grid_shape"] == [17, 17]
+        assert preview["guest_grid_shape"] == [17, 17]
+        assert np.asarray(preview["host_parent_cell"]) == pytest.approx(atoms.cell.array)
+        assert len(preview["host_grid_lattice_origins"]) == 17 * 17
+        assert len(preview["guest_grid_lattice_origins"]) == 17 * 17
+
+    assert previews[0]["host_grid_lattice_origins"] == previews[1][
+        "host_grid_lattice_origins"
+    ]
+    assert previews[0]["common_cell"] != previews[1]["common_cell"]
+    assert previews[0]["guest_grid_lattice_origins"] != previews[1][
+        "guest_grid_lattice_origins"
+    ]
+
+    rotation = row_rotation_matrix([0, 0, 1], candidates[0]["angle_deg"])
+    expected_offset = pivot - pivot @ rotation
+    assert previews[0]["guest_offset"] == pytest.approx(expected_offset)
+    assert previews[0]["guest_grid_lattice_origins"][0] == pytest.approx(
+        expected_offset
+        + np.asarray([-8, -8, 0], dtype=float)
+        @ (atoms.cell.array @ rotation)
     )
 
 

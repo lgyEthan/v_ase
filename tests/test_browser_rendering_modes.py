@@ -3133,6 +3133,11 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
                     guestCell: group.filter(child => child.userData?.commensurateGuestCell).length,
                     commonCell: group.filter(child => child.userData?.commensurateSuggestedCell).length,
                     matchResolved: Boolean(app.state.commensurateProposal?.data?.match_resolved),
+                    parentFixed: app.state.commensurateProposal?.data?.preview?.parent_lattices_fixed,
+                    hostGridShape: app.state.commensurateProposal?.data?.preview?.host_grid_shape,
+                    guestGridShape: app.state.commensurateProposal?.data?.preview?.guest_grid_shape,
+                    hostGridOrigins: app.state.commensurateProposal?.data?.preview
+                        ?.host_grid_lattice_origins,
                     proposalVisible: !document.getElementById('commensurate-supercell-proposal')
                         ?.classList.contains('hidden'),
                     camera: {
@@ -3152,6 +3157,8 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
             assert cells_only["guestCell"] == 1
             assert cells_only["commonCell"] == 0
             assert cells_only["matchResolved"] is False
+            assert cells_only["parentFixed"] is True
+            assert cells_only["hostGridShape"] == cells_only["guestGridShape"]
             assert cells_only["proposalVisible"] is False
             np.testing.assert_allclose(cells_only["camera"]["position"], camera_before["position"])
             np.testing.assert_allclose(cells_only["camera"]["target"], camera_before["target"])
@@ -3207,7 +3214,11 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
                     maxNdcX: Math.max(...projected.map(point => Math.abs(point.x))),
                     maxNdcY: Math.max(...projected.map(point => Math.abs(point.y))),
                     cameraSnapshot: Boolean(app.renderer.commensurateCameraSnapshot),
-                    atomCountBeforeApply: app.state.atoms.positions.length
+                    atomCountBeforeApply: app.state.atoms.positions.length,
+                    parentFixed: proposal.preview.parent_lattices_fixed,
+                    hostGridShape: proposal.preview.host_grid_shape,
+                    guestGridShape: proposal.preview.guest_grid_shape,
+                    hostGridOrigins: proposal.preview.host_grid_lattice_origins
                 };
             }""")
             assert preview["baseAtomsVisible"] is False
@@ -3223,6 +3234,10 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
             assert preview["haloRows"] > 0
             assert all(opacity == pytest.approx(1.0) for opacity in preview["opacities"])
             assert preview["suggestedCellEdges"] == 1
+            assert preview["parentFixed"] is True
+            assert preview["hostGridShape"] == cells_only["hostGridShape"]
+            assert preview["guestGridShape"] == cells_only["guestGridShape"]
+            assert preview["hostGridOrigins"] == cells_only["hostGridOrigins"]
             assert preview["cameraSnapshot"] is True
             assert preview["atomCountBeforeApply"] == 4
 

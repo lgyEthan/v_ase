@@ -546,6 +546,42 @@ def _primitive_halo_points(
     return [(point, point in core) for point in sorted(expanded)]
 
 
+def _primitive_lattice_window(
+    periodic_axes: Sequence[int],
+    radius: int,
+) -> list[tuple[int, int, int]]:
+    """Return a candidate-independent square window of primitive translations."""
+
+    axes = tuple(int(axis) for axis in periodic_axes)
+    if len(axes) != 2 or len(set(axes)) != 2:
+        raise ValueError("A parent-lattice window requires two distinct periodic axes.")
+    extent = max(0, int(radius))
+    points: list[tuple[int, int, int]] = []
+    for first in range(-extent, extent + 1):
+        for second in range(-extent, extent + 1):
+            point = np.zeros(3, dtype=int)
+            point[axes[0]] = first
+            point[axes[1]] = second
+            points.append(tuple(int(value) for value in point))
+    return points
+
+
+def _bounded_parent_atom_radius(
+    requested_radius: int,
+    atoms_per_lattice_cell: int,
+    max_preview_atoms: int,
+) -> int:
+    """Fit a centered parent-lattice atom window inside the preview budget."""
+
+    requested = max(0, int(requested_radius))
+    atoms_per_cell = max(1, int(atoms_per_lattice_cell))
+    available_cells = max(1, int(max_preview_atoms) // atoms_per_cell)
+    maximum_width = max(1, int(sqrt(available_cells)))
+    if maximum_width % 2 == 0:
+        maximum_width -= 1
+    return min(requested, max(0, (maximum_width - 1) // 2))
+
+
 def _commensurate_grid_padding(area_ratio: int, atom_padding: int) -> int:
     """Return a small visual halo that keeps the common cell inside both grids.
 
@@ -633,6 +669,8 @@ def commensurate_supercell_geometry(
     display_angle_deg: float | None = None,
     positions_include_display_rotation: bool = True,
     max_preview_atoms: int = 120_000,
+    parent_lattice_preview: bool = False,
+    parent_grid_radius: int = 0,
 ) -> dict:
     """Build an opaque common-cell preview inside expanded parent lattices.
 
@@ -686,19 +724,40 @@ def commensurate_supercell_geometry(
     rotation = row_rotation_matrix(normal, display_angle)
     source_core = _integer_supercell_lattice_points(parent_cell, source_matrix)
     target_core = _integer_supercell_lattice_points(parent_cell, target_matrix)
-    (source_points, target_points), atom_padding, preview_count = _expanded_preview_points(
-        (
-            (source_core, periodic_axes, len(selected)),
-            (target_core, periodic_axes, len(reference)),
-        ),
-        requested_padding=int(padding_cells),
-        area_ratio=source_area,
-        include_atoms=bool(include_atoms),
-        max_preview_atoms=int(max_preview_atoms),
-    )
-    grid_padding = _commensurate_grid_padding(source_area, atom_padding)
-    source_grid_points = _primitive_halo_points(source_core, periodic_axes, grid_padding)
-    target_grid_points = _primitive_halo_points(target_core, periodic_axes, grid_padding)
+    if parent_lattice_preview:
+        grid_radius = max(2, int(parent_grid_radius))
+        grid_window = _primitive_lattice_window(periodic_axes, grid_radius)
+        source_core_set = set(source_core)
+        target_core_set = set(target_core)
+        source_grid_points = [(point, point in source_core_set) for point in grid_window]
+        target_grid_points = [(point, point in target_core_set) for point in grid_window]
+        atom_padding = _bounded_parent_atom_radius(
+            grid_radius,
+            len(coordinates),
+            int(max_preview_atoms),
+        )
+        atom_window = _primitive_lattice_window(periodic_axes, atom_padding)
+        source_points = [(point, point in source_core_set) for point in atom_window]
+        target_points = [(point, point in target_core_set) for point in atom_window]
+        preview_count = (
+            len(source_points) * len(selected)
+            + len(target_points) * len(reference)
+        ) if include_atoms else 0
+        grid_padding = grid_radius
+    else:
+        (source_points, target_points), atom_padding, preview_count = _expanded_preview_points(
+            (
+                (source_core, periodic_axes, len(selected)),
+                (target_core, periodic_axes, len(reference)),
+            ),
+            requested_padding=int(padding_cells),
+            area_ratio=source_area,
+            include_atoms=bool(include_atoms),
+            max_preview_atoms=int(max_preview_atoms),
+        )
+        grid_padding = _commensurate_grid_padding(source_area, atom_padding)
+        source_grid_points = _primitive_halo_points(source_core, periodic_axes, grid_padding)
+        target_grid_points = _primitive_halo_points(target_core, periodic_axes, grid_padding)
     preview_positions: list[list[float]] = []
     atom_indices: list[int] = []
     lattice_indices: list[list[int]] = []
@@ -716,12 +775,16 @@ def commensurate_supercell_geometry(
 
     def append_selected(point: tuple[int, int, int], core: bool) -> None:
         primitive_shift = np.asarray(point, dtype=float) @ parent_cell
-        transformed_shift = primitive_shift @ rotation @ deformation
+        transformed_shift = primitive_shift @ rotation
+        if not parent_lattice_preview:
+            transformed_shift = transformed_shift @ deformation
         for index in selected:
             relative = coordinates[index] - center
             if not positions_include_display_rotation:
                 relative = relative @ rotation
-            transformed_position = center + relative @ deformation
+            transformed_position = center + relative
+            if not parent_lattice_preview:
+                transformed_position = center + relative @ deformation
             preview_positions.append((transformed_position + transformed_shift).tolist())
             atom_indices.append(index)
             lattice_indices.append(list(point))
@@ -734,18 +797,30 @@ def commensurate_supercell_geometry(
         for point, core in source_points:
             append_selected(point, core)
 
-    host_cell = target_matrix @ parent_cell
-    guest_cell = source_matrix @ parent_cell @ rotation @ deformation
-    host_primitive = parent_cell
-    guest_primitive = parent_cell @ rotation @ deformation
-    host_lattice_origins = [
-        (np.asarray(point, dtype=float) @ parent_cell).tolist()
-        for point in target_core
-    ]
-    guest_lattice_origins = [
-        (np.asarray(point, dtype=float) @ guest_primitive).tolist()
-        for point in source_core
-    ]
+    common_cell = target_matrix @ parent_cell
+    candidate_guest_cell = source_matrix @ parent_cell @ rotation @ deformation
+    if parent_lattice_preview:
+        guest_origin = center - center @ rotation
+        host_parent_cell = parent_cell
+        guest_parent_cell = parent_cell @ rotation
+        host_primitive = parent_cell
+        guest_primitive = parent_cell @ rotation
+        host_lattice_origins = [[0.0, 0.0, 0.0]]
+        guest_lattice_origins = [guest_origin.tolist()]
+    else:
+        guest_origin = np.zeros(3, dtype=float)
+        host_parent_cell = common_cell
+        guest_parent_cell = candidate_guest_cell
+        host_primitive = parent_cell
+        guest_primitive = parent_cell @ rotation @ deformation
+        host_lattice_origins = [
+            (np.asarray(point, dtype=float) @ parent_cell).tolist()
+            for point in target_core
+        ]
+        guest_lattice_origins = [
+            (np.asarray(point, dtype=float) @ guest_primitive).tolist()
+            for point in source_core
+        ]
     target_grid_indices, host_grid_shape = _grid_lattice_metadata(
         target_grid_points,
         periodic_axes,
@@ -759,7 +834,7 @@ def commensurate_supercell_geometry(
         for point in target_grid_indices
     ]
     guest_grid_lattice_origins = [
-        (np.asarray(point, dtype=float) @ guest_primitive).tolist()
+        (guest_origin + np.asarray(point, dtype=float) @ guest_primitive).tolist()
         for point in source_grid_indices
     ]
 
@@ -776,10 +851,12 @@ def commensurate_supercell_geometry(
         "requested_padding_cells": int(padding_cells),
         "include_atoms": bool(include_atoms),
         "display_angle_deg": display_angle,
-        "cell": host_cell.tolist(),
-        "common_cell": host_cell.tolist(),
-        "host_cell": host_cell.tolist(),
-        "guest_cell": guest_cell.tolist(),
+        "cell": common_cell.tolist(),
+        "common_cell": common_cell.tolist(),
+        "host_cell": common_cell.tolist(),
+        "guest_cell": candidate_guest_cell.tolist(),
+        "host_parent_cell": host_parent_cell.tolist(),
+        "guest_parent_cell": guest_parent_cell.tolist(),
         "host_lattice_origins": host_lattice_origins,
         "guest_lattice_origins": guest_lattice_origins,
         "host_grid_lattice_origins": host_grid_lattice_origins,
@@ -787,11 +864,14 @@ def commensurate_supercell_geometry(
         "host_grid_shape": host_grid_shape,
         "guest_grid_shape": guest_grid_shape,
         "grid_padding_cells": grid_padding,
+        "parent_grid_radius": int(grid_padding) if parent_lattice_preview else None,
+        "parent_lattices_fixed": bool(parent_lattice_preview),
         "host_primitive_vectors": host_primitive[list(periodic_axes)].tolist(),
         "guest_primitive_vectors": guest_primitive[list(periodic_axes)].tolist(),
         "host_notation": str(candidate.get("target_notation", "Host cell")),
         "guest_notation": str(candidate.get("source_notation", "Guest cell")),
         "has_suggestion": True,
+        "guest_offset": guest_origin.tolist(),
         "source_cell": (source_matrix @ parent_cell).tolist(),
         "source_matrix_3d": source_matrix.tolist(),
         "target_matrix_3d": target_matrix.tolist(),
@@ -812,6 +892,8 @@ def host_guest_supercell_geometry(
     include_atoms: bool = True,
     display_angle_deg: float | None = None,
     max_preview_atoms: int = 120_000,
+    parent_lattice_preview: bool = False,
+    parent_grid_radius: int = 0,
 ) -> dict:
     """Build independent host and guest common-cell preview geometry."""
 
@@ -845,19 +927,42 @@ def host_guest_supercell_geometry(
     host_core = _integer_supercell_lattice_points(host_parent, host_matrix)
     guest_core = _integer_supercell_lattice_points(guest_parent, guest_matrix)
     largest_area = max(len(host_core), len(guest_core))
-    (host_points, guest_points), atom_padding, preview_count = _expanded_preview_points(
-        (
-            (host_core, host_axes, len(host_coordinates)),
-            (guest_core, guest_axes, len(guest_coordinates)),
-        ),
-        requested_padding=int(padding_cells),
-        area_ratio=largest_area,
-        include_atoms=bool(include_atoms),
-        max_preview_atoms=int(max_preview_atoms),
-    )
-    grid_padding = _commensurate_grid_padding(largest_area, atom_padding)
-    host_grid_points = _primitive_halo_points(host_core, host_axes, grid_padding)
-    guest_grid_points = _primitive_halo_points(guest_core, guest_axes, grid_padding)
+    if parent_lattice_preview:
+        grid_radius = max(2, int(parent_grid_radius))
+        host_grid_window = _primitive_lattice_window(host_axes, grid_radius)
+        guest_grid_window = _primitive_lattice_window(guest_axes, grid_radius)
+        host_core_set = set(host_core)
+        guest_core_set = set(guest_core)
+        host_grid_points = [(point, point in host_core_set) for point in host_grid_window]
+        guest_grid_points = [(point, point in guest_core_set) for point in guest_grid_window]
+        atom_padding = _bounded_parent_atom_radius(
+            grid_radius,
+            len(host_coordinates) + len(guest_coordinates),
+            int(max_preview_atoms),
+        )
+        host_atom_window = _primitive_lattice_window(host_axes, atom_padding)
+        guest_atom_window = _primitive_lattice_window(guest_axes, atom_padding)
+        host_points = [(point, point in host_core_set) for point in host_atom_window]
+        guest_points = [(point, point in guest_core_set) for point in guest_atom_window]
+        preview_count = (
+            len(host_points) * len(host_coordinates)
+            + len(guest_points) * len(guest_coordinates)
+        ) if include_atoms else 0
+        grid_padding = grid_radius
+    else:
+        (host_points, guest_points), atom_padding, preview_count = _expanded_preview_points(
+            (
+                (host_core, host_axes, len(host_coordinates)),
+                (guest_core, guest_axes, len(guest_coordinates)),
+            ),
+            requested_padding=int(padding_cells),
+            area_ratio=largest_area,
+            include_atoms=bool(include_atoms),
+            max_preview_atoms=int(max_preview_atoms),
+        )
+        grid_padding = _commensurate_grid_padding(largest_area, atom_padding)
+        host_grid_points = _primitive_halo_points(host_core, host_axes, grid_padding)
+        guest_grid_points = _primitive_halo_points(guest_core, guest_axes, grid_padding)
     display_angle = (
         float(candidate.get("angle_deg", 0.0))
         if display_angle_deg is None
@@ -876,7 +981,10 @@ def host_guest_supercell_geometry(
         for point, core in host_points:
             shift = np.asarray(point, dtype=float) @ host_parent
             for index, position in enumerate(host_coordinates):
-                positions.append(((position + shift) @ host_deformation).tolist())
+                transformed = position + shift
+                if not parent_lattice_preview:
+                    transformed = transformed @ host_deformation
+                positions.append(transformed.tolist())
                 atom_indices.append(index)
                 lattice_indices.append(list(point))
                 components.append("host")
@@ -884,7 +992,10 @@ def host_guest_supercell_geometry(
         for point, core in guest_points:
             shift = np.asarray(point, dtype=float) @ guest_parent
             for index, position in enumerate(guest_coordinates):
-                transformed = (position + shift) @ rotation @ guest_deformation + offset
+                transformed = (position + shift) @ rotation
+                if not parent_lattice_preview:
+                    transformed = transformed @ guest_deformation
+                transformed = transformed + offset
                 positions.append(transformed.tolist())
                 atom_indices.append(index)
                 lattice_indices.append(list(point))
@@ -892,22 +1003,34 @@ def host_guest_supercell_geometry(
                 core_mask.append(bool(core))
 
     common_cell = np.asarray(candidate.get("suggested_cell"), dtype=float)
-    host_boundary = np.asarray(candidate.get("host_supercell"), dtype=float) @ host_deformation
-    guest_boundary = (
+    candidate_host_boundary = (
+        np.asarray(candidate.get("host_supercell"), dtype=float) @ host_deformation
+    )
+    candidate_guest_boundary = (
         np.asarray(candidate.get("guest_supercell"), dtype=float)
         @ rotation
         @ guest_deformation
     )
-    host_primitive = host_parent @ host_deformation
-    guest_primitive = guest_parent @ rotation @ guest_deformation
-    host_lattice_origins = [
-        (np.asarray(point, dtype=float) @ host_primitive).tolist()
-        for point in host_core
-    ]
-    guest_lattice_origins = [
-        (np.asarray(point, dtype=float) @ guest_primitive + offset).tolist()
-        for point in guest_core
-    ]
+    if parent_lattice_preview:
+        host_parent_boundary = host_parent
+        guest_parent_boundary = guest_parent @ rotation
+        host_primitive = host_parent
+        guest_primitive = guest_parent @ rotation
+        host_lattice_origins = [[0.0, 0.0, 0.0]]
+        guest_lattice_origins = [offset.tolist()]
+    else:
+        host_parent_boundary = candidate_host_boundary
+        guest_parent_boundary = candidate_guest_boundary
+        host_primitive = host_parent @ host_deformation
+        guest_primitive = guest_parent @ rotation @ guest_deformation
+        host_lattice_origins = [
+            (np.asarray(point, dtype=float) @ host_primitive).tolist()
+            for point in host_core
+        ]
+        guest_lattice_origins = [
+            (np.asarray(point, dtype=float) @ guest_primitive + offset).tolist()
+            for point in guest_core
+        ]
     host_grid_indices, host_grid_shape = _grid_lattice_metadata(host_grid_points, host_axes)
     guest_grid_indices, guest_grid_shape = _grid_lattice_metadata(guest_grid_points, guest_axes)
     host_grid_lattice_origins = [
@@ -936,8 +1059,10 @@ def host_guest_supercell_geometry(
         "display_angle_deg": display_angle,
         "cell": common_cell.tolist(),
         "common_cell": common_cell.tolist(),
-        "host_cell": host_boundary.tolist(),
-        "guest_cell": guest_boundary.tolist(),
+        "host_cell": candidate_host_boundary.tolist(),
+        "guest_cell": candidate_guest_boundary.tolist(),
+        "host_parent_cell": host_parent_boundary.tolist(),
+        "guest_parent_cell": guest_parent_boundary.tolist(),
         "host_lattice_origins": host_lattice_origins,
         "guest_lattice_origins": guest_lattice_origins,
         "host_grid_lattice_origins": host_grid_lattice_origins,
@@ -945,6 +1070,8 @@ def host_guest_supercell_geometry(
         "host_grid_shape": host_grid_shape,
         "guest_grid_shape": guest_grid_shape,
         "grid_padding_cells": grid_padding,
+        "parent_grid_radius": int(grid_padding) if parent_lattice_preview else None,
+        "parent_lattices_fixed": bool(parent_lattice_preview),
         "host_primitive_vectors": host_primitive[list(host_axes)].tolist(),
         "guest_primitive_vectors": guest_primitive[list(guest_axes)].tolist(),
         "host_notation": str(candidate.get("host_notation", "Host cell")),

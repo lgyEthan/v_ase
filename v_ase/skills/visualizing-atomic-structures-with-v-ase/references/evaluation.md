@@ -191,13 +191,13 @@ Run all scenarios, not only static document checks:
      they remain inside the viewport, then dismiss and verify camera restore;
    - set `maxAreaRatio` to 6 and verify the area-7 proposal is rejected;
    - enable the commensurate workspace before rotating and verify cells-only
-     preview, monotonic progress, the preserved direct angle, no teal common
+     preview, monotonic progress, the preserved direct angle, no green common
      cell or materialization control at an unmatched initial angle, and a live
      current-angle plane on the 3D overview; require host and guest primitive
-     grids to extend at least one complete primitive cell beyond every common
-     cell vertex, expose their integer grid dimensions, and remain readable as
-     separate black/orange lattices; at an exact candidate angle require one
-     thinner teal common-cell boundary around those parent lattices;
+     grids to expose their integer grid dimensions, remain readable as separate
+     black/orange lattices, and retain identical shapes and host origins across
+     unmatched and matched angles; at an exact candidate angle require one
+     green common-cell boundary without resizing either parent grid;
    - verify the 3D overview has a horizontal angle axis, an orthogonal depth
      axis for area ratio, a vertical strain axis, a gridded candidate surface,
      candidate markers, a live current-angle plane, perspective depth, and
@@ -480,7 +480,7 @@ Every browser render test must check:
   lattices extending at least one primitive cell beyond the highlighted common
   cell, readable grid dimensions and paper-style notation, plus opaque atoms,
   a one-cell halo, and boundary-crossing bonds when atom preview is enabled;
-- an unmatched direct commensurate angle shows no teal common cell and keeps
+- an unmatched direct commensurate angle shows no green common cell and keeps
   the black host and orange guest parent lattices visually dominant;
 - the commensurate candidate graph reads as a 3D coordinate system with angle
   horizontal, area ratio in depth, strain vertical, a gridded floor projection,

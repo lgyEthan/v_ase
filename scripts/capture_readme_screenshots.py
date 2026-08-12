@@ -1169,6 +1169,7 @@ def capture_commensurate_media(browser) -> None:
             "commensurateStrainTolerance": 0.01,
             "commensurateMaxAreaRatio": 16,
             "commensurateShowAtoms": False,
+            "commensurateGuestAngleDeg": 17.0,
         })
         configure_inspector(page, "structure", ["transform"], width=470)
         page.add_style_tag(content="""
@@ -1179,16 +1180,12 @@ def capture_commensurate_media(browser) -> None:
         """)
         center = np.mean(atoms.positions, axis=0)
         set_readme_lighting(page, center.tolist(), intensity=3.0, position_offset=(-10.0, -13.0, 18.0))
+        set_selection(page, indices["hbn"])
         page.locator("#chk-commensurate-guide").set_checked(True)
         page.wait_for_function("window.__V_ASE_APP__.state.commensurateCandidates?.length > 0")
         page.wait_for_function(
-            "document.getElementById('commensurate-status').textContent.includes('Host cell shown')"
+            "window.__V_ASE_APP__.state.display.commensurateShowAtoms === false"
         )
-
-        # Resolve the initial proposal once so every recorded stage uses one
-        # fixed camera.  Clearing the selection then restores the actual
-        # host-only state shown immediately after enabling the workspace.
-        set_selection(page, indices["hbn"])
         page.wait_for_function("""() => {
             const preview = window.__V_ASE_APP__.state.commensurateProposal?.data?.preview;
             return preview && preview.include_atoms === false
@@ -1207,18 +1204,6 @@ def capture_commensurate_media(browser) -> None:
                 );
             return Math.abs(Number(ranked[0]?.angle_deg || 21.786789));
         }""")
-        page.evaluate("""angle => {
-            const input = document.getElementById('commensurate-guest-angle');
-            input.value = Number(angle).toFixed(8);
-            input.dispatchEvent(new Event('input', {bubbles: true}));
-        }""", target_angle)
-        page.wait_for_function(
-            """angle => Math.abs(
-                Number(window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.display_angle_deg)
-                - Number(angle)
-            ) < 1e-5""",
-            arg=target_angle,
-        )
         preview_bounds = page.evaluate("""() => {
             const app = window.__V_ASE_APP__;
             const preview = app.state.commensurateProposal.data.preview;
@@ -1249,22 +1234,6 @@ def capture_commensurate_media(browser) -> None:
         }""")
         set_view_toggles(page, grid=False, axes=False, cell=True)
         page.evaluate("window.__V_ASE_APP__.closeAnalysisDrawer()")
-        page.evaluate("""() => {
-            const input = document.getElementById('commensurate-guest-angle');
-            input.value = '0';
-            input.dispatchEvent(new Event('input', {bubbles: true}));
-        }""")
-        page.wait_for_function("""() => Math.abs(
-            Number(window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.display_angle_deg)
-        ) < 1e-7""")
-        set_selection(page, [])
-        page.wait_for_function("""() => {
-            const app = window.__V_ASE_APP__;
-            return app.state.selected.size === 0
-                && Number(app.renderer.domElement.dataset.commensuratePreviewAtoms) === 0
-                && !app.renderer.commensurateSupercellGroup.children
-                    .some(child => child.userData?.commensurateGuestPrimitiveGrid);
-        }""")
         set_camera(
             page,
             target=preview_center,
@@ -1274,23 +1243,30 @@ def capture_commensurate_media(browser) -> None:
         )
         set_atomic_scale(page, 55.0)
         rendered_frames: list[Image.Image] = []
-        append_hold(rendered_frames, page, 8)
-
-        set_selection(page, indices["hbn"])
-        page.wait_for_function("window.__V_ASE_APP__.state.commensurateProposal?.data?.preview")
-        page.evaluate("""() => {
-            const input = document.getElementById('commensurate-guest-angle');
-            input.value = '0';
-            input.dispatchEvent(new Event('input', {bubbles: true}));
+        initial_context = page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            const preview = app.state.commensurateProposal.data.preview;
+            const children = app.renderer.commensurateSupercellGroup.children;
+            return {
+                hostShape: preview.host_grid_shape,
+                guestShape: preview.guest_grid_shape,
+                hostOrigins: preview.host_grid_lattice_origins,
+                parentFixed: preview.parent_lattices_fixed,
+                commonCells: children.filter(child => child.userData?.commensurateSuggestedCell).length,
+                hostGrids: children.filter(child => child.userData?.commensurateHostPrimitiveGrid).length,
+                guestGrids: children.filter(child => child.userData?.commensurateGuestPrimitiveGrid).length
+            };
         }""")
-        page.wait_for_function("""() => Math.abs(
-            Number(window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.display_angle_deg)
-        ) < 1e-7""")
-        append_hold(rendered_frames, page, 8)
+        if initial_context["commonCells"] != 0 or not initial_context["parentFixed"]:
+            raise AssertionError("Commensurate mode must start with fixed parent lattices and no common cell.")
+        if initial_context["hostGrids"] != 1 or initial_context["guestGrids"] != 1:
+            raise AssertionError("Both parent superlattices must be visible immediately.")
+        append_hold(rendered_frames, page, 10)
         count = 24
+        initial_angle = 17.0
         for frame_index in range(count):
             phase = 0.5 - 0.5 * math.cos(math.pi * frame_index / (count - 1))
-            angle = target_angle * phase
+            angle = initial_angle + (target_angle - initial_angle) * phase
             page.evaluate(
                 """(angle) => {
                     const input = document.getElementById('commensurate-guest-angle');
@@ -1306,10 +1282,26 @@ def capture_commensurate_media(browser) -> None:
                 ) < 1e-5""",
                 arg=angle,
             )
+            invariant = page.evaluate("""() => {
+                const preview = window.__V_ASE_APP__.state.commensurateProposal.data.preview;
+                return {
+                    hostShape: preview.host_grid_shape,
+                    guestShape: preview.guest_grid_shape,
+                    hostOrigins: preview.host_grid_lattice_origins,
+                    parentFixed: preview.parent_lattices_fixed
+                };
+            }""")
+            if invariant != {
+                "hostShape": initial_context["hostShape"],
+                "guestShape": initial_context["guestShape"],
+                "hostOrigins": initial_context["hostOrigins"],
+                "parentFixed": True,
+            }:
+                raise AssertionError("A commensurate candidate resized the fixed parent-lattice window.")
             rendered_frames.append(screenshot_frame(page))
         cells_only_frame = rendered_frames[-1].copy()
         page.wait_for_function(
-            "window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.padding_cells >= 2"
+            "window.__V_ASE_APP__.state.commensurateProposal?.data?.suggestion_visible === true"
         )
         preview_context = page.evaluate("""() => {
             const app = window.__V_ASE_APP__;
@@ -1382,6 +1374,7 @@ def capture_commensurate_media(browser) -> None:
             "commensurateStrainTolerance": 0.02,
             "commensurateMaxAreaRatio": 32,
             "commensurateShowAtoms": False,
+            "commensurateGuestAngleDeg": 8.0,
         })
         configure_inspector(page, "structure", ["transform"], width=470)
         page.add_style_tag(content="""
@@ -1410,21 +1403,9 @@ def capture_commensurate_media(browser) -> None:
         page.wait_for_function(
             "window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.mode === 'host-guest'"
         )
-        page.locator("details.commensurate-advanced").evaluate("element => { element.open = true; }")
-        page.locator("#chk-commensurate-show-atoms").set_checked(True)
         page.wait_for_function(
-            "window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.include_atoms === true"
+            "window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.include_atoms === false"
         )
-        page.wait_for_function(
-            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewBonds) > 0"
-        )
-        angle_input = page.locator("#commensurate-guest-angle")
-        angle_input.fill(f"{host_guest_target_angle:.8f}")
-        angle_input.press("Tab")
-        page.wait_for_function("""angle => {
-            const app = window.__V_ASE_APP__;
-            return Math.abs(Number(app.state.commensurateProposal?.data?.preview?.display_angle_deg) - Number(angle)) < 1e-5;
-        }""", arg=host_guest_target_angle)
         preview_bounds = page.evaluate("""() => {
             const app = window.__V_ASE_APP__;
             const bounds = app.renderer.commensuratePreviewBounds(
@@ -1466,10 +1447,22 @@ def capture_commensurate_media(browser) -> None:
             drawer.style.height = '410px';
             window.Plotly?.Plots?.resize?.(document.getElementById('commensurate-plot'));
         }""")
+        common_center = page.evaluate("""() => {
+            const cell = window.__V_ASE_APP__.state.commensurateProposal
+                ?.data?.preview?.common_cell;
+            if (!Array.isArray(cell) || cell.length !== 3) return null;
+            return [0, 1, 2].map(axis => 0.5 * (
+                Number(cell[0][axis] || 0)
+                + Number(cell[1][axis] || 0)
+                + Number(cell[2][axis] || 0)
+            ));
+        }""")
+        if common_center is None:
+            raise AssertionError("Host/guest capture is missing the bounded common-cell geometry.")
         graph_target = [
-            preview_center[0],
-            preview_center[1] - max(preview_bounds["size"][:2]) * 0.24,
-            preview_center[2],
+            common_center[0] + 10.0,
+            common_center[1] - 7.5,
+            common_center[2],
         ]
         set_camera(
             page,
@@ -1494,13 +1487,30 @@ def capture_commensurate_media(browser) -> None:
             raise AssertionError("README commensurate graph does not expose rotation as its x axis.")
         if graph_state["perspective"] != "perspective" or graph_state["xAspect"] <= graph_state["zAspect"]:
             raise AssertionError("README commensurate graph is not presented as a legible 3D landscape.")
-        if "current-angle-outline" not in graph_state["roles"] or graph_state["previewBonds"] <= 0:
+        if "current-angle-outline" not in graph_state["roles"] or graph_state["previewBonds"] != 0:
             raise AssertionError(
-                "README host/guest example is missing its current-angle section or parent-lattice bonds."
+                "README host/guest example must begin as a cells-only parent-lattice view."
             )
+        initial_lattices = page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            const preview = app.state.commensurateProposal.data.preview;
+            const children = app.renderer.commensurateSupercellGroup.children;
+            return {
+                hostShape: preview.host_grid_shape,
+                guestShape: preview.guest_grid_shape,
+                hostOrigins: preview.host_grid_lattice_origins,
+                parentFixed: preview.parent_lattices_fixed,
+                commonCells: children.filter(child => child.userData?.commensurateSuggestedCell).length
+            };
+        }""")
+        if initial_lattices["commonCells"] != 0 or not initial_lattices["parentFixed"]:
+            raise AssertionError("Host/guest mode exposed a result cell before the mobile lattice matched.")
         graph_frames: list[Image.Image] = []
+        host_guest_initial_angle = 8.0
         animation_angles = [
-            host_guest_target_angle * (0.5 - 0.5 * math.cos(math.pi * index / 21))
+            host_guest_initial_angle
+            + (host_guest_target_angle - host_guest_initial_angle)
+            * (0.5 - 0.5 * math.cos(math.pi * index / 21))
             for index in range(22)
         ]
         for frame_index, angle in enumerate(animation_angles):
@@ -1520,6 +1530,22 @@ def capture_commensurate_media(browser) -> None:
                 arg=angle,
                 timeout=30_000,
             )
+            invariant = page.evaluate("""() => {
+                const preview = window.__V_ASE_APP__.state.commensurateProposal.data.preview;
+                return {
+                    hostShape: preview.host_grid_shape,
+                    guestShape: preview.guest_grid_shape,
+                    hostOrigins: preview.host_grid_lattice_origins,
+                    parentFixed: preview.parent_lattices_fixed
+                };
+            }""")
+            if invariant != {
+                "hostShape": initial_lattices["hostShape"],
+                "guestShape": initial_lattices["guestShape"],
+                "hostOrigins": initial_lattices["hostOrigins"],
+                "parentFixed": True,
+            }:
+                raise AssertionError("Host/guest parent superlattices changed size with the candidate cell.")
             if frame_index == 0:
                 unresolved = page.evaluate("""() => ({
                     resolved: window.__V_ASE_APP__.state.commensurateProposal?.data?.match_resolved,
@@ -1546,13 +1572,23 @@ def capture_commensurate_media(browser) -> None:
             raise AssertionError(
                 f"README commensurate animation did not resolve its final common cell: {resolved!r}"
             )
-        graph_frames = [graph_frames[0]] * 6 + graph_frames + [graph_frames[-1]] * 10
+        cells_only_host_guest = graph_frames[-1].copy()
+        page.locator("details.commensurate-advanced").evaluate("element => { element.open = true; }")
+        page.locator("#chk-commensurate-show-atoms").set_checked(True)
+        page.wait_for_function(
+            "window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.include_atoms === true"
+        )
+        page.wait_for_function(
+            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewBonds) > 0"
+        )
+        atom_frame = screenshot_frame(page)
+        graph_frames = [graph_frames[0]] * 7 + graph_frames + [graph_frames[-1]] * 8 + [atom_frame] * 9
         save_gif(
             graph_frames,
             ASSET_DIR / "readme_commensurate_host_guest.gif",
             duration=125,
         )
-        graph_frames[-1].save(
+        cells_only_host_guest.save(
             ASSET_DIR / "readme_commensurate_host_guest.png",
             optimize=True,
         )

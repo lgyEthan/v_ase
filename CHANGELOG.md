@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.10
+
+- Rebuilt commensurate preview semantics around fixed black host and orange
+  mobile-guest parent lattices. Their display extent no longer changes with
+  the nearest integer candidate; a green common-cell guide appears only after
+  the current angle resolves a bounded strain/area match.
+- Kept same-lattice guest grids aligned with their atom layer by applying the
+  selected-layer rotation pivot to both atoms and lattice origins, while
+  preserving exact candidate cells for materialization.
+- Reframed the same-lattice and independent host/guest examples to show the
+  cells-only start, live mobile-lattice rotation, conditional common cell,
+  fixed parent-grid dimensions, optional atoms/bonds, and complete 3D search
+  graph without clipping.
+- Rebuilt the human/Agent/v_ase collaboration figure as three explicit
+  bidirectional links: natural-language feedback, CLI state/revisions, and
+  live GUI inspection/refinement.
+
 ## 0.2.9
 
 - Rebuilt periodic insertion-region overlays around one intact Cartesian

@@ -5637,10 +5637,14 @@ export class ASERenderer {
             box.expandByPoint(center.clone().addScalar(radius));
             box.expandByPoint(center.clone().addScalar(-radius));
         });
+        const fixedParentLattices = preview?.parent_lattices_fixed === true;
         const cellSpecs = [
-            [preview?.common_cell || preview?.cell, [0, 0, 0]],
-            [preview?.host_cell, [0, 0, 0]],
-            [preview?.guest_cell, preview?.mode === 'host-guest' ? (preview?.guest_offset || [0, 0, 0]) : [0, 0, 0]]
+            [preview?.has_suggestion === false ? null : (preview?.common_cell || preview?.cell), [0, 0, 0]],
+            [fixedParentLattices ? preview?.host_parent_cell : preview?.host_cell, [0, 0, 0]],
+            [
+                fixedParentLattices ? preview?.guest_parent_cell : preview?.guest_cell,
+                preview?.guest_offset || [0, 0, 0]
+            ]
         ];
         cellSpecs.forEach(([cell, origin]) => this.commensurateCellSegments(cell, origin).forEach(segment => {
             segment.forEach(point => box.expandByPoint(point.clone().add(translation)));
@@ -6162,6 +6166,8 @@ export class ASERenderer {
         );
         const hostGridLabel = gridLabel(preview.host_grid_shape);
         const guestGridLabel = gridLabel(preview.guest_grid_shape);
+        const fixedParentLattices = preview.parent_lattices_fixed === true;
+        const candidate = payload?.candidate || {};
         const hostColor = this.displayOptions.viewportBackground === 'dark'
             ? 0xf2f5f4
             : 0x161a1d;
@@ -6171,14 +6177,14 @@ export class ASERenderer {
             preview.host_primitive_vectors,
             hostColor,
             { commensurateHostPrimitiveGrid: true },
-            0.38
+            fixedParentLattices ? 0.54 : 0.38
         );
         addPrimitiveGrid(
             preview.guest_grid_lattice_origins || preview.guest_lattice_origins,
             preview.guest_primitive_vectors,
             guestColor,
             { commensurateGuestPrimitiveGrid: true },
-            0.44
+            fixedParentLattices ? 0.60 : 0.44
         );
         addPrimitiveVectors(
             preview.host_lattice_origins,
@@ -6192,8 +6198,14 @@ export class ASERenderer {
             guestColor,
             { commensurateGuestPrimitiveVector: true }
         );
+        const displayedHostCell = fixedParentLattices
+            ? (preview.host_parent_cell || preview.host_cell)
+            : preview.host_cell;
+        const displayedGuestCell = fixedParentLattices
+            ? (preview.guest_parent_cell || preview.guest_cell)
+            : preview.guest_cell;
         addBoundary(
-            preview.host_cell,
+            displayedHostCell,
             hostColor,
             0.94,
             { commensurateHostCell: true },
@@ -6201,7 +6213,7 @@ export class ASERenderer {
             1.08
         );
         addBoundary(
-            preview.guest_cell,
+            displayedGuestCell,
             guestColor,
             0.94,
             { commensurateGuestCell: true },
@@ -6209,29 +6221,47 @@ export class ASERenderer {
             1.08
         );
         addCellLabel(
-            `HOST ${hostGridLabel} · ${preview.host_notation || ''}`.trim(),
-            preview.host_cell,
+            fixedParentLattices
+                ? `HOST · ${hostGridLabel} · parent lattice`
+                : `HOST ${hostGridLabel} · ${preview.host_notation || ''}`.trim(),
+            displayedHostCell,
             [0, 0, 0],
             this.displayOptions.viewportBackground === 'dark' ? '#f2f5f4' : '#161a1d',
             -1,
             { commensurateHostCellLabel: true }
         );
         addCellLabel(
-            `GUEST ${guestGridLabel} · ${preview.guest_notation || ''}`.trim(),
-            preview.guest_cell,
+            fixedParentLattices
+                ? `GUEST · ${guestGridLabel} · mobile parent lattice`
+                : `GUEST ${guestGridLabel} · ${preview.guest_notation || ''}`.trim(),
+            displayedGuestCell,
             guestOrigin,
             '#d8660f',
             1,
             { commensurateGuestCellLabel: true }
         );
         if (preview.has_suggestion !== false && (preview.common_cell || preview.cell)) {
+            const suggestionColor = 0x139c68;
             addBoundary(
                 preview.common_cell || preview.cell,
-                0x159b8c,
-                0.84,
+                suggestionColor,
+                0.92,
                 { commensurateSuggestedCell: true },
                 [0, 0, 0],
-                1.08
+                1.28
+            );
+            const notation = candidate.host_notation
+                || candidate.target_notation
+                || candidate.host_matrix_text
+                || candidate.target_matrix_text
+                || 'validated common cell';
+            addCellLabel(
+                `COMMON CELL · ${notation}`,
+                preview.common_cell || preview.cell,
+                [0, 0, 0],
+                '#0b7b51',
+                1.55,
+                { commensurateSuggestedCellLabel: true }
             );
         }
         this.commensurateSupercellGroup.position.copy(this.visualTranslationVector());

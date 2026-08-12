@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.9&rev=1';
-import { ASERenderer } from './renderer.js?v=0.2.9&rev=1';
-import { ASESelection } from './selection.js?v=0.2.9&rev=1';
-import { ASETransform } from './transform.js?v=0.2.9&rev=1';
+import { ASEApi } from './api.js?v=0.2.10&rev=1';
+import { ASERenderer } from './renderer.js?v=0.2.10&rev=1';
+import { ASESelection } from './selection.js?v=0.2.10&rev=1';
+import { ASETransform } from './transform.js?v=0.2.10&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.9&rev=1';
+} from './trajectory.js?v=0.2.10&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -250,6 +250,7 @@ class VAseApp {
             commensurateJobId: null,
             commensuratePreviewTimer: null,
             commensuratePreviewAngle: 0,
+            commensurateSuggestionArmed: false,
             transformSubject: null,
             addAtomsRegionSelectedIds: new Set(),
             addAtomsRegionTransformOriginal: null,
@@ -13144,6 +13145,7 @@ class VAseApp {
                 mode: 'host-guest'
             });
             this.applyAICommensurateConfig(config);
+            this.state.commensurateSuggestionArmed = operation.calculate !== false;
             if (operation.calculate !== false) {
                 await this.refreshCommensurateWorkspace({
                     showBusy: true,
@@ -13172,6 +13174,7 @@ class VAseApp {
             }
             const config = this.aiCommensurateConfig(operation);
             this.applyAICommensurateConfig(config);
+            this.state.commensurateSuggestionArmed = true;
             if (operation.snap !== undefined) {
                 this.state.display.commensurateSnap = Boolean(operation.snap);
                 const snap = document.getElementById('chk-commensurate-snap');
@@ -13262,6 +13265,7 @@ class VAseApp {
             this.state.commensurateSearch = search;
             this.state.commensurateCandidates = search.candidates || [];
             this.state.commensurateSnappedCandidate = candidate;
+            this.state.commensurateSuggestionArmed = true;
             this.state.commensurateLastAngle = THREE.MathUtils.degToRad(candidate.targetAngleDeg);
             await this.prepareCommensurateSupercellProposal({
                 candidate,
@@ -15434,6 +15438,7 @@ class VAseApp {
             max_index: this.state.display.commensurateMaxIndex,
             strain_tolerance: this.state.display.commensurateStrainTolerance,
             max_area_ratio: this.state.display.commensurateMaxAreaRatio,
+            parent_grid_radius: this.commensurateParentGridRadius(),
             show_atoms: Boolean(this.state.display.commensurateShowAtoms),
             positions_include_display_rotation: Boolean(
                 context?.positionsIncludeDisplayRotation
@@ -15526,6 +15531,61 @@ class VAseApp {
         return safeAngle;
     }
 
+    commensurateParentGridRadius() {
+        const maxArea = Math.max(1, Number(this.state.display.commensurateMaxAreaRatio) || 16);
+        let radius = Math.ceil(Math.sqrt(maxArea)) + 2;
+        const matrixKeys = [
+            'source_matrix', 'target_matrix', 'host_matrix', 'guest_matrix',
+            'source_matrix_3d', 'target_matrix_3d', 'host_matrix_3d', 'guest_matrix_3d'
+        ];
+        for (const candidate of this.state.commensurateCandidates || []) {
+            const area = Number(candidate?.area_ratio ?? candidate?.area);
+            if (candidate?.supercell_supported === false || !(area <= maxArea)) continue;
+            for (const key of matrixKeys) {
+                const matrix = candidate?.[key];
+                if (!Array.isArray(matrix) || matrix.length < 2) continue;
+                const first = [Number(matrix[0]?.[0]), Number(matrix[0]?.[1])];
+                const second = [Number(matrix[1]?.[0]), Number(matrix[1]?.[1])];
+                if (![...first, ...second].every(Number.isFinite)) continue;
+                const corners = [first, second, [first[0] + second[0], first[1] + second[1]]];
+                const extent = Math.max(...corners.flatMap(values => values.map(value => Math.abs(value))));
+                radius = Math.max(radius, Math.ceil(extent) + 2);
+            }
+        }
+        return THREE.MathUtils.clamp(radius, 2, 64);
+    }
+
+    commensurateRotatedCell(cell, angleDeg) {
+        const angle = THREE.MathUtils.degToRad(Number(angleDeg) || 0);
+        const cosine = Math.cos(angle);
+        const sine = Math.sin(angle);
+        return (cell || []).map(values => {
+            const x = Number(values?.[0]) || 0;
+            const y = Number(values?.[1]) || 0;
+            return [
+                x * cosine - y * sine,
+                x * sine + y * cosine,
+                Number(values?.[2]) || 0
+            ];
+        });
+    }
+
+    commensurateParentGridOrigins(cell, offset = [0, 0, 0], radius = 2) {
+        if (!Array.isArray(cell) || cell.length < 2) return [];
+        const first = cell[0].map(Number);
+        const second = cell[1].map(Number);
+        const origin = offset.map(Number);
+        const origins = [];
+        for (let i = -radius; i <= radius; i += 1) {
+            for (let j = -radius; j <= radius; j += 1) {
+                origins.push([0, 1, 2].map(axis => (
+                    origin[axis] + i * first[axis] + j * second[axis]
+                )));
+            }
+        }
+        return origins;
+    }
+
     commensuratePreviewContext(candidate, displayAngleDeg = 0, options = {}) {
         const selectedIndices = this.commensurateSelectedGuestIndices();
         const transformAlreadyRotated = (
@@ -15550,9 +15610,24 @@ class VAseApp {
         const cell = this.state.atoms?.cell;
         if (!this.state.display.commensurateGuide || !Array.isArray(cell) || cell.length !== 3) return;
         const guest = this.commensurateGuestMetadata();
-        const hasSelectedGuest = this.commensurateSelectedGuestIndices().length > 0;
-        const guestCell = guest?.cell || (hasSelectedGuest ? cell : null);
-        const guestOffset = guest ? this.commensurateGuestOffsetForGap(guest) : [0, 0, 0];
+        const selectedGuestIndices = this.commensurateSelectedGuestIndices();
+        const hasSelectedGuest = selectedGuestIndices.length > 0;
+        const guestParentCell = guest?.cell || (hasSelectedGuest ? cell : null);
+        const angle = Number(this.state.display.commensurateGuestAngleDeg || 0);
+        const guestCell = guestParentCell
+            ? this.commensurateRotatedCell(guestParentCell, angle)
+            : null;
+        let guestOffset = guest ? this.commensurateGuestOffsetForGap(guest) : [0, 0, 0];
+        if (!guest && hasSelectedGuest) {
+            const pivot = this.rotationPivotPosition(selectedGuestIndices);
+            const rotatedPivot = pivot.clone().applyAxisAngle(
+                new THREE.Vector3(0, 0, 1),
+                THREE.MathUtils.degToRad(angle)
+            );
+            guestOffset = pivot.clone().sub(rotatedPivot).toArray();
+        }
+        const gridRadius = this.commensurateParentGridRadius();
+        const gridShape = [gridRadius * 2 + 1, gridRadius * 2 + 1];
         this.renderer.setCommensurateSupercellPreview?.({
             preview: {
                 mode: this.commensurateMode(),
@@ -15564,10 +15639,24 @@ class VAseApp {
                 host_cell: cell,
                 guest_cell: guestCell,
                 host_lattice_origins: [[0, 0, 0]],
+                host_grid_lattice_origins: this.commensurateParentGridOrigins(
+                    cell,
+                    [0, 0, 0],
+                    gridRadius
+                ),
+                host_grid_shape: gridShape,
                 host_primitive_vectors: cell.slice(0, 2),
                 guest_lattice_origins: guestCell ? [guestOffset] : [],
+                guest_grid_lattice_origins: guestCell
+                    ? this.commensurateParentGridOrigins(guestCell, guestOffset, gridRadius)
+                    : [],
+                guest_grid_shape: guestCell ? gridShape : [0, 0],
                 guest_primitive_vectors: guestCell ? guestCell.slice(0, 2) : [],
                 guest_offset: guestOffset,
+                host_notation: 'parent lattice',
+                guest_notation: guestCell ? 'parent lattice' : '',
+                parent_grid_radius: gridRadius,
+                parent_lattices_fixed: true,
                 has_suggestion: false,
                 include_atoms: false,
                 preview_atom_count: 0
@@ -15584,6 +15673,7 @@ class VAseApp {
         this.state.display.commensurateGuestGap = 3.0;
         await this.refresh({ preserveSelection: true });
         this.state.display.commensurateMode = 'host-guest';
+        this.state.commensurateSuggestionArmed = false;
         this.state.display.commensurateGuestOffset = this.commensurateGuestOffsetForGap();
         const mode = document.getElementById('commensurate-mode');
         if (mode) mode.value = 'host-guest';
@@ -15595,6 +15685,7 @@ class VAseApp {
         await this.withBusy('Removing the guest lattice...', () => this.api.removeCommensurateGuest());
         await this.refresh({ preserveSelection: true });
         this.state.display.commensurateMode = 'same-lattice';
+        this.state.commensurateSuggestionArmed = false;
         const mode = document.getElementById('commensurate-mode');
         if (mode) mode.value = 'same-lattice';
         this.syncCommensurateWorkspaceControls();
@@ -15660,7 +15751,10 @@ class VAseApp {
             const suggested = preferSmallest && hasGuestComponent
                 ? this.commensurateSmallestCandidate()
                 : null;
-            if (suggested) currentDeg = this.useCommensurateSuggestedAngle(suggested);
+            if (suggested) {
+                currentDeg = this.useCommensurateSuggestedAngle(suggested);
+                this.state.commensurateSuggestionArmed = true;
+            }
             await this.plotCommensurateSearch(result, THREE.MathUtils.degToRad(currentDeg));
             const candidate = suggested || this.commensurateCandidateAtAngle(currentDeg);
             if (candidate && (this.commensurateMode() === 'host-guest' || this.state.selected.size > 0)) {
@@ -15696,6 +15790,7 @@ class VAseApp {
     scheduleCommensurateLivePreview(angle) {
         if (!this.state.display.commensurateGuide || !this.state.commensurateCandidates.length) return;
         const angleDeg = THREE.MathUtils.radToDeg(Number(angle) || 0);
+        if (this.transform.mode === 'ROTATE') this.state.commensurateSuggestionArmed = true;
         this.state.commensuratePreviewAngle = angleDeg;
         this.updateCommensuratePlotAngle(angleDeg);
         if (this.state.commensuratePreviewTimer) clearTimeout(this.state.commensuratePreviewTimer);
@@ -15828,12 +15923,14 @@ class VAseApp {
             const data = await this.api.previewCommensurateSupercell(payload);
             if (token !== this.state.commensurateProposalToken) return;
             const resolved = this.commensurateProposalIsResolved(context);
-            if (data.preview) data.preview.has_suggestion = resolved;
+            const suggestionVisible = resolved && Boolean(this.state.commensurateSuggestionArmed);
+            if (data.preview) data.preview.has_suggestion = suggestionVisible;
             data.match_resolved = resolved;
+            data.suggestion_visible = suggestionVisible;
             const proposal = { context, data };
             this.state.commensurateProposal = proposal;
             this.renderer.setCommensurateSupercellPreview?.(data);
-            if (resolved) {
+            if (suggestionVisible) {
                 this.renderCommensurateSupercellProposal(proposal);
             } else {
                 document.getElementById('commensurate-supercell-proposal')?.classList.add('hidden');
@@ -15849,7 +15946,9 @@ class VAseApp {
                 const area = Number(candidate.area ?? candidate.area_ratio);
                 const areaText = Number.isFinite(area) ? `; N=${area}` : '';
                 this.updateCommensurateStatus(
-                    Number.isFinite(delta)
+                    resolved && !this.state.commensurateSuggestionArmed
+                        ? 'Host and guest parent lattices are shown. Rotate the mobile lattice to reveal a validated common cell.'
+                        : Number.isFinite(delta)
                         ? `Host and guest lattices at ${Number(context.displayAngleDeg || 0).toFixed(4)} deg. Nearest bounded match: ${target.toFixed(4)} deg (delta ${delta.toFixed(4)} deg${strainText}${areaText}).`
                         : 'Host and guest primitive lattices are shown; rotate the guest to a bounded match.',
                     'ready'
@@ -19028,9 +19127,16 @@ class VAseApp {
             });
         };
         document.getElementById('chk-commensurate-guide')?.addEventListener('change', () => {
+            this.state.commensurateSuggestionArmed = false;
+            if (document.getElementById('chk-commensurate-guide')?.checked) {
+                this.state.display.commensurateShowAtoms = false;
+                const showAtoms = document.getElementById('chk-commensurate-show-atoms');
+                if (showAtoms) showAtoms.checked = false;
+            }
             refreshCommensurateSearch({ showBusy: true });
         });
         document.getElementById('commensurate-mode')?.addEventListener('change', () => {
+            this.state.commensurateSuggestionArmed = false;
             this.applyDisplayOptions();
             this.syncCommensurateWorkspaceControls();
             refreshCommensurateSearch({ showBusy: true });
@@ -19052,6 +19158,7 @@ class VAseApp {
             document.getElementById('commensurate-guest-angle')?.addEventListener(type, event => {
                 const angle = Number(event.currentTarget.value || 0);
                 if (!Number.isFinite(angle)) return;
+                this.state.commensurateSuggestionArmed = true;
                 this.state.display.commensurateGuestAngleDeg = angle;
                 this.state.commensurateLastAngle = THREE.MathUtils.degToRad(angle);
                 this.scheduleVisualHistoryCommit('commensurate-guest-angle');
