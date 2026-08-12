@@ -3,7 +3,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 from ase.constraints import FixedLine, FixedPlane, Hookean
-from ase.geometry import find_mic
 from ase.io import read
 from ase.neighborlist import neighbor_list
 from ase.units import Bohr
@@ -13,6 +12,7 @@ from examples.readme_scenes import (
     SCENE_NAMES,
     make_ai_pyridinic_graphene_scene,
     make_amorphous_cuzr_rdf_scene,
+    make_atom_colorscale_trajectory,
     make_graphene_pi_volumetric_scene,
     make_black_phosphorene_unit_cell,
     make_copper_oxide_bond_scene,
@@ -70,7 +70,7 @@ def test_readme_scene_assets_write_reopenable_traj_files(tmp_path):
     assert "ai_pyridinic_n3_li_graphene.traj" in written_names
     assert "cu2o111_on_cu111_pairwise_bonds.traj" in written_names
     assert "material_presets.traj" in written_names
-    assert "amorphous_ga_h_add_atoms.traj" in written_names
+    assert "cu111_oxygen_add_atoms.traj" in written_names
     assert "layered_water_channel.traj" in written_names
     assert not any(path.name.endswith("_motion.traj") for path in written)
 
@@ -177,43 +177,85 @@ def test_phosphorene_scene_uses_published_cell_angle_and_single_puckered_ridges(
         assert np.max(np.linalg.norm(end[moving] - start[moving], axis=1)) > 0.01
 
 
-def test_random_addition_readme_host_is_periodic_amorphous_ga_and_reproducible():
+def test_random_addition_readme_host_is_cu111_surface_and_reproducible():
     host, metadata = make_random_addition_scene()
     repeated, repeated_metadata = make_random_addition_scene()
 
-    assert len(host) == 320
-    assert host.pbc.tolist() == [True, True, True]
+    assert len(host) == 168
+    assert host.pbc.tolist() == [True, True, False]
     assert abs(float(np.linalg.det(host.cell.array))) > 1.0
-    assert len(host) / abs(float(np.linalg.det(host.cell.array))) >= 0.04
-    assert set(atom_labels(host)) == {"Ga_amorphous"}
+    assert set(atom_labels(host)) == {"Cu_surface"}
     assert metadata["entries"] == [
-        {"element": "H", "label": "H_inserted", "count": 20},
+        {"element": "O", "label": "O_inserted", "count": 10},
     ]
     assert metadata["seed"] == 2021
+    assert metadata["coverage_monolayer"] == pytest.approx(10 / 42)
+    assert metadata["surface_reference"] == (
+        "https://doi.org/10.1016/S0039-6028(01)01464-9"
+    )
     np.testing.assert_array_equal(host.positions, repeated.positions)
     assert metadata == repeated_metadata
-    assert np.asarray(metadata["insertion_center"]).shape == (3,)
-
-    vectors = host.positions[:, None, :] - host.positions[None, :, :]
-    vectors = vectors[np.triu_indices(len(host), 1)]
-    _, distances = find_mic(vectors, host.cell, pbc=host.pbc)
-    assert float(np.min(distances)) >= metadata["minimum_ga_distance"] - 1e-10
+    z_layers, layer_counts = np.unique(
+        np.round(host.positions[:, 2], 8),
+        return_counts=True,
+    )
+    assert len(z_layers) == 4
+    assert layer_counts.tolist() == [42, 42, 42, 42]
+    allow = np.asarray(metadata["allow_region"]["bounds"], dtype=float)
+    reject = np.asarray(metadata["reject_region"]["bounds"], dtype=float)
+    assert allow[4] > float(np.max(host.positions[:, 2]))
+    assert np.all(reject[::2] >= allow[::2])
+    assert np.all(reject[1::2] <= allow[1::2])
 
 
 def test_layered_water_channel_scene_is_periodic_and_leaves_a_visible_channel():
     host, metadata = make_layered_water_channel_scene()
-    assert len(host) == 120
-    assert host.pbc.tolist() == [True, True, True]
+    assert len(host) == 96
+    assert host.pbc.tolist() == [True, True, False]
     assert set(atom_labels(host)) == {"C_lower_membrane", "C_upper_membrane"}
     z_values = np.unique(np.round(host.positions[:, 2], 8))
-    np.testing.assert_allclose(z_values, [7.0, 17.0])
+    np.testing.assert_allclose(z_values, [7.0, 13.0])
+    assert metadata["interlayer_spacing_angstrom"] == pytest.approx(6.0)
     assert metadata["molecules"] == [{"name": "H2O", "label": "water", "count": 1}]
-    assert metadata["target_density_g_cm3"] == pytest.approx(0.70)
-    assert metadata["expected_molecule_count"] == 18
+    assert metadata["target_density_g_cm3"] == pytest.approx(0.80)
+    assert metadata["expected_molecule_count"] == 10
     assert [region["role"] for region in metadata["regions"]] == ["allow", "allow", "reject"]
-    assert metadata["accessible_volume_angstrom3"] == pytest.approx(767.68)
-    assert metadata["placement_mode"] == "homogeneous"
+    assert metadata["accessible_volume_angstrom3"] == pytest.approx(367.8600492603591)
+    assert metadata["actual_density_g_cm3"] == pytest.approx(0.8132063091734184)
+    assert metadata["placement_mode"] == "random"
     assert metadata["coordinate_basis"] == "cartesian"
+
+
+def test_atom_colorscale_readme_trajectory_colors_every_atom_with_matching_forces():
+    frames = make_atom_colorscale_trajectory()
+    assert len(frames) == 12
+    assert all(len(frame) == 160 for frame in frames)
+    assert all(set(frame.get_chemical_symbols()) == {"Cu"} for frame in frames)
+    assert all(frame.pbc.tolist() == [True, True, False] for frame in frames)
+
+    spring_constant = float(frames[0].info["spring_constant_ev_a2"])
+    equilibria = []
+    all_norms = []
+    for frame in frames:
+        forces = frame.get_forces()
+        assert np.all(np.linalg.norm(forces, axis=1) > 1e-8)
+        np.testing.assert_allclose(np.sum(forces, axis=0), 0.0, atol=1e-12)
+        equilibria.append(frame.positions + forces / spring_constant)
+        all_norms.extend(np.linalg.norm(forces, axis=1))
+        assert frame.get_potential_energy() == pytest.approx(
+            float(np.sum(forces * forces) / (2.0 * spring_constant))
+        )
+    for equilibrium in equilibria[1:]:
+        np.testing.assert_allclose(equilibrium, equilibria[0], atol=2e-14)
+    assert np.ptp(all_norms) > 0.8
+
+    capture = (ROOT / "scripts" / "capture_readme_screenshots.py").read_text()
+    colorscale = capture.split("def capture_atom_colorscale_media", 1)[1].split(
+        "def capture_rdf_media", 1
+    )[0]
+    assert "scope: 'all'" in colorscale
+    assert "arg=len(frames[0])" in colorscale
+    assert "duration=230" in colorscale
 
 
 def test_relaxation_scene_is_an_actual_fire_trajectory_with_lower_repulsion():
@@ -461,16 +503,16 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "**Field smearing σ**" in readme
     assert "**Mesh smoothing passes**" in readme
     assert "source scalar field" in readme
-    assert "Twenty `H_inserted` atoms start" in readme
-    assert "periodic amorphous Ga" in readme
-    assert "The red region is a **Reject region**" in readme
+    assert "ten `o_inserted` atoms start" in normalized_readme
+    assert "Cu(111)/O placement example" in readme
+    assert "The red box is a **Reject region**" in readme
     assert "half-open primary periodic cell" in readme
     assert "every pre-existing coordinate, array" in readme
     assert "ASE G2" in readme
     assert "Randomize molecular orientation" in readme
     assert "Preserve molecular geometry" in readme
     assert "native coordinate origin" in readme
-    assert "18 h2o molecules" in normalized_readme
+    assert "10 rigid h2o molecules" in normalized_readme
 
     for filename in (
         "readme_phosphorene_twist.gif",
@@ -576,7 +618,7 @@ def test_add_atoms_capture_uses_the_real_batch_workspace_and_optimizer():
     assert 'metadata["regions"]' in molecule_capture
     assert 'metadata["accessible_volume_angstrom3"]' in molecule_capture
     assert 'metadata["expected_molecule_count"]' in molecule_capture
-    assert 'page.click("#add-atoms-placement-homogeneous")' in molecule_capture
+    assert 'page.click("#add-atoms-placement-random")' in molecule_capture
     assert 'page.locator("#add-molecules-random-orientation").set_checked(True)' in molecule_capture
     assert 'page.locator("#add-molecules-rigid").set_checked(True)' in molecule_capture
     assert "reference_distances" in molecule_capture
@@ -605,7 +647,7 @@ def test_readme_ferrocene_and_copper_bond_media_use_documented_visual_controls()
 def test_readme_volumetric_media_uses_refined_isosurface_controls():
     source = (ROOT / "scripts" / "capture_readme_screenshots.py").read_text()
     volumetric = source.split("def capture_volumetric_media", 1)[1].split(
-        "def make_atom_colorscale_trajectory", 1
+        "def capture_atom_colorscale_media", 1
     )[0]
     assert '"smearingSigma": 0.45' in volumetric
     assert '"smoothingIterations": 7' in volumetric

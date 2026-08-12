@@ -126,7 +126,7 @@ def test_readme_agent_media_uses_the_external_cli_bridge():
         "def capture_ai_collaboration_figure", 1
     )[1].split("def capture_relaxation_media", 1)[0]
     volumetric = capture.split("def capture_volumetric_media", 1)[1].split(
-        "def make_atom_colorscale_trajectory", 1
+        "def capture_atom_colorscale_media", 1
     )[0]
 
     assert "run_external_ai_apply" in ai_edit

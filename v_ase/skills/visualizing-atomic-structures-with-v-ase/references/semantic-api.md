@@ -287,7 +287,9 @@ with the true cell polyhedron, so the reported `volume_angstrom3` is analytic
 for orthogonal and triclinic cells rather than a voxel estimate. Without a
 finite cell, at least one Allow region is required. `regionMic:true` generates
 lattice-translated region images in periodic directions and clips them to the
-primary cell. Legacy `regionMode:"box"`, `bounds`, and
+primary cell. The viewport retains one complete unwrapped source cuboid and
+shows only nonzero clipped images on symmetry-equivalent opposite faces;
+shared fragment edges are emitted once. Legacy `regionMode:"box"`, `bounds`, and
 `regionRole:"allowed"|"prohibited"` remain accepted for one-region clients.
 
 Regions are initial-placement definitions. `allowEscape` defaults to `true`,
@@ -328,16 +330,18 @@ await ai.apply({
     name: "scatter-molecules",
     molecules: [{name: "H2O", label: "water", count: 1}],
     quantityMode: "density",
-    targetDensityGcm3: 0.70,
+    targetDensityGcm3: 0.80,
     regionMode: "regions",
     regionMic: true,
     regions: [
-      {id: "left-reservoir", role: "allow", bounds: [-5, 3, 1, 9.5, 8, 16]},
-      {id: "right-reservoir", role: "allow", bounds: [5, 13, 1, 9.5, 8, 16]},
-      {id: "central-gate", role: "reject", bounds: [1, 8, 4, 6.5, 8, 16]}
+      {id: "periodic-inlet", role: "allow",
+       bounds: [-2, 4.2, 0.8, 9.03804859, 7.65, 12.35]},
+      {id: "right-reservoir", role: "allow",
+       bounds: [6.5, 10.5, 0.8, 9.03804859, 7.65, 12.35]},
+      {id: "central-gate", role: "reject",
+       bounds: [2.5, 7.2, 3.7, 6.1, 7.65, 12.35]}
     ],
-    placementMode: "homogeneous",
-    coordinateBasis: "cartesian",
+    placementMode: "random",
     pbcAware: true,
     randomOrientation: true,
     rigidMolecules: true,
@@ -471,6 +475,8 @@ exports use that same range. Do not refit each frame during playback.
 The full-range load supersedes scheduled next-frame prefetch, so one range scan
 must not trigger duplicate frame requests. Disabling the colorscale removes
 all per-frame recoloring work and restores the previous visual appearance.
+With `scope:"all"`, every visible atom with a finite field value receives a
+mapped color; do not interpret a partially colored structure as success.
 
 ## Stored Force Vectors
 

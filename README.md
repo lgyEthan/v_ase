@@ -145,20 +145,24 @@ enabled.
 
 #### Allow And Reject Regions
 
-![Hydrogen inserted inside an Allow region in periodic amorphous gallium](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_atoms_allowed.gif)
+![Oxygen inserted above a Cu(111) terrace inside an Allow region](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_atoms_allowed.gif)
 
-The teal region is an **Allow region**. Twenty `H_inserted` atoms start inside
-it and move through periodic amorphous Ga under explicit Ga-H and H-H
-repulsive cutoffs. Every original `Ga_amorphous` coordinate remains unchanged.
+The teal box is a finite **Allow region** above the top Cu layer. Ten
+`O_inserted` atoms start inside it and separate under explicit Cu-O and O-O
+repulsive cutoffs while every original `Cu_surface` coordinate remains fixed.
+This is an initial-placement example at about `0.24 ML`, close to the
+quarter-monolayer surface context studied for O/Cu(111)
+([Xu and Mavrikakis, 2001](https://doi.org/10.1016/S0039-6028(01)01464-9));
+repulsion here is not an adsorption-energy model.
 
 #### Reject Regions
 
-![Hydrogen inserted outside a Reject region in periodic amorphous gallium](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_atoms_prohibited.gif)
+![Oxygen kept outside a protected region above Cu(111)](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_atoms_prohibited.gif)
 
-The red region is a **Reject region**. The same reproducible H batch starts in
-the surrounding primary cell. Keep **Allow inserted content to leave the
-region domain** off when the rejected volume must remain excluded during
-placement.
+The red box is a **Reject region** inside the same surface zone. The reproducible
+O batch is sampled only from the remaining volume and stays outside the
+protected terrace while **Allow inserted content to leave the region domain**
+is off.
 
 Open **+ Add atoms** in **Edit** mode:
 
@@ -187,9 +191,11 @@ Open **+ Add atoms** in **Edit** mode:
   move one region or the complete selected group while every bound updates
   live. `R` is unavailable because rotated Cartesian min/max boxes would no
   longer represent the displayed values.
-- With region MIC enabled, the part entering one cell face appears at the
-  symmetry-equivalent opposite face. The same lattice-vector mapping controls
-  placement, so skew-cell wrapping remains physically consistent.
+- With region MIC enabled, the intact source cuboid remains visible even when
+  it crosses a cell face. Its clipped periodic fragment also appears at the
+  symmetry-equivalent opposite face. Shared fragment edges are drawn once, and
+  the same lattice-vector mapping controls sampling in orthogonal or triclinic
+  cells.
 - Regions describe initial placement. **Allow inserted content to leave the
   region domain** is on by default, so repulsive placement can find nearby
   free volume. Turn it off to confine inserted content to the complete Boolean
@@ -215,12 +221,18 @@ accepted optimizer steps. It can be scrubbed or played while the mode remains
 active. Finishing or cancelling the mode closes the panel and removes the
 temporary regions and timeline.
 
-The atom animations use the included
-[periodic amorphous Ga example](examples/readme_scene_assets/amorphous_ga_h_add_atoms.traj).
+The animations use the included
+[Cu(111)/O placement example](examples/readme_scene_assets/cu111_oxygen_add_atoms.traj).
 
 #### Add Molecules — Available Since v0.2.8
 
 ![Rigid water molecules placed in a periodic layered channel](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_molecules.gif)
+
+The example uses an orthorhombic layered channel with a `6 Å` interlayer gap.
+Its PBC-crossing inlet remains a complete source box outside the cell while the
+equivalent clipped fragment appears on the opposite side. Two Allow regions
+minus one Reject gate define an exact `367.860 Å³` accessible volume; a target
+density of `0.80 g/cm³` resolves to 10 rigid H2O molecules at `0.813 g/cm³`.
 
 Choose a molecule and label from **Batch > Molecules**. **Count** places the
 requested integer composition. **Density** treats each Count value as a
@@ -235,12 +247,11 @@ atom-pair repulsion against the host and other molecules, excludes internal
 repulsion, and projects every optimizer step onto each molecule's rigid
 translation and rotation. Turn it off for ordinary atomwise relaxation.
 
-The shown [layered water-channel example](examples/readme_scene_assets/layered_water_channel.traj)
-combines two Allow reservoirs with a central Reject gate. Their exact
-`767.68 Å³` accessible volume converts a `0.70 g/cm³` target into 18 H2O
-molecules and reports the realizable density before scattering. The two
-membrane layers remain exact while only the inserted waters move. Rigid
-placement preserves every O-H distance and H-O-H geometry.
+Open the included
+[layered water-channel structure](examples/readme_scene_assets/layered_water_channel.traj)
+to reproduce the workflow. The two membrane layers remain exact while only
+the inserted waters move, and rigid placement preserves every O-H distance and
+H-O-H geometry.
 
 ### Rotate Selected Atoms
 
@@ -538,11 +549,13 @@ Numeric LAMMPS atom columns are exposed by their stored names.
 
 ![Trajectory-wide force-magnitude colorscale with locked limits and matching Cartesian force vectors](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_atom_colorscale.gif)
 
-The example maps stored `|force|` only onto the selected Cu substrate atoms and
-scans the complete trajectory once to lock one `vmin` and `vmax`. At every
-frame, both the colors and arrows are reloaded from that frame's stored force
-array. Arrow direction is the current Cartesian force direction and arrow
-length is `scale × |F|`; neither remains frozen while the atoms move. Force
+The example applies stored `|force|` to all 160 Cu atoms in a periodic harmonic
+phonon trajectory and scans the complete trajectory once to lock one `vmin`
+and `vmax`. Every displacement and force comes from the same frame through
+`F_i = -k u_i`; the zero-center-of-mass mode has zero net force. At every
+frame, both colors and arrows are reloaded from that stored force array. Arrow
+direction is the current Cartesian force direction and arrow length is
+`scale × |F|`; neither remains frozen while the atoms move. Force
 arrows can use 2D or 3D geometry, custom color, thickness, and scale. If a
 frame has no stored forces, v_ase reports that fact instead of evaluating a
 calculator merely to draw arrows.

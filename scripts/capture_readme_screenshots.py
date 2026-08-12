@@ -17,8 +17,6 @@ from typing import Sequence
 import numpy as np
 from ase import Atoms
 from ase.build import fcc111, molecule
-from ase.calculators.singlepoint import SinglePointCalculator
-from ase.geometry import find_mic
 from ase.io import read
 from ase.io.cube import write_cube
 from PIL import Image
@@ -32,6 +30,7 @@ from tests.manual_showcase import make_frames
 from v_ase import view
 from v_ase.ai import ai_handshake
 from examples.readme_scenes import (
+    make_atom_colorscale_trajectory,
     make_copper_oxide_bond_scene,
     make_crowded_c60_relaxation_scene,
     make_ethane_measurement_scene,
@@ -1609,12 +1608,16 @@ def capture_registry_media(browser) -> None:
         page.wait_for_selector("#registry-plot .plotly", state="attached")
         page.evaluate("""() => {
             const drawer = document.getElementById('analysis-drawer');
-            drawer.style.height = '500px';
+            drawer.style.height = '430px';
             window.Plotly?.Plots?.resize?.(document.getElementById('registry-plot'));
             window.__V_ASE_APP__.renderer.fitCameraToStructure();
             window.__V_ASE_APP__.renderer.renderNow();
         }""")
-        target = np.mean(atoms.positions, axis=0) + 1.5 * (cell[0] + cell[1])
+        target = (
+            np.mean(atoms.positions, axis=0)
+            + 1.5 * (cell[0] + cell[1])
+            + np.asarray([2.4, -2.15, 0.0])
+        )
         set_camera(
             page,
             target=target.tolist(),
@@ -1622,7 +1625,7 @@ def capture_registry_media(browser) -> None:
             up=(0.0, 1.0, 0.0),
             fov=32,
         )
-        set_atomic_scale(page, 34.0)
+        set_atomic_scale(page, 46.0)
         page.wait_for_timeout(300)
         plot_state = page.evaluate("""() => {
             const plot = document.getElementById('registry-plot');
@@ -2689,38 +2692,32 @@ def _capture_add_atoms_variant(
     if region_role not in {"allowed", "prohibited"}:
         raise ValueError(f"Unsupported Add Atoms region role: {region_role}")
     host, metadata = make_random_addition_scene()
-    editor, page = open_scene(browser, host, show_bonds=True, viz_only=False)
+    editor, page = open_scene(browser, host, show_bonds=False, viz_only=False)
     try:
-        center = np.sum(np.asarray(host.cell.array, dtype=float), axis=0) * 0.5
+        lengths = host.cell.lengths()
+        top_z = float(np.max(host.positions[:, 2]))
+        center = np.asarray([lengths[0] * 0.5, lengths[1] * 0.5, top_z - 1.7])
         set_display(page, {
             "viewportBackground": "white",
             "projectionMode": "orthographic",
             "showGrid": False,
             "showAxes": False,
             "showCell": True,
-            "showBonds": True,
+            "showBonds": False,
             "showOverlays": True,
-            "atomRadiusScale": 0.54,
+            "atomRadiusScale": 0.75,
             "labelRadii": {
-                "Ga_amorphous": 0.68,
-                "H_inserted": 0.64,
+                "Cu_surface": 1.55,
+                "O_inserted": 0.94,
             },
             "labelColors": {
-                "Ga_amorphous": "#707984",
-                "H_inserted": "#ef9f32",
+                "Cu_surface": "#b96f38",
+                "O_inserted": "#dc3f3f",
             },
             "labelMaterials": {
-                "Ga_amorphous": "metal",
-                "H_inserted": "standard",
+                "Cu_surface": "metal",
+                "O_inserted": "standard",
             },
-            "bondMode": "pairwise",
-            "pairwiseBondRanges": {
-                "Ga_amorphous-Ga_amorphous": {"enabled": True, "max": 2.86},
-            },
-            "pairwiseBondCutoffs": {
-                "Ga_amorphous-Ga_amorphous": 2.86,
-            },
-            "bondThickness": 0.065,
             "cellColor": "#96722f",
             "cellThickness": 0.055,
         })
@@ -2728,16 +2725,17 @@ def _capture_add_atoms_variant(
         set_camera(
             page,
             target=center.tolist(),
-            position=(center + np.asarray([19.0, -23.0, 16.0])).tolist(),
+            position=(center + np.asarray([20.0, -31.0, 10.5])).tolist(),
             up=(0, 0, 1),
             fov=35,
         )
         page.evaluate("window.__V_ASE_APP__.renderer.fitCameraToStructure()")
+        set_atomic_scale(page, 43.0)
         set_readme_lighting(
             page,
             center.tolist(),
-            intensity=2.55,
-            position_offset=(-15.0, -18.0, 25.0),
+            intensity=2.75,
+            position_offset=(-15.0, -20.0, 23.0),
         )
 
         page.click("#btn-create-atom-toggle")
@@ -2750,20 +2748,23 @@ def _capture_add_atoms_variant(
             widget.style.bottom = 'auto';
         }""")
 
-        # Start inside a dense bonded region so relaxation visibly resolves
-        # overlaps into interstitial and vacancy space.
-        half_box = np.asarray(metadata["insertion_half_box"], dtype=float)
-        insertion_center = np.asarray(metadata["insertion_center"], dtype=float)
-        lower = insertion_center - half_box
-        upper = insertion_center + half_box
-        bounds = np.column_stack((lower, upper)).reshape(-1)
+        allow_region = metadata["allow_region"]
+        reject_region = metadata["reject_region"]
+        bounds = np.asarray(allow_region["bounds"], dtype=float)
         _add_insertion_region(
             page,
-            role="allow" if region_role == "allowed" else "reject",
-            name="Interstitial volume" if region_role == "allowed" else "Protected volume",
+            role="allow",
+            name=allow_region["name"],
             bounds=bounds,
         )
-        page.locator("#add-atoms-allow-escape").set_checked(region_role == "allowed")
+        if region_role == "prohibited":
+            _add_insertion_region(
+                page,
+                role="reject",
+                name=reject_region["name"],
+                bounds=np.asarray(reject_region["bounds"], dtype=float),
+            )
+        page.locator("#add-atoms-allow-escape").set_checked(False)
 
         for entry_index, entry in enumerate(metadata["entries"]):
             if entry_index:
@@ -2794,7 +2795,7 @@ def _capture_add_atoms_variant(
                 input.value = String(cutoffs[row.dataset.pair]);
                 input.dispatchEvent(new Event('change', {bubbles: true}));
             });
-        }""", {"Ga-Ga": 0.0, "Ga-H": 1.85, "H-H": 1.15})
+        }""", {"Cu-Cu": 0.0, "Cu-O": 1.78, "O-O": 2.20})
 
         frames: list[Image.Image] = []
         append_hold(frames, page, 7)
@@ -2811,23 +2812,16 @@ def _capture_add_atoms_variant(
         # apply the publication palette after that catalog exists.
         set_display(page, {
             "labelRadii": {
-                "Ga_amorphous": 0.68,
-                "H_inserted": 0.64,
+                "Cu_surface": 1.55,
+                "O_inserted": 0.94,
             },
             "labelColors": {
-                "Ga_amorphous": "#707984",
-                "H_inserted": "#ef9f32",
+                "Cu_surface": "#b96f38",
+                "O_inserted": "#dc3f3f",
             },
             "labelMaterials": {
-                "Ga_amorphous": "metal",
-                "H_inserted": "standard",
-            },
-            "bondMode": "pairwise",
-            "pairwiseBondRanges": {
-                "Ga_amorphous-Ga_amorphous": {"enabled": True, "max": 2.86},
-            },
-            "pairwiseBondCutoffs": {
-                "Ga_amorphous-Ga_amorphous": 2.86,
+                "Cu_surface": "metal",
+                "O_inserted": "standard",
             },
         })
         scattered_positions = np.asarray(
@@ -2840,10 +2834,16 @@ def _capture_add_atoms_variant(
             (inserted >= bounds[::2]) & (inserted <= bounds[1::2]),
             axis=1,
         )
-        if region_role == "allowed" and not bool(np.all(inserted_inside)):
-            raise AssertionError("Allowed Add Atoms demo scattered outside its visible box.")
-        if region_role == "prohibited" and bool(np.any(inserted_inside)):
-            raise AssertionError("Prohibited Add Atoms demo scattered inside its exclusion box.")
+        if not bool(np.all(inserted_inside)):
+            raise AssertionError("Cu(111) Add Atoms demo scattered outside its surface zone.")
+        if region_role == "prohibited":
+            reject_bounds = np.asarray(reject_region["bounds"], dtype=float)
+            inside_reject = np.all(
+                (inserted >= reject_bounds[::2]) & (inserted <= reject_bounds[1::2]),
+                axis=1,
+            )
+            if bool(np.any(inside_reject)):
+                raise AssertionError("Protected Cu(111) terrace received an inserted oxygen.")
         append_hold(frames, page, 8)
 
         page.evaluate("""() => {
@@ -2908,7 +2908,7 @@ def _capture_add_atoms_variant(
         )
         update_positions(page, relaxed_positions)
         page.evaluate("""role => window.__V_ASE_APP__.setAddAtomsStatus(
-            'active', `${role === 'allowed' ? 'Allowed volume' : 'Exclusion volume'} · pairwise placement complete`
+            'active', `${role === 'allowed' ? 'Surface zone' : 'Protected terrace'} · O placement complete`
         )""", region_role)
         page.evaluate("""() => {
             const app = window.__V_ASE_APP__;
@@ -2926,12 +2926,14 @@ def _capture_add_atoms_variant(
             raise AssertionError("README Add Atoms repulsion did not move any inserted atom visibly.")
         if region_role == "prohibited":
             final_inserted = relaxed_positions[len(host):]
+            reject_bounds = np.asarray(reject_region["bounds"], dtype=float)
             final_inside = np.all(
-                (final_inserted >= bounds[::2]) & (final_inserted <= bounds[1::2]),
+                (final_inserted >= reject_bounds[::2])
+                & (final_inserted <= reject_bounds[1::2]),
                 axis=1,
             )
             if bool(np.any(final_inside)):
-                raise AssertionError("Prohibited Add Atoms relaxation entered the exclusion box.")
+                raise AssertionError("Cu(111) oxygen relaxation entered the protected patch.")
         append_hold(frames, page, 8)
         placement_frame = frames[-1].copy()
 
@@ -2987,16 +2989,16 @@ def _capture_add_molecules_media(browser) -> None:
             "showCell": True,
             "showBonds": True,
             "showOverlays": True,
-            "atomRadiusScale": 0.50,
+            "atomRadiusScale": 0.64,
             "labelRadii": {
-                "C_lower_membrane": 0.47,
-                "C_upper_membrane": 0.47,
-                "O_water": 0.72,
-                "H_water": 0.57,
+                "C_lower_membrane": 0.82,
+                "C_upper_membrane": 0.82,
+                "O_water": 0.78,
+                "H_water": 0.58,
             },
             "labelColors": {
-                "C_lower_membrane": "#4c5963",
-                "C_upper_membrane": "#72808a",
+                "C_lower_membrane": "#46535a",
+                "C_upper_membrane": "#68767d",
                 "O_water": "#d9433f",
                 "H_water": "#f4f5f6",
             },
@@ -3025,12 +3027,13 @@ def _capture_add_molecules_media(browser) -> None:
         set_camera(
             page,
             target=center.tolist(),
-            position=(center + np.asarray([23.0, -27.0, 18.0])).tolist(),
+            position=(center + np.asarray([17.0, -25.0, 7.2])).tolist(),
             up=(0, 0, 1),
             fov=35,
         )
         page.evaluate("window.__V_ASE_APP__.renderer.fitCameraToStructure()")
-        set_readme_lighting(page, center.tolist(), intensity=2.8, position_offset=(-16, -18, 26))
+        set_atomic_scale(page, 53.0)
+        set_readme_lighting(page, center.tolist(), intensity=2.8, position_offset=(-16, -18, 22))
 
         page.click("#btn-create-atom-toggle")
         page.click("#add-atoms-tab-batch")
@@ -3055,6 +3058,46 @@ def _capture_add_molecules_media(browser) -> None:
                 bounds=region["bounds"],
             )
             append_hold(frames, page, 4)
+        page.locator("#add-atoms-region-list .add-atoms-region-item").first.click()
+        page.wait_for_timeout(100)
+        region_visuals = page.evaluate("""() => {
+            const children = window.__V_ASE_APP__.renderer.addAtomsRegionGroup.children;
+            const sourceFills = children.filter(child => (
+                child.userData?.insertionRegionSourceBox
+                && !child.userData?.cellEdgeInstances
+            ));
+            const wrappedFills = children.filter(child => (
+                child.userData?.insertionRegionWrappedFragment
+                && !child.userData?.cellEdgeInstances
+            ));
+            const inlet = sourceFills[0];
+            inlet?.geometry?.computeBoundingBox?.();
+            return {
+                sourceFillCount: sourceFills.length,
+                wrappedFillCount: wrappedFills.length,
+                sourceEdgeCount: children.filter(child => (
+                    child.userData?.insertionRegionSourceBox
+                    && child.userData?.cellEdgeInstances
+                )).length,
+                wrappedEdgeCount: children.filter(child => (
+                    child.userData?.insertionRegionWrappedFragment
+                    && child.userData?.cellEdgeInstances
+                )).length,
+                inletBounds: inlet?.geometry?.boundingBox
+                    ? [inlet.geometry.boundingBox.min.x, inlet.geometry.boundingBox.max.x]
+                    : null,
+                wrappedShifts: wrappedFills.map(child => child.userData.shift),
+            };
+        }""")
+        if region_visuals["sourceFillCount"] != len(metadata["regions"]):
+            raise AssertionError("README Add Molecules did not render one intact source box per region.")
+        if region_visuals["sourceEdgeCount"] != len(metadata["regions"]):
+            raise AssertionError("README Add Molecules source boxes are missing complete edge sets.")
+        if region_visuals["wrappedFillCount"] < 1 or region_visuals["wrappedEdgeCount"] < 1:
+            raise AssertionError("README Add Molecules lacks the opposite-face periodic box fragment.")
+        np.testing.assert_allclose(region_visuals["inletBounds"], [-2.0, 4.2], atol=1e-6)
+        if any(all(component == 0 for component in shift) for shift in region_visuals["wrappedShifts"]):
+            raise AssertionError("A source insertion box was mislabeled as a wrapped fragment.")
 
         row = page.locator("#add-molecule-entries .add-molecule-entry-row").first
         molecule_spec = metadata["molecules"][0]
@@ -3081,8 +3124,9 @@ def _capture_add_molecules_media(browser) -> None:
             raise AssertionError(
                 f"README multi-region volume {accessible_volume} does not match the exact reference."
             )
-        page.click("#add-atoms-placement-homogeneous")
-        page.select_option("#add-atoms-coordinate-basis", "cartesian")
+        page.click("#add-atoms-placement-random")
+        if not page.locator("#add-atoms-coordinate-basis").is_hidden():
+            raise AssertionError("Random molecule placement unexpectedly exposed spacing controls.")
         page.fill("#add-atoms-seed", str(metadata["seed"]))
         page.locator("#add-molecules-random-orientation").set_checked(True)
         page.locator("#add-molecules-rigid").set_checked(True)
@@ -3130,12 +3174,13 @@ def _capture_add_molecules_media(browser) -> None:
         ):
             raise AssertionError("README Add Molecules session changed the exact accessible volume.")
         set_display(page, {
-            "labelRadii": {"O_water": 0.72, "H_water": 0.57},
+            "labelRadii": {"O_water": 0.78, "H_water": 0.58},
             "labelColors": {"O_water": "#d9433f", "H_water": "#f4f5f6"},
             "labelMaterials": {"O_water": "standard", "H_water": "standard"},
             "pairwiseBondRanges": {"H_water-O_water": {"enabled": True, "max": 1.15}},
             "pairwiseBondCutoffs": {"H_water-O_water": 1.15},
         })
+        page.evaluate("window.__V_ASE_APP__.renderer.selectionOutlines.visible = false")
         scattered = np.asarray(page.evaluate("window.__V_ASE_APP__.state.atoms.positions"))
         np.testing.assert_array_equal(scattered[: len(host)], host.positions)
         append_hold(frames, page, 8)
@@ -3163,6 +3208,7 @@ def _capture_add_molecules_media(browser) -> None:
         sample_indices = np.unique(np.linspace(0, len(trace) - 1, min(42, len(trace)), dtype=int))
         for output_index, trace_index in enumerate(sample_indices, start=1):
             update_positions(page, trace[int(trace_index)])
+            page.evaluate("window.__V_ASE_APP__.renderer.selectionOutlines.visible = false")
             page.evaluate(
                 """([step, total]) => window.__V_ASE_APP__.setAddAtomsStatus(
                     'running', `Rigid water placement · ${step}/${total}`
@@ -3578,65 +3624,18 @@ def capture_volumetric_media(browser) -> None:
         cube_path.unlink(missing_ok=True)
 
 
-def make_atom_colorscale_trajectory() -> list[Atoms]:
-    """Return a force-consistent probe trajectory over a copper surface."""
-
-    slab = fcc111("Cu", size=(8, 6, 2), vacuum=7.0, orthogonal=True)
-    cell = slab.cell.array
-    top_z = float(np.max(slab.positions[:, 2]))
-    x_min, y_min = np.min(slab.positions[:, :2], axis=0)
-    x_max, y_max = np.max(slab.positions[:, :2], axis=0)
-    frames = []
-    for frame_index, fraction in enumerate(np.linspace(0.08, 0.92, 10)):
-        probe_x = float(x_min + fraction * (x_max - x_min))
-        probe_y = float((y_min + y_max) * 0.5 + 0.55 * math.sin(2 * math.pi * fraction))
-        probe = Atoms("O", positions=[[probe_x, probe_y, top_z + 1.65]], cell=cell, pbc=True)
-        atoms = slab + probe
-        # U_i = A exp(-|r_i,xy-r_probe,xy|^2 / 2 sigma^2) is a periodic
-        # in-plane registry potential.  The stored forces are its exact
-        # negative Cartesian gradient, including the equal-and-opposite probe
-        # force, so arrow direction and |F| color are one calculator result.
-        displacement = atoms.positions[:-1] - atoms.positions[-1]
-        displacement, _ = find_mic(displacement, cell, pbc=[True, True, False])
-        displacement[:, 2] = 0.0
-        sigma = 2.20
-        amplitude = 2.0
-        pair_energy = amplitude * np.exp(
-            -np.sum(displacement * displacement, axis=1) / (2.0 * sigma**2)
-        )
-        forces = np.zeros((len(atoms), 3), dtype=float)
-        forces[:-1] = pair_energy[:, None] * displacement / sigma**2
-        forces[-1] = -np.sum(forces[:-1], axis=0)
-        if not np.allclose(np.sum(forces, axis=0), 0.0, atol=1e-12):
-            raise AssertionError("README force example violates equal-and-opposite force balance.")
-        # Keep the values portable across ASE frame copies as well as attached
-        # to the SinglePointCalculator.  v_ase discovers either representation
-        # without evaluating a calculator merely for display.
-        atoms.new_array("forces", forces.copy())
-        atoms.calc = SinglePointCalculator(
-            atoms,
-            energy=float(np.sum(pair_energy)),
-            forces=forces,
-        )
-        atoms.info["readme_scene"] = "force_consistent_atom_colorscale"
-        atoms.info["force_model"] = "periodic in-plane Gaussian Cu-O registry potential"
-        atoms.info["frame_index"] = frame_index
-        frames.append(atoms)
-    return frames
-
-
 def capture_atom_colorscale_media(browser) -> None:
     frames = make_atom_colorscale_trajectory()
-    substrate_force_norms = np.concatenate([
-        np.linalg.norm(frame.get_forces()[:-1], axis=1)
+    force_norms = np.concatenate([
+        np.linalg.norm(frame.get_forces(), axis=1)
         for frame in frames
     ])
-    if float(np.ptp(substrate_force_norms)) < 0.5:
+    if float(np.ptp(force_norms)) < 0.35:
         raise AssertionError("README force colorscale lacks a visible trajectory-wide range.")
     editor, page = open_scene(browser, frames, show_bonds=False, viz_only=True)
     try:
         set_display(page, {
-            "atomRadiusScale": 0.52,
+            "atomRadiusScale": 0.40,
             "showBonds": False,
             "showGrid": False,
             "showCell": True,
@@ -3645,24 +3644,11 @@ def capture_atom_colorscale_media(browser) -> None:
             "lightingMode": "studio-shadow",
             "showForceVectors": True,
             "forceVectorStyle": "3d",
-            "forceVectorScale": 2.50,
-            "forceVectorThickness": 0.050,
-            "forceVectorColor": "#c43f5e",
+            "forceVectorScale": 2.20,
+            "forceVectorThickness": 0.038,
+            "forceVectorColor": "#167a8b",
         })
         configure_inspector(page, "structure", ["appearance"], width=475)
-        substrate_positions = frames[0].positions[:-1, :2]
-        lower = np.min(substrate_positions, axis=0)
-        upper = np.max(substrate_positions, axis=0)
-        fractional_xy = (substrate_positions - lower) / np.maximum(upper - lower, 1e-12)
-        substrate_indices = np.flatnonzero(
-            (fractional_xy[:, 0] >= 0.20)
-            & (fractional_xy[:, 0] <= 0.80)
-            & (fractional_xy[:, 1] >= 0.25)
-            & (fractional_xy[:, 1] <= 0.75)
-        ).tolist()
-        if not (20 <= len(substrate_indices) < (len(frames[0]) - 1) / 2):
-            raise AssertionError("README selected colorscale region is not a clear minority of the slab.")
-        set_selection(page, substrate_indices)
         result = page.evaluate(
             """async () => {
                 await window.v_aseAI.apply({
@@ -3671,7 +3657,7 @@ def capture_atom_colorscale_media(browser) -> None:
                         enabled: true,
                         field: 'force:norm',
                         map: 'plasma',
-                        scope: 'selected',
+                        scope: 'all',
                         rangeMode: 'trajectory',
                         gamma: 0.82
                     }
@@ -3684,15 +3670,16 @@ def capture_atom_colorscale_media(browser) -> None:
             raise AssertionError("README colorscale did not select force magnitude.")
         if color_scale["atomColorScaleRangeMode"] != "trajectory":
             raise AssertionError("README colorscale did not lock a full-trajectory range.")
-        if color_scale["atomColorScaleScope"] != "selected":
-            raise AssertionError("README colorscale did not retain its selected-atom scope.")
+        if color_scale["atomColorScaleScope"] != "all":
+            raise AssertionError("README colorscale did not apply to the complete structure.")
         page.wait_for_selector("#atom-colorscale-legend:not(.hidden)")
         page.wait_for_function(
             "count => window.__V_ASE_APP__.renderer.atomColorScaleColors?.filter(Boolean).length === count",
-            arg=len(substrate_indices),
+            arg=len(frames[0]),
         )
         page.wait_for_function(
-            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.forceVectorCount) >= 20"
+            "count => Number(window.__V_ASE_APP__.renderer.domElement.dataset.forceVectorCount) === count",
+            arg=len(frames[0]),
         )
         page.evaluate(
             """() => {
@@ -3706,10 +3693,10 @@ def capture_atom_colorscale_media(browser) -> None:
         settle_view(
             page,
             target=center.tolist(),
-            position=(center + np.array([14.0, -17.0, 17.0])).tolist(),
+            position=(center + np.array([16.0, -21.0, 18.0])).tolist(),
             fov=34,
         )
-        set_atomic_scale(page, 35.0)
+        set_atomic_scale(page, 31.0)
         set_readme_lighting(
             page,
             center.tolist(),
@@ -3754,7 +3741,10 @@ def capture_atom_colorscale_media(browser) -> None:
                     vectors: entries.map(entry => [entry.index, ...entry.vector])
                 };
             }""", frames[frame_index].get_forces().tolist())
-            if len(force_snapshot["alignments"]) < 20 or min(force_snapshot["alignments"]) < 1 - 1e-8:
+            if (
+                len(force_snapshot["alignments"]) != len(frames[frame_index])
+                or min(force_snapshot["alignments"]) < 1 - 1e-8
+            ):
                 raise AssertionError("README force arrows do not follow the stored Cartesian forces.")
             force_signatures.append(np.asarray(force_snapshot["vectors"], dtype=float))
             gif_frames.append(screenshot_frame(page))
@@ -3770,7 +3760,7 @@ def capture_atom_colorscale_media(browser) -> None:
         save_gif(
             gif_frames + list(reversed(gif_frames[1:-1])),
             ASSET_DIR / "readme_atom_colorscale.gif",
-            duration=115,
+            duration=230,
         )
         gif_frames[len(gif_frames) // 2].save(
             ASSET_DIR / "readme_atom_colorscale.png",

@@ -143,8 +143,9 @@ Run all scenarios, not only static document checks:
      moving staged atoms;
    - translate a region through each face of a skew triclinic cell with region
      MIC enabled; require clipped lattice-equivalent pieces on the opposite
-     face, translation-invariant volume, and sampled membership identical to
-     the backend domain;
+     face, one intact source cuboid at the original Cartesian bounds, no
+     zero-shift wrapped fragment, no duplicate wrapped edge, translation-
+     invariant volume, and sampled membership identical to the backend domain;
    - run pairwise repulsive placement with MIC and the host temporarily fixed;
      require finite progress events, then finish and prove every host
      coordinate, constraint, tag, charge, custom array, label, and calculator

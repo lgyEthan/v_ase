@@ -2,18 +2,19 @@
 
 ## add-atoms
 
-Periodic amorphous Ga for H insertion inside an allowed box or outside a prohibited box.
+Cu(111) terrace for O insertion above the top layer with an optional protected surface patch.
 
-- Static: `amorphous_ga_h_add_atoms.traj`
+- Static: `cu111_oxygen_add_atoms.traj`
 - Suggested selected indices: ``
-- Scatter 20 H_inserted atoms with random seed 2021.
-- Allowed mode starts inside the central box; Prohibited mode starts outside it.
-- All Ga coordinates remain unchanged while only inserted H follows pairwise repulsion.
+- Scatter 10 O_inserted atoms with random seed 2021 (0.238 monolayer over the top Cu layer).
+- The Allow region is a finite adsorption zone above Cu(111); the optional Reject region protects a central terrace patch.
+- All Cu coordinates remain unchanged while only inserted O follows pairwise repulsion.
+- Surface context: https://doi.org/10.1016/S0039-6028(01)01464-9
 
 Open command:
 
 ```bash
-v_ase gui examples/readme_scene_assets/amorphous_ga_h_add_atoms.traj --show-bonds
+v_ase gui examples/readme_scene_assets/cu111_oxygen_add_atoms.traj --show-bonds
 ```
 
 ## add-molecules
@@ -22,7 +23,7 @@ Periodic layered channel for exact multi-region rigid-water insertion.
 
 - Static: `layered_water_channel.traj`
 - Suggested selected indices: ``
-- Target 0.70 g/cm^3 across two Allow reservoirs minus one Reject gate; 18 H2O molecules are realizable.
+- Target 0.80 g/cm^3 across two Allow reservoirs minus one Reject gate; 10 H2O molecules are realizable.
 - Random orientation is Haar-uniform and rigid placement preserves each molecular geometry.
 - Only inserted water is selected and relaxed; the two membrane layers remain unchanged.
 

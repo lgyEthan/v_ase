@@ -145,8 +145,11 @@ marks Allow/Reject membership vectorially, and evaluates only triclinic-cell
 boundary partitions as convex-polyhedron intersections. The resulting volume
 is exact rather than voxelized. Sampling uses batched vectorized membership;
 its cost scales with requested count and accessible-volume fraction. Periodic
-region images are generated only for lattice translations that intersect the
-primary cell. Pairwise placement uses ASE's periodic
+region images are generated only for nonzero lattice translations that
+intersect the primary cell. The renderer keeps one intact source cuboid per
+region, batches all deduplicated wrapped edges for that region into one
+instanced draw, and creates no periodic geometry while region MIC is off.
+Pairwise placement uses ASE's periodic
 neighbor list rather than an all-pairs distance matrix, and only tag-3 mobile
 atoms receive forces when the host-fixing option is enabled.
 

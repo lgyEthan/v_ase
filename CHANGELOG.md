@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.9
+
+- Rebuilt periodic insertion-region overlays around one intact Cartesian
+  source cuboid plus cell-clipped nonzero lattice images. Shared wrapped edges
+  are deduplicated, including in triclinic cells, so a boundary-crossing box
+  remains readable without changing exact backend membership or volume.
+- Replaced the Add Atoms guide with a Cu(111)/O surface-placement workflow and
+  rebuilt Add Molecules around a clean orthorhombic 6 Angstrom layered channel
+  with random rigid-water placement, exact multi-region density, and visible
+  source/wrapped region semantics.
+- Rebuilt the per-atom trajectory example so all 160 atoms use one locked
+  force-magnitude scale and frame-matched harmonic forces and arrows; slowed
+  the animation to half its previous playback rate.
+- Enlarged and repositioned the structures above the Planar Translation and
+  Optimize Translation plots, synchronized the README and canonical Agent
+  Skill, and added browser/scientific regressions for the new examples.
+
 ## 0.2.8
 
 - Extended the persistent Add Atoms workspace with reproducible Random and

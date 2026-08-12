@@ -121,6 +121,9 @@ await applyCurrent({display: {
 For each known nonzero force `F`, verify that the arrow direction is
 `F / |F|` and its length is `forceVectorScale * |F|`. Keep the same resolved
 colorscale minimum and maximum on every trajectory frame and export.
+For a full-structure request, use `scope:"all"` and require the mapped-color
+count to equal the number of finite-valued visible atoms. Selected-only scope
+is an explicit masking workflow, not a valid fallback for missing full colors.
 
 ### Publication Image
 
@@ -417,9 +420,13 @@ policy without moving staged atoms. Verify the returned exact volume, periodic i
 sampling diagnostics, mode-only placement timeline, and host invariants before
 optimization. Use `cancel-add-atoms` at any point before finish to restore
 coordinates, constraints, arrays, labels, history, and redo state exactly.
+For GUI validation, require one intact source cuboid with its original six
+Cartesian bounds plus only cell-clipped, nonzero lattice-shift fragments at the
+opposite periodic faces. Shared fragment edges must not be drawn twice.
 
 For molecules, discover the installed catalog and preserve geometry unless
-the user explicitly requests atomwise internal motion:
+the user explicitly requests atomwise internal motion. The concrete density
+checks below use `examples/readme_scene_assets/layered_water_channel.traj`:
 
 ```javascript
 const capabilities = await ai.capabilities();
@@ -430,16 +437,18 @@ await applyCurrent({operation: {
   name: "scatter-molecules",
   molecules: [{name: "H2O", label: "channel_water", count: 1}],
   quantityMode: "density",
-  targetDensityGcm3: 0.70,
+  targetDensityGcm3: 0.80,
   regionMode: "regions",
   regionMic: true,
   regions: [
-    {id: "left-reservoir", role: "allow", bounds: [-5, 3, 1, 9.5, 8, 16]},
-    {id: "right-reservoir", role: "allow", bounds: [5, 13, 1, 9.5, 8, 16]},
-    {id: "central-gate", role: "reject", bounds: [1, 8, 4, 6.5, 8, 16]}
+    {id: "periodic-inlet", role: "allow",
+     bounds: [-2, 4.2, 0.8, 9.03804859, 7.65, 12.35]},
+    {id: "right-reservoir", role: "allow",
+     bounds: [6.5, 10.5, 0.8, 9.03804859, 7.65, 12.35]},
+    {id: "central-gate", role: "reject",
+     bounds: [2.5, 7.2, 3.7, 6.1, 7.65, 12.35]}
   ],
-  placementMode: "homogeneous",
-  coordinateBasis: "cartesian",
+  placementMode: "random",
   pbcAware: true,
   randomOrientation: true,
   rigidMolecules: true,
@@ -449,10 +458,13 @@ await applyCurrent({operation: {
 const staged = await ai.describe({includePositions: true});
 if (
   staged.addAtoms?.content_kind !== "molecules"
-  || staged.addAtoms.molecule_count !== 18
-  || staged.addAtoms.new_count !== 54
-  || staged.addAtoms.density?.target_g_cm3 !== 0.70
-  || Math.abs(staged.addAtoms.domain.volume_angstrom3 - 767.68) > 1e-8
+  || staged.addAtoms.molecule_count !== 10
+  || staged.addAtoms.new_count !== 30
+  || staged.addAtoms.density?.target_g_cm3 !== 0.80
+  || Math.abs(
+    staged.addAtoms.density?.actual_g_cm3 - 0.8132063091734184
+  ) > 1e-12
+  || Math.abs(staged.addAtoms.domain.volume_angstrom3 - 367.8600492603591) > 1e-8
 ) {
   await applyCurrent({operation: "cancel-add-atoms"});
   throw new Error("Molecule staging failed semantic verification.");

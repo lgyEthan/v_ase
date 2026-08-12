@@ -15,9 +15,17 @@ from pathlib import Path
 
 import numpy as np
 from ase import Atoms
-from ase.build import bulk, fcc111, graphene, molecule, nanotube, surface
+from ase.build import (
+    bulk,
+    fcc111,
+    graphene,
+    graphene_nanoribbon,
+    molecule,
+    nanotube,
+    surface,
+)
 from ase.constraints import FixAtoms, FixedLine, FixedPlane, Hookean
-from ase.geometry import find_mic
+from ase.calculators.singlepoint import SinglePointCalculator
 from ase.io import write
 from ase.optimize import FIRE
 from ase.spacegroup import crystal
@@ -29,6 +37,8 @@ if str(ROOT) not in sys.path:
 
 from v_ase.repulsion import RepulsionCalculator
 from v_ase.io import atom_labels, set_atom_labels
+from v_ase.add_atoms import resolve_molecule_density
+from v_ase.insertion_regions import build_insertion_domain
 
 
 DEFAULT_OUT_DIR = ROOT / "examples" / "readme_scene_assets"
@@ -40,6 +50,7 @@ PHOSPHORENE_COLOR_REFERENCE = "https://doi.org/10.1038/srep13927"
 CU2O_111_REFERENCE = "https://doi.org/10.1039/C8CP06023A"
 CU2O_CU_EPITAXY_REFERENCE = "https://doi.org/10.1016/0022-0248(78)90299-3"
 CU2O_CU_INTERFACE_REFERENCE = "https://doi.org/10.1021/acs.jpcc.0c04453"
+O_CU111_REFERENCE = "https://doi.org/10.1016/S0039-6028(01)01464-9"
 PHOSPHORENE_TWIST_DEGREES = 13.85
 PHOSPHORENE_SUBLAYER_COLORS = {
     "P_upper": "#6faf68",
@@ -548,78 +559,91 @@ def make_material_preset_scene() -> tuple[Atoms, dict[str, list[int]]]:
     return atoms, groups
 
 
-def _periodic_disordered_points(
-    cell: np.ndarray,
-    count: int,
-    *,
-    minimum_distance: float,
-    seed: int,
-) -> np.ndarray:
-    """Generate a reproducible disordered periodic point set without overlaps."""
-
-    generator = np.random.default_rng(seed)
-    accepted: list[np.ndarray] = []
-    attempts = 0
-    while len(accepted) < count and attempts < count * 10_000:
-        candidate = generator.random(3) @ cell
-        attempts += 1
-        if accepted:
-            _, distances = find_mic(
-                np.asarray(accepted) - candidate,
-                cell,
-                pbc=[True, True, True],
-            )
-            if float(np.min(distances)) < minimum_distance:
-                continue
-        accepted.append(candidate)
-    if len(accepted) != count:
-        raise RuntimeError("Could not construct the periodic disordered README scene.")
-    return np.asarray(accepted, dtype=float)
-
-
 def make_random_addition_scene() -> tuple[Atoms, dict[str, object]]:
-    """Return periodic amorphous Ga with a visible H insertion volume."""
+    """Return a Cu(111) terrace with a finite O adsorption volume.
 
-    cell = np.diag([20.0, 20.0, 20.0])
-    positions = _periodic_disordered_points(
-        cell,
-        320,
-        minimum_distance=2.05,
-        seed=7421,
+    Ten O atoms over 42 top-layer Cu sites are close to the quarter-monolayer
+    coverage at which atomic oxygen is reported to prefer threefold hollows.
+    Repulsion remains a placement aid, not an adsorption-energy calculation.
+    """
+
+    host = fcc111(
+        "Cu",
+        size=(7, 6, 4),
+        a=3.615,
+        vacuum=7.0,
+        orthogonal=True,
     )
-    host = Atoms("Ga320", positions=positions, cell=cell, pbc=True)
-    set_atom_labels(host, ["Ga_amorphous"] * len(host))
-    center = np.asarray([10.0, 10.0, 10.0])
+    host.pbc = [True, True, False]
+    set_atom_labels(host, ["Cu_surface"] * len(host))
+    cell_lengths = host.cell.lengths()
+    top_z = float(np.max(host.positions[:, 2]))
+    allow_bounds = [
+        0.18 * cell_lengths[0],
+        0.82 * cell_lengths[0],
+        0.14 * cell_lengths[1],
+        0.86 * cell_lengths[1],
+        top_z + 0.58,
+        top_z + 2.35,
+    ]
+    reject_bounds = [
+        0.43 * cell_lengths[0],
+        0.60 * cell_lengths[0],
+        0.24 * cell_lengths[1],
+        0.76 * cell_lengths[1],
+        top_z + 0.58,
+        top_z + 2.35,
+    ]
     host.info.update({
-        "readme_scene": "periodic_amorphous_ga_hydrogen_addition",
-        "purpose": "random or homogeneous H insertion followed by pairwise repulsive placement",
-        "generation": "deterministic periodic random packing with a 2.05 angstrom Ga exclusion distance",
+        "readme_scene": "cu111_oxygen_addition",
+        "purpose": "random O insertion in a top-surface zone followed by pairwise repulsion",
+        "coverage_monolayer": 10 / 42,
+        "surface_reference": O_CU111_REFERENCE,
     })
     return host, {
-        "entries": [{"element": "H", "label": "H_inserted", "count": 20}],
+        "entries": [{"element": "O", "label": "O_inserted", "count": 10}],
         "seed": 2021,
-        "host_seed": 7421,
-        "minimum_ga_distance": 2.05,
-        "insertion_center": center.tolist(),
-        "insertion_half_box": [5.6, 5.6, 5.6],
+        "coverage_monolayer": 10 / 42,
+        "allow_region": {
+            "id": "surface-adsorption-zone",
+            "name": "Surface adsorption zone",
+            "role": "allow",
+            "bounds": allow_bounds,
+        },
+        "reject_region": {
+            "id": "protected-terrace-patch",
+            "name": "Protected terrace patch",
+            "role": "reject",
+            "bounds": reject_bounds,
+        },
+        "surface_reference": O_CU111_REFERENCE,
     }
 
 
 def make_layered_water_channel_scene() -> tuple[Atoms, dict[str, object]]:
-    """Return a periodic layered channel for rigid-water insertion."""
+    """Return an orthorhombic 6 Å layered channel for rigid-water insertion."""
 
-    sheet = graphene(size=(6, 5, 1), vacuum=0.0)
+    source = graphene_nanoribbon(6, 4, type="zigzag", sheet=True, vacuum=0.0)
+    sheet = Atoms(
+        "C" * len(source),
+        positions=np.column_stack((
+            source.positions[:, 0],
+            source.positions[:, 2],
+            np.zeros(len(source)),
+        )),
+        cell=[source.cell.lengths()[0], source.cell.lengths()[2], 20.0],
+        pbc=[True, True, False],
+    )
     cell = np.asarray(sheet.cell.array, dtype=float)
-    cell[2] = [0.0, 0.0, 24.0]
     lower = sheet.copy()
     lower.cell = cell
     lower.positions[:, 2] = 7.0
     upper = sheet.copy()
     upper.cell = cell
-    upper.positions[:, 2] = 17.0
+    upper.positions[:, 2] = 13.0
     channel = lower + upper
     channel.cell = cell
-    channel.pbc = True
+    channel.pbc = [True, True, False]
     labels = ["C_lower_membrane"] * len(lower) + ["C_upper_membrane"] * len(upper)
     set_atom_labels(channel, labels)
     channel.wrap(eps=1e-10)
@@ -627,37 +651,92 @@ def make_layered_water_channel_scene() -> tuple[Atoms, dict[str, object]]:
         "readme_scene": "layered_periodic_water_channel",
         "purpose": "exact multi-region density placement of rigid H2O molecules",
     })
+    length_x, length_y, _ = channel.cell.lengths()
+    regions = [
+        {
+            "id": "periodic-inlet",
+            "name": "Periodic inlet",
+            "role": "allow",
+            "bounds": [-2.0, 4.2, 0.8, length_y - 0.8, 7.65, 12.35],
+        },
+        {
+            "id": "right-reservoir",
+            "name": "Right reservoir",
+            "role": "allow",
+            "bounds": [6.5, 10.5, 0.8, length_y - 0.8, 7.65, 12.35],
+        },
+        {
+            "id": "central-gate",
+            "name": "Central gate",
+            "role": "reject",
+            "bounds": [2.5, 7.2, 3.7, 6.1, 7.65, 12.35],
+        },
+    ]
+    domain = build_insertion_domain(
+        cell=channel.cell.array,
+        pbc=channel.pbc,
+        regions=regions,
+        pbc_aware=True,
+    )
+    target_density = 0.80
+    _, density = resolve_molecule_density(
+        [{"name": "H2O", "label": "water", "count": 1, "atom_count": 3}],
+        target_density_g_cm3=target_density,
+        accessible_volume_angstrom3=domain.volume,
+    )
     return channel, {
         "molecules": [{"name": "H2O", "label": "water", "count": 1}],
-        "target_density_g_cm3": 0.70,
-        "expected_molecule_count": 18,
-        "regions": [
-            {
-                "id": "left-reservoir",
-                "name": "Left reservoir",
-                "role": "allow",
-                "bounds": [-5.0, 3.0, 1.0, 9.5, 8.0, 16.0],
-            },
-            {
-                "id": "right-reservoir",
-                "name": "Right reservoir",
-                "role": "allow",
-                "bounds": [5.0, 13.0, 1.0, 9.5, 8.0, 16.0],
-            },
-            {
-                "id": "central-gate",
-                "name": "Central gate",
-                "role": "reject",
-                "bounds": [1.0, 8.0, 4.0, 6.5, 8.0, 16.0],
-            },
-        ],
-        "accessible_volume_angstrom3": 767.68,
+        "target_density_g_cm3": target_density,
+        "expected_molecule_count": density["molecule_count"],
+        "actual_density_g_cm3": density["actual_g_cm3"],
+        "regions": regions,
+        "accessible_volume_angstrom3": domain.volume,
+        "interlayer_spacing_angstrom": 6.0,
         "seed": 1207,
-        "placement_mode": "homogeneous",
+        "placement_mode": "random",
         "coordinate_basis": "cartesian",
         "random_orientation": True,
         "rigid_molecules": True,
     }
+
+
+def make_atom_colorscale_trajectory() -> list[Atoms]:
+    """Return a periodic harmonic trajectory with forces on every atom."""
+
+    reference = fcc111("Cu", size=(10, 8, 2), vacuum=7.0, orthogonal=True)
+    scaled = reference.get_scaled_positions(wrap=True)
+    spring_constant = 3.2
+    frames: list[Atoms] = []
+    phases = np.linspace(0.0, 2.0 * math.pi, 12, endpoint=False)
+    for frame_index, phase in enumerate(phases):
+        displacement = np.zeros((len(reference), 3), dtype=float)
+        displacement[:, 0] = 0.16 * np.sin(
+            2.0 * math.pi * (scaled[:, 0] + 0.5 * scaled[:, 1]) - phase
+        )
+        displacement[:, 1] = 0.09 * np.sin(
+            2.0 * math.pi * (scaled[:, 0] - scaled[:, 1]) + 0.37 - 0.75 * phase
+        )
+        displacement[:, 2] = 0.20 * np.cos(
+            2.0 * math.pi * (scaled[:, 1] - 0.5 * scaled[:, 0]) - 1.35 * phase
+        )
+        displacement -= np.mean(displacement, axis=0, keepdims=True)
+        atoms = reference.copy()
+        atoms.positions += displacement
+        forces = -spring_constant * displacement
+        if not np.allclose(np.sum(forces, axis=0), 0.0, atol=1e-12):
+            raise AssertionError("README phonon example has a nonzero net Cartesian force.")
+        atoms.new_array("forces", forces.copy())
+        atoms.calc = SinglePointCalculator(
+            atoms,
+            energy=float(0.5 * spring_constant * np.sum(displacement * displacement)),
+            forces=forces,
+        )
+        atoms.info["readme_scene"] = "force_consistent_atom_colorscale"
+        atoms.info["force_model"] = "periodic harmonic Cu phonon, F_i = -k u_i"
+        atoms.info["spring_constant_ev_a2"] = spring_constant
+        atoms.info["frame_index"] = frame_index
+        frames.append(atoms)
+    return frames
 
 
 def make_black_phosphorene_unit_cell() -> Atoms:
@@ -965,15 +1044,19 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
         info = SceneInfo(
             name=name,
             description=(
-                "Periodic amorphous Ga for H insertion inside an allowed box or "
-                "outside a prohibited box."
+                "Cu(111) terrace for O insertion above the top layer with an "
+                "optional protected surface patch."
             ),
-            static_file="amorphous_ga_h_add_atoms.traj",
+            static_file="cu111_oxygen_add_atoms.traj",
             selected_indices=(),
             notes=(
-                f"Scatter {entries[0]['count']} H_inserted atoms with random seed 2021.",
-                "Allowed mode starts inside the central box; Prohibited mode starts outside it.",
-                "All Ga coordinates remain unchanged while only inserted H follows pairwise repulsion.",
+                (
+                    f"Scatter {entries[0]['count']} O_inserted atoms with random seed 2021 "
+                    f"({metadata['coverage_monolayer']:.3f} monolayer over the top Cu layer)."
+                ),
+                "The Allow region is a finite adsorption zone above Cu(111); the optional Reject region protects a central terrace patch.",
+                "All Cu coordinates remain unchanged while only inserted O follows pairwise repulsion.",
+                f"Surface context: {metadata['surface_reference']}",
             ),
         )
         return atoms, info
@@ -1160,6 +1243,7 @@ SCENE_NAMES = (
     "showcase",
 )
 STALE_MOTION_FILES = (
+    "amorphous_ga_h_add_atoms.traj",
     "fixedline_motion.traj",
     "fixedplane_motion.traj",
     "hookean_motion.traj",

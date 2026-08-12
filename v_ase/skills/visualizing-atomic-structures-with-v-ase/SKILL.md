@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.8"
+python -m pip install "v_ase-gui==0.2.9"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -217,7 +217,10 @@ Prefer `regionMode:"regions"` with stable `regions` objects containing `id`,
 intersected with the Allow union, or the complete cell when no Allow exists,
 minus the Reject union. Without a finite cell, at least one Allow region is
 mandatory. `regionMic:true` maps region images through complete triclinic
-lattice vectors. Legacy `regionMode:"box"` remains accepted for one region.
+lattice vectors. In the GUI, keep the intact Cartesian source cuboid visible;
+draw only its cell-clipped nonzero periodic images at the opposite faces and
+deduplicate shared fragment edges. Never replace the source box with a pile of
+wrapped fragments. Legacy `regionMode:"box"` remains accepted for one region.
 Regions define initial placement: `allowEscape` defaults to `true`, so
 repulsive placement may leave the combined domain.
 
@@ -354,7 +357,8 @@ For any nontrivial task, verify all applicable items:
   seed, exact triclinic Boolean domain, stable multi-region IDs, Allow-union
   and Reject-union semantics, no-cell Allow requirement, analytic accessible
   volume, periodic region images, default escape policy, multi-selected live
-  `G` bounds, rejected region rotation, pairwise cutoffs, MIC, temporary host
+  `G` bounds, one intact source box plus deduplicated nonzero wrapped
+  fragments, rejected region rotation, pairwise cutoffs, MIC, temporary host
   freeze, asynchronous status, mode-only movie timeline, and exact host
   coordinate/constraint/array preservation after finish or cancel; for
   molecules also verify count versus density mode, integer composition ratio,
@@ -379,6 +383,8 @@ For any nontrivial task, verify all applicable items:
   identical locked range across every trajectory frame and export; for large
   trajectories verify one full-range load, no duplicate frame prefetch, fast
   cached recoloring, and zero colorscale work after disabling;
+- for `scope:"all"`, require one finite mapped color for every finite-valued
+  visible atom on every frame; a partial subset is a failed application;
 - force vectors: stored-force availability, exact Cartesian direction,
   `scale * |F|` length, 2D/3D style, thickness/color, replica placement, and
   an explicit unavailable state rather than calculator evaluation;

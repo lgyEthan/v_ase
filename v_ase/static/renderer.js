@@ -3161,6 +3161,13 @@ export class ASERenderer {
         return { geometry, segments };
     }
 
+    insertionRegionSegmentKey(start, end) {
+        const pointKey = point => point.toArray()
+            .map(value => Math.round(Number(value) * 1e7))
+            .join(':');
+        return [pointKey(start), pointKey(end)].sort().join('|');
+    }
+
     setAddAtomsRegions(configuration = null) {
         if (!this.addAtomsRegionGroup) return;
         this.clearGroup(this.addAtomsRegionGroup);
@@ -3184,44 +3191,90 @@ export class ASERenderer {
             const rejected = region.role === 'reject' || region.role === 'prohibited';
             const isSelected = selected.has(regionId);
             const color = rejected ? 0xd1495b : 0x008f7a;
+            const source = this.clippedInsertionRegionGeometry(bounds, null);
+            if (!source) return;
+            const sourceEdgeMaterial = new THREE.MeshBasicMaterial({
+                color,
+                transparent: true,
+                opacity: isSelected ? 1 : 0.94,
+                depthTest: true,
+                depthWrite: false
+            });
+            if (isSelected) sourceEdgeMaterial.color.offsetHSL(0, 0, 0.12);
+            const sourceEdgeMesh = this.addCellEdgeInstances(
+                this.addAtomsRegionGroup,
+                source.segments,
+                {
+                    addAtomsRegion: true,
+                    insertionRegionSourceBox: true,
+                    regionId
+                },
+                {
+                    material: sourceEdgeMaterial,
+                    radius: isSelected ? 0.050 : 0.038
+                }
+            );
+            if (sourceEdgeMesh) sourceEdgeMesh.renderOrder = 15;
+            const sourceFill = new THREE.Mesh(
+                source.geometry,
+                new THREE.MeshBasicMaterial({
+                    color,
+                    transparent: true,
+                    opacity: isSelected ? 0.105 : (rejected ? 0.060 : 0.045),
+                    side: THREE.DoubleSide,
+                    depthTest: true,
+                    depthWrite: false
+                })
+            );
+            sourceFill.renderOrder = 14;
+            sourceFill.userData = {
+                addAtomsRegion: true,
+                insertionRegionSourceBox: true,
+                regionId,
+                role: rejected ? 'reject' : 'allow',
+                shift: [0, 0, 0]
+            };
+            this.addAtomsRegionGroup.add(sourceFill);
+            pickables.push(sourceFill);
+
             const images = this.insertionRegionImages(
                 { ...region, bounds },
                 cellData,
                 pbc,
                 configuration.pbcAware !== false
             );
+            const wrappedSegments = [];
+            const segmentKeys = new Set(source.segments.map(
+                ([start, end]) => this.insertionRegionSegmentKey(start, end)
+            ));
             images.forEach(image => {
+                if (image.shift.every(value => value === 0)) return;
                 const clipped = this.clippedInsertionRegionGeometry(image.bounds, cellData);
                 if (!clipped) return;
-                const edgeMaterial = new THREE.MeshBasicMaterial({
-                    color,
-                    transparent: true,
-                    opacity: isSelected ? 1 : 0.9,
-                    depthTest: true,
-                    depthWrite: false
+                clipped.segments.forEach(segment => {
+                    const key = this.insertionRegionSegmentKey(segment[0], segment[1]);
+                    if (segmentKeys.has(key)) return;
+                    segmentKeys.add(key);
+                    wrappedSegments.push(segment);
                 });
-                if (isSelected) edgeMaterial.color.offsetHSL(0, 0, 0.12);
-                const edgeMesh = this.addCellEdgeInstances(
-                    this.addAtomsRegionGroup,
-                    clipped.segments,
-                    { addAtomsRegion: true, regionId },
-                    { material: edgeMaterial, radius: isSelected ? 0.048 : 0.034 }
-                );
-                if (edgeMesh) edgeMesh.renderOrder = 14;
                 const fill = new THREE.Mesh(
                     clipped.geometry,
                     new THREE.MeshBasicMaterial({
                         color,
                         transparent: true,
-                        opacity: isSelected ? 0.12 : (rejected ? 0.07 : 0.05),
+                        opacity: isSelected ? 0.075 : (rejected ? 0.040 : 0.030),
                         side: THREE.DoubleSide,
                         depthTest: true,
-                        depthWrite: false
+                        depthWrite: false,
+                        polygonOffset: true,
+                        polygonOffsetFactor: -1,
+                        polygonOffsetUnits: -1
                     })
                 );
                 fill.renderOrder = 13;
                 fill.userData = {
                     addAtomsRegion: true,
+                    insertionRegionWrappedFragment: true,
                     regionId,
                     role: rejected ? 'reject' : 'allow',
                     shift: image.shift
@@ -3229,6 +3282,30 @@ export class ASERenderer {
                 this.addAtomsRegionGroup.add(fill);
                 pickables.push(fill);
             });
+            if (wrappedSegments.length) {
+                const wrappedEdgeMaterial = new THREE.MeshBasicMaterial({
+                    color,
+                    transparent: true,
+                    opacity: isSelected ? 0.72 : 0.52,
+                    depthTest: true,
+                    depthWrite: false
+                });
+                if (isSelected) wrappedEdgeMaterial.color.offsetHSL(0, 0, 0.12);
+                const wrappedEdgeMesh = this.addCellEdgeInstances(
+                    this.addAtomsRegionGroup,
+                    wrappedSegments,
+                    {
+                        addAtomsRegion: true,
+                        insertionRegionWrappedFragment: true,
+                        regionId
+                    },
+                    {
+                        material: wrappedEdgeMaterial,
+                        radius: isSelected ? 0.032 : 0.024
+                    }
+                );
+                if (wrappedEdgeMesh) wrappedEdgeMesh.renderOrder = 14;
+            }
         });
         this.addAtomsRegionGroup.userData = {
             pickables,

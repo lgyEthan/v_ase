@@ -169,9 +169,11 @@ balances normalized cell coordinates. Optional PBC-aware spacing uses the
 exact triclinic minimum image. Each Cartesian region and every periodic image
 is clipped against the primary cell polyhedron. This prevents skew-cell
 bounding-box corners and periodic faces from being counted twice. With region
-MIC enabled, moving a region through one periodic face displays its
-lattice-translated piece on the opposite face. This uses the full cell vectors,
-not a same-Cartesian-coordinate shortcut.
+MIC enabled, the intact source cuboid remains at its original Cartesian bounds,
+including any part outside the primary cell. Only nonzero lattice-translated
+pieces are clipped into the opposite face, and shared fragment edges are drawn
+once. This uses the full cell vectors, not a same-Cartesian-coordinate shortcut
+or a collection of overlapping wrapped boxes.
 
 Regions define initial placement. Inserted atoms may leave the Boolean domain
 during repulsive placement by default; optional confinement projects them back

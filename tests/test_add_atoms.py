@@ -1250,6 +1250,85 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             assert page.evaluate(
                 "window.__ASE_APP__.renderer.addAtomsRegionGroup.children.length"
             ) >= 2
+            periodic_box_visuals = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.renderer.setAddAtomsRegions({
+                    visible: true,
+                    pbcAware: true,
+                    pbc: [true, true, true],
+                    cell: app.state.atoms.cell,
+                    selectedIds: ['crossing-box'],
+                    regions: [{
+                        id: 'crossing-box',
+                        name: 'Crossing box',
+                        role: 'allow',
+                        bounds: [-1, 2, 1, 3, 1, 3],
+                    }],
+                });
+                const children = app.renderer.addAtomsRegionGroup.children;
+                const sourceFill = children.find(child => (
+                    child.userData?.insertionRegionSourceBox
+                    && !child.userData?.cellEdgeInstances
+                ));
+                sourceFill.geometry.computeBoundingBox();
+                const wrappedFills = children.filter(child => (
+                    child.userData?.insertionRegionWrappedFragment
+                    && !child.userData?.cellEdgeInstances
+                ));
+                const wrappedEdges = children.filter(child => (
+                    child.userData?.insertionRegionWrappedFragment
+                    && child.userData?.cellEdgeInstances
+                ));
+                const matrices = [];
+                wrappedEdges.forEach(mesh => {
+                    for (let index = 0; index < mesh.count; index++) {
+                        const offset = index * 16;
+                        const values = Array.from(
+                            mesh.instanceMatrix.array.slice(offset, offset + 16)
+                        );
+                        matrices.push(values.map(value => Math.round(value * 1e7)).join(':'));
+                    }
+                });
+                const result = {
+                    sourceBounds: [
+                        sourceFill.geometry.boundingBox.min.x,
+                        sourceFill.geometry.boundingBox.max.x,
+                        sourceFill.geometry.boundingBox.min.y,
+                        sourceFill.geometry.boundingBox.max.y,
+                        sourceFill.geometry.boundingBox.min.z,
+                        sourceFill.geometry.boundingBox.max.z,
+                    ],
+                    sourceFillCount: children.filter(child => (
+                        child.userData?.insertionRegionSourceBox
+                        && !child.userData?.cellEdgeInstances
+                    )).length,
+                    sourceEdgeCount: children.filter(child => (
+                        child.userData?.insertionRegionSourceBox
+                        && child.userData?.cellEdgeInstances
+                    )).length,
+                    wrappedFillCount: wrappedFills.length,
+                    wrappedEdgeCount: wrappedEdges.length,
+                    wrappedShifts: wrappedFills.map(child => child.userData.shift),
+                    wrappedSegmentCount: matrices.length,
+                    uniqueWrappedSegmentCount: new Set(matrices).size,
+                };
+                app.updateAddAtomsRegionPreview();
+                return result;
+            }""")
+            assert periodic_box_visuals["sourceFillCount"] == 1
+            assert periodic_box_visuals["sourceEdgeCount"] == 1
+            assert periodic_box_visuals["sourceBounds"] == pytest.approx(
+                [-1, 2, 1, 3, 1, 3]
+            )
+            assert periodic_box_visuals["wrappedFillCount"] >= 1
+            assert periodic_box_visuals["wrappedEdgeCount"] == 1
+            assert all(
+                any(component != 0 for component in shift)
+                for shift in periodic_box_visuals["wrappedShifts"]
+            )
+            assert periodic_box_visuals["wrappedSegmentCount"] == (
+                periodic_box_visuals["uniqueWrappedSegmentCount"]
+            )
 
             first = page.locator("#add-atoms-entries .add-atoms-entry-row").first
             first.locator(".add-atoms-entry-type").select_option("Li")

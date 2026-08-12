@@ -74,8 +74,10 @@ and documentation use `view()`.
    coordinates. Multiple Cartesian Allow and Reject regions form one exact
    Boolean insertion domain, default to post-scatter escape, translate singly
    or as a multi-selection with `G`, wrap by triclinic lattice vectors under
-   MIC, and reject `R`. Optional confinement uses the shortest triclinic MIC
-   displacement to the same visible domain. Molecule density uses that exact
+   MIC while retaining one intact source cuboid and deduplicated clipped
+   nonzero periodic fragments, and reject `R`. Optional confinement uses the
+   shortest triclinic MIC displacement to the same visible domain. Molecule
+   density uses that exact
    analytic volume, reduces Count ratios to their primitive integer ratio, and
    reports the nearest realizable integer composition.
 3. ASE is authoritative for constrained commits:
