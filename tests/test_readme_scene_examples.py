@@ -3,6 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from ase.constraints import FixedLine, FixedPlane, Hookean
+from ase.geometry import find_mic
 from ase.io import read
 from ase.neighborlist import neighbor_list
 from ase.units import Bohr
@@ -18,6 +19,7 @@ from examples.readme_scenes import (
     make_crowded_c60_relaxation_scene,
     make_ferrocene_scene,
     make_material_preset_scene,
+    make_layered_water_channel_scene,
     make_phosphorene_twist_scene,
     make_random_addition_scene,
     write_scene_assets,
@@ -34,6 +36,7 @@ def test_readme_scene_assets_write_reopenable_traj_files(tmp_path):
 
     assert set(SCENE_NAMES) == {
         "add-atoms",
+        "add-molecules",
         "phosphorene",
         "commensurate",
         "ai-edit",
@@ -67,7 +70,8 @@ def test_readme_scene_assets_write_reopenable_traj_files(tmp_path):
     assert "ai_pyridinic_n3_li_graphene.traj" in written_names
     assert "cu2o111_on_cu111_pairwise_bonds.traj" in written_names
     assert "material_presets.traj" in written_names
-    assert "rocksalt_vacancy_add_atoms.traj" in written_names
+    assert "amorphous_ga_h_add_atoms.traj" in written_names
+    assert "layered_water_channel.traj" in written_names
     assert not any(path.name.endswith("_motion.traj") for path in written)
 
     fixedline = read(tmp_path / "fixedline.traj")
@@ -173,20 +177,43 @@ def test_phosphorene_scene_uses_published_cell_angle_and_single_puckered_ridges(
         assert np.max(np.linalg.norm(end[moving] - start[moving], axis=1)) > 0.01
 
 
-def test_random_addition_readme_host_is_rocksalt_periodic_and_reproducible():
+def test_random_addition_readme_host_is_periodic_amorphous_ga_and_reproducible():
     host, metadata = make_random_addition_scene()
+    repeated, repeated_metadata = make_random_addition_scene()
 
-    assert len(host) > 100
+    assert len(host) == 320
     assert host.pbc.tolist() == [True, True, True]
     assert abs(float(np.linalg.det(host.cell.array))) > 1.0
-    assert set(atom_labels(host)) == {"Na_lattice", "Cl_lattice"}
+    assert len(host) / abs(float(np.linalg.det(host.cell.array))) >= 0.04
+    assert set(atom_labels(host)) == {"Ga_amorphous"}
     assert metadata["entries"] == [
-        {"element": "Na", "label": "Na_inserted", "count": 6},
-        {"element": "Cl", "label": "Cl_inserted", "count": 6},
+        {"element": "H", "label": "H_inserted", "count": 20},
     ]
     assert metadata["seed"] == 2021
-    assert metadata["vacancy_count"] == 19
+    np.testing.assert_array_equal(host.positions, repeated.positions)
+    assert metadata == repeated_metadata
     assert np.asarray(metadata["insertion_center"]).shape == (3,)
+
+    vectors = host.positions[:, None, :] - host.positions[None, :, :]
+    vectors = vectors[np.triu_indices(len(host), 1)]
+    _, distances = find_mic(vectors, host.cell, pbc=host.pbc)
+    assert float(np.min(distances)) >= metadata["minimum_ga_distance"] - 1e-10
+
+
+def test_layered_water_channel_scene_is_periodic_and_leaves_a_visible_channel():
+    host, metadata = make_layered_water_channel_scene()
+    assert len(host) == 120
+    assert host.pbc.tolist() == [True, True, True]
+    assert set(atom_labels(host)) == {"C_lower_membrane", "C_upper_membrane"}
+    z_values = np.unique(np.round(host.positions[:, 2], 8))
+    np.testing.assert_allclose(z_values, [7.0, 17.0])
+    assert metadata["molecules"] == [{"name": "H2O", "label": "water", "count": 1}]
+    assert metadata["target_density_g_cm3"] == pytest.approx(0.70)
+    assert metadata["expected_molecule_count"] == 18
+    assert [region["role"] for region in metadata["regions"]] == ["allow", "allow", "reject"]
+    assert metadata["accessible_volume_angstrom3"] == pytest.approx(767.68)
+    assert metadata["placement_mode"] == "homogeneous"
+    assert metadata["coordinate_basis"] == "cartesian"
 
 
 def test_relaxation_scene_is_an_actual_fire_trajectory_with_lower_repulsion():
@@ -370,7 +397,7 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     structure = readme.index("## Edit Structures")
     select = readme.index("### Select", structure)
     move = readme.index("### Move", select)
-    add_atoms = readme.index("### Add Atoms — New In v0.2.1", move)
+    add_atoms = readme.index("### Add Atoms — Available Since v0.2.1", move)
     rotate = readme.index("### Rotate Selected Atoms", add_atoms)
     ferrocene = readme.index("#### Ferrocene: Use Fe As The Active Pivot", rotate)
     phosphorene = readme.index("#### Phosphorene: Build The Twist One Edit At A Time", ferrocene)
@@ -383,6 +410,7 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     ai = readme.index("## Work With An AI Agent", measurement)
 
     assert structure < select < move < add_atoms < rotate < ferrocene < phosphorene
+    assert "#### Add Molecules — Available Since v0.2.8" in readme[add_atoms:rotate]
     assert phosphorene < periodic < commensurate < measurement < ai
     normalized_readme = " ".join(
         line.lstrip("> ").strip() for line in readme.lower().splitlines()
@@ -433,11 +461,16 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "**Field smearing σ**" in readme
     assert "**Mesh smoothing passes**" in readme
     assert "source scalar field" in readme
-    assert "Six `Na_inserted` and six" in readme
-    assert "`Cl_inserted` atoms start inside it" in readme
-    assert "The magenta box is an exclusion volume" in readme
+    assert "Twenty `H_inserted` atoms start" in readme
+    assert "periodic amorphous Ga" in readme
+    assert "The red region is a **Reject region**" in readme
     assert "half-open primary periodic cell" in readme
     assert "every pre-existing coordinate, array" in readme
+    assert "ASE G2" in readme
+    assert "Randomize molecular orientation" in readme
+    assert "Preserve molecular geometry" in readme
+    assert "native coordinate origin" in readme
+    assert "18 h2o molecules" in normalized_readme
 
     for filename in (
         "readme_phosphorene_twist.gif",
@@ -456,6 +489,8 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
         "readme_add_atoms_allowed.gif",
         "readme_add_atoms_prohibited.gif",
         "readme_add_atoms.png",
+        "readme_add_molecules.gif",
+        "readme_add_molecules.png",
         "readme_commensurate_host_guest.gif",
     ):
         assert (ROOT / "docs" / "assets" / filename).is_file()
@@ -526,10 +561,26 @@ def test_add_atoms_capture_uses_the_real_batch_workspace_and_optimizer():
     assert "renderer.addAtomsRegionGroup.visible === false" in capture
     assert "np.testing.assert_array_equal" in capture
     assert "relaxed_positions[: len(host)]" in capture
+    assert 'page.click(f"#btn-add-atoms-{role}-region")' in source
+    assert "#add-atoms-region-list .add-atoms-region-item" in source
     assert 'region_role="allowed"' in capture
     assert 'region_role="prohibited"' in capture
     assert 'gif_name="readme_add_atoms_allowed.gif"' in capture
     assert 'gif_name="readme_add_atoms_prohibited.gif"' in capture
+    assert "_capture_add_molecules_media(browser)" in capture
+    molecule_capture = source.split("def _capture_add_molecules_media", 1)[1].split(
+        "def capture_measurement_media", 1
+    )[0]
+    assert 'page.click("#add-atoms-content-molecules")' in molecule_capture
+    assert 'page.click("#add-molecules-quantity-density")' in molecule_capture
+    assert 'metadata["regions"]' in molecule_capture
+    assert 'metadata["accessible_volume_angstrom3"]' in molecule_capture
+    assert 'metadata["expected_molecule_count"]' in molecule_capture
+    assert 'page.click("#add-atoms-placement-homogeneous")' in molecule_capture
+    assert 'page.locator("#add-molecules-random-orientation").set_checked(True)' in molecule_capture
+    assert 'page.locator("#add-molecules-rigid").set_checked(True)' in molecule_capture
+    assert "reference_distances" in molecule_capture
+    assert 'ASSET_DIR / "readme_add_molecules.gif"' in molecule_capture
 
 
 def test_readme_ferrocene_and_copper_bond_media_use_documented_visual_controls():

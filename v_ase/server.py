@@ -35,10 +35,15 @@ from .repulsion import (
     repulsion_metadata,
 )
 from .add_atoms import (
+    apply_atom_addition_positions,
+    atom_addition_domain_preview,
     atom_addition_summary,
     cancel_atom_addition,
     default_pair_cutoffs,
     finish_atom_addition,
+    molecule_catalog,
+    molecule_entry_elements,
+    normalize_molecule_entries,
     start_atom_addition,
     start_atom_addition_relaxation,
     stop_atom_addition_relaxation,
@@ -362,7 +367,8 @@ AI_CONTROL_SCHEMA = {
             "description": (
                 "One semantic structure operation. Supported names are wrap, "
                 "translate-all, set-supercell, make-supercell, add-atom, "
-                "scatter-atoms, update-add-atoms-region, relax-added-atoms, stop-added-atoms, "
+                "scatter-atoms, scatter-molecules, update-add-atoms-region, "
+                "relax-added-atoms, stop-added-atoms, "
                 "finish-add-atoms, cancel-add-atoms, "
                 "delete-selection, set-identity, set-constraints, "
                 "move-selection, rotate-selection, rotate-to-commensurate, "
@@ -406,6 +412,7 @@ AI_CONTROL_SCHEMA = {
                             "enum": [
                                 "wrap", "translate-all", "set-supercell",
                                 "make-supercell", "add-atom", "scatter-atoms",
+                                "scatter-molecules",
                                 "update-add-atoms-region", "relax-added-atoms", "stop-added-atoms",
                                 "finish-add-atoms", "cancel-add-atoms",
                                 "delete-selection", "set-identity",
@@ -469,15 +476,119 @@ AI_CONTROL_SCHEMA = {
                                     "element": {"type": "string", "minLength": 1},
                                     "label": {"type": "string", "minLength": 1},
                                     "count": {"type": "integer", "minimum": 1, "maximum": 100000},
-                                    "regionMode": {"enum": ["cell", "box"]},
+                                    "regionMode": {"enum": ["cell", "box", "regions"]},
+                                    "regions": {
+                                        "type": "array",
+                                        "maxItems": 32,
+                                        "items": {
+                                            "type": "object",
+                                            "required": ["id", "role", "bounds"],
+                                            "properties": {
+                                                "id": {"type": "string", "minLength": 1},
+                                                "name": {"type": "string", "minLength": 1},
+                                                "role": {"enum": ["allow", "reject"]},
+                                                "bounds": {
+                                                    "type": "array",
+                                                    "items": {"type": "number"},
+                                                    "minItems": 6,
+                                                    "maxItems": 6,
+                                                },
+                                            },
+                                        },
+                                    },
                                     "bounds": {
                                         "type": "array",
                                         "items": {"type": "number"},
                                         "minItems": 6,
                                         "maxItems": 6,
                                     },
-                                    "regionRole": {"enum": ["allowed", "prohibited"]},
+                                    "regionRole": {
+                                        "enum": ["allow", "reject", "allowed", "prohibited"]
+                                    },
+                                    "regionMic": {"type": "boolean"},
                                     "allowEscape": {"type": "boolean"},
+                                    "placementMode": {"enum": ["random", "homogeneous"]},
+                                    "coordinateBasis": {"enum": ["cartesian", "fractional"]},
+                                    "pbcAware": {"type": "boolean"},
+                                    "seed": {"type": ["integer", "null"], "minimum": 0},
+                                    "freezeExisting": {"type": "boolean"},
+                                    "cutoffBasis": {"enum": ["covalent", "vdw", "pairwise"]},
+                                    "cutoffScale": {
+                                        "type": "number", "exclusiveMinimum": 0, "maximum": 3
+                                    },
+                                    "pairCutoffs": {"type": "object"},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {"name": {"const": "scatter-molecules"}},
+                            },
+                            "then": {
+                                "anyOf": [
+                                    {"required": ["molecules"]},
+                                    {"required": ["molecule", "count"]},
+                                ],
+                                "properties": {
+                                    "molecules": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "items": {
+                                            "type": "object",
+                                            "required": ["name", "count"],
+                                            "properties": {
+                                                "name": {"type": "string", "minLength": 1},
+                                                "label": {"type": "string", "minLength": 1},
+                                                "count": {
+                                                    "type": "integer", "minimum": 1, "maximum": 20000
+                                                },
+                                            },
+                                        },
+                                    },
+                                    "molecule": {"type": "string", "minLength": 1},
+                                    "label": {"type": "string", "minLength": 1},
+                                    "count": {"type": "integer", "minimum": 1, "maximum": 20000},
+                                    "regionMode": {"enum": ["cell", "box", "regions"]},
+                                    "regions": {
+                                        "type": "array",
+                                        "maxItems": 32,
+                                        "items": {
+                                            "type": "object",
+                                            "required": ["id", "role", "bounds"],
+                                            "properties": {
+                                                "id": {"type": "string", "minLength": 1},
+                                                "name": {"type": "string", "minLength": 1},
+                                                "role": {"enum": ["allow", "reject"]},
+                                                "bounds": {
+                                                    "type": "array",
+                                                    "items": {"type": "number"},
+                                                    "minItems": 6,
+                                                    "maxItems": 6,
+                                                },
+                                            },
+                                        },
+                                    },
+                                    "bounds": {
+                                        "type": "array",
+                                        "items": {"type": "number"},
+                                        "minItems": 6,
+                                        "maxItems": 6,
+                                    },
+                                    "regionRole": {
+                                        "enum": ["allow", "reject", "allowed", "prohibited"]
+                                    },
+                                    "regionMic": {"type": "boolean"},
+                                    "allowEscape": {"type": "boolean"},
+                                    "placementMode": {"enum": ["random", "homogeneous"]},
+                                    "coordinateBasis": {"enum": ["cartesian", "fractional"]},
+                                    "pbcAware": {"type": "boolean"},
+                                    "randomOrientation": {"type": "boolean"},
+                                    "rigidMolecules": {"type": "boolean"},
+                                    "quantityMode": {"enum": ["count", "density"]},
+                                    "targetDensityGcm3": {
+                                        "type": "number", "exclusiveMinimum": 0, "maximum": 100
+                                    },
                                     "seed": {"type": ["integer", "null"], "minimum": 0},
                                     "freezeExisting": {"type": "boolean"},
                                     "cutoffBasis": {"enum": ["covalent", "vdw", "pairwise"]},
@@ -495,13 +606,37 @@ AI_CONTROL_SCHEMA = {
                             },
                             "then": {
                                 "properties": {
+                                    "regions": {
+                                        "type": "array",
+                                        "maxItems": 32,
+                                        "items": {
+                                            "type": "object",
+                                            "required": ["id", "role", "bounds"],
+                                            "properties": {
+                                                "id": {"type": "string", "minLength": 1},
+                                                "name": {"type": "string", "minLength": 1},
+                                                "role": {"enum": ["allow", "reject"]},
+                                                "bounds": {
+                                                    "type": "array",
+                                                    "items": {"type": "number"},
+                                                    "minItems": 6,
+                                                    "maxItems": 6,
+                                                },
+                                            },
+                                        },
+                                    },
+                                    "regionId": {"type": "string", "minLength": 1},
+                                    "regionName": {"type": "string", "minLength": 1},
                                     "bounds": {
                                         "type": "array",
                                         "items": {"type": "number"},
                                         "minItems": 6,
                                         "maxItems": 6,
                                     },
-                                    "regionRole": {"enum": ["allowed", "prohibited"]},
+                                    "regionRole": {
+                                        "enum": ["allow", "reject", "allowed", "prohibited"]
+                                    },
+                                    "regionMic": {"type": "boolean"},
                                     "allowEscape": {"type": "boolean"},
                                 },
                             },
@@ -532,6 +667,7 @@ AI_CONTROL_SCHEMA = {
                                     "fmax": {"type": "number", "exclusiveMinimum": 0},
                                     "steps": {"type": "integer", "minimum": 1, "maximum": 100000},
                                     "mic": {"type": "boolean"},
+                                    "allowEscape": {"type": "boolean"},
                                 },
                             },
                         },
@@ -1064,28 +1200,57 @@ AI_OPERATION_PARAMETERS = {
         "mode": "edit",
         "required": ["entries-or-element-count"],
         "optional": [
-            "entries", "element", "label", "count", "regionMode", "bounds",
-            "regionRole", "allowEscape",
+            "entries", "element", "label", "count", "regionMode", "regions", "bounds",
+            "regionRole", "regionMic", "allowEscape", "placementMode", "coordinateBasis", "pbcAware",
             "seed", "freezeExisting", "cutoffBasis", "cutoffScale", "pairCutoffs",
         ],
         "notes": (
-            "Starts an Add Atoms session and randomly scatters one or more element/label "
-            "populations. regionMode=cell samples a triclinic cell uniformly in fractional "
-            "space. regionMode=box samples the Cartesian box intersected with one half-open "
-            "primary periodic cell, so boundary images are not double weighted. A box can be "
-            "an allowed insertion volume or a prohibited exclusion volume. allowEscape defaults "
+            "Starts an Add Atoms session and places one or more element/label populations. "
+            "placementMode is random or homogeneous. coordinateBasis=cartesian optimizes "
+            "physical nearest-neighbor spacing in angstrom and is the default; fractional "
+            "optimizes normalized cell-coordinate spacing. Random sampling remains volume-uniform "
+            "under either basis because the cell transform has a constant Jacobian. "
+            "regions defines up to 32 stable-id Cartesian Allow/Reject regions. The exact domain is "
+            "the unit cell intersected with the Allow union (or the full cell when no Allow exists), "
+            "minus the Reject union. Periodic region images are clipped to the triclinic primary cell "
+            "without voxel approximation. A structure without a finite cell requires an Allow region. "
+            "Legacy regionMode=box remains accepted. allowEscape defaults "
             "to true, so the region controls initial sampling without confining relaxation. The default "
             "temporarily fixes every pre-existing atom. Follow with relax-added-atoms and "
             "finish-add-atoms, or cancel-add-atoms to restore the exact baseline."
         ),
     },
+    "scatter-molecules": {
+        "mode": "edit",
+        "required": ["molecules-or-molecule-count"],
+        "optional": [
+            "molecules", "molecule", "label", "count", "regionMode", "regions", "bounds",
+            "regionRole", "regionMic", "allowEscape", "placementMode", "coordinateBasis", "pbcAware",
+            "randomOrientation", "rigidMolecules", "seed", "freezeExisting",
+            "quantityMode", "targetDensityGcm3", "cutoffBasis", "cutoffScale", "pairCutoffs",
+        ],
+        "notes": (
+            "Starts an Add Molecules session from the installed ASE G2 molecule catalog. "
+            "Query /api/add-session/molecules/{session_id} before choosing a name. Molecule "
+            "coordinates are placed and rotated about ASE's native coordinate origin without recentering. "
+            "randomOrientation uses Haar-uniform SO(3) rotations. rigidMolecules defaults to "
+            "true and preserves each molecule's internal distances during atomwise pairwise "
+            "repulsion; false permits ordinary atomwise relaxation. quantityMode=density computes "
+            "integer molecule counts from exact accessible volume and reports the realized density. "
+            "The placement, region, "
+            "host-freeze, relaxation, finish, and cancel semantics match scatter-atoms."
+        ),
+    },
     "update-add-atoms-region": {
         "mode": "edit",
         "required": ["active-cartesian-add-atoms-session"],
-        "optional": ["bounds", "regionRole", "allowEscape"],
+        "optional": [
+            "regions", "regionId", "regionName", "bounds", "regionRole",
+            "regionMic", "allowEscape",
+        ],
         "notes": (
-            "Updates the active Cartesian insertion box without moving staged atoms. "
-            "The box cannot be rotated."
+            "Replaces all active Allow/Reject regions, or updates one stable regionId, without moving "
+            "staged atoms. Regions can translate as a group but cannot be rotated."
         ),
     },
     "relax-added-atoms": {
@@ -4662,11 +4827,17 @@ async def apply_commensurate_supercell(session_id: str, payload: Dict[str, Any])
 async def apply_positions(session_id: str, payload: Dict[str, Any]):
     """COMMIT: Backend state update with authoritative constraints."""
     session = get_session(session_id)
-    require_editable(session, "Atom coordinate editing")
+    require_editable(session, "Atom coordinate editing", allow_atom_addition=True)
     sync_session_frame_from_payload(session, payload)
-    session.push_history()
-    
     positions = np.array(payload["positions"])
+    if session.atom_addition is not None:
+        try:
+            apply_atom_addition_positions(session, positions)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return session_update_to_json(session)
+
+    session.push_history()
     # Enforcement: Final coordinates MUST respect ASE constraints
     session.working_atoms.set_positions(positions, apply_constraint=payload_apply_constraint(payload))
     session.sync_current_frame()
@@ -4890,12 +5061,24 @@ async def redo(session_id: str):
     return session_update_to_json(session)
 
 
+@app.get("/api/add-session/molecules/{session_id}")
+async def atom_addition_molecule_catalog(session_id: str):
+    get_session(session_id)
+    return {"molecules": [dict(entry) for entry in molecule_catalog()]}
+
+
 @app.post("/api/add-session/pairs/{session_id}")
 async def atom_addition_pair_cutoffs(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
     require_editable(session, "Random atom insertion", allow_atom_addition=True)
     elements = list(session.working_atoms.get_chemical_symbols())
     elements.extend(payload.get("elements") or [])
+    if payload.get("molecules"):
+        try:
+            entries = normalize_molecule_entries({"molecules": payload.get("molecules")})
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        elements.extend(molecule_entry_elements(entries))
     if not elements:
         elements = ["H"]
     return {
@@ -4907,6 +5090,20 @@ async def atom_addition_pair_cutoffs(session_id: str, payload: Dict[str, Any]):
             scale=payload.get("scale", 0.7),
         ),
     }
+
+
+@app.post("/api/add-session/domain/{session_id}")
+async def atom_addition_domain(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(session, "Insertion-domain preview", allow_atom_addition=True)
+    try:
+        return await asyncio.to_thread(
+            atom_addition_domain_preview,
+            session.working_atoms,
+            payload,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/add-session/start/{session_id}")

@@ -2,18 +2,34 @@
 
 ## add-atoms
 
-Vacancy-rich rocksalt NaCl for random multi-species insertion and repulsive placement.
+Periodic amorphous Ga for H insertion inside an allowed box or outside a prohibited box.
 
-- Static: `rocksalt_vacancy_add_atoms.traj`
+- Static: `amorphous_ga_h_add_atoms.traj`
 - Suggested selected indices: ``
-- Scatter 6 Na_inserted and 6 Cl_inserted atoms with random seed 2021.
+- Scatter 20 H_inserted atoms with random seed 2021.
 - Allowed mode starts inside the central box; Prohibited mode starts outside it.
-- The alternating Na/Cl host remains unchanged while only inserted atoms follow pairwise repulsion.
+- All Ga coordinates remain unchanged while only inserted H follows pairwise repulsion.
 
 Open command:
 
 ```bash
-v_ase gui examples/readme_scene_assets/rocksalt_vacancy_add_atoms.traj --show-bonds
+v_ase gui examples/readme_scene_assets/amorphous_ga_h_add_atoms.traj --show-bonds
+```
+
+## add-molecules
+
+Periodic layered channel for exact multi-region rigid-water insertion.
+
+- Static: `layered_water_channel.traj`
+- Suggested selected indices: ``
+- Target 0.70 g/cm^3 across two Allow reservoirs minus one Reject gate; 18 H2O molecules are realizable.
+- Random orientation is Haar-uniform and rigid placement preserves each molecular geometry.
+- Only inserted water is selected and relaxed; the two membrane layers remain unchanged.
+
+Open command:
+
+```bash
+v_ase gui examples/readme_scene_assets/layered_water_channel.traj --show-bonds
 ```
 
 ## phosphorene

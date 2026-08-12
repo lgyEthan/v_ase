@@ -173,9 +173,13 @@ v_ase api "$COMMAND_URL" apply --params '{
       {"element": "Li", "label": "Li_mobile", "count": 12},
       {"element": "H", "label": "H_probe", "count": 8}
     ],
-    "regionMode": "box",
-    "bounds": [1.0, 8.0, 0.5, 7.5, 0.0, 12.0],
-    "regionRole": "allowed",
+    "regionMode": "regions",
+    "regionMic": true,
+    "regions": [
+      {"id": "left", "role": "allow", "bounds": [1, 4, 0.5, 7.5, 0, 12]},
+      {"id": "right", "role": "allow", "bounds": [5, 8, 0.5, 7.5, 0, 12]},
+      {"id": "core", "role": "reject", "bounds": [3.5, 5.5, 3, 5, 2, 10]}
+    ],
     "allowEscape": true,
     "seed": 2021,
     "freezeExisting": true,
@@ -200,15 +204,22 @@ v_ase api "$COMMAND_URL" apply --params '{
 
 `stop-added-atoms` interrupts the optimizer but leaves the insertion workspace
 open. `cancel-add-atoms` removes every inserted atom and restores the exact
-pre-session structure. A Cartesian-box request supplies `bounds` with
-`xmin/xmax/ymin/ymax/zmin/zmax`; it is clipped to the half-open primary
-periodic cell even for a triclinic lattice. `regionRole` selects an allowed
-insertion volume or a prohibited exclusion volume. `allowEscape` defaults to
-true because the box defines initial scattering; false confines later
-repulsive placement to the selected side. `update-add-atoms-region` moves or
-reconfigures the active box without moving staged atoms. The GUI maps that
-translation to `G` and rejects `R`. `schema` is authoritative for all parameter
-names and allowed ranges.
+pre-session structure. A multi-region request supplies stable region IDs,
+Allow/Reject roles, and Cartesian `xmin/xmax/ymin/ymax/zmin/zmax` bounds. The
+exact domain is the finite cell intersected with the Allow union, or the full
+cell when no Allow exists, minus the Reject union. `regionMic` maps wrapped
+images through the complete triclinic lattice. Without a finite cell, at least
+one Allow region is required. `allowEscape` defaults to true because regions
+define initial scattering; false confines later repulsive placement to the
+combined domain. `update-add-atoms-region` accepts a complete region array or
+one stable ID without moving staged atoms. The GUI maps multi-selected region
+translation to `G` and rejects `R`. Molecule requests additionally support
+`quantityMode:"density"` plus `targetDensityGcm3`; Count values then define an
+integer composition ratio, which is reduced to its primitive ratio before a
+complete batch is chosen. State reports target/actual density from exact
+accessible volume. `update-add-atoms-region` can also change `regionMic`; the
+same value immediately controls wrapped previews and optional confinement.
+`schema` is authoritative for all parameter names and allowed ranges.
 
 ```bash
 v_ase api "$COMMAND_URL" describe --params '{"includePositions":false}'

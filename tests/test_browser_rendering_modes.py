@@ -2934,6 +2934,9 @@ def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
                 .map(object => object.material.map.image.getContext('2d') ? object.userData : null)
                 .length""")
             assert labels > 0
+            page.wait_for_function(
+                "document.getElementById('commensurate-status')?.textContent.includes('strain')"
+            )
             candidate_status = page.locator('#commensurate-status').inner_text()
             assert 'strain' in candidate_status
             assert 'N=' in candidate_status

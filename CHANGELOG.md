@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.2.8
+
+- Extended the persistent Add Atoms workspace with reproducible Random and
+  Homogeneous placement. Homogeneous centers can maximize Cartesian distance
+  in angstrom or normalized fractional spacing with exact triclinic periodic
+  distances; random placement remains uniform in physical volume.
+- Added molecule insertion for the complete installed ASE G2 catalog, optional
+  unbiased three-dimensional orientation, native ASE-origin anchoring, and a
+  default rigid-body repulsion path that preserves every internal distance
+  while optimizing molecular translation and rotation.
+- Added stable multi-selection of Cartesian Allow and Reject regions. Their
+  exact insertion domain is the finite cell intersected with the Allow union,
+  or the complete cell when no Allow exists, minus the Reject union; overlapping
+  regions and triclinic periodic images are handled without voxel volume
+  estimates. Selected regions translate together with `G` and reject `R`.
+- Added molecule density placement in g/cm3. Count fields become composition
+  ratios reduced to their primitive integer form, exact accessible volume
+  determines the nearest complete batch, and the UI and semantic API report
+  target and realizable density before commit.
+- Made confined periodic placement use the shortest triclinic minimum-image
+  displacement, kept active-session region MIC state synchronized between the
+  GUI and backend, and reject fractional, string, or boolean entity counts.
+- Kept inserted content selected for direct `G`/`R` refinement, rejected
+  partial edits that would distort a staged rigid molecule, and retained exact
+  baseline coordinates, arrays, calculators, labels, and constraints on
+  finish or cancel.
+- Added periodic amorphous-Ga/H allowed and prohibited region examples plus a
+  layered rigid-water example, synchronized the live semantic schema and
+  canonical Agent Skill, and expanded scientific, browser, and external-CLI
+  regressions for the new workflows.
+
 ## 0.2.7
 
 - Rebuilt the external-Agent collaboration figure and animation as an explicit

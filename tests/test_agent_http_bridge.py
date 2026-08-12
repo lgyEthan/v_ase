@@ -19,6 +19,7 @@ from playwright._impl._errors import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
 from v_ase.ai import ai_handshake
+from v_ase.add_atoms import MOLECULE_GROUP_ARRAY
 from v_ase.io import atom_labels, set_atom_labels
 from v_ase.session import sessions
 from v_ase.viewer import find_free_port, view
@@ -53,6 +54,21 @@ def _run_cli_command(url: str, method: str, params=None):
         timeout=30,
     )
     return json.loads(completed.stdout)["result"]
+
+
+def _stable_description(url: str, *, timeout: float = 5.0):
+    """Wait until asynchronous GUI events stop advancing collaboration state."""
+    deadline = time.monotonic() + timeout
+    previous_revision = None
+    latest = None
+    while time.monotonic() < deadline:
+        latest = _run_cli_command(url, "describe", {"includePositions": False})
+        revision = latest["collaboration"]["revision"]
+        if revision == previous_revision:
+            return latest
+        previous_revision = revision
+        time.sleep(0.1)
+    return latest
 
 
 def test_external_cli_agent_scatter_repels_and_commits_random_atoms():
@@ -110,7 +126,8 @@ def test_external_cli_agent_scatter_repels_and_commits_random_atoms():
 
             capabilities = _run_cli_command(command_url, "capabilities")
             assert {
-                "scatter-atoms", "relax-added-atoms", "stop-added-atoms",
+                "scatter-atoms", "scatter-molecules",
+                "relax-added-atoms", "stop-added-atoms",
                 "finish-add-atoms", "cancel-add-atoms",
             } <= set(capabilities["operations"])
 
@@ -138,7 +155,7 @@ def test_external_cli_agent_scatter_repels_and_commits_random_atoms():
             assert scattered["addAtoms"]["new_count"] == 10
             assert scattered["atomCount"] == len(host) + 10
             child.wait_for_function(
-                "window.__ASE_APP__?.renderer?.addAtomsRegionGroup?.visible === true"
+                "window.__ASE_APP__?.renderer?.addAtomsRegionGroup?.visible === false"
             )
             child.wait_for_function(
                 f"window.__ASE_APP__?.state?.atoms?.positions?.length === {len(host) + 10}"
@@ -170,6 +187,7 @@ def test_external_cli_agent_scatter_repels_and_commits_random_atoms():
             assert placed["addAtoms"]["is_relaxing"] is False
             assert placed["addAtoms"]["status"] != "error"
 
+            placed = _stable_description(command_url)
             committed = _run_cli_command(command_url, "apply", {
                 "expectedRevision": placed["collaboration"]["revision"],
                 "operation": "finish-add-atoms",
@@ -187,6 +205,212 @@ def test_external_cli_agent_scatter_repels_and_commits_random_atoms():
                 np.testing.assert_array_equal(backend.arrays[name][: len(host)], values)
             assert [repr(item) for item in backend.constraints] == baseline_constraints
             assert atom_labels(backend)[-10:] == ["Li_mobile"] * 7 + ["H_probe"] * 3
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_external_cli_agent_places_and_rigidly_relaxes_molecules():
+    host = Atoms(
+        "Si2",
+        positions=[[2.0, 2.0, 2.0], [8.0, 8.0, 8.0]],
+        cell=[12.0, 12.0, 12.0],
+        pbc=True,
+    )
+    set_atom_labels(host, ["Si_host", "Si_host"])
+    baseline = host.positions.copy()
+    port = find_free_port()
+    editor = view(
+        host,
+        notebook=False,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+        open_browser=False,
+    )
+    handshake = ai_handshake(editor.url)
+    command_url = str(handshake["command_url"])
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 960})
+            page.goto(handshake["human_url"])
+            page.wait_for_function("window.v_aseAI")
+            capabilities = _run_cli_command(command_url, "capabilities")
+            assert capabilities["addAtoms"]["moleculeCatalogUrl"].endswith(
+                f"/api/add-session/molecules/{editor.session_id}"
+            )
+            assert capabilities["addAtoms"]["insertionDomainPreviewUrl"].endswith(
+                f"/api/add-session/domain/{editor.session_id}"
+            )
+            assert capabilities["addAtoms"]["regionRoles"] == ["allow", "reject"]
+            assert capabilities["addAtoms"]["maxRegions"] == 32
+            assert capabilities["addAtoms"]["densityUnit"] == "g/cm3"
+            molecule_names = {
+                item["name"] for item in capabilities["addAtoms"]["moleculeCatalog"]
+            }
+            assert {"H2O", "CO2", "NH3", "C6H6"} <= molecule_names
+            assert capabilities["addAtoms"]["defaults"] == {
+                "placementMode": "random",
+                "coordinateBasis": "cartesian",
+                "pbcAware": True,
+                "regionMic": True,
+                "quantityMode": "count",
+                "randomOrientation": True,
+                "rigidMolecules": True,
+                "freezeExisting": True,
+                "allowEscape": True,
+            }
+            initial = _run_cli_command(
+                command_url,
+                "describe",
+                {"includePositions": True},
+            )
+            scattered = _run_cli_command(command_url, "apply", {
+                "expectedRevision": initial["collaboration"]["revision"],
+                "mode": "edit",
+                "operation": {
+                    "name": "scatter-molecules",
+                    "molecules": [{"name": "H2O", "label": "water", "count": 1}],
+                    "quantityMode": "density",
+                    "targetDensityGcm3": 0.06,
+                    "placementMode": "homogeneous",
+                    "coordinateBasis": "cartesian",
+                    "pbcAware": True,
+                    "regionMic": False,
+                    "randomOrientation": True,
+                    "rigidMolecules": True,
+                    "regions": [
+                        {
+                            "id": "left-reservoir",
+                            "name": "Left reservoir",
+                            "role": "allow",
+                            "bounds": [0, 8, 0, 12, 0, 12],
+                        },
+                        {
+                            "id": "right-reservoir",
+                            "name": "Right reservoir",
+                            "role": "allow",
+                            "bounds": [4, 12, 0, 12, 0, 12],
+                        },
+                        {
+                            "id": "central-obstacle",
+                            "name": "Central obstacle",
+                            "role": "reject",
+                            "bounds": [5, 7, 5, 7, 0, 12],
+                        },
+                    ],
+                    "seed": 808,
+                },
+            })
+            assert scattered["addAtoms"]["content_kind"] == "molecules"
+            assert scattered["addAtoms"]["molecule_count"] == 3
+            assert scattered["addAtoms"]["new_count"] == 9
+            assert scattered["addAtoms"]["placement_mode"] == "homogeneous"
+            assert scattered["addAtoms"]["coordinate_basis"] == "cartesian"
+            assert [region["id"] for region in scattered["addAtoms"]["regions"]] == [
+                "left-reservoir", "right-reservoir", "central-obstacle"
+            ]
+            assert scattered["addAtoms"]["domain"]["volume_angstrom3"] == pytest.approx(
+                1680.0,
+                abs=1e-9,
+            )
+            assert scattered["addAtoms"]["density"]["target_g_cm3"] == pytest.approx(0.06)
+            assert scattered["addAtoms"]["density"]["actual_g_cm3"] == pytest.approx(
+                3 * 18.015 / (6.02214076e23 * 1680e-24),
+                rel=5e-5,
+            )
+            assert [item["index"] for item in scattered["selection"]] == list(
+                range(len(host), len(host) + 9)
+            )
+
+            staged_positions = sessions[editor.session_id].working_atoms.positions.copy()
+            updated = _run_cli_command(command_url, "apply", {
+                "expectedRevision": scattered["collaboration"]["revision"],
+                "operation": {
+                    "name": "update-add-atoms-region",
+                    "regionId": "central-obstacle",
+                    "regionName": "Shifted obstacle",
+                    "bounds": [5.5, 7.5, 5, 7, 0, 12],
+                    "regionMic": True,
+                },
+            })
+            assert [region["id"] for region in updated["addAtoms"]["regions"]] == [
+                "left-reservoir", "right-reservoir", "central-obstacle"
+            ]
+            assert updated["addAtoms"]["regions"][2]["name"] == "Shifted obstacle"
+            assert updated["addAtoms"]["domain"]["pbc_aware"] is True
+            np.testing.assert_array_equal(
+                sessions[editor.session_id].working_atoms.positions,
+                staged_positions,
+            )
+
+            backend_session = sessions[editor.session_id]
+            addition = backend_session.atom_addition
+            references = [
+                np.linalg.norm(reference[:, None, :] - reference[None, :, :], axis=2)
+                for reference in addition.molecule_references
+            ]
+            rotated = _run_cli_command(command_url, "apply", {
+                "expectedRevision": updated["collaboration"]["revision"],
+                "operation": {
+                    "name": "rotate-selection",
+                    "axis": [0.0, 0.0, 1.0],
+                    "angleDeg": 25.0,
+                    "pivot": "center",
+                },
+            })
+            moved = _run_cli_command(command_url, "apply", {
+                "expectedRevision": rotated["collaboration"]["revision"],
+                "operation": {
+                    "name": "move-selection",
+                    "vector": [0.3, -0.1, 0.2],
+                },
+            })
+            np.testing.assert_array_equal(backend_session.working_atoms.positions[:len(host)], baseline)
+
+            running = _run_cli_command(command_url, "apply", {
+                "expectedRevision": moved["collaboration"]["revision"],
+                "operation": {
+                    "name": "relax-added-atoms",
+                    "freezeExisting": True,
+                    "strength": 2.0,
+                    "fmax": 0.1,
+                    "steps": 12,
+                    "mic": True,
+                },
+            })
+            deadline = time.monotonic() + 20.0
+            placed = running
+            while placed["addAtoms"]["is_relaxing"] and time.monotonic() < deadline:
+                time.sleep(0.1)
+                placed = _run_cli_command(
+                    command_url,
+                    "describe",
+                    {"includePositions": False},
+                )
+            assert placed["addAtoms"]["is_relaxing"] is False
+            assert placed["addAtoms"]["status"] != "error"
+            for group, expected in zip(addition.molecule_groups, references):
+                current = backend_session.working_atoms.positions[group]
+                distances = np.linalg.norm(current[:, None, :] - current[None, :, :], axis=2)
+                np.testing.assert_allclose(distances, expected, atol=2e-8)
+
+            placed = _stable_description(command_url)
+            committed = _run_cli_command(command_url, "apply", {
+                "expectedRevision": placed["collaboration"]["revision"],
+                "operation": "finish-add-atoms",
+            })
+            assert committed["addAtoms"] is None
+            np.testing.assert_array_equal(backend_session.working_atoms.positions[:len(host)], baseline)
+            groups = backend_session.working_atoms.arrays[MOLECULE_GROUP_ARRAY]
+            assert set(groups[:len(host)]) == {-1}
+            assert sorted(set(groups[len(host):])) == [0, 1, 2]
             browser.close()
     finally:
         editor.close()

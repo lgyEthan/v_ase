@@ -1,4 +1,4 @@
-"""Random atom insertion and isolated repulsive placement for Edit mode.
+"""Batch atom and molecule insertion with isolated repulsive placement.
 
 The implementation follows the established project convention used by the
 author's structure-generation utilities: existing atoms are the host, inserted
@@ -10,17 +10,24 @@ separate so the host structure is never committed from the optimizer copy.
 from __future__ import annotations
 
 import itertools
+import math
+import re
 import threading
 import traceback
 import uuid
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any, Iterable, Sequence
 
 import numpy as np
 from ase import Atom, Atoms
-from ase.constraints import FixAtoms
-from ase.data import atomic_numbers, covalent_radii, vdw_radii
+from ase.build import molecule
+from ase.collections import g2
+from ase.constraints import FixAtoms, FixConstraint
+from ase.data import atomic_masses, atomic_numbers, covalent_radii, vdw_radii
+from ase.geometry.minkowski_reduction import minkowski_reduce
 from ase.optimize import FIRE
+from scipy.constants import Avogadro
 
 from .io import (
     atom_labels,
@@ -28,12 +35,22 @@ from .io import (
     normalize_atom_type_label,
     set_atom_labels,
 )
+from .insertion_regions import (
+    InsertionDomain,
+    InsertionRegion,
+    build_insertion_domain,
+    finite_cell_or_none,
+    normalize_insertion_regions,
+)
 from .repulsion import VAseRepulsionCalculator, copy_calculator
 from .websocket_manager import ws_manager
 
 
 ADD_ATOMS_SCHEMA = "v_ase.add_atoms.v1"
 MAX_RANDOM_ATOMS = 100_000
+MAX_MOLECULES = 20_000
+MAX_EXACT_HOMOGENEOUS_ENTITIES = 1_024
+MOLECULE_GROUP_ARRAY = "v_ase_molecule_group"
 _CELL_TOLERANCE = 1e-10
 _STOP_SIGNAL = "V_ASE_ADD_ATOMS_OPTIMIZATION_STOPPED"
 
@@ -170,8 +187,8 @@ def sample_cartesian_box_positions(
 
     if accepted_count < requested:
         raise ValueError(
-            "The Cartesian insertion box has too little overlap with the primary "
-            "unit cell. Enlarge or move the box."
+            "The Allow region has too little overlap with the primary unit cell. "
+            "Enlarge or move the region."
         )
     positions = np.concatenate(accepted, axis=0)[:requested]
     return positions, {
@@ -221,8 +238,8 @@ def sample_unit_cell_positions_outside_box(
 
     if accepted_count < requested:
         raise ValueError(
-            "The prohibited Cartesian box leaves too little accessible volume "
-            "inside the primary unit cell. Shrink or move the box."
+            "The Reject region leaves too little accessible volume inside the "
+            "primary unit cell. Shrink or move the region."
         )
     positions = np.concatenate(accepted, axis=0)[:requested]
     return positions, {
@@ -232,14 +249,825 @@ def sample_unit_cell_positions_outside_box(
     }
 
 
+def sample_cartesian_unit_cell_positions(
+    cell: Any,
+    count: int,
+    *,
+    seed: int | None = None,
+    bounds: Sequence[Any] | None = None,
+    prohibited: bool = False,
+    max_batches: int = 256,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Sample Cartesian-volume-uniform points in one primary triclinic cell.
+
+    Candidates are generated in the cell's Cartesian bounding box and accepted
+    only when all three fractional coordinates belong to the half-open primary
+    cell.  Optional Cartesian bounds select or exclude an insertion box without
+    counting overlapping periodic images more than once.
+    """
+    matrix = _finite_cell(cell)
+    requested = _validated_count(count)
+    cell_lower, cell_upper = _bounds_arrays(cell_cartesian_bounds(matrix))
+    box_lower = box_upper = None
+    if bounds is not None:
+        box_lower, box_upper = _bounds_arrays(bounds)
+    generator = np.random.default_rng(seed)
+    inverse = np.linalg.inv(matrix)
+    accepted: list[np.ndarray] = []
+    accepted_count = 0
+    eligible_count = 0
+    attempted = 0
+
+    for _ in range(max(1, int(max_batches))):
+        remaining = requested - accepted_count
+        if remaining <= 0:
+            break
+        batch_size = min(1_000_000, max(4096, remaining * 8))
+        candidates = generator.uniform(cell_lower, cell_upper, size=(batch_size, 3))
+        attempted += batch_size
+        fractional = candidates @ inverse
+        mask = np.all((fractional >= 0.0) & (fractional < 1.0), axis=1)
+        if box_lower is not None and box_upper is not None:
+            inside = np.all((candidates >= box_lower) & (candidates <= box_upper), axis=1)
+            mask &= ~inside if prohibited else inside
+        eligible = candidates[mask]
+        eligible_count += len(eligible)
+        if len(eligible):
+            chunk = eligible[:remaining]
+            accepted.append(chunk)
+            accepted_count += len(chunk)
+
+    if accepted_count < requested:
+        role = "outside the Reject region" if prohibited else "inside the Allow region"
+        raise ValueError(
+            f"The primary cell has too little Cartesian volume {role}. "
+            "Resize or move the Allow or Reject region."
+        )
+    return np.concatenate(accepted, axis=0)[:requested], {
+        "attempted": int(attempted),
+        "accepted": int(requested),
+        "acceptance_fraction": float(eligible_count / max(1, attempted)),
+    }
+
+
+def sample_fractional_region_positions(
+    cell: Any,
+    bounds: Sequence[Any] | None,
+    count: int,
+    *,
+    prohibited: bool = False,
+    seed: int | None = None,
+    max_batches: int = 256,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Sample uniformly in fractional space, then apply a Cartesian box test."""
+    matrix = _finite_cell(cell)
+    requested = _validated_count(count)
+    lower = upper = None
+    if bounds is not None:
+        lower, upper = _bounds_arrays(bounds)
+    generator = np.random.default_rng(seed)
+    accepted: list[np.ndarray] = []
+    accepted_count = 0
+    eligible_count = 0
+    attempted = 0
+    for _ in range(max(1, int(max_batches))):
+        remaining = requested - accepted_count
+        if remaining <= 0:
+            break
+        batch_size = min(1_000_000, max(2048, remaining * 6))
+        candidates = generator.random((batch_size, 3), dtype=np.float64) @ matrix
+        attempted += batch_size
+        mask = np.ones(batch_size, dtype=bool)
+        if lower is not None and upper is not None:
+            inside = np.all((candidates >= lower) & (candidates <= upper), axis=1)
+            mask = ~inside if prohibited else inside
+        eligible = candidates[mask]
+        eligible_count += len(eligible)
+        if len(eligible):
+            chunk = eligible[:remaining]
+            accepted.append(chunk)
+            accepted_count += len(chunk)
+    if accepted_count < requested:
+        raise ValueError(
+            "The requested insertion region has too little overlap with the primary cell."
+        )
+    return np.concatenate(accepted, axis=0)[:requested], {
+        "attempted": int(attempted),
+        "accepted": int(requested),
+        "acceptance_fraction": float(eligible_count / max(1, attempted)),
+    }
+
+
+def _normalize_placement_mode(value: Any) -> str:
+    mode = str(value or "random").strip().lower()
+    if mode not in {"random", "homogeneous"}:
+        raise ValueError("placement_mode must be random or homogeneous.")
+    return mode
+
+
+def _normalize_coordinate_basis(value: Any) -> str:
+    basis = str(value or "cartesian").strip().lower()
+    if basis not in {"cartesian", "fractional"}:
+        raise ValueError("coordinate_basis must be cartesian or fractional.")
+    return basis
+
+
+def _domain_candidates(
+    cell: np.ndarray,
+    count: int,
+    *,
+    coordinate_basis: str,
+    region_mode: str,
+    bounds: Sequence[Any] | None,
+    region_role: str,
+    seed: int | None,
+) -> tuple[np.ndarray, int]:
+    """Generate a deterministic low-discrepancy candidate pool."""
+    from scipy.stats import qmc
+
+    target = max(1, int(count))
+    matrix = _finite_cell(cell)
+    inverse = np.linalg.inv(matrix)
+    cell_lower, cell_upper = _bounds_arrays(cell_cartesian_bounds(matrix))
+    box_lower = box_upper = None
+    if region_mode == "box":
+        box_lower, box_upper = _bounds_arrays(bounds or cell_cartesian_bounds(matrix))
+    engine = qmc.Sobol(d=3, scramble=True, seed=seed)
+    chunks: list[np.ndarray] = []
+    accepted_count = 0
+    attempted = 0
+    batch_size = 1 << int(math.ceil(math.log2(max(2048, min(131072, target * 4)))))
+
+    for _ in range(64):
+        raw = engine.random(batch_size)
+        attempted += batch_size
+        if coordinate_basis == "fractional":
+            candidates = raw @ matrix
+            mask = np.ones(batch_size, dtype=bool)
+        else:
+            candidates = cell_lower + raw * (cell_upper - cell_lower)
+            fractional = candidates @ inverse
+            mask = np.all((fractional >= 0.0) & (fractional < 1.0), axis=1)
+        if box_lower is not None and box_upper is not None:
+            inside = np.all((candidates >= box_lower) & (candidates <= box_upper), axis=1)
+            mask &= ~inside if region_role == "prohibited" else inside
+        eligible = candidates[mask]
+        if len(eligible):
+            chunks.append(eligible[: target - accepted_count])
+            accepted_count += len(chunks[-1])
+        if accepted_count >= target:
+            break
+    if accepted_count < target:
+        raise ValueError(
+            "The requested insertion region is too small for homogeneous placement."
+        )
+    return np.concatenate(chunks, axis=0)[:target], attempted
+
+
+class _InsertionDistanceMetric:
+    """Reusable Cartesian or normalized-fractional insertion metric.
+
+    ASE's general MIC implementation performs a Minkowski reduction on every
+    call. Greedy maximin placement compares against hundreds of selected
+    points, so the reduced cell and Voronoi-relevant translations are cached
+    once here while retaining the same exact triclinic search.
+    """
+
+    def __init__(
+        self,
+        cell: np.ndarray,
+        pbc: Sequence[bool],
+        coordinate_basis: str,
+        pbc_aware: bool,
+    ):
+        self.cell = _finite_cell(cell)
+        self.inverse = np.linalg.inv(self.cell)
+        self.periodic = np.asarray(pbc, dtype=bool)
+        self.coordinate_basis = _normalize_coordinate_basis(coordinate_basis)
+        self.pbc_aware = bool(pbc_aware)
+        self.reduced_cell: np.ndarray | None = None
+        self.reduced_inverse: np.ndarray | None = None
+        self.neighbor_vectors: np.ndarray | None = None
+        self.naive_safe_squared: float | None = None
+
+        if (
+            self.coordinate_basis != "cartesian"
+            or not self.pbc_aware
+            or not np.any(self.periodic)
+        ):
+            return
+        gram = self.cell @ self.cell.T
+        off_diagonal = gram - np.diag(np.diag(gram))
+        scale = max(1.0, float(np.max(np.abs(np.diag(gram)))))
+        if float(np.max(np.abs(off_diagonal))) <= 1e-12 * scale:
+            return
+
+        reduced, _ = minkowski_reduce(self.cell, pbc=self.periodic)
+        ranges = [range(-int(periodic), int(periodic) + 1) for periodic in self.periodic]
+        shifts = np.asarray(list(itertools.product(*ranges)), dtype=float)
+        self.reduced_cell = np.asarray(reduced, dtype=float)
+        self.reduced_inverse = np.linalg.inv(self.reduced_cell)
+        self.neighbor_vectors = shifts @ self.reduced_cell
+        if bool(np.all(self.periodic)):
+            # A skew lattice can have a short combination such as b - a even
+            # when every original cell vector is long. The reduced basis
+            # exposes the shortest lattice vectors, so only displacements
+            # inside half that length can skip the general MIC search.
+            shortest = float(np.min(np.linalg.norm(self.reduced_cell, axis=1)))
+            self.naive_safe_squared = (0.5 * shortest) ** 2
+
+    def squared(self, points: np.ndarray, reference: np.ndarray) -> np.ndarray:
+        vectors = np.asarray(points, dtype=float) - np.asarray(reference, dtype=float)
+        fractional = vectors @ self.inverse
+        if self.coordinate_basis == "fractional":
+            if self.pbc_aware:
+                fractional[:, self.periodic] -= np.rint(fractional[:, self.periodic])
+            return np.einsum("ij,ij->i", fractional, fractional, optimize=True)
+        if not self.pbc_aware or not np.any(self.periodic):
+            return np.einsum("ij,ij->i", vectors, vectors, optimize=True)
+        if self.reduced_cell is None:
+            fractional[:, self.periodic] -= np.rint(fractional[:, self.periodic])
+            delta = fractional @ self.cell
+            return np.einsum("ij,ij->i", delta, delta, optimize=True)
+
+        if self.naive_safe_squared is not None:
+            fractional[:, self.periodic] -= np.rint(fractional[:, self.periodic])
+            naive = fractional @ self.cell
+            result = np.einsum("ij,ij->i", naive, naive, optimize=True)
+            unsafe = result >= self.naive_safe_squared
+            if not np.any(unsafe):
+                return result
+            general_vectors = vectors[unsafe]
+        else:
+            result = np.empty(len(vectors), dtype=float)
+            unsafe = np.ones(len(vectors), dtype=bool)
+            general_vectors = vectors
+
+        reduced_fractional = general_vectors @ self.reduced_inverse
+        reduced_fractional[:, self.periodic] %= 1.0
+        wrapped = reduced_fractional @ self.reduced_cell
+        images = wrapped[None, :, :] + self.neighbor_vectors[:, None, :]
+        squared = np.einsum("sni,sni->sn", images, images, optimize=True)
+        result[unsafe] = np.min(squared, axis=0)
+        return result
+
+
+class _EuclideanInsertionMetric:
+    def squared(self, points: np.ndarray, reference: np.ndarray) -> np.ndarray:
+        vectors = np.asarray(points, dtype=float) - np.asarray(reference, dtype=float)
+        return np.einsum("ij,ij->i", vectors, vectors, optimize=True)
+
+
+def _metric_distance_squared(
+    points: np.ndarray,
+    reference: np.ndarray,
+    *,
+    cell: np.ndarray,
+    pbc: Sequence[bool],
+    coordinate_basis: str,
+    pbc_aware: bool,
+) -> np.ndarray:
+    metric = _InsertionDistanceMetric(cell, pbc, coordinate_basis, pbc_aware)
+    return metric.squared(points, reference)
+
+
+def sample_homogeneous_positions(
+    cell: Any,
+    pbc: Sequence[bool],
+    count: int,
+    *,
+    coordinate_basis: str = "cartesian",
+    region_mode: str = "cell",
+    bounds: Sequence[Any] | None = None,
+    region_role: str = "allowed",
+    regions: Sequence[InsertionRegion] | Sequence[dict[str, Any]] | None = None,
+    pbc_aware: bool = True,
+    region_mic: bool = False,
+    seed: int | None = None,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Return a reproducible homogeneous point set for one insertion region.
+
+    Up to ``MAX_EXACT_HOMOGENEOUS_ENTITIES`` points use greedy maximin
+    selection from a low-discrepancy candidate pool.  Larger requests keep the
+    bounded-memory low-discrepancy sequence directly.  Cartesian mode ranks
+    Euclidean distances in angstrom; fractional mode ranks normalized lattice
+    coordinates.  Periodic dimensions use MIC only when requested.
+    """
+    requested = _validated_count(count)
+    basis = _normalize_coordinate_basis(coordinate_basis)
+    normalized_regions = (
+        tuple(regions)
+        if regions is not None and all(isinstance(region, InsertionRegion) for region in regions)
+        else normalize_insertion_regions(
+            regions,
+            legacy_mode=region_mode,
+            legacy_bounds=bounds,
+            legacy_role=region_role,
+        )
+    )
+    domain = build_insertion_domain(
+        cell=cell,
+        pbc=pbc,
+        regions=normalized_regions,
+        pbc_aware=region_mic,
+    )
+    matrix = domain.cell
+    if requested <= 128:
+        pool_factor = 20
+    elif requested <= 512:
+        pool_factor = 12
+    elif requested <= MAX_EXACT_HOMOGENEOUS_ENTITIES:
+        pool_factor = 6
+    else:
+        pool_factor = 1
+    pool_target = min(200_000, max(requested, requested * pool_factor, 2048))
+    candidates, attempted = domain.sobol_points(
+        pool_target,
+        coordinate_basis=basis,
+        seed=seed,
+    )
+    if requested > MAX_EXACT_HOMOGENEOUS_ENTITIES:
+        return candidates[:requested].copy(), {
+            "attempted": int(attempted),
+            "accepted": int(requested),
+            "acceptance_fraction": float(len(candidates) / max(1, attempted)),
+            "placement_algorithm": "low-discrepancy",
+            "coordinate_basis": basis,
+            "pbc_aware": bool(pbc_aware),
+        }
+
+    domain_lower, domain_upper = _bounds_arrays(domain.base_bounds)
+    center = 0.5 * (domain_lower + domain_upper)
+    metric = (
+        _InsertionDistanceMetric(matrix, pbc, basis, pbc_aware)
+        if matrix is not None
+        else _EuclideanInsertionMetric()
+    )
+    first = int(np.argmin(metric.squared(candidates, center)))
+    chosen = np.empty(requested, dtype=int)
+    chosen[0] = first
+    available = np.ones(len(candidates), dtype=bool)
+    available[first] = False
+    minimum = metric.squared(candidates, candidates[first])
+    minimum[first] = -1.0
+    for index in range(1, requested):
+        selected = int(np.argmax(minimum))
+        chosen[index] = selected
+        available[selected] = False
+        current = metric.squared(candidates, candidates[selected])
+        np.minimum(minimum, current, out=minimum)
+        minimum[~available] = -1.0
+    return candidates[chosen].copy(), {
+        "attempted": int(attempted),
+        "accepted": int(requested),
+        "acceptance_fraction": float(len(candidates) / max(1, attempted)),
+        "placement_algorithm": "maximin-low-discrepancy",
+        "coordinate_basis": basis,
+        "pbc_aware": bool(pbc_aware),
+    }
+
+
+def sample_insertion_positions(
+    cell: Any,
+    pbc: Sequence[bool],
+    count: int,
+    *,
+    placement_mode: str = "random",
+    coordinate_basis: str = "cartesian",
+    region_mode: str = "cell",
+    bounds: Sequence[Any] | None = None,
+    region_role: str = "allowed",
+    regions: Sequence[InsertionRegion] | Sequence[dict[str, Any]] | None = None,
+    pbc_aware: bool = True,
+    region_mic: bool = False,
+    seed: int | None = None,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    placement = _normalize_placement_mode(placement_mode)
+    basis = _normalize_coordinate_basis(coordinate_basis)
+    normalized_regions = (
+        tuple(regions)
+        if regions is not None and all(isinstance(region, InsertionRegion) for region in regions)
+        else normalize_insertion_regions(
+            regions,
+            legacy_mode=region_mode,
+            legacy_bounds=bounds,
+            legacy_role=region_role,
+        )
+    )
+    domain = build_insertion_domain(
+        cell=cell,
+        pbc=pbc,
+        regions=normalized_regions,
+        pbc_aware=region_mic,
+    )
+    if placement == "homogeneous":
+        positions, diagnostics = sample_homogeneous_positions(
+            cell,
+            pbc,
+            count,
+            coordinate_basis=basis,
+            region_mode=region_mode,
+            bounds=bounds,
+            region_role=region_role,
+            regions=normalized_regions,
+            pbc_aware=pbc_aware,
+            region_mic=region_mic,
+            seed=seed,
+        )
+        diagnostics.update({
+            "placement_mode": "homogeneous",
+            "region_mode": region_mode,
+            "region_role": region_role,
+        })
+        diagnostics["accessible_volume_angstrom3"] = domain.volume
+        return positions, diagnostics
+    positions, diagnostics = domain.random_points(count, seed=seed)
+    diagnostics.update({
+        "placement_mode": "random",
+        "placement_algorithm": "random",
+        "coordinate_basis": basis,
+        "pbc_aware": bool(pbc_aware),
+        "region_mode": region_mode,
+        "region_role": region_role,
+        "accessible_volume_angstrom3": domain.volume,
+    })
+    return positions, diagnostics
+
+
 def _validated_count(value: Any) -> int:
-    try:
+    if isinstance(value, (bool, np.bool_)):
+        raise ValueError("Atom count must be an integer.")
+    if isinstance(value, (int, np.integer)):
         count = int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("Atom count must be an integer.") from exc
+    elif isinstance(value, (float, np.floating)) and np.isfinite(value) and float(value).is_integer():
+        count = int(value)
+    else:
+        raise ValueError("Atom count must be an integer.")
     if count < 1 or count > MAX_RANDOM_ATOMS:
         raise ValueError(f"Atom count must be from 1 through {MAX_RANDOM_ATOMS:,}.")
     return count
+
+
+def _validated_molecule_count(value: Any) -> int:
+    if isinstance(value, (bool, np.bool_)):
+        raise ValueError("Molecule count must be an integer.")
+    if isinstance(value, (int, np.integer)):
+        count = int(value)
+    elif isinstance(value, (float, np.floating)) and np.isfinite(value) and float(value).is_integer():
+        count = int(value)
+    else:
+        raise ValueError("Molecule count must be an integer.")
+    if count < 1 or count > MAX_MOLECULES:
+        raise ValueError(f"Molecule count must be from 1 through {MAX_MOLECULES:,}.")
+    return count
+
+
+@lru_cache(maxsize=1)
+def molecule_catalog() -> tuple[dict[str, Any], ...]:
+    """Return the installed ASE G2 molecule catalog with stable metadata."""
+    catalog: list[dict[str, Any]] = []
+    for name in g2.names:
+        template = molecule(name)
+        symbols = template.get_chemical_symbols()
+        catalog.append({
+            "name": str(name),
+            "formula": template.get_chemical_formula(mode="hill"),
+            "atom_count": len(template),
+            "elements": sorted(set(symbols)),
+        })
+    return tuple(catalog)
+
+
+def normalize_molecule_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_entries = payload.get("molecules") or payload.get("molecule_entries")
+    if raw_entries is None and payload.get("molecule"):
+        raw_entries = [{
+            "name": payload.get("molecule"),
+            "label": payload.get("label") or payload.get("molecule"),
+            "count": payload.get("count", 1),
+        }]
+    if not isinstance(raw_entries, list) or not raw_entries:
+        raise ValueError("molecules must contain at least one molecule specification.")
+    available = {entry["name"] for entry in molecule_catalog()}
+    normalized: list[dict[str, Any]] = []
+    total_molecules = 0
+    total_atoms = 0
+    for raw in raw_entries:
+        if not isinstance(raw, dict):
+            raise ValueError("Each molecule entry must be an object.")
+        name = str(raw.get("name") or raw.get("molecule") or "").strip()
+        if name not in available:
+            raise ValueError(
+                f"ASE molecule '{name}' is unavailable. Query the molecule catalog before retrying."
+            )
+        count = _validated_molecule_count(raw.get("count", 1))
+        label = normalize_atom_type_label(raw.get("label") or name)
+        label = re.sub(r"[^A-Za-z0-9_.+-]+", "_", label).strip("_") or name
+        template = molecule(name)
+        total_molecules += count
+        total_atoms += count * len(template)
+        if total_molecules > MAX_MOLECULES:
+            raise ValueError(f"Total molecule count cannot exceed {MAX_MOLECULES:,}.")
+        if total_atoms > MAX_RANDOM_ATOMS:
+            raise ValueError(f"Total inserted atom count cannot exceed {MAX_RANDOM_ATOMS:,}.")
+        normalized.append({
+            "name": name,
+            "label": label,
+            "count": count,
+            "atom_count": len(template),
+            "formula": template.get_chemical_formula(mode="hill"),
+        })
+    return normalized
+
+
+def molecule_molar_mass(name: str) -> float:
+    template = molecule(str(name))
+    return float(sum(atomic_masses[number] for number in template.numbers))
+
+
+def resolve_molecule_density(
+    entries: Sequence[dict[str, Any]],
+    *,
+    target_density_g_cm3: Any,
+    accessible_volume_angstrom3: float,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Scale molecular composition ratios to the nearest realizable density."""
+    try:
+        target_density = float(target_density_g_cm3)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Target molecular density must be numeric in g/cm^3.") from exc
+    volume = float(accessible_volume_angstrom3)
+    if not np.isfinite(target_density) or target_density <= 0.0 or target_density > 100.0:
+        raise ValueError("Target molecular density must be greater than 0 and at most 100 g/cm^3.")
+    if not np.isfinite(volume) or volume <= _CELL_TOLERANCE:
+        raise ValueError("Molecular density requires a positive accessible insertion volume.")
+
+    raw_ratios = [int(entry["count"]) for entry in entries]
+    ratio_divisor = 0
+    for ratio in raw_ratios:
+        ratio_divisor = math.gcd(ratio_divisor, ratio)
+    primitive_ratios = [ratio // max(1, ratio_divisor) for ratio in raw_ratios]
+
+    batch_molar_mass = 0.0
+    batch_molecules = 0
+    batch_atoms = 0
+    for entry, ratio in zip(entries, primitive_ratios):
+        batch_molar_mass += ratio * molecule_molar_mass(str(entry["name"]))
+        batch_molecules += ratio
+        batch_atoms += ratio * int(entry["atom_count"])
+    batch_mass_grams = batch_molar_mass / Avogadro
+    target_mass_grams = target_density * volume * 1e-24
+    multiplier = int(math.floor(target_mass_grams / batch_mass_grams + 0.5))
+    if multiplier < 1:
+        first_density = batch_mass_grams / (volume * 1e-24)
+        raise ValueError(
+            "The target density corresponds to fewer than one composition batch in the "
+            f"accessible volume. The first realizable density is {first_density:.6g} g/cm^3."
+        )
+    if multiplier * batch_molecules > MAX_MOLECULES:
+        raise ValueError(f"Density placement cannot exceed {MAX_MOLECULES:,} molecules.")
+    if multiplier * batch_atoms > MAX_RANDOM_ATOMS:
+        raise ValueError(f"Density placement cannot exceed {MAX_RANDOM_ATOMS:,} inserted atoms.")
+    resolved = [
+        {
+            **entry,
+            "requested_ratio": int(entry["count"]),
+            "ratio": ratio,
+            "count": ratio * multiplier,
+        }
+        for entry, ratio in zip(entries, primitive_ratios)
+    ]
+    actual_mass_grams = multiplier * batch_mass_grams
+    actual_density = actual_mass_grams / (volume * 1e-24)
+    return resolved, {
+        "mode": "density",
+        "target_g_cm3": target_density,
+        "actual_g_cm3": float(actual_density),
+        "accessible_volume_angstrom3": volume,
+        "composition_multiplier": multiplier,
+        "molecule_count": multiplier * batch_molecules,
+        "atom_count": multiplier * batch_atoms,
+    }
+
+
+def actual_molecule_density(
+    entries: Sequence[dict[str, Any]],
+    accessible_volume_angstrom3: float,
+) -> float:
+    volume = float(accessible_volume_angstrom3)
+    if volume <= _CELL_TOLERANCE:
+        raise ValueError("Molecular density requires a positive accessible insertion volume.")
+    molar_mass = sum(
+        int(entry["count"]) * molecule_molar_mass(str(entry["name"]))
+        for entry in entries
+    )
+    return float((molar_mass / Avogadro) / (volume * 1e-24))
+
+
+def uniform_rotation_matrices(count: int, *, seed: int | None = None) -> np.ndarray:
+    """Return Haar-uniform SO(3) matrices using normalized random quaternions."""
+    requested = _validated_molecule_count(count)
+    generator = np.random.default_rng(seed)
+    u1, u2, u3 = generator.random((3, requested))
+    qx = np.sqrt(1.0 - u1) * np.sin(2.0 * np.pi * u2)
+    qy = np.sqrt(1.0 - u1) * np.cos(2.0 * np.pi * u2)
+    qz = np.sqrt(u1) * np.sin(2.0 * np.pi * u3)
+    qw = np.sqrt(u1) * np.cos(2.0 * np.pi * u3)
+    matrices = np.empty((requested, 3, 3), dtype=float)
+    matrices[:, 0, 0] = 1 - 2 * (qy * qy + qz * qz)
+    matrices[:, 0, 1] = 2 * (qx * qy - qz * qw)
+    matrices[:, 0, 2] = 2 * (qx * qz + qy * qw)
+    matrices[:, 1, 0] = 2 * (qx * qy + qz * qw)
+    matrices[:, 1, 1] = 1 - 2 * (qx * qx + qz * qz)
+    matrices[:, 1, 2] = 2 * (qy * qz - qx * qw)
+    matrices[:, 2, 0] = 2 * (qx * qz - qy * qw)
+    matrices[:, 2, 1] = 2 * (qy * qz + qx * qw)
+    matrices[:, 2, 2] = 1 - 2 * (qx * qx + qy * qy)
+    return matrices
+
+
+def _molecule_atom_labels(symbols: Sequence[str], label: str) -> list[str]:
+    suffix = re.sub(r"[^A-Za-z0-9_.+-]+", "_", str(label)).strip("_")
+    if not suffix:
+        return [str(symbol) for symbol in symbols]
+    return [f"{symbol}_{suffix}" for symbol in symbols]
+
+
+def expand_molecules(
+    entries: Sequence[dict[str, Any]],
+    anchors: np.ndarray,
+    *,
+    random_orientation: bool,
+    seed: int | None,
+) -> dict[str, Any]:
+    """Place ASE molecule templates about their native coordinate origin."""
+    molecule_count = sum(int(entry["count"]) for entry in entries)
+    if len(anchors) != molecule_count:
+        raise ValueError("Molecule anchor count does not match the requested molecule count.")
+    rotations = (
+        uniform_rotation_matrices(molecule_count, seed=seed)
+        if random_orientation
+        else np.repeat(np.eye(3, dtype=float)[None, :, :], molecule_count, axis=0)
+    )
+    elements: list[str] = []
+    labels: list[str] = []
+    positions: list[np.ndarray] = []
+    groups: list[list[int]] = []
+    references: list[np.ndarray] = []
+    names: list[str] = []
+    cursor = 0
+    entity = 0
+    for entry in entries:
+        template = molecule(str(entry["name"]))
+        reference = np.asarray(template.positions, dtype=float)
+        symbols = template.get_chemical_symbols()
+        atom_labels_for_template = _molecule_atom_labels(symbols, str(entry["label"]))
+        for _ in range(int(entry["count"])):
+            transformed = reference @ rotations[entity].T + anchors[entity]
+            positions.extend(transformed)
+            elements.extend(symbols)
+            labels.extend(atom_labels_for_template)
+            groups.append(list(range(cursor, cursor + len(template))))
+            references.append(reference.copy())
+            names.append(str(entry["name"]))
+            cursor += len(template)
+            entity += 1
+    return {
+        "elements": elements,
+        "labels": labels,
+        "positions": np.asarray(positions, dtype=float),
+        "groups": groups,
+        "references": references,
+        "names": names,
+    }
+
+
+def molecule_entry_elements(entries: Sequence[dict[str, Any]]) -> list[str]:
+    """Return the chemical elements represented by molecule specifications."""
+    values: list[str] = []
+    for entry in entries:
+        values.extend(molecule(str(entry["name"])).get_chemical_symbols())
+    return values
+
+
+class RigidMoleculeConstraint(FixConstraint):
+    """Project many inserted molecules onto independent rigid-body motion.
+
+    Position proposals are aligned to immutable molecular references with a
+    proper Kabsch rotation. Atomic forces are orthogonally projected onto the
+    rigid-body modes while retaining each molecule's net force and torque.
+    """
+
+    def __init__(
+        self,
+        groups: Sequence[Sequence[int]],
+        references: Sequence[np.ndarray],
+    ):
+        if len(groups) != len(references):
+            raise ValueError("Rigid molecule groups and references must have the same length.")
+        self.groups = [np.asarray(group, dtype=int) for group in groups]
+        self.references = [np.asarray(reference, dtype=float).copy() for reference in references]
+        for group, reference in zip(self.groups, self.references):
+            if reference.shape != (len(group), 3):
+                raise ValueError("Each rigid reference must be an N x 3 array matching its group.")
+            if len(set(map(int, group))) != len(group):
+                raise ValueError("A rigid molecule group cannot contain duplicate atom indices.")
+        self._refresh_batches()
+
+    def _refresh_batches(self) -> None:
+        by_size: dict[int, list[int]] = {}
+        for index, group in enumerate(self.groups):
+            by_size.setdefault(len(group), []).append(index)
+        self._batches: list[tuple[np.ndarray, np.ndarray]] = []
+        for count, indices in sorted(by_size.items()):
+            if count <= 1:
+                continue
+            self._batches.append((
+                np.stack([self.groups[index] for index in indices]),
+                np.stack([self.references[index] for index in indices]),
+            ))
+
+    @staticmethod
+    def _proper_rotation(reference: np.ndarray, target: np.ndarray) -> np.ndarray:
+        centered_reference = reference - reference.mean(axis=0)
+        centered_target = target - target.mean(axis=0)
+        left, _, right_t = np.linalg.svd(centered_reference.T @ centered_target)
+        rotation = left @ right_t
+        if np.linalg.det(rotation) < 0.0:
+            left[:, -1] *= -1.0
+            rotation = left @ right_t
+        return rotation
+
+    def adjust_positions(self, atoms: Atoms, new: np.ndarray) -> None:
+        for groups, references in self._batches:
+            proposed = np.asarray(new[groups], dtype=float)
+            centered_reference = references - references.mean(axis=1, keepdims=True)
+            centered_proposed = proposed - proposed.mean(axis=1, keepdims=True)
+            covariance = np.einsum(
+                "gni,gnj->gij", centered_reference, centered_proposed, optimize=True
+            )
+            left, _, right_t = np.linalg.svd(covariance)
+            rotation = left @ right_t
+            reflected = np.linalg.det(rotation) < 0.0
+            if np.any(reflected):
+                left[reflected, :, -1] *= -1.0
+                rotation[reflected] = left[reflected] @ right_t[reflected]
+            aligned = np.einsum(
+                "gni,gij->gnj", centered_reference, rotation, optimize=True
+            )
+            aligned += proposed.mean(axis=1, keepdims=True)
+            new[groups.reshape(-1)] = aligned.reshape(-1, 3)
+
+    def adjust_forces(self, atoms: Atoms, forces: np.ndarray) -> None:
+        positions = np.asarray(atoms.positions, dtype=float)
+        identity = np.eye(3)
+        for groups, _ in self._batches:
+            group_positions = positions[groups]
+            relative = group_positions - group_positions.mean(axis=1, keepdims=True)
+            group_forces = np.asarray(forces[groups], dtype=float)
+            translation = group_forces.mean(axis=1)
+            centered_forces = group_forces - translation[:, None, :]
+            torque = np.sum(np.cross(relative, centered_forces), axis=1)
+            squared_norm_sum = np.sum(relative * relative, axis=(1, 2))
+            outer_sum = np.einsum("gni,gnj->gij", relative, relative, optimize=True)
+            inertia = squared_norm_sum[:, None, None] * identity - outer_sum
+            angular = np.einsum(
+                "gij,gj->gi", np.linalg.pinv(inertia, rcond=1e-12), torque, optimize=True
+            )
+            projected = translation[:, None, :] + np.cross(angular[:, None, :], relative)
+            forces[groups.reshape(-1)] = projected.reshape(-1, 3)
+
+    def get_removed_dof(self, atoms: Atoms) -> int:
+        removed = 0
+        identity = np.eye(3)
+        for reference in self.references:
+            count = len(reference)
+            if count <= 1:
+                continue
+            relative = reference - reference.mean(axis=0)
+            inertia = np.zeros((3, 3), dtype=float)
+            for vector in relative:
+                inertia += float(vector @ vector) * identity - np.outer(vector, vector)
+            rigid_dof = min(3 * count, 3 + int(np.linalg.matrix_rank(inertia, tol=1e-10)))
+            removed += 3 * count - rigid_dof
+        return int(removed)
+
+    def index_shuffle(self, atoms: Atoms, ind: Sequence[int]) -> None:
+        reverse = {int(old): new for new, old in enumerate(np.asarray(ind, dtype=int))}
+        next_groups: list[np.ndarray] = []
+        next_references: list[np.ndarray] = []
+        for group, reference in zip(self.groups, self.references):
+            keep = [offset for offset, index in enumerate(group) if int(index) in reverse]
+            if not keep:
+                continue
+            next_groups.append(np.asarray([reverse[int(group[offset])] for offset in keep], dtype=int))
+            next_references.append(reference[keep].copy())
+        self.groups = next_groups
+        self.references = next_references
+        self._refresh_batches()
+
+    def copy(self):
+        return RigidMoleculeConstraint(self.groups, self.references)
 
 
 def normalize_add_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -350,6 +1178,8 @@ def append_atoms(
     elements: Sequence[str],
     labels: Sequence[str],
     positions: np.ndarray,
+    *,
+    molecule_group_ids: Sequence[int] | None = None,
 ) -> Atoms:
     if len(elements) != len(labels) or len(elements) != len(positions):
         raise ValueError("Elements, labels, and positions must have the same length.")
@@ -359,6 +1189,24 @@ def append_atoms(
         result.append(Atom(base_symbol_for_atom_type(element), position=np.asarray(position, dtype=float)))
         result_labels.append(normalize_atom_type_label(label))
     set_atom_labels(result, result_labels)
+    if molecule_group_ids is not None:
+        if len(molecule_group_ids) != len(elements):
+            raise ValueError("Molecule group ids must match the inserted atom count.")
+        existing = baseline.arrays.get(MOLECULE_GROUP_ARRAY)
+        base_groups = (
+            np.asarray(existing, dtype=np.int64).copy()
+            if existing is not None and len(existing) == len(baseline)
+            else np.full(len(baseline), -1, dtype=np.int64)
+        )
+        offset = int(base_groups[base_groups >= 0].max() + 1) if np.any(base_groups >= 0) else 0
+        inserted = np.asarray(molecule_group_ids, dtype=np.int64)
+        inserted = np.where(inserted >= 0, inserted + offset, -1)
+        result.set_array(MOLECULE_GROUP_ARRAY, None)
+        result.set_array(
+            MOLECULE_GROUP_ARRAY,
+            np.concatenate((base_groups, inserted)),
+            dtype=np.int64,
+        )
     return result
 
 
@@ -424,26 +1272,215 @@ def project_positions_to_region(
     return output
 
 
+def rigid_transform_origin(reference: np.ndarray, current: np.ndarray) -> np.ndarray:
+    """Recover the transformed ASE template origin from one rigid group."""
+    source = np.asarray(reference, dtype=float)
+    target = np.asarray(current, dtype=float)
+    if source.shape != target.shape or source.ndim != 2 or source.shape[1] != 3:
+        raise ValueError("Rigid molecule reference and current positions must have matching N x 3 shapes.")
+    if len(source) == 1:
+        return target[0] - source[0]
+    source_center = source.mean(axis=0)
+    target_center = target.mean(axis=0)
+    covariance = (source - source_center).T @ (target - target_center)
+    left, _, right_t = np.linalg.svd(covariance)
+    rotation = left @ right_t
+    if np.linalg.det(rotation) < 0:
+        left[:, -1] *= -1
+        rotation = left @ right_t
+    return target_center - source_center @ rotation
+
+
+def project_rigid_groups_to_region(
+    positions: np.ndarray,
+    *,
+    cell: Any,
+    pbc: Sequence[bool],
+    mode: str,
+    bounds: Sequence[Any] | None,
+    groups: Sequence[Sequence[int]],
+    references: Sequence[np.ndarray],
+    prohibited: bool,
+) -> np.ndarray:
+    """Translate rigid groups so each transformed ASE origin satisfies the region."""
+    output = np.asarray(positions, dtype=float).copy()
+    if len(groups) != len(references):
+        raise ValueError("Rigid molecule groups and references must have the same length.")
+    for group, reference in zip(groups, references):
+        indices = np.asarray(group, dtype=int)
+        origin = rigid_transform_origin(reference, output[indices])
+        projected = project_positions_to_region(
+            np.asarray([origin], dtype=float),
+            cell=cell,
+            pbc=pbc,
+            mode=mode,
+            bounds=bounds,
+            indices=[0],
+            prohibited=prohibited,
+        )[0]
+        output[indices] += projected - origin
+    return output
+
+
+def _cartesian_region_penalty(
+    point: np.ndarray,
+    *,
+    region: Sequence[float | None],
+    prohibited: bool,
+    strength: float,
+) -> tuple[float, np.ndarray]:
+    energy = 0.0
+    force = np.zeros(3, dtype=float)
+    if prohibited:
+        lower = np.asarray(region[::2], dtype=object)
+        upper = np.asarray(region[1::2], dtype=object)
+        bounded = np.asarray([
+            lower[axis] is not None and upper[axis] is not None
+            for axis in range(3)
+        ], dtype=bool)
+        if not np.any(bounded):
+            return energy, force
+        inside = all(
+            not bounded[axis]
+            or float(lower[axis]) < float(point[axis]) < float(upper[axis])
+            for axis in range(3)
+        )
+        if not inside:
+            return energy, force
+        faces: list[tuple[float, int, float]] = []
+        for axis in np.flatnonzero(bounded):
+            faces.append((float(point[axis]) - float(lower[axis]), int(axis), -1.0))
+            faces.append((float(upper[axis]) - float(point[axis]), int(axis), 1.0))
+        distance, axis, direction = min(faces, key=lambda item: item[0])
+        force[axis] = strength * distance * direction
+        energy = 0.5 * strength * distance**2
+        return energy, force
+
+    for axis in range(3):
+        coord = float(point[axis])
+        lower = region[axis * 2]
+        upper = region[axis * 2 + 1]
+        if lower is None and upper is None:
+            continue
+        if not prohibited:
+            if lower is not None and coord < float(lower):
+                displacement = float(lower) - coord
+                force[axis] += strength * displacement
+                energy += 0.5 * strength * displacement**2
+            if upper is not None and coord > float(upper):
+                displacement = coord - float(upper)
+                force[axis] -= strength * displacement
+                energy += 0.5 * strength * displacement**2
+    return energy, force
+
+
 class AdditionRepulsionCalculator(VAseRepulsionCalculator):
     """Temporary calculator with triclinic cell-boundary forces."""
 
-    def __init__(self, *args, cell_region: bool = False, **kwargs):
+    def __init__(
+        self,
+        *args,
+        cell_region: bool = False,
+        insertion_domain: InsertionDomain | None = None,
+        rigid_groups: Sequence[Sequence[int]] | None = None,
+        rigid_references: Sequence[np.ndarray] | None = None,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.cell_region = bool(cell_region)
+        self.insertion_domain = insertion_domain
+        self.rigid_groups = [list(map(int, group)) for group in (rigid_groups or [])]
+        self.rigid_references = [np.asarray(item, dtype=float) for item in (rigid_references or [])]
+        if len(self.rigid_groups) != len(self.rigid_references):
+            raise ValueError("Rigid molecule groups and references must have the same length.")
+        self._rigid_group_by_atom = {
+            atom_index: group_index
+            for group_index, group in enumerate(self.rigid_groups)
+            for atom_index in group
+        }
+
+    def _neighbor_pairs(self, atoms: Atoms, min_bondinfo):
+        pairs = super()._neighbor_pairs(atoms, min_bondinfo)
+        if not self._rigid_group_by_atom:
+            return pairs
+        return [
+            pair for pair in pairs
+            if self._rigid_group_by_atom.get(int(pair[0]), -1)
+            != self._rigid_group_by_atom.get(int(pair[1]), -2)
+        ]
 
     def _boundary_energy_forces(self, atoms: Atoms):
-        energy, forces = super()._boundary_energy_forces(atoms)
+        energy = 0.0
+        forces = np.zeros((len(atoms), 3), dtype=float)
+        if (
+            self.insertion_domain is None
+            and not self.cell_region
+            and not any(value is not None for value in self.region)
+        ):
+            return energy, forces
+        grouped = {index for group in self.rigid_groups for index in group}
+        tags = atoms.get_tags()
+        if self.insertion_domain is not None:
+            atom_indices = [
+                atom_index
+                for atom_index in range(len(atoms))
+                if atom_index not in grouped
+                and (tags[atom_index] == 3 or self.work_on_relax_atoms_too)
+            ]
+            if atom_indices:
+                current = np.asarray(atoms.positions[atom_indices], dtype=float)
+                delta = self.insertion_domain.displacements_to_domain(current)
+                forces[atom_indices] += self.k_boundary * delta
+                energy += 0.5 * self.k_boundary * float(np.sum(delta * delta))
+            for group, reference in zip(self.rigid_groups, self.rigid_references):
+                indices = np.asarray(group, dtype=int)
+                origin = rigid_transform_origin(reference, atoms.positions[indices])
+                delta = self.insertion_domain.displacements_to_domain(
+                    np.asarray([origin])
+                )[0]
+                forces[indices] += self.k_boundary * delta / max(1, len(indices))
+                energy += 0.5 * self.k_boundary * float(delta @ delta)
+            return energy, forces
+        for atom_index, point in enumerate(atoms.positions):
+            if atom_index in grouped:
+                continue
+            if tags[atom_index] != 3 and not self.work_on_relax_atoms_too:
+                continue
+            atom_energy, atom_force = _cartesian_region_penalty(
+                point,
+                region=self.region,
+                prohibited=self.set_region_as_prohibited,
+                strength=self.k_boundary,
+            )
+            energy += atom_energy
+            forces[atom_index] += atom_force
+        for group, reference in zip(self.rigid_groups, self.rigid_references):
+            indices = np.asarray(group, dtype=int)
+            origin = rigid_transform_origin(reference, atoms.positions[indices])
+            group_energy, group_force = _cartesian_region_penalty(
+                origin,
+                region=self.region,
+                prohibited=self.set_region_as_prohibited,
+                strength=self.k_boundary,
+            )
+            energy += group_energy
+            forces[indices] += group_force / max(1, len(indices))
         if not self.cell_region:
             return energy, forces
         matrix = _finite_cell(atoms.cell.array)
         inverse = np.linalg.inv(matrix)
-        fractional = atoms.positions @ inverse
         reciprocal_gradients = inverse.T
         periodic = np.asarray(atoms.pbc, dtype=bool)
-        tags = atoms.get_tags()
-        for atom_index, point in enumerate(fractional):
+        origins: list[tuple[list[int], np.ndarray]] = []
+        for group, reference in zip(self.rigid_groups, self.rigid_references):
+            indices = np.asarray(group, dtype=int)
+            origins.append((list(group), rigid_transform_origin(reference, atoms.positions[indices])))
+        for atom_index, cartesian in enumerate(atoms.positions):
+            if atom_index in grouped:
+                continue
             if tags[atom_index] != 3 and not self.work_on_relax_atoms_too:
                 continue
+            point = cartesian @ inverse
             for axis in range(3):
                 if periodic[axis]:
                     continue
@@ -460,6 +1497,27 @@ class AdditionRepulsionCalculator(VAseRepulsionCalculator):
                     distance = (float(point[axis]) - 1.0) / gradient_norm
                     forces[atom_index] -= self.k_boundary * distance * normal
                     energy += 0.5 * self.k_boundary * distance**2
+        for group, origin in origins:
+            point = origin @ inverse
+            group_force = np.zeros(3, dtype=float)
+            for axis in range(3):
+                if periodic[axis]:
+                    continue
+                gradient = reciprocal_gradients[axis]
+                gradient_norm = float(np.linalg.norm(gradient))
+                if gradient_norm <= _CELL_TOLERANCE:
+                    continue
+                normal = gradient / gradient_norm
+                if point[axis] < 0.0:
+                    distance = -float(point[axis]) / gradient_norm
+                    group_force += self.k_boundary * distance * normal
+                    energy += 0.5 * self.k_boundary * distance**2
+                elif point[axis] > 1.0:
+                    distance = (float(point[axis]) - 1.0) / gradient_norm
+                    group_force -= self.k_boundary * distance * normal
+                    energy += 0.5 * self.k_boundary * distance**2
+            indices = np.asarray(group, dtype=int)
+            forces[indices] += group_force / max(1, len(indices))
         return energy, forces
 
 
@@ -470,9 +1528,8 @@ class AtomAdditionSession:
     frame_index: int
     history_index: int
     redo_before: list[Any]
-    region_mode: str
-    bounds: list[float]
-    region_role: str
+    domain: InsertionDomain
+    regions: list[InsertionRegion]
     allow_escape: bool
     entries: list[dict[str, Any]]
     elements: list[str]
@@ -482,6 +1539,17 @@ class AtomAdditionSession:
     cutoff_basis: str
     cutoff_scale: float
     seed: int | None
+    content_kind: str = "atoms"
+    placement_mode: str = "random"
+    coordinate_basis: str = "cartesian"
+    pbc_aware: bool = True
+    random_orientation: bool = True
+    rigid_molecules: bool = True
+    molecule_groups: list[list[int]] = field(default_factory=list)
+    molecule_references: list[np.ndarray] = field(default_factory=list, repr=False)
+    molecule_names: list[str] = field(default_factory=list)
+    molecule_group_ids: list[int] = field(default_factory=list)
+    density: dict[str, Any] | None = None
     freeze_existing: bool = True
     is_relaxing: bool = False
     stop_requested: bool = False
@@ -495,6 +1563,24 @@ class AtomAdditionSession:
     def host_count(self) -> int:
         return len(self.baseline_atoms)
 
+    @property
+    def region_mode(self) -> str:
+        return "regions" if self.regions else "cell"
+
+    @property
+    def bounds(self) -> list[float]:
+        if self.regions:
+            return list(self.regions[0].bounds)
+        if self.domain.cell is not None:
+            return cell_cartesian_bounds(self.domain.cell)
+        return list(self.domain.base_bounds)
+
+    @property
+    def region_role(self) -> str:
+        if not self.regions:
+            return "allowed"
+        return "prohibited" if self.regions[0].role == "reject" else "allowed"
+
     def summary(self) -> dict[str, Any]:
         return {
             "schema": ADD_ATOMS_SCHEMA,
@@ -504,6 +1590,9 @@ class AtomAdditionSession:
             "region_mode": self.region_mode,
             "bounds": list(self.bounds),
             "region_role": self.region_role,
+            "regions": [region.to_json() for region in self.regions],
+            "domain": self.domain.to_json(),
+            "accessible_volume_angstrom3": self.domain.volume,
             "allow_escape": self.allow_escape,
             "cell": np.asarray(self.baseline_atoms.cell.array, dtype=float).tolist(),
             "pbc": np.asarray(self.baseline_atoms.pbc, dtype=bool).tolist(),
@@ -515,6 +1604,16 @@ class AtomAdditionSession:
             "cutoff_basis": self.cutoff_basis,
             "cutoff_scale": self.cutoff_scale,
             "seed": self.seed,
+            "content_kind": self.content_kind,
+            "placement_mode": self.placement_mode,
+            "coordinate_basis": self.coordinate_basis,
+            "pbc_aware": self.pbc_aware,
+            "random_orientation": self.random_orientation,
+            "rigid_molecules": self.rigid_molecules,
+            "molecule_count": len(self.molecule_groups),
+            "molecule_groups": [list(group) for group in self.molecule_groups],
+            "molecule_names": list(self.molecule_names),
+            "density": dict(self.density) if self.density else None,
             "freeze_existing": self.freeze_existing,
             "temporary_fixed_indices": (
                 list(range(self.host_count)) if self.freeze_existing else []
@@ -542,6 +1641,55 @@ def _random_seed(value: Any) -> int | None:
     return seed
 
 
+def insertion_domain_from_payload(atoms: Atoms, payload: dict[str, Any]) -> InsertionDomain:
+    mode = str(payload.get("region_mode") or "cell").strip().lower()
+    if mode not in {"cell", "box", "regions"}:
+        raise ValueError("region_mode must be cell, box, or regions.")
+    legacy_bounds = payload.get("bounds")
+    if mode == "box" and legacy_bounds is None:
+        matrix = finite_cell_or_none(atoms.cell.array)
+        if matrix is None:
+            raise ValueError(
+                "A structure without a finite unit cell requires explicit Cartesian box bounds."
+            )
+        legacy_bounds = cell_cartesian_bounds(matrix)
+    regions = normalize_insertion_regions(
+        payload.get("regions"),
+        legacy_mode=mode,
+        legacy_bounds=legacy_bounds,
+        legacy_role=payload.get("region_role") or "allowed",
+    )
+    return build_insertion_domain(
+        cell=atoms.cell.array,
+        pbc=atoms.pbc,
+        regions=regions,
+        pbc_aware=bool(payload.get("region_mic", payload.get("mic", True))),
+    )
+
+
+def atom_addition_domain_preview(atoms: Atoms, payload: dict[str, Any]) -> dict[str, Any]:
+    domain = insertion_domain_from_payload(atoms, payload)
+    result: dict[str, Any] = {"domain": domain.to_json()}
+    content_kind = str(payload.get("content_kind") or "atoms").strip().lower()
+    quantity_mode = str(payload.get("molecule_quantity_mode") or "count").strip().lower()
+    if content_kind == "molecules" and quantity_mode == "density":
+        entries = normalize_molecule_entries(payload)
+        try:
+            resolved, density = resolve_molecule_density(
+                entries,
+                target_density_g_cm3=payload.get("target_density_g_cm3"),
+                accessible_volume_angstrom3=domain.volume,
+            )
+        except ValueError as exc:
+            # Keep the exact volume visible while the target or composition is
+            # adjusted to a realizable integer molecule count.
+            result["density_error"] = str(exc)
+        else:
+            result["density"] = density
+            result["resolved_molecules"] = resolved
+    return result
+
+
 def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]:
     if getattr(session, "atom_addition", None) is not None:
         raise ValueError("Finish or cancel the active Add Atoms session first.")
@@ -551,48 +1699,83 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
         getattr(session, "frame_count", 1)
     ) > 1:
         raise ValueError(
-            "Random atom insertion requires a single structure. Open the target "
+            "Batch atom and molecule insertion requires a single structure. Open the target "
             "trajectory frame in a new tab before starting Add Atoms."
         )
 
-    entries = normalize_add_entries(payload)
-    elements, labels = expanded_entry_values(entries)
     baseline = _copy_atoms_with_calculator(session.working_atoms)
-    matrix = _finite_cell(baseline.cell.array)
-    mode = str(payload.get("region_mode") or "cell").strip().lower()
-    if mode not in {"cell", "box"}:
-        raise ValueError("region_mode must be cell or box.")
-    bounds = (
-        cell_cartesian_bounds(matrix)
-        if mode == "cell"
-        else normalize_cartesian_bounds(payload.get("bounds") or cell_cartesian_bounds(matrix))
-    )
-    region_role = str(payload.get("region_role") or "allowed").strip().lower()
-    if region_role not in {"allowed", "prohibited"}:
-        raise ValueError("region_role must be allowed or prohibited.")
-    if mode == "cell" and region_role == "prohibited":
-        raise ValueError("The whole unit cell cannot be used as a prohibited insertion region.")
+    domain = insertion_domain_from_payload(baseline, payload)
+    content_kind = str(payload.get("content_kind") or "atoms").strip().lower()
+    if content_kind not in {"atoms", "molecules"}:
+        raise ValueError("content_kind must be atoms or molecules.")
+    placement_mode = _normalize_placement_mode(payload.get("placement_mode"))
+    coordinate_basis = _normalize_coordinate_basis(payload.get("coordinate_basis"))
+    pbc_aware = bool(payload.get("pbc_aware", True))
     allow_escape = bool(payload.get("allow_escape", True))
     seed = _random_seed(payload.get("seed"))
-    count = len(elements)
-    if mode == "cell":
-        positions = sample_unit_cell_positions(matrix, count, seed=seed)
-        sampling = {"attempted": count, "accepted": count, "acceptance_fraction": 1.0}
-    elif region_role == "allowed":
-        positions, sampling = sample_cartesian_box_positions(
-            matrix,
+    random_orientation = bool(payload.get("random_orientation", True))
+    rigid_molecules = bool(payload.get("rigid_molecules", True))
+    molecule_groups: list[list[int]] = []
+    molecule_references: list[np.ndarray] = []
+    molecule_names: list[str] = []
+    molecule_group_ids: list[int] = []
+    density: dict[str, Any] | None = None
+    if content_kind == "molecules":
+        entries = normalize_molecule_entries(payload)
+        quantity_mode = str(payload.get("molecule_quantity_mode") or "count").strip().lower()
+        if quantity_mode not in {"count", "density"}:
+            raise ValueError("molecule_quantity_mode must be count or density.")
+        if quantity_mode == "density":
+            entries, density = resolve_molecule_density(
+                entries,
+                target_density_g_cm3=payload.get("target_density_g_cm3"),
+                accessible_volume_angstrom3=domain.volume,
+            )
+        entity_count = sum(int(entry["count"]) for entry in entries)
+        anchors, sampling = sample_insertion_positions(
+            baseline.cell.array,
             baseline.pbc,
-            bounds,
-            count,
+            entity_count,
+            placement_mode=placement_mode,
+            coordinate_basis=coordinate_basis,
+            region_mode="regions",
+            regions=domain.regions,
+            pbc_aware=pbc_aware,
+            region_mic=domain.pbc_aware,
             seed=seed,
         )
+        expanded = expand_molecules(
+            entries,
+            anchors,
+            random_orientation=random_orientation,
+            seed=None if seed is None else (seed + 1) % (np.iinfo(np.uint32).max + 1),
+        )
+        elements = expanded["elements"]
+        labels = expanded["labels"]
+        positions = expanded["positions"]
+        molecule_references = expanded["references"]
+        molecule_names = expanded["names"]
+        for group_index, group in enumerate(expanded["groups"]):
+            molecule_groups.append([len(baseline) + index for index in group])
+            molecule_group_ids.extend([group_index] * len(group))
     else:
-        positions, sampling = sample_unit_cell_positions_outside_box(
-            matrix,
-            bounds,
-            count,
+        entries = normalize_add_entries(payload)
+        elements, labels = expanded_entry_values(entries)
+        entity_count = len(elements)
+        positions, sampling = sample_insertion_positions(
+            baseline.cell.array,
+            baseline.pbc,
+            entity_count,
+            placement_mode=placement_mode,
+            coordinate_basis=coordinate_basis,
+            region_mode="regions",
+            regions=domain.regions,
+            pbc_aware=pbc_aware,
+            region_mic=domain.pbc_aware,
             seed=seed,
         )
+    sampling["entity_count"] = int(entity_count)
+    sampling["content_kind"] = content_kind
 
     basis = str(payload.get("cutoff_basis") or "covalent").strip().lower()
     cutoff_scale = float(payload.get("cutoff_scale", 0.7))
@@ -607,7 +1790,13 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
     redo_before = list(session.redo_stack)
     session.push_history(include_trajectory=True)
     history_index = len(session.history) - 1
-    working = append_atoms(baseline, elements, labels, positions)
+    working = append_atoms(
+        baseline,
+        elements,
+        labels,
+        positions,
+        molecule_group_ids=molecule_group_ids if content_kind == "molecules" else None,
+    )
     new_indices = list(range(len(baseline), len(working)))
     addition = AtomAdditionSession(
         session_id=str(uuid.uuid4()),
@@ -615,9 +1804,8 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
         frame_index=int(session.current_frame),
         history_index=history_index,
         redo_before=redo_before,
-        region_mode=mode,
-        bounds=bounds,
-        region_role=region_role,
+        domain=domain,
+        regions=list(domain.regions),
         allow_escape=allow_escape,
         entries=entries,
         elements=elements,
@@ -627,6 +1815,17 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
         cutoff_basis=basis,
         cutoff_scale=cutoff_scale,
         seed=seed,
+        content_kind=content_kind,
+        placement_mode=placement_mode,
+        coordinate_basis=coordinate_basis,
+        pbc_aware=pbc_aware,
+        random_orientation=random_orientation,
+        rigid_molecules=rigid_molecules,
+        molecule_groups=molecule_groups,
+        molecule_references=molecule_references,
+        molecule_names=molecule_names,
+        molecule_group_ids=molecule_group_ids,
+        density=density,
         freeze_existing=bool(payload.get("freeze_existing", True)),
     )
     session.atom_addition = addition
@@ -640,21 +1839,62 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
 
 
 def update_atom_addition_region(session: Any, payload: dict[str, Any]) -> dict[str, Any]:
-    """Update the active Cartesian box without moving any atoms."""
+    """Update all active Cartesian regions without moving staged atoms."""
     addition = getattr(session, "atom_addition", None)
     if not isinstance(addition, AtomAdditionSession):
         raise ValueError("There is no active Add Atoms session.")
     with addition.lock:
         if addition.is_relaxing:
-            raise ValueError("Stop repulsive placement before moving the insertion box.")
-        if addition.region_mode != "box":
-            raise ValueError("Only a Cartesian insertion box can be moved.")
-        addition.bounds = normalize_cartesian_bounds(payload.get("bounds"))
-        if "region_role" in payload:
-            role = str(payload.get("region_role") or "").strip().lower()
-            if role not in {"allowed", "prohibited"}:
-                raise ValueError("region_role must be allowed or prohibited.")
-            addition.region_role = role
+            raise ValueError("Stop repulsive placement before changing insertion regions.")
+        if "regions" in payload:
+            regions = normalize_insertion_regions(payload.get("regions"))
+        elif not any(
+            key in payload for key in ("region_id", "name", "region_role", "bounds")
+        ):
+            regions = tuple(addition.regions)
+        else:
+            if not addition.regions:
+                raise ValueError("There is no Cartesian insertion region to update.")
+            region_id = str(payload.get("region_id") or addition.regions[0].id)
+            regions = []
+            found = False
+            for region in addition.regions:
+                if region.id != region_id:
+                    regions.append(region)
+                    continue
+                found = True
+                regions.append(InsertionRegion(
+                    id=region.id,
+                    name=str(payload.get("name") or region.name),
+                    role=(
+                        normalize_insertion_regions([{
+                            "id": region.id,
+                            "name": region.name,
+                            "role": payload.get("region_role"),
+                            "bounds": payload.get("bounds") or region.bounds,
+                        }])[0].role
+                        if "region_role" in payload
+                        else region.role
+                    ),
+                    bounds=tuple(normalize_cartesian_bounds(payload.get("bounds") or region.bounds)),
+                ))
+            if not found:
+                raise ValueError(f"Insertion region '{region_id}' was not found.")
+            regions = tuple(regions)
+        domain = build_insertion_domain(
+            cell=addition.baseline_atoms.cell.array,
+            pbc=addition.baseline_atoms.pbc,
+            regions=regions,
+            pbc_aware=bool(payload.get("region_mic", addition.domain.pbc_aware)),
+        )
+        addition.regions = list(domain.regions)
+        addition.domain = domain
+        if addition.density:
+            addition.density["accessible_volume_angstrom3"] = domain.volume
+            addition.density["actual_g_cm3"] = actual_molecule_density(
+                addition.entries,
+                domain.volume,
+            )
         if "allow_escape" in payload:
             addition.allow_escape = bool(payload.get("allow_escape"))
         return addition.summary()
@@ -708,14 +1948,27 @@ def finish_atom_addition(session: Any) -> dict[str, Any]:
         if addition.is_relaxing:
             raise ValueError("Stop or wait for repulsive placement before finishing Add Atoms.")
         current = session.working_atoms
-        if len(current) < addition.host_count + len(addition.new_indices):
+        expected_count = addition.host_count + len(addition.new_indices)
+        if len(current) != expected_count:
             raise ValueError("The active Add Atoms topology changed unexpectedly.")
+        expected_indices = list(range(addition.host_count, expected_count))
+        if addition.new_indices != expected_indices:
+            raise ValueError("The active Add Atoms index mapping changed unexpectedly.")
+        if current.get_chemical_symbols()[addition.host_count:] != addition.elements:
+            raise ValueError("The staged Add Atoms element mapping changed unexpectedly.")
+        if atom_labels(current)[addition.host_count:] != addition.labels:
+            raise ValueError("The staged Add Atoms label mapping changed unexpectedly.")
         added_positions = np.asarray(current.positions[addition.new_indices], dtype=float)
         committed = append_atoms(
             addition.baseline_atoms,
             addition.elements,
             addition.labels,
             added_positions,
+            molecule_group_ids=(
+                addition.molecule_group_ids
+                if addition.content_kind == "molecules"
+                else None
+            ),
         )
         session.atom_addition = None
         session.working_atoms = committed
@@ -726,7 +1979,71 @@ def finish_atom_addition(session: Any) -> dict[str, Any]:
             "schema": ADD_ATOMS_SCHEMA,
             "added": len(addition.new_indices),
             "indices": list(range(addition.host_count, len(committed))),
+            "content_kind": addition.content_kind,
+            "molecule_count": len(addition.molecule_groups),
         }
+
+
+def apply_atom_addition_positions(
+    session: Any,
+    positions: Sequence[Sequence[float]],
+) -> dict[str, Any]:
+    """Apply an interactive transform to staged atoms without touching the host.
+
+    Add Atoms owns one reversible history entry for its whole staging lifetime,
+    so G/R edits update that staged state directly instead of adding nested undo
+    entries.  Submitted host coordinates must still match the current host;
+    this makes a stale or over-broad client transform fail before mutation.
+    """
+    addition = getattr(session, "atom_addition", None)
+    if not isinstance(addition, AtomAdditionSession):
+        raise ValueError("There is no active Add Atoms session.")
+    with addition.lock:
+        if addition.is_relaxing:
+            raise ValueError("Stop repulsive placement before moving inserted atoms.")
+        current = session.working_atoms
+        proposed = np.asarray(positions, dtype=float)
+        if proposed.shape != current.positions.shape or not np.all(np.isfinite(proposed)):
+            raise ValueError("Submitted Add Atoms coordinates must be a finite N x 3 array.")
+        if addition.host_count and not np.allclose(
+            proposed[: addition.host_count],
+            current.positions[: addition.host_count],
+            rtol=0.0,
+            atol=1e-8,
+        ):
+            raise ValueError("Only atoms inserted by the active Add Atoms session can be moved.")
+        if addition.content_kind == "molecules" and addition.rigid_molecules:
+            for group, reference in zip(
+                addition.molecule_groups,
+                addition.molecule_references,
+            ):
+                indices = np.asarray(group, dtype=int)
+                if len(indices) <= 1:
+                    continue
+                reference_distances = np.linalg.norm(
+                    reference[:, None, :] - reference[None, :, :],
+                    axis=2,
+                )
+                proposed_group = proposed[indices]
+                proposed_distances = np.linalg.norm(
+                    proposed_group[:, None, :] - proposed_group[None, :, :],
+                    axis=2,
+                )
+                if not np.allclose(
+                    proposed_distances,
+                    reference_distances,
+                    rtol=1e-7,
+                    atol=1e-7,
+                ):
+                    raise ValueError(
+                        "Preserve molecular geometry is active. Move or rotate each "
+                        "inserted molecule as a complete rigid body, or disable that option."
+                    )
+        updated = np.asarray(current.positions, dtype=float).copy()
+        updated[addition.new_indices] = proposed[addition.new_indices]
+        current.set_positions(updated, apply_constraint=False)
+        session.sync_current_frame()
+        return addition.summary()
 
 
 def _temporary_optimizer_atoms(
@@ -746,22 +2063,29 @@ def _temporary_optimizer_atoms(
     constraints = list(temporary.constraints)
     if addition.freeze_existing and addition.host_count:
         constraints.append(FixAtoms(indices=np.arange(addition.host_count)))
+    rigid_groups: list[list[int]] = []
+    rigid_references: list[np.ndarray] = []
+    if addition.content_kind == "molecules" and addition.rigid_molecules:
+        for group, reference in zip(addition.molecule_groups, addition.molecule_references):
+            rigid_groups.append(list(group))
+            rigid_references.append(np.asarray(reference, dtype=float))
+        if rigid_groups:
+            constraints.append(RigidMoleculeConstraint(rigid_groups, rigid_references))
     temporary.set_constraint(constraints)
     temporary.calc = AdditionRepulsionCalculator(
         min_bondinfo=pair_cutoffs,
-        region=(
-            addition.bounds
-            if not addition.allow_escape and addition.region_mode == "box"
-            else None
-        ),
-        set_region_as_prohibited=addition.region_role == "prohibited",
+        region=None,
+        set_region_as_prohibited=False,
         k_boundary=k_boundary,
         k_repulsion=k_repulsion,
         cutoff_scale=1.0,
         max_force_norm=10.0,
-        mic=mic,
+        mic=bool(mic and addition.domain.cell is not None),
         work_on_relax_atoms_too=not addition.freeze_existing,
-        cell_region=not addition.allow_escape and addition.region_mode == "cell",
+        cell_region=False,
+        insertion_domain=addition.domain if not addition.allow_escape else None,
+        rigid_groups=rigid_groups,
+        rigid_references=rigid_references,
         device="cpu",
     )
     return temporary
@@ -788,15 +2112,29 @@ def _publish_addition_positions(
         if addition.allow_escape:
             committed_positions = np.asarray(temporary.positions, dtype=float)
         else:
-            committed_positions = project_positions_to_region(
-                temporary.positions,
-                cell=temporary.cell.array,
-                pbc=temporary.pbc,
-                mode=addition.region_mode,
-                bounds=addition.bounds,
-                indices=addition.new_indices,
-                prohibited=addition.region_role == "prohibited",
-            )
+            committed_positions = np.asarray(temporary.positions, dtype=float).copy()
+            grouped: set[int] = set()
+            if addition.content_kind == "molecules" and addition.rigid_molecules:
+                origins = np.asarray([
+                    rigid_transform_origin(reference, committed_positions[np.asarray(group, dtype=int)])
+                    for group, reference in zip(
+                        addition.molecule_groups,
+                        addition.molecule_references,
+                    )
+                ])
+                projected_origins = addition.domain.project_points(origins)
+                for group, origin, projected in zip(
+                    addition.molecule_groups,
+                    origins,
+                    projected_origins,
+                ):
+                    committed_positions[np.asarray(group, dtype=int)] += projected - origin
+                grouped = {index for group in addition.molecule_groups for index in group}
+            ungrouped = [index for index in addition.new_indices if index not in grouped]
+            if ungrouped:
+                committed_positions[ungrouped] = addition.domain.project_points(
+                    committed_positions[ungrouped]
+                )
         temporary.set_positions(committed_positions, apply_constraint=True)
         current = session.working_atoms
         if len(current) != len(temporary):
@@ -912,7 +2250,7 @@ def start_atom_addition_relaxation(
 ) -> dict[str, Any]:
     addition = getattr(session, "atom_addition", None)
     if not isinstance(addition, AtomAdditionSession):
-        raise ValueError("Scatter atoms before starting repulsive placement.")
+        raise ValueError("Start an Add Atoms or Add Molecules session before repulsive placement.")
     if addition.is_relaxing:
         raise ValueError("Repulsive placement is already running.")
     try:

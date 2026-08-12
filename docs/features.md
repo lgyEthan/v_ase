@@ -145,26 +145,47 @@ Edit additionally enables:
 
 Edit mode exposes one persistent Add Atoms workspace rather than treating
 creation as an isolated button click. **Single** retains cursor/view-center or
-exact-coordinate placement. **Random batch** accepts any number of independent
-ASE TYPE, visual LABEL, and Count rows plus a reproducible random seed.
+exact-coordinate placement. **Batch** accepts any number of independent ASE
+TYPE, visual LABEL, and Count rows or molecules from ASE's installed G2
+catalog. A reproducible seed controls random positions and molecular
+orientations.
 
-The default region is the complete unit-cell parallelepiped. Sampling uniform
-fractional coordinates in `[0, 1)^3` and multiplying by the full cell matrix is
-volume-uniform for orthogonal, monoclinic, and triclinic cells. The optional
-Cartesian region samples an axis-aligned box, then accepts only points inside
-the half-open primary periodic image. This prevents a skew cell's bounding-box
-corners and periodic faces from being counted twice. The active region is a
-teal viewport overlay and is removed on Finish or Cancel.
+The default domain is the complete unit-cell parallelepiped. Any number of
+Cartesian **Allow regions** can restrict that base through their union, and any
+number of **Reject regions** are then subtracted from it. Region IDs remain
+stable across edits. Overlaps are counted once, and the accessible volume is
+evaluated analytically by partitioning at every box face and intersecting each
+boundary partition with the exact cell polyhedron. No voxel approximation is
+used. A structure without a finite cell requires at least one Allow region;
+Reject-only input is rejected because it has no finite base domain.
 
-A Cartesian box can be **Allowed**, which samples its interior, or
-**Prohibited**, which samples the primary cell outside it. The box defines
-initial placement. Inserted atoms may leave that region during repulsive
-placement by default; optional confinement projects them back to the allowed
-side or out of the prohibited side. Selecting the box and pressing `G`
-translates it while all six bounds update live. `R` is rejected because a
-rotated region cannot be represented by Cartesian min/max fields.
+Sampling uniform fractional coordinates in `[0, 1)^3` and multiplying by the
+full cell matrix is volume-uniform for orthogonal, monoclinic, and triclinic cells. **Homogeneous**
+placement instead uses low-discrepancy centers, with maximin refinement for up
+to 1,024 entities and bounded-memory direct low-discrepancy placement above
+that size. Its default Cartesian metric maximizes physical distances in
+angstrom; the fractional metric
+balances normalized cell coordinates. Optional PBC-aware spacing uses the
+exact triclinic minimum image. Each Cartesian region and every periodic image
+is clipped against the primary cell polyhedron. This prevents skew-cell
+bounding-box corners and periodic faces from being counted twice. With region
+MIC enabled, moving a region through one periodic face displays its
+lattice-translated piece on the opposite face. This uses the full cell vectors,
+not a same-Cartesian-coordinate shortcut.
 
-Random placement initially permits overlaps. Its dedicated repulsive step uses
+Regions define initial placement. Inserted atoms may leave the Boolean domain
+during repulsive placement by default; optional confinement projects them back
+to the nearest valid generated boundary candidate. Across periodic faces, the
+confinement force uses the shortest triclinic minimum-image displacement rather
+than a direct Cartesian jump through the cell. Click or Shift-click rows or
+overlays to select one or more regions. `G` translates the entire selected
+group while preserving every stable ID and updating all six bounds. `R` is
+rejected because a rotated region cannot be represented by Cartesian min/max
+fields. All overlays disappear on Finish or Cancel. Changing region MIC in an
+active, stopped session rebuilds both the backend domain and rendered images;
+the control is locked while its optimizer is running.
+
+Placement may initially contain short contacts. Its dedicated repulsive step uses
 explicit unordered chemical-element pair cutoffs, the ASE minimum-image
 convention, and a harmonic overlap penalty. Covalent and van der Waals radii
 are only deterministic starting suggestions; every pair distance remains
@@ -176,11 +197,30 @@ and appends only the final new atoms. Host coordinates, arrays, labels,
 calculator, and constraints therefore remain byte-for-byte or object-state
 equivalent as appropriate.
 
+Molecule centers use the same region and placement rules. Count mode uses the
+requested integer counts. Density mode interprets those counts as a composition
+ratio, first reduces it by the greatest common divisor, converts the exact
+accessible volume from Angstrom cubed to cubic centimeters, and selects the
+nearest complete primitive-composition multiplier from ASE atomic masses and
+the Avogadro constant. The UI reports target and actual density; it never
+inserts fractional molecules. Changing regions after
+scattering preserves staged topology and updates only the reported actual
+density.
+
+The ASE molecule
+template is placed and rotated around its native coordinate origin. Random
+orientation samples unbiased rotations in three dimensions. Rigid placement
+is the default: intramolecular repulsion is excluded, optimizer forces are
+projected onto rigid translation and rotation, and every accepted position is
+projected back onto the immutable template geometry. Atomwise placement is an
+explicit alternative. While rigid placement is active, interactive edits must
+move or rotate a complete molecule and cannot distort one atom independently.
+
 Accepted repulsive steps are exposed through a temporary Add Atoms timeline.
 The timeline can be scrubbed or played while the workspace is active and is
 removed when Finish or Cancel closes the mode.
 
-Random insertion is current-frame scoped. A loaded trajectory must be reduced
+Batch insertion is current-frame scoped. A loaded trajectory must be reduced
 to the intended structure in a new document before the workspace starts, which
 avoids silently changing only one frame of a scientific trajectory.
 

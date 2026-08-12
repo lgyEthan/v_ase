@@ -52,12 +52,12 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.7&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.8&amp;rev=2">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.2.7';
+            : '/static/vendor/three.module.js?v=0.2.8';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -116,7 +116,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.2.7</span>
+            <span class="version">0.2.8</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -358,7 +358,7 @@
             </div>
             <div class="create-atom-tabs" role="tablist" aria-label="Atom insertion mode">
                 <button id="add-atoms-tab-single" class="active" type="button" role="tab" aria-selected="true">Single</button>
-                <button id="add-atoms-tab-batch" type="button" role="tab" aria-selected="false">Random batch</button>
+                <button id="add-atoms-tab-batch" type="button" role="tab" aria-selected="false">Batch</button>
             </div>
 
             <div id="add-atoms-pane-single" class="create-atom-body" role="tabpanel">
@@ -380,40 +380,118 @@
             </div>
 
             <div id="add-atoms-pane-batch" class="add-atoms-batch hidden" role="tabpanel">
-                <section class="add-atoms-section">
-                    <div class="add-atoms-section-head">
-                        <span>Atoms</span>
-                        <button id="btn-add-atoms-entry" class="icon-text-button" type="button" title="Add atom type">+ Type</button>
+                <section class="add-atoms-section add-atoms-content-section">
+                    <div class="add-atoms-section-head"><span>Insert</span></div>
+                    <div class="add-atoms-region-choice" role="group" aria-label="Insertion content">
+                        <button id="add-atoms-content-atoms" class="active" type="button">Atoms</button>
+                        <button id="add-atoms-content-molecules" type="button">Molecules</button>
                     </div>
-                    <div class="add-atoms-entry-header" aria-hidden="true">
-                        <span>Type</span><span>Label</span><span>Count</span><span></span>
-                    </div>
-                    <div id="add-atoms-entries" class="add-atoms-entries"></div>
                 </section>
 
                 <section class="add-atoms-section">
-                    <div class="add-atoms-section-head"><span>Insertion region</span></div>
-                    <div class="add-atoms-region-choice" role="group" aria-label="Insertion region">
-                        <button id="add-atoms-region-cell" class="active" type="button">Unit cell</button>
-                        <button id="add-atoms-region-box" type="button">Cartesian box</button>
+                    <div id="add-atoms-atom-content">
+                      <div class="add-atoms-section-head">
+                        <span>Atoms</span>
+                        <button id="btn-add-atoms-entry" class="icon-text-button" type="button" title="Add atom type">+ Type</button>
+                      </div>
+                      <div class="add-atoms-entry-header" aria-hidden="true">
+                        <span>Type</span><span>Label</span><span>Count</span><span></span>
+                      </div>
+                      <div id="add-atoms-entries" class="add-atoms-entries"></div>
                     </div>
-                    <div id="add-atoms-box-fields" class="add-atoms-box-fields hidden">
+                    <div id="add-atoms-molecule-content" class="hidden">
+                      <div class="add-atoms-section-head">
+                        <span>ASE molecules</span>
+                        <button id="btn-add-molecule-entry" class="icon-text-button" type="button" title="Add molecule type">+ Molecule</button>
+                      </div>
+                      <div class="add-atoms-region-choice" role="group" aria-label="Molecule quantity">
+                        <button id="add-molecules-quantity-count" class="active" type="button">Count</button>
+                        <button id="add-molecules-quantity-density" type="button">Density</button>
+                      </div>
+                      <div id="add-molecules-density-row" class="add-molecules-density-row hidden">
+                        <label for="add-molecules-target-density">
+                          <span>Target</span>
+                          <span class="unit-input"><input id="add-molecules-target-density" type="number" min="0.000001" max="100" step="0.01" value="0.997"><span>g/cm³</span></span>
+                        </label>
+                        <div class="add-molecules-realized-density">
+                          <span>Actual</span>
+                          <strong id="add-molecules-actual-density">—</strong>
+                        </div>
+                      </div>
+                      <div class="add-atoms-molecule-header" aria-hidden="true">
+                        <span>Molecule</span><span>Label</span><span id="add-molecules-count-heading">Count</span><span></span>
+                      </div>
+                      <div id="add-molecule-entries" class="add-atoms-entries"></div>
+                      <label class="add-atoms-check-row" for="add-molecules-random-orientation">
+                        <input id="add-molecules-random-orientation" type="checkbox" checked>
+                        <span>Randomize molecular orientation</span>
+                      </label>
+                      <label class="add-atoms-check-row" for="add-molecules-rigid">
+                        <input id="add-molecules-rigid" type="checkbox" checked>
+                        <span>Preserve molecular geometry during placement</span>
+                      </label>
+                    </div>
+                </section>
+
+                <section class="add-atoms-section">
+                    <div class="add-atoms-section-head"><span>Initial distribution</span></div>
+                    <div class="add-atoms-region-choice" role="group" aria-label="Initial distribution">
+                        <button id="add-atoms-placement-random" class="active" type="button">Random</button>
+                        <button id="add-atoms-placement-homogeneous" type="button">Homogeneous</button>
+                    </div>
+                    <label id="add-atoms-spacing-basis-row" class="add-atoms-inline-field hidden" for="add-atoms-coordinate-basis">
+                        <span>Spacing basis</span>
+                        <select id="add-atoms-coordinate-basis">
+                            <option value="cartesian">Cartesian distance / Å</option>
+                            <option value="fractional">Fractional spacing</option>
+                        </select>
+                    </label>
+                    <label id="add-atoms-placement-pbc-row" class="add-atoms-check-row hidden" for="add-atoms-placement-pbc">
+                        <input id="add-atoms-placement-pbc" type="checkbox" checked>
+                        <span>Account for periodic boundaries</span>
+                    </label>
+                </section>
+
+                <section class="add-atoms-section">
+                    <div class="add-atoms-section-head">
+                        <span>Insertion domain</span>
+                        <div class="add-atoms-region-actions">
+                            <button id="btn-add-atoms-allow-region" class="icon-text-button" type="button">+ Allow</button>
+                            <button id="btn-add-atoms-reject-region" class="icon-text-button danger-quiet" type="button">+ Reject</button>
+                        </div>
+                    </div>
+                    <div id="add-atoms-base-domain" class="add-atoms-base-domain">
+                        <span class="add-atoms-base-icon" aria-hidden="true"></span>
+                        <span><strong>Base domain</strong><small id="add-atoms-base-domain-text">Periodic unit cell</small></span>
+                    </div>
+                    <div id="add-atoms-region-list" class="add-atoms-region-list" role="listbox" aria-label="Allow and reject regions" aria-multiselectable="true"></div>
+                    <div id="add-atoms-region-empty" class="add-atoms-region-empty">The complete unit cell is available. Add regions to include or exclude specific volumes.</div>
+                    <div id="add-atoms-box-fields" class="add-atoms-region-editor hidden">
+                        <div class="add-atoms-region-editor-head">
+                            <input id="add-atoms-region-name" type="text" value="Allow region 1" aria-label="Selected region name">
+                            <button id="btn-add-atoms-delete-region" class="icon-button danger-quiet" type="button" title="Delete selected region" aria-label="Delete selected region">×</button>
+                        </div>
                         <label>x min<input id="add-atoms-xmin" type="number" step="0.1"></label>
                         <label>x max<input id="add-atoms-xmax" type="number" step="0.1"></label>
                         <label>y min<input id="add-atoms-ymin" type="number" step="0.1"></label>
                         <label>y max<input id="add-atoms-ymax" type="number" step="0.1"></label>
                         <label>z min<input id="add-atoms-zmin" type="number" step="0.1"></label>
                         <label>z max<input id="add-atoms-zmax" type="number" step="0.1"></label>
-                        <div class="add-atoms-box-role-label">Box role</div>
-                        <div class="add-atoms-region-choice add-atoms-box-role" role="group" aria-label="Cartesian box role">
-                            <button id="add-atoms-region-allowed" class="active" type="button">Allowed</button>
-                            <button id="add-atoms-region-prohibited" type="button">Prohibited</button>
+                        <div class="add-atoms-box-role-label">Region rule</div>
+                        <div class="add-atoms-region-choice add-atoms-box-role" role="group" aria-label="Cartesian region rule">
+                            <button id="add-atoms-region-allowed" class="active" type="button">Allow</button>
+                            <button id="add-atoms-region-prohibited" type="button">Reject</button>
                         </div>
-                        <p class="add-atoms-box-hint">Select the box in the viewport and press G to move it. Rotation is disabled.</p>
+                        <p class="add-atoms-box-hint">Click or Shift-click regions, then press G to move the selection. Rotation is disabled.</p>
                     </div>
+                    <div class="add-atoms-domain-volume">
+                        <span>Accessible volume</span>
+                        <strong id="add-atoms-domain-volume">—</strong>
+                    </div>
+                    <p id="add-atoms-domain-message" class="add-atoms-domain-message">Allow regions are combined; Reject regions are subtracted.</p>
                     <label class="add-atoms-inline-field" for="add-atoms-seed">
-                        <span>Random seed</span>
-                        <input id="add-atoms-seed" type="number" min="0" step="1" placeholder="Random">
+                        <span>Placement seed</span>
+                        <input id="add-atoms-seed" type="number" min="0" step="1" placeholder="Automatic">
                     </label>
                 </section>
 
@@ -425,8 +503,15 @@
                     </label>
                     <label class="add-atoms-check-row" for="add-atoms-allow-escape">
                         <input id="add-atoms-allow-escape" type="checkbox" checked>
-                        <span>Allow inserted atoms to leave the initial region</span>
+                        <span>Allow inserted content to leave the region domain</span>
                     </label>
+                    <div class="add-atoms-selection-row">
+                        <label class="add-atoms-check-row" for="add-atoms-select-added">
+                            <input id="add-atoms-select-added" type="checkbox" checked>
+                            <span>Keep inserted atoms selected</span>
+                        </label>
+                        <button id="btn-add-atoms-select-added" type="button" disabled>Select added</button>
+                    </div>
                     <div class="add-atoms-cutoff-row">
                         <label>Cutoffs
                             <select id="add-atoms-cutoff-basis">
@@ -447,16 +532,16 @@
                     </div>
                     <label class="add-atoms-check-row" for="add-atoms-mic">
                         <input id="add-atoms-mic" type="checkbox" checked>
-                        <span>Minimum image convention</span>
+                        <span>Minimum image convention for regions and repulsion</span>
                     </label>
                 </section>
 
                 <div id="add-atoms-status" class="add-atoms-status" data-state="idle">
                     <span class="add-atoms-status-dot" aria-hidden="true"></span>
-                    <span id="add-atoms-status-text">Ready to scatter atoms</span>
+                    <span id="add-atoms-status-text">Ready to place atoms</span>
                 </div>
                 <div class="add-atoms-session-actions">
-                    <button id="btn-add-atoms-scatter" class="primary" type="button">Scatter</button>
+                    <button id="btn-add-atoms-scatter" class="primary" type="button">Place atoms</button>
                     <button id="btn-add-atoms-relax" type="button" disabled>Repel</button>
                     <button id="btn-add-atoms-stop" type="button" disabled>Stop</button>
                     <button id="btn-add-atoms-cancel" type="button" disabled>Cancel</button>
@@ -1699,7 +1784,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.2.7&rev=1';
+            : './static/main.js?v=0.2.8&rev=2';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

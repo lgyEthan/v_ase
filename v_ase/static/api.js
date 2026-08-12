@@ -884,11 +884,19 @@ export class ASEApi {
         return await this.jsonPost(`/api/add/{session_id}`, this.framePayload(payload));
     }
 
-    async atomAdditionPairCutoffs(elements, basis = 'covalent', scale = 0.7) {
+    async atomAdditionMoleculeCatalog() {
+        return await this.request(`/api/add-session/molecules/{session_id}`);
+    }
+
+    async atomAdditionPairCutoffs(elements, basis = 'covalent', scale = 0.7, molecules = []) {
         return await this.jsonPost(
             `/api/add-session/pairs/{session_id}`,
-            { elements, basis, scale }
+            { elements, basis, scale, molecules }
         );
+    }
+
+    async atomAdditionDomain(payload) {
+        return await this.jsonPost(`/api/add-session/domain/{session_id}`, payload);
     }
 
     async startAtomAddition(payload) {

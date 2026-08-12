@@ -311,10 +311,10 @@ intermediate, and expected final structures are generated from
 - `examples/readme_scene_assets/ai_pyridinic_n3_li_graphene.cif`;
 - `examples/readme_scene_assets/ai_pyridinic_n3_li_graphene.traj`.
 
-### Random Multi-Species Insertion And Repulsion
+### Batch Atom And Molecule Insertion
 
-Use this low-freedom workflow to scatter several atom populations and move
-only those new atoms away from short contacts. It requires one periodic
+Use this low-freedom workflow to place atom or molecule populations and move
+only that staged content away from short contacts. It requires one periodic
 structure, not a trajectory.
 
 ```javascript
@@ -329,9 +329,16 @@ await applyCurrent({operation: {
     {element: "Li", label: "Li_mobile", count: 30},
     {element: "H", label: "H_probe", count: 10}
   ],
-  regionMode: "box",
-  bounds: [1.0, 9.0, 1.0, 8.0, 0.0, 14.0],
-  regionRole: "allowed",
+  regionMode: "regions",
+  regionMic: true,
+  regions: [
+    {id: "left-channel", name: "Left channel", role: "allow",
+     bounds: [1.0, 4.5, 1.0, 8.0, 0.0, 14.0]},
+    {id: "right-channel", name: "Right channel", role: "allow",
+     bounds: [5.5, 9.0, 1.0, 8.0, 0.0, 14.0]},
+    {id: "protected-site", name: "Protected site", role: "reject",
+     bounds: [3.5, 6.5, 3.0, 6.0, 3.0, 11.0]}
+  ],
   allowEscape: true,
   seed: 2021,
   freezeExisting: true,
@@ -346,6 +353,13 @@ if (
   || scattered.atomCount !== baseline.atomCount + 40
 ) {
   throw new Error("Random insertion did not produce the requested topology.");
+}
+if (
+  scattered.addAtoms.regions.map(region => region.id).join(",")
+    !== "left-channel,right-channel,protected-site"
+  || !(scattered.addAtoms.domain.volume_angstrom3 > 0)
+) {
+  throw new Error("The exact multi-region domain or stable IDs were not preserved.");
 }
 
 await applyCurrent({operation: {
@@ -392,16 +406,71 @@ for (let index = 0; index < baseline.atomCount; index += 1) {
 }
 ```
 
-For a Cartesian region, use six Angstrom bounds. `regionRole:"allowed"`
-samples inside the box and `regionRole:"prohibited"` samples the remaining
-primary-cell volume. `allowEscape:true` is the default and means the box only
-defines initial positions; set it false only when repulsive placement must
-retain the region rule. `update-add-atoms-region` changes the active bounds,
-role, or escape policy without moving staged atoms. Verify the returned region,
-sampling diagnostics, mode-only placement timeline, and exact host invariants
-before optimization. Use `cancel-add-atoms` at any point before finish to
-restore coordinates, constraints, arrays, labels, history, and redo state
-exactly.
+For Cartesian regions, use six Angstrom bounds. The exact domain is the finite
+cell intersected with the Allow union, or the complete cell when there is no
+Allow, minus the Reject union. Without a finite cell, require an Allow region.
+`allowEscape:true` is the default and means the Boolean domain only defines
+initial positions; set it false only when repulsive placement must retain all
+region rules. `update-add-atoms-region` accepts a complete region array or one
+stable region ID and changes geometry, role, name, `regionMic`, or escape
+policy without moving staged atoms. Verify the returned exact volume, periodic images,
+sampling diagnostics, mode-only placement timeline, and host invariants before
+optimization. Use `cancel-add-atoms` at any point before finish to restore
+coordinates, constraints, arrays, labels, history, and redo state exactly.
+
+For molecules, discover the installed catalog and preserve geometry unless
+the user explicitly requests atomwise internal motion:
+
+```javascript
+const capabilities = await ai.capabilities();
+if (!capabilities.addAtoms.moleculeCatalog.some(item => item.name === "H2O")) {
+  throw new Error("H2O is unavailable in the installed ASE molecule catalog.");
+}
+await applyCurrent({operation: {
+  name: "scatter-molecules",
+  molecules: [{name: "H2O", label: "channel_water", count: 1}],
+  quantityMode: "density",
+  targetDensityGcm3: 0.70,
+  regionMode: "regions",
+  regionMic: true,
+  regions: [
+    {id: "left-reservoir", role: "allow", bounds: [-5, 3, 1, 9.5, 8, 16]},
+    {id: "right-reservoir", role: "allow", bounds: [5, 13, 1, 9.5, 8, 16]},
+    {id: "central-gate", role: "reject", bounds: [1, 8, 4, 6.5, 8, 16]}
+  ],
+  placementMode: "homogeneous",
+  coordinateBasis: "cartesian",
+  pbcAware: true,
+  randomOrientation: true,
+  rigidMolecules: true,
+  freezeExisting: true,
+  seed: 2021
+}});
+const staged = await ai.describe({includePositions: true});
+if (
+  staged.addAtoms?.content_kind !== "molecules"
+  || staged.addAtoms.molecule_count !== 18
+  || staged.addAtoms.new_count !== 54
+  || staged.addAtoms.density?.target_g_cm3 !== 0.70
+  || Math.abs(staged.addAtoms.domain.volume_angstrom3 - 767.68) > 1e-8
+) {
+  await applyCurrent({operation: "cancel-add-atoms"});
+  throw new Error("Molecule staging failed semantic verification.");
+}
+```
+
+In density mode, Count is a composition ratio. Reduce it to the primitive
+integer ratio before choosing a complete multiplier. Verify the reported
+primitive ratio, actual density, and integer composition multiplier; do not
+recompute volume from the Cartesian cell bounding box or round each species
+separately.
+
+Verify every reported molecule group has the same pair-distance matrix as its
+ASE template before and after repulsive placement. Whole-group `G`/`R`
+transforms are valid in rigid mode; a transform that changes only part of one
+molecule must fail. Finish only after the host coordinates, constraints,
+labels, arrays, and calculator are unchanged. Otherwise cancel and report the
+failed invariant.
 
 ### Phosphorene Cumulative Tail Rotation
 

@@ -17,6 +17,7 @@ import numpy as np
 from ase import Atoms
 from ase.build import bulk, fcc111, graphene, molecule, nanotube, surface
 from ase.constraints import FixAtoms, FixedLine, FixedPlane, Hookean
+from ase.geometry import find_mic
 from ase.io import write
 from ase.optimize import FIRE
 from ase.spacegroup import crystal
@@ -547,37 +548,115 @@ def make_material_preset_scene() -> tuple[Atoms, dict[str, list[int]]]:
     return atoms, groups
 
 
-def make_random_addition_scene() -> tuple[Atoms, dict[str, object]]:
-    """Return a recognizable rocksalt crystal with a central vacancy pocket."""
+def _periodic_disordered_points(
+    cell: np.ndarray,
+    count: int,
+    *,
+    minimum_distance: float,
+    seed: int,
+) -> np.ndarray:
+    """Generate a reproducible disordered periodic point set without overlaps."""
 
-    host = bulk("NaCl", "rocksalt", a=5.64, cubic=True).repeat((3, 3, 2))
-    host.pbc = True
-    host.wrap(eps=1e-10)
-    cell = np.asarray(host.cell.array, dtype=float)
-    center = 0.5 * np.sum(cell, axis=0)
-    # Removing the central coordination shells exposes one legible cavity but
-    # leaves enough alternating Na/Cl lattice around it to identify the host.
-    distances = np.linalg.norm(host.positions - center, axis=1)
-    vacancy_indices = sorted(np.flatnonzero(distances < 4.05).tolist(), reverse=True)
-    for index in vacancy_indices:
-        del host[index]
-    set_atom_labels(host, [
-        "Na_lattice" if symbol == "Na" else "Cl_lattice"
-        for symbol in host.get_chemical_symbols()
-    ])
+    generator = np.random.default_rng(seed)
+    accepted: list[np.ndarray] = []
+    attempts = 0
+    while len(accepted) < count and attempts < count * 10_000:
+        candidate = generator.random(3) @ cell
+        attempts += 1
+        if accepted:
+            _, distances = find_mic(
+                np.asarray(accepted) - candidate,
+                cell,
+                pbc=[True, True, True],
+            )
+            if float(np.min(distances)) < minimum_distance:
+                continue
+        accepted.append(candidate)
+    if len(accepted) != count:
+        raise RuntimeError("Could not construct the periodic disordered README scene.")
+    return np.asarray(accepted, dtype=float)
+
+
+def make_random_addition_scene() -> tuple[Atoms, dict[str, object]]:
+    """Return periodic amorphous Ga with a visible H insertion volume."""
+
+    cell = np.diag([20.0, 20.0, 20.0])
+    positions = _periodic_disordered_points(
+        cell,
+        320,
+        minimum_distance=2.05,
+        seed=7421,
+    )
+    host = Atoms("Ga320", positions=positions, cell=cell, pbc=True)
+    set_atom_labels(host, ["Ga_amorphous"] * len(host))
+    center = np.asarray([10.0, 10.0, 10.0])
     host.info.update({
-        "readme_scene": "vacancy_rich_rocksalt_random_addition",
-        "purpose": "v_ase 0.2.1 random multi-species insertion and repulsive placement",
+        "readme_scene": "periodic_amorphous_ga_hydrogen_addition",
+        "purpose": "random or homogeneous H insertion followed by pairwise repulsive placement",
+        "generation": "deterministic periodic random packing with a 2.05 angstrom Ga exclusion distance",
     })
     return host, {
-        "entries": [
-            {"element": "Na", "label": "Na_inserted", "count": 6},
-            {"element": "Cl", "label": "Cl_inserted", "count": 6},
-        ],
+        "entries": [{"element": "H", "label": "H_inserted", "count": 20}],
         "seed": 2021,
-        "vacancy_count": len(vacancy_indices),
+        "host_seed": 7421,
+        "minimum_ga_distance": 2.05,
         "insertion_center": center.tolist(),
-        "insertion_half_box": [4.20, 4.20, 3.65],
+        "insertion_half_box": [5.6, 5.6, 5.6],
+    }
+
+
+def make_layered_water_channel_scene() -> tuple[Atoms, dict[str, object]]:
+    """Return a periodic layered channel for rigid-water insertion."""
+
+    sheet = graphene(size=(6, 5, 1), vacuum=0.0)
+    cell = np.asarray(sheet.cell.array, dtype=float)
+    cell[2] = [0.0, 0.0, 24.0]
+    lower = sheet.copy()
+    lower.cell = cell
+    lower.positions[:, 2] = 7.0
+    upper = sheet.copy()
+    upper.cell = cell
+    upper.positions[:, 2] = 17.0
+    channel = lower + upper
+    channel.cell = cell
+    channel.pbc = True
+    labels = ["C_lower_membrane"] * len(lower) + ["C_upper_membrane"] * len(upper)
+    set_atom_labels(channel, labels)
+    channel.wrap(eps=1e-10)
+    channel.info.update({
+        "readme_scene": "layered_periodic_water_channel",
+        "purpose": "exact multi-region density placement of rigid H2O molecules",
+    })
+    return channel, {
+        "molecules": [{"name": "H2O", "label": "water", "count": 1}],
+        "target_density_g_cm3": 0.70,
+        "expected_molecule_count": 18,
+        "regions": [
+            {
+                "id": "left-reservoir",
+                "name": "Left reservoir",
+                "role": "allow",
+                "bounds": [-5.0, 3.0, 1.0, 9.5, 8.0, 16.0],
+            },
+            {
+                "id": "right-reservoir",
+                "name": "Right reservoir",
+                "role": "allow",
+                "bounds": [5.0, 13.0, 1.0, 9.5, 8.0, 16.0],
+            },
+            {
+                "id": "central-gate",
+                "name": "Central gate",
+                "role": "reject",
+                "bounds": [1.0, 8.0, 4.0, 6.5, 8.0, 16.0],
+            },
+        ],
+        "accessible_volume_angstrom3": 767.68,
+        "seed": 1207,
+        "placement_mode": "homogeneous",
+        "coordinate_basis": "cartesian",
+        "random_orientation": True,
+        "rigid_molecules": True,
     }
 
 
@@ -886,16 +965,33 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
         info = SceneInfo(
             name=name,
             description=(
-                "Vacancy-rich rocksalt NaCl for random multi-species insertion "
-                "and repulsive placement."
+                "Periodic amorphous Ga for H insertion inside an allowed box or "
+                "outside a prohibited box."
             ),
-            static_file="rocksalt_vacancy_add_atoms.traj",
+            static_file="amorphous_ga_h_add_atoms.traj",
             selected_indices=(),
             notes=(
-                f"Scatter {entries[0]['count']} Na_inserted and {entries[1]['count']} "
-                "Cl_inserted atoms with random seed 2021.",
+                f"Scatter {entries[0]['count']} H_inserted atoms with random seed 2021.",
                 "Allowed mode starts inside the central box; Prohibited mode starts outside it.",
-                "The alternating Na/Cl host remains unchanged while only inserted atoms follow pairwise repulsion.",
+                "All Ga coordinates remain unchanged while only inserted H follows pairwise repulsion.",
+            ),
+        )
+        return atoms, info
+    if name == "add-molecules":
+        atoms, metadata = make_layered_water_channel_scene()
+        info = SceneInfo(
+            name=name,
+            description="Periodic layered channel for exact multi-region rigid-water insertion.",
+            static_file="layered_water_channel.traj",
+            selected_indices=(),
+            notes=(
+                (
+                    f"Target {metadata['target_density_g_cm3']:.2f} g/cm^3 across two Allow "
+                    f"reservoirs minus one Reject gate; {metadata['expected_molecule_count']} "
+                    "H2O molecules are realizable."
+                ),
+                "Random orientation is Haar-uniform and rigid placement preserves each molecular geometry.",
+                "Only inserted water is selected and relaxed; the two membrane layers remain unchanged.",
             ),
         )
         return atoms, info
@@ -1049,6 +1145,7 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
 
 SCENE_NAMES = (
     "add-atoms",
+    "add-molecules",
     "phosphorene",
     "commensurate",
     "ai-edit",

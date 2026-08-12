@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.7&rev=1';
-import { ASERenderer } from './renderer.js?v=0.2.7&rev=1';
-import { ASESelection } from './selection.js?v=0.2.7&rev=1';
-import { ASETransform } from './transform.js?v=0.2.7&rev=1';
+import { ASEApi } from './api.js?v=0.2.8&rev=1';
+import { ASERenderer } from './renderer.js?v=0.2.8&rev=1';
+import { ASESelection } from './selection.js?v=0.2.8&rev=1';
+import { ASETransform } from './transform.js?v=0.2.8&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.7&rev=1';
+} from './trajectory.js?v=0.2.8&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -251,7 +251,7 @@ class VAseApp {
             commensuratePreviewTimer: null,
             commensuratePreviewAngle: 0,
             transformSubject: null,
-            addAtomsRegionSelected: false,
+            addAtomsRegionSelectedIds: new Set(),
             addAtomsRegionTransformOriginal: null,
             sunSelected: null,
             sunTransformOriginal: null,
@@ -512,6 +512,23 @@ class VAseApp {
         return !this.state.vizOnly && !this.addAtomsSessionActive();
     }
 
+    canTransformSelectedAtoms() {
+        if (this.state.vizOnly) return false;
+        const addition = this.addAtomsUI?.active || this.state.atoms?.metadata?.atom_addition;
+        if (!addition?.active) return true;
+        if (addition.is_relaxing || this.state.selected.size === 0) return false;
+        const inserted = new Set((addition.new_indices || []).map(Number));
+        return [...this.state.selected].every(index => inserted.has(Number(index)));
+    }
+
+    transformUnavailableToast() {
+        if (this.addAtomsSessionActive()) {
+            this.toast('During batch insertion, G/R can transform only the inserted content. Stop placement first if it is running.', 'warning');
+            return;
+        }
+        this.editOnlyToast();
+    }
+
     canViewportSelectAtoms() {
         return true;
     }
@@ -523,7 +540,11 @@ class VAseApp {
         document.querySelectorAll('[data-edit-only]').forEach(el => {
             if ('disabled' in el) el.disabled = this.state.vizOnly;
         });
-        if ((this.state.vizOnly || addAtomsActive) && this.transform.mode !== 'IDLE') {
+        if (
+            this.transform.mode !== 'IDLE'
+            && this.state.transformSubject === 'atoms'
+            && !this.canTransformSelectedAtoms()
+        ) {
             this.cancelTransform();
         }
         document.querySelectorAll('[data-runtime-mode]').forEach(button => {
@@ -1565,7 +1586,21 @@ class VAseApp {
     }
 
     editOnlyToast() {
+        if (this.addAtomsSessionActive()) {
+            this.toast('Finish or cancel Add Atoms before changing existing atoms.', 'warning');
+            return;
+        }
         this.toast('Switch the top-bar mode to Edit to modify atoms.', 'warning');
+    }
+
+    setCreateAtomWidgetExpanded(expanded) {
+        const widget = document.getElementById('create-atom-widget');
+        if (!widget) return;
+        widget.classList.toggle('collapsed', !expanded);
+        if (!expanded) {
+            this.setAddAtomsRegionSelected(false, { update: false });
+            this.renderer.clearAddAtomsRegion();
+        }
     }
 
     setupCreateAtomWidget() {
@@ -1573,12 +1608,20 @@ class VAseApp {
         if (!widget) return;
         this.addAtomsUI = {
             pane: 'single',
-            regionMode: 'cell',
-            regionRole: 'allowed',
+            contentKind: 'atoms',
+            placementMode: 'random',
+            quantityMode: 'count',
+            regions: [],
+            regionSequence: 0,
+            domainPreview: null,
+            domainRequestToken: 0,
+            domainRequestTimer: null,
             pairCutoffs: {},
             pairRequestToken: 0,
             active: null,
-            entrySequence: 0
+            entrySequence: 0,
+            moleculeSequence: 0,
+            moleculeCatalog: []
         };
         const typeSelect = document.getElementById('create-atom-type');
         const labelInput = document.getElementById('create-atom-label');
@@ -1598,7 +1641,9 @@ class VAseApp {
             typeSelect.value = 'H';
         }
         this.addAddAtomsEntry({ element: 'H', label: 'H', count: 1 });
-        const setExpanded = expanded => widget.classList.toggle('collapsed', !expanded);
+        this.addAddMoleculeEntry({ name: 'H2O', label: 'water', count: 1 });
+        void this.loadAddAtomsMoleculeCatalog();
+        const setExpanded = expanded => this.setCreateAtomWidgetExpanded(expanded);
         const setPositionInputs = vector => {
             ['x', 'y', 'z'].forEach((axis, idx) => {
                 const input = document.getElementById(`create-atom-${axis}`);
@@ -1654,22 +1699,53 @@ class VAseApp {
             this.addAddAtomsEntry({ element: 'H', label: 'H', count: 1 });
             void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
         });
-        document.getElementById('add-atoms-region-cell')?.addEventListener('click', () => {
-            this.setAddAtomsRegionMode('cell');
+        document.getElementById('btn-add-molecule-entry')?.addEventListener('click', () => {
+            this.addAddMoleculeEntry({ name: 'H2O', label: 'water', count: 1 });
+            void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
         });
-        document.getElementById('add-atoms-region-box')?.addEventListener('click', () => {
-            this.setAddAtomsRegionMode('box');
+        document.getElementById('add-atoms-content-atoms')?.addEventListener('click', () => {
+            this.setAddAtomsContentKind('atoms');
+        });
+        document.getElementById('add-atoms-content-molecules')?.addEventListener('click', () => {
+            this.setAddAtomsContentKind('molecules');
+        });
+        document.getElementById('add-atoms-placement-random')?.addEventListener('click', () => {
+            this.setAddAtomsPlacementMode('random');
+        });
+        document.getElementById('add-atoms-placement-homogeneous')?.addEventListener('click', () => {
+            this.setAddAtomsPlacementMode('homogeneous');
+        });
+        document.getElementById('add-molecules-quantity-count')?.addEventListener('click', () => {
+            this.setAddMoleculeQuantityMode('count');
+        });
+        document.getElementById('add-molecules-quantity-density')?.addEventListener('click', () => {
+            this.setAddMoleculeQuantityMode('density');
+        });
+        document.getElementById('add-molecules-target-density')?.addEventListener('input', () => {
+            this.scheduleAddAtomsDomainPreview();
+        });
+        document.getElementById('btn-add-atoms-allow-region')?.addEventListener('click', () => {
+            this.addAddAtomsRegion('allow');
+        });
+        document.getElementById('btn-add-atoms-reject-region')?.addEventListener('click', () => {
+            this.addAddAtomsRegion('reject');
+        });
+        document.getElementById('btn-add-atoms-delete-region')?.addEventListener('click', () => {
+            this.deleteSelectedAddAtomsRegions();
         });
         document.getElementById('add-atoms-region-allowed')?.addEventListener('click', () => {
-            this.setAddAtomsRegionRole('allowed');
+            this.setAddAtomsRegionRole('allow');
         });
         document.getElementById('add-atoms-region-prohibited')?.addEventListener('click', () => {
-            this.setAddAtomsRegionRole('prohibited');
+            this.setAddAtomsRegionRole('reject');
+        });
+        document.getElementById('add-atoms-region-name')?.addEventListener('change', event => {
+            this.renameSelectedAddAtomsRegion(event.currentTarget.value);
         });
         ['xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax'].forEach(name => {
             const input = document.getElementById(`add-atoms-${name}`);
             input?.addEventListener('input', () => {
-                this.updateAddAtomsRegionPreview();
+                this.applyAddAtomsBoundsFromEditor();
             });
             input?.addEventListener('change', () => {
                 void this.commitAddAtomsRegionControls();
@@ -1678,11 +1754,21 @@ class VAseApp {
         document.getElementById('add-atoms-allow-escape')?.addEventListener('change', () => {
             void this.commitAddAtomsRegionControls();
         });
+        document.getElementById('add-atoms-mic')?.addEventListener('change', () => {
+            if (this.addAtomsSessionActive()) void this.commitAddAtomsRegionControls();
+            else this.scheduleAddAtomsDomainPreview({ immediate: true });
+        });
         document.getElementById('add-atoms-cutoff-basis')?.addEventListener('change', () => {
             void this.refreshAddAtomsPairCutoffs({ preserveManual: false });
         });
         document.getElementById('add-atoms-cutoff-scale')?.addEventListener('change', () => {
             void this.refreshAddAtomsPairCutoffs({ preserveManual: false });
+        });
+        document.getElementById('btn-add-atoms-select-added')?.addEventListener('click', () => {
+            this.selectAddedAtoms();
+        });
+        document.getElementById('add-atoms-select-added')?.addEventListener('change', event => {
+            if (event.currentTarget.checked) this.selectAddedAtoms();
         });
         document.getElementById('btn-add-atoms-scatter')?.addEventListener('click', () => {
             void this.scatterAtomsFromWidget();
@@ -1699,6 +1785,9 @@ class VAseApp {
         document.getElementById('btn-add-atoms-finish')?.addEventListener('click', () => {
             void this.finishAddedAtomsSession();
         });
+        this.renderAddAtomsRegions();
+        this.renderAddAtomsDomainStatus();
+        this.setAddMoleculeQuantityMode('count', { force: true });
         this.makeCreateAtomWidgetDraggable(widget, head);
     }
 
@@ -1725,10 +1814,181 @@ class VAseApp {
             this.setAddAtomsRegionSelected(false, { update: false });
             this.renderer.clearAddAtomsRegion();
         } else {
-            this.syncAddAtomsBounds();
+            this.renderAddAtomsRegions();
             this.updateAddAtomsRegionPreview();
+            this.scheduleAddAtomsDomainPreview({ immediate: true });
             void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
         }
+    }
+
+    setAddAtomsContentKind(kind, { force = false } = {}) {
+        if (!this.addAtomsUI || (!force && this.addAtomsSessionActive())) return;
+        const molecules = kind === 'molecules';
+        this.addAtomsUI.contentKind = molecules ? 'molecules' : 'atoms';
+        document.getElementById('add-atoms-content-atoms')?.classList.toggle('active', !molecules);
+        document.getElementById('add-atoms-content-molecules')?.classList.toggle('active', molecules);
+        document.getElementById('add-atoms-atom-content')?.classList.toggle('hidden', molecules);
+        document.getElementById('add-atoms-molecule-content')?.classList.toggle('hidden', !molecules);
+        const place = document.getElementById('btn-add-atoms-scatter');
+        if (place) place.textContent = molecules ? 'Place molecules' : 'Place atoms';
+        const status = document.getElementById('add-atoms-status');
+        if (!this.addAtomsSessionActive() && status?.dataset.state !== 'error') {
+            this.setAddAtomsStatus(
+                'idle',
+                molecules ? 'Ready to place molecules' : 'Ready to place atoms'
+            );
+        }
+        if (!force) void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
+        this.scheduleAddAtomsDomainPreview();
+    }
+
+    setAddMoleculeQuantityMode(mode, { force = false } = {}) {
+        if (!this.addAtomsUI || (!force && this.addAtomsSessionActive())) return;
+        const density = mode === 'density';
+        this.addAtomsUI.quantityMode = density ? 'density' : 'count';
+        document.getElementById('add-molecules-quantity-count')?.classList.toggle('active', !density);
+        document.getElementById('add-molecules-quantity-density')?.classList.toggle('active', density);
+        document.getElementById('add-molecules-density-row')?.classList.toggle('hidden', !density);
+        const heading = document.getElementById('add-molecules-count-heading');
+        if (heading) heading.textContent = density ? 'Ratio' : 'Count';
+        document.querySelectorAll('.add-molecule-entry-count').forEach(input => {
+            input.setAttribute(
+                'aria-label',
+                density ? 'Molecule composition ratio' : 'Inserted molecule count'
+            );
+        });
+        if (!density) {
+            const actual = document.getElementById('add-molecules-actual-density');
+            if (actual) actual.textContent = '—';
+        }
+        this.scheduleAddAtomsDomainPreview({ immediate: true });
+    }
+
+    setAddAtomsPlacementMode(mode, { force = false } = {}) {
+        if (!this.addAtomsUI || (!force && this.addAtomsSessionActive())) return;
+        const homogeneous = mode === 'homogeneous';
+        this.addAtomsUI.placementMode = homogeneous ? 'homogeneous' : 'random';
+        document.getElementById('add-atoms-placement-random')?.classList.toggle('active', !homogeneous);
+        document.getElementById('add-atoms-placement-homogeneous')?.classList.toggle('active', homogeneous);
+        document.getElementById('add-atoms-spacing-basis-row')?.classList.toggle('hidden', !homogeneous);
+        document.getElementById('add-atoms-placement-pbc-row')?.classList.toggle('hidden', !homogeneous);
+    }
+
+    async loadAddAtomsMoleculeCatalog() {
+        if (!this.addAtomsUI) return;
+        try {
+            const response = await this.api.atomAdditionMoleculeCatalog();
+            this.addAtomsUI.moleculeCatalog = Array.isArray(response?.molecules)
+                ? response.molecules.map(entry => ({ ...entry }))
+                : [];
+            document.querySelectorAll('#add-molecule-entries .add-molecule-entry-row').forEach(row => {
+                const select = row.querySelector('.add-molecule-entry-name');
+                const selected = select?.value || row.dataset.moleculeName || 'H2O';
+                if (!select) return;
+                select.replaceChildren();
+                this.addAtomsUI.moleculeCatalog.forEach(entry => {
+                    const option = document.createElement('option');
+                    option.value = entry.name;
+                    option.textContent = `${entry.name} · ${entry.formula}`;
+                    select.appendChild(option);
+                });
+                select.value = this.addAtomsUI.moleculeCatalog.some(entry => entry.name === selected)
+                    ? selected
+                    : (this.addAtomsUI.moleculeCatalog[0]?.name || 'H2O');
+                row.dataset.moleculeName = select.value;
+            });
+        } catch (error) {
+            this.setAddAtomsStatus('error', `Molecule catalog unavailable: ${error.message}`);
+        }
+    }
+
+    addAddMoleculeEntry(entry = {}) {
+        const container = document.getElementById('add-molecule-entries');
+        if (!container || !this.addAtomsUI) return;
+        const row = document.createElement('div');
+        row.className = 'add-molecule-entry-row';
+        row.dataset.entryId = String(++this.addAtomsUI.moleculeSequence);
+        row.dataset.moleculeName = entry.name || 'H2O';
+        const name = document.createElement('select');
+        name.className = 'add-molecule-entry-name';
+        name.setAttribute('aria-label', 'ASE molecule');
+        const catalog = this.addAtomsUI.moleculeCatalog.length
+            ? this.addAtomsUI.moleculeCatalog
+            : [{ name: entry.name || 'H2O', formula: entry.formula || entry.name || 'H2O' }];
+        catalog.forEach(item => {
+            const option = document.createElement('option');
+            option.value = item.name;
+            option.textContent = `${item.name} · ${item.formula}`;
+            name.appendChild(option);
+        });
+        name.value = catalog.some(item => item.name === entry.name)
+            ? entry.name
+            : (catalog[0]?.name || 'H2O');
+        row.dataset.moleculeName = name.value;
+        const label = document.createElement('input');
+        label.className = 'add-molecule-entry-label';
+        label.type = 'text';
+        label.value = this.normalizedTypeLabel(entry.label) || name.value;
+        label.setAttribute('aria-label', 'Molecule label suffix');
+        const count = document.createElement('input');
+        count.className = 'add-molecule-entry-count';
+        count.type = 'number';
+        count.min = '1';
+        count.max = '20000';
+        count.step = '1';
+        const initialCount = Number(entry.count);
+        count.value = String(Number.isInteger(initialCount) && initialCount >= 1 ? initialCount : 1);
+        count.setAttribute('aria-label', 'Inserted molecule count');
+        const remove = document.createElement('button');
+        remove.className = 'remove-add-molecule-entry';
+        remove.type = 'button';
+        remove.textContent = '×';
+        remove.title = 'Remove molecule type';
+        remove.setAttribute('aria-label', 'Remove molecule type');
+        name.addEventListener('change', () => {
+            row.dataset.moleculeName = name.value;
+            void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
+            this.scheduleAddAtomsDomainPreview();
+        });
+        count.addEventListener('input', () => this.scheduleAddAtomsDomainPreview());
+        remove.addEventListener('click', () => {
+            if (container.children.length <= 1) {
+                this.toast('Add Molecules requires at least one molecule type.', 'warning');
+                return;
+            }
+            row.remove();
+            void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
+            this.scheduleAddAtomsDomainPreview();
+        });
+        row.append(name, label, count, remove);
+        container.appendChild(row);
+        this.enhanceNumberInputHoldGuards(row);
+    }
+
+    readAddMoleculeEntries() {
+        const entries = [...document.querySelectorAll('#add-molecule-entries .add-molecule-entry-row')].map(row => {
+            const name = row.querySelector('.add-molecule-entry-name')?.value || '';
+            const label = this.normalizedTypeLabel(row.querySelector('.add-molecule-entry-label')?.value) || name;
+            const count = Number(row.querySelector('.add-molecule-entry-count')?.value);
+            if (!name) throw new Error('Choose an ASE molecule for every entry.');
+            if (!label) throw new Error('Every inserted molecule needs a label.');
+            if (!Number.isInteger(count) || count < 1) throw new Error('Molecule counts must be positive integers.');
+            return { name, label, count };
+        });
+        const total = entries.reduce((sum, entry) => sum + entry.count, 0);
+        if (!entries.length || total < 1 || total > 20000) {
+            throw new Error('The total molecule count must be from 1 through 20,000.');
+        }
+        return entries;
+    }
+
+    selectAddedAtoms() {
+        const indices = this.addAtomsUI?.active?.new_indices || [];
+        if (!indices.length) return;
+        this.clearAtomSelection({ update: false });
+        indices.forEach(index => this.addSelectionReference(Number(index)));
+        this.updateSelectionVisuals();
+        this.updateUI();
     }
 
     addAddAtomsEntry(entry = {}) {
@@ -1759,7 +2019,8 @@ class VAseApp {
         count.min = '1';
         count.max = '100000';
         count.step = '1';
-        count.value = String(Math.max(1, Number.parseInt(entry.count, 10) || 1));
+        const initialCount = Number(entry.count);
+        count.value = String(Number.isInteger(initialCount) && initialCount >= 1 ? initialCount : 1);
         count.setAttribute('aria-label', 'Inserted atom count');
         const remove = document.createElement('button');
         remove.className = 'remove-add-atoms-entry';
@@ -1791,7 +2052,7 @@ class VAseApp {
         const entries = [...document.querySelectorAll('#add-atoms-entries .add-atoms-entry-row')].map(row => {
             const element = row.querySelector('.add-atoms-entry-type')?.value || 'H';
             const label = this.normalizedTypeLabel(row.querySelector('.add-atoms-entry-label')?.value);
-            const count = Number.parseInt(row.querySelector('.add-atoms-entry-count')?.value, 10);
+            const count = Number(row.querySelector('.add-atoms-entry-count')?.value);
             if (!label) throw new Error('Every inserted atom type needs a label.');
             if (!Number.isInteger(count) || count < 1) throw new Error('Atom counts must be positive integers.');
             return { element, label, count };
@@ -1808,6 +2069,8 @@ class VAseApp {
         if (!Array.isArray(cell) || cell.length !== 3) return null;
         const values = cell.map(row => row.map(Number));
         if (values.flat().some(value => !Number.isFinite(value))) return null;
+        const [a, b, c] = values.map(row => new THREE.Vector3(...row));
+        if (Math.abs(a.dot(new THREE.Vector3().crossVectors(b, c))) <= 1e-10) return null;
         const corners = [];
         for (let i = 0; i <= 1; i++) {
             for (let j = 0; j <= 1; j++) {
@@ -1839,7 +2102,7 @@ class VAseApp {
         const bounds = ['xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax'].map(name => (
             Number(document.getElementById(`add-atoms-${name}`)?.value)
         ));
-        if (bounds.some(value => !Number.isFinite(value))) throw new Error('Insertion box bounds must be finite.');
+        if (bounds.some(value => !Number.isFinite(value))) throw new Error('Insertion region bounds must be finite.');
         for (let axis = 0; axis < 3; axis++) {
             if (bounds[axis * 2 + 1] <= bounds[axis * 2]) {
                 throw new Error(`${'xyz'[axis]} max must be greater than ${'xyz'[axis]} min.`);
@@ -1848,63 +2111,332 @@ class VAseApp {
         return bounds;
     }
 
-    setAddAtomsRegionMode(mode) {
-        if (!this.addAtomsUI || this.addAtomsSessionActive()) return;
-        this.addAtomsUI.regionMode = mode === 'box' ? 'box' : 'cell';
-        const box = this.addAtomsUI.regionMode === 'box';
-        if (!box) this.setAddAtomsRegionSelected(false, { update: false });
-        document.getElementById('add-atoms-region-cell')?.classList.toggle('active', !box);
-        document.getElementById('add-atoms-region-box')?.classList.toggle('active', box);
-        document.getElementById('add-atoms-box-fields')?.classList.toggle('hidden', !box);
-        this.syncAddAtomsBounds();
-        this.updateAddAtomsRegionPreview();
+    addAtomsHasFiniteCell() {
+        const cell = this.state.atoms?.cell;
+        if (!Array.isArray(cell) || cell.length !== 3) return false;
+        const [a, b, c] = cell.map(row => new THREE.Vector3(...row.map(Number)));
+        return [a, b, c].every(vector => Number.isFinite(vector.lengthSq()))
+            && Math.abs(a.dot(new THREE.Vector3().crossVectors(b, c))) > 1e-10;
     }
 
-    setAddAtomsRegionRole(role) {
-        if (!this.addAtomsUI || this.addAtomsUI.regionMode !== 'box') return;
-        this.addAtomsUI.regionRole = role === 'prohibited' ? 'prohibited' : 'allowed';
-        const prohibited = this.addAtomsUI.regionRole === 'prohibited';
-        document.getElementById('add-atoms-region-allowed')?.classList.toggle('active', !prohibited);
-        document.getElementById('add-atoms-region-prohibited')?.classList.toggle('active', prohibited);
+    addAtomsDefaultRegionBounds(role = 'allow') {
+        let bounds = this.addAtomsCellBounds();
+        if (!bounds) {
+            const positions = this.state.atoms?.positions || [];
+            if (positions.length) {
+                bounds = [0, 1, 2].flatMap(axis => {
+                    const values = positions.map(position => Number(position[axis])).filter(Number.isFinite);
+                    return [Math.min(...values) - 2, Math.max(...values) + 2];
+                });
+            } else {
+                bounds = [-5, 5, -5, 5, -5, 5];
+            }
+        }
+        return [0, 1, 2].flatMap(axis => {
+            const lower = Number(bounds[axis * 2]);
+            const upper = Number(bounds[axis * 2 + 1]);
+            const center = 0.5 * (lower + upper);
+            const half = (role === 'reject' ? 0.18 : 0.30) * (upper - lower);
+            return [center - half, center + half];
+        });
+    }
+
+    addAtomsRegions() {
+        return Array.isArray(this.addAtomsUI?.regions)
+            ? this.addAtomsUI.regions
+            : [];
+    }
+
+    selectedAddAtomsRegionIds() {
+        const available = new Set(this.addAtomsRegions().map(region => String(region.id)));
+        return new Set(
+            [...(this.state.addAtomsRegionSelectedIds || [])]
+                .map(String)
+                .filter(id => available.has(id))
+        );
+    }
+
+    setAddAtomsRegionSelection(ids, { update = true } = {}) {
+        const next = ids instanceof Set ? ids : new Set(ids || []);
+        this.state.addAtomsRegionSelectedIds = new Set([...next].map(String));
+        this.renderAddAtomsRegions();
+        if (update) this.updateAddAtomsRegionPreview();
+    }
+
+    setAddAtomsRegionSelected(selected, { update = true } = {}) {
+        if (!selected) {
+            this.setAddAtomsRegionSelection([], { update });
+            return;
+        }
+        const first = this.addAtomsRegions()[0];
+        this.setAddAtomsRegionSelection(first ? [first.id] : [], { update });
+    }
+
+    selectAddAtomsRegion(regionId, { additive = false, toggle = false } = {}) {
+        const id = String(regionId || '');
+        if (!this.addAtomsRegions().some(region => String(region.id) === id)) return;
+        const selected = additive ? this.selectedAddAtomsRegionIds() : new Set();
+        if (toggle && selected.has(id)) selected.delete(id);
+        else selected.add(id);
+        this.setAddAtomsRegionSelection(selected);
+    }
+
+    addAddAtomsRegion(role = 'allow') {
+        if (!this.addAtomsUI || this.addAtomsUI?.active?.is_relaxing) return;
+        const normalizedRole = role === 'reject' ? 'reject' : 'allow';
+        const number = this.addAtomsRegions().filter(region => region.role === normalizedRole).length + 1;
+        const generated = globalThis.crypto?.randomUUID?.()
+            || `${Date.now()}-${++this.addAtomsUI.regionSequence}`;
+        const region = {
+            id: `region-${generated}`,
+            name: `${normalizedRole === 'allow' ? 'Allow' : 'Reject'} region ${number}`,
+            role: normalizedRole,
+            bounds: this.addAtomsDefaultRegionBounds(normalizedRole)
+        };
+        this.addAtomsUI.regions = [...this.addAtomsRegions(), region];
+        this.setAddAtomsRegionSelection([region.id], { update: false });
         this.updateAddAtomsRegionPreview();
         void this.commitAddAtomsRegionControls();
     }
 
-    setAddAtomsRegionSelected(selected, { update = true } = {}) {
-        this.state.addAtomsRegionSelected = Boolean(
-            selected
-            && this.addAtomsUI?.pane === 'batch'
-            && (this.addAtomsUI?.active?.region_mode || this.addAtomsUI?.regionMode) === 'box'
-        );
-        if (update) this.updateAddAtomsRegionPreview();
+    deleteSelectedAddAtomsRegions() {
+        if (!this.addAtomsUI || this.addAtomsUI?.active?.is_relaxing) return;
+        const selected = this.selectedAddAtomsRegionIds();
+        if (!selected.size) return;
+        this.addAtomsUI.regions = this.addAtomsRegions().filter(region => !selected.has(String(region.id)));
+        this.setAddAtomsRegionSelection([], { update: false });
+        this.updateAddAtomsRegionPreview();
+        void this.commitAddAtomsRegionControls();
+    }
+
+    renameSelectedAddAtomsRegion(value) {
+        const selected = [...this.selectedAddAtomsRegionIds()];
+        if (selected.length !== 1) return;
+        const name = String(value || '').trim();
+        if (!name) {
+            this.renderAddAtomsRegions();
+            return;
+        }
+        this.addAtomsUI.regions = this.addAtomsRegions().map(region => (
+            String(region.id) === selected[0] ? { ...region, name } : region
+        ));
+        this.renderAddAtomsRegions();
+        void this.commitAddAtomsRegionControls();
+    }
+
+    setAddAtomsRegionRole(role) {
+        if (!this.addAtomsUI || this.addAtomsUI?.active?.is_relaxing) return;
+        const selected = [...this.selectedAddAtomsRegionIds()];
+        if (selected.length !== 1) return;
+        const normalizedRole = role === 'reject' ? 'reject' : 'allow';
+        this.addAtomsUI.regions = this.addAtomsRegions().map(region => (
+            String(region.id) === selected[0] ? { ...region, role: normalizedRole } : region
+        ));
+        this.renderAddAtomsRegions();
+        this.updateAddAtomsRegionPreview();
+        void this.commitAddAtomsRegionControls();
+    }
+
+    applyAddAtomsBoundsFromEditor() {
+        const selected = [...this.selectedAddAtomsRegionIds()];
+        if (selected.length !== 1) return;
+        try {
+            const bounds = this.readAddAtomsBounds();
+            this.addAtomsUI.regions = this.addAtomsRegions().map(region => (
+                String(region.id) === selected[0] ? { ...region, bounds } : region
+            ));
+            this.updateAddAtomsRegionPreview();
+        } catch {
+            // Keep partially edited fields visible; validation runs on commit.
+        }
+    }
+
+    renderAddAtomsRegions() {
+        const list = document.getElementById('add-atoms-region-list');
+        if (!list || !this.addAtomsUI) return;
+        const regions = this.addAtomsRegions();
+        const selected = this.selectedAddAtomsRegionIds();
+        this.state.addAtomsRegionSelectedIds = selected;
+        list.replaceChildren();
+        regions.forEach((region, index) => {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'add-atoms-region-item';
+            item.dataset.role = region.role;
+            item.dataset.regionId = String(region.id);
+            item.setAttribute('role', 'option');
+            item.setAttribute('aria-selected', selected.has(String(region.id)) ? 'true' : 'false');
+            const swatch = document.createElement('span');
+            swatch.className = 'add-atoms-region-swatch';
+            const name = document.createElement('span');
+            name.className = 'add-atoms-region-item-name';
+            name.textContent = region.name;
+            const role = document.createElement('span');
+            role.className = 'add-atoms-region-item-role';
+            role.textContent = region.role === 'reject' ? 'Reject' : 'Allow';
+            const number = document.createElement('span');
+            number.className = 'add-atoms-region-item-index';
+            number.textContent = String(index + 1).padStart(2, '0');
+            item.append(swatch, name, role, number);
+            item.addEventListener('click', event => {
+                this.selectAddAtomsRegion(region.id, {
+                    additive: event.shiftKey,
+                    toggle: event.shiftKey
+                });
+            });
+            list.appendChild(item);
+        });
+        document.getElementById('add-atoms-region-empty')?.classList.toggle('hidden', regions.length > 0);
+
+        const editor = document.getElementById('add-atoms-box-fields');
+        const selectedRegions = regions.filter(region => selected.has(String(region.id)));
+        editor?.classList.toggle('hidden', selectedRegions.length === 0);
+        const single = selectedRegions.length === 1 ? selectedRegions[0] : null;
+        const nameInput = document.getElementById('add-atoms-region-name');
+        const deleteButton = document.getElementById('btn-add-atoms-delete-region');
+        if (nameInput) {
+            nameInput.disabled = !single || Boolean(this.addAtomsUI.active?.is_relaxing);
+            nameInput.value = single ? single.name : `${selectedRegions.length} regions selected`;
+        }
+        if (deleteButton) {
+            deleteButton.disabled = !selectedRegions.length || Boolean(this.addAtomsUI.active?.is_relaxing);
+            deleteButton.title = selectedRegions.length > 1
+                ? `Delete ${selectedRegions.length} selected regions`
+                : 'Delete selected region';
+        }
+        const boundsInputs = ['xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax']
+            .map(key => document.getElementById(`add-atoms-${key}`));
+        boundsInputs.forEach((input, index) => {
+            if (!input) return;
+            input.disabled = !single || Boolean(this.addAtomsUI.active?.is_relaxing);
+            input.value = single ? Number(single.bounds[index]).toFixed(6) : '';
+            input.placeholder = single ? '' : 'Multiple';
+        });
+        const allow = document.getElementById('add-atoms-region-allowed');
+        const reject = document.getElementById('add-atoms-region-prohibited');
+        if (allow) {
+            allow.disabled = !single || Boolean(this.addAtomsUI.active?.is_relaxing);
+            allow.classList.toggle('active', single?.role === 'allow');
+        }
+        if (reject) {
+            reject.disabled = !single || Boolean(this.addAtomsUI.active?.is_relaxing);
+            reject.classList.toggle('active', single?.role === 'reject');
+        }
+    }
+
+    addAtomsDomainPayload() {
+        const payload = {
+            content_kind: this.addAtomsUI?.contentKind || 'atoms',
+            region_mode: 'regions',
+            regions: this.addAtomsRegions().map(region => ({
+                id: region.id,
+                name: region.name,
+                role: region.role,
+                bounds: region.bounds.map(Number)
+            })),
+            region_mic: document.getElementById('add-atoms-mic')?.checked !== false
+        };
+        if (payload.content_kind === 'molecules' && this.addAtomsUI?.quantityMode === 'density') {
+            payload.molecule_quantity_mode = 'density';
+            payload.target_density_g_cm3 = this.addAtomsNumber('add-molecules-target-density', 0.997);
+            try {
+                payload.molecules = this.readAddMoleculeEntries();
+            } catch {
+                // Domain volume remains previewable while a molecule row is incomplete.
+                payload.content_kind = 'atoms';
+            }
+        }
+        return payload;
+    }
+
+    renderAddAtomsDomainStatus(preview = null, error = null) {
+        const base = document.getElementById('add-atoms-base-domain');
+        const baseText = document.getElementById('add-atoms-base-domain-text');
+        const volume = document.getElementById('add-atoms-domain-volume');
+        const message = document.getElementById('add-atoms-domain-message');
+        const hasCell = Boolean(preview?.domain?.has_unit_cell ?? this.addAtomsHasFiniteCell());
+        base?.setAttribute('data-state', hasCell ? 'cell' : 'missing');
+        if (baseText) {
+            baseText.textContent = hasCell
+                ? 'Periodic unit cell; Allow union minus Reject union'
+                : 'No finite cell; at least one Allow region is required';
+        }
+        if (volume) {
+            const value = Number(preview?.domain?.volume_angstrom3);
+            volume.textContent = Number.isFinite(value) ? `${value.toFixed(6)} Å³` : '—';
+        }
+        const previewError = error || preview?.density_error || null;
+        if (message) {
+            message.dataset.state = previewError ? 'error' : 'ready';
+            message.textContent = previewError
+                ? previewError
+                : 'Allow regions are combined; Reject regions are subtracted exactly.';
+        }
+        const actual = document.getElementById('add-molecules-actual-density');
+        if (actual) {
+            const density = Number(preview?.density?.actual_g_cm3);
+            const molecules = Number(preview?.density?.molecule_count);
+            actual.textContent = Number.isFinite(density)
+                ? `${density.toFixed(5)} g/cm³ · ${molecules} molecules`
+                : '—';
+        }
+    }
+
+    scheduleAddAtomsDomainPreview({ immediate = false } = {}) {
+        if (!this.addAtomsUI || this.addAtomsUI.pane !== 'batch') return;
+        this.updateAddAtomsRegionPreview();
+        if (this.addAtomsSessionActive()) return;
+        if (this.addAtomsUI.domainRequestTimer) clearTimeout(this.addAtomsUI.domainRequestTimer);
+        const run = () => void this.requestAddAtomsDomainPreview();
+        if (immediate) run();
+        else this.addAtomsUI.domainRequestTimer = setTimeout(run, 140);
+    }
+
+    async requestAddAtomsDomainPreview() {
+        if (!this.addAtomsUI || this.addAtomsSessionActive()) return;
+        const token = ++this.addAtomsUI.domainRequestToken;
+        try {
+            const preview = await this.api.atomAdditionDomain(this.addAtomsDomainPayload());
+            if (token !== this.addAtomsUI.domainRequestToken) return;
+            this.addAtomsUI.domainPreview = preview;
+            this.renderAddAtomsDomainStatus(preview);
+            this.updateAddAtomsRegionPreview();
+        } catch (error) {
+            if (token !== this.addAtomsUI.domainRequestToken) return;
+            this.addAtomsUI.domainPreview = null;
+            this.renderAddAtomsDomainStatus(null, error.message);
+        }
     }
 
     async commitAddAtomsRegionControls() {
-        if (!this.addAtomsSessionActive() || this.addAtomsUI?.active?.is_relaxing) return;
-        if ((this.addAtomsUI?.active?.region_mode || this.addAtomsUI?.regionMode) !== 'box') return;
+        if (!this.addAtomsUI?.active) {
+            this.scheduleAddAtomsDomainPreview({ immediate: true });
+            return;
+        }
+        if (this.addAtomsUI.active.is_relaxing) return;
         try {
             const data = await this.api.updateAtomAdditionRegion({
-                bounds: this.readAddAtomsBounds(),
-                region_role: this.addAtomsUI.regionRole || 'allowed',
+                regions: this.addAtomsRegions(),
+                region_mic: document.getElementById('add-atoms-mic')?.checked !== false,
                 allow_escape: document.getElementById('add-atoms-allow-escape')?.checked !== false
             });
             this.syncAddAtomsSessionFromData(data);
         } catch (error) {
-            this.toast(`Insertion box update failed: ${error.message}`, 'error');
+            this.toast(`Insertion-domain update failed: ${error.message}`, 'error');
+            this.syncAddAtomsSessionFromData({ metadata: { atom_addition: this.addAtomsUI.active } });
         }
     }
 
     updateAddAtomsRegionPreview() {
         if (!this.addAtomsUI || this.addAtomsUI.pane !== 'batch') return;
-        const active = this.addAtomsUI.active;
-        const mode = active?.region_mode || this.addAtomsUI.regionMode;
         try {
-            this.renderer.setAddAtomsRegion({
-                mode,
-                cell: active?.cell || this.state.atoms?.cell,
-                bounds: mode === 'box' ? this.readAddAtomsBounds() : null,
-                role: active?.region_role || this.addAtomsUI.regionRole || 'allowed',
-                selected: this.state.addAtomsRegionSelected
+            this.renderer.setAddAtomsRegions({
+                regions: this.addAtomsRegions(),
+                cell: this.addAtomsUI.active?.cell || this.state.atoms?.cell,
+                pbc: this.addAtomsUI.active?.pbc || this.state.atoms?.pbc,
+                pbcAware: document.getElementById('add-atoms-mic')?.checked !== false,
+                selectedIds: [...this.selectedAddAtomsRegionIds()],
+                visible: true
             });
         } catch {
             this.renderer.clearAddAtomsRegion();
@@ -1950,9 +2482,14 @@ class VAseApp {
 
     async refreshAddAtomsPairCutoffs({ preserveManual = true } = {}) {
         if (!this.addAtomsUI || this.addAtomsSessionActive()) return;
-        let entries;
+        let elements = [];
+        let molecules = [];
         try {
-            entries = this.readAddAtomsEntries();
+            if (this.addAtomsUI.contentKind === 'molecules') {
+                molecules = this.readAddMoleculeEntries();
+            } else {
+                elements = this.readAddAtomsEntries().map(entry => entry.element);
+            }
         } catch {
             return;
         }
@@ -1962,9 +2499,10 @@ class VAseApp {
         const token = ++this.addAtomsUI.pairRequestToken;
         try {
             const response = await this.api.atomAdditionPairCutoffs(
-                entries.map(entry => entry.element),
+                elements,
                 basis,
-                scale
+                scale,
+                molecules
             );
             if (token !== this.addAtomsUI.pairRequestToken) return;
             const next = { ...(response.pair_cutoffs || {}) };
@@ -1999,20 +2537,31 @@ class VAseApp {
         const stop = document.getElementById('btn-add-atoms-stop');
         const cancel = document.getElementById('btn-add-atoms-cancel');
         const finish = document.getElementById('btn-add-atoms-finish');
+        const selectAdded = document.getElementById('btn-add-atoms-select-added');
         if (scatter) scatter.disabled = active;
         if (relax) relax.disabled = !active || running;
         if (stop) stop.disabled = !active || !running;
         if (cancel) cancel.disabled = !active || running;
         if (finish) finish.disabled = !active || running;
+        if (selectAdded) selectAdded.disabled = !active;
         document.querySelectorAll(
             '#add-atoms-entries input, #add-atoms-entries select, #btn-add-atoms-entry, '
             + '#add-atoms-entries .remove-add-atoms-entry, '
-            + '#add-atoms-region-cell, #add-atoms-region-box, '
+            + '#add-molecule-entries input, #add-molecule-entries select, #btn-add-molecule-entry, '
+            + '#add-molecule-entries .remove-add-molecule-entry, '
+            + '#add-atoms-content-atoms, #add-atoms-content-molecules, '
+            + '#add-atoms-placement-random, #add-atoms-placement-homogeneous, '
+            + '#add-atoms-coordinate-basis, #add-atoms-placement-pbc, '
+            + '#add-molecules-random-orientation, #add-molecules-rigid, '
+            + '#add-molecules-quantity-count, #add-molecules-quantity-density, '
+            + '#add-molecules-target-density, '
             + '#add-atoms-seed, #add-atoms-cutoff-basis, #add-atoms-cutoff-scale'
         ).forEach(control => { control.disabled = active; });
         document.querySelectorAll(
             '#add-atoms-box-fields input, #add-atoms-region-allowed, '
-            + '#add-atoms-region-prohibited, #add-atoms-allow-escape'
+            + '#add-atoms-region-prohibited, #add-atoms-allow-escape, #add-atoms-mic, '
+            + '#btn-add-atoms-allow-region, #btn-add-atoms-reject-region, '
+            + '#btn-add-atoms-delete-region, #add-atoms-region-list button'
         ).forEach(control => { control.disabled = running; });
     }
 
@@ -2022,20 +2571,45 @@ class VAseApp {
         this.addAtomsUI.active = summary?.active ? { ...summary } : null;
         if (summary?.active) {
             this.addAtomsUI.pane = 'batch';
-            this.addAtomsUI.regionMode = summary.region_mode || 'cell';
-            this.addAtomsUI.regionRole = summary.region_role || 'allowed';
-            const entries = document.getElementById('add-atoms-entries');
-            if (entries) {
-                entries.replaceChildren();
-                (summary.entries || []).forEach(entry => this.addAddAtomsEntry(entry));
+            this.addAtomsUI.contentKind = summary.content_kind === 'molecules' ? 'molecules' : 'atoms';
+            this.addAtomsUI.placementMode = summary.placement_mode === 'homogeneous' ? 'homogeneous' : 'random';
+            this.addAtomsUI.regions = Array.isArray(summary.regions)
+                ? summary.regions.map(region => ({
+                    id: String(region.id),
+                    name: String(region.name || region.id),
+                    role: region.role === 'reject' ? 'reject' : 'allow',
+                    bounds: region.bounds.map(Number)
+                }))
+                : [];
+            this.addAtomsUI.domainPreview = {
+                domain: summary.domain,
+                density: summary.density
+            };
+            this.setAddAtomsContentKind(this.addAtomsUI.contentKind, { force: true });
+            this.setAddAtomsPlacementMode(this.addAtomsUI.placementMode, { force: true });
+            this.setAddMoleculeQuantityMode(summary.density ? 'density' : 'count', { force: true });
+            if (this.addAtomsUI.contentKind === 'molecules') {
+                const entries = document.getElementById('add-molecule-entries');
+                if (entries) {
+                    entries.replaceChildren();
+                    (summary.entries || []).forEach(entry => this.addAddMoleculeEntry({
+                        ...entry,
+                        count: entry.ratio ?? entry.count
+                    }));
+                }
+            } else {
+                const entries = document.getElementById('add-atoms-entries');
+                if (entries) {
+                    entries.replaceChildren();
+                    (summary.entries || []).forEach(entry => this.addAddAtomsEntry(entry));
+                }
             }
-            const box = this.addAtomsUI.regionMode === 'box';
-            document.getElementById('add-atoms-region-cell')?.classList.toggle('active', !box);
-            document.getElementById('add-atoms-region-box')?.classList.toggle('active', box);
-            document.getElementById('add-atoms-box-fields')?.classList.toggle('hidden', !box);
-            document.getElementById('add-atoms-region-allowed')?.classList.toggle('active', this.addAtomsUI.regionRole !== 'prohibited');
-            document.getElementById('add-atoms-region-prohibited')?.classList.toggle('active', this.addAtomsUI.regionRole === 'prohibited');
-            this.syncAddAtomsBounds({ force: true, bounds: summary.bounds });
+            const selected = this.selectedAddAtomsRegionIds();
+            this.state.addAtomsRegionSelectedIds = new Set(
+                [...selected].filter(id => this.addAtomsUI.regions.some(region => region.id === id))
+            );
+            this.renderAddAtomsRegions();
+            this.renderAddAtomsDomainStatus(this.addAtomsUI.domainPreview);
             this.renderAddAtomsPairCutoffs(summary.pair_cutoffs || {});
             const basis = document.getElementById('add-atoms-cutoff-basis');
             if (basis) basis.value = summary.cutoff_basis || 'covalent';
@@ -2043,12 +2617,25 @@ class VAseApp {
             if (scale) scale.value = Number(summary.cutoff_scale ?? 0.7).toFixed(2);
             const seed = document.getElementById('add-atoms-seed');
             if (seed) seed.value = summary.seed ?? '';
+            const coordinateBasis = document.getElementById('add-atoms-coordinate-basis');
+            if (coordinateBasis) coordinateBasis.value = summary.coordinate_basis || 'cartesian';
+            document.getElementById('add-atoms-placement-pbc').checked = summary.pbc_aware !== false;
+            document.getElementById('add-atoms-mic').checked = summary.domain?.pbc_aware !== false;
+            document.getElementById('add-molecules-random-orientation').checked = summary.random_orientation !== false;
+            document.getElementById('add-molecules-rigid').checked = summary.rigid_molecules !== false;
+            const targetDensity = document.getElementById('add-molecules-target-density');
+            if (targetDensity && summary.density?.target_g_cm3 != null) {
+                targetDensity.value = Number(summary.density.target_g_cm3).toFixed(6);
+            }
             document.getElementById('add-atoms-freeze-existing').checked = summary.freeze_existing !== false;
             document.getElementById('add-atoms-allow-escape').checked = summary.allow_escape !== false;
             this.setAddAtomsPane('batch');
+            const entity = summary.content_kind === 'molecules'
+                ? `${summary.molecule_count || 0} molecules · ${summary.new_count || 0} atoms`
+                : `${summary.new_count || 0} new atoms`;
             const detail = summary.is_relaxing
-                ? `Repelling atoms · ${summary.step || 0}/${summary.max_steps || 0}`
-                : `${summary.new_count || 0} new atoms ready`;
+                ? `Placing ${summary.content_kind === 'molecules' ? 'molecules' : 'atoms'} · ${summary.step || 0}/${summary.max_steps || 0}`
+                : `${entity} ready`;
             this.setAddAtomsStatus(summary.is_relaxing ? 'running' : 'active', detail);
         }
         this.syncAddAtomsActionState();
@@ -2061,14 +2648,24 @@ class VAseApp {
             return;
         }
         try {
-            const entries = this.readAddAtomsEntries();
-            const mode = this.addAtomsUI?.regionMode || 'cell';
+            const contentKind = this.addAtomsUI?.contentKind === 'molecules' ? 'molecules' : 'atoms';
+            const entries = contentKind === 'atoms' ? this.readAddAtomsEntries() : null;
+            const molecules = contentKind === 'molecules' ? this.readAddMoleculeEntries() : null;
             const rawSeed = document.getElementById('add-atoms-seed')?.value?.trim();
             const payload = {
-                entries,
-                region_mode: mode,
-                bounds: mode === 'box' ? this.readAddAtomsBounds() : undefined,
-                region_role: mode === 'box' ? (this.addAtomsUI?.regionRole || 'allowed') : 'allowed',
+                content_kind: contentKind,
+                entries: entries || undefined,
+                molecules: molecules || undefined,
+                placement_mode: this.addAtomsUI?.placementMode || 'random',
+                coordinate_basis: document.getElementById('add-atoms-coordinate-basis')?.value || 'cartesian',
+                pbc_aware: document.getElementById('add-atoms-placement-pbc')?.checked !== false,
+                random_orientation: document.getElementById('add-molecules-random-orientation')?.checked !== false,
+                rigid_molecules: document.getElementById('add-molecules-rigid')?.checked !== false,
+                molecule_quantity_mode: this.addAtomsUI?.quantityMode || 'count',
+                target_density_g_cm3: this.addAtomsNumber('add-molecules-target-density', 0.997),
+                region_mode: 'regions',
+                regions: this.addAtomsRegions(),
+                region_mic: document.getElementById('add-atoms-mic')?.checked !== false,
                 allow_escape: document.getElementById('add-atoms-allow-escape')?.checked !== false,
                 seed: rawSeed === '' ? null : Number(rawSeed),
                 freeze_existing: document.getElementById('add-atoms-freeze-existing')?.checked !== false,
@@ -2076,18 +2673,26 @@ class VAseApp {
                 cutoff_scale: this.addAtomsNumber('add-atoms-cutoff-scale', 0.7),
                 pair_cutoffs: this.captureAddAtomsPairCutoffs()
             };
-            const data = await this.withBusy('Scattering atoms...', () => this.api.startAtomAddition(payload));
+            const busyLabel = contentKind === 'molecules'
+                ? 'Placing molecules...'
+                : 'Placing atoms...';
+            const data = await this.withBusy(busyLabel, () => this.api.startAtomAddition(payload));
             this.setAtomsData(data, { clearSelection: true });
             this.startModeTrajectory('add-atoms', 'Add Atoms placement');
             const summary = data.metadata?.atom_addition;
-            (summary?.new_indices || []).forEach(index => this.state.selected.add(index));
+            if (document.getElementById('add-atoms-select-added')?.checked !== false) {
+                (summary?.new_indices || []).forEach(index => this.addSelectionReference(index));
+            }
             this.updateSelectionVisuals();
             this.updateUI();
             const sampling = summary?.sampling || {};
             const detail = sampling.acceptance_fraction < 0.999
                 ? ` (${(100 * sampling.acceptance_fraction).toFixed(1)}% box acceptance)`
                 : '';
-            this.toast(`Scattered ${summary?.new_count || 0} atoms${detail}.`, 'success');
+            const inserted = summary?.content_kind === 'molecules'
+                ? `${summary?.molecule_count || 0} molecules (${summary?.new_count || 0} atoms)`
+                : `${summary?.new_count || 0} atoms`;
+            this.toast(`Placed ${inserted}${detail}.`, 'success');
         } catch (error) {
             this.setAddAtomsStatus('error', error.message);
             this.toast(`Add Atoms failed: ${error.message}`, 'error');
@@ -2103,20 +2708,48 @@ class VAseApp {
             ) {
                 this.startModeTrajectory('add-atoms', 'Add Atoms placement');
             }
+            const requestedSteps = Math.round(this.addAtomsNumber('add-atoms-steps', 250));
+            this.addAtomsUI.active = {
+                ...this.addAtomsUI.active,
+                is_relaxing: true,
+                status: 'relaxing',
+                step: 0,
+                max_steps: requestedSteps
+            };
+            const pendingNoun = this.addAtomsUI.active.content_kind === 'molecules'
+                ? 'molecules'
+                : 'atoms';
+            this.setAddAtomsStatus('running', `Placing ${pendingNoun} · 0/${requestedSteps}`);
+            this.syncAddAtomsActionState();
             const summary = await this.api.relaxAtomAddition({
                 pair_cutoffs: this.captureAddAtomsPairCutoffs(),
                 freeze_existing: document.getElementById('add-atoms-freeze-existing')?.checked !== false,
                 k_repulsion: this.addAtomsNumber('add-atoms-strength', 2.0),
                 fmax: this.addAtomsNumber('add-atoms-fmax', 0.05),
-                steps: Math.round(this.addAtomsNumber('add-atoms-steps', 250)),
+                steps: requestedSteps,
                 mic: document.getElementById('add-atoms-mic')?.checked !== false,
                 allow_escape: document.getElementById('add-atoms-allow-escape')?.checked !== false
             });
-            this.addAtomsUI.active = { ...summary };
-            this.setAddAtomsStatus('running', `Repelling atoms · 0/${summary.max_steps || 0}`);
+            const current = this.addAtomsUI.active;
+            const terminalStatuses = new Set(['converged', 'steps', 'stopped', 'error', 'relaxed']);
+            const completionArrivedFirst = (
+                current?.id === summary.id
+                && current.is_relaxing === false
+                && terminalStatuses.has(current.status)
+            );
+            if (!completionArrivedFirst) {
+                this.addAtomsUI.active = { ...summary };
+                const noun = summary.content_kind === 'molecules' ? 'molecules' : 'atoms';
+                this.setAddAtomsStatus('running', `Placing ${noun} · 0/${summary.max_steps || 0}`);
+            }
             this.syncAddAtomsActionState();
         } catch (error) {
+            if (this.addAtomsUI?.active) {
+                this.addAtomsUI.active.is_relaxing = false;
+                this.addAtomsUI.active.status = 'error';
+            }
             this.setAddAtomsStatus('error', error.message);
+            this.syncAddAtomsActionState();
             this.toast(`Repulsive placement failed: ${error.message}`, 'error');
         }
     }
@@ -2137,8 +2770,14 @@ class VAseApp {
             this.setAtomsData(data, { clearSelection: true });
             this.setAddAtomsRegionSelected(false, { update: false });
             this.clearModeTrajectory('add-atoms');
-            this.setAddAtomsStatus('idle', 'Ready to scatter atoms');
+            const molecules = this.addAtomsUI?.contentKind === 'molecules';
+            this.setAddAtomsStatus(
+                'idle',
+                molecules ? 'Ready to place molecules' : 'Ready to place atoms'
+            );
             this.updateAddAtomsRegionPreview();
+            this.setAddAtomsPane('single');
+            this.setCreateAtomWidgetExpanded(false);
             this.toast('Add Atoms cancelled. The original structure was restored.', 'success');
         } catch (error) {
             this.toast(`Cancel failed: ${error.message}`, 'error');
@@ -2148,14 +2787,24 @@ class VAseApp {
     async finishAddedAtomsSession() {
         try {
             const data = await this.api.finishAtomAddition();
-            const added = Number(data.metadata?.atom_addition_result?.added || 0);
+            const result = data.metadata?.atom_addition_result || {};
+            const added = Number(result.added || 0);
+            const molecules = result.content_kind === 'molecules';
+            const moleculeCount = Number(result.molecule_count || 0);
             this.addAtomsUI.active = null;
             this.setAtomsData(data, { clearSelection: true });
             this.setAddAtomsRegionSelected(false, { update: false });
             this.clearModeTrajectory('add-atoms');
             this.setAddAtomsPane('single');
-            this.setAddAtomsStatus('complete', `${added} atoms added`);
-            this.toast(`Added ${added} atoms to the structure.`, 'success');
+            this.setCreateAtomWidgetExpanded(false);
+            const completion = molecules
+                ? `${moleculeCount} molecules (${added} atoms) added`
+                : `${added} atoms added`;
+            this.setAddAtomsStatus('complete', completion);
+            const inserted = molecules
+                ? `${moleculeCount} molecules (${added} atoms)`
+                : `${added} atoms`;
+            this.toast(`Added ${inserted} to the structure.`, 'success');
         } catch (error) {
             this.toast(`Finish failed: ${error.message}`, 'error');
         }
@@ -7017,8 +7666,8 @@ class VAseApp {
     }
 
     async rotateSelectionFromPanel() {
-        if (!this.canEditAtoms()) {
-            this.editOnlyToast();
+        if (!this.canTransformSelectedAtoms()) {
+            this.transformUnavailableToast();
             return;
         }
         const editableSelection = [...this.state.selected].filter(index => this.isEditableIndex(index));
@@ -9429,6 +10078,7 @@ class VAseApp {
     
     async previewConstraints() {
         if (!this.state.applyConstraints) return;
+        if (this.addAtomsSessionActive()) return;
         if (this.state.transformSubject !== 'atoms') return;
         // Registry translation is a rigid two-degree-of-freedom mode. Applying
         // per-atom ASE constraints during its preview would deform the selected
@@ -9500,16 +10150,16 @@ class VAseApp {
             return this.commitAddAtomsRegionTransform();
         }
         if (this.transform.mode === 'IDLE' || this.state.selected.size === 0) return;
-        if (!this.canEditAtoms()) {
+        if (!this.canTransformSelectedAtoms()) {
             this.cancelTransform();
-            this.editOnlyToast();
+            this.transformUnavailableToast();
             return;
         }
         if (this.state.registryRelaxation && this.transform.mode === 'MOVE') {
             return this.commitRegistryTransform();
         }
         if (this.constraintTimeout) clearTimeout(this.constraintTimeout);
-        const proposalCandidate = this.transform.mode === 'ROTATE'
+        const proposalCandidate = this.transform.mode === 'ROTATE' && !this.addAtomsSessionActive()
             ? this.commensurateCandidateForProposal(this.state.commensurateLastAngle)
             : null;
         const proposalContext = proposalCandidate ? {
@@ -9551,9 +10201,9 @@ class VAseApp {
     }
 
     enterTransformMode(mode) {
-        if (this.state.addAtomsRegionSelected) {
+        if (this.selectedAddAtomsRegionIds().size) {
             if (mode === 'ROTATE') {
-                this.toast('The Cartesian insertion box can be moved with G but cannot be rotated.', 'warning');
+                this.toast('Insertion regions can be moved with G but cannot be rotated.', 'warning');
                 return;
             }
             this.enterAddAtomsRegionTransform();
@@ -9567,8 +10217,8 @@ class VAseApp {
             this.enterSunTransformMode(mode);
             return;
         }
-        if (!this.canEditAtoms()) {
-            this.editOnlyToast();
+        if (!this.canTransformSelectedAtoms()) {
+            this.transformUnavailableToast();
             return;
         }
         const editableSelection = [...this.state.selected].filter(idx => this.isEditableIndex(idx));
@@ -9610,7 +10260,7 @@ class VAseApp {
         this.transform.enter(mode, pivot, this.renderer.camera, {
             visualOffset: this.renderer.visualTranslationVector?.() || new THREE.Vector3()
         });
-        if (mode === 'ROTATE' && this.state.display.commensurateGuide) {
+        if (mode === 'ROTATE' && this.state.display.commensurateGuide && !this.addAtomsSessionActive()) {
             this.transform.setAxis('Z', this.renderer.camera);
         }
         this.renderer.setConstraintMotionGuides?.({
@@ -9619,7 +10269,7 @@ class VAseApp {
             originalPositions: this.state.originalPositions,
             applyConstraints: this.state.applyConstraints
         });
-        if (mode === 'ROTATE') {
+        if (mode === 'ROTATE' && !this.addAtomsSessionActive()) {
             this.configureRotationReference(editableSelection);
             this.prepareCommensurateRotation(editableSelection);
         } else {
@@ -9689,26 +10339,27 @@ class VAseApp {
     }
 
     enterAddAtomsRegionTransform() {
-        if (!this.state.addAtomsRegionSelected || this.addAtomsUI?.active?.is_relaxing) {
+        const selected = this.selectedAddAtomsRegionIds();
+        if (!selected.size || this.addAtomsUI?.active?.is_relaxing) {
             if (this.addAtomsUI?.active?.is_relaxing) {
-                this.toast('Stop repulsive placement before moving the insertion box.', 'warning');
+                this.toast('Stop repulsive placement before moving insertion regions.', 'warning');
             }
             return;
         }
-        let bounds;
-        try {
-            bounds = this.readAddAtomsBounds();
-        } catch (error) {
-            this.toast(error.message, 'error');
-            return;
-        }
+        const regions = this.addAtomsRegions().map(region => ({
+            ...region,
+            bounds: region.bounds.map(Number)
+        }));
+        const moving = regions.filter(region => selected.has(String(region.id)));
+        const lower = [0, 1, 2].map(axis => Math.min(...moving.map(region => region.bounds[axis * 2])));
+        const upper = [0, 1, 2].map(axis => Math.max(...moving.map(region => region.bounds[axis * 2 + 1])));
         const pivot = new THREE.Vector3(
-            (bounds[0] + bounds[1]) / 2,
-            (bounds[2] + bounds[3]) / 2,
-            (bounds[4] + bounds[5]) / 2
+            0.5 * (lower[0] + upper[0]),
+            0.5 * (lower[1] + upper[1]),
+            0.5 * (lower[2] + upper[2])
         );
         this.readTransformSettings();
-        this.state.addAtomsRegionTransformOriginal = [...bounds];
+        this.state.addAtomsRegionTransformOriginal = { regions, selected };
         this.state.transformSubject = 'add-atoms-region';
         this.state.transformReadout = '';
         this.state.transformStartPointer.copy(this.state.lastPointer);
@@ -9722,14 +10373,20 @@ class VAseApp {
 
     applyAddAtomsRegionTransformPreview() {
         const original = this.state.addAtomsRegionTransformOriginal;
-        if (!Array.isArray(original) || original.length !== 6) return;
+        if (!original?.regions || !(original.selected instanceof Set)) return;
         const delta = this.addAtomsRegionMoveDelta();
-        const moved = [
-            original[0] + delta.x, original[1] + delta.x,
-            original[2] + delta.y, original[3] + delta.y,
-            original[4] + delta.z, original[5] + delta.z
-        ];
-        this.syncAddAtomsBounds({ force: true, bounds: moved });
+        this.addAtomsUI.regions = original.regions.map(region => {
+            if (!original.selected.has(String(region.id))) return { ...region, bounds: [...region.bounds] };
+            return {
+                ...region,
+                bounds: [
+                    region.bounds[0] + delta.x, region.bounds[1] + delta.x,
+                    region.bounds[2] + delta.y, region.bounds[3] + delta.y,
+                    region.bounds[4] + delta.z, region.bounds[5] + delta.z
+                ]
+            };
+        });
+        this.renderAddAtomsRegions();
         this.state.transformReadout = this.formatMoveReadout(delta);
         this.updateAddAtomsRegionPreview();
         this.transform.updateGuides(this.renderer.camera);
@@ -9755,8 +10412,14 @@ class VAseApp {
 
     cancelAddAtomsRegionTransform() {
         const original = this.state.addAtomsRegionTransformOriginal;
-        if (Array.isArray(original)) this.syncAddAtomsBounds({ force: true, bounds: original });
+        if (Array.isArray(original?.regions)) {
+            this.addAtomsUI.regions = original.regions.map(region => ({
+                ...region,
+                bounds: [...region.bounds]
+            }));
+        }
         this.finishAddAtomsRegionTransform();
+        this.renderAddAtomsRegions();
         this.updateAddAtomsRegionPreview();
     }
 
@@ -11297,11 +11960,11 @@ class VAseApp {
             ['/api/calculator/', ['structure'], ['calculator'], 'The ASE calculator configuration changed.'],
             ['/api/relax/start/', ['structure', 'trajectory'], ['relaxation.status'], 'Structure relaxation started.'],
             ['/api/relax/stop/', ['structure', 'trajectory'], ['relaxation.status'], 'Structure relaxation stopped.'],
-            ['/api/add-session/start/', ['structure'], ['structure.topology', 'addAtoms.status'], 'Random atoms were staged.'],
-            ['/api/add-session/relax/', ['structure'], ['structure.positions', 'addAtoms.status'], 'Repulsive atom placement started.'],
-            ['/api/add-session/stop/', ['structure'], ['addAtoms.status'], 'Repulsive atom placement stop was requested.'],
-            ['/api/add-session/finish/', ['structure'], ['structure.topology', 'addAtoms.status'], 'Staged atoms were committed.'],
-            ['/api/add-session/cancel/', ['structure'], ['structure', 'addAtoms.status'], 'Random atom insertion was cancelled and restored.'],
+            ['/api/add-session/start/', ['structure'], ['structure.topology', 'addAtoms.status'], 'Atom or molecule insertion was staged.'],
+            ['/api/add-session/relax/', ['structure'], ['structure.positions', 'addAtoms.status'], 'Repulsive placement started.'],
+            ['/api/add-session/stop/', ['structure'], ['addAtoms.status'], 'Repulsive placement stop was requested.'],
+            ['/api/add-session/finish/', ['structure'], ['structure.topology', 'addAtoms.status'], 'Staged insertion content was committed.'],
+            ['/api/add-session/cancel/', ['structure'], ['structure', 'addAtoms.status'], 'Staged insertion was cancelled and the baseline was restored.'],
             ['/api/atom-identity/', ['structure'], ['structure.identity'], 'Atom identity changed.'],
             ['/api/constraints/', ['constraints'], ['constraints'], 'ASE constraints changed.'],
             ['/api/supercell/', ['structure'], ['structure.cell', 'structure.positions'], 'The working supercell changed.'],
@@ -11760,18 +12423,39 @@ class VAseApp {
 
     async aiCapabilities() {
         const schemaUrl = new URL('/api/ai/schema', window.location.origin).href;
+        const moleculeCatalogUrl = new URL(
+            `/api/add-session/molecules/${this.sessionId}`,
+            window.location.origin
+        ).href;
+        const insertionDomainPreviewUrl = new URL(
+            `/api/add-session/domain/${this.sessionId}`,
+            window.location.origin
+        ).href;
         let discovery = {};
+        let moleculeCatalog = [];
         try {
             const response = await fetch(schemaUrl);
             if (response.ok) discovery = await response.json();
         } catch {
             // The static capability lists below remain usable offline.
         }
+        try {
+            const response = await fetch(moleculeCatalogUrl);
+            if (response.ok) {
+                const payload = await response.json();
+                moleculeCatalog = Array.isArray(payload.molecules)
+                    ? payload.molecules
+                    : [];
+            }
+        } catch {
+            // The URL remains available for a later retry.
+        }
         const operationParameters = this.clonePlain(discovery.operation_parameters || {});
         const exportParameters = this.clonePlain(discovery.export_parameters || {});
         const fallbackOperations = [
             'wrap', 'translate-all', 'set-supercell', 'make-supercell',
-            'add-atom', 'scatter-atoms', 'update-add-atoms-region', 'relax-added-atoms',
+            'add-atom', 'scatter-atoms', 'scatter-molecules',
+            'update-add-atoms-region', 'relax-added-atoms',
             'stop-added-atoms', 'finish-add-atoms', 'cancel-add-atoms',
             'delete-selection', 'set-identity', 'set-constraints',
             'move-selection', 'rotate-selection', 'rotate-to-commensurate',
@@ -11838,6 +12522,28 @@ class VAseApp {
                 rangeModes: ['current', 'trajectory', 'manual'],
                 gammaRange: [0.1, 5],
                 note: 'Catalogs and trajectory scans are lazy; every rendered frame shares one resolved vmin/vmax.'
+            },
+            addAtoms: {
+                moleculeCatalogUrl,
+                insertionDomainPreviewUrl,
+                moleculeCatalog,
+                placementModes: ['random', 'homogeneous'],
+                coordinateBases: ['cartesian', 'fractional'],
+                regionRoles: ['allow', 'reject'],
+                maxRegions: 32,
+                densityUnit: 'g/cm3',
+                defaults: {
+                    placementMode: 'random',
+                    coordinateBasis: 'cartesian',
+                    pbcAware: true,
+                    regionMic: true,
+                    quantityMode: 'count',
+                    randomOrientation: true,
+                    rigidMolecules: true,
+                    freezeExisting: true,
+                    allowEscape: true
+                },
+                note: 'The exact insertion domain is the unit cell intersected with the Allow union, or the complete cell when no Allow exists, minus the Reject union. A structure without a finite cell requires at least one Allow region. Molecule coordinates and rotations use the native ASE template origin.'
             }
         };
     }
@@ -12016,7 +12722,8 @@ class VAseApp {
         const name = String(operation.name || '').trim().toLowerCase();
         const addAtomsControls = new Set([
             'relax-added-atoms', 'stop-added-atoms',
-            'finish-add-atoms', 'cancel-add-atoms', 'update-add-atoms-region'
+            'finish-add-atoms', 'cancel-add-atoms', 'update-add-atoms-region',
+            'move-selection', 'rotate-selection'
         ]);
         if (this.addAtomsSessionActive() && !addAtomsControls.has(name)) {
             throw new Error(
@@ -12182,44 +12889,74 @@ class VAseApp {
             setData(await this.api.addAtom(label, position, operation.element || null));
             return;
         }
-        if (name === 'scatter-atoms') {
-            this.aiRequireEdit('scatter-atoms');
+        if (name === 'scatter-atoms' || name === 'scatter-molecules') {
+            this.aiRequireEdit(name);
             if (this.addAtomsSessionActive()) {
                 throw new Error('Finish or cancel the active Add Atoms session first.');
             }
-            const hasEntries = Array.isArray(operation.entries);
-            if (!hasEntries && (!String(operation.element || '').trim() || operation.count == null)) {
-                throw new Error('scatter-atoms requires entries or both element and count.');
+            const molecules = name === 'scatter-molecules';
+            const hasEntries = Array.isArray(molecules ? operation.molecules : operation.entries);
+            const singleName = String(
+                (molecules ? operation.molecule : operation.element) || ''
+            ).trim();
+            if (!hasEntries && (!singleName || operation.count == null)) {
+                throw new Error(
+                    molecules
+                        ? 'scatter-molecules requires molecules or both molecule and count.'
+                        : 'scatter-atoms requires entries or both element and count.'
+                );
             }
-            const entries = hasEntries ? operation.entries : [{
-                element: operation.element,
-                label: operation.label || operation.element,
+            const entries = hasEntries
+                ? (molecules ? operation.molecules : operation.entries)
+                : [{
+                ...(molecules ? { name: singleName } : { element: singleName }),
+                label: operation.label || singleName,
                 count: operation.count
             }];
-            if (!entries.length) throw new Error('scatter-atoms requires at least one atom entry.');
-            const regionMode = operation.regionMode === 'box' ? 'box' : 'cell';
-            const bounds = regionMode === 'box'
-                ? operation.bounds
-                : undefined;
+            if (!entries.length) {
+                throw new Error(`${name} requires at least one entry.`);
+            }
+            const hasRegions = Array.isArray(operation.regions);
+            const regionMode = hasRegions
+                ? 'regions'
+                : (operation.regionMode === 'box' ? 'box' : 'cell');
+            const bounds = regionMode === 'box' ? operation.bounds : undefined;
             if (regionMode === 'box') {
                 if (!Array.isArray(bounds) || bounds.length !== 6 || !bounds.every(value => Number.isFinite(Number(value)))) {
                     throw new Error('Cartesian box bounds must contain six finite numbers.');
                 }
             }
-            const data = setData(await this.api.startAtomAddition({
-                entries,
+            const payload = {
+                content_kind: molecules ? 'molecules' : 'atoms',
+                entries: molecules ? undefined : entries,
+                molecules: molecules ? entries : undefined,
                 region_mode: regionMode,
+                regions: hasRegions ? operation.regions : undefined,
                 bounds: bounds?.map(Number),
                 region_role: regionMode === 'box' && operation.regionRole === 'prohibited'
                     ? 'prohibited'
                     : 'allowed',
                 allow_escape: operation.allowEscape !== false,
+                placement_mode: operation.placementMode === 'homogeneous'
+                    ? 'homogeneous'
+                    : 'random',
+                coordinate_basis: operation.coordinateBasis === 'fractional'
+                    ? 'fractional'
+                    : 'cartesian',
+                pbc_aware: operation.pbcAware !== false,
+                region_mic: operation.regionMic !== false,
+                random_orientation: operation.randomOrientation !== false,
+                rigid_molecules: operation.rigidMolecules !== false,
+                molecule_quantity_mode: operation.quantityMode === 'density' ? 'density' : 'count',
+                target_density_g_cm3: operation.targetDensityGcm3,
                 seed: operation.seed ?? null,
                 freeze_existing: operation.freezeExisting !== false,
                 cutoff_basis: operation.cutoffBasis || 'covalent',
                 cutoff_scale: Number(operation.cutoffScale ?? 0.7),
                 pair_cutoffs: operation.pairCutoffs || undefined
-            }), true);
+            };
+            const data = setData(await this.api.startAtomAddition(payload), true);
+            this.syncAddAtomsSessionFromData(data);
             this.startModeTrajectory('add-atoms', 'Add Atoms placement');
             const summary = data.metadata?.atom_addition;
             (summary?.new_indices || []).forEach(index => this.state.selected.add(index));
@@ -12230,30 +12967,41 @@ class VAseApp {
         if (name === 'update-add-atoms-region') {
             this.aiRequireEdit('update-add-atoms-region');
             if (!this.addAtomsSessionActive()) {
-                throw new Error('Scatter atoms before updating the Add Atoms region.');
+                throw new Error('Start an Add Atoms or Add Molecules session before updating its region.');
             }
             const current = this.addAtomsUI?.active || {};
-            if (current.region_mode !== 'box') {
-                throw new Error('Only an active Cartesian Add Atoms box can be updated.');
+            let regions = Array.isArray(operation.regions)
+                ? operation.regions
+                : (current.regions || []);
+            const regionId = operation.regionId == null ? null : String(operation.regionId);
+            if (!Array.isArray(operation.regions) && regionId) {
+                let found = false;
+                regions = regions.map(region => {
+                    if (String(region.id) !== regionId) return region;
+                    found = true;
+                    return {
+                        ...region,
+                        name: operation.regionName ?? region.name,
+                        role: operation.regionRole === 'reject' || operation.regionRole === 'prohibited'
+                            ? 'reject'
+                            : (operation.regionRole === 'allow' || operation.regionRole === 'allowed'
+                                ? 'allow'
+                                : region.role),
+                        bounds: operation.bounds ?? region.bounds
+                    };
+                });
+                if (!found) throw new Error(`Insertion region '${regionId}' was not found.`);
             }
-            const bounds = operation.bounds ?? current.bounds;
-            if (
-                !Array.isArray(bounds)
-                || bounds.length !== 6
-                || !bounds.every(value => Number.isFinite(Number(value)))
-            ) {
-                throw new Error('Cartesian box bounds must contain six finite numbers.');
-            }
-            const summary = await this.api.updateAtomAdditionRegion({
-                bounds: bounds.map(Number),
-                region_role: operation.regionRole === 'prohibited'
-                    ? 'prohibited'
-                    : (operation.regionRole === 'allowed' ? 'allowed' : current.region_role),
+            const data = await this.api.updateAtomAdditionRegion({
+                regions,
+                region_mic: operation.regionMic ?? current.domain?.pbc_aware ?? true,
                 allow_escape: operation.allowEscape ?? current.allow_escape ?? true
             });
-            this.addAtomsUI.active = { ...summary };
-            this.addAtomsUI.regionRole = summary.region_role || 'allowed';
-            this.syncAddAtomsBounds({ force: true, bounds: summary.bounds });
+            const summary = data?.metadata?.atom_addition || null;
+            if (this.state.atoms?.metadata) {
+                this.state.atoms.metadata.atom_addition = summary;
+            }
+            this.syncAddAtomsSessionFromData(data);
             const allowEscape = document.getElementById('add-atoms-allow-escape');
             if (allowEscape) allowEscape.checked = summary.allow_escape !== false;
             this.updateAddAtomsRegionPreview();
@@ -12263,7 +13011,7 @@ class VAseApp {
         if (name === 'relax-added-atoms') {
             this.aiRequireEdit('relax-added-atoms');
             if (!this.addAtomsSessionActive()) {
-                throw new Error('Scatter atoms before starting repulsive placement.');
+                throw new Error('Start an Add Atoms or Add Molecules session before repulsive placement.');
             }
             if (
                 !this.state.relaxTrajectory?.active
@@ -12288,7 +13036,8 @@ class VAseApp {
                     ?? true
             });
             this.addAtomsUI.active = { ...summary };
-            this.setAddAtomsStatus('running', `Repelling atoms · 0/${summary.max_steps || 0}`);
+            const noun = summary.content_kind === 'molecules' ? 'molecules' : 'atoms';
+            this.setAddAtomsStatus('running', `Placing ${noun} · 0/${summary.max_steps || 0}`);
             this.syncAddAtomsActionState();
             return;
         }
@@ -12304,6 +13053,7 @@ class VAseApp {
             this.setAddAtomsRegionSelected(false, { update: false });
             this.clearModeTrajectory('add-atoms');
             this.setAddAtomsPane('single');
+            this.setCreateAtomWidgetExpanded(false);
             return;
         }
         if (name === 'cancel-add-atoms') {
@@ -12312,8 +13062,15 @@ class VAseApp {
             this.addAtomsUI.active = null;
             this.setAddAtomsRegionSelected(false, { update: false });
             this.clearModeTrajectory('add-atoms');
-            this.setAddAtomsStatus('idle', 'Ready to scatter atoms');
+            this.setAddAtomsStatus(
+                'idle',
+                this.addAtomsUI?.contentKind === 'molecules'
+                    ? 'Ready to place molecules'
+                    : 'Ready to place atoms'
+            );
             this.updateAddAtomsRegionPreview();
+            this.setAddAtomsPane('single');
+            this.setCreateAtomWidgetExpanded(false);
             return;
         }
         if (name === 'delete-selection') {
@@ -15702,7 +16459,7 @@ class VAseApp {
                 const suffix = Number.isFinite(fmax) ? ` · fmax ${fmax.toFixed(3)}` : '';
                 this.setAddAtomsStatus(
                     'running',
-                    `Repelling atoms · ${addition.step}/${addition.max_steps}${suffix}`
+                    `Placing ${addition.content_kind === 'molecules' ? 'molecules' : 'atoms'} · ${addition.step}/${addition.max_steps}${suffix}`
                 );
                 this.syncAddAtomsActionState();
             }
@@ -15744,7 +16501,7 @@ class VAseApp {
                     source: 'system',
                     categories: ['structure'],
                     changedPaths: ['structure.positions', 'addAtoms.status'],
-                    summary: `Random atom placement ${msg.status}.`
+                    summary: `${addition.content_kind === 'molecules' ? 'Molecule' : 'Atom'} placement ${msg.status}.`
                 });
                 this.toast(
                     failed ? `Repulsive placement failed: ${msg.message || 'unknown error'}` : `Placement ${msg.status}.`,
@@ -18396,13 +19153,16 @@ class VAseApp {
                 e.stopPropagation();
                 this.state.suppressNextPointerUp = true;
                 this.setSunSelected(false, { update: false });
-                this.setAddAtomsRegionSelected(true);
+                this.selectAddAtomsRegion(addAtomsRegion, {
+                    additive: e.shiftKey,
+                    toggle: e.shiftKey
+                });
                 this.clearAtomSelection();
                 this.updateSelectionVisuals();
                 canvas.focus({ preventScroll: true });
                 return;
             }
-            if (this.state.addAtomsRegionSelected) {
+            if (this.selectedAddAtomsRegionIds().size) {
                 this.setAddAtomsRegionSelected(false);
             }
             if (this.state.sunSelected) this.setSunSelected(false, { update: false });
@@ -18669,11 +19429,11 @@ class VAseApp {
                     this.enterVolumetricPlaneTransformMode(mode);
                     return;
                 }
-                if (this.state.addAtomsRegionSelected &&
+                if (this.selectedAddAtomsRegionIds().size &&
                     (this.isPhysicalKey(e, 'KeyG', ['g']) || this.isPhysicalKey(e, 'KeyR', ['r']))) {
                     e.preventDefault();
                     if (this.isPhysicalKey(e, 'KeyR', ['r'])) {
-                        this.toast('The Cartesian insertion box cannot be rotated. Press G to move it.', 'warning');
+                        this.toast('Insertion regions cannot be rotated. Press G to move them.', 'warning');
                     } else {
                         this.enterAddAtomsRegionTransform();
                     }
@@ -18710,12 +19470,17 @@ class VAseApp {
                     else this.editOnlyToast();
                     return;
                 }
-                if (this.state.selected.size > 0 && this.canEditAtoms()) {
-                    if (this.isPhysicalKey(e, 'KeyG', ['g']) || this.isPhysicalKey(e, 'KeyR', ['r'])) {
-                        e.preventDefault();
-                        const mode = this.isPhysicalKey(e, 'KeyR', ['r']) ? 'ROTATE' : 'MOVE';
-                        this.enterTransformMode(mode);
+                if (
+                    this.state.selected.size > 0
+                    && (this.isPhysicalKey(e, 'KeyG', ['g']) || this.isPhysicalKey(e, 'KeyR', ['r']))
+                ) {
+                    e.preventDefault();
+                    if (!this.canTransformSelectedAtoms()) {
+                        this.transformUnavailableToast();
+                        return;
                     }
+                    const mode = this.isPhysicalKey(e, 'KeyR', ['r']) ? 'ROTATE' : 'MOVE';
+                    this.enterTransformMode(mode);
                 }
             }
         });

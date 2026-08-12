@@ -97,7 +97,7 @@ def test_skill_covers_every_live_operation_and_export():
     export_dispatch = main_js.split(
         "async aiExport(request", 1
     )[1].split("async aiApplyCollaboratively", 1)[0]
-    operation_handlers = set(re.findall(r"if \(name === '([^']+)'\)", operation_dispatch))
+    operation_handlers = set(re.findall(r"name === '([^']+)'", operation_dispatch))
     export_handlers = set(re.findall(r"if \(format === '([^']+)'\)", export_dispatch))
     export_handlers.update(
         re.findall(r"else if \(format === '([^']+)'\)", export_dispatch)
@@ -140,6 +140,15 @@ def test_readme_agent_media_uses_the_external_cli_bridge():
     assert '"flow": flow' in collaboration
     assert 'if len(human_events) < 2' in collaboration
     assert 'child.locator("#app-viewport").screenshot' in collaboration
+
+
+def test_add_session_collaboration_messages_cover_atoms_and_molecules():
+    main_js = (ROOT / "v_ase/static/main.js").read_text(encoding="utf-8")
+
+    assert "Atom or molecule insertion was staged." in main_js
+    assert "Repulsive placement started." in main_js
+    assert "Staged insertion content was committed." in main_js
+    assert "Random atoms were staged." not in main_js
 
 
 def test_skill_version_install_and_environment_contract_are_current():
@@ -358,6 +367,17 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
     assert schema["operation_parameters"]["set-constraints"]["notes"].startswith(
         "kind is fixed_line or fixed_plane"
     )
+    scatter_atoms = schema["operation_parameters"]["scatter-atoms"]
+    assert {"regions", "regionMic"}.issubset(scatter_atoms["optional"])
+    assert "Allow union" in scatter_atoms["notes"]
+    scatter_molecules = schema["operation_parameters"]["scatter-molecules"]
+    assert {"quantityMode", "targetDensityGcm3"}.issubset(
+        scatter_molecules["optional"]
+    )
+    update_regions = schema["operation_parameters"]["update-add-atoms-region"]
+    assert {"regions", "regionId", "regionName", "regionMic"}.issubset(
+        update_regions["optional"]
+    )
     assert "embedProject" in schema["export_parameters"]["html"]["optional"]
     assert schema["operation_parameters"]["load-volumetric"]["required"] == ["path"]
     assert "precision" in schema["operation_parameters"]["load-volumetric"]["optional"]
@@ -370,6 +390,49 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         "smoothingIterations",
     }.issubset(schema["operation_parameters"]["show-volumetric"]["optional"])
     operation_object = schema["control_schema"]["properties"]["operation"]["oneOf"][1]
+
+    def operation_schema(name: str) -> dict:
+        return next(
+            item["then"]
+            for item in operation_object["allOf"]
+            if item["if"]["properties"]["name"].get("const") == name
+        )
+
+    scatter_atoms_schema = operation_schema("scatter-atoms")
+    atoms_regions = scatter_atoms_schema["properties"]["regions"]
+    assert atoms_regions["maxItems"] == 32
+    assert atoms_regions["items"]["required"] == ["id", "role", "bounds"]
+    assert atoms_regions["items"]["properties"]["role"]["enum"] == [
+        "allow",
+        "reject",
+    ]
+    assert atoms_regions["items"]["properties"]["bounds"]["minItems"] == 6
+    assert atoms_regions["items"]["properties"]["bounds"]["maxItems"] == 6
+    scatter_molecules_schema = operation_schema("scatter-molecules")
+    assert scatter_molecules_schema["properties"]["quantityMode"]["enum"] == [
+        "count",
+        "density",
+    ]
+    assert scatter_molecules_schema["properties"]["targetDensityGcm3"] == {
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "maximum": 100,
+    }
+    update_regions_schema = operation_schema("update-add-atoms-region")
+    assert update_regions_schema["properties"]["regions"]["maxItems"] == 32
+    assert update_regions_schema["properties"]["regions"]["items"]["properties"][
+        "role"
+    ]["enum"] == ["allow", "reject"]
+    assert update_regions_schema["properties"]["regionMic"] == {"type": "boolean"}
+    relax_added_schema = next(
+        item["then"]
+        for item in operation_object["allOf"]
+        if (
+            item["if"]["properties"]["name"].get("const")
+            == "relax-added-atoms"
+        )
+    )
+    assert relax_added_schema["properties"]["allowEscape"] == {"type": "boolean"}
     show_schema = next(
         item["then"]
         for item in operation_object["allOf"]

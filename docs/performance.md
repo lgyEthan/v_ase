@@ -140,9 +140,13 @@ inputs, transform controls, or export settings.
 
 Random insertion generates coordinates in one vectorized NumPy allocation.
 Triclinic unit-cell mode maps a uniform fractional array through the complete
-cell matrix. Cartesian-box mode uses batched rejection against the half-open
-primary periodic cell; its cost therefore scales with both requested count and
-the box/cell intersection fraction. Pairwise placement uses ASE's periodic
+cell matrix. Multi-region mode partitions Cartesian space only at region faces,
+marks Allow/Reject membership vectorially, and evaluates only triclinic-cell
+boundary partitions as convex-polyhedron intersections. The resulting volume
+is exact rather than voxelized. Sampling uses batched vectorized membership;
+its cost scales with requested count and accessible-volume fraction. Periodic
+region images are generated only for lattice translations that intersect the
+primary cell. Pairwise placement uses ASE's periodic
 neighbor list rather than an all-pairs distance matrix, and only tag-3 mobile
 atoms receive forces when the host-fixing option is enabled.
 
@@ -157,8 +161,13 @@ Reference result on the project development Mac with Python 3.13:
 
 The scientific regressions separately verify deterministic seeds, fractional
 voxel occupancy, Cartesian-box containment, MIC across a periodic boundary,
-and exact host restoration during both normal completion and cancellation
-racing an in-flight optimizer commit.
+multi-Allow-minus-multi-Reject analytic volumes against an independent
+half-space/ConvexHull reference, lattice-translation invariance for triclinic
+wrapped regions, exact molecule density conversion, and exact host restoration
+during both normal completion and cancellation, including cancellation while
+an optimizer commit is in flight. Additional regressions cover primitive-ratio
+reduction, strict integer counts, active-session MIC synchronization, and the
+shortest periodic confinement force at orthogonal and triclinic boundaries.
 
 ## Browser Benchmark
 

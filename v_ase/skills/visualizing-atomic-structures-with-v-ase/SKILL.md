@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.7"
+python -m pip install "v_ase-gui==0.2.8"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -149,7 +149,7 @@ reference before executing a multi-step workflow:
 | Task | Primary state or operation |
 | --- | --- |
 | Inspect and measure | `describe`, `selection`, ordered `measurement` |
-| Edit a structure | `move-selection`, `rotate-selection`, `add-atom`, `scatter-atoms`, constraints |
+| Edit a structure | `move-selection`, `rotate-selection`, `add-atom`, `scatter-atoms`, `scatter-molecules`, constraints |
 | Work with periodic interfaces | display replication, cell transforms, commensurate search, rigid `(hkl)` translation |
 | Analyze trajectories | frame selection, displacement, RDF, colorscale, stored force vectors |
 | Analyze scalar fields | volumetric datasets, isosurfaces, planes, field combinations |
@@ -205,18 +205,45 @@ reload both scalar colors and Cartesian vectors from the same active frame;
 never reuse a force-vector buffer from another frame.
 For a rotation around one atom, pass that atom last in the explicit `indices`
 array and set `pivot: "active"`; verify that its coordinate is unchanged.
-For batch insertion, use `scatter-atoms` only on a single Edit-mode structure.
-It starts a reversible Add Atoms session and supports multiple element/label
-populations. `regionMode:"cell"` is volume-uniform in the full triclinic cell;
-`regionMode:"box"` samples the Cartesian box intersected with one half-open
-primary periodic cell. For a box, `regionRole:"allowed"` samples its interior
-and `regionRole:"prohibited"` samples the primary cell outside it. The box is
-an initial-placement region: `allowEscape` defaults to `true`, so repulsive
-placement may leave it. Set `allowEscape:false` only when the final staged
-atoms must remain in the allowed region or outside the prohibited region.
-`update-add-atoms-region` changes the six Cartesian bounds without moving
-staged atoms; the GUI exposes the same operation as `G` and deliberately
-rejects `R`. Verify `describe().addAtoms`, then optionally run
+For batch insertion, use `scatter-atoms` or `scatter-molecules` only on a
+single Edit-mode structure. Both start one reversible Add Atoms session.
+`placementMode:"random"` is volume-uniform in the full triclinic cell;
+`placementMode:"homogeneous"` spreads centers with either physical Cartesian
+distance in angstrom, the default, or normalized fractional spacing. Set
+`pbcAware:false` only when periodic images must not affect homogeneous spacing.
+Prefer `regionMode:"regions"` with stable `regions` objects containing `id`,
+`name`, `role:"allow"|"reject"`, and Cartesian
+`bounds:[xmin,xmax,ymin,ymax,zmin,zmax]`. The exact domain is the finite cell
+intersected with the Allow union, or the complete cell when no Allow exists,
+minus the Reject union. Without a finite cell, at least one Allow region is
+mandatory. `regionMic:true` maps region images through complete triclinic
+lattice vectors. Legacy `regionMode:"box"` remains accepted for one region.
+Regions define initial placement: `allowEscape` defaults to `true`, so
+repulsive placement may leave the combined domain.
+
+Before `scatter-molecules`, read `capabilities().addAtoms.moleculeCatalog`
+instead of guessing an ASE molecule name. Molecules are placed and rotated
+about the native ASE template origin. `randomOrientation:true` samples
+unbiased 3D rotations. `rigidMolecules:true` is the default and preserves each
+molecule's internal geometry during repulsion; whole-molecule `G`/`R` edits
+remain valid, while partial edits that distort a rigid molecule are rejected.
+Use `rigidMolecules:false` only when atomwise internal motion is intended.
+For density-driven placement, set `quantityMode:"density"` and
+`targetDensityGcm3`; molecule Count values become integer composition ratios.
+v_ase reduces their greatest common divisor before selecting complete batches.
+Read `describe().addAtoms.density` and verify target, actual, exact accessible
+volume, primitive ratio, and integer molecule count. Never infer density from
+a Cartesian bounding box or round each molecular species independently.
+For staged inserted content, GUI `G` maps to semantic `move-selection` and GUI
+`R` maps to `rotate-selection`; include every atom of each rigid molecule in
+the active selection before either operation.
+`update-add-atoms-region` accepts a complete `regions` array or one `regionId`
+with `regionName`, `regionRole`, `regionMic`, and/or `bounds`; it never moves
+staged atoms. Periodic confinement must use the same `regionMic` state and the
+shortest triclinic minimum-image displacement.
+The GUI multi-selects region rows or overlays, applies `G` to the selected
+group, and deliberately rejects `R`. Verify stable IDs and the exact domain in
+`describe().addAtoms`, then optionally run
 `relax-added-atoms` with explicit pair cutoffs and MIC. Its temporary
 `Add Atoms placement` timeline must exist only while the staging mode remains
 active. Wait until
@@ -304,9 +331,10 @@ handling, use the references below rather than improvising field names.
 - Never treat a visual label as an ASE element. Verify `chemicalSymbols`.
 - Never infer a periodic replica from screen position. Use `cellOffset`.
 - Never reuse indices after topology or frame changes without `describe()`.
-- Treat `scatter-atoms` as a reversible staging operation, not a committed
-  topology change. Do not finish it until inserted count, region, pairwise
-  cutoffs, MIC, and exact host preservation have been verified.
+- Treat `scatter-atoms` and `scatter-molecules` as reversible staging
+  operations, not committed topology changes. Do not finish until inserted
+  identities, region, pairwise cutoffs, MIC, rigid geometry when requested,
+  and exact host preservation have been verified.
 - Keep `applyConstraints: true` unless the user explicitly requests free
   editing.
 - Treat ASE backend positions returned after an edit as authoritative.
@@ -323,11 +351,14 @@ For any nontrivial task, verify all applicable items:
 
 - structure: count, labels, elements, positions, cell, PBC, constraints;
 - batch insertion: single-structure eligibility, mixed entry counts, random
-  seed, exact triclinic/Cartesian region, half-open periodic membership,
-  allowed/prohibited role, default escape policy, live `G` box bounds,
-  rejected box rotation, pairwise cutoffs, MIC, temporary host freeze,
-  asynchronous status, mode-only movie timeline, and exact host
-  coordinate/constraint/array preservation after finish or cancel;
+  seed, exact triclinic Boolean domain, stable multi-region IDs, Allow-union
+  and Reject-union semantics, no-cell Allow requirement, analytic accessible
+  volume, periodic region images, default escape policy, multi-selected live
+  `G` bounds, rejected region rotation, pairwise cutoffs, MIC, temporary host
+  freeze, asynchronous status, mode-only movie timeline, and exact host
+  coordinate/constraint/array preservation after finish or cancel; for
+  molecules also verify count versus density mode, integer composition ratio,
+  target/actual density, rigid geometry, and committed molecule count;
 - AI contract: exact schema/capability operation and export set equality, an
   external `v_ase api` mutation visible in the normal GUI, and matching GUI
   and `describe().collaboration.revision` state;

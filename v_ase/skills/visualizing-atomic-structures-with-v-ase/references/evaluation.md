@@ -62,7 +62,7 @@ Before every release:
 Current operation coverage:
 
 - wrap, translate-all, set-supercell, make-supercell;
-- add-atom, scatter-atoms, update-add-atoms-region, relax-added-atoms, stop-added-atoms,
+- add-atom, scatter-atoms, scatter-molecules, update-add-atoms-region, relax-added-atoms, stop-added-atoms,
   finish-add-atoms, cancel-add-atoms, delete-selection, set-identity,
   set-constraints;
 - move-selection, rotate-selection, rotate-to-commensurate,
@@ -130,15 +130,46 @@ Run all scenarios, not only static document checks:
    - verify 100,000 fractional samples in a skewed triclinic cell have the
      expected mean, variance, and 4 x 4 x 4 voxel occupancy, and verify a
      Cartesian AABB never returns two periodic representations of one voxel;
-   - test allowed and prohibited Cartesian boxes, default `allowEscape:true`,
-     confined `allowEscape:false`, live `G` translation of all six bounds, and
-     rejected `R` without moving staged atoms;
+   - compare random Cartesian and fractional requests and prove both remain
+     physical-volume uniform; compare homogeneous Cartesian and fractional
+     placement, verify the selected metric, deterministic seed, and exact
+     triclinic MIC when `pbcAware:true`;
+   - test overlapping multiple Allow and Reject Cartesian regions against an
+     independent convex-polyhedron volume reference, including reject-only
+     fallback to a finite cell and the required error without a finite cell;
+     verify stable IDs, exact union-minus-union volume, default
+     `allowEscape:true`, confined `allowEscape:false`, Shift multi-selection,
+     group `G` translation of all selected bounds, and rejected `R` without
+     moving staged atoms;
+   - translate a region through each face of a skew triclinic cell with region
+     MIC enabled; require clipped lattice-equivalent pieces on the opposite
+     face, translation-invariant volume, and sampled membership identical to
+     the backend domain;
    - run pairwise repulsive placement with MIC and the host temporarily fixed;
      require finite progress events, then finish and prove every host
      coordinate, constraint, tag, charge, custom array, label, and calculator
      survives exactly while only staged atoms remain added;
    - require an `add-atoms` movie timeline with at least two accepted frames
      during placement and require it to disappear after finish or cancel;
+   - discover the molecule catalog from `capabilities`, place several H2O
+     molecules with homogeneous Cartesian centers and random 3D orientation,
+     verify native ASE-origin anchoring and element-prefixed labels, then run
+     rigid repulsive placement and prove every molecular pair-distance matrix
+     is invariant; repeat with density mode over multiple Allow/Reject regions
+     and require exact accessible volume, primitive-ratio reduction, nearest
+     complete composition batch, target and actual density, and unchanged
+     staged topology after a region update;
+   - change `regionMic` while the workspace is active and require the backend
+     domain, clipped triclinic preview images, and confinement policy to update
+     together without moving staged atoms;
+   - place an out-of-domain point beside a skew periodic face and require the
+     shortest triclinic MIC confinement vector rather than a direct Cartesian
+     jump;
+   - reject fractional, string, and Boolean atom/molecule counts without
+     mutating the structure;
+   - translate and rotate complete staged rigid molecules, then attempt one
+     partial molecular edit and require rejection without coordinate mutation;
+     repeat with rigid mode disabled and verify atomwise motion is permitted;
    - repeat and cancel; require exact structure/history/redo restoration and a
      hidden insertion region; verify a trajectory is rejected before mutation;
    - perform the same scatter, asynchronous placement, polling, and finish from

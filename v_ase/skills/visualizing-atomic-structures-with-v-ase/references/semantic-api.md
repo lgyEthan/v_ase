@@ -186,8 +186,9 @@ Pass `operation` as a name string or object:
 | `set-supercell` | `reps` | Materialize repeated cell in every frame |
 | `make-supercell` | integer `matrix` | Apply ASE `make_supercell` |
 | `add-atom` | `label`/`element`, `position` | Add one atom |
-| `scatter-atoms` | `entries` or `element`/`label`/`count`; optional `regionMode`, `bounds`, `regionRole`, `allowEscape`, `seed`, `freezeExisting`, `cutoffBasis`, `cutoffScale`, `pairCutoffs` | Start one reversible random-insertion session on a single structure |
-| `update-add-atoms-region` | Optional `bounds`, `regionRole`, `allowEscape` | Move or reconfigure the active Cartesian insertion box without moving staged atoms |
+| `scatter-atoms` | `entries` or `element`/`label`/`count`; optional `placementMode`, `coordinateBasis`, `pbcAware`, `regions`, `regionMic`, `allowEscape`, `seed`, `freezeExisting`, `cutoffBasis`, `cutoffScale`, `pairCutoffs` | Stage atom populations by volume-uniform random or homogeneous placement in an exact multi-region Boolean domain |
+| `scatter-molecules` | `molecules` or `molecule`/`label`/`count`; optional atom-placement fields plus `randomOrientation`, `rigidMolecules`, `quantityMode`, `targetDensityGcm3` | Stage installed ASE G2 molecules by integer count or exact-volume density with optional unbiased orientation and rigid geometry |
+| `update-add-atoms-region` | Complete `regions`, or `regionId` plus optional `regionName`, `regionRole`, `bounds`; optional `regionMic`, `allowEscape` | Atomically move or reconfigure one or more active Cartesian insertion regions without moving staged atoms |
 | `relax-added-atoms` | optional `pairCutoffs`, `freezeExisting`, `strength`, `boundaryStrength`, `fmax`, `steps`, `mic`, `allowEscape` | Start asynchronous pairwise repulsive placement of staged atoms; the default lets atoms leave their initial insertion region |
 | `stop-added-atoms` | none | Request optimizer stop while retaining current staged positions |
 | `finish-add-atoms` | none | Commit staged atoms after optimization is inactive |
@@ -239,10 +240,20 @@ await ai.apply({
       {element: "Li", label: "Li_mobile", count: 24},
       {element: "H", label: "H_probe", count: 8}
     ],
-    regionMode: "box",
-    bounds: [1.0, 8.0, 0.5, 7.5, 0.0, 12.0],
-    regionRole: "allowed",
+    regionMode: "regions",
+    regionMic: true,
+    regions: [
+      {id: "left-pocket", name: "Left pocket", role: "allow",
+       bounds: [1.0, 4.0, 0.5, 7.5, 0.0, 12.0]},
+      {id: "right-pocket", name: "Right pocket", role: "allow",
+       bounds: [5.0, 8.0, 0.5, 7.5, 0.0, 12.0]},
+      {id: "protected-core", name: "Protected core", role: "reject",
+       bounds: [3.5, 5.5, 3.0, 5.0, 2.0, 10.0]}
+    ],
     allowEscape: true,
+    placementMode: "homogeneous",
+    coordinateBasis: "cartesian",
+    pbcAware: true,
     seed: 1847,
     freezeExisting: true,
     cutoffBasis: "covalent",
@@ -251,38 +262,118 @@ await ai.apply({
 });
 ```
 
-`regionMode:"cell"` samples independent fractional coordinates in `[0,1)`
-and maps them through the complete ASE cell matrix. The constant Jacobian makes
-the Cartesian distribution volume-uniform for orthorhombic and triclinic
-cells. `regionMode:"box"` requires
-`bounds:[xmin,xmax,ymin,ymax,zmin,zmax]` in Angstrom and samples only its
-intersection with the half-open primary periodic cell, so one physical voxel
-is never counted once per periodic image. This is random scattering, not a
-regular or minimum-distance distribution.
+`placementMode:"random"` samples independent fractional coordinates in
+`[0,1)` and maps them through the complete ASE cell matrix. The constant
+Jacobian makes the Cartesian probability density volume-uniform for
+orthorhombic and triclinic cells. `coordinateBasis` does not change that random
+density. `placementMode:"homogeneous"` instead uses deterministic
+low-discrepancy candidates and maximin selection through 1,024 entities;
+larger requests use the bounded-memory low-discrepancy sequence directly. Its
+default
+`coordinateBasis:"cartesian"` maximizes physical nearest-center distance in
+angstrom; `"fractional"` balances normalized cell coordinates. `pbcAware:true`
+uses the exact triclinic minimum image for homogeneous spacing.
 
-For a box, `regionRole:"allowed"` samples the intersection and
-`regionRole:"prohibited"` samples the rest of the primary cell. The box is an
-initial-placement definition. `allowEscape` defaults to `true`, which leaves
-repulsive placement unconstrained by that region. With `allowEscape:false`,
-the optimizer projects staged atoms back inside an allowed box or outside a
-prohibited box. Change the active box atomically without moving staged atoms:
+Each `regions` entry requires a stable ID, `role:"allow"|"reject"`, and
+`bounds:[xmin,xmax,ymin,ymax,zmin,zmax]` in Angstrom. With a finite cell, the
+domain is exactly
+
+```text
+cell ∩ (union(Allow), or cell when no Allow exists) \ union(Reject)
+```
+
+Overlapping regions are counted once. Cartesian partitions are intersected
+with the true cell polyhedron, so the reported `volume_angstrom3` is analytic
+for orthogonal and triclinic cells rather than a voxel estimate. Without a
+finite cell, at least one Allow region is required. `regionMic:true` generates
+lattice-translated region images in periodic directions and clips them to the
+primary cell. Legacy `regionMode:"box"`, `bounds`, and
+`regionRole:"allowed"|"prohibited"` remain accepted for one-region clients.
+
+Regions are initial-placement definitions. `allowEscape` defaults to `true`,
+which leaves repulsive placement unconstrained by the combined domain. With
+`allowEscape:false`, confinement uses the same exact membership semantics.
+Change one region atomically without moving staged atoms:
 
 ```javascript
 await ai.apply({operation: {
   name: "update-add-atoms-region",
-  bounds: [1.5, 8.5, 0.5, 7.5, 0.0, 12.0],
-  regionRole: "prohibited",
+  regionId: "protected-core",
+  regionName: "Shifted protected core",
+  bounds: [4.0, 6.0, 3.0, 5.0, 2.0, 10.0],
+  regionRole: "reject",
+  regionMic: true,
   allowEscape: false
 }});
 ```
 
-The GUI maps translation of the selected box to `G` and updates all six bounds
-live. It rejects `R` because an axis-aligned Cartesian min/max box has no
-well-defined rotated representation in this workflow.
+Alternatively pass a complete `regions` array to add, remove, or move several
+regions in one revision. The GUI Shift-selects rows or overlays, maps `G` to a
+shared translation of every selected region, and updates all bounds live. It
+rejects `R` because axis-aligned Cartesian min/max boxes have no well-defined
+rotated representation in this workflow.
 
-After scattering, read `describe().addAtoms`. It reports `entries`,
-`new_indices`, region geometry, seed, pair cutoffs, temporary fixed host
-indices, optimizer status, step, and maximum steps. The highlighted region is
+Discover molecules before using `scatter-molecules`:
+
+```javascript
+const capabilities = await ai.capabilities();
+const water = capabilities.addAtoms.moleculeCatalog.find(
+  item => item.name === "H2O"
+);
+if (!water) throw new Error("The installed ASE catalog does not contain H2O.");
+
+await ai.apply({
+  mode: "edit",
+  operation: {
+    name: "scatter-molecules",
+    molecules: [{name: "H2O", label: "water", count: 1}],
+    quantityMode: "density",
+    targetDensityGcm3: 0.70,
+    regionMode: "regions",
+    regionMic: true,
+    regions: [
+      {id: "left-reservoir", role: "allow", bounds: [-5, 3, 1, 9.5, 8, 16]},
+      {id: "right-reservoir", role: "allow", bounds: [5, 13, 1, 9.5, 8, 16]},
+      {id: "central-gate", role: "reject", bounds: [1, 8, 4, 6.5, 8, 16]}
+    ],
+    placementMode: "homogeneous",
+    coordinateBasis: "cartesian",
+    pbcAware: true,
+    randomOrientation: true,
+    rigidMolecules: true,
+    freezeExisting: true,
+    seed: 1847
+  }
+});
+```
+
+Each molecular anchor is the native coordinate origin of the ASE template.
+The region test and placement metric use that anchor; v_ase does not recenter
+the molecule before placement. `randomOrientation:true` samples Haar-uniform
+proper rotations about the same origin. Per-atom labels retain chemical
+identity with the requested molecule label as a suffix. With
+`rigidMolecules:true`, internal pair repulsion is excluded, forces are
+projected onto rigid translation and rotation, and each accepted position is
+projected onto the immutable template geometry. A user or agent may move or
+rotate complete staged molecules, but a partial transform that changes an
+internal distance is rejected. Set `rigidMolecules:false` for ordinary
+atomwise motion.
+
+In `quantityMode:"density"`, each molecule Count is an integer composition
+ratio. v_ase reduces the entries to their primitive integer ratio, calculates
+the exact accessible volume, converts ASE molar masses with the Avogadro
+constant, and selects the nearest complete composition multiplier. It never
+creates fractional molecules or rounds species independently. Read
+`describe().addAtoms.density.target_g_cm3`,
+`actual_g_cm3`, `accessible_volume_angstrom3`, and `molecule_count` before
+continuing. If the target is below the first realizable batch, the preview
+keeps reporting exact volume and returns a specific density error.
+
+After scattering, read `describe().addAtoms`. It reports `content_kind`,
+`entries`, `new_indices`, placement and coordinate modes, region geometry,
+seed, pair cutoffs, temporary fixed host indices, optimizer status, step, and
+maximum steps. Molecule sessions additionally report `molecule_groups`,
+`molecule_names`, orientation mode, and rigid mode. The highlighted region is
 an Add Atoms overlay and disappears after finish or cancel. Existing atoms are
 temporarily fixed by default only inside the optimizer copy; this constraint
 is never added to the committed ASE object. During staging,
@@ -318,9 +409,9 @@ The optimizer frames appear on a temporary `add-atoms` mode timeline. Finish
 or cancel removes that timeline; neither action converts it into the loaded
 source trajectory.
 
-Batch Add Atoms deliberately rejects trajectories. Open the intended frame as
-a standalone structure in a new document before scattering; never create one
-frame with a different atom count silently.
+Batch atom and molecule insertion deliberately rejects trajectories. Open the
+intended frame as a standalone structure in a new document before scattering;
+never create one frame with a different atom count silently.
 
 ## Per-Atom Colorscales
 

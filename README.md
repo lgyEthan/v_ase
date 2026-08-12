@@ -89,7 +89,7 @@ browser document releases the blocking terminal process.
 | --- | --- |
 | Inspect a structure | Middle-drag to orbit, wheel to zoom, left-click to select |
 | Edit coordinates | Enter **Edit**, select atoms, press `Esc` to focus the viewport, then use `G` or `R` |
-| Insert one or many atoms | In **Edit**, open **+ Add atoms** and choose **Single** or **Random batch** |
+| Insert atoms or molecules | In **Edit**, open **+ Add atoms**, choose **Single** or **Batch**, then place atoms or ASE molecules |
 | Measure geometry | Select 2, 3, or 4 atoms in the required order |
 | Play a trajectory | Use the bottom timeline or `Space`; FPS and Skip update live |
 | Plot an RDF | Use **Analysis > Radial Distribution Function** |
@@ -141,64 +141,106 @@ exact displacement in angstrom, then confirm with left-click or `Enter`.
 Configured ASE constraints remain authoritative when **Apply constraints** is
 enabled.
 
-### Add Atoms — New In v0.2.1
+### Add Atoms — Available Since v0.2.1
 
-#### Allowed Placement Volume
+#### Allow And Reject Regions
 
-![Na and Cl atoms inserted inside an allowed box and relaxed into a vacancy-rich NaCl structure](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_atoms_allowed.gif)
+![Hydrogen inserted inside an Allow region in periodic amorphous gallium](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_atoms_allowed.gif)
 
-The teal box is the initial placement volume. Six `Na_inserted` and six
-`Cl_inserted` atoms start inside it, while pairwise repulsion moves only those
-new atoms into the visible vacancy pocket and nearby free volume.
+The teal region is an **Allow region**. Twenty `H_inserted` atoms start inside
+it and move through periodic amorphous Ga under explicit Ga-H and H-H
+repulsive cutoffs. Every original `Ga_amorphous` coordinate remains unchanged.
 
-#### Prohibited Placement Volume
+#### Reject Regions
 
-![Na and Cl atoms inserted outside a prohibited box and kept outside during relaxation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_atoms_prohibited.gif)
+![Hydrogen inserted outside a Reject region in periodic amorphous gallium](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_atoms_prohibited.gif)
 
-The magenta box is an exclusion volume. The same reproducible batch starts in
-the surrounding primary cell and remains outside the box during repulsive
+The red region is a **Reject region**. The same reproducible H batch starts in
+the surrounding primary cell. Keep **Allow inserted content to leave the
+region domain** off when the rejected volume must remain excluded during
 placement.
 
 Open **+ Add atoms** in **Edit** mode:
 
 - **Single** places one atom at an exact position or the current view center.
-- **Random batch** accepts multiple Type, Label, and Count rows and scatters
-  them together. A random seed makes the initial placement reproducible.
-- **Unit cell** samples the full volume of an orthogonal or triclinic cell.
-  **Cartesian box** limits placement to a visible `xmin`/`xmax`,
-  `ymin`/`ymax`, `zmin`/`zmax` region inside its half-open primary periodic cell,
-  so skew-cell boundaries are not sampled twice.
-- **Allowed** scatters atoms inside that box. **Prohibited** treats the box as
-  an exclusion volume and scatters atoms through the rest of the primary cell.
-- The box describes initial placement. **Allow inserted atoms to leave the
-  initial region** is on by default, so repulsive placement can find nearby
-  free volume outside it. Turn it off only when the final atoms must remain on
-  the chosen side of the boundary.
-- Select the visible box and press `G` to translate it; all six numeric bounds
-  update live. Rotation is unavailable because the region is defined by
-  Cartesian min/max values.
+- **Batch > Atoms** accepts multiple Type, Label, and Count rows. **Batch >
+  Molecules** accepts every molecule available through the installed ASE G2
+  catalog and supports several molecule species in one placement.
+- **Random** gives each physical volume element equal probability in an
+  orthogonal or triclinic cell. A seed makes the result reproducible.
+  Periodic sampling uses one half-open primary periodic cell, so a boundary
+  position is never counted again through a neighboring image.
+- **Homogeneous** spreads the requested centers with a low-discrepancy
+  sequence and maximin refinement for batches up to 1,024 entities. Larger
+  batches keep the bounded-memory low-discrepancy sequence directly.
+  **Cartesian distance / Å** is the default and maximizes physical
+  nearest-neighbor spacing. **Fractional spacing** instead balances normalized
+  lattice coordinates. Periodic-aware spacing uses the exact minimum image.
+- With a finite cell, an empty region list uses the complete primary cell.
+  Multiple Allow regions are combined, then every Reject region is subtracted.
+  Overlap is counted once. Without a finite cell, at least one Allow region is
+  required because Reject regions alone do not define a bounded volume.
+- Each region uses Cartesian `xmin`/`xmax`, `ymin`/`ymax`, and `zmin`/`zmax`.
+  The accessible volume is calculated from exact box/cell intersections,
+  including triclinic cells; it is not estimated from voxels.
+- Click or Shift-click region rows or their viewport overlays. Press `G` to
+  move one region or the complete selected group while every bound updates
+  live. `R` is unavailable because rotated Cartesian min/max boxes would no
+  longer represent the displayed values.
+- With region MIC enabled, the part entering one cell face appears at the
+  symmetry-equivalent opposite face. The same lattice-vector mapping controls
+  placement, so skew-cell wrapping remains physically consistent.
+- Regions describe initial placement. **Allow inserted content to leave the
+  region domain** is on by default, so repulsive placement can find nearby
+  free volume. Turn it off to confine inserted content to the complete Boolean
+  domain during **Repel**. **Finish** commits the staged coordinates; it does
+  not project an unrelaxed batch into the domain by itself.
 - **Temporarily fix existing atoms** keeps the loaded structure stationary
-  while only the inserted atoms follow the pairwise repulsion. It is enabled
-  by default.
-- Choose covalent, van der Waals, or explicit element-pair cutoffs, then click
-  **Repel** to remove short contacts with the minimum image convention.
+  while only inserted content follows pairwise repulsion. It is enabled by
+  default.
+- **Keep inserted atoms selected** is enabled by default. Use `G` or `R` to
+  move or rotate only the staged content before repulsive placement; **Select
+  added** restores that selection at any time.
+- Choose covalent, van der Waals, or explicit pair cutoffs, then click **Repel**
+  to remove short contacts with the minimum image convention.
 
-The teal cell or box exists only while Add Atoms is active. **Finish** commits
-the inserted atoms but reconstructs every pre-existing coordinate, array,
-label, calculator, and constraint from the original structure. **Cancel**
-removes the inserted atoms and restores that original structure completely.
-For trajectories, open the target frame in a new tab before starting a random
-batch.
+The insertion regions exist only while Add Atoms is active. **Finish** commits the
+inserted content but reconstructs every pre-existing coordinate, array, label,
+calculator, and constraint from the original structure. **Cancel** restores
+that original structure completely. For trajectories, open the target frame
+in a new tab before starting a batch.
 
 Repulsive placement creates an **Add Atoms placement** timeline containing the
 accepted optimizer steps. It can be scrubbed or played while the mode remains
-active. Finishing or cancelling Add Atoms removes that temporary timeline.
+active. Finishing or cancelling the mode closes the panel and removes the
+temporary regions and timeline.
 
-Both animations use the included
-[vacancy-rich rocksalt example](examples/readme_scene_assets/rocksalt_vacancy_add_atoms.traj).
-The alternating Na/Cl lattice and central cavity make the initial random
-placement, allowed or excluded region, and subsequent relaxation directly
-visible. Every `Na_lattice` and `Cl_lattice` coordinate remains fixed.
+The atom animations use the included
+[periodic amorphous Ga example](examples/readme_scene_assets/amorphous_ga_h_add_atoms.traj).
+
+#### Add Molecules — Available Since v0.2.8
+
+![Rigid water molecules placed in a periodic layered channel](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_molecules.gif)
+
+Choose a molecule and label from **Batch > Molecules**. **Count** places the
+requested integer composition. **Density** treats each Count value as a
+composition ratio, reduces all values to their primitive integer ratio,
+calculates the exact accessible volume, chooses the nearest complete
+composition batch, and displays both target and realizable density in `g/cm³`
+before placement. Molecular
+coordinates are placed and rotated about ASE's native coordinate origin;
+**Randomize molecular orientation** samples unbiased three-dimensional
+rotations. The default **Preserve molecular geometry** mode evaluates
+atom-pair repulsion against the host and other molecules, excludes internal
+repulsion, and projects every optimizer step onto each molecule's rigid
+translation and rotation. Turn it off for ordinary atomwise relaxation.
+
+The shown [layered water-channel example](examples/readme_scene_assets/layered_water_channel.traj)
+combines two Allow reservoirs with a central Reject gate. Their exact
+`767.68 Å³` accessible volume converts a `0.70 g/cm³` target into 18 H2O
+molecules and reports the realizable density before scattering. The two
+membrane layers remain exact while only the inserted waters move. Rigid
+placement preserves every O-H distance and H-O-H geometry.
 
 ### Rotate Selected Atoms
 

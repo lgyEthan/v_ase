@@ -12,10 +12,11 @@ import subprocess
 import sys
 from io import BytesIO
 from pathlib import Path
+from typing import Sequence
 
 import numpy as np
 from ase import Atoms
-from ase.build import fcc111
+from ase.build import fcc111, molecule
 from ase.calculators.singlepoint import SinglePointCalculator
 from ase.geometry import find_mic
 from ase.io import read
@@ -37,6 +38,7 @@ from examples.readme_scenes import (
     make_ferrocene_scene,
     make_graphene_hbn_commensurate_scene,
     make_hookean_surface_scene,
+    make_layered_water_channel_scene,
     make_ai_pyridinic_graphene_scene,
     make_amorphous_cuzr_rdf_scene,
     make_graphene_pi_volumetric_scene,
@@ -2650,6 +2652,33 @@ def capture_constraint_media(browser) -> None:
         editor.close()
 
 
+def _add_insertion_region(page, *, role: str, name: str, bounds: Sequence[float]) -> None:
+    """Create one region through the same controls used by an end user."""
+    if role not in {"allow", "reject"}:
+        raise ValueError(f"Unsupported insertion-region role: {role}")
+    normalized = [float(value) for value in bounds]
+    if len(normalized) != 6:
+        raise ValueError("Insertion-region bounds require xmin/xmax/ymin/ymax/zmin/zmax.")
+    before = page.locator("#add-atoms-region-list .add-atoms-region-item").count()
+    page.click(f"#btn-add-atoms-{role}-region")
+    page.wait_for_function(
+        "count => document.querySelectorAll('#add-atoms-region-list .add-atoms-region-item').length === count",
+        arg=before + 1,
+    )
+    page.fill("#add-atoms-region-name", name)
+    page.locator("#add-atoms-region-name").blur()
+    for selector, value in zip(
+        (
+            "#add-atoms-xmin", "#add-atoms-xmax",
+            "#add-atoms-ymin", "#add-atoms-ymax",
+            "#add-atoms-zmin", "#add-atoms-zmax",
+        ),
+        normalized,
+    ):
+        page.fill(selector, f"{value:.6f}")
+        page.locator(selector).blur()
+
+
 def _capture_add_atoms_variant(
     browser,
     *,
@@ -2671,33 +2700,27 @@ def _capture_add_atoms_variant(
             "showCell": True,
             "showBonds": True,
             "showOverlays": True,
-            "atomRadiusScale": 0.44,
+            "atomRadiusScale": 0.54,
             "labelRadii": {
-                "Na_lattice": 0.46,
-                "Cl_lattice": 0.54,
-                "Na_inserted": 0.67,
-                "Cl_inserted": 0.72,
+                "Ga_amorphous": 0.68,
+                "H_inserted": 0.64,
             },
             "labelColors": {
-                "Na_lattice": "#8b71b5",
-                "Cl_lattice": "#63a84f",
-                "Na_inserted": "#f0a126",
-                "Cl_inserted": "#24a8c4",
+                "Ga_amorphous": "#707984",
+                "H_inserted": "#ef9f32",
             },
             "labelMaterials": {
-                "Na_lattice": "standard",
-                "Cl_lattice": "standard",
-                "Na_inserted": "metal",
-                "Cl_inserted": "metal",
+                "Ga_amorphous": "metal",
+                "H_inserted": "standard",
             },
             "bondMode": "pairwise",
             "pairwiseBondRanges": {
-                "Cl_lattice-Na_lattice": {"enabled": True, "max": 3.02},
+                "Ga_amorphous-Ga_amorphous": {"enabled": True, "max": 2.86},
             },
             "pairwiseBondCutoffs": {
-                "Cl_lattice-Na_lattice": 3.02,
+                "Ga_amorphous-Ga_amorphous": 2.86,
             },
-            "bondThickness": 0.13,
+            "bondThickness": 0.065,
             "cellColor": "#96722f",
             "cellThickness": 0.055,
         })
@@ -2719,9 +2742,6 @@ def _capture_add_atoms_variant(
 
         page.click("#btn-create-atom-toggle")
         page.click("#add-atoms-tab-batch")
-        page.wait_for_function(
-            "window.__V_ASE_APP__.renderer.addAtomsRegionGroup.visible === true"
-        )
         page.evaluate("""() => {
             const widget = document.getElementById('create-atom-widget');
             widget.style.left = '22px';
@@ -2734,32 +2754,27 @@ def _capture_add_atoms_variant(
         # overlaps into interstitial and vacancy space.
         half_box = np.asarray(metadata["insertion_half_box"], dtype=float)
         insertion_center = np.asarray(metadata["insertion_center"], dtype=float)
-        bounds = np.concatenate((insertion_center - half_box, insertion_center + half_box))
-        page.click("#add-atoms-region-box")
-        for selector, value in zip(
-            (
-                "#add-atoms-xmin", "#add-atoms-ymin", "#add-atoms-zmin",
-                "#add-atoms-xmax", "#add-atoms-ymax", "#add-atoms-zmax",
-            ),
-            bounds,
-        ):
-            page.fill(selector, f"{float(value):.4f}")
-            page.locator(selector).blur()
-        page.click(f"#add-atoms-region-{region_role}")
+        lower = insertion_center - half_box
+        upper = insertion_center + half_box
+        bounds = np.column_stack((lower, upper)).reshape(-1)
+        _add_insertion_region(
+            page,
+            role="allow" if region_role == "allowed" else "reject",
+            name="Interstitial volume" if region_role == "allowed" else "Protected volume",
+            bounds=bounds,
+        )
         page.locator("#add-atoms-allow-escape").set_checked(region_role == "allowed")
 
-        first = page.locator("#add-atoms-entries .add-atoms-entry-row").first
-        first.locator(".add-atoms-entry-type").select_option(metadata["entries"][0]["element"])
-        first.locator(".add-atoms-entry-label").fill(metadata["entries"][0]["label"])
-        first.locator(".add-atoms-entry-count").fill(str(metadata["entries"][0]["count"]))
-        page.click("#btn-add-atoms-entry")
-        second = page.locator("#add-atoms-entries .add-atoms-entry-row").nth(1)
-        second.locator(".add-atoms-entry-type").select_option(metadata["entries"][1]["element"])
-        second.locator(".add-atoms-entry-label").fill(metadata["entries"][1]["label"])
-        second.locator(".add-atoms-entry-count").fill(str(metadata["entries"][1]["count"]))
+        for entry_index, entry in enumerate(metadata["entries"]):
+            if entry_index:
+                page.click("#btn-add-atoms-entry")
+            row = page.locator("#add-atoms-entries .add-atoms-entry-row").nth(entry_index)
+            row.locator(".add-atoms-entry-type").select_option(entry["element"])
+            row.locator(".add-atoms-entry-label").fill(entry["label"])
+            row.locator(".add-atoms-entry-count").fill(str(entry["count"]))
         page.fill("#add-atoms-seed", str(metadata["seed"]))
-        page.select_option("#add-atoms-cutoff-basis", "covalent")
-        page.fill("#add-atoms-cutoff-scale", "0.82")
+        page.select_option("#add-atoms-cutoff-basis", "pairwise")
+        page.fill("#add-atoms-cutoff-scale", "1.00")
         page.fill("#add-atoms-strength", "2.5")
         page.fill("#add-atoms-fmax", "0.002")
         page.fill("#add-atoms-steps", "180")
@@ -2772,6 +2787,14 @@ def _capture_add_atoms_variant(
             "count => document.querySelectorAll('#add-atoms-pair-table .add-atoms-pair-row').length >= count",
             arg=expected_pair_rows,
         )
+        page.evaluate("""cutoffs => {
+            document.querySelectorAll('#add-atoms-pair-table .add-atoms-pair-row').forEach(row => {
+                if (!(row.dataset.pair in cutoffs)) return;
+                const input = row.querySelector('input');
+                input.value = String(cutoffs[row.dataset.pair]);
+                input.dispatchEvent(new Event('change', {bubbles: true}));
+            });
+        }""", {"Ga-Ga": 0.0, "Ga-H": 1.85, "H-H": 1.15})
 
         frames: list[Image.Image] = []
         append_hold(frames, page, 7)
@@ -2788,29 +2811,23 @@ def _capture_add_atoms_variant(
         # apply the publication palette after that catalog exists.
         set_display(page, {
             "labelRadii": {
-                "Na_lattice": 0.46,
-                "Cl_lattice": 0.54,
-                "Na_inserted": 0.67,
-                "Cl_inserted": 0.72,
+                "Ga_amorphous": 0.68,
+                "H_inserted": 0.64,
             },
             "labelColors": {
-                "Na_lattice": "#8b71b5",
-                "Cl_lattice": "#63a84f",
-                "Na_inserted": "#f0a126",
-                "Cl_inserted": "#24a8c4",
+                "Ga_amorphous": "#707984",
+                "H_inserted": "#ef9f32",
             },
             "labelMaterials": {
-                "Na_lattice": "standard",
-                "Cl_lattice": "standard",
-                "Na_inserted": "metal",
-                "Cl_inserted": "metal",
+                "Ga_amorphous": "metal",
+                "H_inserted": "standard",
             },
             "bondMode": "pairwise",
             "pairwiseBondRanges": {
-                "Cl_lattice-Na_lattice": {"enabled": True, "max": 3.02},
+                "Ga_amorphous-Ga_amorphous": {"enabled": True, "max": 2.86},
             },
             "pairwiseBondCutoffs": {
-                "Cl_lattice-Na_lattice": 3.02,
+                "Ga_amorphous-Ga_amorphous": 2.86,
             },
         })
         scattered_positions = np.asarray(
@@ -2820,7 +2837,7 @@ def _capture_add_atoms_variant(
         np.testing.assert_array_equal(scattered_positions[: len(host)], host.positions)
         inserted = scattered_positions[len(host):]
         inserted_inside = np.all(
-            (inserted >= bounds[:3]) & (inserted <= bounds[3:]),
+            (inserted >= bounds[::2]) & (inserted <= bounds[1::2]),
             axis=1,
         )
         if region_role == "allowed" and not bool(np.all(inserted_inside)):
@@ -2910,7 +2927,7 @@ def _capture_add_atoms_variant(
         if region_role == "prohibited":
             final_inserted = relaxed_positions[len(host):]
             final_inside = np.all(
-                (final_inserted >= bounds[:3]) & (final_inserted <= bounds[3:]),
+                (final_inserted >= bounds[::2]) & (final_inserted <= bounds[1::2]),
                 axis=1,
             )
             if bool(np.any(final_inside)):
@@ -2954,6 +2971,227 @@ def capture_add_atoms_media(browser) -> None:
         region_role="prohibited",
         gif_name="readme_add_atoms_prohibited.gif",
     )
+    _capture_add_molecules_media(browser)
+
+
+def _capture_add_molecules_media(browser) -> None:
+    host, metadata = make_layered_water_channel_scene()
+    editor, page = open_scene(browser, host, show_bonds=True, viz_only=False)
+    try:
+        center = np.sum(np.asarray(host.cell.array, dtype=float), axis=0) * 0.5
+        set_display(page, {
+            "viewportBackground": "white",
+            "projectionMode": "orthographic",
+            "showGrid": False,
+            "showAxes": False,
+            "showCell": True,
+            "showBonds": True,
+            "showOverlays": True,
+            "atomRadiusScale": 0.50,
+            "labelRadii": {
+                "C_lower_membrane": 0.47,
+                "C_upper_membrane": 0.47,
+                "O_water": 0.72,
+                "H_water": 0.57,
+            },
+            "labelColors": {
+                "C_lower_membrane": "#4c5963",
+                "C_upper_membrane": "#72808a",
+                "O_water": "#d9433f",
+                "H_water": "#f4f5f6",
+            },
+            "labelMaterials": {
+                "C_lower_membrane": "metal",
+                "C_upper_membrane": "metal",
+                "O_water": "standard",
+                "H_water": "standard",
+            },
+            "bondMode": "pairwise",
+            "pairwiseBondRanges": {
+                "C_lower_membrane-C_lower_membrane": {"enabled": True, "max": 1.55},
+                "C_upper_membrane-C_upper_membrane": {"enabled": True, "max": 1.55},
+                "H_water-O_water": {"enabled": True, "max": 1.15},
+            },
+            "pairwiseBondCutoffs": {
+                "C_lower_membrane-C_lower_membrane": 1.55,
+                "C_upper_membrane-C_upper_membrane": 1.55,
+                "H_water-O_water": 1.15,
+            },
+            "bondThickness": 0.15,
+            "cellColor": "#8b6c2c",
+            "cellThickness": 0.055,
+        })
+        page.evaluate("window.__V_ASE_APP__.renderer.setProjectionMode('orthographic')")
+        set_camera(
+            page,
+            target=center.tolist(),
+            position=(center + np.asarray([23.0, -27.0, 18.0])).tolist(),
+            up=(0, 0, 1),
+            fov=35,
+        )
+        page.evaluate("window.__V_ASE_APP__.renderer.fitCameraToStructure()")
+        set_readme_lighting(page, center.tolist(), intensity=2.8, position_offset=(-16, -18, 26))
+
+        page.click("#btn-create-atom-toggle")
+        page.click("#add-atoms-tab-batch")
+        page.click("#add-atoms-content-molecules")
+        page.wait_for_function(
+            "document.querySelector('#add-molecule-entries select')?.options.length >= 150"
+        )
+        page.evaluate("""() => {
+            const widget = document.getElementById('create-atom-widget');
+            widget.style.left = '22px';
+            widget.style.right = 'auto';
+            widget.style.top = '82px';
+            widget.style.bottom = 'auto';
+        }""")
+        frames: list[Image.Image] = []
+        append_hold(frames, page, 5)
+        for region in metadata["regions"]:
+            _add_insertion_region(
+                page,
+                role=region["role"],
+                name=region["name"],
+                bounds=region["bounds"],
+            )
+            append_hold(frames, page, 4)
+
+        row = page.locator("#add-molecule-entries .add-molecule-entry-row").first
+        molecule_spec = metadata["molecules"][0]
+        row.locator(".add-molecule-entry-name").select_option(molecule_spec["name"])
+        row.locator(".add-molecule-entry-label").fill(molecule_spec["label"])
+        row.locator(".add-molecule-entry-count").fill(str(molecule_spec["count"]))
+        page.click("#add-molecules-quantity-density")
+        page.fill(
+            "#add-molecules-target-density",
+            f"{float(metadata['target_density_g_cm3']):.6f}",
+        )
+        page.wait_for_function(
+            "expected => document.querySelector('#add-molecules-actual-density')?.textContent.includes(`${expected} molecules`)",
+            arg=metadata["expected_molecule_count"],
+        )
+        accessible_volume = float(
+            page.locator("#add-atoms-domain-volume").inner_text().split()[0]
+        )
+        if not np.isclose(
+            accessible_volume,
+            float(metadata["accessible_volume_angstrom3"]),
+            atol=1e-8,
+        ):
+            raise AssertionError(
+                f"README multi-region volume {accessible_volume} does not match the exact reference."
+            )
+        page.click("#add-atoms-placement-homogeneous")
+        page.select_option("#add-atoms-coordinate-basis", "cartesian")
+        page.fill("#add-atoms-seed", str(metadata["seed"]))
+        page.locator("#add-molecules-random-orientation").set_checked(True)
+        page.locator("#add-molecules-rigid").set_checked(True)
+        page.locator("#add-atoms-select-added").set_checked(True)
+        page.select_option("#add-atoms-cutoff-basis", "pairwise")
+        page.wait_for_function(
+            "document.querySelectorAll('#add-atoms-pair-table .add-atoms-pair-row').length >= 6"
+        )
+        page.evaluate("""cutoffs => {
+            document.querySelectorAll('#add-atoms-pair-table .add-atoms-pair-row').forEach(row => {
+                if (!(row.dataset.pair in cutoffs)) return;
+                const input = row.querySelector('input');
+                input.value = String(cutoffs[row.dataset.pair]);
+                input.dispatchEvent(new Event('change', {bubbles: true}));
+            });
+        }""", {
+            "C-C": 0.0,
+            "C-H": 1.45,
+            "C-O": 2.05,
+            "H-H": 1.05,
+            "H-O": 0.0,
+            "O-O": 2.20,
+        })
+        page.fill("#add-atoms-strength", "2.5")
+        page.fill("#add-atoms-fmax", "0.01")
+        page.fill("#add-atoms-steps", "160")
+
+        append_hold(frames, page, 7)
+        page.click("#btn-add-atoms-scatter")
+        page.wait_for_function(
+            "count => window.__V_ASE_APP__.addAtomsUI?.active?.molecule_count === count",
+            arg=metadata["expected_molecule_count"],
+        )
+        page.wait_for_function(
+            "count => window.__V_ASE_APP__.state.selected.size === count",
+            arg=metadata["expected_molecule_count"] * 3,
+        )
+        summary = page.evaluate("window.__V_ASE_APP__.addAtomsUI.active")
+        if [region["role"] for region in summary["regions"]] != ["allow", "allow", "reject"]:
+            raise AssertionError("README Add Molecules did not preserve the multi-region Boolean domain.")
+        if not np.isclose(
+            float(summary["domain"]["volume_angstrom3"]),
+            float(metadata["accessible_volume_angstrom3"]),
+            atol=1e-8,
+        ):
+            raise AssertionError("README Add Molecules session changed the exact accessible volume.")
+        set_display(page, {
+            "labelRadii": {"O_water": 0.72, "H_water": 0.57},
+            "labelColors": {"O_water": "#d9433f", "H_water": "#f4f5f6"},
+            "labelMaterials": {"O_water": "standard", "H_water": "standard"},
+            "pairwiseBondRanges": {"H_water-O_water": {"enabled": True, "max": 1.15}},
+            "pairwiseBondCutoffs": {"H_water-O_water": 1.15},
+        })
+        scattered = np.asarray(page.evaluate("window.__V_ASE_APP__.state.atoms.positions"))
+        np.testing.assert_array_equal(scattered[: len(host)], host.positions)
+        append_hold(frames, page, 8)
+
+        page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            window.__VASE_ADD_MOLECULES_TRACE__ = [];
+            const original = app.renderer.updatePositions.bind(app.renderer);
+            app.renderer.updatePositions = positions => {
+                if (app.addAtomsUI?.active?.is_relaxing && Array.isArray(positions)) {
+                    window.__VASE_ADD_MOLECULES_TRACE__.push(positions.map(position => [...position]));
+                }
+                return original(positions);
+            };
+        }""")
+        page.click("#btn-add-atoms-relax")
+        page.wait_for_function("window.__V_ASE_APP__.addAtomsUI?.active?.is_relaxing === true")
+        page.wait_for_function(
+            "window.__V_ASE_APP__.addAtomsUI?.active?.is_relaxing === false",
+            timeout=20_000,
+        )
+        trace = page.evaluate("window.__VASE_ADD_MOLECULES_TRACE__")
+        if len(trace) < 3:
+            raise AssertionError("README Add Molecules optimizer produced too few visible states.")
+        sample_indices = np.unique(np.linspace(0, len(trace) - 1, min(42, len(trace)), dtype=int))
+        for output_index, trace_index in enumerate(sample_indices, start=1):
+            update_positions(page, trace[int(trace_index)])
+            page.evaluate(
+                """([step, total]) => window.__V_ASE_APP__.setAddAtomsStatus(
+                    'running', `Rigid water placement · ${step}/${total}`
+                )""",
+                [output_index, len(sample_indices)],
+            )
+            frames.append(screenshot_frame(page))
+        relaxed = np.asarray(trace[-1], dtype=float)
+        np.testing.assert_array_equal(relaxed[: len(host)], host.positions)
+        reference = molecule("H2O").positions
+        reference_distances = np.linalg.norm(reference[:, None] - reference[None, :], axis=2)
+        for start in range(len(host), len(relaxed), 3):
+            current = relaxed[start:start + 3]
+            current_distances = np.linalg.norm(current[:, None] - current[None, :], axis=2)
+            np.testing.assert_allclose(current_distances, reference_distances, atol=2e-7)
+        append_hold(frames, page, 8)
+        final_frame = frames[-1].copy()
+        page.click("#btn-add-atoms-finish")
+        page.wait_for_function("window.__V_ASE_APP__.state.atoms.metadata.atom_addition === null")
+        append_hold(frames, page, 9)
+        save_gif(frames, ASSET_DIR / "readme_add_molecules.gif", duration=110)
+        final_frame.save(
+            ASSET_DIR / "readme_add_molecules.png",
+            optimize=True,
+            compress_level=9,
+        )
+    finally:
+        page.close()
+        editor.close()
 
 
 def capture_measurement_media(browser) -> None:

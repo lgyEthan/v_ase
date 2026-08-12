@@ -57,20 +57,34 @@ test edit and a new filename for output.
   Reset returns the visual translation to zero.
 - Trajectory interpolation requires stable atom count, ordering, elements, and
   labels.
-- Batch Add Atoms requires a single structure. Random scattering is staged and
-  reversible until `finish-add-atoms`; never force it into one trajectory
-  frame. `freezeExisting` is a temporary optimizer constraint only. Its host
-  indices may appear in `describe().constraints.fixed_indices` as a semantic
-  constraint summary for the overlay, while the ASE constraints remain
-  unchanged. Verify host coordinates, original constraints, and arrays after
-  finish or cancel.
-- Triclinic cell scattering is uniform in fractional coordinates. A Cartesian
-  box samples its intersection with one half-open primary periodic cell; do
-  not sample every overlapping periodic image or claim a regular distribution.
-  `regionRole` controls initial allowed versus prohibited space.
-  `allowEscape:true` is the default and removes that boundary during repulsive
-  placement; do not describe the initial box as a permanent confinement unless
-  `allowEscape:false` is explicitly set.
+- Batch atom and molecule insertion requires a single structure. Placement is
+  staged and reversible until `finish-add-atoms`; never force it into one
+  trajectory frame. `freezeExisting` is a temporary optimizer constraint only.
+  Its host indices may appear in `describe().constraints.fixed_indices` while
+  the ASE constraints remain unchanged. Verify host coordinates, original
+  constraints, calculator, labels, and arrays after finish or cancel.
+- Random triclinic-cell scattering is physical-volume uniform because uniform
+  fractional samples pass through one affine cell map. Homogeneous Cartesian
+  placement instead maximizes physical nearest-center spacing; homogeneous
+  fractional placement balances normalized cell coordinates. Multiple
+  Cartesian Allow regions form a union and Reject regions are subtracted from
+  it inside the exact cell polyhedron. Never estimate accessible volume with a
+  voxel grid, sum overlapping box volumes, or apply orthogonal wrap logic to a
+  triclinic cell. Reject-only input is valid only when a finite cell provides
+  the bounded base domain. `allowEscape:true` is the default and removes the
+  combined boundary during repulsive placement; do not describe the initial
+  domain as permanent confinement unless `allowEscape:false` is explicit.
+- Read the installed molecule catalog before `scatter-molecules`. Molecules use
+  the native ASE template origin for region anchors and rotation. With
+  `rigidMolecules:true`, verify every internal pair distance after interactive
+  edits and placement. Reject partial transforms rather than silently
+  distorting one rigid molecule. Internal distortion is valid only when the
+  user explicitly requests `rigidMolecules:false`.
+- In molecule density mode, Count values are composition ratios. Reduce their
+  greatest common divisor before selecting a multiplier. Require a positive
+  target in g/cm^3, exact accessible volume, and at least one complete primitive
+  composition batch. Report target and realizable density separately; never
+  promise an exact target that requires fractional molecules.
 - Rigid planar translation is not an atomic relaxation. It may change only one
   common selected-component vector in a periodic `(hkl)` plane. Verify the
   host, cell, and selected internal geometry exactly. Selected z is invariant
@@ -106,13 +120,17 @@ test edit and a new filename for output.
 | `requires Edit mode` | A physical operation was attempted in View | Send `apply` with `{"mode":"edit"}`, describe, retry |
 | HTTP 409, no live browser | `human_url` is not open or viewport is still loading | Open `human_url`, wait for atoms/empty workspace, retry |
 | index outside range | Topology/frame changed or stale index | Describe again and remap by label/position |
-| Random atom insertion requires a single structure | A trajectory is active | Open the intended frame as a standalone structure in a new document and retry |
-| Scatter atoms before starting repulsive placement | No active Add Atoms session | Run `scatter-atoms`, verify `describe().addAtoms`, then retry |
+| Batch atom and molecule insertion requires a single structure | A trajectory is active | Open the intended frame as a standalone structure in a new document and retry |
+| Start an Add Atoms or Add Molecules session before repulsive placement | No active insertion session | Run `scatter-atoms` or `scatter-molecules`, verify `describe().addAtoms`, then retry |
 | Repulsive placement is already running | A second optimizer start overlapped the first | Poll events/state; stop or wait before retrying |
 | Stop or wait for repulsive placement before finishing | Finish was requested while the background optimizer still owns staged coordinates | Run `stop-added-atoms` or wait, verify inactive state, then finish |
-| Cartesian insertion box has too little overlap | The requested AABB barely intersects the primary triclinic cell | Enlarge or move the box; never fill it from duplicate periodic images |
-| whole unit cell cannot be prohibited | `regionMode:"cell"` was combined with `regionRole:"prohibited"` | Use a Cartesian box for the excluded volume or keep the full cell allowed |
-| insertion box cannot be rotated | `R` was requested for a Cartesian min/max region | Translate it with `G` or edit its six bounds; do not invent rotated AABB semantics |
+| Allow and Reject regions leave no accessible insertion volume | The exact Boolean domain is empty | Enlarge/add an Allow region or move/remove a Reject region; do not bypass exact membership |
+| structure without a finite unit cell requires at least one Allow region | Reject regions alone have no finite base domain | Add an explicit finite Allow region or define a valid cell |
+| Atom/Molecule count must be an integer | A fractional, string, or Boolean count was supplied | Send a positive JSON integer; do not coerce or truncate the value |
+| insertion regions cannot be rotated | `R` was requested for one or more Cartesian min/max regions | Translate the selected group with `G` or edit its bounds; do not invent rotated AABB semantics |
+| target density corresponds to fewer than one composition batch | Exact volume and target mass cannot contain the requested integer ratio once | Increase density/volume or reduce the composition batch; never create fractional molecules |
+| ASE molecule is unavailable | The requested name is absent from the installed G2 catalog | Read `capabilities().addAtoms.moleculeCatalog`, select an exact name, then retry |
+| Preserve molecular geometry is active | An interactive edit changed only part of a rigid molecule | Select and transform each complete molecule, or obtain approval to restart with `rigidMolecules:false` |
 | atom labels must match atom count | Inconsistent topology metadata | Reload/describe; do not invent missing identities |
 | wrap requires a cell | Cell is undefined | Stop and ask for a valid cell |
 | supercell rejected | Invalid repetition or integer matrix | Validate bounds and determinant |

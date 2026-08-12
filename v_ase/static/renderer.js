@@ -3003,117 +3003,268 @@ export class ASERenderer {
         this.requestRender();
     }
 
-    setAddAtomsRegion(region = null) {
+    insertionRegionBasis(cell) {
+        if (!Array.isArray(cell) || cell.length !== 3) return null;
+        const basis = cell.map(row => new THREE.Vector3(...row.map(Number)));
+        if (basis.some(vector => !Number.isFinite(vector.lengthSq()))) return null;
+        const determinant = basis[0].dot(new THREE.Vector3().crossVectors(basis[1], basis[2]));
+        if (Math.abs(determinant) <= 1e-10) return null;
+        return {
+            basis,
+            reciprocal: [
+                new THREE.Vector3().crossVectors(basis[1], basis[2]).divideScalar(determinant),
+                new THREE.Vector3().crossVectors(basis[2], basis[0]).divideScalar(determinant),
+                new THREE.Vector3().crossVectors(basis[0], basis[1]).divideScalar(determinant)
+            ]
+        };
+    }
+
+    insertionRegionBoundsCorners(bounds) {
+        const [xmin, xmax, ymin, ymax, zmin, zmax] = bounds.map(Number);
+        return [
+            [xmin, ymin, zmin], [xmax, ymin, zmin],
+            [xmin, ymax, zmin], [xmin, ymin, zmax],
+            [xmax, ymax, zmin], [xmax, ymin, zmax],
+            [xmin, ymax, zmax], [xmax, ymax, zmax]
+        ].map(value => new THREE.Vector3(...value));
+    }
+
+    insertionRegionImages(region, cellData, pbc, pbcAware) {
+        const bounds = region.bounds.map(Number);
+        if (!cellData || !pbcAware || !pbc.some(Boolean)) {
+            return [{ bounds, shift: [0, 0, 0] }];
+        }
+        const fractional = this.insertionRegionBoundsCorners(bounds).map(point => (
+            cellData.reciprocal.map(vector => point.dot(vector))
+        ));
+        const ranges = [0, 1, 2].map(axis => {
+            if (!pbc[axis]) return [0];
+            const values = fractional.map(value => value[axis]);
+            const lower = Math.ceil(-Math.max(...values) - 1e-9);
+            const upper = Math.floor(1 - Math.min(...values) + 1e-9);
+            return Array.from({ length: Math.max(0, upper - lower + 1) }, (_, index) => lower + index);
+        });
+        const images = [];
+        for (const i of ranges[0]) {
+            for (const j of ranges[1]) {
+                for (const k of ranges[2]) {
+                    const translation = new THREE.Vector3()
+                        .addScaledVector(cellData.basis[0], i)
+                        .addScaledVector(cellData.basis[1], j)
+                        .addScaledVector(cellData.basis[2], k);
+                    images.push({
+                        shift: [i, j, k],
+                        bounds: [
+                            bounds[0] + translation.x, bounds[1] + translation.x,
+                            bounds[2] + translation.y, bounds[3] + translation.y,
+                            bounds[4] + translation.z, bounds[5] + translation.z
+                        ]
+                    });
+                    if (images.length > 4096) {
+                        throw new Error('Insertion region produces too many periodic images.');
+                    }
+                }
+            }
+        }
+        return images;
+    }
+
+    solveInsertionPlanes(first, second, third) {
+        const cross23 = new THREE.Vector3().crossVectors(second.normal, third.normal);
+        const determinant = first.normal.dot(cross23);
+        if (Math.abs(determinant) <= 1e-11) return null;
+        return cross23.multiplyScalar(first.limit)
+            .add(new THREE.Vector3().crossVectors(third.normal, first.normal).multiplyScalar(second.limit))
+            .add(new THREE.Vector3().crossVectors(first.normal, second.normal).multiplyScalar(third.limit))
+            .divideScalar(determinant);
+    }
+
+    clippedInsertionRegionGeometry(bounds, cellData = null) {
+        const [xmin, xmax, ymin, ymax, zmin, zmax] = bounds.map(Number);
+        if (![xmin, xmax, ymin, ymax, zmin, zmax].every(Number.isFinite)) return null;
+        if (xmax <= xmin || ymax <= ymin || zmax <= zmin) return null;
+        const planes = [
+            { normal: new THREE.Vector3(1, 0, 0), limit: xmax },
+            { normal: new THREE.Vector3(-1, 0, 0), limit: -xmin },
+            { normal: new THREE.Vector3(0, 1, 0), limit: ymax },
+            { normal: new THREE.Vector3(0, -1, 0), limit: -ymin },
+            { normal: new THREE.Vector3(0, 0, 1), limit: zmax },
+            { normal: new THREE.Vector3(0, 0, -1), limit: -zmin }
+        ];
+        if (cellData) {
+            cellData.reciprocal.forEach(normal => {
+                planes.push({ normal: normal.clone(), limit: 1 });
+                planes.push({ normal: normal.clone().multiplyScalar(-1), limit: 0 });
+            });
+        }
+        const vertices = [];
+        const vertexKeys = new Set();
+        for (let first = 0; first < planes.length - 2; first++) {
+            for (let second = first + 1; second < planes.length - 1; second++) {
+                for (let third = second + 1; third < planes.length; third++) {
+                    const point = this.solveInsertionPlanes(planes[first], planes[second], planes[third]);
+                    if (!point || planes.some(plane => plane.normal.dot(point) > plane.limit + 2e-7)) continue;
+                    const key = [point.x, point.y, point.z]
+                        .map(value => Math.round(value * 1e8))
+                        .join(':');
+                    if (vertexKeys.has(key)) continue;
+                    vertexKeys.add(key);
+                    vertices.push(point);
+                }
+            }
+        }
+        if (vertices.length < 4) return null;
+
+        const triangles = [];
+        const edgeKeys = new Set();
+        const segments = [];
+        planes.forEach(plane => {
+            const face = vertices
+                .map((point, index) => ({ point, index }))
+                .filter(item => Math.abs(plane.normal.dot(item.point) - plane.limit) <= 5e-7);
+            if (face.length < 3) return;
+            const center = face.reduce(
+                (sum, item) => sum.add(item.point),
+                new THREE.Vector3()
+            ).divideScalar(face.length);
+            const normal = plane.normal.clone().normalize();
+            const reference = Math.abs(normal.x) < 0.8
+                ? new THREE.Vector3(1, 0, 0)
+                : new THREE.Vector3(0, 1, 0);
+            const firstAxis = new THREE.Vector3().crossVectors(normal, reference).normalize();
+            const secondAxis = new THREE.Vector3().crossVectors(normal, firstAxis).normalize();
+            face.sort((left, right) => {
+                const leftDelta = left.point.clone().sub(center);
+                const rightDelta = right.point.clone().sub(center);
+                return Math.atan2(leftDelta.dot(secondAxis), leftDelta.dot(firstAxis))
+                    - Math.atan2(rightDelta.dot(secondAxis), rightDelta.dot(firstAxis));
+            });
+            for (let offset = 1; offset < face.length - 1; offset++) {
+                triangles.push(face[0].index, face[offset].index, face[offset + 1].index);
+            }
+            face.forEach((item, index) => {
+                const next = face[(index + 1) % face.length];
+                const key = [item.index, next.index].sort((a, b) => a - b).join(':');
+                if (edgeKeys.has(key)) return;
+                edgeKeys.add(key);
+                segments.push([item.point, next.point]);
+            });
+        });
+        if (!triangles.length) return null;
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute(
+            'position',
+            new THREE.Float32BufferAttribute(vertices.flatMap(vertex => vertex.toArray()), 3)
+        );
+        geometry.setIndex(triangles);
+        geometry.computeVertexNormals();
+        return { geometry, segments };
+    }
+
+    setAddAtomsRegions(configuration = null) {
         if (!this.addAtomsRegionGroup) return;
         this.clearGroup(this.addAtomsRegionGroup);
-        if (!region || region.visible === false) {
+        const regions = Array.isArray(configuration?.regions) ? configuration.regions : [];
+        if (!configuration || configuration.visible === false || !regions.length) {
             this.addAtomsRegionGroup.visible = false;
             this.requestRender();
             return;
         }
-
-        let corners;
-        if (region.mode === 'box') {
+        const selected = new Set((configuration.selectedIds || []).map(String));
+        const cell = configuration.cell || this.atomsData?.cell;
+        const cellData = this.insertionRegionBasis(cell);
+        const pbc = Array.isArray(configuration.pbc)
+            ? configuration.pbc.map(Boolean)
+            : (this.atomsData?.pbc || [false, false, false]).map(Boolean);
+        const pickables = [];
+        regions.forEach(region => {
+            const regionId = String(region.id || '');
             const bounds = Array.isArray(region.bounds) ? region.bounds.map(Number) : [];
-            if (bounds.length !== 6 || bounds.some(value => !Number.isFinite(value))) {
-                this.addAtomsRegionGroup.visible = false;
-                return;
-            }
-            const [xmin, xmax, ymin, ymax, zmin, zmax] = bounds;
-            corners = [
-                [xmin, ymin, zmin], [xmax, ymin, zmin],
-                [xmin, ymax, zmin], [xmin, ymin, zmax],
-                [xmax, ymax, zmin], [xmax, ymin, zmax],
-                [xmin, ymax, zmax], [xmax, ymax, zmax]
-            ].map(value => new THREE.Vector3(...value));
-        } else {
-            const cell = Array.isArray(region.cell) ? region.cell : this.atomsData?.cell;
-            if (!Array.isArray(cell) || cell.length !== 3) {
-                this.addAtomsRegionGroup.visible = false;
-                return;
-            }
-            const a = new THREE.Vector3(...cell[0]);
-            const b = new THREE.Vector3(...cell[1]);
-            const c = new THREE.Vector3(...cell[2]);
-            const origin = new THREE.Vector3();
-            corners = [
-                origin,
-                a,
-                b,
-                c,
-                a.clone().add(b),
-                a.clone().add(c),
-                b.clone().add(c),
-                a.clone().add(b).add(c)
-            ];
-        }
-
-        const pairs = [[0,1],[0,2],[0,3],[1,4],[1,5],[2,4],[2,6],[3,5],[3,6],[4,7],[5,7],[6,7]];
-        const edgeMaterial = new THREE.MeshBasicMaterial({
-            color: region.role === 'prohibited' ? 0xd85b5b : 0x24a88f,
-            transparent: true,
-            opacity: 0.98,
-            depthTest: true,
-            depthWrite: false
+            if (!regionId || bounds.length !== 6 || bounds.some(value => !Number.isFinite(value))) return;
+            const rejected = region.role === 'reject' || region.role === 'prohibited';
+            const isSelected = selected.has(regionId);
+            const color = rejected ? 0xd1495b : 0x008f7a;
+            const images = this.insertionRegionImages(
+                { ...region, bounds },
+                cellData,
+                pbc,
+                configuration.pbcAware !== false
+            );
+            images.forEach(image => {
+                const clipped = this.clippedInsertionRegionGeometry(image.bounds, cellData);
+                if (!clipped) return;
+                const edgeMaterial = new THREE.MeshBasicMaterial({
+                    color,
+                    transparent: true,
+                    opacity: isSelected ? 1 : 0.9,
+                    depthTest: true,
+                    depthWrite: false
+                });
+                if (isSelected) edgeMaterial.color.offsetHSL(0, 0, 0.12);
+                const edgeMesh = this.addCellEdgeInstances(
+                    this.addAtomsRegionGroup,
+                    clipped.segments,
+                    { addAtomsRegion: true, regionId },
+                    { material: edgeMaterial, radius: isSelected ? 0.048 : 0.034 }
+                );
+                if (edgeMesh) edgeMesh.renderOrder = 14;
+                const fill = new THREE.Mesh(
+                    clipped.geometry,
+                    new THREE.MeshBasicMaterial({
+                        color,
+                        transparent: true,
+                        opacity: isSelected ? 0.12 : (rejected ? 0.07 : 0.05),
+                        side: THREE.DoubleSide,
+                        depthTest: true,
+                        depthWrite: false
+                    })
+                );
+                fill.renderOrder = 13;
+                fill.userData = {
+                    addAtomsRegion: true,
+                    regionId,
+                    role: rejected ? 'reject' : 'allow',
+                    shift: image.shift
+                };
+                this.addAtomsRegionGroup.add(fill);
+                pickables.push(fill);
+            });
         });
-        const edgeMesh = this.addCellEdgeInstances(
-            this.addAtomsRegionGroup,
-            pairs.map(([first, second]) => [corners[first], corners[second]]),
-            { addAtomsRegion: true },
-            { material: edgeMaterial, radius: 0.035 }
-        );
-        if (edgeMesh) edgeMesh.renderOrder = 14;
-
-        const triangles = [
-            0, 2, 1, 1, 2, 4,
-            0, 1, 3, 1, 5, 3,
-            0, 3, 2, 2, 3, 6,
-            7, 5, 4, 4, 5, 1,
-            7, 4, 6, 6, 4, 2,
-            7, 6, 5, 5, 6, 3
-        ];
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute(
-            'position',
-            new THREE.Float32BufferAttribute(corners.flatMap(corner => corner.toArray()), 3)
-        );
-        geometry.setIndex(triangles);
-        geometry.computeVertexNormals();
-        const fill = new THREE.Mesh(
-            geometry,
-            new THREE.MeshBasicMaterial({
-                color: 0x24a88f,
-                transparent: true,
-                opacity: 0.055,
-                side: THREE.DoubleSide,
-                depthTest: true,
-                depthWrite: false
-            })
-        );
-        fill.renderOrder = 13;
-        fill.userData = { addAtomsRegion: true };
-        this.addAtomsRegionGroup.add(fill);
         this.addAtomsRegionGroup.userData = {
-            mode: region.mode === 'box' ? 'box' : 'cell',
-            role: region.role === 'prohibited' ? 'prohibited' : 'allowed',
-            pickables: region.mode === 'box' ? [fill] : [],
-            selected: Boolean(region.selected)
+            pickables,
+            selectedIds: [...selected],
+            regionCount: regions.length
         };
-        if (region.role === 'prohibited') fill.material.color.set(0xd85b5b);
-        if (region.selected) {
-            edgeMaterial.color.offsetHSL(0, 0, 0.12);
-            fill.material.opacity = 0.11;
-        }
-        this.addAtomsRegionGroup.visible = true;
+        this.addAtomsRegionGroup.visible = pickables.length > 0;
         this.addAtomsRegionGroup.position.copy(this.visualTranslationVector());
         this.requestRender();
+    }
+
+    setAddAtomsRegion(region = null) {
+        if (!region || region.mode !== 'box') {
+            this.setAddAtomsRegions(null);
+            return;
+        }
+        this.setAddAtomsRegions({
+            regions: [{
+                id: 'legacy-region',
+                name: 'Region',
+                role: region.role === 'prohibited' ? 'reject' : 'allow',
+                bounds: region.bounds
+            }],
+            cell: region.cell,
+            pbc: this.atomsData?.pbc,
+            pbcAware: true,
+            selectedIds: region.selected ? ['legacy-region'] : []
+        });
     }
 
     pickAddAtomsRegion(event) {
         const pickables = this.addAtomsRegionGroup?.userData?.pickables || [];
         if (!event || !this.addAtomsRegionGroup?.visible || !pickables.length) return false;
         this.sunRaycaster.setFromCamera(this.sunPointerNdc(event), this.camera);
-        return Boolean(this.sunRaycaster.intersectObjects(pickables, false)[0]);
+        const intersection = this.sunRaycaster.intersectObjects(pickables, false)[0];
+        return intersection?.object?.userData?.regionId || false;
     }
 
     normalizedCellColor() {

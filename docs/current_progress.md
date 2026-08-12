@@ -33,9 +33,12 @@ and documentation use `view()`.
   back to the ASE 3.23/3.24 public POSCAR reader; importing this module must
   never make ordinary structure loading depend on a newer ASE-internal name.
 - `v_ase/analysis.py`: triclinic-safe total/partial RDF and CSV.
-- `v_ase/add_atoms.py`: deterministic multi-species insertion regions,
-  triclinic/Cartesian sampling, temporary-host pairwise repulsion, and exact
-  Finish/Cancel reconstruction.
+- `v_ase/insertion_regions.py`: stable Allow/Reject regions, exact Boolean
+  box/cell volume, triclinic periodic images, membership, sampling, and
+  optional confinement projection.
+- `v_ase/add_atoms.py`: deterministic multi-species atom/molecule insertion,
+  exact-volume density resolution, triclinic/Cartesian sampling,
+  temporary-host pairwise repulsion, and exact Finish/Cancel reconstruction.
 - `v_ase/commensurate.py`: bounded 2D coincidence-cell search, scientific
   notation, common-cell geometry, and one-primitive-cell boundary shells.
 - `v_ase/session.py`: document state, history, calculator-preserving copies,
@@ -68,8 +71,13 @@ and documentation use `view()`.
    Add Atoms additionally keeps an immutable pre-session baseline; temporary
    host `FixAtoms` exists only on its detached optimization copy and never
    mutates document constraints, arrays, labels, calculators, or host
-   coordinates. Cartesian insertion boxes may be allowed or prohibited,
-   default to post-scatter escape, translate with `G`, and reject `R`.
+   coordinates. Multiple Cartesian Allow and Reject regions form one exact
+   Boolean insertion domain, default to post-scatter escape, translate singly
+   or as a multi-selection with `G`, wrap by triclinic lattice vectors under
+   MIC, and reject `R`. Optional confinement uses the shortest triclinic MIC
+   displacement to the same visible domain. Molecule density uses that exact
+   analytic volume, reduces Count ratios to their primitive integer ratio, and
+   reports the nearest realizable integer composition.
 3. ASE is authoritative for constrained commits:
    `Atoms.set_positions(..., apply_constraint=True)`.
 4. Browser previews may be immediate, but committed coordinates return from the
@@ -89,9 +97,9 @@ and documentation use `view()`.
 11. Entering Edit materializes a lazy trajectory into complete ASE frames
     before edits are enabled. The current frame, coordinates, labels,
     constraints, and calculators remain synchronized.
-    Random batch insertion is intentionally rejected while a source contains
-    multiple frames; the user must open the target frame in a separate
-    document so a single-frame structural edit cannot masquerade as a
+    Batch atom or molecule insertion is intentionally rejected while a source
+    contains multiple frames; the user must open the target frame in a separate
+    document so a single-frame topology edit cannot masquerade as a
     trajectory-wide edit.
 12. Settings survive structure refreshes and trajectory changes. Ordinary file
     replacement reconciles the active visual state; `.vase` replacement

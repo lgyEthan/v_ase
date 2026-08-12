@@ -3989,19 +3989,27 @@ body.resizing-pairwise-column * {
 }
 
 .add-atoms-entry-header,
-.add-atoms-entry-row {
+.add-atoms-entry-row,
+.add-atoms-molecule-header,
+.add-molecule-entry-row {
     display: grid;
     grid-template-columns: 74px minmax(112px, 1fr) 70px 28px;
     gap: 6px;
     align-items: center;
 }
 
-.add-atoms-entry-header {
+.add-atoms-entry-header,
+.add-atoms-molecule-header {
     padding: 0 2px 5px;
     color: var(--muted);
     font-size: 0.56rem;
     font-weight: 700;
     text-transform: uppercase;
+}
+
+.add-atoms-molecule-header,
+.add-molecule-entry-row {
+    grid-template-columns: minmax(126px, 1.25fr) minmax(96px, 1fr) 66px 28px;
 }
 
 .add-atoms-entries {
@@ -4011,8 +4019,11 @@ body.resizing-pairwise-column * {
 
 .add-atoms-entry-row select,
 .add-atoms-entry-row input,
+.add-molecule-entry-row select,
+.add-molecule-entry-row input,
 .add-atoms-inline-field input,
-.add-atoms-box-fields input,
+.add-atoms-inline-field select,
+.add-atoms-region-editor input,
 .add-atoms-cutoff-row input,
 .add-atoms-cutoff-row select,
 .add-atoms-relax-grid input,
@@ -4039,6 +4050,16 @@ body.resizing-pairwise-column * {
     font-size: 1rem;
 }
 
+.add-molecule-entry-row .remove-add-molecule-entry {
+    width: 28px;
+    height: 28px;
+    min-height: 28px;
+    padding: 0;
+    border-color: transparent;
+    color: var(--muted);
+    font-size: 1rem;
+}
+
 .add-atoms-region-choice {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -4049,11 +4070,155 @@ body.resizing-pairwise-column * {
     background: var(--surface-subtle);
 }
 
-.add-atoms-box-fields {
+.add-atoms-region-editor {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 7px;
-    margin-top: 8px;
+    margin-top: 7px;
+    padding: 9px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface-subtle);
+}
+
+.add-atoms-region-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.add-atoms-region-actions .icon-text-button {
+    min-height: 25px;
+    padding-inline: 7px;
+}
+
+.danger-quiet {
+    color: var(--red) !important;
+}
+
+.add-atoms-base-domain {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 42px;
+    padding: 7px 9px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface-subtle);
+    color: var(--text-soft);
+}
+
+.add-atoms-base-domain > span:last-child {
+    display: grid;
+    gap: 1px;
+}
+
+.add-atoms-base-domain strong {
+    color: var(--text);
+    font-size: 0.64rem;
+}
+
+.add-atoms-base-domain small {
+    color: var(--muted);
+    font-size: 0.56rem;
+}
+
+.add-atoms-base-icon {
+    width: 18px;
+    height: 18px;
+    border: 1.5px solid var(--gold);
+    background: color-mix(in srgb, var(--gold) 8%, transparent);
+    transform: skewY(-12deg);
+}
+
+.add-atoms-base-domain[data-state="missing"] .add-atoms-base-icon {
+    border-color: var(--red);
+    background: color-mix(in srgb, var(--red) 8%, transparent);
+}
+
+.add-atoms-region-list {
+    display: grid;
+    gap: 4px;
+    margin-top: 7px;
+}
+
+.add-atoms-region-item {
+    display: grid;
+    grid-template-columns: 12px minmax(0, 1fr) auto auto;
+    gap: 7px;
+    align-items: center;
+    min-height: 34px;
+    padding: 5px 7px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text-soft);
+    cursor: pointer;
+}
+
+.add-atoms-region-item:hover {
+    border-color: var(--line-strong);
+    background: var(--surface-hover);
+}
+
+.add-atoms-region-item[aria-selected="true"] {
+    border-color: var(--teal-border);
+    box-shadow: inset 2px 0 0 var(--teal);
+}
+
+.add-atoms-region-swatch {
+    width: 10px;
+    height: 10px;
+    border: 2px solid var(--teal);
+    background: color-mix(in srgb, var(--teal) 20%, transparent);
+}
+
+.add-atoms-region-item[data-role="reject"] .add-atoms-region-swatch {
+    border-color: var(--red);
+    background: color-mix(in srgb, var(--red) 20%, transparent);
+}
+
+.add-atoms-region-item-name {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text);
+    font-size: 0.62rem;
+    font-weight: 680;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.add-atoms-region-item-role,
+.add-atoms-region-item-index {
+    color: var(--muted);
+    font-size: 0.52rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.add-atoms-region-empty {
+    margin-top: 7px;
+    padding: 8px;
+    border: 1px dashed var(--line-strong);
+    border-radius: var(--radius);
+    color: var(--muted);
+    font-size: 0.57rem;
+    line-height: 1.45;
+}
+
+.add-atoms-region-editor-head {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 28px;
+    gap: 6px;
+}
+
+.add-atoms-region-editor-head .icon-button {
+    width: 28px;
+    height: 30px;
+    min-height: 30px;
+    padding: 0;
+    border-color: var(--line-strong);
+    font-size: 0.92rem;
 }
 
 .add-atoms-box-role-label,
@@ -4085,7 +4250,7 @@ body.resizing-pairwise-column * {
     line-height: 1.45;
 }
 
-.add-atoms-box-fields label,
+.add-atoms-region-editor label,
 .add-atoms-cutoff-row label,
 .add-atoms-relax-grid label {
     display: grid;
@@ -4093,6 +4258,87 @@ body.resizing-pairwise-column * {
     color: var(--muted);
     font-size: 0.57rem;
     font-weight: 650;
+}
+
+.add-atoms-domain-volume {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: 0.58rem;
+}
+
+.add-atoms-domain-volume strong {
+    color: var(--text);
+    font-size: 0.65rem;
+}
+
+.add-atoms-domain-message {
+    min-height: 1.25em;
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 0.54rem;
+    line-height: 1.4;
+}
+
+.add-atoms-domain-message[data-state="error"] {
+    color: var(--red);
+}
+
+.add-molecules-density-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 7px;
+    margin: 7px 0;
+}
+
+.add-molecules-density-row > label,
+.add-molecules-realized-density {
+    display: grid;
+    gap: 4px;
+    color: var(--muted);
+    font-size: 0.57rem;
+    font-weight: 650;
+}
+
+.unit-input {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    height: 30px;
+    padding-right: 7px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--field);
+}
+
+.unit-input input {
+    width: 100%;
+    height: 28px;
+    padding: 4px 7px;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+}
+
+.unit-input > span {
+    color: var(--muted);
+    font-size: 0.54rem;
+}
+
+.add-molecules-realized-density strong {
+    display: flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 4px 8px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface-subtle);
+    color: var(--text);
+    font-size: 0.64rem;
 }
 
 .add-atoms-inline-field,
@@ -4110,6 +4356,10 @@ body.resizing-pairwise-column * {
     width: 112px;
 }
 
+.add-atoms-inline-field select {
+    width: min(224px, 62%);
+}
+
 .add-atoms-check-row {
     justify-content: flex-start;
     cursor: pointer;
@@ -4120,6 +4370,25 @@ body.resizing-pairwise-column * {
     height: 15px;
     margin: 0;
     accent-color: var(--teal);
+}
+
+.add-atoms-selection-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    margin-top: 8px;
+}
+
+.add-atoms-selection-row .add-atoms-check-row {
+    margin-top: 0;
+}
+
+.add-atoms-selection-row button {
+    min-height: 28px;
+    padding: 3px 9px;
+    border-color: var(--line-strong);
+    background: var(--surface-subtle);
 }
 
 .add-atoms-cutoff-row {
@@ -5390,7 +5659,16 @@ body.resizing-pairwise-column * {
     }
 
     .create-atom-widget {
-        bottom: calc(48vh + 76px);
+        top: calc(var(--header-height) + 8px);
+        bottom: auto;
+        left: 8px;
+        width: min(440px, calc(100vw - 16px));
+        max-height: calc(100vh - var(--header-height) - 16px);
+    }
+
+    .create-atom-card,
+    .add-atoms-batch {
+        max-height: calc(100vh - var(--header-height) - 16px);
     }
 
     #command-bar {
@@ -5424,6 +5702,19 @@ body.resizing-pairwise-column * {
 }
 
 @media (max-width: 520px) {
+    .add-atoms-session-actions {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+    }
+
+    .add-atoms-session-actions button:nth-child(1),
+    .add-atoms-session-actions button:nth-child(2) {
+        grid-column: span 3;
+    }
+
+    .add-atoms-session-actions button:nth-child(n + 3) {
+        grid-column: span 2;
+    }
+
     .view-toolbar {
         position: absolute;
         top: calc(var(--header-height) + 8px);
