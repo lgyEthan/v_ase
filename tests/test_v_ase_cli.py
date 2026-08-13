@@ -376,7 +376,7 @@ def test_v_ase_gui_without_file_launches_an_empty_visualization_session(monkeypa
     assert run_gui(args) == 0
     assert len(captured["frames"]) == 1
     assert len(captured["frames"][0]) == 0
-    assert captured["kwargs"]["viz_only"] is True
+    assert captured["kwargs"]["viz_only"] is False
     assert captured["kwargs"]["open_browser"] is True
 
 

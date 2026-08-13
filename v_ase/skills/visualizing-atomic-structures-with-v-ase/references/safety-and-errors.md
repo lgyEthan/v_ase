@@ -57,9 +57,11 @@ test edit and a new filename for output.
   Reset returns the visual translation to zero.
 - Trajectory interpolation requires stable atom count, ordering, elements, and
   labels.
-- Batch atom and molecule insertion requires a single structure. Placement is
-  staged and reversible until `finish-add-atoms`; never force it into one
-  trajectory frame. `freezeExisting` is a temporary optimizer constraint only.
+- Batch atom and molecule insertion requires a single Edit document, which may
+  be an empty scratch document. Define a finite cell or at least one bounded
+  Allow region before insertion. Placement is staged and reversible until
+  `finish-add-atoms`; never force it into one trajectory frame.
+  `freezeExisting` is a temporary optimizer constraint only.
   Its host indices may appear in `describe().constraints.fixed_indices` while
   the ASE constraints remain unchanged. Verify host coordinates, original
   constraints, calculator, labels, and arrays after finish or cancel.
@@ -74,6 +76,13 @@ test edit and a new filename for output.
   the bounded base domain. `allowEscape:true` is the default and removes the
   combined boundary during repulsive placement; do not describe the initial
   domain as permanent confinement unless `allowEscape:false` is explicit.
+- Regular placement uses one global Cartesian lattice. An explicit
+  `regularSpacing` is never silently reduced; fail when it cannot provide the
+  requested count. Homogeneous placement is a maximin/low-discrepancy point
+  set and must not be described as a regular lattice.
+- `scale-selection` and GUI `S` change physical atom coordinates only. Verify
+  atom and bond radii plus the cell are unchanged. `scale-add-atoms-regions`
+  changes selected Cartesian bounds only and must not move staged atoms.
 - Read the installed molecule catalog before `scatter-molecules`. Molecules use
   the native ASE template origin for region anchors and rotation. With
   `rigidMolecules:true`, verify every internal pair distance after interactive
@@ -105,8 +114,10 @@ test edit and a new filename for output.
 - Bulk RDF requires full 3D PBC and a finite non-degenerate cell. A cutoff
   beyond the unique-MIC radius is valid because v_ase enumerates every
   periodic image inside the requested sphere. Do not replace that search with
-  a fixed `2 x 2 x 2` supercell or present an uncorrected finite/partial-PBC
-  histogram as bulk `g(r)`.
+  a fixed `2 x 2 x 2` supercell. With no PBC, v_ase reports an unordered-pair
+  probability density named Pair-distribution function; never relabel it as
+  bulk `g(r)`. Partial PBC remains unsupported without an explicit boundary
+  correction.
 - Partial RDF curves follow the concentration-weighted relation. Reconstruct the
   total with `c_a^2 g_aa`, `2 c_a c_b g_ab`, and `c_b^2 g_bb`; do not sum the
   unweighted curves directly.
@@ -164,7 +175,7 @@ test edit and a new filename for output.
 | volumetric plane manual range is invalid | `autoRange:false` with non-finite values or `vmin >= vmax` | Inspect the sampled finite range and provide a strictly increasing pair |
 | volumetric plane ID is unknown | A stale ID was reused after deletion/project replacement | Re-describe `analysis.volumetricPlanes` and retry the whole atomic edit with current IDs |
 | volumetric plane colormap is unavailable | A map name was guessed or differs across Matplotlib versions | Read the live Matplotlib catalog and use an exact registered name |
-| RDF requires full 3D periodicity | PBC is partial/false or the cell is degenerate | Stop; use a boundary-corrected finite-system method outside v_ase |
+| Pair distribution cannot choose a valid normalization | PBC is partial, or full PBC has a degenerate cell | Stop; use full 3D PBC with a finite cell for bulk RDF, or disable every PBC axis for the finite Pair-distribution function |
 | RDF periodic image span is large | The requested radius reaches several copies of the primitive cell | Confirm the requested cutoff, allow the complete search to finish, and report `periodicImageSpan`; do not silently truncate it |
 | RDF active mode has no pair curves | No pairwise bond labels are enabled | Choose `pairMode:"all"` or provide `activePairs` explicitly |
 | personal-default restore asks for confirmation | The operation deletes the saved OS-user preference | Obtain explicit human approval, then retry `restore-app-visual-defaults` with `confirm:true` |
@@ -210,9 +221,10 @@ isosurface extraction, and high-bin RDF calculations can take time.
   triangles for one generated surface. Do not bypass them without first
   estimating memory use and reducing `stepSize`, grid size, or isovalue
   complexity.
-- For RDF, verify `bins`, requested/effective cutoff, `uniqueMicCutoff`,
-  `periodicImageExtent`, `periodicImageSpan`, warnings, and partial curve names
-  before exporting CSV.
+- For pair-distribution analysis, first verify `analysisKind`, `title`, and
+  `normalization`. For periodic RDF additionally verify `bins`,
+  requested/effective cutoff, `uniqueMicCutoff`, `periodicImageExtent`,
+  `periodicImageSpan`, warnings, and partial curve names before exporting CSV.
 
 ## Verification Failures
 

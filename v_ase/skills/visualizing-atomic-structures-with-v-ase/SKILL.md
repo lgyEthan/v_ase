@@ -5,8 +5,7 @@ description: Controls v_ase to inspect, edit, analyze, style, animate, and expor
 
 # Visualizing Atomic Structures With v_ase
 
-Use semantic structure data and deterministic HTTP JSON commands. Do not infer
-scientific state from screenshots when the `describe` method provides it.
+Use semantic structure data and deterministic HTTP JSON commands. Do not infer scientific state from screenshots when `describe` provides it.
 
 All lengths are Angstrom and all angles are degrees unless stated otherwise.
 
@@ -15,19 +14,19 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.11"
+python -m pip install "v_ase-gui==0.2.12"
 ```
 
 Start the terminal-oriented API session yourself:
 
 ```bash
+v_ase gui --cli
 v_ase gui STRUCTURE --cli
 v_ase gui STRUCTURE --interactive --cli
 ```
 
-Use the combined form when an agent will perform physical atom edits. It opens
-the same live document directly in Edit mode while retaining the structured
-CLI/API bridge for agent control and human GUI inspection.
+The filename-free form opens a scratch document directly in Edit. Use the combined
+file form for physical atom edits while retaining the structured CLI/API bridge and the same human GUI.
 
 This is a persistent server/event-stream process, not a finite command. Start
 it with the agent runtime's long-running process facility. As soon as the
@@ -149,7 +148,7 @@ reference before executing a multi-step workflow:
 | Task | Primary state or operation |
 | --- | --- |
 | Inspect and measure | `describe`, `selection`, ordered `measurement` |
-| Edit a structure | `move-selection`, `rotate-selection`, `add-atom`, `scatter-atoms`, `scatter-molecules`, constraints |
+| Edit a structure | `set-unit-cell`, `move-selection`, `rotate-selection`, `scale-selection`, `add-atom`, `scatter-atoms`, `scatter-molecules`, constraints |
 | Work with periodic interfaces | display replication, cell transforms, commensurate search, rigid `(hkl)` translation |
 | Analyze trajectories | frame selection, displacement, RDF, colorscale, stored force vectors |
 | Analyze scalar fields | volumetric datasets, isosurfaces, planes, field combinations |
@@ -206,11 +205,17 @@ never reuse a force-vector buffer from another frame.
 For a rotation around one atom, pass that atom last in the explicit `indices`
 array and set `pivot: "active"`; verify that its coordinate is unchanged.
 For batch insertion, use `scatter-atoms` or `scatter-molecules` only on a
-single Edit-mode structure. Both start one reversible Add Atoms session.
+single Edit-mode document. The document may start empty: define a periodic
+cell with `set-unit-cell`, or define at least one finite Allow region for a
+nonperiodic scratch model. Both scatter operations start one reversible Add
+Atoms session.
 `placementMode:"random"` is volume-uniform in the full triclinic cell;
 `placementMode:"homogeneous"` spreads centers with either physical Cartesian
 distance in angstrom, the default, or normalized fractional spacing. Set
 `pbcAware:false` only when periodic images must not affect homogeneous spacing.
+`placementMode:"regular"` selects one global Cartesian lattice; set
+`regularSpacing` for exact Angstrom spacing or omit it for deterministic
+automatic spacing. It differs from random and maximin homogeneous placement.
 Prefer `regionMode:"regions"` with stable `regions` objects containing `id`,
 `name`, `role:"allow"|"reject"`, and Cartesian
 `bounds:[xmin,xmax,ymin,ymax,zmin,zmax]`. The exact domain is the finite cell
@@ -244,8 +249,12 @@ the active selection before either operation.
 with `regionName`, `regionRole`, `regionMic`, and/or `bounds`; it never moves
 staged atoms. Periodic confinement must use the same `regionMic` state and the
 shortest triclinic minimum-image displacement.
-The GUI multi-selects region rows or overlays, applies `G` to the selected
-group, and deliberately rejects `R`. Verify stable IDs and the exact domain in
+The GUI multi-selects region rows or edge overlays, applies `G` to move the
+selected group, applies `S` with optional global Cartesian `X`/`Y`/`Z` lock to
+scale the selected bounds about their shared center, and deliberately rejects
+`R`. Use `scale-add-atoms-regions` for the same semantic operation. Region
+fills provide depth but are never selection targets, so a nested box remains
+selectable by its edges. Verify stable IDs and the exact domain in
 `describe().addAtoms`, then optionally run
 `relax-added-atoms` with explicit pair cutoffs and MIC. Its temporary
 `Add Atoms placement` timeline must exist only while the staging mode remains
@@ -259,6 +268,9 @@ a semantic constraint summary for its temporary fixed overlay. The committed
 ASE constraints remain unchanged; the overlay does not change atom radii or
 saved appearance and applies only the fixed-material surface. Verify this
 again after finish or cancel.
+Use `scale-selection` for physical atom-coordinate scaling about a requested
+pivot. It changes spacing in global Cartesian `X`, `Y`, `Z`, or all axes and
+never changes atom radii, bond diameter, or the unit cell.
 For scalar-field sections, use `add-volumetric-plane` with a dataset ID and a
 nonzero hkl normal, `update-volumetric-planes` with the current plane IDs for
 atomic multi-plane edits, and `remove-volumetric-planes` to delete them. Read
@@ -355,12 +367,14 @@ handling, use the references below rather than improvising field names.
 For any nontrivial task, verify all applicable items:
 
 - structure: count, labels, elements, positions, cell, PBC, constraints;
-- batch insertion: single-structure eligibility, mixed entry counts, random
-  seed, exact triclinic Boolean domain, stable multi-region IDs, Allow-union
+- batch insertion: single-document eligibility, optional scratch cell, mixed
+  entry counts, random seed, homogeneous spacing diagnostics, regular Cartesian
+  spacing, exact triclinic Boolean domain, stable multi-region IDs, Allow-union
   and Reject-union semantics, no-cell Allow requirement, analytic accessible
   volume, periodic region images, default escape policy, multi-selected live
-  `G` bounds, one intact source box plus deduplicated nonzero wrapped
-  fragments, rejected region rotation, pairwise cutoffs, MIC, temporary host
+  `G` bounds, global-Cartesian `S` bounds, edge-only nested-region selection,
+  one intact source box plus deduplicated nonzero wrapped fragments, rejected
+  region rotation, pairwise cutoffs, MIC, temporary host
   freeze, asynchronous status, mode-only movie timeline, and exact host
   coordinate/constraint/array preservation after finish or cancel; for
   molecules also verify count versus density mode, integer composition ratio,
@@ -376,9 +390,12 @@ For any nontrivial task, verify all applicable items:
   colormap/range/opacity, cache reuse, and supercell/translation alignment;
   verify suffixed VASP names such as
   `PARCHG_*`, `LOCPOT.*`, and `CHGCAR-*` are identified by contents/type;
-- RDF: current frame, 3D PBC, requested/effective cutoff, unique-MIC reference,
-  required periodic-image span, bins, pair mode, plotted curves, `g(r) = 1`
-  bulk reference, long-range behavior, warnings, and exported CSV columns;
+- radial or finite pair distribution: current frame, `analysisKind`, PBC,
+  requested/effective cutoff, bins, pair mode, plotted curves, normalization,
+  and exported CSV columns; for 3D periodic RDF also verify the unique-MIC
+  reference, required periodic-image span, `g(r) = 1` bulk reference,
+  long-range behavior, and warnings; for a no-PBC finite structure verify the
+  unordered-pair probability-density integral instead of calling it bulk RDF;
 - appearance: visibility, radii, colors, materials, bonds, cell, background;
 - per-atom colorscale: exact catalog field ID, scope, map, reverse state,
   gamma, resolved `vmin`/`vmax`, current/trajectory/manual range source, and
@@ -437,8 +454,10 @@ For any nontrivial task, verify all applicable items:
   `k * (r - rt)` without altering backend constraint semantics; verify the same
   threshold transition on every trajectory frame;
 - relaxation modes: source, structure-relaxation, Add Atoms placement, and
-  rigid planar-translation timelines remain distinguishable; closing a mode removes only its
-  temporary optimizer timeline and preserves the explicitly committed result;
+  rigid planar-translation timelines remain distinguishable; stopping permits
+  restart; exiting an active or finished structure relaxation explicitly keeps
+  the current coordinates or restores the exact pre-relaxation baseline, then
+  removes only that temporary optimizer timeline;
 - render: exact dimensions, format, options, nonblank decoded pixels;
 - export: MIME type, filename, byte count, and reopenability where supported;
 - standalone HTML: both lightweight and project-embedded modes load from

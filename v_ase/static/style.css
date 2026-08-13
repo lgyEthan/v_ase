@@ -3914,6 +3914,41 @@ body.resizing-pairwise-column * {
     overflow: hidden;
 }
 
+.create-atom-card.batch-active {
+    display: flex;
+    height: min(840px, calc(100vh - 112px));
+    min-height: 0;
+    flex-direction: column;
+}
+
+.create-atom-card.batch-active .create-atom-head,
+.create-atom-card.batch-active .create-atom-tabs {
+    flex: 0 0 auto;
+}
+
+.cell-matrix-editor {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 14px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--line);
+}
+
+.cell-pbc-controls {
+    display: grid;
+    grid-template-columns: minmax(54px, 1fr) repeat(3, auto);
+    gap: 10px;
+    align-items: center;
+    color: var(--text-soft);
+    font-size: 0.66rem;
+}
+
+.cell-pbc-controls label {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+}
+
 .create-atom-tabs {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3960,6 +3995,13 @@ body.resizing-pairwise-column * {
     padding: 10px;
     overflow: auto;
     overscroll-behavior: contain;
+}
+
+.create-atom-card.batch-active .add-atoms-batch {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    padding-bottom: 4px;
 }
 
 .add-atoms-section {
@@ -4068,6 +4110,21 @@ body.resizing-pairwise-column * {
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: var(--surface-subtle);
+}
+
+.add-atoms-placement-choice {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.add-atoms-placement-choice button {
+    padding-inline: 5px;
+}
+
+.add-atoms-field-note {
+    margin: 7px 1px 0;
+    color: var(--muted);
+    font-size: 0.62rem;
+    line-height: 1.45;
 }
 
 .add-atoms-region-editor {
@@ -4473,6 +4530,14 @@ body.resizing-pairwise-column * {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 5px;
+    position: sticky;
+    z-index: 3;
+    bottom: 0;
+    margin: 8px -10px 0;
+    padding: 9px 10px 10px;
+    border-top: 1px solid var(--line);
+    background: color-mix(in srgb, var(--panel) 96%, transparent);
+    backdrop-filter: blur(10px);
 }
 
 .add-atoms-session-actions button {

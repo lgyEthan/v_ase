@@ -66,6 +66,10 @@ async def start_relaxation(session, payload, background_tasks=None):
         "apply_constraint": bool(payload.get("apply_constraint", True)),
     }
 
+    if not session.relaxation_mode_active:
+        session.relaxation_baseline = session._history_state()
+        session.relaxation_mode_active = True
+
     if session.is_relaxing:
         request_relax_restart(session)
         return {"status": "restarting"}
@@ -86,7 +90,9 @@ def request_relax_restart(session):
     return True
 
 
-def _publish_current_step(session, atoms, dyn):
+def _publish_current_step(session, atoms, dyn, run_id):
+    if run_id != session.relax_run_id:
+        return
     forces = atoms.get_forces()
     energy = atoms.get_potential_energy()
     current_fmax = float(np.sqrt((forces**2).sum(axis=1).max())) if len(forces) else 0.0
@@ -129,7 +135,7 @@ def run_opt_thread(session, fmax, steps, run_id):
         def callback():
             if session.stop_relax or run_id != session.relax_run_id:
                 raise RuntimeError(_STOP_SIGNAL)
-            _publish_current_step(session, atoms, dyn)
+            _publish_current_step(session, atoms, dyn, run_id)
 
         dyn.attach(callback, interval=1)
         dyn.run(fmax=fmax, steps=steps)
@@ -154,12 +160,12 @@ def run_opt_thread(session, fmax, steps, run_id):
     except Exception as exc:
         stopped_for_restart = str(exc) == _STOP_SIGNAL and session.relax_restart_requested
         if str(exc) == _STOP_SIGNAL:
-            if not stopped_for_restart:
+            if not stopped_for_restart and run_id == session.relax_run_id:
                 ws_manager.broadcast_sync(
                     {"type": "relax_finished", "status": "stopped"},
                     session.session_id,
                 )
-        else:
+        elif run_id == session.relax_run_id:
             error_msg = f"Calculator Failure: {exc}"
             ws_manager.broadcast_sync(
                 {"type": "relax_finished", "status": "error", "message": error_msg},
@@ -178,3 +184,34 @@ async def stop_relaxation(session):
     session.relax_restart_requested = False
     session.stop_relax = True
     return {"status": "stopping"}
+
+
+async def exit_relaxation(session, *, keep: bool):
+    """Leave general relaxation mode, keeping or restoring its baseline."""
+    baseline = session.relaxation_baseline
+    if not session.relaxation_mode_active or baseline is None:
+        session.relaxation_mode_active = False
+        session.relaxation_baseline = None
+        return {"status": "inactive", "kept": bool(keep)}
+
+    # Invalidate the worker before touching geometry.  A stale callback checks
+    # this run id and can neither publish nor overwrite the chosen exit state.
+    session.relax_restart_requested = False
+    session.stop_relax = True
+    session.relax_run_id += 1
+    session.is_relaxing = False
+
+    if keep:
+        session.history.append(baseline)
+        if len(session.history) > 50:
+            session.history.pop(0)
+        session.redo_stack.clear()
+        session.sync_current_frame()
+    else:
+        session._restore_history_state(baseline)
+
+    session.relaxation_baseline = None
+    session.relaxation_mode_active = False
+    session.stop_relax = False
+    session.relax_params.clear()
+    return {"status": "exited", "kept": bool(keep)}

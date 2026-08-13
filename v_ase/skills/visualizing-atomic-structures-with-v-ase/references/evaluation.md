@@ -61,11 +61,12 @@ Before every release:
 
 Current operation coverage:
 
-- wrap, translate-all, set-supercell, make-supercell;
-- add-atom, scatter-atoms, scatter-molecules, update-add-atoms-region, relax-added-atoms, stop-added-atoms,
+- wrap, translate-all, set-unit-cell, set-supercell, make-supercell;
+- add-atom, scatter-atoms, scatter-molecules, update-add-atoms-region,
+  scale-add-atoms-regions, relax-added-atoms, stop-added-atoms,
   finish-add-atoms, cancel-add-atoms, delete-selection, set-identity,
   set-constraints;
-- move-selection, rotate-selection, rotate-to-commensurate,
+- move-selection, rotate-selection, scale-selection, rotate-to-commensurate,
   load-commensurate-guest, remove-commensurate-guest,
   calculate-commensurate, apply-commensurate-cell,
   dismiss-commensurate-cell, calculate-registry-map,
@@ -109,6 +110,9 @@ Run all scenarios, not only static document checks:
    - verify atom summary, direct/MIC distance, angle, and torsion;
    - select a replica and verify its `cellOffset`.
 4. **Edit and constraints**
+   - launch with no input file, require Edit mode, define a triclinic 3 x 3
+     cell, add atoms, and verify the empty-workspace prompt disappears after
+     either a region, cell, or atom is created;
    - enter Edit, move and rotate atoms, then undo/redo;
    - apply FixAtoms, FixedLine, and FixedPlane;
    - verify FixedPlane keeps one local marker per atom and adds one original-
@@ -134,13 +138,19 @@ Run all scenarios, not only static document checks:
      physical-volume uniform; compare homogeneous Cartesian and fractional
      placement, verify the selected metric, deterministic seed, and exact
      triclinic MIC when `pbcAware:true`;
+   - compare homogeneous odd-count point sets against nearest-neighbor and
+     covering-radius diagnostics; compare automatic and explicit Regular grid
+     placement in orthogonal/triclinic cells, require global Cartesian spacing,
+     half-open PBC uniqueness, and a clear insufficient-site failure without
+     silently shrinking explicit spacing;
    - test overlapping multiple Allow and Reject Cartesian regions against an
      independent convex-polyhedron volume reference, including reject-only
      fallback to a finite cell and the required error without a finite cell;
      verify stable IDs, exact union-minus-union volume, default
      `allowEscape:true`, confined `allowEscape:false`, Shift multi-selection,
-     group `G` translation of all selected bounds, and rejected `R` without
-     moving staged atoms;
+     group `G` translation and global-Cartesian `S` scaling of all selected
+     bounds, edge-only nested-box selection, and rejected `R` without moving
+     staged atoms;
    - translate a region through each face of a skew triclinic cell with region
      MIC enabled; require clipped lattice-equivalent pieces on the opposite
      face, one intact source cuboid at the original Cartesian bounds, no
@@ -176,6 +186,13 @@ Run all scenarios, not only static document checks:
    - perform the same scatter, asynchronous placement, polling, and finish from
      a fresh external CLI agent that knows only this Skill, and inspect the
      resulting live GUI rather than accepting an HTTP success alone.
+   - on a cell-free scratch cluster, start fallback repulsion from exactly
+     coincident atoms, stop, restart, and verify separation; exit once with
+     Keep Current and once with Restore Before Relaxation while a worker is
+     active, requiring correct button state and exact baseline restoration;
+   - select atoms and apply GUI/semantic isotropic plus X/Y/Z scaling. Require
+     coordinates to follow the selected pivot in global Cartesian axes while
+     atom radii, bond diameter, and cell remain bitwise unchanged.
 5. **Periodic structure**
    - wrap atoms;
    - display a monoclinic supercell;
@@ -325,6 +342,10 @@ Run all scenarios, not only static document checks:
      with the plotted `g(r) = 1` reference;
    - calculate active, all, and no-partial modes; verify the
      concentration-weighted partial RDF relation reconstructs the total;
+   - on a finite no-PBC cluster, require `analysisKind="pair-distribution"`,
+     title `Pair-distribution function`, full-range probability integral one,
+     shorter-cutoff integral equal to the included unordered-pair fraction,
+     and matching label-pair CSV columns; continue to reject partial PBC;
    - generate the README amorphous pairwise example and require total, Cu-Cu,
      Cu-Zr, and Zr-Zr curves even when first-seen label order is nonlexical;
    - reject partial PBC, retain an explicit long triclinic cutoff, verify the

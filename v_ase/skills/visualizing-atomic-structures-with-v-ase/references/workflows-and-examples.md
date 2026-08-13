@@ -317,8 +317,9 @@ intermediate, and expected final structures are generated from
 ### Batch Atom And Molecule Insertion
 
 Use this low-freedom workflow to place atom or molecule populations and move
-only that staged content away from short contacts. It requires one periodic
-structure, not a trajectory.
+only that staged content away from short contacts. It requires one Edit-mode
+document, not a trajectory. The document may be empty when a cell is defined
+first or when the request supplies at least one finite Allow region.
 
 ```javascript
 const baseline = await ai.describe({includePositions: true});
@@ -326,6 +327,13 @@ if (baseline.frameCount !== 1) {
   throw new Error("Open the target frame as a standalone structure first.");
 }
 await applyCurrent({mode: "edit"});
+if (baseline.atomCount === 0 && !baseline.cell.some(row => row.some(value => value !== 0))) {
+  await applyCurrent({operation: {
+    name: "set-unit-cell",
+    cell: [[12, 0, 0], [1.5, 11, 0], [0.5, 0.8, 10]],
+    pbc: [true, true, true]
+  }});
+}
 await applyCurrent({operation: {
   name: "scatter-atoms",
   entries: [
@@ -383,6 +391,14 @@ Consume events or poll compact `describe` state until
 while it is active. If the optimizer must be interrupted, use
 `stop-added-atoms`, wait for the stopped state, inspect the latest positions,
 and either continue or cancel.
+
+For a deterministic lattice instead of random scattering, set
+`placementMode:"regular"` and optional `regularSpacing` in Angstrom. For a
+spatially balanced but non-lattice initialization, use
+`placementMode:"homogeneous"`. To resize active Allow/Reject regions without
+moving staged atoms, call `scale-add-atoms-regions`; to change inserted atom
+spacing itself, select the atoms and call `scale-selection`. Verify the latter
+does not change the cell, atom radii, or bond diameter.
 
 ```javascript
 let placed;
@@ -872,14 +888,17 @@ not need to wait for a pending high-resolution slice before starting `G` or
 Do not combine grids with different dimensions, cell, origin, PBC, or units.
 Do not hide that validation error by interpolating one grid onto another.
 
-### RDF And CSV
+### Radial And Finite Pair Distributions
 
-Input: a fully periodic 3D structure or trajectory frame.
+Input: either a fully periodic 3D structure/trajectory frame for bulk RDF, or
+a finite structure with every PBC axis disabled for a Pair-distribution
+function. Partial PBC is rejected.
 
 ```javascript
 const before = await ai.describe({includePositions: false});
-if (before.pbc.some(value => !value)) {
-  throw new Error("Bulk RDF requires full 3D periodicity.");
+const pbcCount = before.pbc.filter(Boolean).length;
+if (pbcCount !== 0 && pbcCount !== 3) {
+  throw new Error("Pair-distribution analysis rejects partial periodicity.");
 }
 
 await applyCurrent({
@@ -899,6 +918,12 @@ if (!rdf || rdf.bins !== 400 || !rdf.partialCurves.includes("Cu_surface|O_ads"))
 }
 if (Math.abs(rdf.cutoff - 8.0) > 1e-12 || rdf.periodicImageSpan.length !== 3) {
   throw new Error("RDF did not retain the requested cutoff and image span.");
+}
+if (pbcCount === 3 && rdf.analysisKind !== "rdf") {
+  throw new Error("A fully periodic document must report bulk RDF normalization.");
+}
+if (pbcCount === 0 && rdf.analysisKind !== "pair-distribution") {
+  throw new Error("A finite document must report Pair-distribution function normalization.");
 }
 ```
 
@@ -927,7 +952,10 @@ Validation:
 4. CSV radius count equals `bins`;
 5. a homogeneous periodic test system approaches `g(r) = 1` away from the
    first few bins across several cutoffs, including beyond the unique-MIC
-   reference.
+   reference;
+6. a finite no-PBC full-range result integrates to one unordered-pair
+   probability, while a shorter explicit cutoff integrates to the fraction of
+   pairs inside that distance.
 
 ## Match Periodic Interfaces
 

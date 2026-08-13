@@ -450,7 +450,7 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     structure = readme.index("## Edit Structures")
     select = readme.index("### Select", structure)
     move = readme.index("### Move", select)
-    add_atoms = readme.index("### Add Atoms — Available Since v0.2.1", move)
+    add_atoms = readme.index("### Add Atoms", move)
     rotate = readme.index("### Rotate Selected Atoms", add_atoms)
     ferrocene = readme.index("#### Ferrocene: Use Fe As The Active Pivot", rotate)
     phosphorene = readme.index("#### Phosphorene: Build The Twist One Edit At A Time", ferrocene)
@@ -463,7 +463,8 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     ai = readme.index("## Work With An AI Agent", measurement)
 
     assert structure < select < move < add_atoms < rotate < ferrocene < phosphorene
-    assert "#### Add Molecules — Available Since v0.2.8" in readme[add_atoms:rotate]
+    assert "#### Add Molecules" in readme[add_atoms:rotate]
+    assert "Available Since" not in readme[add_atoms:rotate]
     assert phosphorene < periodic < commensurate < measurement < ai
     normalized_readme = " ".join(
         line.lstrip("> ").strip() for line in readme.lower().splitlines()

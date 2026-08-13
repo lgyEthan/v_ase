@@ -7,6 +7,7 @@ from ase import Atoms
 from v_ase.io import ATOM_LABEL_ARRAY, read_fast_lammps_dump
 from v_ase.server import (
     get_frame_positions,
+    load_structure_file,
     per_atom_scalar_range,
     per_atom_scalar_values,
     session_atoms_to_json,
@@ -44,6 +45,68 @@ ITEM: ATOMS id type mol x y z q
 """,
         encoding="utf-8",
     )
+
+
+class StreamRequest:
+    def __init__(self, data):
+        self.data = data
+        self.headers = {"content-length": str(len(data))}
+
+    async def stream(self):
+        yield self.data
+
+
+def test_open_mode_selects_lammps_reader_before_parsing(tmp_path):
+    dump_path = tmp_path / "tiny-open-mode.lammpstrj"
+    write_dump(dump_path)
+    empty = Atoms()
+
+    view_session = EditorSession(
+        session_id="fast-lammps-open-view",
+        original_atoms=empty.copy(),
+        working_atoms=empty.copy(),
+        config={"viz_only": False, "empty_workspace": True},
+    )
+    sessions[view_session.session_id] = view_session
+    try:
+        view_data = asyncio.run(load_structure_file(
+            view_session.session_id,
+            StreamRequest(dump_path.read_bytes()),
+            filename=dump_path.name,
+            index=":",
+            runtime_mode="view",
+        ))
+        assert view_session.config["viz_only"] is True
+        assert view_session.trajectory_source is not None
+        assert view_data["metadata"]["frame_count"] == 2
+        assert view_data["metadata"]["config"]["viz_only"] is True
+    finally:
+        view_session.cleanup_temporary_files()
+        sessions.pop(view_session.session_id, None)
+
+    edit_session = EditorSession(
+        session_id="fast-lammps-open-edit",
+        original_atoms=empty.copy(),
+        working_atoms=empty.copy(),
+        config={"viz_only": True, "empty_workspace": True},
+    )
+    sessions[edit_session.session_id] = edit_session
+    try:
+        edit_data = asyncio.run(load_structure_file(
+            edit_session.session_id,
+            StreamRequest(dump_path.read_bytes()),
+            filename=dump_path.name,
+            index=":",
+            runtime_mode="edit",
+        ))
+        assert edit_session.config["viz_only"] is False
+        assert edit_session.trajectory_source is None
+        assert len(edit_session.trajectory_frames) == 2
+        assert all(frame.calc is not None for frame in edit_session.trajectory_frames)
+        assert edit_data["metadata"]["config"]["viz_only"] is False
+    finally:
+        edit_session.cleanup_temporary_files()
+        sessions.pop(edit_session.session_id, None)
 
 
 def test_fast_lammps_dump_preserves_labels_and_virtual_frame_endpoint(tmp_path):

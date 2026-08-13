@@ -1177,7 +1177,7 @@ def test_axis_shortcuts_restore_canonical_roll_before_opposite_view():
         notebook=True,
         block=False,
         port=port,
-        viz_only=True,
+        viz_only=False,
         close_on_disconnect=False,
     )
     try:
@@ -2167,7 +2167,7 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
         notebook=True,
         block=False,
         port=port,
-        viz_only=True,
+        viz_only=False,
         close_on_disconnect=False,
     )
     try:
@@ -2180,6 +2180,7 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
             page.wait_for_function("window.__ASE_APP__?.state?.atoms?.metadata?.natoms === 0")
 
+            assert page.locator('[data-runtime-mode="edit"]').get_attribute('aria-pressed') == 'true'
             assert page.locator('#empty-workspace').is_visible()
             assert page.locator('#btn-empty-open').is_visible()
             assert page.locator('#btn-export-pickle').is_disabled()
@@ -2211,10 +2212,16 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
             with page.expect_file_chooser() as chooser_info:
                 page.click('#btn-empty-open')
             chooser_info.value.set_files(str(source))
+            assert page.locator('#open-file-name').inner_text() == source.name
+            assert page.locator('.open-file-modes').is_hidden()
+            assert page.locator('input[name="open-runtime-mode"][value="edit"]').is_checked()
+            page.locator('input[name="open-runtime-mode"][value="view"]').check()
+            page.click('#open-file-confirm')
             page.wait_for_function("window.__ASE_APP__?.state?.atoms?.metadata?.natoms === 3")
             page.wait_for_function("window.__ASE_APP__?.state?.atoms?.metadata?.frame_count === 2")
             page.wait_for_function("document.getElementById('busy-overlay').classList.contains('hidden')")
             assert page.locator('#modal-container').is_hidden()
+            assert page.locator('[data-runtime-mode="view"]').get_attribute('aria-pressed') == 'true'
             assert not page.locator('#empty-workspace').is_visible()
             assert not page.locator('#btn-export-pickle').is_disabled()
             assert page.locator('#frame-label').inner_text() == '1 / 2'
@@ -2265,11 +2272,13 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
 
             page.set_input_files('#structure-file', str(replacement_source))
             assert page.locator('#open-file-name').inner_text() == replacement_source.name
+            page.locator('input[name="open-runtime-mode"][value="edit"]').check()
             page.click('#open-file-confirm')
             page.wait_for_function("""() => {
                 const app = window.__ASE_APP__;
                 return app?.state?.atoms?.metadata?.natoms === 2
                     && app.state.atoms.symbols.join(',') === 'O,C'
+                    && app.state.vizOnly === false
                     && document.getElementById('busy-overlay').classList.contains('hidden');
             }""")
             inherited_after = page.evaluate("""() => {

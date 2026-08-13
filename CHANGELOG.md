@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.2.12
+
+- Made a filename-free `v_ase gui` launch an empty Edit document. A full
+  Cartesian `3 x 3` cell and PBC axes can now be defined before any atoms
+  exist, while every Open File request offers an explicit View/Edit choice.
+- Completed scratch relaxation for finite structures without a unit cell,
+  including deterministic separation of exact overlaps, reliable stop and
+  restart, and an exit choice that safely keeps the latest coordinates or
+  restores the exact pre-relaxation document even while a worker is active.
+- Added Regular grid placement beside volume-uniform Random and physically
+  space-filling Homogeneous placement. Exact user grid spacing is never
+  silently changed, triclinic periodic duplicates are removed, and placement
+  diagnostics cover both nearest-neighbor uniformity and residual voids.
+- Added Blender-style physical `S` transforms for selected atom coordinates
+  and insertion regions, with global Cartesian X/Y/Z locks. Atom radii, bond
+  thickness, materials, and the cell remain unchanged when atom spacing is
+  scaled.
+- Reworked Add Atoms region overlays as depth-lit 3D guides whose fills do not
+  intercept picking. Nested Allow/Reject regions remain selectable from their
+  edges, and the batch panel keeps its primary actions visible while the body
+  scrolls independently.
+- Added a finite-system Pair-distribution function for structures with all PBC
+  axes disabled. It reports an unordered-pair probability density instead of
+  claiming bulk `g(r)` normalization; fully periodic RDF behavior and strict
+  partial-PBC rejection remain unchanged.
+- Added a verified scratch-to-amorphous README animation and synchronized the
+  canonical Agent Skill, live operation schema, scientific regressions, and
+  generated Add Atoms media.
+
 ## 0.2.11
 
 - Anchored commensurate host and guest parent lattices to one stable in-plane

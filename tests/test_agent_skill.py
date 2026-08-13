@@ -377,6 +377,11 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
     assert schema["command_endpoint"]["document"].endswith("/{session_id}")
     assert "schema" in schema["command_endpoint"]["methods"]
     assert "vector" in schema["operation_parameters"]["move-selection"]["required"]
+    assert schema["operation_parameters"]["set-unit-cell"]["required"] == ["cell"]
+    assert schema["operation_parameters"]["scale-selection"]["required"] == [
+        "factor",
+        "selection-or-indices",
+    ]
     assert schema["operation_parameters"]["set-constraints"]["notes"].startswith(
         "kind is fixed_line or fixed_plane"
     )
@@ -391,6 +396,15 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
     assert {"regions", "regionId", "regionName", "regionMic"}.issubset(
         update_regions["optional"]
     )
+    scale_regions = schema["operation_parameters"]["scale-add-atoms-regions"]
+    assert scale_regions["required"] == [
+        "regionIds",
+        "factor",
+        "active-add-atoms-session",
+    ]
+    assert schema["operation_parameters"]["exit-relaxation-mode"]["optional"] == [
+        "keep"
+    ]
     assert "embedProject" in schema["export_parameters"]["html"]["optional"]
     assert schema["operation_parameters"]["load-volumetric"]["required"] == ["path"]
     assert "precision" in schema["operation_parameters"]["load-volumetric"]["optional"]

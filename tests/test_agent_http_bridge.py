@@ -145,7 +145,12 @@ def test_external_cli_agent_scatter_repels_and_commits_random_atoms():
                         {"element": "Li", "label": "Li_mobile", "count": 7},
                         {"element": "H", "label": "H_probe", "count": 3},
                     ],
-                    "regionMode": "cell",
+                    "regions": [{
+                        "id": "allow-main",
+                        "name": "Allow main",
+                        "role": "allow",
+                        "bounds": [0.0, 7.6, 0.0, 6.5, 0.0, 6.2],
+                    }],
                     "seed": 2021,
                     "freezeExisting": True,
                     "cutoffBasis": "covalent",
@@ -155,14 +160,32 @@ def test_external_cli_agent_scatter_repels_and_commits_random_atoms():
             assert scattered["addAtoms"]["new_count"] == 10
             assert scattered["atomCount"] == len(host) + 10
             child.wait_for_function(
-                "window.__ASE_APP__?.renderer?.addAtomsRegionGroup?.visible === false"
+                "window.__ASE_APP__?.renderer?.addAtomsRegionGroup?.visible === true"
             )
             child.wait_for_function(
                 f"window.__ASE_APP__?.state?.atoms?.positions?.length === {len(host) + 10}"
             )
 
-            running = _run_cli_command(command_url, "apply", {
+            scaled_regions = _run_cli_command(command_url, "apply", {
                 "expectedRevision": scattered["collaboration"]["revision"],
+                "operation": {
+                    "name": "scale-add-atoms-regions",
+                    "regionIds": ["allow-main"],
+                    "factor": 0.5,
+                    "axis": "X",
+                    "pivot": [3.8, 3.25, 3.1],
+                },
+            })
+            assert scaled_regions["addAtoms"]["regions"][0]["id"] == "allow-main"
+            assert scaled_regions["addAtoms"]["regions"][0]["bounds"] == pytest.approx(
+                [1.9, 5.7, 0.0, 6.5, 0.0, 6.2]
+            )
+            child.wait_for_function(
+                "() => window.__ASE_APP__?.addAtomsUI?.active?.regions?.[0]?.bounds?.[0] === 1.9"
+            )
+
+            running = _run_cli_command(command_url, "apply", {
+                "expectedRevision": scaled_regions["collaboration"]["revision"],
                 "operation": {
                     "name": "relax-added-atoms",
                     "pairCutoffs": scattered["addAtoms"]["pair_cutoffs"],
@@ -479,8 +502,10 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
             assert "embedProject" in capabilities["exportParameters"]["html"]["optional"]
             assert {
                 "wrap",
+                "set-unit-cell",
                 "move-selection",
                 "rotate-selection",
+                "scale-selection",
                 "set-constraints",
                 "refresh-displacements",
                 "load-commensurate-guest",
@@ -530,6 +555,12 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
             )
             assert schema["control_schema"]["title"] == "v_ase live semantic control"
             assert schema["operation_parameters"]["rotate-selection"]["mode"] == "edit"
+            assert schema["operation_parameters"]["set-unit-cell"]["required"] == ["cell"]
+            assert schema["operation_parameters"]["scale-add-atoms-regions"]["required"] == [
+                "regionIds",
+                "factor",
+                "active-add-atoms-session",
+            ]
             assert "includeCell" in schema["export_parameters"]["blender"]["optional"]
             assert schema["operation_parameters"]["load-commensurate-guest"]["required"] == [
                 "path"
@@ -613,11 +644,28 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
             assert restored["display"]["atomRadiusScale"] == pytest.approx(0.6)
             assert restored["display"]["atomDisplayMode"] == "3d"
 
-            changed = _run_cli_command(
+            explicit_cell = [[9.0, 0.0, 0.0], [1.2, 8.5, 0.0], [0.4, 0.7, 7.5]]
+            cell_updated = _run_cli_command(
                 command_url,
                 "apply",
                 {
                     "expectedRevision": restored["collaboration"]["revision"],
+                    "mode": "edit",
+                    "operation": {
+                        "name": "set-unit-cell",
+                        "cell": explicit_cell,
+                        "pbc": [True, True, True],
+                    },
+                },
+            )
+            assert cell_updated["cell"] == explicit_cell
+            assert cell_updated["pbc"] == [True, True, True]
+
+            changed = _run_cli_command(
+                command_url,
+                "apply",
+                {
+                    "expectedRevision": cell_updated["collaboration"]["revision"],
                     "mode": "edit",
                     "display": {
                         "showGrid": False,
@@ -640,11 +688,29 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
             )
             assert changed["selection"][0]["index"] == 1
 
+            scaled = _run_cli_command(
+                command_url,
+                "apply",
+                {
+                    "expectedRevision": changed["collaboration"]["revision"],
+                    "selection": {"clear": True, "indices": [0, 1]},
+                    "operation": {
+                        "name": "scale-selection",
+                        "factor": 2.0,
+                        "axis": "X",
+                        "pivot": "origin",
+                    },
+                },
+            )
+            assert scaled["positions"][0] == pytest.approx([0.0, 0.0, 0.0])
+            assert scaled["positions"][1] == pytest.approx([1.68, 0.2, 0.0])
+            assert scaled["cell"] == explicit_cell
+
             child = next(
                 frame for frame in page.frames if "workspace_child=1" in frame.url
             )
             child.wait_for_function(
-                "() => document.getElementById('prop-selected')?.textContent === '1'"
+                "() => document.getElementById('prop-selected')?.textContent === '2'"
             )
             assert child.locator('[data-runtime-mode="edit"]').get_attribute(
                 "aria-pressed"
@@ -652,7 +718,7 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
             assert child.locator("#chk-axes").is_checked()
             assert child.locator("#chk-cell").is_checked()
             assert not child.locator("#chk-grid").is_checked()
-            assert child.locator("#selected-indices").inner_text().strip() == "1"
+            assert child.locator("#selected-indices").inner_text().strip() == "0, 1"
 
             stale = _post_command(
                 command_url,

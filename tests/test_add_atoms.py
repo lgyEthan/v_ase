@@ -35,6 +35,7 @@ from v_ase.add_atoms import (
     sample_cartesian_box_positions,
     sample_homogeneous_positions,
     sample_insertion_positions,
+    sample_regular_positions,
     sample_unit_cell_positions,
     sample_unit_cell_positions_outside_box,
     start_atom_addition,
@@ -562,6 +563,79 @@ def test_homogeneous_cartesian_and_fractional_metrics_are_distinct_and_reproduci
     assert nearest(fractional, physical=False).min() > nearest(cartesian, physical=False).min()
     assert cartesian_info["coordinate_basis"] == "cartesian"
     assert fractional_info["coordinate_basis"] == "fractional"
+
+
+@pytest.mark.parametrize("count", [17, 31, 63])
+def test_homogeneous_cartesian_placement_reduces_local_environment_variation(count):
+    cell = np.asarray([[12.0, 0.0, 0.0], [2.5, 7.0, 0.0], [-1.0, 1.5, 5.0]])
+    positions, diagnostics = sample_homogeneous_positions(
+        cell,
+        [True, True, True],
+        count,
+        coordinate_basis="cartesian",
+        seed=41,
+    )
+    delta = positions[:, None, :] - positions[None, :, :]
+    mic, _ = find_mic(delta.reshape(-1, 3), cell, pbc=True)
+    distances = np.linalg.norm(mic.reshape(count, count, 3), axis=2)
+    np.fill_diagonal(distances, np.inf)
+    nearest = distances.min(axis=1)
+    assert diagnostics["placement_algorithm"] == "maximin-low-discrepancy"
+    assert diagnostics["spacing_metric"] == "angstrom"
+    assert diagnostics["nearest_distance_min"] == pytest.approx(nearest.min())
+    assert diagnostics["nearest_distance_cv"] == pytest.approx(
+        nearest.std() / nearest.mean()
+    )
+    assert diagnostics["nearest_distance_cv"] < 0.10
+    assert diagnostics["covering_radius_estimate"] < 1.6 * nearest.mean()
+
+
+def test_regular_cartesian_grid_is_exact_and_deduplicates_periodic_boundaries():
+    positions, diagnostics = sample_regular_positions(
+        np.diag([10.0, 10.0, 10.0]),
+        [True, True, True],
+        8,
+        spacing=5.0,
+    )
+    assert len(positions) == 8
+    assert set(np.unique(positions)) == {0.0, 5.0}
+    fractional = positions / 10.0
+    assert np.all((fractional >= 0.0) & (fractional < 1.0))
+    assert diagnostics["regular_spacing_angstrom"] == pytest.approx(5.0)
+    assert diagnostics["nearest_distance_min"] == pytest.approx(5.0)
+    assert diagnostics["nearest_distance_cv"] == pytest.approx(0.0)
+
+
+def test_regular_grid_clips_exactly_to_nonperiodic_allow_minus_reject_domain():
+    regions = [
+        {"id": "allow", "name": "Allow", "role": "allow", "bounds": [0, 6, 0, 6, 0, 6]},
+        {"id": "reject", "name": "Reject", "role": "reject", "bounds": [2, 4, 2, 4, 2, 4]},
+    ]
+    positions, diagnostics = sample_regular_positions(
+        np.zeros((3, 3)),
+        [False, False, False],
+        12,
+        regions=regions,
+        spacing=2.0,
+    )
+    domain = build_insertion_domain(
+        cell=np.zeros((3, 3)),
+        pbc=[False, False, False],
+        regions=normalize_insertion_regions(regions),
+    )
+    assert np.all(domain.contains(positions))
+    assert diagnostics["placement_algorithm"] == "cartesian-regular-grid"
+    assert np.allclose(positions / 2.0, np.rint(positions / 2.0))
+
+
+def test_regular_grid_rejects_spacing_with_too_few_accessible_sites():
+    with pytest.raises(ValueError, match="provides only"):
+        sample_regular_positions(
+            np.diag([10.0, 10.0, 10.0]),
+            [True, True, True],
+            9,
+            spacing=10.0,
+        )
 
 
 def test_cartesian_homogeneous_metric_uses_exact_triclinic_minimum_image():
@@ -1250,6 +1324,27 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
 
             page.click("#btn-create-atom-toggle")
             page.click("#add-atoms-tab-batch")
+            page.locator(".add-atoms-session-actions").scroll_into_view_if_needed()
+            panel_layout = page.evaluate("""() => {
+                const card = document.getElementById('create-atom-card').getBoundingClientRect();
+                const body = document.getElementById('add-atoms-pane-batch');
+                const actions = document.querySelector('.add-atoms-session-actions').getBoundingClientRect();
+                return {
+                    cardTop: card.top,
+                    cardBottom: card.bottom,
+                    viewportHeight: window.innerHeight,
+                    actionsTop: actions.top,
+                    actionsBottom: actions.bottom,
+                    bodyClientHeight: body.clientHeight,
+                    bodyScrollHeight: body.scrollHeight,
+                };
+            }""")
+            assert panel_layout["cardTop"] >= 0
+            assert panel_layout["cardBottom"] <= panel_layout["viewportHeight"]
+            assert panel_layout["actionsTop"] >= panel_layout["cardTop"]
+            assert panel_layout["actionsBottom"] <= panel_layout["cardBottom"] + 1
+            assert panel_layout["bodyScrollHeight"] > panel_layout["bodyClientHeight"]
+            page.locator("#add-atoms-placement-random").scroll_into_view_if_needed()
             assert page.locator("#add-atoms-spacing-basis-row").is_hidden()
             assert page.locator("#add-atoms-placement-pbc-row").is_hidden()
             assert page.locator("#add-atoms-allow-escape").is_checked()
@@ -1344,6 +1439,23 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             assert periodic_box_visuals["wrappedSegmentCount"] == (
                 periodic_box_visuals["uniqueWrappedSegmentCount"]
             )
+            region_picking = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const pickables = app.renderer.addAtomsRegionGroup.userData.pickables || [];
+                const fills = app.renderer.addAtomsRegionGroup.children.filter(
+                    child => child.userData?.addAtomsRegion && !child.userData?.cellEdgeInstances
+                );
+                return {
+                    pickableCount: pickables.length,
+                    edgeOnly: pickables.every(child => child.userData?.cellEdgeInstances === true),
+                    fillCount: fills.length,
+                    fillIsPickable: fills.some(fill => pickables.includes(fill)),
+                };
+            }""")
+            assert region_picking["pickableCount"] >= 1
+            assert region_picking["edgeOnly"] is True
+            assert region_picking["fillCount"] >= 1
+            assert region_picking["fillIsPickable"] is False
 
             first = page.locator("#add-atoms-entries .add-atoms-entry-row").first
             first.locator(".add-atoms-entry-type").select_option("Li")
@@ -1435,6 +1547,38 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
                 )
                 assert moved["bounds"][2:] == pytest.approx(original["bounds"][2:])
 
+            all_lower = np.asarray([
+                min(region["bounds"][0] for region in moved_regions),
+                min(region["bounds"][2] for region in moved_regions),
+                min(region["bounds"][4] for region in moved_regions),
+            ])
+            all_upper = np.asarray([
+                max(region["bounds"][1] for region in moved_regions),
+                max(region["bounds"][3] for region in moved_regions),
+                max(region["bounds"][5] for region in moved_regions),
+            ])
+            shared_pivot = 0.5 * (all_lower + all_upper)
+            page.evaluate("window.__ASE_APP__.renderer.domElement.focus()")
+            page.keyboard.press("s")
+            page.keyboard.press("x")
+            page.keyboard.type("2")
+            page.keyboard.press("Enter")
+            page.wait_for_function(
+                "regions => window.__ASE_APP__.addAtomsUI.active.regions.every((region, index) => Math.abs(region.bounds[0] - regions[index].bounds[0]) > 1e-6)",
+                arg=moved_regions,
+            )
+            scaled_regions = page.evaluate(
+                "window.__ASE_APP__.addAtomsUI.active.regions.map(region => ({id: region.id, bounds: [...region.bounds]}))"
+            )
+            for moved, scaled in zip(moved_regions, scaled_regions):
+                expected = list(moved["bounds"])
+                expected[0] = shared_pivot[0] + 2 * (expected[0] - shared_pivot[0])
+                expected[1] = shared_pivot[0] + 2 * (expected[1] - shared_pivot[0])
+                assert scaled["bounds"] == pytest.approx(expected)
+            assert [region.id for region in sessions[editor.session_id].atom_addition.regions] == [
+                region["id"] for region in scaled_regions
+            ]
+
             backend = sessions[editor.session_id]
             assert [repr(item) for item in backend.working_atoms.constraints] == [
                 repr(item) for item in host.constraints
@@ -1478,6 +1622,158 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             assert_host_unchanged(host, backend.working_atoms)
             assert len(backend.working_atoms) == len(host) + 13
             assert atom_labels(backend.working_atoms)[-13:] == ["Li_mobile"] * 8 + ["H_probe"] * 5
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_browser_scratch_relaxation_lifecycle_and_physical_scale():
+    port = find_free_port()
+    editor = view(
+        Atoms(),
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1360, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.state?.atoms?.metadata?.natoms === 0")
+            assert page.locator("[data-runtime-mode='edit']").get_attribute("aria-pressed") == "true"
+            assert page.locator("#empty-workspace").is_visible()
+
+            page.click("#btn-create-atom-toggle")
+            page.click("#add-atoms-tab-batch")
+            page.click("#btn-add-atoms-allow-region")
+            assert page.locator("#empty-workspace").is_hidden()
+            page.click("#btn-add-atoms-delete-region")
+            assert page.locator("#empty-workspace").is_visible()
+            page.click("#btn-create-atom-close")
+
+            seed_positions = [
+                [0.02 * (index % 5), 0.02 * ((index // 5) % 4), 0.02 * (index // 20)]
+                for index in range(40)
+            ]
+            page.evaluate("""async positions => {
+                const app = window.__ASE_APP__;
+                const symbols = new Array(positions.length).fill('H');
+                const data = await app.api.addAtoms(symbols, positions, symbols);
+                app.setAtomsData(data, {clearSelection: true});
+            }""", seed_positions)
+            page.wait_for_function("window.__ASE_APP__.state.atoms.positions.length === 40")
+            assert page.locator("#empty-workspace").is_hidden()
+            assert page.evaluate("window.__ASE_APP__.state.atoms.metadata.has_calculator") is True
+            assert page.evaluate("window.__ASE_APP__.state.atoms.cell.flat().every(value => value === 0)") is True
+            assert page.locator("#distribution-panel-title").inner_text() == "Pair-distribution function"
+            page.evaluate("document.getElementById('rdf-bins').value = '64'")
+            page.evaluate("document.getElementById('btn-rdf-calculate').click()")
+            page.wait_for_function(
+                "window.__ASE_APP__.state.rdfResult?.analysis_kind === 'pair-distribution'",
+                timeout=10_000,
+            )
+            page.wait_for_function(
+                "document.getElementById('analysis-drawer-title')?.textContent === 'Pair-distribution function'",
+                timeout=10_000,
+            )
+            finite_distribution = page.evaluate("""() => {
+                const result = window.__ASE_APP__.state.rdfResult;
+                const dr = result.cutoff / result.bins;
+                return {
+                    title: document.getElementById('analysis-drawer-title').textContent,
+                    integral: result.total.reduce((sum, value) => sum + value, 0) * dr,
+                };
+            }""")
+            assert finite_distribution["title"] == "Pair-distribution function"
+            assert finite_distribution["integral"] == pytest.approx(1.0, abs=1e-10)
+            page.evaluate("window.__ASE_APP__.closeAnalysisDrawer()")
+
+            page.evaluate("""() => {
+                document.getElementById('relax-fmax').value = '0.000001';
+                document.getElementById('relax-steps').value = '5000';
+            }""")
+            page.evaluate("document.getElementById('btn-relax').click()")
+            page.wait_for_function("window.__ASE_APP__.state.isRelaxing === true", timeout=10_000)
+            page.evaluate("document.getElementById('btn-stop-relax').click()")
+            page.wait_for_function("window.__ASE_APP__.state.isRelaxing === false", timeout=10_000)
+            assert page.locator("#btn-relax").is_enabled()
+            assert page.locator("#btn-stop-relax").is_disabled()
+
+            page.evaluate("document.getElementById('relax-steps').value = '80'")
+            page.evaluate("document.getElementById('btn-relax').click()")
+            page.wait_for_function("window.__ASE_APP__.state.isRelaxing === true", timeout=10_000)
+            page.wait_for_function("window.__ASE_APP__.state.isRelaxing === false", timeout=20_000)
+            relaxed = page.evaluate("window.__ASE_APP__.state.atoms.positions")
+            assert np.max(np.linalg.norm(np.asarray(relaxed) - np.asarray(seed_positions), axis=1)) > 0.05
+
+            page.evaluate("() => { void window.__ASE_APP__.exitRelaxationMode(); }")
+            page.wait_for_selector("#relax-exit-restore")
+            page.click("#relax-exit-restore")
+            page.wait_for_function(
+                "positions => window.__ASE_APP__.state.atoms.positions.every((point, index) => point.every((value, axis) => Math.abs(value - positions[index][axis]) < 1e-9))",
+                arg=seed_positions,
+            )
+            assert page.locator("#btn-relax").is_enabled()
+            assert page.locator("#btn-exit-relax-mode").is_hidden()
+
+            before_scale = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection({update: false});
+                app.state.atoms.positions.forEach((_, index) => app.addSelectionReference(index));
+                app.updateSelectionVisuals();
+                app.updateUI();
+                app.renderer.domElement.focus();
+                return {
+                    positions: app.state.atoms.positions.map(point => [...point]),
+                    radii: app.state.atoms.positions.map((_, index) => app.renderer.atomVisualRadius(index)),
+                    cell: app.state.atoms.cell.map(row => [...row]),
+                    bondThickness: app.state.display.bondThickness,
+                };
+            }""")
+            pivot = np.asarray(before_scale["positions"], dtype=float).mean(axis=0)
+            expected = np.asarray(before_scale["positions"], dtype=float)
+            expected[:, 0] = pivot[0] + 1.5 * (expected[:, 0] - pivot[0])
+            page.keyboard.press("s")
+            page.keyboard.press("x")
+            page.keyboard.type("1.5")
+            page.keyboard.press("Enter")
+            page.wait_for_function("window.__ASE_APP__.transform.mode === 'IDLE'")
+            page.wait_for_function(
+                "target => window.__ASE_APP__.state.atoms.positions.every((point, index) => point.every((value, axis) => Math.abs(value - target[index][axis]) < 1e-8))",
+                arg=expected.tolist(),
+            )
+            after_scale = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                return {
+                    positions: app.state.atoms.positions,
+                    radii: app.state.atoms.positions.map((_, index) => app.renderer.atomVisualRadius(index)),
+                    cell: app.state.atoms.cell,
+                    bondThickness: app.state.display.bondThickness,
+                };
+            }""")
+            np.testing.assert_allclose(after_scale["positions"], expected, atol=1e-8)
+            np.testing.assert_allclose(after_scale["radii"], before_scale["radii"], atol=1e-12)
+            np.testing.assert_allclose(after_scale["cell"], before_scale["cell"], atol=0)
+            assert after_scale["bondThickness"] == before_scale["bondThickness"]
+
+            cell = [[6.0, 0.0, 0.0], [1.5, 7.0, 0.0], [0.4, 0.8, 8.0]]
+            page.evaluate("""async cell => {
+                const app = window.__ASE_APP__;
+                const data = await app.api.setUnitCell(cell, [true, true, false], false);
+                app.setAtomsData(data, {clearSelection: false});
+            }""", cell)
+            page.wait_for_function("window.__ASE_APP__.hasUsableCell() === true")
+            np.testing.assert_allclose(
+                page.evaluate("window.__ASE_APP__.state.atoms.cell"),
+                cell,
+            )
+            assert page.evaluate("window.__ASE_APP__.state.atoms.pbc") == [True, True, False]
             browser.close()
     finally:
         editor.close()

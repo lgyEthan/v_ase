@@ -234,7 +234,8 @@ class VAseWorkspace {
         file,
         inputFormat = '',
         index = ':',
-        volumetricPrecision = 'float32'
+        volumetricPrecision = 'float32',
+        runtimeMode = null
     ) {
         const params = new URLSearchParams({
             filename: file?.name || 'structure',
@@ -242,6 +243,9 @@ class VAseWorkspace {
             volumetric_precision: volumetricPrecision || 'float32',
         });
         if (inputFormat) params.set('input_format', inputFormat);
+        if (runtimeMode === 'view' || runtimeMode === 'edit') {
+            params.set('runtime_mode', runtimeMode);
+        }
         return await this.request(
             `/api/file/load/${encodeURIComponent(sessionId)}?${params.toString()}`,
             {
@@ -257,7 +261,8 @@ class VAseWorkspace {
         path,
         inputFormat = '',
         index = ':',
-        volumetricPrecision = 'float32'
+        volumetricPrecision = 'float32',
+        runtimeMode = null
     ) {
         return await this.request(
             `/api/file/load-path/${encodeURIComponent(sessionId)}`,
@@ -269,6 +274,9 @@ class VAseWorkspace {
                     input_format: inputFormat || '',
                     index: index || ':',
                     volumetric_precision: volumetricPrecision || 'float32',
+                    runtime_mode: runtimeMode === 'view' || runtimeMode === 'edit'
+                        ? runtimeMode
+                        : null,
                 }),
             }
         );
@@ -297,20 +305,23 @@ class VAseWorkspace {
                     body: JSON.stringify({source_session_id: sourceEntry.sessionId}),
                 }
             );
+            const requestedMode = message.runtimeMode === 'edit' ? 'edit' : 'view';
             const data = hasServerPath
                 ? await this.loadPathToSession(
                     documentState.session_id,
                     message.serverPath,
                     message.inputFormat || '',
                     message.index || ':',
-                    message.volumetricPrecision || 'float32'
+                    message.volumetricPrecision || 'float32',
+                    requestedMode
                 )
                 : await this.uploadFileToSession(
                     documentState.session_id,
                     message.file,
                     message.inputFormat || '',
                     message.index || ':',
-                    message.volumetricPrecision || 'float32'
+                    message.volumetricPrecision || 'float32',
+                    requestedMode
                 );
             documentState.title = data.loaded_file?.filename || message.fileName || message.file?.name || 'Untitled';
             documentState.empty = false;

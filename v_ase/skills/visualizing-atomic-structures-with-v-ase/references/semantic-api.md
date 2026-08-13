@@ -183,12 +183,14 @@ Pass `operation` as a name string or object:
 | --- | --- | --- |
 | `wrap` | none | Wrap current View frame or all Edit frames |
 | `translate-all` | `vector`, `coordinateMode` | Physically move every atom, leave cell fixed |
+| `set-unit-cell` | Cartesian 3 x 3 `cell`; optional three-axis `pbc` | Define or replace the ASE cell without moving atoms; creates a usable scratch document when no structure is loaded |
 | `set-supercell` | `reps` | Materialize repeated cell in every frame |
 | `make-supercell` | integer `matrix` | Apply ASE `make_supercell` |
 | `add-atom` | `label`/`element`, `position` | Add one atom |
-| `scatter-atoms` | `entries` or `element`/`label`/`count`; optional `placementMode`, `coordinateBasis`, `pbcAware`, `regions`, `regionMic`, `allowEscape`, `seed`, `freezeExisting`, `cutoffBasis`, `cutoffScale`, `pairCutoffs` | Stage atom populations by volume-uniform random or homogeneous placement in an exact multi-region Boolean domain |
+| `scatter-atoms` | `entries` or `element`/`label`/`count`; optional `placementMode`, `regularSpacing`, `coordinateBasis`, `pbcAware`, `regions`, `regionMic`, `allowEscape`, `seed`, `freezeExisting`, `cutoffBasis`, `cutoffScale`, `pairCutoffs` | Stage atom populations by random, homogeneous, or regular Cartesian placement in an exact multi-region Boolean domain |
 | `scatter-molecules` | `molecules` or `molecule`/`label`/`count`; optional atom-placement fields plus `randomOrientation`, `rigidMolecules`, `quantityMode`, `targetDensityGcm3` | Stage installed ASE G2 molecules by integer count or exact-volume density with optional unbiased orientation and rigid geometry |
 | `update-add-atoms-region` | Complete `regions`, or `regionId` plus optional `regionName`, `regionRole`, `bounds`; optional `regionMic`, `allowEscape` | Atomically move or reconfigure one or more active Cartesian insertion regions without moving staged atoms |
+| `scale-add-atoms-regions` | `regionIds`, positive `factor`; optional `axis`, `pivot`, `regionMic`, `allowEscape` | Scale selected Cartesian insertion bounds about their shared center or explicit pivot; never moves staged atoms |
 | `relax-added-atoms` | optional `pairCutoffs`, `freezeExisting`, `strength`, `boundaryStrength`, `fmax`, `steps`, `mic`, `allowEscape` | Start asynchronous pairwise repulsive placement of staged atoms; the default lets atoms leave their initial insertion region |
 | `stop-added-atoms` | none | Request optimizer stop while retaining current staged positions |
 | `finish-add-atoms` | none | Commit staged atoms after optimization is inactive |
@@ -198,6 +200,7 @@ Pass `operation` as a name string or object:
 | `set-constraints` | selection/`indices`; `fixAtoms`; `kind` = `fixed_line`/`fixed_plane`; `vector`; `clearDirectional` | Edit supported constraints |
 | `move-selection` | `vector` | Translate selected atoms |
 | `rotate-selection` | `axis`, `angleDeg`, optional `pivot` | Rotate selected atoms |
+| `scale-selection` | positive `factor`, selection/`indices`; optional `axis`, `pivot`, `applyConstraints` | Scale physical atom coordinates about a pivot in global Cartesian X/Y/Z/all axes without changing atom or bond radii or the cell |
 | `rotate-to-commensurate` | `angleDeg`, selection/`indices`; optional `axis`, `pivot`, `strainTolerance`, `maxIndex`, `maxAreaRatio`, `maxAngleDifferenceDeg`, `showAtoms` | Rotate to the nearest validated 2D periodic match and show its bounded common-cell proposal; preview atoms remain off unless requested |
 | `load-commensurate-guest` | `path`; optional `format`, `gap`, search controls | Load or replace the guest structure from inside the CLI launch directory; its minimum z is placed 3 Angstrom above host maximum z unless `gap` is supplied |
 | `remove-commensurate-guest` | none | Remove the loaded guest without changing the host; a current atom selection can then act as a same-lattice guest |
@@ -215,7 +218,7 @@ Pass `operation` as a name string or object:
 | `reset-coordinates` | none | Restore loaded coordinates and original cell |
 | `start-relaxation` | `fmax`, `steps`, optional `calculator` | Start optimization |
 | `stop-relaxation` | none | Request optimizer stop |
-| `exit-relaxation-mode` | none | Close the completed optimization movie timeline without changing the optimized structure |
+| `exit-relaxation-mode` | optional `keep` | Stop if needed, then close the optimization timeline; `keep:true` retains current coordinates and `keep:false` restores the exact pre-relaxation baseline |
 | `refresh-displacements` | optional `display` | Recompute displacement vectors |
 | `load-volumetric` | `path`, optional `format`, `precision` | Load one VASP, Cube, or XSF grid as FP32 or FP64 |
 | `show-volumetric` | `datasetId`, `level`, optional surface controls | Build one isosurface |
@@ -224,7 +227,7 @@ Pass `operation` as a name string or object:
 | `remove-volumetric-planes` | `planeIds` | Atomically remove one or more scalar-field planes |
 | `combine-volumetric` | `datasetIds`, `coefficients`, optional `name`, `precision` | Create a linear grid combination |
 | `remove-volumetric` | `datasetId` | Remove one grid from the document |
-| `calculate-rdf` | optional `cutoff`, `bins`, `pairMode`, `activePairs` | Calculate total and partial RDF curves |
+| `calculate-rdf` | optional `cutoff`, `bins`, `pairMode`, `activePairs` | Calculate a bulk RDF for full 3D PBC, or an unordered-pair probability density for a finite no-PBC structure |
 | `set-atom-colorscale` | optional `enabled`, `field`, `map`, `reverse`, `scope`, `rangeMode`, `minimum`, `maximum`, `gamma` | Lazily color all or selected atoms by a discovered numeric per-atom value with a trajectory-consistent range |
 
 ### Batch Add Atoms State
@@ -273,6 +276,19 @@ default
 `coordinateBasis:"cartesian"` maximizes physical nearest-center distance in
 angstrom; `"fractional"` balances normalized cell coordinates. `pbcAware:true`
 uses the exact triclinic minimum image for homogeneous spacing.
+
+`placementMode:"regular"` clips one global Cartesian lattice to the exact
+Boolean domain. `regularSpacing` is an optional positive Angstrom spacing. An
+explicit value is never silently reduced: if too few sites fit, the operation
+fails with the available count. When omitted, v_ase reduces an automatic
+spacing deterministically until enough sites exist, then chooses a spatially
+balanced subset. Periodic filtering is half-open in fractional coordinates so
+a boundary site is never duplicated through a neighboring image.
+
+An empty Edit document is valid. Use `set-unit-cell` before scattering into a
+periodic cell, or supply at least one finite Allow region for a no-cell model.
+Reject-only domains remain invalid without a finite cell because they do not
+define bounded volume.
 
 Each `regions` entry requires a stable ID, `role:"allow"|"reject"`, and
 `bounds:[xmin,xmax,ymin,ymax,zmin,zmax]` in Angstrom. With a finite cell, the
@@ -1032,10 +1048,16 @@ When `precision` is omitted, the output promotes to FP64 if any input is FP64;
 otherwise it remains FP32. Do not resample or combine mismatched grids
 silently. Use `remove-volumetric` with `datasetId` to discard a dataset.
 
-RDF requires a fully periodic 3D cell. The backend accepts a cutoff beyond the
-unique-MIC radius and enumerates every periodic image inside that sphere. It
-does not truncate the calculation to a fixed `2 x 2 x 2` replica. The result
-reports `requestedCutoff`, `cutoff`, `uniqueMicCutoff`,
+`calculate-rdf` selects the scientifically valid analysis from boundary state.
+With full 3D PBC and a finite cell it computes a bulk radial distribution
+function. The backend accepts a cutoff beyond the unique-MIC radius and
+enumerates every periodic image inside that sphere instead of truncating to a
+fixed `2 x 2 x 2` replica. With no periodic axes it computes a finite-system
+unordered-pair probability density and labels the result
+`Pair-distribution function`; it does not claim bulk `g(r)` normalization.
+Partial PBC remains rejected because neither of those normalizations applies
+without an explicit boundary correction. The result reports `analysisKind`,
+`title`, `normalization`, `requestedCutoff`, `cutoff`, `uniqueMicCutoff`,
 `periodicImageExtent`, and `periodicImageSpan`:
 
 ```javascript
@@ -1062,10 +1084,12 @@ always present. Partial curves follow the conventional concentration relation:
 for a binary system,
 `g = c_a^2 g_aa + 2 c_a c_b g_ab + c_b^2 g_bb`.
 `bins` must be between 8 and 5000.
-The GUI adds a dotted `g(r) = 1` reference for the homogeneous bulk limit.
-For a sufficiently large amorphous periodic model, verify that the
-long-distance total curve fluctuates around one rather than decaying with
-radius.
+For periodic RDF, the GUI adds a dotted `g(r) = 1` reference for the
+homogeneous bulk limit. For a sufficiently large amorphous periodic model,
+verify that the long-distance total curve fluctuates around one rather than
+decaying with radius. For a finite pair distribution, verify that integrating
+the total density over a full-distance cutoff gives one and that an explicit
+shorter cutoff integrates to the fraction of unordered pairs inside it.
 
 Export the calculated values without reading Plotly pixels:
 

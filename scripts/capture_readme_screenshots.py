@@ -3543,6 +3543,7 @@ def _capture_add_atoms_variant(
 
 
 def capture_add_atoms_media(browser) -> None:
+    _capture_scratch_amorphous_media(browser)
     _capture_add_atoms_variant(
         browser,
         region_role="allowed",
@@ -3559,6 +3560,175 @@ def capture_add_atoms_media(browser) -> None:
         gif_name="readme_add_atoms_prohibited.gif",
     )
     _capture_add_molecules_media(browser)
+
+
+def _capture_scratch_amorphous_media(browser) -> None:
+    """Record a real empty-document -> cell -> random batch -> repel workflow."""
+    editor, page = open_scene(browser, Atoms(), show_bonds=False, viz_only=False)
+    try:
+        cell = np.diag([9.2, 9.2, 9.2])
+        center = np.asarray([4.6, 4.6, 4.6])
+        set_display(page, {
+            "viewportBackground": "white",
+            "projectionMode": "orthographic",
+            "showGrid": False,
+            "showAxes": False,
+            "showCell": True,
+            "showBonds": False,
+            "showOverlays": True,
+            "atomRadiusScale": 0.58,
+            "cellColor": "#7d672f",
+            "cellThickness": 0.055,
+        })
+        configure_inspector(page, "structure", ["cell-replication"], width=430)
+        page.evaluate("document.querySelector('[data-panel=\"cell-replication\"]')?.scrollIntoView({block: 'start'})")
+        frames: list[Image.Image] = []
+        append_hold(frames, page, 7)
+
+        for row in range(3):
+            for column in range(3):
+                selector = f"#cell-{row}{column}"
+                page.fill(selector, f"{cell[row, column]:.6g}")
+                page.locator(selector).blur()
+        for axis in "xyz":
+            page.locator(f"#cell-pbc-{axis}").set_checked(True)
+        append_hold(frames, page, 5)
+        page.click("#btn-set-unit-cell")
+        page.wait_for_function("window.__V_ASE_APP__.hasUsableCell() === true")
+        page.wait_for_function("document.getElementById('empty-workspace').classList.contains('hidden')")
+        loaded_cell = np.asarray(page.evaluate("window.__V_ASE_APP__.state.atoms.cell"), dtype=float)
+        np.testing.assert_allclose(loaded_cell, cell, atol=1e-12)
+        if page.evaluate("window.__V_ASE_APP__.state.atoms.positions.length") != 0:
+            raise AssertionError("Scratch README scene unexpectedly loaded atoms before insertion.")
+        set_camera(
+            page,
+            target=center.tolist(),
+            position=(center + np.asarray([15.5, -20.0, 14.0])).tolist(),
+            up=(0, 0, 1),
+            fov=34,
+        )
+        append_hold(frames, page, 7)
+        collapse_inspector(page)
+
+        page.click("#btn-create-atom-toggle")
+        page.click("#add-atoms-tab-batch")
+        page.evaluate("""() => {
+            const widget = document.getElementById('create-atom-widget');
+            widget.style.left = '22px';
+            widget.style.right = 'auto';
+            widget.style.top = '82px';
+            widget.style.bottom = 'auto';
+        }""")
+        row = page.locator("#add-atoms-entries .add-atoms-entry-row").first
+        row.locator(".add-atoms-entry-type").select_option("Ga")
+        row.locator(".add-atoms-entry-label").fill("Ga_amorphous")
+        row.locator(".add-atoms-entry-count").fill("54")
+        page.click("#add-atoms-placement-random")
+        page.fill("#add-atoms-seed", "20260813")
+        page.select_option("#add-atoms-cutoff-basis", "pairwise")
+        page.fill("#add-atoms-cutoff-scale", "1.00")
+        page.fill("#add-atoms-strength", "2.8")
+        page.fill("#add-atoms-fmax", "0.025")
+        page.fill("#add-atoms-steps", "180")
+        page.wait_for_function(
+            "document.querySelectorAll('#add-atoms-pair-table .add-atoms-pair-row').length >= 1"
+        )
+        page.evaluate("""() => {
+            document.querySelectorAll('#add-atoms-pair-table .add-atoms-pair-row').forEach(row => {
+                if (row.dataset.pair !== 'Ga-Ga') return;
+                const input = row.querySelector('input');
+                input.value = '2.55';
+                input.dispatchEvent(new Event('change', {bubbles: true}));
+            });
+        }""")
+        page.locator(".add-atoms-session-actions").scroll_into_view_if_needed()
+        append_hold(frames, page, 7)
+
+        page.click("#btn-add-atoms-scatter")
+        page.wait_for_function("window.__V_ASE_APP__.addAtomsUI?.active?.new_count === 54")
+        page.wait_for_function("window.__V_ASE_APP__.state.atoms.positions.length === 54")
+        set_display(page, {
+            "labelRadii": {"Ga_amorphous": 1.12},
+            "labelColors": {"Ga_amorphous": "#7f91a7"},
+            "labelMaterials": {"Ga_amorphous": "metal"},
+        })
+        scattered = np.asarray(
+            page.evaluate("window.__V_ASE_APP__.state.atoms.positions"),
+            dtype=float,
+        )
+        if not np.all((scattered >= 0.0) & (scattered < 9.2)):
+            raise AssertionError("Scratch random placement escaped the half-open primary cell.")
+        page.evaluate("window.__V_ASE_APP__.renderer.fitCameraToStructure()")
+        set_atomic_scale(page, 49.0)
+        set_readme_lighting(
+            page,
+            center.tolist(),
+            intensity=2.8,
+            position_offset=(-13.0, -16.0, 20.0),
+        )
+        append_hold(frames, page, 9)
+
+        page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            window.__VASE_SCRATCH_TRACE__ = [];
+            const original = app.renderer.updatePositions.bind(app.renderer);
+            app.renderer.updatePositions = positions => {
+                if (app.addAtomsUI?.active?.is_relaxing && Array.isArray(positions)) {
+                    window.__VASE_SCRATCH_TRACE__.push(
+                        positions.map(position => [...position])
+                    );
+                }
+                return original(positions);
+            };
+        }""")
+        page.click("#btn-add-atoms-relax")
+        page.wait_for_function("window.__V_ASE_APP__.addAtomsUI?.active?.is_relaxing === true")
+        page.wait_for_function(
+            "window.__V_ASE_APP__.addAtomsUI?.active?.is_relaxing === false",
+            timeout=30_000,
+        )
+        trace = page.evaluate("window.__VASE_SCRATCH_TRACE__")
+        if len(trace) < 4:
+            raise AssertionError(
+                f"Scratch amorphous relaxation produced only {len(trace)} visible states."
+            )
+        sample_indices = np.unique(
+            np.linspace(0, len(trace) - 1, min(44, len(trace)), dtype=int)
+        )
+        for output_index, trace_index in enumerate(sample_indices, start=1):
+            update_positions(page, trace[int(trace_index)])
+            page.evaluate(
+                """([step, total]) => window.__V_ASE_APP__.setAddAtomsStatus(
+                    'running', `Building amorphous Ga · ${step}/${total}`
+                )""",
+                [output_index, len(sample_indices)],
+            )
+            frames.append(screenshot_frame(page))
+        relaxed = np.asarray(trace[-1], dtype=float)
+        if float(np.max(np.linalg.norm(relaxed - scattered, axis=1))) <= 0.08:
+            raise AssertionError("Scratch README relaxation did not move a Ga atom visibly.")
+        update_positions(page, relaxed)
+        page.evaluate("""() => window.__V_ASE_APP__.setAddAtomsStatus(
+            'active', 'Amorphous Ga · placement ready'
+        )""")
+        append_hold(frames, page, 9)
+        page.click("#btn-add-atoms-finish")
+        page.wait_for_function("window.__V_ASE_APP__.state.atoms.metadata.atom_addition === null")
+        page.wait_for_function("window.__V_ASE_APP__.state.atoms.positions.length === 54")
+        append_hold(frames, page, 10)
+        save_gif(
+            frames,
+            ASSET_DIR / "readme_scratch_amorphous.gif",
+            duration=120,
+        )
+        frames[-1].save(
+            ASSET_DIR / "readme_scratch_amorphous.png",
+            optimize=True,
+            compress_level=9,
+        )
+    finally:
+        page.close()
+        editor.close()
 
 
 def _capture_add_molecules_media(browser) -> None:
@@ -4684,6 +4854,7 @@ def main() -> int:
             "materials",
             "ai",
             "collaboration",
+            "scratch",
             "add-atoms",
             "constraints",
             "measurement",
@@ -4719,6 +4890,7 @@ def main() -> int:
                 "materials": capture_material_media,
                 "ai": capture_ai_edit_media,
                 "collaboration": capture_ai_collaboration_figure,
+                "scratch": _capture_scratch_amorphous_media,
                 "add-atoms": capture_add_atoms_media,
                 "constraints": capture_constraint_media,
                 "measurement": capture_measurement_media,

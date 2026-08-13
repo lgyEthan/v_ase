@@ -3217,11 +3217,20 @@ export class ASERenderer {
                     radius: isSelected ? 0.062 : 0.047
                 }
             );
-            if (sourceEdgeMesh) sourceEdgeMesh.renderOrder = 15;
+            if (sourceEdgeMesh) {
+                sourceEdgeMesh.renderOrder = 15;
+                sourceEdgeMesh.userData.role = rejected ? 'reject' : 'allow';
+                sourceEdgeMesh.userData.shift = [0, 0, 0];
+                pickables.push(sourceEdgeMesh);
+            }
             const sourceFill = new THREE.Mesh(
                 source.geometry,
-                new THREE.MeshBasicMaterial({
+                new THREE.MeshStandardMaterial({
                     color,
+                    emissive: color,
+                    emissiveIntensity: isSelected ? 0.16 : 0.09,
+                    metalness: 0.02,
+                    roughness: 0.52,
                     transparent: true,
                     opacity: isSelected ? 0.18 : (rejected ? 0.13 : 0.10),
                     side: THREE.DoubleSide,
@@ -3238,7 +3247,6 @@ export class ASERenderer {
                 shift: [0, 0, 0]
             };
             this.addAtomsRegionGroup.add(sourceFill);
-            pickables.push(sourceFill);
 
             const images = this.insertionRegionImages(
                 { ...region, bounds },
@@ -3262,8 +3270,12 @@ export class ASERenderer {
                 });
                 const fill = new THREE.Mesh(
                     clipped.geometry,
-                    new THREE.MeshBasicMaterial({
+                    new THREE.MeshStandardMaterial({
                         color,
+                        emissive: color,
+                        emissiveIntensity: isSelected ? 0.12 : 0.06,
+                        metalness: 0.02,
+                        roughness: 0.56,
                         transparent: true,
                         opacity: isSelected ? 0.12 : (rejected ? 0.085 : 0.065),
                         side: THREE.DoubleSide,
@@ -3283,7 +3295,6 @@ export class ASERenderer {
                     shift: image.shift
                 };
                 this.addAtomsRegionGroup.add(fill);
-                pickables.push(fill);
             });
             if (wrappedSegments.length) {
                 const wrappedEdgeMaterial = new THREE.MeshBasicMaterial({
@@ -3307,7 +3318,11 @@ export class ASERenderer {
                         radius: isSelected ? 0.040 : 0.030
                     }
                 );
-                if (wrappedEdgeMesh) wrappedEdgeMesh.renderOrder = 14;
+                if (wrappedEdgeMesh) {
+                    wrappedEdgeMesh.renderOrder = 14;
+                    wrappedEdgeMesh.userData.role = rejected ? 'reject' : 'allow';
+                    pickables.push(wrappedEdgeMesh);
+                }
             }
         });
         this.addAtomsRegionGroup.userData = {

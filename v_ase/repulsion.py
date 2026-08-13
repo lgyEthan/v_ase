@@ -10,9 +10,27 @@ import numpy as np
 from ase import Atoms
 from ase.calculators.calculator import Calculator, all_changes
 from ase.data import atomic_numbers, covalent_radii, vdw_radii
+from ase.geometry import find_mic
 from ase.neighborlist import primitive_neighbor_list
 
 _EPS = 1e-12
+
+
+def _coincident_pair_vector(i: int, j: int) -> np.ndarray:
+    """Return a stable unit vector for an exactly coincident atom pair.
+
+    An overlap has no geometric gradient direction, but treating it as a zero
+    force leaves scratch-built structures permanently stuck.  This index-based
+    spherical sequence supplies a reproducible symmetry-breaking direction;
+    the equal and opposite pair forces still conserve total momentum.
+    """
+    seed = ((int(i) + 1) * 73856093) ^ ((int(j) + 1) * 19349663)
+    u = ((seed & 0xFFFF) + 0.5) / 65536.0
+    v = (((seed >> 16) & 0xFFFF) + 0.5) / 65536.0
+    z = 2.0 * u - 1.0
+    radial = float(np.sqrt(max(0.0, 1.0 - z * z)))
+    angle = 2.0 * np.pi * v
+    return np.asarray([radial * np.cos(angle), radial * np.sin(angle), z], dtype=float)
 
 
 @lru_cache(maxsize=1)
@@ -224,7 +242,10 @@ class VAseRepulsionCalculator(Calculator):
                     continue
                 vec = positions[j] - positions[i]
                 dist = float(np.linalg.norm(vec))
-                if _EPS < dist < threshold:
+                if dist <= _EPS:
+                    vec = _coincident_pair_vector(i, j) * _EPS
+                    dist = _EPS
+                if dist < threshold:
                     pairs.append((i, j, vec, dist, threshold))
         return pairs
 
@@ -260,15 +281,38 @@ class VAseRepulsionCalculator(Calculator):
 
         symbols = atoms.get_chemical_symbols()
         pairs = []
+        seen = set()
         for i, j, vec, dist in zip(is_, js, vecs, dists):
             i = int(i)
             j = int(j)
-            if i >= j or dist <= _EPS:
+            if i >= j:
                 continue
             threshold = self._threshold_for_pair(min_bondinfo, symbols[i], symbols[j])
             if threshold is None or dist >= threshold:
                 continue
+            if dist <= _EPS:
+                vec = _coincident_pair_vector(i, j) * _EPS
+                dist = _EPS
             pairs.append((i, j, np.asarray(vec, dtype=float), float(dist), float(threshold)))
+            seen.add((i, j))
+
+        # Some neighbor-list backends omit exact overlaps.  Add only missing
+        # coincident pairs so periodic and non-periodic scratch structures have
+        # identical repulsion semantics without duplicating normal pairs.
+        positions = atoms.get_positions()
+        for i in range(len(atoms) - 1):
+            for j in range(i + 1, len(atoms)):
+                if (i, j) in seen:
+                    continue
+                threshold = self._threshold_for_pair(min_bondinfo, symbols[i], symbols[j])
+                if threshold is None or threshold <= 0:
+                    continue
+                vec = positions[j] - positions[i]
+                if self.mic and np.any(pbc) and atoms.cell.rank == 3:
+                    vec, _ = find_mic(vec, atoms.cell, pbc=pbc)
+                if float(np.linalg.norm(vec)) <= _EPS:
+                    unit = _coincident_pair_vector(i, j)
+                    pairs.append((i, j, unit * _EPS, _EPS, float(threshold)))
         return pairs
 
     def _boundary_energy_forces(self, atoms: Atoms):

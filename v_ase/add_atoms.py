@@ -360,8 +360,8 @@ def sample_fractional_region_positions(
 
 def _normalize_placement_mode(value: Any) -> str:
     mode = str(value or "random").strip().lower()
-    if mode not in {"random", "homogeneous"}:
-        raise ValueError("placement_mode must be random or homogeneous.")
+    if mode not in {"random", "homogeneous", "regular"}:
+        raise ValueError("placement_mode must be random, homogeneous, or regular.")
     return mode
 
 
@@ -518,6 +518,222 @@ class _EuclideanInsertionMetric:
         return np.einsum("ij,ij->i", vectors, vectors, optimize=True)
 
 
+def _greedy_maximin_indices(
+    candidates: np.ndarray,
+    count: int,
+    *,
+    metric: Any,
+    center: np.ndarray,
+) -> np.ndarray:
+    """Select a deterministic, space-filling subset from candidate points."""
+    requested = int(count)
+    if requested >= len(candidates):
+        return np.arange(len(candidates), dtype=int)
+    first = int(np.argmin(metric.squared(candidates, center)))
+    chosen = np.empty(requested, dtype=int)
+    chosen[0] = first
+    available = np.ones(len(candidates), dtype=bool)
+    available[first] = False
+    minimum = metric.squared(candidates, candidates[first])
+    minimum[first] = -1.0
+    for index in range(1, requested):
+        selected = int(np.argmax(minimum))
+        chosen[index] = selected
+        available[selected] = False
+        current = metric.squared(candidates, candidates[selected])
+        np.minimum(minimum, current, out=minimum)
+        minimum[~available] = -1.0
+    return chosen
+
+
+def _placement_quality(
+    positions: np.ndarray,
+    *,
+    domain: InsertionDomain,
+    metric: Any,
+    seed: int,
+) -> dict[str, float]:
+    """Return physical spacing and void-coverage diagnostics.
+
+    Nearest-neighbor values are exact for the placed points.  The covering
+    radius is evaluated on a deterministic low-discrepancy probe set, making
+    it suitable as a regression metric without introducing stochastic output.
+    """
+    values = np.asarray(positions, dtype=float)
+    if len(values) < 2:
+        return {
+            "nearest_distance_min": 0.0,
+            "nearest_distance_mean": 0.0,
+            "nearest_distance_cv": 0.0,
+            "covering_radius_estimate": 0.0,
+        }
+    nearest_squared = np.full(len(values), np.inf, dtype=float)
+    for index, reference in enumerate(values):
+        distances = metric.squared(values, reference)
+        distances[index] = np.inf
+        nearest_squared[index] = float(np.min(distances))
+    nearest = np.sqrt(np.maximum(nearest_squared, 0.0))
+
+    probe_count = min(8192, max(2048, len(values) * 16))
+    probes, _ = domain.sobol_points(
+        probe_count,
+        coordinate_basis="cartesian",
+        seed=int(seed),
+    )
+    probe_minimum = np.full(len(probes), np.inf, dtype=float)
+    for reference in values:
+        np.minimum(probe_minimum, metric.squared(probes, reference), out=probe_minimum)
+    mean = float(np.mean(nearest))
+    return {
+        "nearest_distance_min": float(np.min(nearest)),
+        "nearest_distance_mean": mean,
+        "nearest_distance_cv": float(np.std(nearest) / mean) if mean > 0 else 0.0,
+        "covering_radius_estimate": float(np.sqrt(np.max(np.maximum(probe_minimum, 0.0)))),
+    }
+
+
+def _regular_grid_candidates(
+    lower: np.ndarray,
+    upper: np.ndarray,
+    spacing: float,
+    *,
+    maximum: int = 2_000_000,
+) -> np.ndarray:
+    axes: list[np.ndarray] = []
+    for axis in range(3):
+        extent = float(upper[axis] - lower[axis])
+        if extent <= 0:
+            raise ValueError("Regular placement requires a finite 3D domain.")
+        count = max(1, int(math.floor(extent / spacing)) + 1)
+        # Centering leaves equal margin on both sides while preserving the
+        # requested Cartesian spacing exactly.
+        width = (count - 1) * spacing
+        start = 0.5 * float(lower[axis] + upper[axis] - width)
+        axes.append(start + np.arange(count, dtype=float) * spacing)
+    candidate_count = int(np.prod([len(axis) for axis in axes], dtype=np.int64))
+    if candidate_count > maximum:
+        raise ValueError(
+            "Regular spacing creates more than 2,000,000 candidate sites. "
+            "Increase the spacing or reduce the insertion region."
+        )
+    mesh = np.meshgrid(*axes, indexing="ij")
+    return np.column_stack([component.reshape(-1) for component in mesh])
+
+
+def sample_regular_positions(
+    cell: Any,
+    pbc: Sequence[bool],
+    count: int,
+    *,
+    region_mode: str = "cell",
+    bounds: Sequence[Any] | None = None,
+    region_role: str = "allowed",
+    regions: Sequence[InsertionRegion] | Sequence[dict[str, Any]] | None = None,
+    pbc_aware: bool = True,
+    region_mic: bool = False,
+    spacing: float | None = None,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Place entities on a global Cartesian lattice clipped to the domain.
+
+    An explicit spacing is never silently changed.  Automatic spacing is
+    reduced deterministically until the exact requested count can be selected.
+    For irregular Boolean regions, a Cartesian-lattice subset is selected by
+    the same physical maximin metric used by homogeneous placement.
+    """
+    requested = _validated_count(count)
+    normalized_regions = (
+        tuple(regions)
+        if regions is not None and all(isinstance(region, InsertionRegion) for region in regions)
+        else normalize_insertion_regions(
+            regions,
+            legacy_mode=region_mode,
+            legacy_bounds=bounds,
+            legacy_role=region_role,
+        )
+    )
+    domain = build_insertion_domain(
+        cell=cell,
+        pbc=pbc,
+        regions=normalized_regions,
+        pbc_aware=region_mic,
+    )
+    lower, upper = _bounds_arrays(domain.base_bounds)
+    explicit = spacing not in (None, "")
+    if explicit:
+        selected_spacing = float(spacing)
+        if not np.isfinite(selected_spacing) or selected_spacing <= 0:
+            raise ValueError("Regular Cartesian spacing must be a positive finite value in angstrom.")
+    else:
+        selected_spacing = float((domain.volume / requested) ** (1.0 / 3.0))
+        selected_spacing = max(selected_spacing, 1e-6)
+
+    candidates = np.empty((0, 3), dtype=float)
+    attempted = 0
+    iterations = 1 if explicit else 80
+    for _ in range(iterations):
+        grid = _regular_grid_candidates(lower, upper, selected_spacing)
+        attempted += len(grid)
+        mask = domain.contains(grid)
+        if domain.cell is not None and np.any(domain.pbc):
+            fractional = grid @ np.linalg.inv(domain.cell)
+            mask &= np.all(
+                (~domain.pbc)[None, :]
+                | ((fractional >= -1e-10) & (fractional < 1.0 - 1e-10)),
+                axis=1,
+            )
+        candidates = grid[mask]
+        if len(candidates) >= requested:
+            break
+        if explicit:
+            break
+        selected_spacing *= 0.96
+    if len(candidates) < requested:
+        raise ValueError(
+            f"Regular spacing {selected_spacing:.6g} A provides only {len(candidates)} accessible "
+            f"sites for {requested} requested entities. Reduce the spacing or enlarge the Allow region."
+        )
+
+    metric = (
+        _InsertionDistanceMetric(domain.cell, pbc, "cartesian", pbc_aware)
+        if domain.cell is not None
+        else _EuclideanInsertionMetric()
+    )
+    center = 0.5 * (lower + upper)
+    if requested <= MAX_EXACT_HOMOGENEOUS_ENTITIES:
+        chosen = _greedy_maximin_indices(
+            candidates,
+            requested,
+            metric=metric,
+            center=center,
+        )
+    else:
+        # The full grid remains deterministic and regular.  Evenly spaced
+        # indices avoid the severe leading-corner bias of candidates[:count].
+        chosen = np.floor(
+            np.arange(requested, dtype=float) * len(candidates) / requested
+        ).astype(int)
+    positions = candidates[chosen].copy()
+    diagnostics: dict[str, Any] = {
+        "attempted": int(attempted),
+        "candidate_sites": int(len(candidates)),
+        "accepted": int(requested),
+        "acceptance_fraction": float(len(candidates) / max(1, attempted)),
+        "placement_algorithm": "cartesian-regular-grid",
+        "coordinate_basis": "cartesian",
+        "pbc_aware": bool(pbc_aware),
+        "regular_spacing_angstrom": float(selected_spacing),
+        "regular_spacing_mode": "manual" if explicit else "automatic",
+    }
+    if requested <= MAX_EXACT_HOMOGENEOUS_ENTITIES:
+        diagnostics.update(_placement_quality(
+            positions,
+            domain=domain,
+            metric=metric,
+            seed=911,
+        ))
+    return positions, diagnostics
+
+
 def _metric_distance_squared(
     points: np.ndarray,
     reference: np.ndarray,
@@ -581,10 +797,11 @@ def sample_homogeneous_positions(
     else:
         pool_factor = 1
     pool_target = min(200_000, max(requested, requested * pool_factor, 2048))
+    effective_seed = 0 if seed is None else int(seed)
     candidates, attempted = domain.sobol_points(
         pool_target,
         coordinate_basis=basis,
-        seed=seed,
+        seed=effective_seed,
     )
     if requested > MAX_EXACT_HOMOGENEOUS_ENTITIES:
         return candidates[:requested].copy(), {
@@ -603,21 +820,14 @@ def sample_homogeneous_positions(
         if matrix is not None
         else _EuclideanInsertionMetric()
     )
-    first = int(np.argmin(metric.squared(candidates, center)))
-    chosen = np.empty(requested, dtype=int)
-    chosen[0] = first
-    available = np.ones(len(candidates), dtype=bool)
-    available[first] = False
-    minimum = metric.squared(candidates, candidates[first])
-    minimum[first] = -1.0
-    for index in range(1, requested):
-        selected = int(np.argmax(minimum))
-        chosen[index] = selected
-        available[selected] = False
-        current = metric.squared(candidates, candidates[selected])
-        np.minimum(minimum, current, out=minimum)
-        minimum[~available] = -1.0
-    return candidates[chosen].copy(), {
+    chosen = _greedy_maximin_indices(
+        candidates,
+        requested,
+        metric=metric,
+        center=center,
+    )
+    positions = candidates[chosen].copy()
+    diagnostics: dict[str, Any] = {
         "attempted": int(attempted),
         "accepted": int(requested),
         "acceptance_fraction": float(len(candidates) / max(1, attempted)),
@@ -625,6 +835,14 @@ def sample_homogeneous_positions(
         "coordinate_basis": basis,
         "pbc_aware": bool(pbc_aware),
     }
+    diagnostics.update(_placement_quality(
+        positions,
+        domain=domain,
+        metric=metric,
+        seed=effective_seed + 1,
+    ))
+    diagnostics["spacing_metric"] = "angstrom" if basis == "cartesian" else "fractional"
+    return positions, diagnostics
 
 
 def sample_insertion_positions(
@@ -641,6 +859,7 @@ def sample_insertion_positions(
     pbc_aware: bool = True,
     region_mic: bool = False,
     seed: int | None = None,
+    regular_spacing: float | None = None,
 ) -> tuple[np.ndarray, dict[str, Any]]:
     placement = _normalize_placement_mode(placement_mode)
     basis = _normalize_coordinate_basis(coordinate_basis)
@@ -660,6 +879,26 @@ def sample_insertion_positions(
         regions=normalized_regions,
         pbc_aware=region_mic,
     )
+    if placement == "regular":
+        positions, diagnostics = sample_regular_positions(
+            cell,
+            pbc,
+            count,
+            region_mode=region_mode,
+            bounds=bounds,
+            region_role=region_role,
+            regions=normalized_regions,
+            pbc_aware=pbc_aware,
+            region_mic=region_mic,
+            spacing=regular_spacing,
+        )
+        diagnostics.update({
+            "placement_mode": "regular",
+            "region_mode": region_mode,
+            "region_role": region_role,
+            "accessible_volume_angstrom3": domain.volume,
+        })
+        return positions, diagnostics
     if placement == "homogeneous":
         positions, diagnostics = sample_homogeneous_positions(
             cell,
@@ -1541,6 +1780,7 @@ class AtomAdditionSession:
     seed: int | None
     content_kind: str = "atoms"
     placement_mode: str = "random"
+    regular_spacing: float | None = None
     coordinate_basis: str = "cartesian"
     pbc_aware: bool = True
     random_orientation: bool = True
@@ -1606,6 +1846,7 @@ class AtomAdditionSession:
             "seed": self.seed,
             "content_kind": self.content_kind,
             "placement_mode": self.placement_mode,
+            "regular_spacing": self.regular_spacing,
             "coordinate_basis": self.coordinate_basis,
             "pbc_aware": self.pbc_aware,
             "random_orientation": self.random_orientation,
@@ -1710,6 +1951,12 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
         raise ValueError("content_kind must be atoms or molecules.")
     placement_mode = _normalize_placement_mode(payload.get("placement_mode"))
     coordinate_basis = _normalize_coordinate_basis(payload.get("coordinate_basis"))
+    regular_spacing_value = payload.get("regular_spacing")
+    regular_spacing = None
+    if regular_spacing_value not in (None, ""):
+        regular_spacing = float(regular_spacing_value)
+        if not np.isfinite(regular_spacing) or regular_spacing <= 0:
+            raise ValueError("Regular Cartesian spacing must be positive or left blank for Auto.")
     pbc_aware = bool(payload.get("pbc_aware", True))
     allow_escape = bool(payload.get("allow_escape", True))
     seed = _random_seed(payload.get("seed"))
@@ -1743,6 +1990,7 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
             pbc_aware=pbc_aware,
             region_mic=domain.pbc_aware,
             seed=seed,
+            regular_spacing=regular_spacing,
         )
         expanded = expand_molecules(
             entries,
@@ -1773,6 +2021,7 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
             pbc_aware=pbc_aware,
             region_mic=domain.pbc_aware,
             seed=seed,
+            regular_spacing=regular_spacing,
         )
     sampling["entity_count"] = int(entity_count)
     sampling["content_kind"] = content_kind
@@ -1817,6 +2066,7 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
         seed=seed,
         content_kind=content_kind,
         placement_mode=placement_mode,
+        regular_spacing=regular_spacing,
         coordinate_basis=coordinate_basis,
         pbc_aware=pbc_aware,
         random_orientation=random_orientation,

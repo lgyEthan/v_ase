@@ -318,7 +318,9 @@ def run_gui(args: argparse.Namespace) -> int:
     is_lammps_dump = resolved_format == "lammps-dump-text" or (
         args.format is None and suffix in {".lammpstrj", ".dump"}
     )
-    viz_only = not args.interactive
+    # A filename-free launch is a scratch workspace.  Start it in Edit mode so
+    # the user can define a cell and build atoms without an extra mode switch.
+    viz_only = False if path is None else not args.interactive
     if path is None:
         frames = [Atoms()]
     elif is_vase_project or is_html_project:

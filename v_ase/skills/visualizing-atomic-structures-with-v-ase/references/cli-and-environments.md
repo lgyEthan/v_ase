@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.11"
+python -m pip install "v_ase-gui==0.2.12"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.2.11"
+python -m pip install "v_ase-gui[rhino]==0.2.12"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, SciPy, scikit-image,
@@ -48,6 +48,12 @@ Open an empty workspace:
 ```bash
 v_ase gui
 ```
+
+This filename-free workspace starts in Edit so a cell and atoms can be created
+from scratch. A filename starts in View unless `--interactive` is supplied.
+When a human uses **Open File**, each load explicitly offers View or Edit; a
+new empty document replaces directly because there is no prior structure to
+append or preserve.
 
 Open a structure or all trajectory frames:
 

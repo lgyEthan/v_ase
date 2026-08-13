@@ -366,12 +366,13 @@ AI_CONTROL_SCHEMA = {
         "operation": {
             "description": (
                 "One semantic structure operation. Supported names are wrap, "
-                "translate-all, set-supercell, make-supercell, add-atom, "
+                "translate-all, set-unit-cell, set-supercell, make-supercell, add-atom, "
                 "scatter-atoms, scatter-molecules, update-add-atoms-region, "
+                "scale-add-atoms-regions, "
                 "relax-added-atoms, stop-added-atoms, "
                 "finish-add-atoms, cancel-add-atoms, "
                 "delete-selection, set-identity, set-constraints, "
-                "move-selection, rotate-selection, rotate-to-commensurate, "
+                "move-selection, rotate-selection, scale-selection, rotate-to-commensurate, "
                 "load-commensurate-guest, remove-commensurate-guest, "
                 "calculate-commensurate, apply-commensurate-cell, "
                 "dismiss-commensurate-cell, calculate-registry-map, "
@@ -410,14 +411,15 @@ AI_CONTROL_SCHEMA = {
                     "properties": {
                         "name": {
                             "enum": [
-                                "wrap", "translate-all", "set-supercell",
+                                "wrap", "translate-all", "set-unit-cell", "set-supercell",
                                 "make-supercell", "add-atom", "scatter-atoms",
                                 "scatter-molecules",
-                                "update-add-atoms-region", "relax-added-atoms", "stop-added-atoms",
+                                "update-add-atoms-region", "scale-add-atoms-regions",
+                                "relax-added-atoms", "stop-added-atoms",
                                 "finish-add-atoms", "cancel-add-atoms",
                                 "delete-selection", "set-identity",
                                 "set-constraints", "move-selection",
-                                "rotate-selection", "rotate-to-commensurate",
+                                "rotate-selection", "scale-selection", "rotate-to-commensurate",
                                 "load-commensurate-guest",
                                 "remove-commensurate-guest",
                                 "calculate-commensurate",
@@ -447,6 +449,34 @@ AI_CONTROL_SCHEMA = {
                         },
                     },
                     "allOf": [
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {"name": {"const": "set-unit-cell"}},
+                            },
+                            "then": {
+                                "required": ["cell"],
+                                "properties": {
+                                    "cell": {
+                                        "type": "array",
+                                        "minItems": 3,
+                                        "maxItems": 3,
+                                        "items": {
+                                            "type": "array",
+                                            "items": {"type": "number"},
+                                            "minItems": 3,
+                                            "maxItems": 3,
+                                        },
+                                    },
+                                    "pbc": {
+                                        "type": "array",
+                                        "items": {"type": "boolean"},
+                                        "minItems": 3,
+                                        "maxItems": 3,
+                                    },
+                                },
+                            },
+                        },
                         {
                             "if": {
                                 "required": ["name"],
@@ -507,7 +537,8 @@ AI_CONTROL_SCHEMA = {
                                     },
                                     "regionMic": {"type": "boolean"},
                                     "allowEscape": {"type": "boolean"},
-                                    "placementMode": {"enum": ["random", "homogeneous"]},
+                                    "placementMode": {"enum": ["random", "homogeneous", "regular"]},
+                                    "regularSpacing": {"type": "number", "exclusiveMinimum": 0},
                                     "coordinateBasis": {"enum": ["cartesian", "fractional"]},
                                     "pbcAware": {"type": "boolean"},
                                     "seed": {"type": ["integer", "null"], "minimum": 0},
@@ -580,7 +611,8 @@ AI_CONTROL_SCHEMA = {
                                     },
                                     "regionMic": {"type": "boolean"},
                                     "allowEscape": {"type": "boolean"},
-                                    "placementMode": {"enum": ["random", "homogeneous"]},
+                                    "placementMode": {"enum": ["random", "homogeneous", "regular"]},
+                                    "regularSpacing": {"type": "number", "exclusiveMinimum": 0},
                                     "coordinateBasis": {"enum": ["cartesian", "fractional"]},
                                     "pbcAware": {"type": "boolean"},
                                     "randomOrientation": {"type": "boolean"},
@@ -638,6 +670,62 @@ AI_CONTROL_SCHEMA = {
                                     },
                                     "regionMic": {"type": "boolean"},
                                     "allowEscape": {"type": "boolean"},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {"name": {"const": "scale-add-atoms-regions"}},
+                            },
+                            "then": {
+                                "required": ["regionIds", "factor"],
+                                "properties": {
+                                    "regionIds": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "uniqueItems": True,
+                                        "items": {"type": "string", "minLength": 1},
+                                    },
+                                    "factor": {"type": "number", "exclusiveMinimum": 0},
+                                    "axis": {"enum": ["ALL", "X", "Y", "Z"]},
+                                    "pivot": {
+                                        "oneOf": [
+                                            {"const": "selection"},
+                                            {
+                                                "type": "array",
+                                                "items": {"type": "number"},
+                                                "minItems": 3,
+                                                "maxItems": 3,
+                                            },
+                                        ],
+                                    },
+                                    "regionMic": {"type": "boolean"},
+                                    "allowEscape": {"type": "boolean"},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {"name": {"const": "scale-selection"}},
+                            },
+                            "then": {
+                                "required": ["factor"],
+                                "properties": {
+                                    "factor": {"type": "number", "exclusiveMinimum": 0},
+                                    "axis": {"enum": ["ALL", "X", "Y", "Z"]},
+                                    "pivot": {
+                                        "oneOf": [
+                                            {"enum": ["com", "active", "origin", "cell"]},
+                                            {
+                                                "type": "array",
+                                                "items": {"type": "number"},
+                                                "minItems": 3,
+                                                "maxItems": 3,
+                                            },
+                                        ],
+                                    },
                                 },
                             },
                         },
@@ -1179,6 +1267,16 @@ AI_OPERATION_PARAMETERS = {
         "optional": ["coordinateMode", "applyConstraints"],
         "notes": "coordinateMode is cartesian or fractional.",
     },
+    "set-unit-cell": {
+        "mode": "edit",
+        "required": ["cell"],
+        "optional": ["pbc"],
+        "notes": (
+            "Defines the 3 x 3 ASE cell without scaling atom coordinates. pbc defaults "
+            "to [true,true,true]. This also creates a usable scratch document when no "
+            "atoms have been loaded."
+        ),
+    },
     "set-supercell": {
         "mode": "edit",
         "required": ["reps"],
@@ -1201,12 +1299,13 @@ AI_OPERATION_PARAMETERS = {
         "required": ["entries-or-element-count"],
         "optional": [
             "entries", "element", "label", "count", "regionMode", "regions", "bounds",
-            "regionRole", "regionMic", "allowEscape", "placementMode", "coordinateBasis", "pbcAware",
+            "regionRole", "regionMic", "allowEscape", "placementMode", "regularSpacing", "coordinateBasis", "pbcAware",
             "seed", "freezeExisting", "cutoffBasis", "cutoffScale", "pairCutoffs",
         ],
         "notes": (
             "Starts an Add Atoms session and places one or more element/label populations. "
-            "placementMode is random or homogeneous. coordinateBasis=cartesian optimizes "
+            "placementMode is random, homogeneous, or regular. regular uses optional regularSpacing in A. "
+            "coordinateBasis=cartesian optimizes "
             "physical nearest-neighbor spacing in angstrom and is the default; fractional "
             "optimizes normalized cell-coordinate spacing. Random sampling remains volume-uniform "
             "under either basis because the cell transform has a constant Jacobian. "
@@ -1225,7 +1324,7 @@ AI_OPERATION_PARAMETERS = {
         "required": ["molecules-or-molecule-count"],
         "optional": [
             "molecules", "molecule", "label", "count", "regionMode", "regions", "bounds",
-            "regionRole", "regionMic", "allowEscape", "placementMode", "coordinateBasis", "pbcAware",
+            "regionRole", "regionMic", "allowEscape", "placementMode", "regularSpacing", "coordinateBasis", "pbcAware",
             "randomOrientation", "rigidMolecules", "seed", "freezeExisting",
             "quantityMode", "targetDensityGcm3", "cutoffBasis", "cutoffScale", "pairCutoffs",
         ],
@@ -1313,6 +1412,25 @@ AI_OPERATION_PARAMETERS = {
         "notes": (
             "axis defaults to [0,0,1]. pivot is com, active, origin, cell, "
             "or an explicit three-number position."
+        ),
+    },
+    "scale-selection": {
+        "mode": "edit",
+        "required": ["factor", "selection-or-indices"],
+        "optional": ["indices", "axis", "pivot", "applyConstraints"],
+        "notes": (
+            "Scales physical Cartesian atom coordinates about the pivot without changing "
+            "atom or bond radii. axis is X, Y, Z, or ALL and defaults to ALL. pivot is "
+            "com, active, origin, cell, or an explicit three-number position."
+        ),
+    },
+    "scale-add-atoms-regions": {
+        "mode": "edit",
+        "required": ["regionIds", "factor", "active-add-atoms-session"],
+        "optional": ["axis", "pivot", "regionMic", "allowEscape"],
+        "notes": (
+            "Scales Cartesian insertion-region bounds about their shared center, or an "
+            "explicit three-number pivot. axis is X, Y, Z, or ALL."
         ),
     },
     "rotate-to-commensurate": {
@@ -1453,9 +1571,13 @@ AI_OPERATION_PARAMETERS = {
     },
     "exit-relaxation-mode": {
         "mode": "edit",
-        "required": ["inactive-structure-relaxation"],
-        "optional": [],
-        "notes": "Closes the dedicated optimization movie timeline without changing coordinates.",
+        "required": [],
+        "optional": ["keep"],
+        "notes": (
+            "Stops an active optimizer if needed, closes the dedicated movie timeline, "
+            "and either keeps current coordinates (default) or restores the exact "
+            "pre-relaxation structure when keep=false."
+        ),
     },
     "refresh-displacements": {
         "mode": "view-or-edit",
@@ -1751,6 +1873,10 @@ def session_atoms_to_json(session: EditorSession, include_inline_trajectory: boo
     addition = atom_addition_summary(session)
     data["metadata"]["atom_addition"] = addition
     data["metadata"]["registry_relaxation"] = registry_relaxation_summary(session)
+    data["metadata"]["relaxation"] = {
+        "active": bool(session.relaxation_mode_active),
+        "is_relaxing": bool(session.is_relaxing),
+    }
     if addition and addition["temporary_fixed_indices"]:
         fixed = set(data["constraints"].get("fixed_indices") or [])
         fixed.update(addition["temporary_fixed_indices"])
@@ -3954,8 +4080,22 @@ async def _replace_session_from_file(
     *,
     source_is_temporary: bool,
     volumetric_precision: str = "float32",
+    runtime_mode: str | None = None,
 ) -> tuple[Dict[str, Any], bool]:
     from .io import read_fast_lammps_dump, read_structure_frames, resolve_input_format
+
+    requested_mode = None
+    if runtime_mode is not None and str(runtime_mode).strip():
+        requested_mode = str(runtime_mode).strip().lower()
+        if requested_mode not in {"view", "edit"}:
+            raise HTTPException(
+                status_code=400,
+                detail="runtime_mode must be 'view' or 'edit'.",
+            )
+        # Select the reader before parsing.  In particular, View mode must use
+        # the virtual LAMMPS trajectory path instead of materializing every
+        # frame as editable ASE Atoms first.
+        session.config["viz_only"] = requested_mode == "view"
 
     suffix = Path(display_name).suffix
     format_hint = _uploaded_format_hint(display_name, input_format)
@@ -4030,6 +4170,8 @@ async def _replace_session_from_file(
         replace_session_frames(session, frames)
         loaded_kind = "trajectory" if session.frame_count > 1 else "structure"
 
+    if requested_mode is not None:
+        switch_session_mode(session, viz_only=requested_mode == "view")
     session.config["empty_workspace"] = False
     session.config["document_name"] = display_name
     data = session_atoms_to_json(session)
@@ -4210,6 +4352,7 @@ async def load_structure_file(
     input_format: str | None = None,
     index: str = ":",
     volumetric_precision: str = "float32",
+    runtime_mode: str | None = None,
 ):
     """Stream a browser-selected structure, trajectory, or project into a session."""
     session = get_session(session_id)
@@ -4227,6 +4370,7 @@ async def load_structure_file(
             index,
             source_is_temporary=True,
             volumetric_precision=volumetric_precision,
+            runtime_mode=runtime_mode,
         )
         return data
     except HTTPException:
@@ -4254,6 +4398,7 @@ async def load_structure_path(session_id: str, payload: Dict[str, Any]):
     input_format = payload.get("input_format") or None
     index = str(payload.get("index") or ":")
     volumetric_precision = str(payload.get("volumetric_precision") or "float32")
+    runtime_mode = payload.get("runtime_mode")
     try:
         data, _ = await _replace_session_from_file(
             session,
@@ -4263,6 +4408,7 @@ async def load_structure_path(session_id: str, payload: Dict[str, Any]):
             index,
             source_is_temporary=False,
             volumetric_precision=volumetric_precision,
+            runtime_mode=str(runtime_mode) if runtime_mode is not None else None,
         )
         return data
     except HTTPException:
@@ -5210,6 +5356,7 @@ async def add_atoms(session_id: str, payload: Dict[str, Any]):
         )
         session.working_atoms.append(Atom(atom_symbol, position=position))
     set_atom_labels(session.working_atoms, labels)
+    session.config["empty_workspace"] = False
     session.invalidate_trajectory_layout()
     session.sync_current_frame()
     session.refresh_trajectory_identity()
@@ -6091,6 +6238,49 @@ async def apply_supercell(session_id: str, payload: Dict[str, Any]):
     return session_update_to_json(session)
 
 
+@app.post("/api/cell/{session_id}")
+async def set_unit_cell(session_id: str, payload: Dict[str, Any]):
+    """Set one explicit Cartesian 3 x 3 cell on every editable frame."""
+    session = get_session(session_id)
+    require_editable(session, "Setting the unit cell")
+    if session.volumetric_datasets:
+        raise HTTPException(
+            status_code=409,
+            detail="Remove loaded volumetric data before replacing its unit cell.",
+        )
+    try:
+        cell = np.asarray(payload.get("cell"), dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Cell entries must be numeric.") from exc
+    if cell.shape != (3, 3) or not np.all(np.isfinite(cell)):
+        raise HTTPException(
+            status_code=400,
+            detail="Cell must be a 3 x 3 matrix of finite Cartesian values in angstrom.",
+        )
+    determinant = float(np.linalg.det(cell))
+    if abs(determinant) <= 1e-12:
+        raise HTTPException(status_code=400, detail="Cell vectors must span a non-zero volume.")
+    raw_pbc = payload.get("pbc", [True, True, True])
+    if not isinstance(raw_pbc, (list, tuple)) or len(raw_pbc) != 3:
+        raise HTTPException(status_code=400, detail="PBC must contain three boolean values.")
+    pbc = np.asarray([bool(value) for value in raw_pbc], dtype=bool)
+    scale_atoms = bool(payload.get("scale_atoms", False))
+
+    def transform(atoms):
+        updated = atoms.copy()
+        updated.set_cell(cell, scale_atoms=scale_atoms)
+        updated.set_pbc(pbc)
+        if atoms.calc:
+            updated.calc = copy_calculator(atoms.calc)
+        return updated
+
+    session.push_history(include_trajectory=True)
+    apply_all_frames(session, transform)
+    session.config["empty_workspace"] = False
+    session.invalidate_trajectory_layout()
+    return session_update_to_json(session)
+
+
 @app.post("/api/supercell/matrix/{session_id}")
 async def apply_supercell_matrix(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
@@ -6192,7 +6382,7 @@ async def workspace_websocket_endpoint(websocket: WebSocket, workspace_id: str):
 
 # Modular endpoints for scientific features
 if FASTAPI_AVAILABLE:
-    from .relax import start_relaxation, stop_relaxation
+    from .relax import exit_relaxation, start_relaxation, stop_relaxation
     from .export import (
         OptionalExportDependencyError,
         VideoExportError,
@@ -6445,3 +6635,11 @@ if FASTAPI_AVAILABLE:
     async def api_relax_stop(session_id: str):
         session = get_session(session_id)
         return await stop_relaxation(session)
+
+    @app.post("/api/relax/exit/{session_id}")
+    async def api_relax_exit(session_id: str, payload: Dict[str, Any]):
+        session = get_session(session_id)
+        result = await exit_relaxation(session, keep=bool(payload.get("keep", True)))
+        data = session_update_to_json(session)
+        data["relaxation_exit"] = result
+        return data

@@ -255,6 +255,37 @@ def test_rdf_refuses_partial_pbc_instead_of_reporting_boundary_biased_curve():
         calculate_rdf(atoms, cutoff=3.0)
 
 
+def test_finite_structure_reports_normalized_pair_distribution_without_cell():
+    atoms = Atoms(
+        "H4",
+        positions=[[0, 0, 0], [1, 0, 0], [0, 2, 0], [0, 0, 3]],
+        pbc=False,
+    )
+    set_atom_labels(atoms, ["H_a", "H_a", "H_b", "H_b"])
+
+    result = calculate_rdf(atoms, bins=120, pair_mode="all")
+
+    assert result.analysis_kind == "pair-distribution"
+    assert result.title == "Pair-distribution function"
+    assert result.periodic_image_span == (1, 1, 1)
+    dr = result.cutoff / result.bins
+    assert np.sum(result.total) * dr == pytest.approx(1.0, abs=1e-12)
+    assert set(result.partial) == {"H_a|H_a", "H_a|H_b", "H_b|H_b"}
+    assert rdf_csv(result).decode("utf-8").splitlines()[0] == (
+        "r_angstrom,total_pair_probability_per_angstrom,H_a|H_a,H_a|H_b,H_b|H_b"
+    )
+
+
+def test_finite_pair_distribution_respects_explicit_cutoff_probability_mass():
+    atoms = Atoms("H3", positions=[[0, 0, 0], [1, 0, 0], [4, 0, 0]], pbc=False)
+
+    result = calculate_rdf(atoms, cutoff=1.5, bins=30, pair_mode="none")
+
+    dr = result.cutoff / result.bins
+    # One of the three unordered pairs lies inside the requested interval.
+    assert np.sum(result.total) * dr == pytest.approx(1.0 / 3.0, abs=1e-12)
+
+
 def test_rdf_http_contract_returns_plot_payload_and_matching_csv():
     atoms = _random_periodic_atoms(count=240)
     session = EditorSession("rdf-api", atoms.copy(), atoms.copy())

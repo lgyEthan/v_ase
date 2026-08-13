@@ -19,7 +19,7 @@ from fastapi import HTTPException
 
 import v_ase.relax as relax_module
 from v_ase.export import export_pickle_response, export_poscar_response
-from v_ase.relax import start_relaxation, stop_relaxation
+from v_ase.relax import exit_relaxation, start_relaxation, stop_relaxation
 from v_ase import DefaultRepulsionCalculator as RootDefaultRepulsionCalculator
 from v_ase import RepulsionCalculator as RootRepulsionCalculator
 from v_ase.calculator import RepulsionCalculator as SingularRepulsionCalculator
@@ -54,6 +54,7 @@ from v_ase.server import (
     save_project,
     schedule_session_autoclose,
     set_frame,
+    set_unit_cell,
     undo,
     update_atom_identity,
     update_calculator,
@@ -647,6 +648,84 @@ def test_relaxation_starts_with_default_repulsion_calculator(monkeypatch):
     assert finished[-1]["status"] == "converged"
     assert len(finished[-1]["positions"]) == len(atoms)
     asyncio.run(stop_relaxation(session))
+
+
+def test_repulsion_separates_exactly_coincident_atoms_without_a_cell():
+    atoms = Atoms("HH", positions=np.zeros((2, 3)))
+    atoms.calc = RepulsionCalculator(cutoff_scale=1.0, k_repulsion=2.0)
+
+    forces = atoms.get_forces()
+
+    assert np.linalg.norm(forces[0]) > 0.1
+    np.testing.assert_allclose(forces[0], -forces[1], atol=1e-12)
+
+
+def test_default_relaxation_moves_coincident_scratch_atoms_without_a_cell():
+    atoms = Atoms("HH", positions=np.zeros((2, 3)), pbc=False)
+    session = EditorSession(
+        "scratch-relax-no-cell",
+        atoms.copy(),
+        atoms.copy(),
+        config={"viz_only": False, "empty_workspace": False},
+    )
+
+    response = asyncio.run(start_relaxation(
+        session,
+        {"steps": 50, "fmax": 0.01},
+        None,
+    ))
+    assert response["status"] == "started"
+    deadline = time.monotonic() + 5.0
+    while session.is_relaxing and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert session.is_relaxing is False
+    separation = np.linalg.norm(
+        session.working_atoms.positions[0] - session.working_atoms.positions[1]
+    )
+    assert separation > 0.1
+    assert np.linalg.det(session.working_atoms.cell.array) == pytest.approx(0.0)
+    assert session.working_atoms.pbc.tolist() == [False, False, False]
+
+
+def test_relaxation_mode_can_restore_or_keep_while_worker_is_active(monkeypatch):
+    atoms = Atoms("HH", positions=[[0, 0, 0], [0.25, 0, 0]])
+    session = make_session(atoms)
+    monkeypatch.setattr(relax_module, "_launch_relax_thread", lambda *_args: None)
+
+    asyncio.run(start_relaxation(session, {"steps": 20}, None))
+    session.working_atoms.positions += [1.0, 0.0, 0.0]
+    session.sync_current_frame()
+    restored = asyncio.run(exit_relaxation(session, keep=False))
+    assert restored == {"status": "exited", "kept": False}
+    np.testing.assert_allclose(session.working_atoms.positions, atoms.positions)
+    assert session.relaxation_mode_active is False
+    assert session.is_relaxing is False
+
+    asyncio.run(start_relaxation(session, {"steps": 20}, None))
+    kept_positions = session.working_atoms.positions + [0.5, 0.0, 0.0]
+    session.working_atoms.set_positions(kept_positions)
+    session.sync_current_frame()
+    kept = asyncio.run(exit_relaxation(session, keep=True))
+    assert kept == {"status": "exited", "kept": True}
+    np.testing.assert_allclose(session.working_atoms.positions, kept_positions)
+    assert session.undo() is not None
+    np.testing.assert_allclose(session.working_atoms.positions, atoms.positions)
+
+
+def test_empty_edit_session_accepts_explicit_triclinic_cell():
+    session = make_session(Atoms())
+    cell = [[4.0, 0.0, 0.0], [1.2, 5.0, 0.0], [0.4, 0.7, 6.0]]
+
+    data = asyncio.run(set_unit_cell(session.session_id, {
+        "cell": cell,
+        "pbc": [True, True, False],
+    }))
+
+    np.testing.assert_allclose(data["cell"], cell)
+    assert data["pbc"] == [True, True, False]
+    assert data["positions"] == []
+    assert data["metadata"]["config"]["empty_workspace"] is False
 
 
 def test_atoms_endpoint_includes_view_config():

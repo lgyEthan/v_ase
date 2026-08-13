@@ -15,11 +15,12 @@ function cssColor(property, fallback) {
 export class ASETransform {
     constructor(scene) {
         this.scene = scene;
-        this.mode = 'IDLE'; // IDLE, MOVE, ROTATE
+        this.mode = 'IDLE'; // IDLE, MOVE, ROTATE, SCALE
         this.axis = null; // X, Y, Z
         this.buffer = "";
         this.pointerDelta = new THREE.Vector2(0, 0);
         this.rotationAngle = 0;
+        this.scaleFactor = 1;
         this.pivot = new THREE.Vector3();
         this.visualOffset = new THREE.Vector3();
         this.rotationGuide = null;
@@ -114,6 +115,7 @@ export class ASETransform {
         this.axis = null;
         this.pointerDelta.set(0, 0);
         this.rotationAngle = 0;
+        this.scaleFactor = 1;
         this.pivot.copy(pivot);
         this.visualOffset.copy(visualOffset?.isVector3 ? visualOffset : new THREE.Vector3());
         this.rotationGuide = null;
@@ -244,6 +246,7 @@ export class ASETransform {
         this.buffer = "";
         this.pointerDelta.set(0, 0);
         this.rotationAngle = 0;
+        this.scaleFactor = 1;
         this.rotationGuide = null;
         this.guideRoot.visible = false;
         this.rotationGuideGroup.visible = false;

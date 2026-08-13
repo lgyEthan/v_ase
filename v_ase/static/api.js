@@ -1007,6 +1007,14 @@ export class ASEApi {
         );
     }
 
+    async setUnitCell(cell, pbc = [true, true, true], scaleAtoms = false) {
+        return await this.jsonPost(`/api/cell/{session_id}`, {
+            cell,
+            pbc,
+            scale_atoms: Boolean(scaleAtoms)
+        });
+    }
+
     async applyTranslation(positions, vector, coordinateMode = 'cartesian', applyConstraint = true) {
         return await this.jsonPost(`/api/translate/{session_id}`, this.framePayload({
             positions,
@@ -1303,6 +1311,12 @@ export class ASEApi {
 
     async relaxStop() {
         return await this.post(`/api/relax/stop/{session_id}`);
+    }
+
+    async relaxExit(keep = true) {
+        return await this.jsonPost(`/api/relax/exit/{session_id}`, {
+            keep: Boolean(keep)
+        });
     }
 
     async exportPoscar(positions, applyConstraint = true) {
@@ -1648,13 +1662,22 @@ export class ASEApi {
         });
     }
 
-    async loadStructureFile(file, inputFormat = '', index = ':', volumetricPrecision = 'float32') {
+    async loadStructureFile(
+        file,
+        inputFormat = '',
+        index = ':',
+        volumetricPrecision = 'float32',
+        runtimeMode = null
+    ) {
         const params = new URLSearchParams({
             filename: file?.name || 'structure',
             index: index || ':',
             volumetric_precision: volumetricPrecision || 'float32'
         });
         if (inputFormat) params.set('input_format', inputFormat);
+        if (runtimeMode === 'view' || runtimeMode === 'edit') {
+            params.set('runtime_mode', runtimeMode);
+        }
         return await this.request(`/api/file/load/{session_id}?${params.toString()}`, {
             method: 'POST',
             headers: {'Content-Type': file?.type || 'application/octet-stream'},

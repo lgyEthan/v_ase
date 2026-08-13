@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.11&rev=1';
-import { ASERenderer } from './renderer.js?v=0.2.11&rev=1';
-import { ASESelection } from './selection.js?v=0.2.11&rev=1';
-import { ASETransform } from './transform.js?v=0.2.11&rev=1';
+import { ASEApi } from './api.js?v=0.2.12&rev=1';
+import { ASERenderer } from './renderer.js?v=0.2.12&rev=1';
+import { ASESelection } from './selection.js?v=0.2.12&rev=1';
+import { ASETransform } from './transform.js?v=0.2.12&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.11&rev=1';
+} from './trajectory.js?v=0.2.12&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -1716,6 +1716,9 @@ class VAseApp {
         document.getElementById('add-atoms-placement-homogeneous')?.addEventListener('click', () => {
             this.setAddAtomsPlacementMode('homogeneous');
         });
+        document.getElementById('add-atoms-placement-regular')?.addEventListener('click', () => {
+            this.setAddAtomsPlacementMode('regular');
+        });
         document.getElementById('add-molecules-quantity-count')?.addEventListener('click', () => {
             this.setAddMoleculeQuantityMode('count');
         });
@@ -1811,6 +1814,7 @@ class VAseApp {
         document.getElementById('add-atoms-tab-batch')?.setAttribute('aria-selected', single ? 'false' : 'true');
         document.getElementById('add-atoms-pane-single')?.classList.toggle('hidden', !single);
         document.getElementById('add-atoms-pane-batch')?.classList.toggle('hidden', single);
+        document.querySelector('#create-atom-widget .create-atom-card')?.classList.toggle('batch-active', !single);
         if (single) {
             this.setAddAtomsRegionSelected(false, { update: false });
             this.renderer.clearAddAtomsRegion();
@@ -1868,11 +1872,22 @@ class VAseApp {
     setAddAtomsPlacementMode(mode, { force = false } = {}) {
         if (!this.addAtomsUI || (!force && this.addAtomsSessionActive())) return;
         const homogeneous = mode === 'homogeneous';
-        this.addAtomsUI.placementMode = homogeneous ? 'homogeneous' : 'random';
-        document.getElementById('add-atoms-placement-random')?.classList.toggle('active', !homogeneous);
+        const regular = mode === 'regular';
+        this.addAtomsUI.placementMode = regular ? 'regular' : (homogeneous ? 'homogeneous' : 'random');
+        document.getElementById('add-atoms-placement-random')?.classList.toggle('active', !homogeneous && !regular);
         document.getElementById('add-atoms-placement-homogeneous')?.classList.toggle('active', homogeneous);
+        document.getElementById('add-atoms-placement-regular')?.classList.toggle('active', regular);
         document.getElementById('add-atoms-spacing-basis-row')?.classList.toggle('hidden', !homogeneous);
-        document.getElementById('add-atoms-placement-pbc-row')?.classList.toggle('hidden', !homogeneous);
+        document.getElementById('add-atoms-placement-pbc-row')?.classList.toggle('hidden', !homogeneous && !regular);
+        document.getElementById('add-atoms-regular-spacing-row')?.classList.toggle('hidden', !regular);
+        const note = document.getElementById('add-atoms-distribution-note');
+        if (note) {
+            note.textContent = regular
+                ? 'Regular grid uses fixed global Cartesian spacing and clips sites exactly to the insertion domain.'
+                : homogeneous
+                    ? 'Homogeneous maximizes physical separation and minimizes uncovered voids without imposing a crystal lattice.'
+                    : 'Random samples every accessible volume element with equal probability.';
+        }
     }
 
     async loadAddAtomsMoleculeCatalog() {
@@ -2323,6 +2338,7 @@ class VAseApp {
             reject.disabled = !single || Boolean(this.addAtomsUI.active?.is_relaxing);
             reject.classList.toggle('active', single?.role === 'reject');
         }
+        this.updateDocumentAvailability();
     }
 
     addAtomsDomainPayload() {
@@ -2557,8 +2573,8 @@ class VAseApp {
             + '#add-molecule-entries input, #add-molecule-entries select, #btn-add-molecule-entry, '
             + '#add-molecule-entries .remove-add-molecule-entry, '
             + '#add-atoms-content-atoms, #add-atoms-content-molecules, '
-            + '#add-atoms-placement-random, #add-atoms-placement-homogeneous, '
-            + '#add-atoms-coordinate-basis, #add-atoms-placement-pbc, '
+            + '#add-atoms-placement-random, #add-atoms-placement-homogeneous, #add-atoms-placement-regular, '
+            + '#add-atoms-coordinate-basis, #add-atoms-placement-pbc, #add-atoms-regular-spacing, '
             + '#add-molecules-random-orientation, #add-molecules-rigid, '
             + '#add-molecules-quantity-count, #add-molecules-quantity-density, '
             + '#add-molecules-target-density, '
@@ -2579,7 +2595,9 @@ class VAseApp {
         if (summary?.active) {
             this.addAtomsUI.pane = 'batch';
             this.addAtomsUI.contentKind = summary.content_kind === 'molecules' ? 'molecules' : 'atoms';
-            this.addAtomsUI.placementMode = summary.placement_mode === 'homogeneous' ? 'homogeneous' : 'random';
+            this.addAtomsUI.placementMode = ['homogeneous', 'regular'].includes(summary.placement_mode)
+                ? summary.placement_mode
+                : 'random';
             this.addAtomsUI.regions = Array.isArray(summary.regions)
                 ? summary.regions.map(region => ({
                     id: String(region.id),
@@ -2626,6 +2644,8 @@ class VAseApp {
             if (seed) seed.value = summary.seed ?? '';
             const coordinateBasis = document.getElementById('add-atoms-coordinate-basis');
             if (coordinateBasis) coordinateBasis.value = summary.coordinate_basis || 'cartesian';
+            const regularSpacing = document.getElementById('add-atoms-regular-spacing');
+            if (regularSpacing) regularSpacing.value = summary.regular_spacing ?? '';
             document.getElementById('add-atoms-placement-pbc').checked = summary.pbc_aware !== false;
             document.getElementById('add-atoms-mic').checked = summary.domain?.pbc_aware !== false;
             document.getElementById('add-molecules-random-orientation').checked = summary.random_orientation !== false;
@@ -2659,11 +2679,13 @@ class VAseApp {
             const entries = contentKind === 'atoms' ? this.readAddAtomsEntries() : null;
             const molecules = contentKind === 'molecules' ? this.readAddMoleculeEntries() : null;
             const rawSeed = document.getElementById('add-atoms-seed')?.value?.trim();
+            const rawRegularSpacing = document.getElementById('add-atoms-regular-spacing')?.value?.trim();
             const payload = {
                 content_kind: contentKind,
                 entries: entries || undefined,
                 molecules: molecules || undefined,
                 placement_mode: this.addAtomsUI?.placementMode || 'random',
+                regular_spacing: rawRegularSpacing === '' ? null : Number(rawRegularSpacing),
                 coordinate_basis: document.getElementById('add-atoms-coordinate-basis')?.value || 'cartesian',
                 pbc_aware: document.getElementById('add-atoms-placement-pbc')?.checked !== false,
                 random_orientation: document.getElementById('add-molecules-random-orientation')?.checked !== false,
@@ -5318,9 +5340,16 @@ class VAseApp {
         if (detailElement) detailElement.textContent = detail;
     }
 
-    invalidateRdfResult(
-        detail = 'The structure or trajectory frame changed. Calculate the RDF again.'
-    ) {
+    distributionAnalysisName() {
+        const pbc = Array.isArray(this.state.atoms?.pbc)
+            ? this.state.atoms.pbc.map(Boolean)
+            : [false, false, false];
+        if (pbc.every(Boolean)) return 'RDF';
+        if (!pbc.some(Boolean)) return 'Pair-distribution function';
+        return 'Distribution';
+    }
+
+    invalidateRdfResult(detail = null) {
         const status = document.getElementById('rdf-status');
         const wasCalculating = status?.dataset?.state === 'loading';
         const hadResult = Boolean(this.state.rdfResult);
@@ -5330,7 +5359,12 @@ class VAseApp {
         if (plot && window.Plotly?.purge) window.Plotly.purge(plot);
         if (this.state.activeAnalysisPlot === 'rdf') this.closeAnalysisDrawer();
         if (hadResult || wasCalculating) {
-            this.setRdfStatus('idle', 'RDF needs recalculation', detail);
+            const analysisName = this.distributionAnalysisName();
+            this.setRdfStatus(
+                'idle',
+                `${analysisName} needs recalculation`,
+                detail || `The structure or trajectory frame changed. Calculate the ${analysisName} again.`
+            );
         }
     }
 
@@ -5403,7 +5437,11 @@ class VAseApp {
 
     async plotRdf(result) {
         const Plotly = await this.ensurePlotly();
-        const plot = this.showAnalysisDrawer('rdf', 'Radial Distribution Function');
+        const finite = result.analysis_kind === 'pair-distribution';
+        const plot = this.showAnalysisDrawer(
+            'rdf',
+            result.title || (finite ? 'Pair-distribution function' : 'Radial distribution function')
+        );
         if (!plot) return;
         const theme = this.plotTheme();
         const palette = [theme.teal, theme.amber, theme.blue, '#e05b78', '#a7d46f', '#c49ae8'];
@@ -5425,7 +5463,7 @@ class VAseApp {
                 line: { color: palette[(index + 1) % palette.length], width: 1.5 }
             });
         });
-        await Plotly.react(plot, traces, {
+        const layout = {
             autosize: true,
             margin: { l: 56, r: 18, t: 16, b: 48 },
             paper_bgcolor: 'rgba(0,0,0,0)',
@@ -5438,12 +5476,12 @@ class VAseApp {
                 color: theme.muted
             },
             yaxis: {
-                title: 'g(r)',
+                title: result.y_label || (finite ? 'Pair probability / Å⁻¹' : 'g(r)'),
                 gridcolor: theme.line,
                 zerolinecolor: theme.line,
                 color: theme.muted
             },
-            shapes: [{
+            shapes: finite ? [] : [{
                 type: 'line',
                 xref: 'paper',
                 x0: 0,
@@ -5453,7 +5491,7 @@ class VAseApp {
                 y1: 1,
                 line: { color: theme.muted, width: 1.2, dash: 'dot' }
             }],
-            annotations: [{
+            annotations: finite ? [] : [{
                 xref: 'paper',
                 x: 1,
                 xanchor: 'right',
@@ -5471,7 +5509,8 @@ class VAseApp {
                 bgcolor: 'rgba(0,0,0,0)'
             },
             hovermode: 'x unified'
-        }, {
+        };
+        await Plotly.react(plot, traces, layout, {
             responsive: true,
             displaylogo: false,
             scrollZoom: true,
@@ -5937,11 +5976,11 @@ class VAseApp {
         const options = this.rdfOptions();
         this.setRdfStatus(
             'loading',
-            'Calculating RDF',
-            'Counting every periodic image inside the requested spherical cutoff.'
+            'Calculating structural distribution',
+            'Counting pair distances with the boundary conditions of the active structure.'
         );
         const result = await this.withBusy(
-            'Calculating radial distribution function...',
+            'Calculating pair distribution...',
             () => this.api.fetchRdf(options)
         );
         if (token !== this.state.rdfRequestToken) return;
@@ -5954,8 +5993,10 @@ class VAseApp {
         const pairCount = Object.keys(result.partial || {}).length;
         this.setRdfStatus(
             warning ? 'warning' : 'ready',
-            `${result.bins} bins · cutoff ${Number(result.cutoff).toFixed(3)} Å`,
-            warning || `${pairCount} pair curve${pairCount === 1 ? '' : 's'} plus total · periodic image span ${imageSpan}.`
+            `${result.title || 'Distribution'} · ${result.bins} bins · cutoff ${Number(result.cutoff).toFixed(3)} Å`,
+            warning || (result.analysis_kind === 'pair-distribution'
+                ? `${pairCount} pair curve${pairCount === 1 ? '' : 's'} plus total · finite unordered-pair normalization.`
+                : `${pairCount} pair curve${pairCount === 1 ? '' : 's'} plus total · periodic image span ${imageSpan}.`)
         );
         this.scheduleVisualHistoryCommit('rdf');
     }
@@ -6005,14 +6046,14 @@ class VAseApp {
         ['rdf-cutoff', 'rdf-bins', 'rdf-pair-mode'].forEach(id => {
             document.getElementById(id)?.addEventListener('input', () => {
                 this.invalidateRdfResult(
-                    'RDF settings changed. Calculate the RDF again before exporting CSV.'
+                    'Distribution settings changed. Calculate again before exporting CSV.'
                 );
             });
         });
         document.getElementById('btn-rdf-calculate')?.addEventListener('click', () => {
             this.calculateRdf().catch(error => {
-                this.setRdfStatus('warning', 'RDF unavailable', error.message);
-                this.toast(`RDF failed: ${error.message}`, 'error');
+                this.setRdfStatus('warning', 'Distribution unavailable', error.message);
+                this.toast(`Distribution failed: ${error.message}`, 'error');
             });
         });
         document.getElementById('btn-analysis-drawer-close')?.addEventListener('click', () => {
@@ -7430,6 +7471,7 @@ class VAseApp {
         
         const pbc = this.state.atoms.pbc.map(p => p ? 'T' : 'F').join('');
         setHtml('prop-pbc', pbc);
+        this.updateDistributionPanelTitle();
         setHtml('prop-selected', selectedEntries.length);
         this.setCopyableSelectionText(
             'selected-indices',
@@ -7460,6 +7502,17 @@ class VAseApp {
         if (hoverReadout) hoverReadout.innerText = this.atomHoverText(this.state.hoveredReference);
 
         document.body.dataset.mode = this.transform.mode.toLowerCase();
+    }
+
+    updateDistributionPanelTitle() {
+        const title = document.getElementById('distribution-panel-title');
+        if (!title) return;
+        const analysisName = this.distributionAnalysisName();
+        title.textContent = analysisName === 'RDF'
+            ? 'Radial Distribution Function'
+            : (analysisName === 'Distribution'
+                ? 'Radial / Pair Distribution'
+                : analysisName);
     }
 
     setCopyableSelectionText(id, value) {
@@ -7759,6 +7812,36 @@ class VAseApp {
         return `${this.formatNumber(THREE.MathUtils.radToDeg(angle), 2)} deg`;
     }
 
+    transformScaleFactor() {
+        const numeric = this.transform.getNumericValue();
+        if (numeric !== null) return Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+        const start = this.state.transformStartPointer;
+        const current = this.state.lastPointer;
+        const pivot = this.state.rotationScreenPivot;
+        const initialDistance = Math.hypot(start.x - pivot.x, start.y - pivot.y);
+        let factor;
+        if (initialDistance >= 8) {
+            factor = Math.hypot(current.x - pivot.x, current.y - pivot.y) / initialDistance;
+        } else {
+            factor = Math.exp((this.transform.pointerDelta.x + this.transform.pointerDelta.y) * 3.5);
+        }
+        return THREE.MathUtils.clamp(Number.isFinite(factor) ? factor : 1, 1e-4, 1e4);
+    }
+
+    scaleVector(factor) {
+        const scale = new THREE.Vector3(1, 1, 1);
+        if (this.transform.axis === 'X') scale.x = factor;
+        else if (this.transform.axis === 'Y') scale.y = factor;
+        else if (this.transform.axis === 'Z') scale.z = factor;
+        else scale.setScalar(factor);
+        return scale;
+    }
+
+    formatScaleReadout(factor) {
+        const axis = this.transform.axis ? ` ${this.transform.axis}` : '';
+        return `scale${axis} = ${this.formatNumber(factor, 4)}`;
+    }
+
     transformMouseLabel() {
         if (this.transform.mode === 'MOVE' && this.state.moveIncrement > 0) {
             return `mouse / ${this.state.moveIncrement.toFixed(2)} A`;
@@ -7766,6 +7849,7 @@ class VAseApp {
         if (this.transform.mode === 'ROTATE' && this.state.rotateIncrementDeg > 0) {
             return `mouse / ${this.state.rotateIncrementDeg} deg`;
         }
+        if (this.transform.mode === 'SCALE') return 'mouse / scale factor';
         return 'mouse';
     }
 
@@ -7774,7 +7858,9 @@ class VAseApp {
             return this.state.transformReadout;
         }
         if (this.transform.buffer) {
-            const unit = this.transform.mode === 'MOVE' ? 'A' : 'deg';
+            const unit = this.transform.mode === 'MOVE'
+                ? 'A'
+                : (this.transform.mode === 'ROTATE' ? 'deg' : 'x');
             return `${this.transform.buffer} ${unit}`;
         }
         return this.state.transformReadout || this.transformMouseLabel();
@@ -7842,6 +7928,8 @@ class VAseApp {
         );
         if (preserveDisplay) this.captureBondSettingsFromControls();
         this.state.atoms = data;
+        this.state.isRelaxing = Boolean(data?.metadata?.relaxation?.is_relaxing);
+        this.syncUnitCellControls();
         this.syncCommensurateWorkspaceControls();
         this.syncTrajectoryIdentity(data, { reset: resetTrajectoryIdentity });
         this.rebuildLabelIndexCache(data.symbols || []);
@@ -7931,9 +8019,17 @@ class VAseApp {
         return Boolean(this.state.atoms?.positions?.length);
     }
 
+    hasScratchContent() {
+        return this.hasLoadedAtoms()
+            || this.hasUsableCell()
+            || Boolean(this.addAtomsUI?.active)
+            || Boolean(this.addAtomsUI?.regions?.length)
+            || this.state.atoms?.metadata?.config?.empty_workspace === false;
+    }
+
     updateDocumentAvailability() {
         const hasAtoms = this.hasLoadedAtoms();
-        document.getElementById('empty-workspace')?.classList.toggle('hidden', hasAtoms);
+        document.getElementById('empty-workspace')?.classList.toggle('hidden', this.hasScratchContent());
         document.querySelectorAll('[data-requires-atoms]').forEach(element => {
             if ('disabled' in element) element.disabled = !hasAtoms;
         });
@@ -8081,8 +8177,11 @@ class VAseApp {
     }
 
     syncRelaxationModeUI() {
-        const generalMode = this.state.relaxTrajectory?.active
-            && this.state.relaxTrajectory?.kind === 'relaxation';
+        const backendMode = Boolean(this.state.atoms?.metadata?.relaxation?.active);
+        const generalMode = backendMode || (
+            this.state.relaxTrajectory?.active
+            && this.state.relaxTrajectory?.kind === 'relaxation'
+        );
         const badge = document.getElementById('relax-mode-badge');
         const detail = document.getElementById('relax-mode-detail');
         badge?.classList.toggle('hidden', !generalMode);
@@ -8095,6 +8194,53 @@ class VAseApp {
                 : 'Optimization frames use a separate movie timeline until this mode is closed.';
         }
         document.getElementById('btn-exit-relax-mode')?.classList.toggle('hidden', !generalMode);
+    }
+
+    chooseRelaxationExitResult() {
+        this.showModal(`
+            <h2>Exit Relaxation Mode</h2>
+            <p class="modal-intro">Choose which structure should remain. An active optimization will be stopped safely.</p>
+            <ul class="confirm-list">
+                <li><strong>Keep current</strong> uses the latest relaxed coordinates.</li>
+                <li><strong>Restore before relaxation</strong> returns to the exact structure present when this mode started.</li>
+            </ul>
+        `, `
+            <button id="relax-exit-cancel" class="btn">Continue Relaxing</button>
+            <button id="relax-exit-restore" class="btn">Restore Before Relaxation</button>
+            <button id="relax-exit-keep" class="btn primary">Keep Current</button>
+        `);
+        return new Promise(resolve => {
+            let settled = false;
+            const done = value => {
+                if (settled) return;
+                settled = true;
+                this.closeModal();
+                resolve(value);
+            };
+            document.getElementById('relax-exit-cancel')?.addEventListener('click', () => done(null), { once: true });
+            document.getElementById('relax-exit-restore')?.addEventListener('click', () => done(false), { once: true });
+            document.getElementById('relax-exit-keep')?.addEventListener('click', () => done(true), { once: true });
+        });
+    }
+
+    async exitRelaxationMode() {
+        const keep = await this.chooseRelaxationExitResult();
+        if (keep === null) return;
+        try {
+            const data = await this.withBusy(
+                keep ? 'Keeping the current relaxed structure...' : 'Restoring the pre-relaxation structure...',
+                () => this.api.relaxExit(keep)
+            );
+            this.state.isRelaxing = false;
+            this.clearModeTrajectory('relaxation');
+            this.setAtomsData(data, { clearSelection: false });
+            this.toast(
+                keep ? 'Current relaxed structure kept.' : 'Structure restored to before relaxation.',
+                'success'
+            );
+        } catch (error) {
+            this.toast(`Exit relaxation failed: ${error.message}`, 'error');
+        }
     }
 
     samePositionFrame(a, b) {
@@ -10045,6 +10191,15 @@ class VAseApp {
             }
         }
 
+        const scaleFactor = this.transform.mode === 'SCALE'
+            ? this.transformScaleFactor()
+            : 1;
+        const scaleVector = this.scaleVector(scaleFactor);
+        if (this.transform.mode === 'SCALE') {
+            this.transform.scaleFactor = scaleFactor;
+            this.state.transformReadout = this.formatScaleReadout(scaleFactor);
+        }
+
         const changed = [];
         this.renderer.forEachAtomProxy((mesh, idx) => {
             if (this.state.selected.has(idx) && this.isEditableIndex(idx)) {
@@ -10059,6 +10214,11 @@ class VAseApp {
                     offset.applyQuaternion(q);
                     const rotatedTarget = this.transform.pivot.clone().add(offset);
                     const constrainedDelta = this.constrainedMoveDelta(idx, rotatedTarget.sub(origVec));
+                    mesh.position.copy(origVec).add(constrainedDelta);
+                } else if (this.transform.mode === 'SCALE') {
+                    const offset = origVec.clone().sub(this.transform.pivot).multiply(scaleVector);
+                    const scaledTarget = this.transform.pivot.clone().add(offset);
+                    const constrainedDelta = this.constrainedMoveDelta(idx, scaledTarget.sub(origVec));
                     mesh.position.copy(origVec).add(constrainedDelta);
                 }
                 if (![mesh.position.x, mesh.position.y, mesh.position.z].every(Number.isFinite)) {
@@ -10165,6 +10325,14 @@ class VAseApp {
             return this.commitAddAtomsRegionTransform();
         }
         if (this.transform.mode === 'IDLE' || this.state.selected.size === 0) return;
+        if (
+            this.transform.mode === 'SCALE'
+            && this.transform.getNumericValue() !== null
+            && this.transform.getNumericValue() <= 0
+        ) {
+            this.toast('Scale factor must be greater than zero.', 'warning');
+            return;
+        }
         if (!this.canTransformSelectedAtoms()) {
             this.cancelTransform();
             this.transformUnavailableToast();
@@ -10218,17 +10386,25 @@ class VAseApp {
     enterTransformMode(mode) {
         if (this.selectedAddAtomsRegionIds().size) {
             if (mode === 'ROTATE') {
-                this.toast('Insertion regions can be moved with G but cannot be rotated.', 'warning');
+                this.toast('Insertion regions can be moved with G or scaled with S, but cannot be rotated.', 'warning');
                 return;
             }
-            this.enterAddAtomsRegionTransform();
+            this.enterAddAtomsRegionTransform(mode);
             return;
         }
         if (this.state.selectedVolumetricPlanes.size) {
+            if (mode === 'SCALE') {
+                this.toast('Volumetric planes can be moved with G or rotated with R; scaling is not defined.', 'warning');
+                return;
+            }
             this.enterVolumetricPlaneTransformMode(mode);
             return;
         }
         if (this.state.sunSelected) {
+            if (mode === 'SCALE') {
+                this.toast('Sun handles can be moved with G or rotated with R; scaling is not defined.', 'warning');
+                return;
+            }
             this.enterSunTransformMode(mode);
             return;
         }
@@ -10240,7 +10416,7 @@ class VAseApp {
         if (editableSelection.length === 0) return;
         if (this.state.registryRelaxation) {
             if (mode !== 'MOVE') {
-                this.toast('Planar translation mode only permits G. Finish or cancel it before rotating atoms.', 'warning');
+                this.toast('Planar translation mode only permits G. Finish or cancel it before another transform.', 'warning');
                 return;
             }
             if (this.state.registryRelaxation.is_relaxing) {
@@ -10353,7 +10529,7 @@ class VAseApp {
         return this.snapMoveDelta(delta, this.transform.axis ? axisUnit : null);
     }
 
-    enterAddAtomsRegionTransform() {
+    enterAddAtomsRegionTransform(mode = 'MOVE') {
         const selected = this.selectedAddAtomsRegionIds();
         if (!selected.size || this.addAtomsUI?.active?.is_relaxing) {
             if (this.addAtomsUI?.active?.is_relaxing) {
@@ -10378,7 +10554,10 @@ class VAseApp {
         this.state.transformSubject = 'add-atoms-region';
         this.state.transformReadout = '';
         this.state.transformStartPointer.copy(this.state.lastPointer);
-        this.transform.enter('MOVE', pivot, this.renderer.camera, {
+        this.state.rotationScreenPivot.copy(
+            this.worldToScreen(this.renderer.toVisualAtomPosition(pivot))
+        );
+        this.transform.enter(mode, pivot, this.renderer.camera, {
             visualOffset: this.renderer.visualTranslationVector?.() || new THREE.Vector3()
         });
         this.renderer.controls.enabled = false;
@@ -10389,9 +10568,26 @@ class VAseApp {
     applyAddAtomsRegionTransformPreview() {
         const original = this.state.addAtomsRegionTransformOriginal;
         if (!original?.regions || !(original.selected instanceof Set)) return;
-        const delta = this.addAtomsRegionMoveDelta();
+        const delta = this.transform.mode === 'MOVE'
+            ? this.addAtomsRegionMoveDelta()
+            : new THREE.Vector3();
+        const scaleFactor = this.transform.mode === 'SCALE'
+            ? this.transformScaleFactor()
+            : 1;
+        const scale = this.scaleVector(scaleFactor);
+        const pivot = this.transform.pivot;
         this.addAtomsUI.regions = original.regions.map(region => {
             if (!original.selected.has(String(region.id))) return { ...region, bounds: [...region.bounds] };
+            if (this.transform.mode === 'SCALE') {
+                const lower = new THREE.Vector3(region.bounds[0], region.bounds[2], region.bounds[4]);
+                const upper = new THREE.Vector3(region.bounds[1], region.bounds[3], region.bounds[5]);
+                lower.sub(pivot).multiply(scale).add(pivot);
+                upper.sub(pivot).multiply(scale).add(pivot);
+                return {
+                    ...region,
+                    bounds: [lower.x, upper.x, lower.y, upper.y, lower.z, upper.z]
+                };
+            }
             return {
                 ...region,
                 bounds: [
@@ -10402,7 +10598,9 @@ class VAseApp {
             };
         });
         this.renderAddAtomsRegions();
-        this.state.transformReadout = this.formatMoveReadout(delta);
+        this.state.transformReadout = this.transform.mode === 'SCALE'
+            ? this.formatScaleReadout(scaleFactor)
+            : this.formatMoveReadout(delta);
         this.updateAddAtomsRegionPreview();
         this.transform.updateGuides(this.renderer.camera);
         this.updateCommandReadout();
@@ -10420,6 +10618,14 @@ class VAseApp {
 
     async commitAddAtomsRegionTransform() {
         if (this.transform.mode === 'IDLE') return;
+        if (
+            this.transform.mode === 'SCALE'
+            && this.transform.getNumericValue() !== null
+            && this.transform.getNumericValue() <= 0
+        ) {
+            this.toast('Scale factor must be greater than zero.', 'warning');
+            return;
+        }
         this.finishAddAtomsRegionTransform();
         await this.commitAddAtomsRegionControls();
         this.updateAddAtomsRegionPreview();
@@ -10495,10 +10701,57 @@ class VAseApp {
         document.getElementById('tool-select')?.classList.toggle('active', this.transform.mode === 'IDLE');
         document.getElementById('tool-move')?.classList.toggle('active', this.transform.mode === 'MOVE');
         document.getElementById('tool-rotate')?.classList.toggle('active', this.transform.mode === 'ROTATE');
+        document.getElementById('tool-scale')?.classList.toggle('active', this.transform.mode === 'SCALE');
     }
 
     hasUsableCell() {
         return this.state.atoms?.cell?.some(v => new THREE.Vector3(...v).lengthSq() > 1e-12);
+    }
+
+    syncUnitCellControls() {
+        const cell = Array.isArray(this.state.atoms?.cell) ? this.state.atoms.cell : [];
+        for (let row = 0; row < 3; row++) {
+            for (let column = 0; column < 3; column++) {
+                const input = document.getElementById(`cell-${row}${column}`);
+                if (!input || document.activeElement === input) continue;
+                const value = Number(cell?.[row]?.[column] || 0);
+                input.value = String(Math.abs(value) < 5e-13 ? 0 : Number(value.toFixed(10)));
+            }
+        }
+        const pbc = Array.isArray(this.state.atoms?.pbc)
+            ? this.state.atoms.pbc
+            : [true, true, true];
+        ['x', 'y', 'z'].forEach((axis, index) => {
+            const input = document.getElementById(`cell-pbc-${axis}`);
+            if (input) input.checked = Boolean(pbc[index]);
+        });
+    }
+
+    async setUnitCellFromControls() {
+        const cell = [];
+        for (let row = 0; row < 3; row++) {
+            const vector = [];
+            for (let column = 0; column < 3; column++) {
+                const value = Number(document.getElementById(`cell-${row}${column}`)?.value);
+                if (!Number.isFinite(value)) {
+                    this.toast('Cell entries must be finite numbers.', 'warning');
+                    return;
+                }
+                vector.push(value);
+            }
+            cell.push(vector);
+        }
+        const pbc = ['x', 'y', 'z'].map(axis => (
+            Boolean(document.getElementById(`cell-pbc-${axis}`)?.checked)
+        ));
+        try {
+            const data = await this.api.setUnitCell(cell, pbc, false);
+            this.renderer.needsInitialCameraFit = true;
+            this.setAtomsData(data, { clearSelection: false });
+            this.toast('Unit cell updated without moving atoms.', 'success');
+        } catch (error) {
+            this.toast(`Set unit cell failed: ${error.message}`, 'error');
+        }
     }
 
     wrapVisibleAtomsIntoCell() {
@@ -12468,12 +12721,12 @@ class VAseApp {
         const operationParameters = this.clonePlain(discovery.operation_parameters || {});
         const exportParameters = this.clonePlain(discovery.export_parameters || {});
         const fallbackOperations = [
-            'wrap', 'translate-all', 'set-supercell', 'make-supercell',
+            'wrap', 'translate-all', 'set-unit-cell', 'set-supercell', 'make-supercell',
             'add-atom', 'scatter-atoms', 'scatter-molecules',
-            'update-add-atoms-region', 'relax-added-atoms',
+            'update-add-atoms-region', 'scale-add-atoms-regions', 'relax-added-atoms',
             'stop-added-atoms', 'finish-add-atoms', 'cancel-add-atoms',
             'delete-selection', 'set-identity', 'set-constraints',
-            'move-selection', 'rotate-selection', 'rotate-to-commensurate',
+            'move-selection', 'rotate-selection', 'scale-selection', 'rotate-to-commensurate',
             'load-commensurate-guest', 'remove-commensurate-guest',
             'calculate-commensurate', 'apply-commensurate-cell',
             'dismiss-commensurate-cell', 'calculate-registry-map',
@@ -12542,7 +12795,7 @@ class VAseApp {
                 moleculeCatalogUrl,
                 insertionDomainPreviewUrl,
                 moleculeCatalog,
-                placementModes: ['random', 'homogeneous'],
+                placementModes: ['random', 'homogeneous', 'regular'],
                 coordinateBases: ['cartesian', 'fractional'],
                 regionRoles: ['allow', 'reject'],
                 maxRegions: 32,
@@ -12738,7 +12991,8 @@ class VAseApp {
         const addAtomsControls = new Set([
             'relax-added-atoms', 'stop-added-atoms',
             'finish-add-atoms', 'cancel-add-atoms', 'update-add-atoms-region',
-            'move-selection', 'rotate-selection'
+            'scale-add-atoms-regions',
+            'move-selection', 'rotate-selection', 'scale-selection'
         ]);
         if (this.addAtomsSessionActive() && !addAtomsControls.has(name)) {
             throw new Error(
@@ -12864,6 +13118,32 @@ class VAseApp {
             ));
             return;
         }
+        if (name === 'set-unit-cell') {
+            this.aiRequireEdit('set-unit-cell');
+            if (!Array.isArray(operation.cell) || operation.cell.length !== 3) {
+                throw new Error('set-unit-cell requires a finite 3 x 3 cell matrix.');
+            }
+            const cell = operation.cell.map((row, index) => {
+                if (!Array.isArray(row) || row.length !== 3) {
+                    throw new Error(`set-unit-cell row ${index + 1} must contain three numbers.`);
+                }
+                return row.map(value => {
+                    const number = Number(value);
+                    if (!Number.isFinite(number)) {
+                        throw new Error('set-unit-cell requires a finite 3 x 3 cell matrix.');
+                    }
+                    return number;
+                });
+            });
+            const pbc = operation.pbc === undefined
+                ? [true, true, true]
+                : operation.pbc;
+            if (!Array.isArray(pbc) || pbc.length !== 3) {
+                throw new Error('set-unit-cell pbc must contain three booleans.');
+            }
+            setData(await this.api.setUnitCell(cell, pbc.map(Boolean)), true);
+            return;
+        }
         if (name === 'set-supercell') {
             this.aiRequireEdit('set-supercell');
             const reps = this.aiFiniteVector(operation.reps, 'reps');
@@ -12952,9 +13232,10 @@ class VAseApp {
                     ? 'prohibited'
                     : 'allowed',
                 allow_escape: operation.allowEscape !== false,
-                placement_mode: operation.placementMode === 'homogeneous'
-                    ? 'homogeneous'
+                placement_mode: ['homogeneous', 'regular'].includes(operation.placementMode)
+                    ? operation.placementMode
                     : 'random',
+                regular_spacing: operation.regularSpacing ?? null,
                 coordinate_basis: operation.coordinateBasis === 'fractional'
                     ? 'fractional'
                     : 'cartesian',
@@ -13021,6 +13302,72 @@ class VAseApp {
             if (allowEscape) allowEscape.checked = summary.allow_escape !== false;
             this.updateAddAtomsRegionPreview();
             this.syncAddAtomsActionState();
+            return;
+        }
+        if (name === 'scale-add-atoms-regions') {
+            this.aiRequireEdit('scale-add-atoms-regions');
+            if (!this.addAtomsSessionActive()) {
+                throw new Error('Start an Add Atoms or Add Molecules session before scaling its regions.');
+            }
+            const factor = Number(operation.factor);
+            if (!Number.isFinite(factor) || factor <= 0) {
+                throw new Error('scale-add-atoms-regions requires factor greater than zero.');
+            }
+            const axis = String(operation.axis || 'ALL').trim().toUpperCase();
+            if (!['ALL', 'X', 'Y', 'Z'].includes(axis)) {
+                throw new Error('scale-add-atoms-regions axis must be ALL, X, Y, or Z.');
+            }
+            const ids = new Set((operation.regionIds || []).map(String));
+            if (!ids.size) {
+                throw new Error('scale-add-atoms-regions requires at least one regionId.');
+            }
+            const current = (this.addAtomsUI?.active?.regions || []).map(region => ({
+                ...region,
+                bounds: region.bounds.map(Number)
+            }));
+            const selected = current.filter(region => ids.has(String(region.id)));
+            if (selected.length !== ids.size) {
+                const available = new Set(current.map(region => String(region.id)));
+                const missing = [...ids].filter(id => !available.has(id));
+                throw new Error(`Insertion regions not found: ${missing.join(', ')}.`);
+            }
+            let pivot;
+            if (Array.isArray(operation.pivot)) {
+                pivot = this.aiFiniteVector(operation.pivot, 'pivot');
+            } else {
+                const lower = [0, 1, 2].map(component => Math.min(
+                    ...selected.map(region => region.bounds[component * 2])
+                ));
+                const upper = [0, 1, 2].map(component => Math.max(
+                    ...selected.map(region => region.bounds[component * 2 + 1])
+                ));
+                pivot = lower.map((value, component) => 0.5 * (value + upper[component]));
+            }
+            const factors = axis === 'ALL'
+                ? [factor, factor, factor]
+                : ['X', 'Y', 'Z'].map(candidate => candidate === axis ? factor : 1);
+            const regions = current.map(region => {
+                if (!ids.has(String(region.id))) return region;
+                const bounds = [];
+                for (let component = 0; component < 3; component += 1) {
+                    bounds.push(
+                        pivot[component] + (region.bounds[component * 2] - pivot[component]) * factors[component],
+                        pivot[component] + (region.bounds[component * 2 + 1] - pivot[component]) * factors[component]
+                    );
+                }
+                return { ...region, bounds };
+            });
+            const data = await this.api.updateAtomAdditionRegion({
+                regions,
+                region_mic: operation.regionMic ?? this.addAtomsUI.active.domain?.pbc_aware ?? true,
+                allow_escape: operation.allowEscape ?? this.addAtomsUI.active.allow_escape ?? true
+            });
+            if (this.state.atoms?.metadata) {
+                this.state.atoms.metadata.atom_addition = data?.metadata?.atom_addition || null;
+            }
+            this.syncAddAtomsSessionFromData(data);
+            this.setAddAtomsRegionSelection([...ids]);
+            this.updateAddAtomsRegionPreview();
             return;
         }
         if (name === 'relax-added-atoms') {
@@ -13141,6 +13488,34 @@ class VAseApp {
             const pivot = this.aiRotationPivot(operation, indices, current);
             const next = this.aiRotatedPositions(current, indices, axis, angle, pivot);
             setData(await this.api.applyPositions(next, applyConstraints));
+            return;
+        }
+        if (name === 'scale-selection') {
+            this.aiRequireEdit('scale-selection');
+            const factor = Number(operation.factor);
+            if (!Number.isFinite(factor) || factor <= 0) {
+                throw new Error('scale-selection requires factor greater than zero.');
+            }
+            const axis = String(operation.axis || 'ALL').trim().toUpperCase();
+            if (!['ALL', 'X', 'Y', 'Z'].includes(axis)) {
+                throw new Error('scale-selection axis must be ALL, X, Y, or Z.');
+            }
+            const indices = this.aiOperationIndices(operation);
+            const current = positions();
+            const pivot = this.aiRotationPivot(operation, indices, current);
+            const pivotComponents = pivot.toArray();
+            const scale = axis === 'ALL'
+                ? [factor, factor, factor]
+                : ['X', 'Y', 'Z'].map(candidate => candidate === axis ? factor : 1);
+            indices.forEach(index => {
+                current[index] = current[index].map(
+                    (value, component) => (
+                        pivotComponents[component]
+                        + (value - pivotComponents[component]) * scale[component]
+                    )
+                );
+            });
+            setData(await this.api.applyPositions(current, applyConstraints));
             return;
         }
         if (name === 'load-commensurate-guest') {
@@ -13428,10 +13803,10 @@ class VAseApp {
         }
         if (name === 'exit-relaxation-mode') {
             this.aiRequireEdit('exit-relaxation-mode');
-            if (this.state.isRelaxing) {
-                throw new Error('Stop the active structure relaxation before exiting its mode.');
-            }
+            const data = await this.api.relaxExit(operation.keep !== false);
+            this.state.isRelaxing = false;
             this.clearModeTrajectory('relaxation');
+            setData(data, false);
             return;
         }
         if (name === 'refresh-displacements') {
@@ -17003,6 +17378,8 @@ class VAseApp {
 
     showOpenFileModal(file) {
         const newTabAvailable = this.workspaceChild && window.parent !== window;
+        const hasDocument = this.hasScratchContent();
+        const currentRuntimeMode = this.state.vizOnly ? 'view' : 'edit';
         this.showModal(`
             <h2>Open File</h2>
             <div class="open-file-summary">
@@ -17028,7 +17405,15 @@ class VAseApp {
                 <input id="open-file-index" type="text" value=":" autocomplete="off" spellcheck="false">
             </div>
             <p class="modal-intro">Use <strong>:</strong> for all frames, <strong>-1</strong> for the last frame, or an integer frame index.</p>
-            <fieldset class="open-file-modes">
+            <fieldset class="open-file-runtime">
+                <legend>Mode</legend>
+                <div class="segmented-control" role="radiogroup" aria-label="Open document mode">
+                    <label><input type="radio" name="open-runtime-mode" value="view"${currentRuntimeMode === 'view' ? ' checked' : ''}><span>View</span></label>
+                    <label><input type="radio" name="open-runtime-mode" value="edit"${currentRuntimeMode === 'edit' ? ' checked' : ''}><span>Edit</span></label>
+                </div>
+                <p class="modal-intro">View prioritizes large-data inspection. Edit enables ASE-backed structure changes and calculators.</p>
+            </fieldset>
+            <fieldset class="open-file-modes${hasDocument ? '' : ' hidden'}">
                 <legend>Open as</legend>
                 <label class="open-file-mode">
                     <input type="radio" name="open-file-mode" value="replace" checked>
@@ -17082,19 +17467,22 @@ class VAseApp {
         confirm?.addEventListener('click', async () => {
             const inputFormat = document.getElementById('open-file-format')?.value || '';
             const index = document.getElementById('open-file-index')?.value.trim() || ':';
-            const mode = document.querySelector('input[name="open-file-mode"]:checked')?.value || 'replace';
+            const mode = hasDocument
+                ? (document.querySelector('input[name="open-file-mode"]:checked')?.value || 'replace')
+                : 'replace';
+            const runtimeMode = document.querySelector('input[name="open-runtime-mode"]:checked')?.value || currentRuntimeMode;
             this.closeModal();
             if (mode === 'append') {
-                await this.appendStructureFile(file, inputFormat, index);
+                await this.appendStructureFile(file, inputFormat, index, runtimeMode);
             } else if (mode === 'new-tab') {
-                await this.openStructureFileInNewTab(file, inputFormat, index);
+                await this.openStructureFileInNewTab(file, inputFormat, index, runtimeMode);
             } else {
-                await this.loadStructureFile(file, inputFormat, index);
+                await this.loadStructureFile(file, inputFormat, index, runtimeMode);
             }
         }, { once: true });
     }
 
-    async loadStructureFile(file, inputFormat = '', index = ':') {
+    async loadStructureFile(file, inputFormat = '', index = ':', runtimeMode = null) {
         try {
             this.stopPlayback();
             if (this.transform.mode !== 'IDLE') this.cancelTransform();
@@ -17116,7 +17504,8 @@ class VAseApp {
                     file,
                     inputFormat,
                     index,
-                    this.volumetricImportPrecision()
+                    this.volumetricImportPrecision(),
+                    runtimeMode
                 )
             );
             this.resetHistoryTimeline();
@@ -17155,6 +17544,9 @@ class VAseApp {
                 await this.updateVolumetricSurface();
                 this.initialDesignSettings = this.designSettingsSnapshot();
             }
+            if (runtimeMode === 'view' || runtimeMode === 'edit') {
+                await this.switchRuntimeMode(runtimeMode === 'view');
+            }
             this.resetVisualHistoryBaseline();
             const frameCount = data.metadata?.frame_count || 1;
             this.toast(
@@ -17167,7 +17559,7 @@ class VAseApp {
         }
     }
 
-    async appendStructureFile(file, inputFormat = '', index = ':') {
+    async appendStructureFile(file, inputFormat = '', index = ':', runtimeMode = null) {
         try {
             this.stopPlayback();
             if (this.transform.mode !== 'IDLE') this.cancelTransform();
@@ -17206,6 +17598,9 @@ class VAseApp {
                 preserveDisplay: true,
                 preserveRdf: data.loaded_file?.source_kind === 'volumetric'
             });
+            if (runtimeMode === 'view' || runtimeMode === 'edit') {
+                await this.switchRuntimeMode(runtimeMode === 'view');
+            }
             if (wasEmpty) this.initialDesignSettings = this.designSettingsSnapshot();
             this.resetVisualHistoryBaseline();
             if (data.loaded_file?.source_kind === 'volumetric') {
@@ -17248,7 +17643,7 @@ class VAseApp {
         }
     }
 
-    async openStructureFileInNewTab(file, inputFormat = '', index = ':') {
+    async openStructureFileInNewTab(file, inputFormat = '', index = ':', runtimeMode = null) {
         if (!this.workspaceChild || window.parent === window) {
             this.toast('New structure tabs are available in the v_ase workspace.', 'warning');
             return;
@@ -17268,7 +17663,8 @@ class VAseApp {
                         fileName: file.name,
                         inputFormat,
                         index,
-                        volumetricPrecision: this.volumetricImportPrecision()
+                        volumetricPrecision: this.volumetricImportPrecision(),
+                        runtimeMode: runtimeMode || (this.state.vizOnly ? 'view' : 'edit')
                     }, window.location.origin);
                 })
             );
@@ -17293,11 +17689,12 @@ class VAseApp {
                 <span>Tab / Esc</span><label>Open the control panel while it is collapsed</label>
                 <span>G</span><label>Move selected atoms or Sun handle</label>
                 <span>R</span><label>Rotate selected atoms or Sun direction</label>
+                <span>S</span><label>Scale selected atom spacing or insertion regions about the pivot</label>
                 <span>Sun source + G</span><label>Move source and target together</label>
                 <span>Sun target + G</span><label>Move target only</label>
                 <span>Sun handle + R</span><label>Rotate target around source</label>
                 <span>X / Y / Z</span><label>Align view in select mode</label>
-                <span>X / Y / Z</span><label>Lock transform axis in G/R mode</label>
+                <span>X / Y / Z</span><label>Lock the global Cartesian axis in G/R/S mode</label>
                 <span>Enter</span><label>Confirm transform</label>
                 <span>Esc</span><label>Cancel a transform, close a modal, or close the open control panel and return focus to the viewport</label>
                 <span>Ctrl+C / V / Z</span><label>Copy, paste, undo an edit or visual setting</label>
@@ -18632,10 +19029,6 @@ class VAseApp {
             const file = event.target.files?.[0];
             event.target.value = '';
             if (!file) return;
-            if (!this.hasLoadedAtoms()) {
-                this.loadStructureFile(file, '', ':');
-                return;
-            }
             this.showOpenFileModal(file);
         });
         
@@ -18956,13 +19349,7 @@ class VAseApp {
                 this.toast(`Stop relax failed: ${err.message}`, 'error');
             }
         };
-        document.getElementById('btn-exit-relax-mode').onclick = () => {
-            if (this.state.isRelaxing) {
-                this.toast('Stop the active relaxation before leaving Relaxation mode.', 'warning');
-                return;
-            }
-            this.clearModeTrajectory('relaxation');
-        };
+        document.getElementById('btn-exit-relax-mode').onclick = () => this.exitRelaxationMode();
         document.getElementById('calc-device')?.addEventListener('change', () => {
             const cpus = document.getElementById('calc-cpus');
             if (cpus) cpus.disabled = document.getElementById('calc-device')?.value !== 'cpu';
@@ -19060,6 +19447,7 @@ class VAseApp {
         });
         this.setTranslationCoordinateMode(this.state.translationCoordinateMode);
         document.getElementById('btn-apply-translation').onclick = () => this.applyAtomTranslation();
+        document.getElementById('btn-set-unit-cell').onclick = () => this.setUnitCellFromControls();
         document.getElementById('btn-set-supercell').onclick = () => this.setSupercellAsCell();
         document.getElementById('btn-apply-supercell-matrix').onclick = () => this.applyMakeSupercellMatrix();
         document.getElementById('btn-shortcuts').onclick = () => {
@@ -19116,6 +19504,7 @@ class VAseApp {
         });
         document.getElementById('tool-move')?.addEventListener('click', () => this.enterTransformMode('MOVE'));
         document.getElementById('tool-rotate')?.addEventListener('click', () => this.enterTransformMode('ROTATE'));
+        document.getElementById('tool-scale')?.addEventListener('click', () => this.enterTransformMode('SCALE'));
         this.readTransformSettings();
         ['move-increment', 'rotate-increment'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', () => {
@@ -19549,12 +19938,17 @@ class VAseApp {
                     return;
                 }
                 if (this.selectedAddAtomsRegionIds().size &&
-                    (this.isPhysicalKey(e, 'KeyG', ['g']) || this.isPhysicalKey(e, 'KeyR', ['r']))) {
+                    (
+                        this.isPhysicalKey(e, 'KeyG', ['g'])
+                        || this.isPhysicalKey(e, 'KeyR', ['r'])
+                        || this.isPhysicalKey(e, 'KeyS', ['s'])
+                    )) {
                     e.preventDefault();
                     if (this.isPhysicalKey(e, 'KeyR', ['r'])) {
-                        this.toast('Insertion regions cannot be rotated. Press G to move them.', 'warning');
+                        this.toast('Insertion regions cannot be rotated. Press G to move or S to scale them.', 'warning');
                     } else {
-                        this.enterAddAtomsRegionTransform();
+                        const mode = this.isPhysicalKey(e, 'KeyS', ['s']) ? 'SCALE' : 'MOVE';
+                        this.enterAddAtomsRegionTransform(mode);
                     }
                     return;
                 }
@@ -19591,14 +19985,20 @@ class VAseApp {
                 }
                 if (
                     this.state.selected.size > 0
-                    && (this.isPhysicalKey(e, 'KeyG', ['g']) || this.isPhysicalKey(e, 'KeyR', ['r']))
+                    && (
+                        this.isPhysicalKey(e, 'KeyG', ['g'])
+                        || this.isPhysicalKey(e, 'KeyR', ['r'])
+                        || this.isPhysicalKey(e, 'KeyS', ['s'])
+                    )
                 ) {
                     e.preventDefault();
                     if (!this.canTransformSelectedAtoms()) {
                         this.transformUnavailableToast();
                         return;
                     }
-                    const mode = this.isPhysicalKey(e, 'KeyR', ['r']) ? 'ROTATE' : 'MOVE';
+                    const mode = this.isPhysicalKey(e, 'KeyR', ['r'])
+                        ? 'ROTATE'
+                        : (this.isPhysicalKey(e, 'KeyS', ['s']) ? 'SCALE' : 'MOVE');
                     this.enterTransformMode(mode);
                 }
             }

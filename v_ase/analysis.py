@@ -32,6 +32,10 @@ class RdfResult:
     warnings: tuple[str, ...]
     periodic_image_extent: tuple[int, int, int]
     periodic_image_span: tuple[int, int, int]
+    analysis_kind: str
+    title: str
+    y_label: str
+    normalization: str
     frame_index: int = 0
 
     def payload(self) -> dict[str, Any]:
@@ -53,6 +57,10 @@ class RdfResult:
             "warnings": list(self.warnings),
             "periodic_image_extent": list(self.periodic_image_extent),
             "periodic_image_span": list(self.periodic_image_span),
+            "analysis_kind": self.analysis_kind,
+            "title": self.title,
+            "y_label": self.y_label,
+            "normalization": self.normalization,
             "frame_index": self.frame_index,
         }
 
@@ -79,16 +87,138 @@ def safe_rdf_cutoff(atoms: Atoms) -> float:
 
     if len(atoms) < 1:
         raise ValueError("RDF requires at least one atom.")
-    if not np.all(np.asarray(atoms.pbc, dtype=bool)):
+    pbc = np.asarray(atoms.pbc, dtype=bool)
+    if not np.any(pbc):
+        if len(atoms) < 2:
+            raise ValueError("A finite-system pair-distribution function requires at least two atoms.")
+        span = np.ptp(np.asarray(atoms.positions, dtype=float), axis=0)
+        cutoff = float(np.linalg.norm(span))
+        return max(cutoff, 1e-8)
+    if not np.all(pbc):
         raise ValueError(
             "RDF normalization currently requires periodic boundaries in x, y, and z. "
-            "A partial-PBC or finite-system RDF needs an explicit boundary correction "
-            "and is not reported as a bulk g(r)."
+            "A partial-PBC slab or wire needs a geometry-specific boundary correction "
+            "and is not reported as either bulk g(r) or a finite pair distribution."
         )
     cell = np.asarray(atoms.cell.array, dtype=float)
     if cell.shape != (3, 3) or abs(float(np.linalg.det(cell))) <= 1e-12:
         raise ValueError("RDF requires a finite three-dimensional unit cell.")
     return 0.5 * float(np.min(_cell_face_heights(cell)))
+
+
+def _selected_label_pairs(
+    labels: np.ndarray,
+    pair_mode: str,
+    active_pairs: Iterable[Any] | None,
+) -> tuple[str, list[str], dict[str, int], set[tuple[str, str]]]:
+    ordered_labels = list(dict.fromkeys(labels.tolist()))
+    counts = {
+        label: int(np.count_nonzero(labels == label))
+        for label in ordered_labels
+    }
+    mode = str(pair_mode or "active").lower()
+    if mode not in {"active", "all", "none"}:
+        raise ValueError("RDF pair mode must be active, all, or none.")
+    if mode == "all":
+        selected_pairs = {
+            _canonical_pair(left, right)
+            for left, right in combinations_with_replacement(ordered_labels, 2)
+        }
+    elif mode == "active":
+        selected_pairs = parse_pair_keys(active_pairs)
+    else:
+        selected_pairs = set()
+    return mode, ordered_labels, counts, selected_pairs
+
+
+def _finite_pair_distribution(
+    atoms: Atoms,
+    *,
+    requested: float,
+    safe_cutoff: float,
+    bins: int,
+    pair_mode: str,
+    active_pairs: Iterable[Any] | None,
+    frame_index: int,
+) -> RdfResult:
+    """Return a boundary-unbiased probability density for a finite structure."""
+    natoms = len(atoms)
+    if natoms < 2:
+        raise ValueError("A finite-system pair-distribution function requires at least two atoms.")
+    edges = np.linspace(0.0, requested, bins + 1, dtype=float)
+    radius = 0.5 * (edges[:-1] + edges[1:])
+    widths = np.diff(edges)
+    labels = np.asarray(atom_labels(atoms), dtype=str)
+    mode, ordered_labels, counts, selected_pairs = _selected_label_pairs(
+        labels,
+        pair_mode,
+        active_pairs,
+    )
+    total_histogram = np.zeros(bins, dtype=float)
+    partial_histograms = {
+        pair_key(left, right): np.zeros(bins, dtype=float)
+        for left, right in combinations_with_replacement(ordered_labels, 2)
+        if _canonical_pair(left, right) in selected_pairs
+    }
+    positions = np.asarray(atoms.positions, dtype=float)
+    for atom_i in range(natoms - 1):
+        distances = np.linalg.norm(positions[atom_i + 1:] - positions[atom_i], axis=1)
+        total_histogram += np.histogram(distances, bins=edges)[0]
+        if not partial_histograms:
+            continue
+        left = labels[atom_i]
+        for offset, distance in enumerate(distances, start=atom_i + 1):
+            key = pair_key(left, labels[offset])
+            if key not in partial_histograms or not (0.0 <= distance <= requested):
+                continue
+            index = min(bins - 1, int(np.searchsorted(edges, distance, side="right") - 1))
+            if index >= 0:
+                partial_histograms[key][index] += 1.0
+
+    total_population = float(natoms * (natoms - 1) // 2)
+    total = np.divide(
+        total_histogram,
+        total_population * widths,
+        out=np.zeros_like(total_histogram),
+        where=widths > 0,
+    )
+    partial: dict[str, np.ndarray] = {}
+    for left, right in combinations_with_replacement(ordered_labels, 2):
+        key = pair_key(left, right)
+        histogram = partial_histograms.get(key)
+        if histogram is None:
+            continue
+        population = (
+            counts[left] * (counts[left] - 1) / 2
+            if left == right
+            else counts[left] * counts[right]
+        )
+        normalization = float(population) * widths
+        partial[key] = np.divide(
+            histogram,
+            normalization,
+            out=np.zeros_like(histogram),
+            where=normalization > 0,
+        )
+
+    return RdfResult(
+        radius=radius,
+        total=total,
+        partial=partial,
+        requested_cutoff=requested,
+        cutoff=requested,
+        safe_cutoff=safe_cutoff,
+        bins=bins,
+        pair_mode=mode,
+        warnings=(),
+        periodic_image_extent=(0, 0, 0),
+        periodic_image_span=(1, 1, 1),
+        analysis_kind="pair-distribution",
+        title="Pair-distribution function",
+        y_label="Pair probability / Å⁻¹",
+        normalization="finite unordered-pair probability density; integral is one at full cutoff",
+        frame_index=int(frame_index),
+    )
 
 
 def _canonical_pair(left: str, right: str) -> tuple[str, str]:
@@ -141,6 +271,18 @@ def calculate_rdf(
     warnings: list[str] = []
     effective = requested
 
+    pbc = np.asarray(atoms.pbc, dtype=bool)
+    if not np.any(pbc):
+        return _finite_pair_distribution(
+            atoms,
+            requested=requested,
+            safe_cutoff=safe_cutoff,
+            bins=clean_bins,
+            pair_mode=pair_mode,
+            active_pairs=active_pairs,
+            frame_index=frame_index,
+        )
+
     # ASE enumerates all periodic cell shifts required by the scalar cutoff.
     # With self_interaction=False it removes only the zero-shift i == j pair,
     # while retaining physically distinct copies of the same basis atom.
@@ -178,23 +320,11 @@ def calculate_rdf(
     # Let NumPy size the Unicode dtype from the actual labels. A fixed-width
     # dtype can silently merge distinct user labels that share a long prefix.
     labels = np.asarray(atom_labels(atoms), dtype=str)
-    ordered_labels = list(dict.fromkeys(labels.tolist()))
-    counts = {
-        label: int(np.count_nonzero(labels == label))
-        for label in ordered_labels
-    }
-    mode = str(pair_mode or "active").lower()
-    if mode not in {"active", "all", "none"}:
-        raise ValueError("RDF pair mode must be active, all, or none.")
-    if mode == "all":
-        selected_pairs = {
-            _canonical_pair(left, right)
-            for left, right in combinations_with_replacement(ordered_labels, 2)
-        }
-    elif mode == "active":
-        selected_pairs = parse_pair_keys(active_pairs)
-    else:
-        selected_pairs = set()
+    mode, ordered_labels, counts, selected_pairs = _selected_label_pairs(
+        labels,
+        pair_mode,
+        active_pairs,
+    )
 
     partial: dict[str, np.ndarray] = {}
     empty_labels = np.asarray([], dtype=labels.dtype)
@@ -234,6 +364,10 @@ def calculate_rdf(
         warnings=tuple(warnings),
         periodic_image_extent=periodic_image_extent,
         periodic_image_span=periodic_image_span,
+        analysis_kind="radial-distribution",
+        title="Radial distribution function",
+        y_label="g(r)",
+        normalization="bulk number-density normalized radial distribution",
         frame_index=int(frame_index),
     )
 
@@ -244,7 +378,12 @@ def rdf_csv(result: RdfResult) -> bytes:
     stream = io.StringIO(newline="")
     writer = csv.writer(stream)
     partial_names = list(result.partial)
-    writer.writerow(["r_angstrom", "total_g_r", *partial_names])
+    total_column = (
+        "total_pair_probability_per_angstrom"
+        if result.analysis_kind == "pair-distribution"
+        else "total_g_r"
+    )
+    writer.writerow(["r_angstrom", total_column, *partial_names])
     for row_index, radius in enumerate(result.radius):
         writer.writerow(
             [

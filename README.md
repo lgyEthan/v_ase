@@ -27,8 +27,8 @@ completed structure is inspected from above and below.
 | Why use v_ase? | What it provides |
 | --- | --- |
 | **ASE-native workflow** | Open ASE-supported structures and trajectories from the terminal or Python, retain scientific metadata, and return to the same environment after inspection or editing. |
-| **Direct 3D structure editing** | Select atoms visually, use `G` and `R`, enter exact transforms, create atoms, apply constraints, and inspect every change in the same local browser. [Explore editing](#edit-structures). |
-| **Periodic interfaces and analysis** | Build supercells, search commensurate 2D cells, optimize a rigid translation in any compatible periodic `(hkl)` plane, measure ordered geometry, plot RDFs, and inspect volumetric fields. [Explore interfaces](#periodic-cells-and-interfaces) and [analysis](#analyze-structures-and-fields). |
+| **Direct 3D structure editing** | Start from a file or an empty document, define a cell, insert atoms or molecules, and use `G`, `R`, and physical `S` transforms in the same local browser. [Explore editing](#edit-structures). |
+| **Periodic interfaces and analysis** | Build supercells, search commensurate 2D cells, optimize a rigid translation in any compatible periodic `(hkl)` plane, measure ordered geometry, plot periodic RDFs or finite pair distributions, and inspect volumetric fields. [Explore interfaces](#periodic-cells-and-interfaces) and [analysis](#analyze-structures-and-fields). |
 | **External AI collaboration** | Give a scientific request to an external AI Agent; the bundled Skill lets it operate exact revisioned state while you watch and refine the same GUI. [See the collaboration workflow](#work-with-an-ai-agent). |
 | **Publication and reusable output** | Prepare consistent atoms, bonds, lighting, images, videos, offline HTML views, Blender scenes, and self-contained `.vase` projects. [See export options](#export-and-save). |
 
@@ -71,9 +71,12 @@ v_ase gui relaxation.traj
 v_ase gui project.vase
 ```
 
-The default **View** mode is optimized for visualization, trajectories,
-measurement, appearance, bonds, supercells, and export. Use the top-bar mode
-switch or start directly in **Edit** when atomic coordinates must change:
+`v_ase gui` without a filename opens an empty **Edit** document so a cell and
+atoms can be built immediately. Opening a filename starts in **View**, which is
+optimized for large-data inspection, trajectories, measurement, appearance,
+bonds, supercells, and export. The **Open File** dialog lets you choose View or
+Edit before each structure is loaded. Use the top-bar switch or start a file
+directly in Edit when atomic coordinates must change:
 
 ```bash
 v_ase gui structure.vasp --interactive
@@ -87,11 +90,12 @@ browser document releases the blocking terminal process.
 | Goal | Action |
 | --- | --- |
 | Inspect a structure | Middle-drag to orbit, wheel to zoom, left-click to select |
-| Edit coordinates | Enter **Edit**, select atoms, press `Esc` to focus the viewport, then use `G` or `R` |
+| Build from an empty document | Run `v_ase gui`, define **Structure > Cell & Replication** if needed, then open **+ Add atoms** |
+| Edit coordinates | Enter **Edit**, select atoms, press `Esc` to focus the viewport, then use `G`, `R`, or physical `S` |
 | Insert atoms or molecules | In **Edit**, open **+ Add atoms**, choose **Single** or **Batch**, then place atoms or ASE molecules |
 | Measure geometry | Select 2, 3, or 4 atoms in the required order |
 | Play a trajectory | Use the bottom timeline or `Space`; FPS and Skip update live |
-| Plot an RDF | Use **Analysis > Radial Distribution Function** |
+| Plot pair statistics | Use **Analysis > Radial Distribution Function** for fully periodic bulk cells or **Pair-distribution function** for finite structures |
 | View a charge or potential grid | Open CHGCAR/LOCPOT/PARCHG/Cube/XSF, then use **Analysis > Volumetric Data** |
 | Style a figure | Use **Structure > Appearance/Bonding** and **View** |
 | Match the app to the computer theme | Keep **View > Interface theme** on **System**, or choose Light/Dark explicitly |
@@ -103,7 +107,7 @@ browser document releases the blocking terminal process.
 | Hand the scene to an AI | Provide the bundled agent skill; the agent starts the CLI/API session itself |
 
 > **Viewport tip:** after selecting atoms, press `Esc` to close the control
-> panel before using `G` or `R`. The selection is preserved and keyboard focus
+> panel before using `G`, `R`, or `S`. The selection is preserved and keyboard focus
 > returns to the 3D viewport.
 
 The guide is organized by task:
@@ -140,7 +144,29 @@ exact displacement in angstrom, then confirm with left-click or `Enter`.
 Configured ASE constraints remain authoritative when **Apply constraints** is
 enabled.
 
-### Add Atoms — Available Since v0.2.1
+### Build From Scratch
+
+![Building an amorphous structure from an empty v_ase document](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_scratch_amorphous.gif)
+
+Run `v_ase gui` to start in an empty Edit document. A complete structure can be
+built without loading an input file:
+
+1. Enter the Cartesian `3 x 3` matrix under **Structure > Cell & Replication**,
+   choose the periodic axes, and click **Set Unit Cell**. This defines the ASE
+   cell without moving existing atoms.
+2. Open **+ Add atoms > Batch**, choose atom types, labels, counts, and an
+   initial distribution, then place the batch in the cell or in explicit Allow
+   regions.
+3. Use **Repel** to remove close contacts. The fallback calculator also works
+   for finite structures with no unit cell, provided a finite Allow region
+   defines the insertion domain.
+4. Review the placement timeline and click **Finish** when the staged structure
+   is ready.
+
+The center Open prompt disappears as soon as a cell, region, or atom edit makes
+the scratch document meaningful.
+
+### Add Atoms
 
 #### Allow And Reject Regions
 
@@ -179,6 +205,12 @@ Open **+ Add atoms** in **Edit** mode:
   **Cartesian distance / Å** is the default and maximizes physical
   nearest-neighbor spacing. **Fractional spacing** instead balances normalized
   lattice coordinates. Periodic-aware spacing uses the exact minimum image.
+- **Regular grid** places centers on one global Cartesian lattice. Enter an
+  exact grid spacing in angstrom or leave it on Auto. Sites are clipped to the
+  complete Allow-minus-Reject domain, and periodic boundary duplicates are
+  removed with a half-open primary-cell convention. If the requested spacing
+  cannot provide enough sites, v_ase reports that condition instead of silently
+  changing a user-entered value.
 - With a finite cell, an empty region list uses the complete primary cell.
   Multiple Allow regions are combined, then every Reject region is subtracted.
   Overlap is counted once. Without a finite cell, at least one Allow region is
@@ -186,10 +218,12 @@ Open **+ Add atoms** in **Edit** mode:
 - Each region uses Cartesian `xmin`/`xmax`, `ymin`/`ymax`, and `zmin`/`zmax`.
   The accessible volume is calculated from exact box/cell intersections,
   including triclinic cells; it is not estimated from voxels.
-- Click or Shift-click region rows or their viewport overlays. Press `G` to
-  move one region or the complete selected group while every bound updates
-  live. `R` is unavailable because rotated Cartesian min/max boxes would no
-  longer represent the displayed values.
+- Click or Shift-click region rows, or click their viewport **edges**. Filled
+  faces remain non-pickable, so a smaller nested box can always be reached.
+  Press `G` to move one region or the complete selected group while every bound
+  updates live. Press `S`, optionally followed by `X`, `Y`, or `Z`, to scale the
+  selected boxes about their shared center. `R` is unavailable because rotated
+  Cartesian min/max boxes would no longer represent the displayed values.
 - With region MIC enabled, the intact source cuboid remains visible even when
   it crosses a cell face. Its clipped periodic fragment also appears at the
   symmetry-equivalent opposite face. Shared fragment edges are drawn once, and
@@ -225,7 +259,7 @@ temporary regions and timeline.
 The animations use the included
 [Cu(111)/O placement example](examples/readme_scene_assets/cu111_oxygen_add_atoms.traj).
 
-#### Add Molecules — Available Since v0.2.8
+#### Add Molecules
 
 ![Rigid water molecules placed in a periodic layered channel](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_molecules.gif)
 
@@ -319,6 +353,16 @@ and the green/purple sublayer convention follows published phosphorene
 structure diagrams such as
 [Zhang et al.](https://doi.org/10.1038/srep13927). The example demonstrates
 geometry editing and is not an energy-minimized final structure.
+
+### Scale Selected Atom Spacing
+
+Press `S` after selecting two or more atoms. Type a positive scale factor, or
+press `X`, `Y`, or `Z` first to scale only along that **global Cartesian** axis.
+Scaling is performed about the configured rotation pivot and changes physical
+atom coordinates: `S`, `X`, `1.5`, `Enter` multiplies every selected atom's
+X displacement from the pivot by `1.5`. It does not change atom radii, bond
+thickness, material settings, or the unit cell. ASE constraints remain
+authoritative when **Apply constraints** is enabled.
 
 ## Periodic Cells And Interfaces
 
@@ -702,21 +746,27 @@ cache; changing only color or opacity updates the existing browser geometry.
 This keeps ordinary structure viewing unaffected when no volumetric dataset is
 loaded and avoids sending the complete FFT grid to the browser.
 
-### Radial Distribution Function
+### Radial And Pair-distribution Functions
 
-**Analysis > Radial Distribution Function** plots the current frame in a
-resizable Plotly drawer below the viewport. The total RDF is always included.
-Pair curves default to the active bond-label pairs and can be switched to all
-label pairs or total-only. Set the bin count and cutoff, then export exactly
-the plotted columns as CSV.
+The same Analysis control chooses the statistically correct quantity from the
+current boundary conditions. A fully periodic 3D cell is labeled **Radial
+Distribution Function** and reports bulk `g(r)`. A structure with no periodic
+axes is labeled **Pair-distribution function** and reports the probability
+density of unordered pair distances in `Å⁻¹`. Both open in a resizable Plotly
+drawer below the viewport. The total curve is always included; pair curves
+default to active bond-label pairs and can be switched to all label pairs or
+total-only. Set the bin count and cutoff, then export exactly the plotted
+columns as CSV.
 
-RDF uses exact spherical shell volumes and ASE's periodic neighbor search in
-the full triclinic cell. The requested cutoff is not limited to a `2 x 2 x 2`
-replica or reduced at the unique minimum-image radius: v_ase includes every
-periodic image whose distance falls inside the sphere and reports the image
-span used. Bulk normalization is reported only for cells periodic in all three
-directions; partial-PBC and finite systems require a separate boundary
-correction and are rejected instead of returning a misleading bulk `g(r)`.
+Periodic RDF uses exact spherical shell volumes and ASE's periodic neighbor
+search in the full triclinic cell. The requested cutoff is not limited to a
+`2 x 2 x 2` replica or reduced at the unique minimum-image radius: v_ase
+includes every periodic image whose distance falls inside the sphere and
+reports the image span used. The finite pair distribution uses direct
+Cartesian distances without inventing a bulk density; at a cutoff containing
+all pairs, its probability density integrates to one. Partial-PBC slab and
+wire systems remain rejected because they require a geometry-specific boundary
+correction.
 
 The dotted `g(r) = 1` reference makes the bulk limit explicit. In the
 deterministic amorphous Cu-Zr example below, total, Cu-Cu, Cu-Zr, and Zr-Zr
@@ -791,8 +841,11 @@ v_ase gui examples/readme_scene_assets/hookean.traj --interactive
 timeline. A single loaded structure gains a relaxation movie after the first
 run. If a source trajectory is already open, source and relaxation timelines
 remain separate and the active timeline is clearly selected. Leaving
-**Relaxation mode** removes only this temporary timeline; the current relaxed
-structure remains available for inspection, export, or undo.
+**Exit Relaxation Mode** can be used while the optimizer is running or after it
+stops. v_ase safely invalidates the active worker, removes the temporary
+timeline, and asks whether to **Keep Current** relaxed coordinates or **Restore
+Before Relaxation** exactly. Choosing Continue leaves the mode active. A
+stopped run can be started again without reopening the document.
 
 The included example starts from a deliberately compressed C60 geometry and
 runs ASE FIRE with v_ase's repulsive fallback calculator:
@@ -1249,10 +1302,10 @@ when they are renamed or used for pair analysis.
 | Middle drag | Orbit without inertia |
 | Shift + middle drag | Pan |
 | Wheel | Zoom |
-| `G` / `R` | Move / rotate selected atoms |
-| `X`, `Y`, `Z` during `G`/`R` | Lock transform axis |
+| `G` / `R` / `S` | Move / rotate / physically scale selected atom spacing |
+| `X`, `Y`, `Z` during `G`/`R`/`S` | Lock the global Cartesian transform axis |
 | `X`, `Y`, `Z` otherwise | Align camera to an axis |
-| Number keys | Exact move distance or rotation angle |
+| Number keys | Exact move distance, rotation angle, or scale factor |
 | `Enter` or left click | Confirm transform |
 | `Esc` or right click | Cancel transform |
 | `Ctrl+C`, `Ctrl+V` | Copy and paste atoms |
@@ -1400,7 +1453,7 @@ browser download would remove advance destination selection.
 <details>
 <summary>A large trajectory opens or plays slowly</summary>
 
-- Keep the default View mode unless editing is required.
+- For a loaded large structure or trajectory, use View unless editing is required.
 - Use `--stream-frames` when frame data should be loaded on demand.
 - Keep browser hardware acceleration enabled.
 - Close unused v_ase tabs; inactive tabs pause rendering but retain document
@@ -1410,11 +1463,12 @@ browser download would remove advance destination selection.
 </details>
 
 <details>
-<summary>RDF reports that fully periodic 3D boundaries are required</summary>
+<summary>Pair statistics report that fully periodic 3D boundaries are required</summary>
 
-v_ase does not label a finite or partial-PBC histogram as a bulk RDF. Define a
-valid 3D periodic cell for bulk `g(r)`, or use a method with the boundary
-correction appropriate to the finite, slab, or wire geometry.
+Finite structures with all PBC axes off use the finite **Pair-distribution
+function** automatically. Fully periodic 3D structures use bulk RDF `g(r)`.
+Partial-PBC slabs and wires are not silently treated as either case; use a
+method with the boundary correction appropriate to that geometry.
 
 </details>
 

@@ -52,12 +52,12 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.11&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.12&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.2.11';
+            : '/static/vendor/three.module.js?v=0.2.12';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -116,7 +116,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.2.11</span>
+            <span class="version">0.2.12</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -435,9 +435,10 @@
 
                 <section class="add-atoms-section">
                     <div class="add-atoms-section-head"><span>Initial distribution</span></div>
-                    <div class="add-atoms-region-choice" role="group" aria-label="Initial distribution">
+                    <div class="add-atoms-region-choice add-atoms-placement-choice" role="group" aria-label="Initial distribution">
                         <button id="add-atoms-placement-random" class="active" type="button">Random</button>
                         <button id="add-atoms-placement-homogeneous" type="button">Homogeneous</button>
+                        <button id="add-atoms-placement-regular" type="button">Regular grid</button>
                     </div>
                     <label id="add-atoms-spacing-basis-row" class="add-atoms-inline-field hidden" for="add-atoms-coordinate-basis">
                         <span>Spacing basis</span>
@@ -450,6 +451,11 @@
                         <input id="add-atoms-placement-pbc" type="checkbox" checked>
                         <span>Account for periodic boundaries</span>
                     </label>
+                    <label id="add-atoms-regular-spacing-row" class="add-atoms-inline-field hidden" for="add-atoms-regular-spacing">
+                        <span>Grid spacing</span>
+                        <span class="unit-input"><input id="add-atoms-regular-spacing" type="number" min="0.000001" step="0.1" placeholder="Auto"><span>Å</span></span>
+                    </label>
+                    <p id="add-atoms-distribution-note" class="add-atoms-field-note">Random samples every accessible volume element with equal probability.</p>
                 </section>
 
                 <section class="add-atoms-section">
@@ -482,7 +488,7 @@
                             <button id="add-atoms-region-allowed" class="active" type="button">Allow</button>
                             <button id="add-atoms-region-prohibited" type="button">Reject</button>
                         </div>
-                        <p class="add-atoms-box-hint">Click or Shift-click regions, then press G to move the selection. Rotation is disabled.</p>
+                        <p class="add-atoms-box-hint">Click or Shift-click region edges. Press G to move or S to scale the selection; rotation is disabled.</p>
                     </div>
                     <div class="add-atoms-domain-volume">
                         <span>Accessible volume</span>
@@ -910,7 +916,7 @@
         </details>
 
         <details class="panel-section" open data-panel="rdf" data-panel-group="analysis">
-            <summary class="section-header">Radial Distribution Function</summary>
+            <summary id="distribution-panel-title" class="section-header">Radial / Pair Distribution</summary>
             <div class="prop-row">
                 <label for="rdf-cutoff">Cutoff / Å</label>
                 <input id="rdf-cutoff" type="number" min="0" step="0.1" placeholder="Auto">
@@ -929,8 +935,8 @@
             </div>
             <button id="btn-rdf-calculate" class="btn-block" type="button">Calculate &amp; Plot</button>
             <div id="rdf-status" class="analysis-status" data-state="idle">
-                <span class="analysis-status-title">Total RDF</span>
-                <span class="analysis-status-detail">Requires a fully periodic 3D cell.</span>
+                <span class="analysis-status-title">Ready</span>
+                <span class="analysis-status-detail">Bulk g(r) for 3D periodic cells; finite pair probability for non-periodic structures.</span>
             </div>
         </details>
 
@@ -1193,6 +1199,28 @@
 
         <details class="panel-section" open data-panel="cell-replication" data-panel-group="structure">
             <summary class="section-header">Cell &amp; Replication</summary>
+            <div class="cell-matrix-editor" data-edit-only>
+                <div class="panel-subhead">Unit cell matrix / Å</div>
+                <div class="matrix-grid" id="unit-cell-matrix" aria-label="Cartesian unit cell matrix in angstrom">
+                    <input type="number" id="cell-00" value="0" step="0.1" aria-label="Cell a x">
+                    <input type="number" id="cell-01" value="0" step="0.1" aria-label="Cell a y">
+                    <input type="number" id="cell-02" value="0" step="0.1" aria-label="Cell a z">
+                    <input type="number" id="cell-10" value="0" step="0.1" aria-label="Cell b x">
+                    <input type="number" id="cell-11" value="0" step="0.1" aria-label="Cell b y">
+                    <input type="number" id="cell-12" value="0" step="0.1" aria-label="Cell b z">
+                    <input type="number" id="cell-20" value="0" step="0.1" aria-label="Cell c x">
+                    <input type="number" id="cell-21" value="0" step="0.1" aria-label="Cell c y">
+                    <input type="number" id="cell-22" value="0" step="0.1" aria-label="Cell c z">
+                </div>
+                <div class="cell-pbc-controls" role="group" aria-label="Periodic boundary axes">
+                    <span>PBC</span>
+                    <label><input id="cell-pbc-x" type="checkbox" checked> x</label>
+                    <label><input id="cell-pbc-y" type="checkbox" checked> y</label>
+                    <label><input id="cell-pbc-z" type="checkbox" checked> z</label>
+                </div>
+                <button id="btn-set-unit-cell" class="btn-block" type="button">Set Unit Cell</button>
+                <p class="panel-note">Sets Cartesian cell vectors without moving existing atoms.</p>
+            </div>
             <div class="prop-row supercell-row">
                 <label>Replicate cell</label>
                 <div class="num-group">
@@ -1644,7 +1672,7 @@
         <header class="analysis-drawer-head">
             <div>
                 <span class="analysis-drawer-kicker">ANALYSIS</span>
-                <strong id="analysis-drawer-title">Radial Distribution Function</strong>
+                <strong id="analysis-drawer-title">Structural Distribution</strong>
             </div>
             <div class="analysis-drawer-actions">
                 <select id="commensurate-plot-view" class="analysis-view-select hidden"
@@ -1664,7 +1692,7 @@
                         aria-label="Close analysis graph" title="Close graph">×</button>
             </div>
         </header>
-        <div id="rdf-plot" class="analysis-plot hidden" aria-label="Radial distribution function plot"></div>
+        <div id="rdf-plot" class="analysis-plot hidden" aria-label="Radial or finite pair-distribution plot"></div>
         <div id="commensurate-plot" class="analysis-plot hidden" aria-label="Commensurate cell analysis graph"></div>
         <div id="registry-plot" class="analysis-plot hidden" aria-label="Planar translation map"></div>
     </section>
@@ -1728,11 +1756,12 @@
                     <span>Tab / Esc</span><label>Open the control panel while it is collapsed</label>
                     <span>G</span><label>Move selected atoms or Sun handle</label>
                     <span>R</span><label>Rotate selected atoms or Sun direction</label>
+                    <span>S</span><label>Scale selected atom spacing or insertion regions about the pivot</label>
                     <span>Sun source + G</span><label>Move source and target together</label>
                     <span>Sun target + G</span><label>Move target only</label>
                     <span>Sun handle + R</span><label>Rotate target around source</label>
                     <span>X / Y / Z</span><label>Restore canonical +axis view; repeat from that exact pose for -axis</label>
-                    <span>X / Y / Z</span><label>Lock transform axis in G/R mode</label>
+                    <span>X / Y / Z</span><label>Lock the global Cartesian axis in G/R/S mode</label>
                     <span>Enter</span><label>Confirm transform</label>
                     <span>Esc</span><label>Cancel a transform, close a modal, or close the open control panel and return focus to the viewport</label>
                     <span>Ctrl+C / V / Z</span><label>Copy, paste, undo an edit or visual setting</label>
@@ -1784,7 +1813,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.2.11&rev=2';
+            : './static/main.js?v=0.2.12&rev=2';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

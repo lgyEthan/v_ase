@@ -63,6 +63,14 @@ class EditorSession:
     relax_restart_requested: bool = False
     relax_run_id: int = 0
     relax_params: Dict[str, Any] = field(default_factory=dict)
+    # A general relaxation is an explicit mode.  Keep one complete baseline so
+    # leaving the mode can either commit the current geometry as one undoable
+    # change or restore the exact pre-relaxation document.
+    relaxation_baseline: Optional[SessionHistoryState] = field(
+        default=None,
+        repr=False,
+    )
+    relaxation_mode_active: bool = False
     
     # Communication
     websockets: List[Any] = field(default_factory=list)
@@ -235,6 +243,10 @@ class EditorSession:
         frame_count = max(1, len(self.trajectory_frames))
         self.current_frame = max(0, min(int(state.current_frame), frame_count - 1))
         self.working_atoms = self._copy_atoms(state.working_atoms)
+        if state.trajectory_frames is None and self.trajectory_frames:
+            self.trajectory_frames[self.current_frame] = self._copy_atoms(
+                self.working_atoms
+            )
         self.invalidate_trajectory_layout()
         self.refresh_trajectory_identity()
 
@@ -657,6 +669,8 @@ def replace_session_frames(
     session.relax_restart_requested = False
     session.relax_run_id += 1
     session.relax_params.clear()
+    session.relaxation_baseline = None
+    session.relaxation_mode_active = False
     session.invalidate_trajectory_layout()
     session.config["initial_design_settings"] = initial_design_settings
     session.refresh_trajectory_identity()
@@ -738,6 +752,8 @@ def append_session_frames(session: EditorSession, frames: List[Atoms]) -> int:
     session.relax_restart_requested = False
     session.relax_run_id += 1
     session.relax_params.clear()
+    session.relaxation_baseline = None
+    session.relaxation_mode_active = False
     session.invalidate_trajectory_layout()
     session.config["empty_workspace"] = False
     session.refresh_trajectory_identity()

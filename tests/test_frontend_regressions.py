@@ -420,7 +420,8 @@ def test_selection_marquee_transform_increment_and_view_axis_shortcuts_are_wired
     assert "const canonicalUp = axis === 'Z'" in main_js
     assert "const canonicalUpAligned = basis.up.dot(canonicalUp) > poseTolerance;" in main_js
     assert "positiveDirectionAligned && canonicalUpAligned ? -1 : 1" in main_js
-    assert "Lock transform axis in G/R mode" in index_html
+    assert "Lock the global Cartesian axis in G/R/S mode" in index_html
+    assert "this.isPhysicalKey(e, 'KeyS', ['s'])" in main_js
 
 
 def test_frontend_renders_constraint_guides_and_blender_export_button():
