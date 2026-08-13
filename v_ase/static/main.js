@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.10&rev=1';
-import { ASERenderer } from './renderer.js?v=0.2.10&rev=1';
-import { ASESelection } from './selection.js?v=0.2.10&rev=1';
-import { ASETransform } from './transform.js?v=0.2.10&rev=1';
+import { ASEApi } from './api.js?v=0.2.11&rev=1';
+import { ASERenderer } from './renderer.js?v=0.2.11&rev=1';
+import { ASESelection } from './selection.js?v=0.2.11&rev=1';
+import { ASETransform } from './transform.js?v=0.2.11&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.10&rev=1';
+} from './trajectory.js?v=0.2.11&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -2507,8 +2507,14 @@ class VAseApp {
             );
             if (token !== this.addAtomsUI.pairRequestToken) return;
             const next = { ...(response.pair_cutoffs || {}) };
+            // The request can finish after the user has already edited a
+            // visible cutoff. Re-read the live table before rendering so a
+            // slow response cannot replace that newer value.
+            const live = preserveManual
+                ? this.captureAddAtomsPairCutoffs()
+                : previous;
             Object.keys(next).forEach(pair => {
-                if (Object.prototype.hasOwnProperty.call(previous, pair)) next[pair] = previous[pair];
+                if (Object.prototype.hasOwnProperty.call(live, pair)) next[pair] = live[pair];
             });
             this.renderAddAtomsPairCutoffs(next);
         } catch (error) {
@@ -9846,7 +9852,15 @@ class VAseApp {
         const originals = selected.map(plane => {
             const record = this.renderer.volumetricPlanes.get(plane.id);
             const metrics = this.volumetricPlaneMetrics(plane);
-            const normal = record?.normal?.clone() || metrics?.normal?.clone() || new THREE.Vector3(0, 0, 1);
+            if (metrics) {
+                plane.offsetMinimum = metrics.minimum;
+                plane.offsetMaximum = metrics.maximum;
+                plane.offsetAngstrom = Math.max(
+                    metrics.minimum,
+                    Math.min(metrics.maximum, plane.offsetAngstrom)
+                );
+            }
+            const normal = metrics?.normal?.clone() || record?.normal?.clone() || new THREE.Vector3(0, 0, 1);
             const centroid = record?.centroid?.clone() || normal.clone().multiplyScalar(plane.offsetAngstrom);
             return {
                 id: plane.id,
@@ -15576,8 +15590,11 @@ class VAseApp {
         const second = cell[1].map(Number);
         const origin = offset.map(Number);
         const origins = [];
-        for (let i = -radius; i <= radius; i += 1) {
-            for (let j = -radius; j <= radius; j += 1) {
+        // Each origin starts a full primitive parallelogram.  The half-open
+        // integer window [-r, r) therefore centres the complete tiled area,
+        // not merely the origin points, on the shared crystallographic origin.
+        for (let i = -radius; i < radius; i += 1) {
+            for (let j = -radius; j < radius; j += 1) {
                 origins.push([0, 1, 2].map(axis => (
                     origin[axis] + i * first[axis] + j * second[axis]
                 )));
@@ -15617,17 +15634,12 @@ class VAseApp {
         const guestCell = guestParentCell
             ? this.commensurateRotatedCell(guestParentCell, angle)
             : null;
-        let guestOffset = guest ? this.commensurateGuestOffsetForGap(guest) : [0, 0, 0];
-        if (!guest && hasSelectedGuest) {
-            const pivot = this.rotationPivotPosition(selectedGuestIndices);
-            const rotatedPivot = pivot.clone().applyAxisAngle(
-                new THREE.Vector3(0, 0, 1),
-                THREE.MathUtils.degToRad(angle)
-            );
-            guestOffset = pivot.clone().sub(rotatedPivot).toArray();
-        }
+        // Parent lattice vectors are anchored at one shared in-plane origin.
+        // Rotation-pivot translation belongs to the atomic basis/registry and
+        // must not make the guest unit-cell grid drift across the viewport.
+        const guestOffset = guest ? this.commensurateGuestOffsetForGap(guest) : [0, 0, 0];
         const gridRadius = this.commensurateParentGridRadius();
-        const gridShape = [gridRadius * 2 + 1, gridRadius * 2 + 1];
+        const gridShape = [gridRadius * 2, gridRadius * 2];
         this.renderer.setCommensurateSupercellPreview?.({
             preview: {
                 mode: this.commensurateMode(),

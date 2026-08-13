@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.2.11
+
+- Anchored commensurate host and guest parent lattices to one stable in-plane
+  origin. Rotating a guest no longer translates its unit-cell grid, candidate
+  validity changes only the green common-cell guide, and atom/bond visibility
+  remains independent of candidate appearance.
+- Added a visibly different graphene/MoS2 commensurate demonstration while
+  retaining graphene/Cu(111) as the strict numerical strain regression. The
+  graphene/MoS2 match is validated as a rectangular graphene
+  `(sqrt(7) x sqrt(21)) R+/-19.11 deg` area-14 cell against a MoS2 `2 x 2`
+  area-4 cell instead of an incompatible equal-edge shorthand.
+- Rebuilt the periodic rigid-water example around two 6 Angstrom slits in a
+  fully periodic 12 Angstrom channel, two Allow regions, one Reject gate, an
+  exact 459.586 Angstrom^3 domain, and 10 randomly oriented rigid waters.
+- Preserved atom geometry and every user radius while temporary Add Atoms host
+  fixation changes only the fixed-material treatment.
+- Prevented delayed pair-cutoff refresh responses from overwriting newer table
+  edits made during Add Atoms setup.
+- Made volumetric-plane `G`/`R` transforms resolve their normal and offset
+  range from the current `(hkl)` immediately, so a pending high-resolution
+  slice request cannot restore stale transform geometry.
+- Rebuilt the per-atom data example around one moving O probe above 96 Cu(111)
+  atoms. ASE EMT is evaluated at every frame; every atom receives a finite
+  stored force and mapped color, one trajectory-wide range is retained, and
+  matching red arrows use the same Cartesian force array.
+- Reworked the human/Agent/v_ase documentation around three legible
+  bidirectional Natural language, CLI, and GUI channels, including the final
+  Agent completion and human GUI revision feedback.
+
 ## 0.2.10
 
 - Rebuilt commensurate preview semantics around fixed black host and orange

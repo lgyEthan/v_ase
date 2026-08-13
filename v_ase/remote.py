@@ -290,7 +290,7 @@ def launch_remote_gui(args: argparse.Namespace, target: RemoteTarget) -> int:
             event_stream = start_collaboration_event_stream(handshake)
             print(
                 "The structure remains on the remote host. Open the reported "
-                "human_url for the normal GUI. Committed GUI and agent changes "
+                "human_url for the same live GUI. Committed GUI and agent changes "
                 "are emitted here as NDJSON.",
                 file=sys.stderr,
                 flush=True,

@@ -23,7 +23,7 @@ Periodic layered channel for exact multi-region rigid-water insertion.
 
 - Static: `layered_water_channel.traj`
 - Suggested selected indices: ``
-- Target 0.80 g/cm^3 across two Allow reservoirs minus one Reject gate; 10 H2O molecules are realizable.
+- Target 0.65 g/cm^3 across two Allow periodic slits minus one Reject gate; 10 H2O molecules are realizable.
 - Random orientation is Haar-uniform and rigid placement preserves each molecular geometry.
 - Only inserted water is selected and relaxed; the two membrane layers remain unchanged.
 

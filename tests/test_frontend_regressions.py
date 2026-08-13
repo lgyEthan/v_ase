@@ -651,6 +651,11 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "fixedAtomDisplayEnabled()" in renderer_js
     assert "return this.displayOptions.showOverlays !== false" in renderer_js
     assert "fixedAtomSegments(segmentCount)" in renderer_js
+    fixed_segments = renderer_js.index("\n    fixedAtomSegments(segmentCount) {")
+    assert "return segmentCount;" in renderer_js[fixed_segments:fixed_segments + 500]
+    assert "const baseSelectionVisible = visible && !this.commensurateSupercellPreview" in renderer_js
+    assert "canvas.width = 760" in renderer_js
+    assert "let fontSize = 42" in renderer_js
     assert "flatShading: isFixed" in renderer_js
     assert "v-ase-fixed-micro-etched-faceted-v3" in renderer_js
     assert "const supercellChanged" in renderer_js
@@ -1717,3 +1722,16 @@ def test_live_commensurate_candidate_selection_avoids_array_sorting():
     assert ".sort(" not in smallest_selector
     assert "for (const candidate of this.state.commensurateCandidates || [])" in angle_selector
     assert "for (const candidate of this.state.commensurateCandidates || [])" in smallest_selector
+
+
+def test_async_add_atoms_cutoff_refresh_preserves_newer_visible_edits():
+    main_js = (ROOT / "v_ase" / "static" / "main.js").read_text(encoding="utf-8")
+    refresh = main_js.split(
+        "async refreshAddAtomsPairCutoffs({ preserveManual = true } = {})", 1
+    )[1].split("addAtomsNumber(id, fallback)", 1)[0]
+
+    assert "const previous = preserveManual ? this.captureAddAtomsPairCutoffs() : {};" in refresh
+    assert "const live = preserveManual" in refresh
+    assert "? this.captureAddAtomsPairCutoffs()" in refresh
+    assert "hasOwnProperty.call(live, pair)" in refresh
+    assert "next[pair] = live[pair]" in refresh

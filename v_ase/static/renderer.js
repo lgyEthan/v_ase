@@ -2259,7 +2259,10 @@ export class ASERenderer {
     }
 
     fixedAtomSegments(segmentCount) {
-        return Math.max(10, Math.min(18, Math.floor(segmentCount * 0.55)));
+        // FixAtoms is a surface-material state. Reusing the exact sphere
+        // tessellation keeps every user-selected radius and silhouette
+        // unchanged while the etched/rough material communicates fixation.
+        return segmentCount;
     }
 
     applyExportSphereQuality(quality = 'viewport', scale = 1) {
@@ -3190,7 +3193,7 @@ export class ASERenderer {
             if (!regionId || bounds.length !== 6 || bounds.some(value => !Number.isFinite(value))) return;
             const rejected = region.role === 'reject' || region.role === 'prohibited';
             const isSelected = selected.has(regionId);
-            const color = rejected ? 0xd1495b : 0x008f7a;
+            const color = rejected ? 0xad3b98 : 0x008f78;
             const source = this.clippedInsertionRegionGeometry(bounds, null);
             if (!source) return;
             const sourceEdgeMaterial = new THREE.MeshBasicMaterial({
@@ -3211,7 +3214,7 @@ export class ASERenderer {
                 },
                 {
                     material: sourceEdgeMaterial,
-                    radius: isSelected ? 0.050 : 0.038
+                    radius: isSelected ? 0.062 : 0.047
                 }
             );
             if (sourceEdgeMesh) sourceEdgeMesh.renderOrder = 15;
@@ -3220,7 +3223,7 @@ export class ASERenderer {
                 new THREE.MeshBasicMaterial({
                     color,
                     transparent: true,
-                    opacity: isSelected ? 0.105 : (rejected ? 0.060 : 0.045),
+                    opacity: isSelected ? 0.18 : (rejected ? 0.13 : 0.10),
                     side: THREE.DoubleSide,
                     depthTest: true,
                     depthWrite: false
@@ -3262,7 +3265,7 @@ export class ASERenderer {
                     new THREE.MeshBasicMaterial({
                         color,
                         transparent: true,
-                        opacity: isSelected ? 0.075 : (rejected ? 0.040 : 0.030),
+                        opacity: isSelected ? 0.12 : (rejected ? 0.085 : 0.065),
                         side: THREE.DoubleSide,
                         depthTest: true,
                         depthWrite: false,
@@ -3301,7 +3304,7 @@ export class ASERenderer {
                     },
                     {
                         material: wrappedEdgeMaterial,
-                        radius: isSelected ? 0.032 : 0.024
+                        radius: isSelected ? 0.040 : 0.030
                     }
                 );
                 if (wrappedEdgeMesh) wrappedEdgeMesh.renderOrder = 14;
@@ -3700,8 +3703,14 @@ export class ASERenderer {
 
     applyOverlayVisibility() {
         const visible = this.displayOptions.showOverlays !== false;
-        if (this.selectionOutlines) this.selectionOutlines.visible = visible;
-        if (this.replicaSelectionOutlines) this.replicaSelectionOutlines.visible = visible;
+        // A commensurate preview replaces the base structure. Base-selection
+        // shells refer to the unrotated atom scene and must never leak into a
+        // cells-only (or materialized preview-atom) lattice view.
+        const baseSelectionVisible = visible && !this.commensurateSupercellPreview;
+        if (this.selectionOutlines) this.selectionOutlines.visible = baseSelectionVisible;
+        if (this.replicaSelectionOutlines) {
+            this.replicaSelectionOutlines.visible = baseSelectionVisible;
+        }
         if (this.constraintGuideGroup) this.constraintGuideGroup.visible = visible;
         if (this.constraintMotionGuideGroup) this.constraintMotionGuideGroup.visible = visible;
         if (this.constraintMarkGroup) this.constraintMarkGroup.visible = visible;
@@ -5713,28 +5722,28 @@ export class ASERenderer {
 
     commensurateCellLabelSprite(text, color = '#159b8c') {
         const canvas = document.createElement('canvas');
-        canvas.width = 640;
-        canvas.height = 112;
+        canvas.width = 760;
+        canvas.height = 128;
         const context = canvas.getContext('2d');
         context.clearRect(0, 0, canvas.width, canvas.height);
         context.textAlign = 'center';
         context.textBaseline = 'middle';
-        let fontSize = 34;
+        let fontSize = 42;
         let metrics;
         do {
             context.font = `700 ${fontSize}px Inter, system-ui, sans-serif`;
             metrics = context.measureText(text);
-            if (metrics.width <= canvas.width - 66 || fontSize <= 22) break;
+            if (metrics.width <= canvas.width - 66 || fontSize <= 28) break;
             fontSize -= 2;
-        } while (fontSize >= 22);
+        } while (fontSize >= 28);
         const boxWidth = Math.min(canvas.width - 12, Math.ceil(metrics.width + 54));
         const left = (canvas.width - boxWidth) / 2;
         context.fillStyle = 'rgba(255,255,255,0.94)';
         context.strokeStyle = color;
         context.lineWidth = 4;
         context.beginPath();
-        if (typeof context.roundRect === 'function') context.roundRect(left, 14, boxWidth, 84, 14);
-        else context.rect(left, 14, boxWidth, 84);
+        if (typeof context.roundRect === 'function') context.roundRect(left, 14, boxWidth, 100, 14);
+        else context.rect(left, 14, boxWidth, 100);
         context.fill();
         context.stroke();
         context.fillStyle = color;
@@ -6071,7 +6080,7 @@ export class ASERenderer {
                 metadata,
                 {
                     material,
-                    radius: Math.max(0.014, this.normalizedCellThickness() * 0.34)
+                    radius: Math.max(0.016, this.normalizedCellThickness() * 0.42)
                 }
             );
         };
@@ -6177,14 +6186,14 @@ export class ASERenderer {
             preview.host_primitive_vectors,
             hostColor,
             { commensurateHostPrimitiveGrid: true },
-            fixedParentLattices ? 0.54 : 0.38
+            fixedParentLattices ? 0.68 : 0.38
         );
         addPrimitiveGrid(
             preview.guest_grid_lattice_origins || preview.guest_lattice_origins,
             preview.guest_primitive_vectors,
             guestColor,
             { commensurateGuestPrimitiveGrid: true },
-            fixedParentLattices ? 0.60 : 0.44
+            fixedParentLattices ? 0.72 : 0.44
         );
         addPrimitiveVectors(
             preview.host_lattice_origins,
@@ -6220,26 +6229,29 @@ export class ASERenderer {
             guestOrigin,
             1.08
         );
-        addCellLabel(
-            fixedParentLattices
-                ? `HOST · ${hostGridLabel} · parent lattice`
-                : `HOST ${hostGridLabel} · ${preview.host_notation || ''}`.trim(),
-            displayedHostCell,
-            [0, 0, 0],
-            this.displayOptions.viewportBackground === 'dark' ? '#f2f5f4' : '#161a1d',
-            -1,
-            { commensurateHostCellLabel: true }
-        );
-        addCellLabel(
-            fixedParentLattices
-                ? `GUEST · ${guestGridLabel} · mobile parent lattice`
-                : `GUEST ${guestGridLabel} · ${preview.guest_notation || ''}`.trim(),
-            displayedGuestCell,
-            guestOrigin,
-            '#d8660f',
-            1,
-            { commensurateGuestCellLabel: true }
-        );
+        // The fixed parent-lattice view can contain hundreds of primitive
+        // cells. Keep its viewport geometric: the control panel carries the
+        // lattice names and metrics, while the exact primitive vectors and
+        // contrasting grids identify host and guest at their shared origin.
+        // Labels remain useful for a bounded, candidate-specific preview.
+        if (!fixedParentLattices) {
+            addCellLabel(
+                `HOST ${hostGridLabel} · ${preview.host_notation || ''}`.trim(),
+                displayedHostCell,
+                [0, 0, 0],
+                this.displayOptions.viewportBackground === 'dark' ? '#f2f5f4' : '#161a1d',
+                -1,
+                { commensurateHostCellLabel: true }
+            );
+            addCellLabel(
+                `GUEST ${guestGridLabel} · ${preview.guest_notation || ''}`.trim(),
+                displayedGuestCell,
+                guestOrigin,
+                '#d8660f',
+                1,
+                { commensurateGuestCellLabel: true }
+            );
+        }
         if (preview.has_suggestion !== false && (preview.common_cell || preview.cell)) {
             const suggestionColor = 0x139c68;
             addBoundary(

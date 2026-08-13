@@ -1233,6 +1233,21 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
 
+            host_visual_radii = page.evaluate("""async () => {
+                await window.v_aseAI.apply({
+                    display: {
+                        atomRadiusScale: 0.73,
+                        labelRadii: {
+                            Cu_surface: 1.11,
+                            O_bridge: 0.84,
+                            N_anchor: 0.69
+                        }
+                    }
+                });
+                const renderer = window.__ASE_APP__.renderer;
+                return [0, 1, 2].map(index => renderer.atomMeshByIndex.get(index).scale.x);
+            }""")
+
             page.click("#btn-create-atom-toggle")
             page.click("#add-atoms-tab-batch")
             assert page.locator("#add-atoms-spacing-basis-row").is_hidden()
@@ -1365,6 +1380,18 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             assert page.evaluate(
                 "window.__ASE_APP__.addAtomsUI.active.region_mode"
             ) == "regions"
+            frozen_host_visual = page.evaluate("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                return [0, 1, 2].map(index => {
+                    const mesh = renderer.atomMeshByIndex.get(index);
+                    return {radius: mesh.scale.x, fixed: mesh.userData.fixed};
+                });
+            }""")
+            assert [item["radius"] for item in frozen_host_visual] == pytest.approx(
+                host_visual_radii,
+                abs=1e-12,
+            )
+            assert all(item["fixed"] for item in frozen_host_visual)
 
             mic = page.locator("#add-atoms-mic")
             mic.set_checked(False)

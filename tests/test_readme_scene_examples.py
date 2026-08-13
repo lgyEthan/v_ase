@@ -1,4 +1,5 @@
 from pathlib import Path
+import runpy
 
 import numpy as np
 import pytest
@@ -211,49 +212,59 @@ def test_random_addition_readme_host_is_cu111_surface_and_reproducible():
 def test_layered_water_channel_scene_is_periodic_and_leaves_a_visible_channel():
     host, metadata = make_layered_water_channel_scene()
     assert len(host) == 96
-    assert host.pbc.tolist() == [True, True, False]
+    assert host.pbc.tolist() == [True, True, True]
     assert set(atom_labels(host)) == {"C_lower_membrane", "C_upper_membrane"}
     z_values = np.unique(np.round(host.positions[:, 2], 8))
-    np.testing.assert_allclose(z_values, [7.0, 13.0])
+    np.testing.assert_allclose(z_values, [0.0, 6.0])
     assert metadata["interlayer_spacing_angstrom"] == pytest.approx(6.0)
+    assert host.cell.lengths()[2] == pytest.approx(12.0)
     assert metadata["molecules"] == [{"name": "H2O", "label": "water", "count": 1}]
-    assert metadata["target_density_g_cm3"] == pytest.approx(0.80)
+    assert metadata["target_density_g_cm3"] == pytest.approx(0.65)
     assert metadata["expected_molecule_count"] == 10
     assert [region["role"] for region in metadata["regions"]] == ["allow", "allow", "reject"]
-    assert metadata["accessible_volume_angstrom3"] == pytest.approx(367.8600492603591)
-    assert metadata["actual_density_g_cm3"] == pytest.approx(0.8132063091734184)
+    lower, upper, reject = metadata["regions"]
+    assert lower["bounds"][4:6] == pytest.approx([0.65, 5.35])
+    assert upper["bounds"][4:6] == pytest.approx([6.65, 11.35])
+    assert reject["bounds"][4] > upper["bounds"][4]
+    assert reject["bounds"][5] < upper["bounds"][5]
+    assert metadata["accessible_volume_angstrom3"] == pytest.approx(459.58594030630485)
+    assert metadata["actual_density_g_cm3"] == pytest.approx(0.6509035344988875)
     assert metadata["placement_mode"] == "random"
     assert metadata["coordinate_basis"] == "cartesian"
 
 
 def test_atom_colorscale_readme_trajectory_colors_every_atom_with_matching_forces():
     frames = make_atom_colorscale_trajectory()
-    assert len(frames) == 12
-    assert all(len(frame) == 160 for frame in frames)
-    assert all(set(frame.get_chemical_symbols()) == {"Cu"} for frame in frames)
+    assert len(frames) == 14
+    assert all(len(frame) == 97 for frame in frames)
+    assert all(frame.get_chemical_symbols().count("Cu") == 96 for frame in frames)
+    assert all(frame.get_chemical_symbols().count("O") == 1 for frame in frames)
     assert all(frame.pbc.tolist() == [True, True, False] for frame in frames)
 
-    spring_constant = float(frames[0].info["spring_constant_ev_a2"])
-    equilibria = []
+    surface_positions = frames[0].positions[:-1].copy()
+    probe_positions = []
     all_norms = []
     for frame in frames:
         forces = frame.get_forces()
         assert np.all(np.linalg.norm(forces, axis=1) > 1e-8)
-        np.testing.assert_allclose(np.sum(forces, axis=0), 0.0, atol=1e-12)
-        equilibria.append(frame.positions + forces / spring_constant)
+        np.testing.assert_allclose(np.sum(forces, axis=0), 0.0, atol=1e-10)
+        np.testing.assert_allclose(frame.positions[:-1], surface_positions, atol=0.0)
+        probe_positions.append(frame.positions[-1])
         all_norms.extend(np.linalg.norm(forces, axis=1))
-        assert frame.get_potential_energy() == pytest.approx(
-            float(np.sum(forces * forces) / (2.0 * spring_constant))
-        )
-    for equilibrium in equilibria[1:]:
-        np.testing.assert_allclose(equilibrium, equilibria[0], atol=2e-14)
-    assert np.ptp(all_norms) > 0.8
+        assert frame.info["force_model"].startswith("ASE EMT Cu/O")
+        assert frame.info["force_calculator"] == "ase.calculators.emt.EMT"
+        assert frame.get_potential_energy() > 0
+    assert np.ptp(np.asarray(probe_positions), axis=0).max() > 3.0
+    assert np.ptp(all_norms) > 0.5
 
     capture = (ROOT / "scripts" / "capture_readme_screenshots.py").read_text()
     colorscale = capture.split("def capture_atom_colorscale_media", 1)[1].split(
         "def capture_rdf_media", 1
     )[0]
     assert "scope: 'all'" in colorscale
+    assert "map: 'turbo'" in colorscale
+    assert "97 / 97 atoms mapped" in colorscale
+    assert "ASE EMT force colors + vectors" in colorscale
     assert "arg=len(frames[0])" in colorscale
     assert "duration=230" in colorscale
 
@@ -466,7 +477,7 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "2." in readme[ai:]
     assert "3." in readme[ai:]
     assert "external ai agent" in normalized_readme
-    assert "same document stays open in the normal gui" in normalized_readme
+    assert "same document stays open in one live gui" in normalized_readme
     assert "does not contain an llm or interpret natural language" in normalized_readme
     assert "structured cli/api" in normalized_readme
     assert "a manual gui edit becomes the next document revision" in normalized_readme
@@ -513,6 +524,10 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "Preserve molecular geometry" in readme
     assert "native coordinate origin" in readme
     assert "10 rigid h2o molecules" in normalized_readme
+    assert "459.586 å³" in normalized_readme
+    assert "rectangular graphene `(√7 × √21) R±19.11°` host" in readme
+    assert "MoS2 `2 × 2` guest" in readme
+    assert "96-atom Cu(111) slab" in readme
 
     for filename in (
         "readme_phosphorene_twist.gif",
@@ -539,27 +554,38 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
         assert (ROOT / "docs" / "assets" / "github" / filename).is_file()
 
     with Image.open(ROOT / "docs" / "assets" / "readme_ai_collaboration.png") as figure:
-        assert figure.size == (2400, 1200)
+        assert figure.size == (1800, 1080)
 
     figure_source = (
         ROOT / "docs" / "design" / "ai_collaboration_figure.html"
     ).read_text(encoding="utf-8")
     for required in (
-        "External AI Agent",
-        "CLI control, normal GUI",
-        "Live v_ase GUI",
-        "Ask naturally. Watch, refine, and continue.",
-        "You ↔ AI Agent",
-        "AI Agent ↔ v_ase CLI",
-        "You ↔ v_ase GUI",
-        "Structured operations ↔ exact state + revisions",
-        "Every Agent command and every human GUI edit",
-        "+Z top view with +Y up",
+        "You direct the work. The AI Agent operates v_ase. The GUI stays live.",
+        '<div class="actor-kicker">Human</div><h2>You</h2>',
+        '<div class="actor-kicker">Interprets the request</div><h2>AI Agent</h2>',
+        '<div class="actor-kicker">One shared structure</div><h2>Live v_ase GUI</h2>',
+        "Natural language",
+        ">CLI<",
+        ">GUI<",
+        "Natural-language intent",
+        "CLI operations",
+        "agent-reply",
+        "human-edit",
+        "element-legend",
+        "natural-reply",
+        "from +Z with +Y up",
+        "delete 42 · 29,41,30 → N",
+        "add Li · z = center + 2.15 Å",
+        "view +Z · screen up +Y",
+        "You refine the result directly in the GUI",
+        "GUI revision received · radius 0.64 · bond 0.20 Å",
     ):
         assert required in figure_source
-    assert figure_source.count('class="flow-arrow ') == 6
-    for flow in ("human-agent", "agent-vase", "human-vase"):
-        assert f'class="flow-path {flow}"' in figure_source
+    assert figure_source.count('class="flow-path ') == 6
+    for flow in ("natural", "cli", "gui"):
+        assert f'class="channel-label label-{flow}"' in figure_source
+        assert figure_source.count(f'class="flow-path channel-{flow}"') == 2
+        assert f'marker-end="url(#arrow-{flow})"' in figure_source
     assert 'class="vase-logo"' in figure_source
     assert "LIVE FEEDBACK LOOP" not in figure_source
     assert 'class="feedback"' not in figure_source
@@ -588,6 +614,70 @@ def test_full_readme_capture_does_not_repeat_the_analysis_group():
     assert 'page.locator("#btn-rotate-selection-exact")' in source
     assert "detailed = operation_index < 2" in source
     assert "np.allclose(actual_positions, twisted.positions" in source
+
+
+def test_ai_collaboration_recording_is_self_contained_and_controllable(tmp_path):
+    from playwright.sync_api import sync_playwright
+
+    capture = runpy.run_path(str(ROOT / "scripts/capture_readme_screenshots.py"))
+    write_ai_collaboration_recording_html = capture[
+        "write_ai_collaboration_recording_html"
+    ]
+
+    source = """<!doctype html>
+<html><body data-flow="request">
+<img id="gui-image" src="../assets/readme_ai_collaboration_live.png">
+<div id="operation"></div>
+<script>
+window.setCollaborationStage = async record => {
+  document.body.dataset.flow = record.flow;
+  document.getElementById('operation').textContent = record.operation;
+  if (record.image) document.getElementById('gui-image').src = record.image;
+};
+</script>
+</body></html>"""
+    pixel = (
+        "data:image/gif;base64,"
+        "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+    )
+    records = [
+        {"stage": "human", "flow": "request", "operation": "request", "image": pixel},
+        {"stage": "agent", "flow": "command", "operation": "apply", "image": pixel},
+    ]
+    output = tmp_path / "recording.html"
+    write_ai_collaboration_recording_html(source, records, output)
+    html = output.read_text(encoding="utf-8")
+
+    assert "../assets/" not in html
+    assert 'id="v-ase-collaboration-records"' in html
+    assert "window.v_aseCollaborationRecording" in html
+    assert "event.code === 'Space'" in html
+    assert "event.key.toLowerCase() === 'r'" in html
+    assert html.count(pixel) == 3
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 900, "height": 540})
+        requests = []
+        page.on("request", lambda request: requests.append(request.url))
+        page.goto(output.as_uri(), wait_until="load")
+        page.wait_for_function("window.v_aseCollaborationRecording?.records.length === 2")
+        page.wait_for_function("document.documentElement.dataset.recordingStage === '1'")
+        assert page.locator("#operation").inner_text() == "request"
+        assert requests == [output.as_uri()]
+
+        page.keyboard.press("Space")
+        assert page.evaluate("window.v_aseCollaborationRecording.playing") is False
+        paused_index = page.evaluate("window.v_aseCollaborationRecording.index")
+        page.wait_for_timeout(1900)
+        assert page.evaluate("window.v_aseCollaborationRecording.index") == paused_index
+
+        page.keyboard.press("Space")
+        page.wait_for_function("window.v_aseCollaborationRecording.index === 1")
+        page.keyboard.press("r")
+        page.wait_for_function("window.v_aseCollaborationRecording.index === 0")
+        assert page.evaluate("window.v_aseCollaborationRecording.playing") is True
+        browser.close()
 
 
 def test_add_atoms_capture_uses_the_real_batch_workspace_and_optimizer():

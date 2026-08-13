@@ -3138,6 +3138,10 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
                     guestGridShape: app.state.commensurateProposal?.data?.preview?.guest_grid_shape,
                     hostGridOrigins: app.state.commensurateProposal?.data?.preview
                         ?.host_grid_lattice_origins,
+                    guestOffset: app.state.commensurateProposal?.data?.preview?.guest_offset,
+                    selectionOutlinesVisible: app.renderer.selectionOutlines.visible,
+                    showAtomsChecked: document.getElementById('chk-commensurate-show-atoms')
+                        ?.checked,
                     proposalVisible: !document.getElementById('commensurate-supercell-proposal')
                         ?.classList.contains('hidden'),
                     camera: {
@@ -3159,6 +3163,9 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
             assert cells_only["matchResolved"] is False
             assert cells_only["parentFixed"] is True
             assert cells_only["hostGridShape"] == cells_only["guestGridShape"]
+            np.testing.assert_allclose(cells_only["guestOffset"][:2], [0.0, 0.0], atol=0.0)
+            assert cells_only["selectionOutlinesVisible"] is False
+            assert cells_only["showAtomsChecked"] is False
             assert cells_only["proposalVisible"] is False
             np.testing.assert_allclose(cells_only["camera"]["position"], camera_before["position"])
             np.testing.assert_allclose(cells_only["camera"]["target"], camera_before["target"])
@@ -3167,6 +3174,34 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
                 "element => { element.open = true; }"
             )
             page.check('#chk-commensurate-show-atoms')
+            page.wait_for_function("""() =>
+                Number(window.__ASE_APP__.renderer.domElement.dataset.commensuratePreviewAtoms) > 0
+            """)
+            unmatched_atoms = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                return {
+                    renderedAtoms: Number(
+                        app.renderer.domElement.dataset.commensuratePreviewAtoms
+                    ),
+                    renderedBonds: Number(
+                        app.renderer.domElement.dataset.commensuratePreviewBonds
+                    ),
+                    commonCell: app.renderer.commensurateSupercellGroup.children.filter(
+                        child => child.userData?.commensurateSuggestedCell
+                    ).length,
+                    matchResolved: Boolean(
+                        app.state.commensurateProposal?.data?.match_resolved
+                    ),
+                    showAtomsChecked: document.getElementById(
+                        'chk-commensurate-show-atoms'
+                    )?.checked,
+                };
+            }""")
+            assert unmatched_atoms["renderedAtoms"] > 0
+            assert unmatched_atoms["renderedBonds"] > 0
+            assert unmatched_atoms["commonCell"] == 0
+            assert unmatched_atoms["matchResolved"] is False
+            assert unmatched_atoms["showAtomsChecked"] is True
             page.check('#chk-commensurate-snap')
             page.fill('#commensurate-max-area', '16')
             page.keyboard.press('Escape')
@@ -3215,6 +3250,9 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
                     maxNdcY: Math.max(...projected.map(point => Math.abs(point.y))),
                     cameraSnapshot: Boolean(app.renderer.commensurateCameraSnapshot),
                     atomCountBeforeApply: app.state.atoms.positions.length,
+                    showAtomsChecked: document.getElementById(
+                        'chk-commensurate-show-atoms'
+                    )?.checked,
                     parentFixed: proposal.preview.parent_lattices_fixed,
                     hostGridShape: proposal.preview.host_grid_shape,
                     guestGridShape: proposal.preview.guest_grid_shape,
@@ -3240,6 +3278,7 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
             assert preview["hostGridOrigins"] == cells_only["hostGridOrigins"]
             assert preview["cameraSnapshot"] is True
             assert preview["atomCountBeforeApply"] == 4
+            assert preview["showAtomsChecked"] is True
 
             page.keyboard.press('Escape')
             page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
@@ -3438,6 +3477,10 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
                         .filter(child => child.userData?.commensurateHostPrimitiveVector).length,
                     guestVectors: app.renderer.commensurateSupercellGroup.children
                         .filter(child => child.userData?.commensurateGuestPrimitiveVector).length,
+                    previewAtoms: Number(app.renderer.domElement.dataset.commensuratePreviewAtoms),
+                    selectionOutlinesVisible: app.renderer.selectionOutlines.visible,
+                    showAtomsChecked: document.getElementById('chk-commensurate-show-atoms')
+                        ?.checked,
                     gap: Number(document.getElementById('commensurate-guest-gap').value),
                     modeControlType: document.getElementById('commensurate-mode').type,
                     plotReady: Boolean(document.querySelector('#commensurate-plot .plotly')),
@@ -3471,7 +3514,15 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
             assert cells_only["guestGrid"] == 1
             assert cells_only["hostVectors"] == 2
             assert cells_only["guestVectors"] == 2
+            assert cells_only["previewAtoms"] == 0
+            assert cells_only["selectionOutlinesVisible"] is False
+            assert cells_only["showAtomsChecked"] is False
             assert cells_only["gap"] == pytest.approx(3.0)
+            np.testing.assert_allclose(
+                cells_only["proposal"]["preview"]["guest_offset"][:2],
+                [0.0, 0.0],
+                atol=0.0,
+            )
             assert cells_only["proposal"]["preview"]["guest_offset"][2] == pytest.approx(3.0)
             assert cells_only["modeControlType"] == "hidden"
             assert cells_only["plotReady"] is True

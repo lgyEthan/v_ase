@@ -17,6 +17,7 @@ from typing import Sequence
 import numpy as np
 from ase import Atoms
 from ase.build import fcc111, molecule
+from ase.geometry import find_mic
 from ase.io import read
 from ase.io.cube import write_cube
 from PIL import Image
@@ -76,6 +77,107 @@ def sync_github_readme_assets() -> None:
     for source in canonical_dir.glob("readme_*"):
         if source.is_file():
             shutil.copy2(source, github_dir / source.name)
+
+
+def write_ai_collaboration_recording_html(
+    figure_html: str,
+    stage_records: Sequence[dict[str, object]],
+    output: Path,
+) -> None:
+    """Write a self-contained, auto-playing recording surface.
+
+    The stage images come from the same live CLI/GUI workflow used for the
+    README animation. Keeping them in one local HTML file lets a human record
+    a lossless MOV without running v_ase or a web server again.
+    """
+
+    if not stage_records:
+        raise ValueError("AI collaboration recording requires at least one stage.")
+    records_json = json.dumps(
+        list(stage_records),
+        ensure_ascii=True,
+        separators=(",", ":"),
+    ).replace("</", "<\\/")
+    first_image = str(stage_records[0].get("image") or "")
+    if first_image:
+        figure_html = figure_html.replace(
+            "../assets/readme_ai_collaboration_live.png",
+            first_image,
+        )
+    playback = f"""
+<script id="v-ase-collaboration-records" type="application/json">{records_json}</script>
+<script>
+(() => {{
+  const records = JSON.parse(
+    document.getElementById('v-ase-collaboration-records').textContent
+  );
+  let index = 0;
+  let playing = true;
+  let generation = 0;
+
+  const fitStage = () => {{
+    const scale = Math.min(window.innerWidth / 1800, window.innerHeight / 1080);
+    const left = Math.max(0, (window.innerWidth - 1800 * scale) / 2);
+    const top = Math.max(0, (window.innerHeight - 1080 * scale) / 2);
+    document.body.style.transformOrigin = 'top left';
+    document.body.style.transform = `translate(${{left}}px, ${{top}}px) scale(${{scale}})`;
+  }};
+
+  const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+  const holdFor = record => (
+    record.flow === 'reply' || record.flow === 'complete' ? 2600 : 1750
+  );
+
+  const play = async token => {{
+    while (token === generation) {{
+      if (!playing) {{
+        await delay(80);
+        continue;
+      }}
+      const record = records[index];
+      await window.setCollaborationStage(record);
+      document.documentElement.dataset.recordingStage = String(index + 1);
+      document.documentElement.dataset.recordingFlow = String(record.flow || '');
+      await delay(holdFor(record));
+      if (!playing || token !== generation) continue;
+      index = (index + 1) % records.length;
+      if (index === 0) await delay(900);
+    }}
+  }};
+
+  const restart = () => {{
+    generation += 1;
+    index = 0;
+    playing = true;
+    play(generation);
+  }};
+
+  window.addEventListener('resize', fitStage);
+  window.addEventListener('keydown', event => {{
+    if (event.code === 'Space') {{
+      event.preventDefault();
+      playing = !playing;
+      document.documentElement.dataset.recordingPaused = String(!playing);
+    }} else if (event.key.toLowerCase() === 'r') {{
+      restart();
+    }}
+  }});
+  window.v_aseCollaborationRecording = {{
+    records,
+    restart,
+    pause: () => {{ playing = false; }},
+    resume: () => {{ playing = true; }},
+    get index() {{ return index; }},
+    get playing() {{ return playing; }},
+  }};
+  fitStage();
+  play(generation);
+}})();
+</script>
+"""
+    document = figure_html.replace("</body>", f"{playback}</body>", 1)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(document, encoding="utf-8")
 
 
 ASSET_DIR = configured_asset_dir()
@@ -245,11 +347,18 @@ def set_display(page, options):
             const merged = {
                 ...current,
                 ...options,
-                labelRadii: options.labelRadii || current.labelRadii || {},
-                labelColors: options.labelColors || current.labelColors || {},
-                labelVisible: options.labelVisible || current.labelVisible || {},
-                pairwiseBondCutoffs: options.pairwiseBondCutoffs || current.pairwiseBondCutoffs || {},
-                pairwiseBondRanges: options.pairwiseBondRanges || current.pairwiseBondRanges || {},
+                labelRadii: {...(current.labelRadii || {}), ...(options.labelRadii || {})},
+                labelColors: {...(current.labelColors || {}), ...(options.labelColors || {})},
+                labelMaterials: {...(current.labelMaterials || {}), ...(options.labelMaterials || {})},
+                labelVisible: {...(current.labelVisible || {}), ...(options.labelVisible || {})},
+                pairwiseBondCutoffs: {
+                    ...(current.pairwiseBondCutoffs || {}),
+                    ...(options.pairwiseBondCutoffs || {})
+                },
+                pairwiseBondRanges: {
+                    ...(current.pairwiseBondRanges || {}),
+                    ...(options.pairwiseBondRanges || {})
+                },
                 manualBondPairs: options.manualBondPairs || current.manualBondPairs || [],
                 supercell: options.supercell || current.supercell || [1, 1, 1]
             };
@@ -1177,7 +1286,31 @@ def capture_commensurate_media(browser) -> None:
             #selection-measure-readout,
             #hover-readout,
             #coord-readout { display: none !important; }
+            #commensurate-plot .xtitle,
+            #commensurate-plot .ytitle,
+            #commensurate-plot .ztitle { font-weight: 900 !important; }
+            #readme-commensurate-stage {
+                position: fixed; z-index: 5000; top: 76px; left: 22px;
+                max-width: 760px; padding: 12px 16px;
+                border: 2px solid #c6d4d2; border-left: 8px solid #161a1d;
+                border-radius: 6px; background: rgba(255,255,255,.97);
+                color: #223437; box-shadow: 0 6px 20px rgba(20,38,41,.14);
+                pointer-events: none;
+            }
+            #readme-commensurate-stage strong { display: block; font-size: 21px; }
+            #readme-commensurate-stage span { display: block; margin-top: 4px; font-size: 17px; font-weight: 760; }
         """)
+        page.evaluate("""() => {
+            const overlay = document.createElement('div');
+            overlay.id = 'readme-commensurate-stage';
+            overlay.innerHTML = '<strong>PARENT LATTICES</strong><span>Host fixed · guest rotates · common cell hidden until a bounded strain match</span>';
+            document.body.appendChild(overlay);
+            window.__setReadmeCommensurateStage = (title, detail, color = '#161a1d') => {
+                overlay.querySelector('strong').textContent = title;
+                overlay.querySelector('span').textContent = detail;
+                overlay.style.borderLeftColor = color;
+            };
+        }""")
         center = np.mean(atoms.positions, axis=0)
         set_readme_lighting(page, center.tolist(), intensity=3.0, position_offset=(-10.0, -13.0, 18.0))
         set_selection(page, indices["hbn"])
@@ -1251,17 +1384,71 @@ def capture_commensurate_media(browser) -> None:
                 hostShape: preview.host_grid_shape,
                 guestShape: preview.guest_grid_shape,
                 hostOrigins: preview.host_grid_lattice_origins,
+                guestAnchor: preview.guest_offset,
+                guestGridCenter: [0, 1, 2].map(axis => (
+                    preview.guest_grid_lattice_origins.reduce(
+                        (sum, origin) => sum + Number(origin[axis]), 0
+                    ) / preview.guest_grid_lattice_origins.length
+                    + 0.5 * (
+                        Number(preview.guest_primitive_vectors[0][axis])
+                        + Number(preview.guest_primitive_vectors[1][axis])
+                    )
+                )),
+                guestGridRadii: preview.guest_grid_lattice_origins.map(origin => Math.hypot(
+                    ...origin.map((value, axis) => Number(value) - Number(preview.guest_offset[axis]))
+                )).sort((left, right) => left - right),
+                guestGridCount: preview.guest_grid_lattice_origins?.length,
                 parentFixed: preview.parent_lattices_fixed,
                 commonCells: children.filter(child => child.userData?.commensurateSuggestedCell).length,
                 hostGrids: children.filter(child => child.userData?.commensurateHostPrimitiveGrid).length,
-                guestGrids: children.filter(child => child.userData?.commensurateGuestPrimitiveGrid).length
+                guestGrids: children.filter(child => child.userData?.commensurateGuestPrimitiveGrid).length,
+                baseSelectionVisible: app.renderer.selectionOutlines.visible
             };
         }""")
         if initial_context["commonCells"] != 0 or not initial_context["parentFixed"]:
             raise AssertionError("Commensurate mode must start with fixed parent lattices and no common cell.")
         if initial_context["hostGrids"] != 1 or initial_context["guestGrids"] != 1:
             raise AssertionError("Both parent superlattices must be visible immediately.")
+        if initial_context["baseSelectionVisible"]:
+            raise AssertionError("Cells-only commensurate mode leaked base atom selection outlines.")
+        page.evaluate("""() => window.__setReadmeCommensurateStage(
+            '1 · PARENT LATTICES ONLY',
+            'Black host grid stays fixed · orange guest grid rotates · no common cell yet'
+        )""")
+        append_hold(rendered_frames, page, 8)
+        page.locator('details.commensurate-advanced').evaluate(
+            "element => { element.open = true; }"
+        )
+        page.locator("#chk-commensurate-show-atoms").set_checked(True)
+        page.wait_for_function(
+            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewAtoms) > 0"
+        )
+        independent_atoms = page.evaluate("""() => ({
+            atoms: Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewAtoms),
+            bonds: Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewBonds),
+            common: window.__V_ASE_APP__.renderer.commensurateSupercellGroup.children
+                .filter(child => child.userData?.commensurateSuggestedCell).length
+        })""")
+        if independent_atoms["atoms"] <= 0 or independent_atoms["bonds"] <= 0:
+            raise AssertionError("Commensurate atom visibility did not include atoms and bonds.")
+        if independent_atoms["common"] != 0:
+            raise AssertionError("Showing atoms exposed an unresolved common cell.")
+        page.evaluate("""() => window.__setReadmeCommensurateStage(
+            '2 · OPTIONAL ATOMS + BONDS',
+            'Atom visibility is independent · the unresolved common cell remains hidden',
+            '#087f70'
+        )""")
         append_hold(rendered_frames, page, 10)
+        page.locator("#chk-commensurate-show-atoms").set_checked(False)
+        page.wait_for_function(
+            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewAtoms) === 0"
+        )
+        page.evaluate("""() => window.__setReadmeCommensurateStage(
+            '3 · ROTATE THE GUEST LATTICE',
+            'The parent grid extent and origin remain fixed while only its orientation changes',
+            '#f58220'
+        )""")
+        append_hold(rendered_frames, page, 8)
         count = 24
         initial_angle = 17.0
         for frame_index in range(count):
@@ -1283,23 +1470,55 @@ def capture_commensurate_media(browser) -> None:
                 arg=angle,
             )
             invariant = page.evaluate("""() => {
-                const preview = window.__V_ASE_APP__.state.commensurateProposal.data.preview;
+                const app = window.__V_ASE_APP__;
+                const preview = app.state.commensurateProposal.data.preview;
                 return {
                     hostShape: preview.host_grid_shape,
                     guestShape: preview.guest_grid_shape,
                     hostOrigins: preview.host_grid_lattice_origins,
-                    parentFixed: preview.parent_lattices_fixed
+                    guestAnchor: preview.guest_offset,
+                    guestGridCenter: [0, 1, 2].map(axis => (
+                        preview.guest_grid_lattice_origins.reduce(
+                            (sum, origin) => sum + Number(origin[axis]), 0
+                        ) / preview.guest_grid_lattice_origins.length
+                        + 0.5 * (
+                            Number(preview.guest_primitive_vectors[0][axis])
+                            + Number(preview.guest_primitive_vectors[1][axis])
+                        )
+                    )),
+                    guestGridRadii: preview.guest_grid_lattice_origins.map(origin => Math.hypot(
+                        ...origin.map((value, axis) => Number(value) - Number(preview.guest_offset[axis]))
+                    )).sort((left, right) => left - right),
+                    guestGridCount: preview.guest_grid_lattice_origins?.length,
+                    parentFixed: preview.parent_lattices_fixed,
+                    baseSelectionVisible: app.renderer.selectionOutlines.visible
                 };
             }""")
-            if invariant != {
+            if {
+                key: value for key, value in invariant.items()
+                if key not in {"guestGridCenter", "guestGridRadii"}
+            } != {
                 "hostShape": initial_context["hostShape"],
                 "guestShape": initial_context["guestShape"],
                 "hostOrigins": initial_context["hostOrigins"],
+                "guestAnchor": initial_context["guestAnchor"],
+                "guestGridCount": initial_context["guestGridCount"],
                 "parentFixed": True,
+                "baseSelectionVisible": False,
             }:
                 raise AssertionError("A commensurate candidate resized the fixed parent-lattice window.")
+            np.testing.assert_allclose(
+                invariant["guestGridCenter"],
+                initial_context["guestAnchor"],
+                atol=1e-8,
+            )
+            np.testing.assert_allclose(
+                invariant["guestGridRadii"],
+                initial_context["guestGridRadii"],
+                atol=1e-7,
+            )
             rendered_frames.append(screenshot_frame(page))
-        cells_only_frame = rendered_frames[-1].copy()
+        cells_only_frame = rendered_frames[0].copy()
         page.wait_for_function(
             "window.__V_ASE_APP__.state.commensurateProposal?.data?.suggestion_visible === true"
         )
@@ -1312,8 +1531,8 @@ def capture_commensurate_media(browser) -> None:
                 guestGridShape: preview.guest_grid_shape,
                 hostNotation: preview.host_notation,
                 guestNotation: preview.guest_notation,
-                hostLabel: children.find(child => child.userData?.commensurateHostCellLabel)?.userData?.labelText,
-                guestLabel: children.find(child => child.userData?.commensurateGuestCellLabel)?.userData?.labelText,
+                hostLabels: children.filter(child => child.userData?.commensurateHostCellLabel).length,
+                guestLabels: children.filter(child => child.userData?.commensurateGuestCellLabel).length,
                 suggestedCell: children.some(child => child.userData?.commensurateSuggestedCell)
             };
         }""")
@@ -1321,28 +1540,21 @@ def capture_commensurate_media(browser) -> None:
             raise AssertionError("README host primitive grid does not surround the common cell.")
         if min(preview_context["guestGridShape"][:2]) < 3:
             raise AssertionError("README guest primitive grid does not surround the common cell.")
-        host_shape_text = f"{preview_context['hostGridShape'][0]} × {preview_context['hostGridShape'][1]}"
-        guest_shape_text = f"{preview_context['guestGridShape'][0]} × {preview_context['guestGridShape'][1]}"
-        if host_shape_text not in str(preview_context["hostLabel"]):
-            raise AssertionError("README host grid dimensions are not printed in its viewport label.")
-        if guest_shape_text not in str(preview_context["guestLabel"]):
-            raise AssertionError("README guest grid dimensions are not printed in its viewport label.")
         if not all((
             preview_context["hostNotation"],
             preview_context["guestNotation"],
-            preview_context["hostLabel"],
-            preview_context["guestLabel"],
             preview_context["suggestedCell"],
         )):
             raise AssertionError("README commensurate cells are missing notation or boundaries.")
-        page.locator("details.commensurate-advanced").evaluate("element => { element.open = true; }")
-        page.locator("#chk-commensurate-show-atoms").set_checked(True)
-        page.wait_for_function(
-            "window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.include_atoms === true"
-        )
-        page.wait_for_function(
-            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewBonds) > 0"
-        )
+        if preview_context["hostLabels"] or preview_context["guestLabels"]:
+            raise AssertionError("Fixed parent-lattice labels clutter the commensurate viewport.")
+        if page.locator("#chk-commensurate-show-atoms").is_checked():
+            raise AssertionError("Candidate discovery changed the user-controlled atom visibility.")
+        page.evaluate("""() => window.__setReadmeCommensurateStage(
+            '4 · STRAIN-QUALIFIED COMMON CELL',
+            'The teal boundary appears only at the accepted commensurate angle',
+            '#139c68'
+        )""")
         append_hold(rendered_frames, page, 12)
         save_gif(
             rendered_frames,
@@ -1359,7 +1571,7 @@ def capture_commensurate_media(browser) -> None:
 
     fixture = ROOT / "examples" / "commensurate_host_guest"
     host = read(fixture / "graphene_host.extxyz")
-    host_guest_target_angle = 16.10211375
+    host_guest_target_angle = 19.10660535
     editor, page = open_scene(browser, host, show_bonds=True, viz_only=True)
     try:
         set_display(page, {
@@ -1371,8 +1583,8 @@ def capture_commensurate_media(browser) -> None:
             "viewportBackground": "white",
             "commensurateGuide": False,
             "commensurateSnap": False,
-            "commensurateStrainTolerance": 0.02,
-            "commensurateMaxAreaRatio": 32,
+            "commensurateStrainTolerance": 0.025,
+            "commensurateMaxAreaRatio": 16,
             "commensurateShowAtoms": False,
             "commensurateGuestAngleDeg": 8.0,
         })
@@ -1382,7 +1594,28 @@ def capture_commensurate_media(browser) -> None:
             #selection-measure-readout,
             #hover-readout,
             #coord-readout { display: none !important; }
+            #readme-host-guest-stage {
+                position: fixed; z-index: 5000; top: 76px; left: 22px;
+                max-width: 815px; padding: 12px 16px;
+                border: 2px solid #c6d4d2; border-left: 8px solid #161a1d;
+                border-radius: 6px; background: rgba(255,255,255,.97);
+                color: #223437; box-shadow: 0 6px 20px rgba(20,38,41,.14);
+                pointer-events: none;
+            }
+            #readme-host-guest-stage strong { display: block; font-size: 21px; }
+            #readme-host-guest-stage span { display: block; margin-top: 4px; font-size: 17px; font-weight: 760; }
         """)
+        page.evaluate("""() => {
+            const overlay = document.createElement('div');
+            overlay.id = 'readme-host-guest-stage';
+            overlay.innerHTML = '<strong>HEXAGONAL GRAPHENE HOST + RECTANGULAR MoS₂ GUEST</strong><span>Different cell shapes and lengths · cells only by default</span>';
+            document.body.appendChild(overlay);
+            window.__setReadmeHostGuestStage = (title, detail, color = '#161a1d') => {
+                overlay.querySelector('strong').textContent = title;
+                overlay.querySelector('span').textContent = detail;
+                overlay.style.borderLeftColor = color;
+            };
+        }""")
         center = np.mean(host.positions, axis=0)
         set_camera(
             page,
@@ -1395,7 +1628,7 @@ def capture_commensurate_media(browser) -> None:
         page.locator("#chk-commensurate-guide").set_checked(True)
         page.wait_for_function("window.__V_ASE_APP__.state.commensurateCandidates?.length > 0")
         page.locator("#commensurate-guest-file").set_input_files(
-            str(fixture / "cu111_guest.extxyz")
+            str(fixture / "mos2_guest.extxyz")
         )
         page.wait_for_function(
             "window.__V_ASE_APP__.state.display.commensurateMode === 'host-guest'"
@@ -1444,8 +1677,9 @@ def capture_commensurate_media(browser) -> None:
         }""")
         page.evaluate("""() => {
             const drawer = document.getElementById('analysis-drawer');
-            drawer.style.height = '410px';
+            drawer.style.height = '520px';
             window.Plotly?.Plots?.resize?.(document.getElementById('commensurate-plot'));
+            window.__V_ASE_APP__.closeAnalysisDrawer();
         }""")
         common_center = page.evaluate("""() => {
             const cell = window.__V_ASE_APP__.state.commensurateProposal
@@ -1459,11 +1693,7 @@ def capture_commensurate_media(browser) -> None:
         }""")
         if common_center is None:
             raise AssertionError("Host/guest capture is missing the bounded common-cell geometry.")
-        graph_target = [
-            common_center[0] + 10.0,
-            common_center[1] - 7.5,
-            common_center[2],
-        ]
+        graph_target = preview_center
         set_camera(
             page,
             target=graph_target,
@@ -1471,7 +1701,7 @@ def capture_commensurate_media(browser) -> None:
             up=(0.0, 1.0, 0.0),
             fov=32,
         )
-        set_atomic_scale(page, 27.0)
+        set_atomic_scale(page, 32.0)
         graph_state = page.evaluate("""() => {
             const plot = document.getElementById('commensurate-plot');
             return {
@@ -1499,13 +1729,98 @@ def capture_commensurate_media(browser) -> None:
                 hostShape: preview.host_grid_shape,
                 guestShape: preview.guest_grid_shape,
                 hostOrigins: preview.host_grid_lattice_origins,
+                guestAnchor: preview.guest_offset,
+                guestGridCenter: [0, 1, 2].map(axis => (
+                    preview.guest_grid_lattice_origins.reduce(
+                        (sum, origin) => sum + Number(origin[axis]), 0
+                    ) / preview.guest_grid_lattice_origins.length
+                    + 0.5 * (
+                        Number(preview.guest_primitive_vectors[0][axis])
+                        + Number(preview.guest_primitive_vectors[1][axis])
+                    )
+                )),
+                guestGridRadii: preview.guest_grid_lattice_origins.map(origin => Math.hypot(
+                    ...origin.map((value, axis) => Number(value) - Number(preview.guest_offset[axis]))
+                )).sort((left, right) => left - right),
+                commonCenter: [0, 1, 2].map(axis => 0.5 * (
+                    Number(preview.common_cell?.[0]?.[axis] || 0)
+                    + Number(preview.common_cell?.[1]?.[axis] || 0)
+                    + Number(preview.common_cell?.[2]?.[axis] || 0)
+                )),
+                guestGridCount: preview.guest_grid_lattice_origins?.length,
+                hostLengths: preview.host_primitive_vectors.map(vector => Math.hypot(...vector)),
+                guestLengths: preview.guest_primitive_vectors.map(vector => Math.hypot(...vector)),
                 parentFixed: preview.parent_lattices_fixed,
-                commonCells: children.filter(child => child.userData?.commensurateSuggestedCell).length
+                commonCells: children.filter(child => child.userData?.commensurateSuggestedCell).length,
+                hostLabels: children.filter(child => child.userData?.commensurateHostCellLabel).length,
+                guestLabels: children.filter(child => child.userData?.commensurateGuestCellLabel).length,
+                baseSelectionVisible: app.renderer.selectionOutlines.visible
             };
         }""")
         if initial_lattices["commonCells"] != 0 or not initial_lattices["parentFixed"]:
             raise AssertionError("Host/guest mode exposed a result cell before the mobile lattice matched.")
+        np.testing.assert_allclose(
+            np.asarray(initial_lattices["guestAnchor"], dtype=float)[:2],
+            [0.0, 0.0],
+            atol=0.0,
+        )
+        np.testing.assert_allclose(
+            np.asarray(initial_lattices["commonCenter"], dtype=float)[:2],
+            np.asarray(common_center, dtype=float)[:2],
+            atol=1e-8,
+        )
+        if initial_lattices["baseSelectionVisible"]:
+            raise AssertionError("Host/guest cells-only mode leaked base selection outlines.")
+        if np.allclose(
+            initial_lattices["hostLengths"][:2],
+            initial_lattices["guestLengths"][:2],
+            atol=0.05,
+        ):
+            raise AssertionError("Host/guest README fixture does not show visibly different lattices.")
+        np.testing.assert_allclose(initial_lattices["hostLengths"][:2], [2.46, 2.46], atol=0.03)
+        np.testing.assert_allclose(initial_lattices["guestLengths"][:2], [3.18, 5.5079], atol=0.03)
+        if initial_lattices["hostLabels"] or initial_lattices["guestLabels"]:
+            raise AssertionError("Fixed host/guest parent lattices should remain label-free in the viewport.")
         graph_frames: list[Image.Image] = []
+        page.evaluate("""() => window.__setReadmeHostGuestStage(
+            '1 · DISTINCT PARENT LATTICES',
+            'Black hexagonal host: 2.46 Å · orange rectangular guest: 3.18 × 5.51 Å · shared origin',
+            '#161a1d'
+        )""")
+        append_hold(graph_frames, page, 14)
+        page.locator('details.commensurate-advanced').evaluate(
+            "element => { element.open = true; }"
+        )
+        page.locator("#chk-commensurate-show-atoms").set_checked(True)
+        page.wait_for_function(
+            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewAtoms) > 0"
+        )
+        independent_atoms = page.evaluate("""() => ({
+            atoms: Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewAtoms),
+            bonds: Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewBonds),
+            common: window.__V_ASE_APP__.renderer.commensurateSupercellGroup.children
+                .filter(child => child.userData?.commensurateSuggestedCell).length
+        })""")
+        if independent_atoms["atoms"] <= 0 or independent_atoms["bonds"] <= 0:
+            raise AssertionError("Host/guest atom visibility did not include both bonded lattices.")
+        if independent_atoms["common"] != 0:
+            raise AssertionError("Host/guest atom visibility exposed an unresolved common cell.")
+        page.evaluate("""() => window.__setReadmeHostGuestStage(
+            '2 · OPTIONAL ATOMS + BONDS',
+            'Atoms can be shown at any angle; this does not create or hide a common cell',
+            '#087f70'
+        )""")
+        append_hold(graph_frames, page, 14)
+        page.locator("#chk-commensurate-show-atoms").set_checked(False)
+        page.wait_for_function(
+            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewAtoms) === 0"
+        )
+        page.evaluate("""() => window.__setReadmeHostGuestStage(
+            '3 · ROTATE MoS₂, KEEP BOTH GRIDS FIXED',
+            'Only the guest orientation changes; neither parent lattice resizes or drifts',
+            '#f58220'
+        )""")
+        append_hold(graph_frames, page, 7)
         host_guest_initial_angle = 8.0
         animation_angles = [
             host_guest_initial_angle
@@ -1531,21 +1846,78 @@ def capture_commensurate_media(browser) -> None:
                 timeout=30_000,
             )
             invariant = page.evaluate("""() => {
-                const preview = window.__V_ASE_APP__.state.commensurateProposal.data.preview;
+                const app = window.__V_ASE_APP__;
+                const preview = app.state.commensurateProposal.data.preview;
                 return {
                     hostShape: preview.host_grid_shape,
                     guestShape: preview.guest_grid_shape,
                     hostOrigins: preview.host_grid_lattice_origins,
-                    parentFixed: preview.parent_lattices_fixed
+                    guestAnchor: preview.guest_offset,
+                    guestGridCenter: [0, 1, 2].map(axis => (
+                        preview.guest_grid_lattice_origins.reduce(
+                            (sum, origin) => sum + Number(origin[axis]), 0
+                        ) / preview.guest_grid_lattice_origins.length
+                        + 0.5 * (
+                            Number(preview.guest_primitive_vectors[0][axis])
+                            + Number(preview.guest_primitive_vectors[1][axis])
+                        )
+                    )),
+                    guestGridRadii: preview.guest_grid_lattice_origins.map(origin => Math.hypot(
+                        ...origin.map((value, axis) => Number(value) - Number(preview.guest_offset[axis]))
+                    )).sort((left, right) => left - right),
+                    guestGridCount: preview.guest_grid_lattice_origins?.length,
+                    hostLengths: preview.host_primitive_vectors.map(vector => Math.hypot(...vector)),
+                    guestLengths: preview.guest_primitive_vectors.map(vector => Math.hypot(...vector)),
+                    hostLabels: app.renderer.commensurateSupercellGroup.children.filter(
+                        child => child.userData?.commensurateHostCellLabel
+                    ).length,
+                    guestLabels: app.renderer.commensurateSupercellGroup.children.filter(
+                        child => child.userData?.commensurateGuestCellLabel
+                    ).length,
+                    parentFixed: preview.parent_lattices_fixed,
+                    baseSelectionVisible: app.renderer.selectionOutlines.visible
                 };
             }""")
-            if invariant != {
+            if {
+                key: value for key, value in invariant.items()
+                if key not in {
+                    "guestGridCenter",
+                    "guestGridRadii",
+                    "hostLengths",
+                    "guestLengths",
+                }
+            } != {
                 "hostShape": initial_lattices["hostShape"],
                 "guestShape": initial_lattices["guestShape"],
                 "hostOrigins": initial_lattices["hostOrigins"],
+                "guestAnchor": initial_lattices["guestAnchor"],
+                "guestGridCount": initial_lattices["guestGridCount"],
+                "hostLabels": 0,
+                "guestLabels": 0,
                 "parentFixed": True,
+                "baseSelectionVisible": False,
             }:
                 raise AssertionError("Host/guest parent superlattices changed size with the candidate cell.")
+            np.testing.assert_allclose(
+                invariant["hostLengths"],
+                initial_lattices["hostLengths"],
+                atol=1e-8,
+            )
+            np.testing.assert_allclose(
+                invariant["guestLengths"],
+                initial_lattices["guestLengths"],
+                atol=1e-8,
+            )
+            np.testing.assert_allclose(
+                invariant["guestGridCenter"],
+                initial_lattices["guestAnchor"],
+                atol=1e-8,
+            )
+            np.testing.assert_allclose(
+                invariant["guestGridRadii"],
+                initial_lattices["guestGridRadii"],
+                atol=1e-7,
+            )
             if frame_index == 0:
                 unresolved = page.evaluate("""() => ({
                     resolved: window.__V_ASE_APP__.state.commensurateProposal?.data?.match_resolved,
@@ -1572,17 +1944,29 @@ def capture_commensurate_media(browser) -> None:
             raise AssertionError(
                 f"README commensurate animation did not resolve its final common cell: {resolved!r}"
             )
-        cells_only_host_guest = graph_frames[-1].copy()
-        page.locator("details.commensurate-advanced").evaluate("element => { element.open = true; }")
-        page.locator("#chk-commensurate-show-atoms").set_checked(True)
-        page.wait_for_function(
-            "window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.include_atoms === true"
-        )
-        page.wait_for_function(
-            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewBonds) > 0"
-        )
-        atom_frame = screenshot_frame(page)
-        graph_frames = [graph_frames[0]] * 7 + graph_frames + [graph_frames[-1]] * 8 + [atom_frame] * 9
+        page.evaluate("""() => window.__setReadmeHostGuestStage(
+            '4 · BOUNDED COMMON CELL FOUND',
+            'The teal cell appears only when the current angle satisfies the strain limit',
+            '#139c68'
+        )""")
+        cells_only_host_guest = graph_frames[0].copy()
+        if page.locator("#chk-commensurate-show-atoms").is_checked():
+            raise AssertionError("Candidate discovery changed the user-controlled atom visibility.")
+        append_hold(graph_frames, page, 16)
+        page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            app.showAnalysisDrawer('commensurate', 'Commensurate Angle–Area–Strain Landscape');
+            const drawer = document.getElementById('analysis-drawer');
+            drawer.style.height = '520px';
+            window.Plotly?.Plots?.resize?.(document.getElementById('commensurate-plot'));
+            window.__setReadmeHostGuestStage(
+                '5 · EXPLORE ALL BOUNDED MATCHES',
+                'Interactive 3D landscape: rotation angle × host area × strain',
+                '#087f70'
+            );
+        }""")
+        page.wait_for_timeout(240)
+        append_hold(graph_frames, page, 28)
         save_gif(
             graph_frames,
             ASSET_DIR / "readme_commensurate_host_guest.gif",
@@ -1736,7 +2120,7 @@ def capture_registry_media(browser) -> None:
         run_external_ai_apply(command_url, {
             "operation": {
                 "name": "set-registry-translation",
-                "coordinates": [0.17, 0.11],
+                "coordinates": [0.16, 0.10],
             },
         })
         run_external_ai_apply(command_url, {
@@ -1783,6 +2167,23 @@ def capture_registry_media(browser) -> None:
         if endpoint_shift < 0.03:
             raise AssertionError(
                 "README rigid registry relaxation did not produce a visible translation."
+            )
+
+        def minimum_projected_host_guest_distance(positions: np.ndarray) -> float:
+            trial = atoms.copy()
+            trial.positions = positions
+            distances = []
+            for host_index in host:
+                vectors = trial.get_distances(host_index, selected, mic=True, vector=True)
+                distances.extend(np.linalg.norm(vectors[:, :2], axis=1).tolist())
+            return float(min(distances))
+
+        initial_clearance = minimum_projected_host_guest_distance(registry_frames[0])
+        final_clearance = minimum_projected_host_guest_distance(registry_frames[-1])
+        if final_clearance < 0.70 or final_clearance < initial_clearance + 0.20:
+            raise AssertionError(
+                "README registry relaxation did not resolve the visible host/guest overlap: "
+                f"{initial_clearance:.4f} Å -> {final_clearance:.4f} Å."
             )
 
         gif_frames: list[Image.Image] = []
@@ -2231,6 +2632,21 @@ def capture_ai_collaboration_figure(browser) -> None:
             if "workspace_child=1" in frame.url
         )
         collapse_inspector(child)
+        child.add_style_tag(content="""
+            #top-bar,
+            #right-inspector,
+            #inspector-handle,
+            #orientation-gizmo,
+            #orientation-widget,
+            .inspector-edge-toggle,
+            #trajectory-panel,
+            #btn-create-atom-toggle,
+            #measurement-overlay,
+            #selection-measure-readout,
+            #hover-readout,
+            #coord-readout { display: none !important; }
+        """)
+        set_atomic_scale(child, 56.0)
         page.wait_for_timeout(180)
 
         stage_records: list[dict[str, object]] = []
@@ -2244,7 +2660,8 @@ def capture_ai_collaboration_figure(browser) -> None:
             state: dict[str, object],
             flow: str,
         ) -> None:
-            page.wait_for_timeout(140)
+            child.evaluate("window.__V_ASE_APP__.renderer.renderNow()")
+            page.wait_for_timeout(250)
             screenshot = viewport_screenshot()
             stage_records.append({
                 "stage": stage,
@@ -2254,12 +2671,14 @@ def capture_ai_collaboration_figure(browser) -> None:
                 "image": "data:image/png;base64," + base64.b64encode(screenshot).decode("ascii"),
             })
 
-        record_stage("human", "Natural-language request ready", initial, "request")
+        record_stage("human", "request received", initial, "request")
         record_stage(
             "agent",
-            "Read exact atom identities, coordinates, and revision",
+            (
+                "read current structure"
+            ),
             initial,
-            "revision",
+            "command",
         )
 
         async_commands = [
@@ -2296,6 +2715,8 @@ def capture_ai_collaboration_figure(browser) -> None:
                     "showAxes": False,
                     "showGrid": False,
                     "viewportBackground": "white",
+                    "cellColor": "#7d6a30",
+                    "cellThickness": 0.055,
                     "lightingMode": "studio-shadow",
                     "sunIntensity": 3.05,
                     "labelColors": {
@@ -2321,23 +2742,23 @@ def capture_ai_collaboration_figure(browser) -> None:
             },
         ]
         operation_labels = (
-            "Create the vacancy",
-            "Convert the three neighboring atoms to N",
-            "Place Li 2.15 Å above the site",
-            "Set +Z top view, +Y up, and render settings",
+            "delete vacancy-site C",
+            "set its 3 neighbors to N",
+            "add Li at the exact requested site",
+            "set camera +Z · screen up +Y",
         )
         state = initial
         for command, operation_label in zip(async_commands, operation_labels):
             record_stage(
                 "agent",
-                f"CLI: {operation_label}",
+                operation_label,
                 state,
                 "command",
             )
             state = run_external_ai_apply(command_url, command)
             record_stage(
                 "vase",
-                f"Applied: {operation_label}",
+                operation_label,
                 state,
                 "live",
             )
@@ -2345,12 +2766,8 @@ def capture_ai_collaboration_figure(browser) -> None:
 
         # These are deliberately separate GUI-originated edits, not AI bridge calls.
         child.evaluate("""() => {
-            const app = window.__ASE_APP__;
-            app.renderer.setPixelsPerAngstrom(82);
-            app.syncAtomicScaleFromCamera?.({forceInput: true});
             const radius = document.getElementById('atom-radius-scale');
-            radius.value = '0.68';
-            radius.dispatchEvent(new Event('input', {bubbles: true}));
+            radius.value = '0.64';
             radius.dispatchEvent(new Event('change', {bubbles: true}));
         }""")
         child.wait_for_function(
@@ -2360,10 +2777,20 @@ def capture_ai_collaboration_figure(browser) -> None:
         revision_after_radius = child.evaluate(
             "() => window.__ASE_APP__.collaborationRevision"
         )
+        radius_state = run_external_ai_command(
+            command_url,
+            "describe",
+            {"includePositions": False},
+        )
+        record_stage(
+            "human",
+            "You changed the atom radius",
+            radius_state,
+            "refine",
+        )
         child.evaluate("""() => {
             const thickness = document.getElementById('bond-thickness');
-            thickness.value = '0.22';
-            thickness.dispatchEvent(new Event('input', {bubbles: true}));
+            thickness.value = '0.20';
             thickness.dispatchEvent(new Event('change', {bubbles: true}));
         }""")
         child.wait_for_function(
@@ -2378,7 +2805,7 @@ def capture_ai_collaboration_figure(browser) -> None:
         )
         record_stage(
             "human",
-            "Human refines radius and bonds in the same GUI",
+            "You refined radius and bond width",
             human_state,
             "refine",
         )
@@ -2431,34 +2858,78 @@ def capture_ai_collaboration_figure(browser) -> None:
             raise AssertionError("Collaboration result does not keep +Y pointing upward.")
         record_stage(
             "agent",
-            "Read the human revision, re-synchronize, and verify",
+            "read GUI refinements · verify shared state",
             final_state,
             "revision",
         )
         record_stage(
             "vase",
-            "Verified result remains in the shared live GUI",
+            (
+                "requested structure ready · GUI refinements preserved"
+            ),
             final_state,
             "complete",
         )
+        record_stage(
+            "agent",
+            (
+                "Revision received · radius 0.64 · bond width 0.20 Å · verified"
+            ),
+            final_state,
+            "reply",
+        )
+
+        # Reuse one verified render for the final state transitions so the
+        # animation communicates state flow without a lighting flicker.
+        child.evaluate("window.__V_ASE_APP__.renderer.renderNow()")
+        page.wait_for_timeout(300)
+        stable_final = (
+            "data:image/png;base64,"
+            + base64.b64encode(viewport_screenshot()).decode("ascii")
+        )
+        for record in stage_records[-3:]:
+            record["image"] = stable_final
 
         live_path = ASSET_DIR / "readme_ai_collaboration_live.png"
         live_image = Image.open(BytesIO(viewport_screenshot())).convert("RGB")
         live_image.save(live_path, optimize=True, compress_level=9)
 
         figure_page = browser.new_page(
-            viewport={"width": 2400, "height": 1200},
+            viewport={"width": 1800, "height": 1080},
             device_scale_factor=1,
         )
         try:
-            figure_page.goto((ROOT / "docs/design/ai_collaboration_figure.html").as_uri())
-            figure_page.wait_for_function(
-                """() => {
-                    const image = document.querySelector('.gui img');
-                    return image?.complete && image.naturalWidth > 0;
-                }"""
+            figure_source = ROOT / "docs/design/ai_collaboration_figure.html"
+            figure_html = figure_source.read_text(encoding="utf-8").replace(
+                "<head>",
+                f'<head><base href="{figure_source.parent.as_uri()}/">',
+                1,
             )
-            collaboration_frames: list[Image.Image] = []
+            logo_data = (
+                "data:image/png;base64,"
+                + base64.b64encode(
+                    (ASSET_DIR / "v_ase-logo.png").read_bytes()
+                ).decode("ascii")
+            )
+            figure_html = figure_html.replace(
+                "../assets/v_ase-logo.png",
+                logo_data,
+            )
+            write_ai_collaboration_recording_html(
+                figure_html,
+                stage_records,
+                ROOT / "docs/design/ai_collaboration_recording.html",
+            )
+            # set_content avoids Chromium retaining a previous file:// document
+            # between targeted README capture runs.
+            figure_page.set_content(figure_html, wait_until="load")
+            # The verified viewport is injected as a data URL for every stage.
+            # Do not block on the decorative placeholder's file:// URL: that
+            # URL may be intentionally unavailable in a sandboxed Chromium.
+            figure_page.wait_for_function(
+                "() => typeof window.setCollaborationStage === 'function'"
+            )
+            base_frames: list[Image.Image] = []
             for record_index, record in enumerate(stage_records):
                 figure_page.evaluate(
                     "record => window.setCollaborationStage(record)",
@@ -2468,14 +2939,34 @@ def capture_ai_collaboration_figure(browser) -> None:
                 frame = Image.open(BytesIO(
                     figure_page.locator("body").screenshot(type="png")
                 )).convert("RGB")
-                hold = 8 if record_index in {0, len(stage_records) - 1} else 5
+                base_frames.append(frame)
+            complete_record = {
+                **stage_records[-1],
+                "stage": "vase",
+                "flow": "complete",
+                "showReply": True,
+            }
+            figure_page.evaluate(
+                "record => window.setCollaborationStage(record)",
+                complete_record,
+            )
+            figure_page.wait_for_timeout(100)
+            final_frame = Image.open(BytesIO(
+                figure_page.locator("body").screenshot(type="png")
+            )).convert("RGB")
+            collaboration_frames: list[Image.Image] = []
+            for record_index, frame in enumerate(base_frames):
+                # Keep each state optically exact. Cross-fading two structures
+                # reads as a transient duplicate or rollback in README GIFs.
+                hold = 14 if record_index in {0, len(base_frames) - 1} else 11
                 collaboration_frames.extend([frame.copy() for _ in range(hold)])
+            collaboration_frames.extend(final_frame.copy() for _ in range(18))
             save_gif(
                 collaboration_frames,
                 ASSET_DIR / "readme_ai_collaboration.gif",
-                duration=135,
+                duration=130,
             )
-            collaboration_frames[-1].save(
+            final_frame.save(
                 ASSET_DIR / "readme_ai_collaboration.png",
                 optimize=True,
                 compress_level=9,
@@ -2714,8 +3205,50 @@ def _add_insertion_region(page, *, role: str, name: str, bounds: Sequence[float]
         ),
         normalized,
     ):
-        page.fill(selector, f"{value:.6f}")
+        page.fill(selector, f"{value:.12g}")
         page.locator(selector).blur()
+
+
+def _atom_mesh_visual_state(page, count: int) -> list[dict[str, object]]:
+    """Read the rendered radius and temporary fixed-material state."""
+    return page.evaluate("""count => Array.from(
+        {length: count},
+        (_, index) => {
+            const renderer = window.__V_ASE_APP__.renderer;
+            const mesh = renderer.atomMeshByIndex.get(index);
+            return {
+                scale: mesh?.scale?.toArray?.() || null,
+                fixed: Boolean(mesh?.userData?.fixed),
+                radius: renderer.atomVisualRadius(index)
+            };
+        }
+    )""", count)
+
+
+def _assert_temporary_fix_is_material_only(
+    before: Sequence[dict[str, object]],
+    current: Sequence[dict[str, object]],
+    *,
+    expected_fixed: bool,
+) -> None:
+    """Reject temporary fixation that changes a configured atom radius."""
+    np.testing.assert_allclose(
+        [item["scale"] for item in current],
+        [item["scale"] for item in before],
+        atol=0.0,
+        rtol=0.0,
+    )
+    np.testing.assert_allclose(
+        [item["radius"] for item in current],
+        [item["radius"] for item in before],
+        atol=0.0,
+        rtol=0.0,
+    )
+    fixed = [bool(item["fixed"]) for item in current]
+    if fixed != [expected_fixed] * len(current):
+        raise AssertionError(
+            "Temporary host fixation changed an unexpected set of atom materials."
+        )
 
 
 def _capture_add_atoms_variant(
@@ -2772,6 +3305,12 @@ def _capture_add_atoms_variant(
             center.tolist(),
             intensity=2.75,
             position_offset=(-15.0, -20.0, 23.0),
+        )
+        host_visual_before = _atom_mesh_visual_state(page, len(host))
+        _assert_temporary_fix_is_material_only(
+            host_visual_before,
+            host_visual_before,
+            expected_fixed=False,
         )
 
         page.click("#btn-create-atom-toggle")
@@ -2860,6 +3399,11 @@ def _capture_add_atoms_variant(
                 "O_inserted": "standard",
             },
         })
+        _assert_temporary_fix_is_material_only(
+            host_visual_before,
+            _atom_mesh_visual_state(page, len(host)),
+            expected_fixed=True,
+        )
         scattered_positions = np.asarray(
             page.evaluate("window.__V_ASE_APP__.state.atoms.positions"),
             dtype=float,
@@ -2980,6 +3524,11 @@ def _capture_add_atoms_variant(
         page.wait_for_function(
             "window.__V_ASE_APP__.renderer.addAtomsRegionGroup.visible === false"
         )
+        _assert_temporary_fix_is_material_only(
+            host_visual_before,
+            _atom_mesh_visual_state(page, len(host)),
+            expected_fixed=False,
+        )
         append_hold(frames, page, 10)
         save_gif(frames, ASSET_DIR / gif_name, duration=105)
         if save_static:
@@ -3025,12 +3574,12 @@ def _capture_add_molecules_media(browser) -> None:
             "showCell": True,
             "showBonds": True,
             "showOverlays": True,
-            "atomRadiusScale": 0.64,
+            "atomRadiusScale": 0.62,
             "labelRadii": {
-                "C_lower_membrane": 0.82,
-                "C_upper_membrane": 0.82,
-                "O_water": 0.78,
-                "H_water": 0.58,
+                "C_lower_membrane": 0.56,
+                "C_upper_membrane": 0.56,
+                "O_water": 0.72,
+                "H_water": 0.48,
             },
             "labelColors": {
                 "C_lower_membrane": "#46535a",
@@ -3060,16 +3609,35 @@ def _capture_add_molecules_media(browser) -> None:
             "cellThickness": 0.055,
         })
         page.evaluate("window.__V_ASE_APP__.renderer.setProjectionMode('orthographic')")
+        camera_right = np.asarray([38.0, 15.0, 0.0], dtype=float)
+        camera_right /= np.linalg.norm(camera_right)
+        shifted_target = center - 5.2 * camera_right
         set_camera(
             page,
-            target=center.tolist(),
-            position=(center + np.asarray([17.0, -25.0, 7.2])).tolist(),
+            target=shifted_target.tolist(),
+            position=(shifted_target + np.asarray([8.0, -42.0, 1.8])).tolist(),
             up=(0, 0, 1),
             fov=35,
         )
         page.evaluate("window.__V_ASE_APP__.renderer.fitCameraToStructure()")
-        set_atomic_scale(page, 53.0)
+        page.evaluate(
+            "target => { const r = window.__V_ASE_APP__.renderer; "
+            "const dx = target[0] - r.controls.target.x; "
+            "const dy = target[1] - r.controls.target.y; "
+            "const dz = target[2] - r.controls.target.z; "
+            "r.controls.target.set(...target); "
+            "r.camera.position.x += dx; r.camera.position.y += dy; "
+            "r.camera.position.z += dz; r.renderNow(); }",
+            shifted_target.tolist(),
+        )
+        set_atomic_scale(page, 72.0)
         set_readme_lighting(page, center.tolist(), intensity=2.8, position_offset=(-16, -18, 22))
+        host_visual_before = _atom_mesh_visual_state(page, len(host))
+        _assert_temporary_fix_is_material_only(
+            host_visual_before,
+            host_visual_before,
+            expected_fixed=False,
+        )
 
         page.click("#btn-create-atom-toggle")
         page.click("#add-atoms-tab-batch")
@@ -3083,17 +3651,112 @@ def _capture_add_molecules_media(browser) -> None:
             widget.style.right = 'auto';
             widget.style.top = '82px';
             widget.style.bottom = 'auto';
+            const overlay = document.createElement('div');
+            overlay.id = 'readme-molecule-stage';
+            overlay.innerHTML = `
+                <div class="readme-stage-line">
+                    <strong id="readme-molecule-step">1 · DEFINE REGIONS</strong>
+                    <span>graphene sheets every 6 Å · PBC x/y/z</span>
+                </div>
+                <div class="readme-stage-facts">
+                    <span><i class="allow"></i>ALLOW ×<b id="readme-allow-count">0</b></span>
+                    <span><i class="reject"></i>REJECT ×<b id="readme-reject-count">0</b></span>
+                    <span id="readme-domain-volume">cell domain</span>
+                    <span id="readme-molecule-detail">add the placement regions</span>
+                </div>`;
+            document.body.appendChild(overlay);
+            const sceneLabels = document.createElement('div');
+            sceneLabels.id = 'readme-molecule-scene-labels';
+            sceneLabels.innerHTML = `
+                <span class="region-label upper">ALLOW · upper 6 Å slit</span>
+                <span class="region-label reject">REJECT · gate</span>
+                <span class="spacing-label"><b>6 Å</b><i></i></span>
+                <span class="region-label lower">ALLOW · lower 6 Å slit</span>`;
+            document.body.appendChild(sceneLabels);
+            const style = document.createElement('style');
+            style.textContent = `
+                #readme-molecule-stage {
+                    position: fixed; z-index: 5000; top: 78px; left: 500px;
+                    width: 920px; padding: 11px 15px 10px;
+                    border: 2px solid #bed0cd; border-left: 7px solid #087f70;
+                    border-radius: 6px; background: rgba(255,255,255,.96);
+                    color: #243638; box-shadow: 0 5px 18px rgba(26,45,48,.13);
+                    pointer-events: none; letter-spacing: 0;
+                }
+                .readme-stage-line { display: flex; align-items: baseline; gap: 17px; }
+                .readme-stage-line strong { color: #08796d; font-size: 18px; }
+                .readme-stage-line span { font-size: 16px; font-weight: 800; }
+                .readme-stage-facts { display: flex; align-items: center; gap: 17px; margin-top: 6px; font-size: 14px; font-weight: 750; }
+                .readme-stage-facts i { display: inline-block; width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; border: 3px solid; }
+                .readme-stage-facts i.allow { border-color: #008f78; background: rgba(0,143,120,.15); }
+                .readme-stage-facts i.reject { border-color: #ad3b98; background: rgba(173,59,152,.14); }
+                #readme-molecule-detail { color: #754d05; }
+                #trajectory-panel { display: none !important; }
+                #toast-container, .status-group { display: none !important; }
+                #readme-molecule-scene-labels { position: fixed; inset: 0; z-index: 4999; pointer-events: none; }
+                .region-label { display: none; position: absolute; padding: 5px 8px; border: 2px solid; border-radius: 4px; background: rgba(255,255,255,.94); font-size: 14px; font-weight: 900; }
+                .region-label.upper { left: 1280px; top: 190px; color: #006f60; border-color: #008f78; }
+                .region-label.lower { left: 1260px; top: 710px; color: #006f60; border-color: #008f78; }
+                .region-label.reject { left: 1085px; top: 288px; color: #8d247a; border-color: #ad3b98; }
+                .spacing-label { position: absolute; left: 750px; top: 488px; display: flex; align-items: center; gap: 7px; color: #674f1f; font-size: 16px; font-weight: 950; }
+                .spacing-label i { display: block; width: 2px; height: 82px; background: #8b6c2c; box-shadow: 0 -5px 0 #8b6c2c, 0 5px 0 #8b6c2c; }
+            `;
+            document.head.appendChild(style);
+            window.__setReadmeMoleculeStage = (step, detail) => {
+                document.getElementById('readme-molecule-step').textContent = step;
+                document.getElementById('readme-molecule-detail').textContent = detail;
+            };
+            window.__setReadmeMoleculeDomain = (allow, reject, volume) => {
+                document.getElementById('readme-allow-count').textContent = String(allow);
+                document.getElementById('readme-reject-count').textContent = String(reject);
+                document.getElementById('readme-domain-volume').textContent = volume;
+                document.querySelector('.region-label.lower').style.display = allow >= 1 ? 'block' : 'none';
+                document.querySelector('.region-label.upper').style.display = allow >= 2 ? 'block' : 'none';
+                document.querySelector('.region-label.reject').style.display = reject >= 1 ? 'block' : 'none';
+            };
         }""")
+        row = page.locator("#add-molecule-entries .add-molecule-entry-row").first
+        molecule_spec = metadata["molecules"][0]
+        row.locator(".add-molecule-entry-name").select_option(molecule_spec["name"])
+        row.locator(".add-molecule-entry-label").fill(molecule_spec["label"])
+        row.locator(".add-molecule-entry-count").fill(
+            str(metadata["expected_molecule_count"])
+        )
         frames: list[Image.Image] = []
-        append_hold(frames, page, 5)
-        for region in metadata["regions"]:
+        page.evaluate("window.__setReadmeMoleculeStage('1 · DEFINE REGIONS', 'start from the periodic cell')")
+        append_hold(frames, page, 11)
+        for region_index, region in enumerate(metadata["regions"], start=1):
             _add_insertion_region(
                 page,
                 role=region["role"],
                 name=region["name"],
                 bounds=region["bounds"],
             )
-            append_hold(frames, page, 4)
+            if region_index == 1:
+                detail = "lower Allow region added"
+            elif region_index == 2:
+                detail = "upper Allow region added"
+            else:
+                detail = "Reject gate subtracted from upper region"
+            page.evaluate(
+                "detail => window.__setReadmeMoleculeStage('1 · DEFINE REGIONS', detail)",
+                detail,
+            )
+            current_volume = page.locator("#add-atoms-domain-volume").inner_text()
+            page.evaluate(
+                "([allow, reject, volume]) => window.__setReadmeMoleculeDomain(allow, reject, volume)",
+                [
+                    min(region_index, 2),
+                    1 if region_index >= 3 else 0,
+                    f"exact domain {current_volume}",
+                ],
+            )
+            append_hold(frames, page, 12)
+        page.click("#add-molecules-quantity-density")
+        page.fill(
+            "#add-molecules-target-density",
+            f"{float(metadata['target_density_g_cm3']):.6f}",
+        )
         page.locator("#add-atoms-region-list .add-atoms-region-item").first.click()
         page.wait_for_timeout(100)
         region_visuals = page.evaluate("""() => {
@@ -3129,33 +3792,30 @@ def _capture_add_molecules_media(browser) -> None:
             raise AssertionError("README Add Molecules did not render one intact source box per region.")
         if region_visuals["sourceEdgeCount"] != len(metadata["regions"]):
             raise AssertionError("README Add Molecules source boxes are missing complete edge sets.")
-        if region_visuals["wrappedFillCount"] < 1 or region_visuals["wrappedEdgeCount"] < 1:
-            raise AssertionError("README Add Molecules lacks the opposite-face periodic box fragment.")
-        np.testing.assert_allclose(region_visuals["inletBounds"], [-2.0, 4.2], atol=1e-6)
-        if any(all(component == 0 for component in shift) for shift in region_visuals["wrappedShifts"]):
-            raise AssertionError("A source insertion box was mislabeled as a wrapped fragment.")
+        if region_visuals["wrappedFillCount"] != 0 or region_visuals["wrappedEdgeCount"] != 0:
+            raise AssertionError("README Add Molecules uses in-cell regions and should not need wrapped fragments.")
+        np.testing.assert_allclose(region_visuals["inletBounds"], [1.0, 7.0], atol=1e-6)
 
-        row = page.locator("#add-molecule-entries .add-molecule-entry-row").first
-        molecule_spec = metadata["molecules"][0]
-        row.locator(".add-molecule-entry-name").select_option(molecule_spec["name"])
-        row.locator(".add-molecule-entry-label").fill(molecule_spec["label"])
-        row.locator(".add-molecule-entry-count").fill(str(molecule_spec["count"]))
-        page.click("#add-molecules-quantity-density")
-        page.fill(
-            "#add-molecules-target-density",
-            f"{float(metadata['target_density_g_cm3']):.6f}",
-        )
         page.wait_for_function(
             "expected => document.querySelector('#add-molecules-actual-density')?.textContent.includes(`${expected} molecules`)",
             arg=metadata["expected_molecule_count"],
         )
-        accessible_volume = float(
-            page.locator("#add-atoms-domain-volume").inner_text().split()[0]
+        page.evaluate(
+            "([count, volume]) => { window.__setReadmeMoleculeDomain(2, 1, `exact domain ${volume}`); window.__setReadmeMoleculeStage('2 · READY TO PLACE', `${count} H₂O from target density 0.65 g/cm³`); }",
+            [metadata["expected_molecule_count"], page.locator("#add-atoms-domain-volume").inner_text()],
         )
+        page.wait_for_function(
+            "expected => Math.abs(Number(window.__V_ASE_APP__.addAtomsUI?.domainPreview?.domain?.volume_angstrom3) - expected) < 1e-8",
+            arg=float(metadata["accessible_volume_angstrom3"]),
+        )
+        accessible_volume = float(page.evaluate(
+            "window.__V_ASE_APP__.addAtomsUI.domainPreview.domain.volume_angstrom3"
+        ))
         if not np.isclose(
             accessible_volume,
             float(metadata["accessible_volume_angstrom3"]),
             atol=1e-8,
+            rtol=0.0,
         ):
             raise AssertionError(
                 f"README multi-region volume {accessible_volume} does not match the exact reference."
@@ -3168,29 +3828,41 @@ def _capture_add_molecules_media(browser) -> None:
         page.locator("#add-molecules-rigid").set_checked(True)
         page.locator("#add-atoms-select-added").set_checked(True)
         page.select_option("#add-atoms-cutoff-basis", "pairwise")
+        page.evaluate(
+            "async () => await window.__V_ASE_APP__.refreshAddAtomsPairCutoffs({preserveManual: false})"
+        )
         page.wait_for_function(
             "document.querySelectorAll('#add-atoms-pair-table .add-atoms-pair-row').length >= 6"
         )
-        page.evaluate("""cutoffs => {
+        expected_pair_cutoffs = {
+            "C-C": 0.0,
+            "C-H": 1.90,
+            "C-O": 2.60,
+            "H-H": 1.35,
+            "H-O": 0.0,
+            "O-O": 2.90,
+        }
+        captured_pair_cutoffs = page.evaluate("""cutoffs => {
             document.querySelectorAll('#add-atoms-pair-table .add-atoms-pair-row').forEach(row => {
                 if (!(row.dataset.pair in cutoffs)) return;
                 const input = row.querySelector('input');
                 input.value = String(cutoffs[row.dataset.pair]);
                 input.dispatchEvent(new Event('change', {bubbles: true}));
             });
-        }""", {
-            "C-C": 0.0,
-            "C-H": 1.45,
-            "C-O": 2.05,
-            "H-H": 1.05,
-            "H-O": 0.0,
-            "O-O": 2.20,
-        })
-        page.fill("#add-atoms-strength", "2.5")
-        page.fill("#add-atoms-fmax", "0.01")
-        page.fill("#add-atoms-steps", "160")
+            return window.__V_ASE_APP__.captureAddAtomsPairCutoffs();
+        }""", expected_pair_cutoffs)
+        for pair, cutoff in expected_pair_cutoffs.items():
+            if not np.isclose(float(captured_pair_cutoffs[pair]), cutoff, atol=1e-12):
+                raise AssertionError(f"README molecule cutoff {pair} was overwritten asynchronously.")
+        page.fill("#add-atoms-strength", "3.2")
+        page.fill("#add-atoms-fmax", "0.5")
+        page.fill("#add-atoms-steps", "220")
+        page.evaluate(
+            "window.__setReadmeMoleculeStage('2 · READY TO PLACE', "
+            "'10 H₂O · rigid · random orientation · pairwise C/H/O cutoffs')"
+        )
 
-        append_hold(frames, page, 7)
+        append_hold(frames, page, 12)
         page.click("#btn-add-atoms-scatter")
         page.wait_for_function(
             "count => window.__V_ASE_APP__.addAtomsUI?.active?.molecule_count === count",
@@ -3210,16 +3882,25 @@ def _capture_add_molecules_media(browser) -> None:
         ):
             raise AssertionError("README Add Molecules session changed the exact accessible volume.")
         set_display(page, {
-            "labelRadii": {"O_water": 0.78, "H_water": 0.58},
+            "labelRadii": {"O_water": 0.72, "H_water": 0.48},
             "labelColors": {"O_water": "#d9433f", "H_water": "#f4f5f6"},
             "labelMaterials": {"O_water": "standard", "H_water": "standard"},
             "pairwiseBondRanges": {"H_water-O_water": {"enabled": True, "max": 1.15}},
             "pairwiseBondCutoffs": {"H_water-O_water": 1.15},
         })
+        _assert_temporary_fix_is_material_only(
+            host_visual_before,
+            _atom_mesh_visual_state(page, len(host)),
+            expected_fixed=True,
+        )
         page.evaluate("window.__V_ASE_APP__.renderer.selectionOutlines.visible = false")
         scattered = np.asarray(page.evaluate("window.__V_ASE_APP__.state.atoms.positions"))
         np.testing.assert_array_equal(scattered[: len(host)], host.positions)
-        append_hold(frames, page, 8)
+        page.evaluate(
+            "count => window.__setReadmeMoleculeStage('2 · RANDOM PLACEMENT', `${count} H₂O · random positions + orientations in Boolean domain`)",
+            metadata["expected_molecule_count"],
+        )
+        append_hold(frames, page, 12)
 
         page.evaluate("""() => {
             const app = window.__V_ASE_APP__;
@@ -3239,38 +3920,96 @@ def _capture_add_molecules_media(browser) -> None:
             timeout=20_000,
         )
         trace = page.evaluate("window.__VASE_ADD_MOLECULES_TRACE__")
+        final_positions = page.evaluate("window.__V_ASE_APP__.state.atoms.positions")
+        if not trace or not np.allclose(
+            np.asarray(trace[-1], dtype=float),
+            np.asarray(final_positions, dtype=float),
+            atol=1e-12,
+        ):
+            trace.append(final_positions)
         if len(trace) < 3:
             raise AssertionError("README Add Molecules optimizer produced too few visible states.")
-        sample_indices = np.unique(np.linspace(0, len(trace) - 1, min(42, len(trace)), dtype=int))
+        sample_indices = np.unique(np.linspace(0, len(trace) - 1, min(36, len(trace)), dtype=int))
         for output_index, trace_index in enumerate(sample_indices, start=1):
             update_positions(page, trace[int(trace_index)])
             page.evaluate("window.__V_ASE_APP__.renderer.selectionOutlines.visible = false")
             page.evaluate(
                 """([step, total]) => window.__V_ASE_APP__.setAddAtomsStatus(
-                    'running', `Rigid water placement · ${step}/${total}`
+                    'running', `Optimizer trajectory · frame ${step}/${total}`
                 )""",
                 [output_index, len(sample_indices)],
             )
-            frames.append(screenshot_frame(page))
+            page.evaluate(
+                """([step, total]) => window.__setReadmeMoleculeStage(
+                    '3 · RIGID-BODY REPULSION',
+                    `MIC · host fixed · rigid H₂O · region exit allowed · frame ${step}/${total}`
+                )""",
+                [output_index, len(sample_indices)],
+            )
+            frame = screenshot_frame(page)
+            frames.append(frame)
         relaxed = np.asarray(trace[-1], dtype=float)
         np.testing.assert_array_equal(relaxed[: len(host)], host.positions)
+        molecule_center_motion = []
+        for start in range(len(host), len(relaxed), 3):
+            center_delta = np.mean(
+                relaxed[start:start + 3] - scattered[start:start + 3],
+                axis=0,
+            )
+            mic_delta, _ = find_mic(center_delta, host.cell, host.pbc)
+            molecule_center_motion.append(float(np.linalg.norm(mic_delta)))
+        center_rms_motion = float(np.sqrt(np.mean(np.square(molecule_center_motion))))
+        if center_rms_motion < 0.50:
+            raise AssertionError(
+                "README rigid-water example did not show enough molecular motion: "
+                f"MIC center RMS {center_rms_motion:.4f} Angstrom."
+            )
         reference = molecule("H2O").positions
         reference_distances = np.linalg.norm(reference[:, None] - reference[None, :], axis=2)
         for start in range(len(host), len(relaxed), 3):
             current = relaxed[start:start + 3]
             current_distances = np.linalg.norm(current[:, None] - current[None, :], axis=2)
             np.testing.assert_allclose(current_distances, reference_distances, atol=2e-7)
-        append_hold(frames, page, 8)
+        page.evaluate(
+            "([count, status, step, maximum]) => window.__setReadmeMoleculeStage("
+            "'4 · READY', `${count} rigid H₂O · ${status} ${step}/${maximum} · host/cell unchanged`) ",
+            [
+                metadata["expected_molecule_count"],
+                str(page.evaluate("window.__V_ASE_APP__.addAtomsUI.active.status")),
+                int(page.evaluate("window.__V_ASE_APP__.addAtomsUI.active.step || 0")),
+                int(page.evaluate("window.__V_ASE_APP__.addAtomsUI.active.max_steps || 0")),
+            ],
+        )
+        page.evaluate(
+            "total => window.__V_ASE_APP__.setAddAtomsStatus('complete', `Optimizer trajectory complete · ${total} frames`)",
+            len(sample_indices),
+        )
+        append_hold(frames, page, 18)
         final_frame = frames[-1].copy()
-        page.click("#btn-add-atoms-finish")
-        page.wait_for_function("window.__V_ASE_APP__.state.atoms.metadata.atom_addition === null")
-        append_hold(frames, page, 9)
-        save_gif(frames, ASSET_DIR / "readme_add_molecules.gif", duration=110)
         final_frame.save(
             ASSET_DIR / "readme_add_molecules.png",
             optimize=True,
             compress_level=9,
         )
+        page.click("#btn-add-atoms-finish")
+        page.wait_for_function("window.__V_ASE_APP__.state.atoms.metadata.atom_addition === null")
+        if page.evaluate("window.__V_ASE_APP__.renderer.addAtomsRegionGroup.visible"):
+            raise AssertionError("Finishing Add Molecules left its temporary regions visible.")
+        _assert_temporary_fix_is_material_only(
+            host_visual_before,
+            _atom_mesh_visual_state(page, len(host)),
+            expected_fixed=False,
+        )
+        page.evaluate(
+            "count => { window.__setReadmeMoleculeDomain(0, 0, 'regions removed'); "
+            "window.__setReadmeMoleculeStage("
+            "'5 · COMMITTED', `${count} H₂O retained · temporary host fixation released · regions removed`); } ",
+            metadata["expected_molecule_count"],
+        )
+        if page.locator(".region-label:visible").count():
+            raise AssertionError("Committed Add Molecules media retained a temporary region label.")
+        append_hold(frames, page, 18)
+        save_gif(frames, ASSET_DIR / "readme_add_molecules.gif", duration=115)
     finally:
         page.close()
         editor.close()
@@ -3671,7 +4410,7 @@ def capture_atom_colorscale_media(browser) -> None:
     editor, page = open_scene(browser, frames, show_bonds=False, viz_only=True)
     try:
         set_display(page, {
-            "atomRadiusScale": 0.40,
+            "atomRadiusScale": 0.46,
             "showBonds": False,
             "showGrid": False,
             "showCell": True,
@@ -3680,9 +4419,9 @@ def capture_atom_colorscale_media(browser) -> None:
             "lightingMode": "studio-shadow",
             "showForceVectors": True,
             "forceVectorStyle": "3d",
-            "forceVectorScale": 2.20,
-            "forceVectorThickness": 0.038,
-            "forceVectorColor": "#167a8b",
+            "forceVectorScale": 3.4,
+            "forceVectorThickness": 0.045,
+            "forceVectorColor": "#db4b32",
         })
         configure_inspector(page, "structure", ["appearance"], width=475)
         result = page.evaluate(
@@ -3692,10 +4431,10 @@ def capture_atom_colorscale_media(browser) -> None:
                         name: 'set-atom-colorscale',
                         enabled: true,
                         field: 'force:norm',
-                        map: 'plasma',
+                        map: 'turbo',
                         scope: 'all',
                         rangeMode: 'trajectory',
-                        gamma: 0.82
+                        gamma: 0.72
                     }
                 });
                 return await window.v_aseAI.describe({includePositions: false});
@@ -3723,16 +4462,26 @@ def capture_atom_colorscale_media(browser) -> None:
                 panel?.scrollIntoView({block: 'start'});
                 document.getElementById('inspector-content').scrollTop = 0;
                 window.__V_ASE_APP__.renderer.selectionOutlines.visible = false;
+                const badge = document.createElement('div');
+                badge.id = 'readme-force-contract';
+                badge.textContent = '97 / 97 atoms mapped · ASE EMT force colors + vectors';
+                Object.assign(badge.style, {
+                    position: 'fixed', left: '34px', bottom: '38px', zIndex: '4000',
+                    padding: '10px 15px', border: '2px solid #26383b', borderRadius: '5px',
+                    background: 'rgba(255,255,255,.96)', color: '#1d2f32',
+                    fontSize: '17px', fontWeight: '850', letterSpacing: '0'
+                });
+                document.body.appendChild(badge);
             }"""
         )
         center = np.mean(frames[0].positions, axis=0)
         settle_view(
             page,
             target=center.tolist(),
-            position=(center + np.array([16.0, -21.0, 18.0])).tolist(),
+            position=(center + np.array([18.0, -24.0, 15.0])).tolist(),
             fov=34,
         )
-        set_atomic_scale(page, 31.0)
+        set_atomic_scale(page, 39.0)
         set_readme_lighting(
             page,
             center.tolist(),
@@ -3753,6 +4502,12 @@ def capture_atom_colorscale_media(browser) -> None:
             )
             page.wait_for_timeout(55)
             page.evaluate("window.__V_ASE_APP__.renderer.selectionOutlines.visible = false")
+            color_state = page.evaluate("""() => ({
+                count: window.__V_ASE_APP__.renderer.atomColorScaleColors?.filter(Boolean).length,
+                unique: new Set(window.__V_ASE_APP__.renderer.atomColorScaleColors || []).size
+            })""")
+            if color_state["count"] != len(frames[frame_index]) or color_state["unique"] < 6:
+                raise AssertionError("README probe scan did not color every atom with a useful range.")
             ranges.append(page.evaluate(
                 """() => [
                     window.__V_ASE_APP__.state.display.atomColorScaleMin,

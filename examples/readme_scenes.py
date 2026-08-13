@@ -25,6 +25,7 @@ from ase.build import (
     surface,
 )
 from ase.constraints import FixAtoms, FixedLine, FixedPlane, Hookean
+from ase.calculators.emt import EMT
 from ase.calculators.singlepoint import SinglePointCalculator
 from ase.io import write
 from ase.optimize import FIRE
@@ -621,7 +622,7 @@ def make_random_addition_scene() -> tuple[Atoms, dict[str, object]]:
 
 
 def make_layered_water_channel_scene() -> tuple[Atoms, dict[str, object]]:
-    """Return an orthorhombic 6 Å layered channel for rigid-water insertion."""
+    """Return a fully periodic orthorhombic 6 Å water channel."""
 
     source = graphene_nanoribbon(6, 4, type="zigzag", sheet=True, vacuum=0.0)
     sheet = Atoms(
@@ -631,19 +632,19 @@ def make_layered_water_channel_scene() -> tuple[Atoms, dict[str, object]]:
             source.positions[:, 2],
             np.zeros(len(source)),
         )),
-        cell=[source.cell.lengths()[0], source.cell.lengths()[2], 20.0],
-        pbc=[True, True, False],
+        cell=[source.cell.lengths()[0], source.cell.lengths()[2], 12.0],
+        pbc=True,
     )
     cell = np.asarray(sheet.cell.array, dtype=float)
     lower = sheet.copy()
     lower.cell = cell
-    lower.positions[:, 2] = 7.0
+    lower.positions[:, 2] = 0.0
     upper = sheet.copy()
     upper.cell = cell
-    upper.positions[:, 2] = 13.0
+    upper.positions[:, 2] = 6.0
     channel = lower + upper
     channel.cell = cell
-    channel.pbc = [True, True, False]
+    channel.pbc = True
     labels = ["C_lower_membrane"] * len(lower) + ["C_upper_membrane"] * len(upper)
     set_atom_labels(channel, labels)
     channel.wrap(eps=1e-10)
@@ -651,25 +652,25 @@ def make_layered_water_channel_scene() -> tuple[Atoms, dict[str, object]]:
         "readme_scene": "layered_periodic_water_channel",
         "purpose": "exact multi-region density placement of rigid H2O molecules",
     })
-    length_x, length_y, _ = channel.cell.lengths()
+    _, length_y, _ = channel.cell.lengths()
     regions = [
         {
-            "id": "periodic-inlet",
-            "name": "Periodic inlet",
+            "id": "lower-slit",
+            "name": "Lower 6 A slit",
             "role": "allow",
-            "bounds": [-2.0, 4.2, 0.8, length_y - 0.8, 7.65, 12.35],
+            "bounds": [1.0, 7.0, 0.7, length_y - 0.7, 0.65, 5.35],
         },
         {
-            "id": "right-reservoir",
-            "name": "Right reservoir",
+            "id": "upper-periodic-slit",
+            "name": "Upper periodic 6 A slit",
             "role": "allow",
-            "bounds": [6.5, 10.5, 0.8, length_y - 0.8, 7.65, 12.35],
+            "bounds": [1.0, 7.0, 0.7, length_y - 0.7, 6.65, 11.35],
         },
         {
-            "id": "central-gate",
-            "name": "Central gate",
+            "id": "upper-gate",
+            "name": "Upper-slit reject gate",
             "role": "reject",
-            "bounds": [2.5, 7.2, 3.7, 6.1, 7.65, 12.35],
+            "bounds": [3.0, 5.0, 3.2, 6.6, 8.0, 10.4],
         },
     ]
     domain = build_insertion_domain(
@@ -678,7 +679,7 @@ def make_layered_water_channel_scene() -> tuple[Atoms, dict[str, object]]:
         regions=regions,
         pbc_aware=True,
     )
-    target_density = 0.80
+    target_density = 0.65
     _, density = resolve_molecule_density(
         [{"name": "H2O", "label": "water", "count": 1, "atom_count": 3}],
         target_density_g_cm3=target_density,
@@ -701,39 +702,41 @@ def make_layered_water_channel_scene() -> tuple[Atoms, dict[str, object]]:
 
 
 def make_atom_colorscale_trajectory() -> list[Atoms]:
-    """Return a periodic harmonic trajectory with forces on every atom."""
+    """Return an O probe scan above Cu(111) with stored ASE EMT forces."""
 
-    reference = fcc111("Cu", size=(10, 8, 2), vacuum=7.0, orthogonal=True)
-    scaled = reference.get_scaled_positions(wrap=True)
-    spring_constant = 3.2
+    surface = fcc111("Cu", size=(8, 6, 2), vacuum=7.0, orthogonal=True)
+    surface_center = np.mean(surface.positions, axis=0)
+    top_z = float(np.max(surface.positions[:, 2]))
     frames: list[Atoms] = []
-    phases = np.linspace(0.0, 2.0 * math.pi, 12, endpoint=False)
+    phases = np.linspace(0.0, 2.0 * math.pi, 14, endpoint=False)
     for frame_index, phase in enumerate(phases):
-        displacement = np.zeros((len(reference), 3), dtype=float)
-        displacement[:, 0] = 0.16 * np.sin(
-            2.0 * math.pi * (scaled[:, 0] + 0.5 * scaled[:, 1]) - phase
-        )
-        displacement[:, 1] = 0.09 * np.sin(
-            2.0 * math.pi * (scaled[:, 0] - scaled[:, 1]) + 0.37 - 0.75 * phase
-        )
-        displacement[:, 2] = 0.20 * np.cos(
-            2.0 * math.pi * (scaled[:, 1] - 0.5 * scaled[:, 0]) - 1.35 * phase
-        )
-        displacement -= np.mean(displacement, axis=0, keepdims=True)
-        atoms = reference.copy()
-        atoms.positions += displacement
-        forces = -spring_constant * displacement
-        if not np.allclose(np.sum(forces, axis=0), 0.0, atol=1e-12):
-            raise AssertionError("README phonon example has a nonzero net Cartesian force.")
+        probe_position = surface_center + np.array([
+            1.85 * math.cos(phase),
+            1.45 * math.sin(phase),
+            top_z - surface_center[2] + 2.20 + 0.05 * math.sin(2.0 * phase),
+        ])
+        atoms = surface.copy()
+        atoms += Atoms("O", positions=[probe_position])
+        set_atom_labels(atoms, ["Cu_surface"] * len(surface) + ["O_probe"])
+
+        probe_index = len(atoms) - 1
+        atoms.calc = EMT()
+        energy = float(atoms.get_potential_energy())
+        forces = atoms.get_forces().copy()
+        if not np.all(np.linalg.norm(forces, axis=1) > 1e-10):
+            raise AssertionError("README probe scan must store a nonzero force on every atom.")
+        if not np.allclose(np.sum(forces, axis=0), 0.0, atol=1e-10):
+            raise AssertionError("README probe interaction violates force balance.")
         atoms.new_array("forces", forces.copy())
         atoms.calc = SinglePointCalculator(
             atoms,
-            energy=float(0.5 * spring_constant * np.sum(displacement * displacement)),
+            energy=energy,
             forces=forces,
         )
         atoms.info["readme_scene"] = "force_consistent_atom_colorscale"
-        atoms.info["force_model"] = "periodic harmonic Cu phonon, F_i = -k u_i"
-        atoms.info["spring_constant_ev_a2"] = spring_constant
+        atoms.info["force_model"] = "ASE EMT Cu/O potential evaluated independently per frame"
+        atoms.info["force_calculator"] = "ase.calculators.emt.EMT"
+        atoms.info["probe_index"] = probe_index
         atoms.info["frame_index"] = frame_index
         frames.append(atoms)
     return frames
@@ -1070,7 +1073,7 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
             notes=(
                 (
                     f"Target {metadata['target_density_g_cm3']:.2f} g/cm^3 across two Allow "
-                    f"reservoirs minus one Reject gate; {metadata['expected_molecule_count']} "
+                    f"periodic slits minus one Reject gate; {metadata['expected_molecule_count']} "
                     "H2O molecules are realizable."
                 ),
                 "Random orientation is Haar-uniform and rigid placement preserves each molecular geometry.",

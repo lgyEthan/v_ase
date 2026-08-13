@@ -7,319 +7,515 @@
 <style>
   * { box-sizing: border-box; }
   html, body {
-    width: 2400px;
-    height: 1200px;
+    width: 1800px;
+    height: 1080px;
     margin: 0;
     overflow: hidden;
     background: #fff;
-    color: #172326;
+    color: #142629;
     font-family: Inter, "SF Pro Display", "Segoe UI", Arial, sans-serif;
     letter-spacing: 0;
   }
-  body { padding: 42px 62px 30px; }
+  body { padding: 24px 40px 28px; }
   header {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 72px;
-    min-height: 132px;
-    padding-bottom: 20px;
-    border-bottom: 3px solid #d8e0df;
+    height: 78px;
+    border-bottom: 3px solid #dce5e3;
   }
   .eyebrow {
-    color: #0e7b6e;
-    font-size: 24px;
-    font-weight: 900;
+    color: #087a6c;
+    font-size: 20px;
+    font-weight: 950;
     text-transform: uppercase;
   }
   h1 {
-    margin: 6px 0 0;
-    font-size: 58px;
-    line-height: 1.02;
-  }
-  .header-note {
-    width: 720px;
-    margin: 0 0 4px;
-    color: #46575a;
-    font-size: 25px;
-    font-weight: 650;
-    line-height: 1.34;
+    margin: 2px 0 0;
+    font-size: 39px;
+    line-height: 1;
   }
   main {
     position: relative;
-    height: 970px;
+    height: 950px;
   }
   .flows {
     position: absolute;
     inset: 0;
-    z-index: 3;
+    z-index: 4;
     width: 100%;
     height: 100%;
+    overflow: visible;
     pointer-events: none;
   }
   .flow-path {
     fill: none;
-    stroke-width: 10;
+    stroke-width: 8;
     stroke-linecap: round;
     stroke-linejoin: round;
-    opacity: .24;
+    opacity: .22;
     transition: opacity .12s ease, stroke-width .12s ease;
   }
-  .flow-path.human-agent { stroke: #d99a2d; }
-  .flow-path.agent-vase { stroke: #168b7c; }
-  .flow-path.human-vase { stroke: #33484d; }
-  .flow-arrow {
-    opacity: .24;
-    transition: opacity .12s ease;
-  }
-  .flow-arrow.human-agent { fill: #d99a2d; }
-  .flow-arrow.agent-vase { fill: #168b7c; }
-  .flow-arrow.human-vase { fill: #33484d; }
-  body[data-flow="request"] .flow-path.human-agent,
-  body[data-flow="request"] .flow-arrow.human-agent,
-  body[data-flow="command"] .flow-path.agent-vase,
-  body[data-flow="command"] .flow-arrow.agent-vase,
-  body[data-flow="revision"] .flow-path.agent-vase,
-  body[data-flow="revision"] .flow-arrow.agent-vase,
-  body[data-flow="live"] .flow-path.human-vase,
-  body[data-flow="live"] .flow-arrow.human-vase,
-  body[data-flow="refine"] .flow-path.human-vase,
-  body[data-flow="refine"] .flow-arrow.human-vase,
-  body[data-flow="complete"] .flow-path,
-  body[data-flow="complete"] .flow-arrow {
-    opacity: 1;
-  }
-  body[data-flow="request"] .flow-path.human-agent,
-  body[data-flow="command"] .flow-path.agent-vase,
-  body[data-flow="revision"] .flow-path.agent-vase,
-  body[data-flow="live"] .flow-path.human-vase,
-  body[data-flow="refine"] .flow-path.human-vase,
+  .channel-natural { stroke: #c57606; }
+  .channel-cli { stroke: #007f71; }
+  .channel-gui { stroke: #294b52; }
+  body[data-flow="request"] #flow-natural-to-agent,
+  body[data-flow="reply"] #flow-natural-to-human,
+  body[data-flow="command"] #flow-cli-to-vase,
+  body[data-flow="revision"] #flow-cli-to-agent,
+  body[data-flow="live"] #flow-gui-to-human,
+  body[data-flow="refine"] #flow-gui-to-vase,
   body[data-flow="complete"] .flow-path {
-    stroke-width: 14;
+    opacity: 1;
+    stroke-width: 12;
   }
-  body[data-flow="complete"] .flow-path { stroke-width: 10; opacity: .88; }
-  .flow-label {
-    font-size: 20px;
-    font-weight: 900;
-    text-anchor: middle;
-    text-transform: uppercase;
-  }
-  .flow-label.human-agent { fill: #97620d; }
-  .flow-label.agent-vase { fill: #0b7468; }
-  .flow-label.human-vase { fill: #33484d; }
-  .flow-sub {
-    font-size: 17px;
-    font-weight: 760;
-    letter-spacing: 0;
-    text-transform: none;
-  }
-  .stage {
+  .channel-label {
     position: absolute;
-    z-index: 2;
-    min-width: 0;
-    padding-top: 14px;
-    border-top: 7px solid #cbd4d3;
+    z-index: 6;
+    display: grid;
+    place-items: center;
+    padding: 5px 13px;
     background: #fff;
-    transition: border-color .12s ease, opacity .12s ease;
+    font-size: 37px;
+    font-weight: 950;
+    line-height: 1;
   }
-  .stage.active { border-top-color: #e2a338; }
-  .stage:not(.active) { opacity: .76; }
-  .human { left: 0; top: 94px; width: 510px; }
-  .agent { left: 24px; top: 595px; width: 500px; }
-  .vase { right: 0; top: 82px; width: 1135px; }
-  .step {
-    color: #617174;
-    font-size: 21px;
-    font-weight: 900;
-    text-transform: uppercase;
+  .label-natural {
+    left: 202px;
+    top: 423px;
+    width: 340px;
+    color: #945300;
   }
-  h2 {
-    margin: 7px 0 0;
-    font-size: 39px;
-    line-height: 1.06;
+  .label-gui {
+    left: 680px;
+    top: 128px;
+    width: 128px;
+    color: #263f44;
   }
-  .prompt {
-    margin-top: 23px;
-    padding: 18px 0 18px 22px;
-    border-left: 7px solid #d99a2d;
-    color: #243235;
-    font-size: 27px;
-    font-weight: 720;
-    line-height: 1.37;
+  .label-cli {
+    left: 725px;
+    top: 704px;
+    width: 104px;
+    color: #006f62;
   }
-  .prompt strong { color: #0d7468; }
-  .plain-note {
-    margin: 17px 0 0;
-    color: #536366;
-    font-size: 21px;
-    font-weight: 620;
-    line-height: 1.35;
+  .node {
+    position: absolute;
+    z-index: 3;
+    min-width: 0;
+    overflow: hidden;
+    border: 3px solid #cad5d3;
+    border-top-width: 9px;
+    border-radius: 7px;
+    background: #fff;
+    transition: box-shadow .12s ease, transform .12s ease;
   }
-  .agents {
+  .node.active {
+    box-shadow: 0 10px 25px rgba(20, 40, 43, .13);
+    transform: translateY(-2px);
+  }
+  .human {
+    left: 0;
+    top: 24px;
+    width: 630px;
+    height: 320px;
+    padding: 18px 22px;
+    border-color: #c57606;
+    background: #fffaf1;
+  }
+  .agent {
+    left: 0;
+    bottom: 17px;
+    width: 700px;
+    height: 395px;
+    padding: 17px 22px;
+    border-color: #007f71;
+    background: #f2fbf9;
+  }
+  .vase {
+    right: 0;
+    top: 24px;
+    width: 860px;
+    height: 885px;
+    padding: 12px 15px 16px;
+    border-color: #294b52;
+  }
+  .identity, .agent-title, .vase-head {
     display: flex;
-    align-items: flex-start;
-    gap: 24px;
-    margin-top: 22px;
+    align-items: center;
+    gap: 15px;
+  }
+  .person-icon {
+    position: relative;
+    width: 57px;
+    height: 57px;
+    flex: 0 0 57px;
+  }
+  .person-icon::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 17px;
+    width: 23px;
+    height: 23px;
+    border-radius: 50%;
+    background: #ca7909;
+  }
+  .person-icon::after {
+    content: "";
+    position: absolute;
+    left: 3px;
+    bottom: 0;
+    width: 52px;
+    height: 30px;
+    border-radius: 26px 26px 5px 5px;
+    background: #ca7909;
   }
   .agent-mark {
     display: grid;
-    justify-items: center;
-    gap: 7px;
-    width: 132px;
-    color: #263538;
-    font-size: 18px;
-    font-weight: 850;
-    text-align: center;
+    place-items: center;
+    width: 59px;
+    height: 59px;
+    flex: 0 0 59px;
+    border: 5px solid #007f71;
+    border-radius: 12px;
+    color: #006c60;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: 28px;
+    font-weight: 950;
   }
-  .agent-mark img { width: 80px; height: 80px; object-fit: contain; }
-  .skill {
-    margin-top: 19px;
-    padding-top: 17px;
-    border-top: 3px solid #46b4a7;
-  }
-  .skill strong { display: block; color: #0f786c; font-size: 25px; }
-  .skill span {
-    display: block;
-    margin-top: 5px;
-    color: #526265;
+  .actor-kicker {
+    color: #52676a;
     font-size: 19px;
-    line-height: 1.32;
+    font-weight: 950;
+    text-transform: uppercase;
   }
-  .operation {
-    margin-top: 16px;
-    min-height: 87px;
-    padding: 14px 18px;
-    border: 3px solid #334448;
-    border-radius: 5px;
-    color: #1c2a2d;
+  h2 {
+    margin: 1px 0 0;
+    font-size: 45px;
+    line-height: 1;
+  }
+  .speech {
+    position: relative;
+    margin-top: 15px;
+    padding: 15px 18px 17px;
+    border: 4px solid #c57606;
+    border-radius: 7px;
+    background: #fff;
+    color: #1c3033;
+    font-size: 28px;
+    font-weight: 790;
+    line-height: 1.25;
+  }
+  .speech::after {
+    content: "";
+    position: absolute;
+    left: 48px;
+    bottom: -14px;
+    width: 23px;
+    height: 23px;
+    border-right: 4px solid #c57606;
+    border-bottom: 4px solid #c57606;
+    background: #fff;
+    transform: rotate(45deg);
+  }
+  .speech strong { color: #087669; }
+  .natural-reply {
+    display: none;
+    margin-top: 10px;
+    color: #7e4900;
     font-size: 22px;
-    font-weight: 820;
-    line-height: 1.28;
+    font-weight: 950;
   }
-  .operation::before {
-    content: "CURRENT OPERATION";
-    display: block;
-    margin-bottom: 5px;
-    color: #95620f;
-    font-size: 16px;
+  body[data-flow="reply"] .natural-reply,
+  body[data-flow="complete"] .natural-reply { display: block; }
+  .translation-heading {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    margin-top: 14px;
+    color: #435a5d;
+    font-size: 21px;
+    font-weight: 950;
+  }
+  .translation-heading .to-cli {
+    color: #00776a;
+  }
+  .translation-heading .arrow {
+    color: #007f71;
+    font-size: 30px;
+  }
+  .translation {
+    display: grid;
+    row-gap: 7px;
+    margin-top: 8px;
+  }
+  .translation-row {
+    display: grid;
+    grid-template-columns: 208px 1fr;
+    align-items: center;
+    min-height: 48px;
+    border-left: 6px solid #8ebeb7;
+    background: rgba(255,255,255,.88);
+    opacity: .35;
+    transition: opacity .12s ease, border-color .12s ease;
+  }
+  .translation-row.revealed { opacity: .72; }
+  .translation-row.active {
+    border-color: #007f71;
+    opacity: 1;
+  }
+  body[data-flow="complete"] .translation-row,
+  body[data-flow="reply"] .translation-row,
+  body[data-flow="revision"] .translation-row { opacity: 1; }
+  .intent {
+    padding: 7px 10px;
+    color: #263b3e;
+    font-size: 23px;
     font-weight: 900;
   }
-  .vase-head {
-    display: grid;
-    grid-template-columns: 296px minmax(0, 1fr);
-    align-items: center;
-    gap: 28px;
+  .cli-command {
+    padding: 8px 10px;
+    border-left: 2px solid #cde2de;
+    color: #07584f;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: 23px;
+    font-weight: 850;
+    line-height: 1.08;
   }
-  .vase-logo { width: 296px; height: 88px; object-fit: contain; }
-  .vase-head h2 { font-size: 35px; }
-  .vase-head p { margin: 6px 0 0; color: #526265; font-size: 20px; }
+  .agent-status {
+    margin-top: 10px;
+    padding-top: 9px;
+    border-top: 2px solid #c6ded9;
+    color: #385155;
+    font-size: 22px;
+    font-weight: 900;
+    line-height: 1.1;
+  }
+  .agent-reply { display: none; color: #006e62; }
+  body[data-reply="true"] .agent-reply { display: block; }
+  body[data-reply="true"] .operation { display: none; }
+  .vase-head {
+    height: 68px;
+  }
+  .vase-logo {
+    width: 205px;
+    height: 65px;
+    object-fit: contain;
+  }
+  .vase-head h2 { font-size: 42px; }
   .gui {
-    margin-top: 18px;
-    height: 686px;
+    position: relative;
+    margin-top: 7px;
+    height: 510px;
     overflow: hidden;
-    border: 3px solid #243437;
-    border-radius: 6px;
-    background: #f5f7f7;
-    box-shadow: 0 16px 38px rgba(23, 35, 38, .15);
+    border: 3px solid #24383b;
+    border-radius: 5px;
+    background: #fff;
+    box-shadow: 0 14px 30px rgba(23, 35, 38, .13);
   }
   .gui-bar {
     display: flex;
     align-items: center;
-    height: 52px;
-    gap: 9px;
-    padding: 0 16px;
-    border-bottom: 1px solid #425053;
+    height: 47px;
+    gap: 8px;
+    padding: 0 14px;
     background: #12191b;
-    color: #e7eeee;
-    font-size: 19px;
-    font-weight: 800;
+    color: #edf2f2;
+    font-size: 22px;
+    font-weight: 850;
   }
   .dot { width: 11px; height: 11px; border-radius: 50%; background: #e26861; }
   .dot.amber { background: #dfa43c; }
   .dot.green { background: #49b174; }
-  .revision { margin-left: auto; color: #8be1d5; font-size: 16px; text-transform: uppercase; }
-  .gui img { display: block; width: 100%; height: 634px; object-fit: cover; object-position: center; }
+  .gui img {
+    display: block;
+    width: 100%;
+    height: 463px;
+    object-fit: cover;
+    object-position: center;
+    background: #fff;
+  }
+  .result-badges {
+    position: absolute;
+    z-index: 2;
+    top: 60px;
+    right: 12px;
+    display: flex;
+    gap: 7px;
+    opacity: 0;
+  }
+  body[data-flow="complete"] .result-badges,
+  body[data-flow="reply"] .result-badges { opacity: 1; }
+  .result-badge {
+    padding: 8px 10px;
+    border: 2px solid rgba(16, 91, 83, .66);
+    border-radius: 4px;
+    background: rgba(255,255,255,.97);
+    color: #174841;
+    font-size: 20px;
+    font-weight: 950;
+  }
+  .element-legend {
+    position: absolute;
+    z-index: 2;
+    top: 60px;
+    left: 12px;
+    display: flex;
+    gap: 13px;
+    padding: 8px 11px;
+    border: 2px solid #b9c7c5;
+    border-radius: 4px;
+    background: rgba(255,255,255,.97);
+    color: #263b3e;
+    font-size: 20px;
+    font-weight: 950;
+  }
+  .element-key { display: inline-flex; align-items: center; gap: 5px; }
+  .element-dot { width: 16px; height: 16px; border-radius: 50%; }
+  .element-c { background: #686d73; }
+  .element-n { background: #3157d5; }
+  .element-li { background: #8f4fd6; }
+  .gui-result {
+    margin-top: 13px;
+    padding: 12px 15px;
+    border-left: 7px solid #294b52;
+    background: #eff4f3;
+    color: #2a4347;
+    font-size: 24px;
+    font-weight: 900;
+  }
+  .human-edit {
+    position: relative;
+    display: none;
+    margin-top: 13px;
+    padding: 13px 15px 14px;
+    border: 3px solid #c57606;
+    border-radius: 5px;
+    background: #fffaf1;
+    color: #754300;
+    font-size: 22px;
+    font-weight: 950;
+  }
+  .edit-heading {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 20px;
+    text-transform: uppercase;
+  }
+  .edit-controls {
+    display: grid;
+    grid-template-columns: auto 120px auto auto 120px auto;
+    align-items: center;
+    gap: 10px;
+  }
+  .edit-track {
+    position: relative;
+    display: block;
+    height: 7px;
+    background: #d8c7a7;
+  }
+  .edit-track::after {
+    content: "";
+    position: absolute;
+    top: -5px;
+    left: var(--edit-stop, 64%);
+    width: 17px;
+    height: 17px;
+    border-radius: 50%;
+    background: #c57606;
+    box-shadow: 0 0 0 2px #fff;
+  }
+  body[data-flow="refine"] .human-edit,
+  body[data-flow="revision"] .human-edit,
+  body[data-flow="reply"] .human-edit,
+  body[data-flow="complete"] .human-edit { display: block; }
 </style>
 </head>
 <body data-flow="request">
   <header>
-    <div>
-      <div class="eyebrow">Work with an AI Agent</div>
-      <h1>Ask naturally. Watch, refine, and continue.</h1>
-    </div>
-    <p class="header-note">Three bidirectional links keep you, the external Agent, and the same live v_ase document synchronized.</p>
+    <div class="eyebrow">Work with an AI Agent</div>
+    <h1>You direct the work. The AI Agent operates v_ase. The GUI stays live.</h1>
   </header>
   <main>
-    <svg class="flows" viewBox="0 0 2276 970" aria-hidden="true">
-      <path class="flow-path human-vase" d="M540 220 C700 102 904 102 1115 220"/>
-      <polygon class="flow-arrow human-vase" points="-24,-12 0,0 -24,12" transform="translate(540 220) rotate(143.6)"/>
-      <polygon class="flow-arrow human-vase" points="-24,-12 0,0 -24,12" transform="translate(1115 220) rotate(29.2)"/>
-      <text class="flow-label human-vase" x="824" y="105">
-        <tspan x="824">You ↔ v_ase GUI</tspan>
-        <tspan class="flow-sub" x="824" dy="25">Live result ↔ direct visual refinement</tspan>
-      </text>
-
-      <path class="flow-path human-agent" d="M535 410 C650 450 650 535 535 615"/>
-      <polygon class="flow-arrow human-agent" points="-24,-12 0,0 -24,12" transform="translate(535 410) rotate(-160.8)"/>
-      <polygon class="flow-arrow human-agent" points="-24,-12 0,0 -24,12" transform="translate(535 615) rotate(145.2)"/>
-      <text class="flow-label human-agent" x="716" y="493">
-        <tspan x="716">You ↔ AI Agent</tspan>
-        <tspan class="flow-sub" x="716" dy="25">Natural-language request ↔ feedback</tspan>
-      </text>
-
-      <path class="flow-path agent-vase" d="M550 790 C740 925 934 916 1118 760"/>
-      <polygon class="flow-arrow agent-vase" points="-24,-12 0,0 -24,12" transform="translate(550 790) rotate(-144.6)"/>
-      <polygon class="flow-arrow agent-vase" points="-24,-12 0,0 -24,12" transform="translate(1118 760) rotate(-40.3)"/>
-      <text class="flow-label agent-vase" x="842" y="932">
-        <tspan x="842">AI Agent ↔ v_ase CLI</tspan>
-        <tspan class="flow-sub" x="842" dy="25">Structured operations ↔ exact state + revisions</tspan>
-      </text>
+    <svg class="flows" viewBox="0 0 1720 950" aria-hidden="true">
+      <defs>
+        <marker id="arrow-gui" markerWidth="23" markerHeight="23" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse" viewBox="0 0 12 12"><path d="M0,0.5 L11,6 L0,11.5 L2.7,6 Z" fill="#294b52"/></marker>
+        <marker id="arrow-natural" markerWidth="23" markerHeight="23" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse" viewBox="0 0 12 12"><path d="M0,0.5 L11,6 L0,11.5 L2.7,6 Z" fill="#c57606"/></marker>
+        <marker id="arrow-cli" markerWidth="23" markerHeight="23" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse" viewBox="0 0 12 12"><path d="M0,0.5 L11,6 L0,11.5 L2.7,6 Z" fill="#007f71"/></marker>
+      </defs>
+      <path id="flow-gui-to-vase" class="flow-path channel-gui" d="M648 105 C716 73 792 73 850 105" marker-end="url(#arrow-gui)"/>
+      <path id="flow-gui-to-human" class="flow-path channel-gui" d="M850 218 C792 250 716 250 648 218" marker-end="url(#arrow-gui)"/>
+      <path id="flow-natural-to-agent" class="flow-path channel-natural" d="M145 357 C105 400 105 486 145 529" marker-end="url(#arrow-natural)"/>
+      <path id="flow-natural-to-human" class="flow-path channel-natural" d="M570 529 C610 486 610 400 570 357" marker-end="url(#arrow-natural)"/>
+      <path id="flow-cli-to-vase" class="flow-path channel-cli" d="M714 660 C762 635 808 635 850 660" marker-end="url(#arrow-cli)"/>
+      <path id="flow-cli-to-agent" class="flow-path channel-cli" d="M850 821 C808 846 762 846 714 821" marker-end="url(#arrow-cli)"/>
     </svg>
+    <div class="channel-label label-gui">GUI</div>
+    <div class="channel-label label-natural">Natural language</div>
+    <div class="channel-label label-cli">CLI</div>
 
-    <section class="stage human active" data-stage="human">
-      <div class="step">You</div>
-      <h2>Request the scientific result</h2>
-      <div class="prompt">“From <strong>6 × 6 graphene</strong>, create a pyridinic N<sub>3</sub> vacancy, place Li <strong>2.15 Å</strong> above it, and show a <strong>+Z top view with +Y up</strong>.”</div>
-      <p class="plain-note">Watch the live result and refine its appearance directly in the GUI.</p>
-    </section>
-
-    <section class="stage agent" data-stage="agent">
-      <div class="step">External AI Agent</div>
-      <h2>Understands and operates</h2>
-      <div class="agents">
-        <div class="agent-mark"><img src="brand_assets/openai-symbol.svg" alt="OpenAI"><span>Codex</span></div>
-        <div class="agent-mark"><img src="brand_assets/anthropic.svg" alt="Anthropic"><span>Claude Code</span></div>
-        <div class="agent-mark"><img src="brand_assets/github-copilot.svg" alt="GitHub"><span>Copilot</span></div>
+    <section class="node human active" data-stage="human">
+      <div class="identity">
+        <span class="person-icon" aria-hidden="true"></span>
+        <div><div class="actor-kicker">Human</div><h2>You</h2></div>
       </div>
-      <div class="skill"><strong>v_ase Skill</strong><span>Maps intent to exact atom, camera, analysis, and export operations.</span></div>
-      <div class="operation" id="operation">Read exact structure state</div>
+      <div class="speech">“Make a pyridinic <strong>N<sub>3</sub> vacancy</strong>, place Li <strong>2.15 Å above it</strong>, and show it <strong>from +Z with +Y up</strong>.”</div>
+      <div class="natural-reply">AI: Done. Your later GUI refinements are synchronized.</div>
     </section>
 
-    <section class="stage vase" data-stage="vase">
+    <section class="node agent" data-stage="agent">
+      <div class="agent-title">
+        <span class="agent-mark" aria-hidden="true">AI</span>
+        <div><div class="actor-kicker">Interprets the request</div><h2>AI Agent</h2></div>
+      </div>
+      <div class="translation-heading"><span>Natural-language intent</span><span class="arrow">→</span><span class="to-cli">CLI operations</span></div>
+      <div class="translation" aria-label="Natural-language intent translated into CLI operations">
+        <div class="translation-row" data-command="vacancy"><span class="intent">N<sub>3</sub> vacancy</span><span class="cli-command">delete 42 · 29,41,30 → N</span></div>
+        <div class="translation-row" data-command="lithium"><span class="intent">Li 2.15 Å above</span><span class="cli-command">add Li · z = center + 2.15 Å</span></div>
+        <div class="translation-row" data-command="camera"><span class="intent">+Z · +Y up</span><span class="cli-command">view +Z · screen up +Y</span></div>
+      </div>
+      <div class="agent-status operation" id="operation">Reads the current structure through CLI</div>
+      <div class="agent-status agent-reply" id="agent-reply">GUI revision received · radius 0.64 · bond 0.20 Å</div>
+    </section>
+
+    <section class="node vase" data-stage="vase">
       <div class="vase-head">
         <img class="vase-logo" src="../assets/v_ase-logo.png" alt="v_ase">
-        <div><div class="step">Shared live document</div><h2>CLI control, normal GUI</h2><p>Every Agent command and every human GUI edit advances one revisioned state.</p></div>
+        <div><div class="actor-kicker">One shared structure</div><h2>Live v_ase GUI</h2></div>
       </div>
       <div class="gui">
-        <div class="gui-bar"><span class="dot"></span><span class="dot amber"></span><span class="dot green"></span><span>Live v_ase GUI</span><span class="revision" id="revision">revision 0</span></div>
+        <div class="gui-bar"><span class="dot"></span><span class="dot amber"></span><span class="dot green"></span><span>v_ase GUI</span></div>
+        <div class="element-legend"><span class="element-key"><span class="element-dot element-c"></span>C</span><span class="element-key"><span class="element-dot element-n"></span>N</span><span class="element-key"><span class="element-dot element-li"></span>Li</span></div>
+        <div class="result-badges"><span class="result-badge">+Z VIEW</span><span class="result-badge">+Y UP</span><span class="result-badge">Li +2.15 Å</span></div>
         <img id="gui-image" src="../assets/readme_ai_collaboration_live.png" alt="Live v_ase result">
+      </div>
+      <div class="gui-result">Inspect the result immediately. The GUI and CLI share the same document.</div>
+      <div class="human-edit" id="human-edit">
+        <span class="edit-heading">You refine the result directly in the GUI</span>
+        <span class="edit-controls"><b>Radius</b><i class="edit-track"></i><b>0.64</b><b>Bond</b><i class="edit-track" style="--edit-stop:55%"></i><b>0.20 Å</b></span>
       </div>
     </section>
   </main>
 <script>
-  window.setCollaborationStage = async ({
-    stage = 'human',
-    flow = 'request',
-    operation = '',
-    revision = 0,
-    image = ''
-  } = {}) => {
+  window.setCollaborationStage = async ({stage = 'human', flow = 'request', operation = '', image = '', showReply = false} = {}) => {
     document.body.dataset.flow = flow;
-    document.querySelectorAll('.stage').forEach(element => {
+    document.body.dataset.reply = String(flow === 'reply' || showReply);
+    document.querySelectorAll('.node').forEach(element => {
       element.classList.toggle('active', element.dataset.stage === stage);
     });
-    document.getElementById('operation').textContent = operation || 'Read exact structure state';
-    document.getElementById('revision').textContent = `revision ${revision}`;
+    const normalized = (operation || 'Reads the current structure through CLI')
+      .replace(/^CLI:\s*/i, '')
+      .replace(/^Applied:\s*/i, 'Applied: ');
+    let activeCommand = '';
+    if (/vacancy|neighbors|delete/i.test(normalized)) activeCommand = 'vacancy';
+    else if (/Li|requested site/i.test(normalized)) activeCommand = 'lithium';
+    else if (/camera|\+Z|\+Y/i.test(normalized)) activeCommand = 'camera';
+    const order = ['vacancy', 'lithium', 'camera'];
+    const activeIndex = order.indexOf(activeCommand);
+    document.querySelectorAll('.translation-row').forEach(row => {
+      const rowIndex = order.indexOf(row.dataset.command);
+      row.classList.toggle('active', row.dataset.command === activeCommand);
+      row.classList.toggle('revealed', activeIndex >= 0 && rowIndex <= activeIndex);
+    });
+    if (flow === 'reply') document.getElementById('agent-reply').textContent = normalized;
+    else document.getElementById('operation').textContent = normalized;
     if (image) {
       const guiImage = document.getElementById('gui-image');
       guiImage.src = image;

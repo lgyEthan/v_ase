@@ -437,34 +437,34 @@ await applyCurrent({operation: {
   name: "scatter-molecules",
   molecules: [{name: "H2O", label: "channel_water", count: 1}],
   quantityMode: "density",
-  targetDensityGcm3: 0.80,
+  targetDensityGcm3: 0.65,
   regionMode: "regions",
   regionMic: true,
   regions: [
-    {id: "periodic-inlet", role: "allow",
-     bounds: [-2, 4.2, 0.8, 9.03804859, 7.65, 12.35]},
-    {id: "right-reservoir", role: "allow",
-     bounds: [6.5, 10.5, 0.8, 9.03804859, 7.65, 12.35]},
-    {id: "central-gate", role: "reject",
-     bounds: [2.5, 7.2, 3.7, 6.1, 7.65, 12.35]}
+    {id: "lower-slit", role: "allow",
+     bounds: [1, 7, 0.7, 9.13804859, 0.65, 5.35]},
+    {id: "upper-periodic-slit", role: "allow",
+     bounds: [1, 7, 0.7, 9.13804859, 6.65, 11.35]},
+    {id: "upper-gate", role: "reject",
+     bounds: [3, 5, 3.2, 6.6, 8, 10.4]}
   ],
   placementMode: "random",
   pbcAware: true,
   randomOrientation: true,
   rigidMolecules: true,
   freezeExisting: true,
-  seed: 2021
+  seed: 1207
 }});
 const staged = await ai.describe({includePositions: true});
 if (
   staged.addAtoms?.content_kind !== "molecules"
   || staged.addAtoms.molecule_count !== 10
   || staged.addAtoms.new_count !== 30
-  || staged.addAtoms.density?.target_g_cm3 !== 0.80
+  || staged.addAtoms.density?.target_g_cm3 !== 0.65
   || Math.abs(
-    staged.addAtoms.density?.actual_g_cm3 - 0.8132063091734184
+    staged.addAtoms.density?.actual_g_cm3 - 0.6509035344988875
   ) > 1e-12
-  || Math.abs(staged.addAtoms.domain.volume_angstrom3 - 367.8600492603591) > 1e-8
+  || Math.abs(staged.addAtoms.domain.volume_angstrom3 - 459.58594030630485) > 1e-8
 ) {
   await applyCurrent({operation: "cancel-add-atoms"});
   throw new Error("Molecule staging failed semantic verification.");
@@ -865,6 +865,9 @@ one plane, press `G`, move it along the visible normal, and confirm the number
 field and slider follow the live offset before the settled full-resolution
 render replaces the preview. Press `R`, constrain if needed, and confirm the
 three hkl fields follow the live normal and the committed descriptor matches.
+The current hkl is authoritative as soon as its input commits; the Agent does
+not need to wait for a pending high-resolution slice before starting `G` or
+`R`.
 
 Do not combine grids with different dimensions, cell, origin, PBC, or units.
 Do not hide that validation error by interpolating one grid onto another.
@@ -1028,11 +1031,23 @@ the selected candidate. With `showAtoms: true`, require opaque core atoms, a
 one-primitive-cell boundary shell, and all preview bonds across the proposed
 supercell. Remove a guest with `remove-commensurate-guest`.
 
-For a deterministic different-lattice check, launch
+For the visual different-lattice check, launch
 `examples/commensurate_host_guest/graphene_host.extxyz` and load
-`examples/commensurate_host_guest/cu111_guest.extxyz`. With guest strain `1%`
-and `maxAreaRatio:16`, require the smallest graphene `√13` / Cu(111)
-`√12` match at `|16.10211375|` degrees, max principal strain
+`examples/commensurate_host_guest/mos2_guest.extxyz`. The parent lattice
+constants are `2.46 Å` and `3.18 Å`, so their black/orange primitive grids must
+be visibly different and remain fixed in extent. With guest strain `2.5%` and
+`maxAreaRatio:16`, require a rectangular graphene
+`(√7 × √21) R±19.11°` area-14 / MoS2 `2 × 2` area-4 match at
+`|19.10660535|` degrees with maximum principal strain `0.023357` to displayed
+precision. Both parent grids share one fixed in-plane origin. Atom visibility
+must remain independent of candidate validity. Treat that as a shared in-plane
+origin contract rather than deriving a display offset from the atom-rotation
+pivot.
+
+For the stricter deterministic numerical check, load
+`examples/commensurate_host_guest/cu111_guest.extxyz` instead. With guest
+strain `1%` and `maxAreaRatio:16`, require the smallest graphene `√13` /
+Cu(111) `√12` match at `|16.10211375|` degrees, max principal strain
 `0.001665824397`, mean absolute strain `0.001110549598`, and 38 total atoms.
 
 The preview is scientific state, not an ASE topology change. A trajectory or a

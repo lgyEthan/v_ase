@@ -385,9 +385,11 @@ and documentation use `view()`.
     count. Both views share one accepted candidate set. A live angle plane and
     nearest-candidate marker follow guest rotation. Its icon-only CSV export
     retains both strain definitions, atom counts, integer matrices, and paper
-    metadata. A deterministic graphene/Cu(111) host/guest fixture and complete
-    numerical validation are provided under `examples/commensurate_host_guest`
-    and `docs/commensurate_validation.md`.
+    metadata. The visual graphene/MoS2 fixture uses visibly different parent
+    lattice constants while the deterministic graphene/Cu(111) pair remains
+    the strict numerical validation under `examples/commensurate_host_guest`
+    and `docs/commensurate_validation.md`. Both parent grids share one fixed
+    in-plane origin; basis rotation never introduces visual lattice drift.
     Planar Translation constructs a primitive periodic lattice in any compatible
     `(hkl)` plane. Its optional map scans a selected rigid component over one
     complete plane cell with either a short-contact or enabled-pair bond-strain
@@ -405,6 +407,30 @@ and documentation use `view()`.
 66. Source, structure-relaxation, Add Atoms placement, and rigid planar timelines
     have explicit owners. Closing a mode removes only its temporary optimizer
     timeline; commit/cancel behavior remains operation-specific.
+67. Temporary Add Atoms host fixation changes only the fixed-material shader;
+    sphere geometry and established per-atom radii remain exact. Asynchronous
+    pair-cutoff refreshes merge the current live table immediately before
+    rendering, so a delayed response cannot replace a newer user edit.
+68. README molecule validation uses a fully periodic `12 Å` layered cell with
+    two `6 Å` slits, two Allow regions, one Reject gate, an exact
+    `459.58594030630485 Å³` accessible domain, and 10 rigid H2O molecules at
+    `0.6509035344988875 g/cm³` for a `0.65 g/cm³` target.
+69. README per-atom validation uses 14 frames of one O probe above a 96-atom
+    Cu(111) slab. Every one of the 97 atoms receives a finite mapped color and
+    stored Cartesian force in every frame, the trajectory range remains fixed,
+    arrow direction follows the active force, and each frame has zero net
+    force. ASE EMT is evaluated independently at every Cu/O probe position;
+    both colors and arrows use that same stored per-frame calculator result.
+70. The visibly different graphene/MoS2 fixture is fixed by a backend
+    regression at `|19.10660535|` degrees: the graphene boundary is the
+    rectangular `(sqrt(7) x sqrt(21))` area-14 cell, the rectangular MoS2
+    conventional boundary is `2 x 2` with area ratio 4, and the guest maximum
+    principal strain is `0.023356639185`. Both parent grids stay on one shared
+    in-plane origin while candidate and atom visibility remain independent.
+71. Volumetric-plane transforms recompute their reciprocal-space normal and
+    valid offset range from the current `(hkl)` when `G` or `R` starts. A
+    pending settled-resolution slice response cannot reintroduce stale plane
+    geometry after an input edit.
 
 ## Canonical Names And Compatibility
 

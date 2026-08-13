@@ -28,6 +28,16 @@ that committed GUI edit through the CLI event stream as a new revision before
 continuing. A one-way
 request-to-render pipeline does not satisfy this collaboration contract.
 
+When explaining this cycle to a human, use only the three interface names on
+the corresponding links: `Natural language`, `CLI`, and `GUI`. Do not describe
+the human side as “normal GUI” or the Agent side as “CLI control”; those phrases
+hide who sends what. State the model directly: the human asks the external
+Agent in ordinary language, the Agent operates v_ase through exact CLI
+operations, and the human watches and refines that same document in the GUI.
+Show one concrete human request, the exact CLI operations
+derived from it, their live GUI result, and at least one direct human GUI edit
+that returns to the Agent as a newer revision.
+
 v_ase is the scientific application in this cycle, not the AI. It owns and
 validates the atomistic document, applies structured Agent commands and human
 GUI edits, renders the GUI, and emits machine-readable state and revisions.
@@ -37,7 +47,7 @@ are authoritative and must be reviewed before the agent continues.
 
 Do not validate this contract with page-only JavaScript. Send at least one
 selection plus physical or visual change from a separate `v_ase api` process,
-confirm the corresponding controls/readouts change in the normal GUI, make at
+confirm the corresponding controls/readouts change in the same live GUI, make at
 least two separate GUI-originated edits, and then confirm both human events,
 `describe().collaboration.revision`, and semantic state agree.
 

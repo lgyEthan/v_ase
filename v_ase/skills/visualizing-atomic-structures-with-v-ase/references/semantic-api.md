@@ -330,23 +330,23 @@ await ai.apply({
     name: "scatter-molecules",
     molecules: [{name: "H2O", label: "water", count: 1}],
     quantityMode: "density",
-    targetDensityGcm3: 0.80,
+    targetDensityGcm3: 0.65,
     regionMode: "regions",
     regionMic: true,
     regions: [
-      {id: "periodic-inlet", role: "allow",
-       bounds: [-2, 4.2, 0.8, 9.03804859, 7.65, 12.35]},
-      {id: "right-reservoir", role: "allow",
-       bounds: [6.5, 10.5, 0.8, 9.03804859, 7.65, 12.35]},
-      {id: "central-gate", role: "reject",
-       bounds: [2.5, 7.2, 3.7, 6.1, 7.65, 12.35]}
+      {id: "lower-slit", role: "allow",
+       bounds: [1, 7, 0.7, 9.13804859, 0.65, 5.35]},
+      {id: "upper-periodic-slit", role: "allow",
+       bounds: [1, 7, 0.7, 9.13804859, 6.65, 11.35]},
+      {id: "upper-gate", role: "reject",
+       bounds: [3, 5, 3.2, 6.6, 8, 10.4]}
     ],
     placementMode: "random",
     pbcAware: true,
     randomOrientation: true,
     rigidMolecules: true,
     freezeExisting: true,
-    seed: 1847
+    seed: 1207
   }
 });
 ```
@@ -385,7 +385,9 @@ is never added to the committed ASE object. During staging,
 indices as a semantic constraint summary so the GUI and agent can identify the
 temporary fixed overlay. It does not mean `session.working_atoms.constraints`
 was mutated. The ASE constraints remain unchanged, and the temporary indices
-disappear from the summary after finish or cancel.
+disappear from the summary after finish or cancel. The GUI representation is a
+fixed-material surface only: it does not change atom radii, label colors, or
+other saved appearance values.
 
 ```javascript
 await ai.apply({operation: {

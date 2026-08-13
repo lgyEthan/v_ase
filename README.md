@@ -34,9 +34,8 @@ completed structure is inspected from above and below.
 
 ![Human and external AI agent working in one live v_ase document](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.png)
 
-Human instructions remain natural language, while the external Agent uses the
-bundled v_ase Skill and structured CLI/API for exact atom identities, camera
-settings, validation, and export. You watch every result in the same GUI,
+Human instructions remain natural language, while the Agent uses the Skill and structured CLI/API for exact atom identities,
+camera settings, validation, and export; the result appears in the same live GUI,
 refine it directly when needed, and v_ase returns that edit to the Agent as a
 new revision. v_ase does not embed an LLM.
 
@@ -203,7 +202,9 @@ Open **+ Add atoms** in **Edit** mode:
   not project an unrelaxed batch into the domain by itself.
 - **Temporarily fix existing atoms** keeps the loaded structure stationary
   while only inserted content follows pairwise repulsion. It is enabled by
-  default.
+  default. This staging overlay does not change atom radii, label colors, or
+  any saved appearance setting; it applies only the fixed-material surface so
+  the stationary host remains identifiable.
 - **Keep inserted atoms selected** is enabled by default. Use `G` or `R` to
   move or rotate only the staged content before repulsive placement; **Select
   added** restores that selection at any time.
@@ -228,11 +229,11 @@ The animations use the included
 
 ![Rigid water molecules placed in a periodic layered channel](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_molecules.gif)
 
-The example uses an orthorhombic layered channel with a `6 Å` interlayer gap.
-Its PBC-crossing inlet remains a complete source box outside the cell while the
-equivalent clipped fragment appears on the opposite side. Two Allow regions
-minus one Reject gate define an exact `367.860 Å³` accessible volume; a target
-density of `0.80 g/cm³` resolves to 10 rigid H2O molecules at `0.813 g/cm³`.
+The example uses a fully periodic layered channel with sheets at `z = 0 Å` and
+`z = 6 Å` in a `12 Å` cell. Two teal Allow regions expose both periodic
+`6 Å` slits, while one magenta Reject gate removes part of the upper slit. Their
+exact Boolean domain is `459.586 Å³`; a target density of `0.65 g/cm³`
+resolves to 10 rigid H2O molecules at `0.651 g/cm³`.
 
 Choose a molecule and label from **Batch > Molecules**. **Count** places the
 requested integer composition. **Density** treats each Count value as a
@@ -249,9 +250,10 @@ translation and rotation. Turn it off for ordinary atomwise relaxation.
 
 Open the included
 [layered water-channel structure](examples/readme_scene_assets/layered_water_channel.traj)
-to reproduce the workflow. The two membrane layers remain exact while only
-the inserted waters move, and rigid placement preserves every O-H distance and
-H-O-H geometry.
+to reproduce the workflow. The source region outlines remain visible while the
+waters are inserted and repelled. Every membrane atom remains exact, while the
+10 randomly oriented waters move as rigid bodies with all O-H distances and
+H-O-H angles preserved.
 
 ### Rotate Selected Atoms
 
@@ -410,23 +412,32 @@ minimum.
 
 ### Separate Host And Guest Example
 
-![Graphene and Cu(111) host/guest common-cell search with a live angle plane](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_commensurate_host_guest.gif)
+![Graphene and MoS2 host/guest common-cell search with a live angle plane](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_commensurate_host_guest.gif)
 
-The repository includes a deterministic graphene/Cu(111) validation pair:
+The visual example deliberately uses two visibly different parent lattices:
+graphene with `a = 2.46 Å` and MoS2 with `a = 3.18 Å`.
 
 ```bash
 v_ase gui examples/commensurate_host_guest/graphene_host.extxyz
 ```
 
 Enable **Structure > Transform > Commensurate atoms**, then load
-[`cu111_guest.extxyz`](examples/commensurate_host_guest/cu111_guest.extxyz)
-with **Load or Replace Guest Structure**. Keep guest strain `1%`, interlayer gap
-`3 Å`, and maximum area ratio `16`. The smallest match is graphene `√13`
-against Cu(111) `√12` at `|16.10211375|°`.
-The common cell contains 26 graphene atoms plus 12 Cu atoms. The
-[example guide](examples/commensurate_host_guest/README.md) and
-[`expected.json`](examples/commensurate_host_guest/expected.json) give the
-exact maximum-principal and paper-style mean-strain values used by the tests.
+[`mos2_guest.extxyz`](examples/commensurate_host_guest/mos2_guest.extxyz)
+with **Load or Replace Guest Structure**. Keep guest strain `2.5%`, interlayer
+gap `3 Å`, and maximum area ratio `16`. At `|19.10660535|°`, the first visible
+bounded match is a rectangular graphene `(√7 × √21) R±19.11°` host
+cell (area ratio 14) against a MoS2 `2 × 2` guest cell (area ratio 4), with
+`2.336%` maximum principal strain. The black host and orange guest
+parent grids remain anchored and keep constant extent throughout the sweep;
+only the orange guest orientation changes. A green common-cell boundary
+appears only when the current angle satisfies the active bounds. Atom and bond
+visibility is an independent switch and never changes merely because a
+candidate appears.
+
+The [example guide](examples/commensurate_host_guest/README.md) also keeps the
+graphene/Cu(111) fixture and [`expected.json`](examples/commensurate_host_guest/expected.json)
+as the stricter numerical regression for maximum-principal and paper-style
+mean strain.
 
 The equations, numerical references, basis-invariance check, and measured
 search bounds are collected in
@@ -551,13 +562,14 @@ Numeric LAMMPS atom columns are exposed by their stored names.
 
 ![Trajectory-wide force-magnitude colorscale with locked limits and matching Cartesian force vectors](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_atom_colorscale.gif)
 
-The example applies stored `|force|` to all 160 Cu atoms in a periodic harmonic
-phonon trajectory and scans the complete trajectory once to lock one `vmin`
-and `vmax`. Every displacement and force comes from the same frame through
-`F_i = -k u_i`; the zero-center-of-mass mode has zero net force. At every
-frame, both colors and arrows are reloaded from that stored force array. Arrow
+The example moves one O probe above a 96-atom Cu(111) slab through 14 frames.
+ASE's EMT calculator is evaluated independently at every probe position, and
+the resulting stored Cartesian force is mapped on every one of the 97 atoms.
+The complete
+trajectory is scanned once to lock one `vmin` and `vmax`. At every frame, both
+colors and arrows are reloaded from that same stored force array. Arrow
 direction is the current Cartesian force direction and arrow length is
-`scale × |F|`; neither remains frozen while the atoms move. Force
+`scale × |F|`; neither remains frozen while the probe moves. Force
 arrows can use 2D or 3D geometry, custom color, thickness, and scale. If a
 frame has no stored forces, v_ase reports that fact instead of evaluating a
 calculator merely to draw arrows.
@@ -633,7 +645,9 @@ the same panel remains available, and a selected plane can also be moved with
 to rotate its normal. The distance field, slider, and `(hkl)` fields follow the
 viewport transform live. Movement uses a lower-resolution preview while the
 pointer is active and restores the configured resolution after the transform
-settles.
+settles. A newly entered `(hkl)` is the transform authority immediately; you
+do not need to wait for the settled high-resolution texture before pressing
+`G` or `R`.
 
 ![Interactive hkl scalar-field plane clipped to the displayed cell](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric_plane.gif)
 
@@ -987,16 +1001,24 @@ OBJ export has no optional Python dependency.
 
 ![A natural-language request passing through an external AI Agent into the same live revisioned v_ase GUI](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.gif)
 
-You describe the scientific result to an external AI Agent. The bundled
+You describe the scientific result to an external AI Agent in ordinary
+language. The Agent translates that request into exact **CLI** operations;
+v_ase renders those operations immediately, and you inspect or refine the same
+document through the **GUI**. The same document stays open in one live GUI, so
+the Agent's changes and your direct refinements never split into separate
+copies. The bundled
 [v_ase Skill](v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md)
 teaches that Agent the exact state queries, edits, validation checks, camera
 commands, and exports. v_ase itself does not contain an LLM or interpret
 natural language.
 
-The three links are all bidirectional:
+The figure labels only the interface used on each bidirectional link:
 
-The same document stays open in the normal GUI while the Agent uses the Skill
-and structured CLI/API to inspect and change its exact revisioned state.
+| Link | What crosses it |
+| --- | --- |
+| **Natural language** | Your requested result, clarification, and the Agent's completion report |
+| **CLI** | Revision-checked operations to v_ase; exact state and newer revisions back to the Agent |
+| **GUI** | The live rendered result to you; your direct visual refinements back to the same document |
 
 1. **You ↔ AI Agent:** request the scientific result in natural language; the
    Agent can ask for clarification and report what it changed.
@@ -1006,12 +1028,11 @@ and structured CLI/API to inspect and change its exact revisioned state.
    Each committed GUI edit returns through the CLI event stream, so the Agent
    reads that human change before continuing.
 
-Throughout this feedback cycle, the result appears in the same live GUI. The
-animation distinguishes the natural-language request, each structured CLI
-edit, the resulting live structure, a manual GUI refinement, and the revision
-event that makes the Agent reread and verify the current state.
-A manual GUI edit becomes the next document revision rather than an invisible
-side change.
+The animation shows the complete cycle: your request, its structured operation
+sequence, each live structural and camera change, a direct GUI radius/bond
+refinement, the resulting revision event, Agent re-verification, and the final
+natural-language completion. A manual GUI edit becomes the next document
+revision rather than an invisible side change.
 
 For example:
 

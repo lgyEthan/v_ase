@@ -39,7 +39,7 @@ discover exact operation and export parameters, then uses `capabilities` and
 It must require exact equality between schema parameter-map keys and the
 operation/export names returned by `capabilities`; a mismatch indicates an
 out-of-sync installation. External-agent verification uses separate
-`v_ase api` processes and confirms each command in the same normal GUI, not
+`v_ase api` processes and confirms each command in the same live GUI, not
 only through page-injected JavaScript.
 The same semantic contract includes VASP/Cube/XSF volumetric grids, signed
 isosurfaces, compatible-grid density differences, total and label-pair RDF,

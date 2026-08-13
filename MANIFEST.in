@@ -9,6 +9,7 @@ recursive-include v_ase/skills *.md *.yaml
 recursive-include docs *.md *.html
 prune docs/assets
 exclude docs/design/ai_collaboration_concepts.html
+exclude docs/design/ai_collaboration_recording.html
 recursive-include examples *.py *.traj *.extxyz *.json *.md
 recursive-include scripts *.py
 exclude scripts/capture_ai_collaboration_concepts.py

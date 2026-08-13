@@ -180,6 +180,43 @@ def test_graphene_cu111_host_guest_fixture_matches_its_independent_reference():
     assert candidate["guest_matrix"] == reference["guest_matrix"]
 
 
+def test_graphene_mos2_visual_fixture_has_the_documented_rectangular_match():
+    directory = commensurate_fixture_directory()
+    host = read(directory / "graphene_host.extxyz")
+    guest = read(directory / "mos2_guest.extxyz")
+
+    result = find_lattice_matches(
+        host.cell.array,
+        host.pbc,
+        guest.cell.array,
+        guest.pbc,
+        max_area_ratio=16,
+        strain_tolerance=0.025,
+        strain_target="guest",
+    )
+    candidate = next(
+        item
+        for item in result["candidates"]
+        if item["angle_deg"] == pytest.approx(-19.10660535, abs=1e-8)
+    )
+
+    assert candidate["host_area_ratio"] == 14
+    assert candidate["guest_area_ratio"] == 4
+    assert candidate["host_matrix"] == [[3, -1], [-1, 5]]
+    assert candidate["guest_matrix"] == [[2, 0], [0, 2]]
+    assert candidate["host_notation"] == "(√7 × √21) R-19.11°"
+    assert candidate["guest_notation"] == "2 × 2"
+    assert candidate["cell_lengths_angstrom"] == pytest.approx(
+        [math.sqrt(7.0) * 2.46, math.sqrt(21.0) * 2.46],
+        abs=1e-8,
+    )
+    assert candidate["cell_angle_deg"] == pytest.approx(90.0, abs=1e-10)
+    assert candidate["max_principal_strain"] == pytest.approx(
+        0.023356639185,
+        abs=1e-12,
+    )
+
+
 def test_host_guest_search_is_invariant_to_an_equivalent_integer_cell_basis():
     host = np.array([
         [3.1, 0.2, 0.0],
@@ -463,15 +500,15 @@ def test_host_guest_preview_keeps_cells_independent_and_can_hide_atoms():
         include_atoms=False,
     )
     assert parent_preview["parent_lattices_fixed"] is True
-    assert parent_preview["host_grid_shape"] == [13, 13]
-    assert parent_preview["guest_grid_shape"] == [13, 13]
+    assert parent_preview["host_grid_shape"] == [12, 12]
+    assert parent_preview["guest_grid_shape"] == [12, 12]
     assert np.asarray(parent_preview["host_parent_cell"]) == pytest.approx(host_cell)
     rotation = row_rotation_matrix([0, 0, 1], 13.0)
     assert np.asarray(parent_preview["guest_parent_cell"]) == pytest.approx(
         guest_cell @ rotation
     )
-    assert len(parent_preview["host_grid_lattice_origins"]) == 13 * 13
-    assert len(parent_preview["guest_grid_lattice_origins"]) == 13 * 13
+    assert len(parent_preview["host_grid_lattice_origins"]) == 12 * 12
+    assert len(parent_preview["guest_grid_lattice_origins"]) == 12 * 12
 
 
 def test_host_guest_api_previews_cells_then_materializes_one_editable_structure():
@@ -875,11 +912,26 @@ def test_parent_lattice_preview_extent_is_independent_of_common_cell_candidate()
 
     for preview in previews:
         assert preview["parent_lattices_fixed"] is True
-        assert preview["host_grid_shape"] == [17, 17]
-        assert preview["guest_grid_shape"] == [17, 17]
+        assert preview["host_grid_shape"] == [16, 16]
+        assert preview["guest_grid_shape"] == [16, 16]
         assert np.asarray(preview["host_parent_cell"]) == pytest.approx(atoms.cell.array)
-        assert len(preview["host_grid_lattice_origins"]) == 17 * 17
-        assert len(preview["guest_grid_lattice_origins"]) == 17 * 17
+        assert len(preview["host_grid_lattice_origins"]) == 16 * 16
+        assert len(preview["guest_grid_lattice_origins"]) == 16 * 16
+
+        host_origins = np.asarray(preview["host_grid_lattice_origins"], dtype=float)
+        host_vectors = np.asarray(preview["host_primitive_vectors"], dtype=float)
+        guest_origins = np.asarray(preview["guest_grid_lattice_origins"], dtype=float)
+        guest_vectors = np.asarray(preview["guest_primitive_vectors"], dtype=float)
+        np.testing.assert_allclose(
+            host_origins.mean(axis=0) + 0.5 * (host_vectors[0] + host_vectors[1]),
+            np.zeros(3),
+            atol=1e-12,
+        )
+        np.testing.assert_allclose(
+            guest_origins.mean(axis=0) + 0.5 * (guest_vectors[0] + guest_vectors[1]),
+            np.asarray(preview["guest_offset"], dtype=float),
+            atol=1e-12,
+        )
 
     assert previews[0]["host_grid_lattice_origins"] == previews[1][
         "host_grid_lattice_origins"
@@ -890,7 +942,7 @@ def test_parent_lattice_preview_extent_is_independent_of_common_cell_candidate()
     ]
 
     rotation = row_rotation_matrix([0, 0, 1], candidates[0]["angle_deg"])
-    expected_offset = pivot - pivot @ rotation
+    expected_offset = np.zeros(3)
     assert previews[0]["guest_offset"] == pytest.approx(expected_offset)
     assert previews[0]["guest_grid_lattice_origins"][0] == pytest.approx(
         expected_offset

@@ -374,6 +374,8 @@ def _supercell_notation(basis: np.ndarray, matrix: np.ndarray) -> str:
         np.dot(transformed[0], transformed[1])
         / max(float(np.prod(transformed_lengths)), 1e-14)
     )
+    source_is_hexagonal = abs(abs(source_cosine) - 0.5) <= 2e-6
+    source_is_square = abs(source_cosine) <= 2e-6
     if (
         determinant > 0
         and np.max(np.abs(length_scale - root)) <= 2e-6
@@ -381,13 +383,55 @@ def _supercell_notation(basis: np.ndarray, matrix: np.ndarray) -> str:
     ):
         multiplier = str(int(round(root))) if abs(root - round(root)) <= 1e-8 else f"√{determinant}"
         rotation = _signed_angle_deg(basis[0], transformed[0])
-        if abs(abs(source_cosine) - 0.5) <= 2e-6:
+        if source_is_hexagonal:
             rotation = (rotation + 30.0) % 60.0 - 30.0
-        elif abs(source_cosine) <= 2e-6:
+        elif source_is_square:
             rotation = (rotation + 45.0) % 90.0 - 45.0
         if abs(rotation) < 5e-8:
             rotation = 0.0
         return f"({multiplier} × {multiplier}) R{rotation:.2f}°"
+
+    # A high-symmetry primitive lattice can also produce an orthogonal
+    # rectangular surface cell.  Its two edge multipliers need not be equal:
+    # for example graphene [[3,-1],[-1,5]] has lengths sqrt(7)*a and
+    # sqrt(21)*a and area ratio 14.  Reporting only the integer matrix is
+    # reproducible but obscures this standard geometric meaning.
+    squared_scales = length_scale * length_scale
+    rounded_scales = np.rint(squared_scales).astype(int)
+    source_sine_squared = max(0.0, 1.0 - source_cosine * source_cosine)
+    target_sine_squared = max(0.0, 1.0 - target_cosine * target_cosine)
+    determinant_squared_from_geometry = (
+        float(np.prod(squared_scales))
+        * target_sine_squared
+        / max(source_sine_squared, 1e-14)
+    )
+    if (
+        determinant > 0
+        and (source_is_hexagonal or source_is_square)
+        and abs(target_cosine) <= 2e-6
+        and np.all(rounded_scales > 0)
+        and np.max(np.abs(squared_scales - rounded_scales)) <= 2e-6
+        and abs(determinant_squared_from_geometry - determinant * determinant) <= 2e-6
+    ):
+        def multiplier(value: int) -> str:
+            root_value = sqrt(value)
+            return (
+                str(int(round(root_value)))
+                if abs(root_value - round(root_value)) <= 1e-8
+                else f"√{value}"
+            )
+
+        rotation = _signed_angle_deg(basis[0], transformed[0])
+        if source_is_hexagonal:
+            rotation = (rotation + 30.0) % 60.0 - 30.0
+        else:
+            rotation = (rotation + 45.0) % 90.0 - 45.0
+        if abs(rotation) < 5e-8:
+            rotation = 0.0
+        return (
+            f"({multiplier(int(rounded_scales[0]))} × "
+            f"{multiplier(int(rounded_scales[1]))}) R{rotation:.2f}°"
+        )
     return _matrix_text(matrix)
 
 
@@ -566,6 +610,34 @@ def _primitive_lattice_window(
     return points
 
 
+def _centered_primitive_cell_window(
+    periodic_axes: Sequence[int],
+    radius: int,
+) -> list[tuple[int, int, int]]:
+    """Return integer cell origins whose complete tiled area is origin-centred.
+
+    A cell at lattice index ``(i, j)`` occupies the parallelogram from
+    ``i*a + j*b`` to ``(i+1)*a + (j+1)*b``.  Therefore the even window
+    ``[-r, r)`` has its geometric centre exactly at the crystallographic
+    origin for arbitrary oblique primitive vectors.  This avoids the apparent
+    half-cell drift of an odd origin window while preserving integer lattice
+    translations and the underlying atomic coordinates.
+    """
+
+    axes = tuple(int(axis) for axis in periodic_axes)
+    if len(axes) != 2 or len(set(axes)) != 2:
+        raise ValueError("A parent-lattice window requires two distinct periodic axes.")
+    extent = max(1, int(radius))
+    points: list[tuple[int, int, int]] = []
+    for first in range(-extent, extent):
+        for second in range(-extent, extent):
+            point = np.zeros(3, dtype=int)
+            point[axes[0]] = first
+            point[axes[1]] = second
+            points.append(tuple(int(value) for value in point))
+    return points
+
+
 def _bounded_parent_atom_radius(
     requested_radius: int,
     atoms_per_lattice_cell: int,
@@ -726,7 +798,7 @@ def commensurate_supercell_geometry(
     target_core = _integer_supercell_lattice_points(parent_cell, target_matrix)
     if parent_lattice_preview:
         grid_radius = max(2, int(parent_grid_radius))
-        grid_window = _primitive_lattice_window(periodic_axes, grid_radius)
+        grid_window = _centered_primitive_cell_window(periodic_axes, grid_radius)
         source_core_set = set(source_core)
         target_core_set = set(target_core)
         source_grid_points = [(point, point in source_core_set) for point in grid_window]
@@ -800,7 +872,10 @@ def commensurate_supercell_geometry(
     common_cell = target_matrix @ parent_cell
     candidate_guest_cell = source_matrix @ parent_cell @ rotation @ deformation
     if parent_lattice_preview:
-        guest_origin = center - center @ rotation
+        # Keep both parent lattice grids anchored to the same in-plane origin.
+        # A nonzero atom-rotation pivot changes the guest basis registry, not
+        # the crystallographic origin of the displayed parent cell vectors.
+        guest_origin = np.zeros(3, dtype=float)
         host_parent_cell = parent_cell
         guest_parent_cell = parent_cell @ rotation
         host_primitive = parent_cell
@@ -929,8 +1004,8 @@ def host_guest_supercell_geometry(
     largest_area = max(len(host_core), len(guest_core))
     if parent_lattice_preview:
         grid_radius = max(2, int(parent_grid_radius))
-        host_grid_window = _primitive_lattice_window(host_axes, grid_radius)
-        guest_grid_window = _primitive_lattice_window(guest_axes, grid_radius)
+        host_grid_window = _centered_primitive_cell_window(host_axes, grid_radius)
+        guest_grid_window = _centered_primitive_cell_window(guest_axes, grid_radius)
         host_core_set = set(host_core)
         guest_core_set = set(guest_core)
         host_grid_points = [(point, point in host_core_set) for point in host_grid_window]

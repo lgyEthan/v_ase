@@ -211,10 +211,15 @@ Run all scenarios, not only static document checks:
    - compare the accelerated search against complete enumeration through area
      ratio 5, and verify the full analytic `(m,m+1)` TBG series through
      `(31,32)` plus an equivalent oblique integer basis;
-   - load the graphene/Cu(111) different-lattice fixture from
-     `examples/commensurate_host_guest`, verify the `√13` / `√12`
-     result at `|16.10211375|` degrees, both documented strain values, and 38
-     atoms; verify absolute
+   - load the graphene/MoS2 visual fixture from
+     `examples/commensurate_host_guest`, verify visibly different `2.46 Å` and
+     `3.18 Å` parent grids, fixed grid extents and origins, cells-only default,
+     independent atom visibility, and the rectangular graphene
+     `(√7 × √21) R±19.11°` area-14 / MoS2 `2 × 2` area-4 result at
+     `|19.10660535|` degrees with `2.3357%` maximum principal strain;
+   - load the graphene/Cu(111) strict numerical fixture from the same directory,
+     verify the `√13` / `√12` result at `|16.10211375|` degrees, both documented
+     strain values, and 38 atoms; verify absolute
      and parent-traversal paths are rejected, and compare guest-strain and
      host-strain matches without conflating their integer matrices;
    - enable atom preview and verify opaque host/guest cores, one-cell shells,
@@ -434,17 +439,21 @@ Run all scenarios, not only static document checks:
       `N_pyridinic` neighbors, one `Li_site` 2.15 A above the vacancy, the
       documented source/intermediate/final CIF files, and a nonblank oblique
       render;
-    - inspect the collaboration figure and verify it contains the actual live
-      N3/Li GUI, a human natural-language request, structured agent steps, two
-      real GUI-originated NDJSON events, separate command/result states, and
-      clearly visible return paths for live results and revision
-      re-synchronization;
+    - inspect the collaboration figure and animation with no accompanying text;
+      require a first-time reviewer to identify You, the external AI Agent, and
+      one live v_ase structure; the bidirectional Natural language, CLI, and GUI
+      channels; the N3/Li request; structured Agent operations; live GUI edits;
+      human GUI refinement; revision re-synchronization; and the final
+      natural-language completion. Reject detached endpoints, unreadable
+      microcopy, or a channel whose payload cannot be inferred;
     - compare three identical Cu13 clusters and verify Standard, Metal, and
       Rubber remain visibly distinct without changing ASE element, radius, or
       color;
-    - play the colorscale trajectory with one locked global range and verify
-      every visible force arrow changes with and exactly follows the active
-      frame's stored Cartesian vector;
+    - play the 96-Cu plus moving-O colorscale trajectory with one locked global
+      range and verify all 97 atoms are mapped, every visible force arrow
+      changes with and exactly follows the active frame's stored Cartesian
+      vector, the arrow and colorscale use that same array, and the stored net
+      force is zero in every frame;
     - play the isovalue GIF and require continuous mesh changes at fixed camera
       and background; play the plane GIF and require continuous slice changes
       with fixed `vmin`/`vmax`, atoms, cell, camera, and background;

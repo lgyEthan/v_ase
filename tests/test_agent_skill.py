@@ -136,7 +136,18 @@ def test_readme_agent_media_uses_the_external_cli_bridge():
     assert "window.v_aseAI.apply" not in ai_edit
     assert "window.v_aseAI.apply" not in collaboration
     assert "window.v_aseAI.apply" not in volumetric
-    assert 'f"CLI: {operation_label}"' in collaboration
+    assert "operation_label" in collaboration
+    for required in (
+        '"name": "delete-selection"',
+        '"name": "set-identity"',
+        '"name": "add-atom"',
+        '"camera": {"axis": "+Z", "fit": "structure"}',
+        "delete vacancy-site C",
+        "set its 3 neighbors to N",
+        "add Li at the exact requested site",
+        "set camera +Z · screen up +Y",
+    ):
+        assert required in collaboration
     assert '"flow": flow' in collaboration
     assert 'if len(human_events) < 2' in collaboration
     assert 'child.locator("#app-viewport").screenshot' in collaboration
@@ -182,6 +193,8 @@ def test_skill_distinguishes_temporary_add_atoms_overlay_from_ase_constraints():
         "describe().constraints.fixed_indices",
         "ASE constraints remain unchanged",
         "session.working_atoms.constraints",
+        "does not change atom radii",
+        "fixed-material surface",
     ):
         assert required in documented, required
 
@@ -656,6 +669,8 @@ def test_skill_documents_commensurate_and_registry_end_to_end_contracts():
         "1..128",
         "global Z",
         "cells-only",
+        "shared in-plane origin",
+        "candidate validity",
         "one-primitive-cell boundary shell",
         "geometry scores, not energies",
         "icon-only CSV",

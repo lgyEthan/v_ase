@@ -15,7 +15,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.10"
+python -m pip install "v_ase-gui==0.2.11"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -256,7 +256,9 @@ constraints, per-atom arrays, and pre-session history. Never use batch
 insertion on a trajectory because it would create inconsistent frame topology.
 While staging, `describe().constraints.fixed_indices` may include the host as
 a semantic constraint summary for its temporary fixed overlay. The committed
-ASE constraints remain unchanged; verify this again after finish or cancel.
+ASE constraints remain unchanged; the overlay does not change atom radii or
+saved appearance and applies only the fixed-material surface. Verify this
+again after finish or cancel.
 For scalar-field sections, use `add-volumetric-plane` with a dataset ID and a
 nonzero hkl normal, `update-volumetric-planes` with the current plane IDs for
 atomic multi-plane edits, and `remove-volumetric-planes` to delete them. Read
@@ -364,7 +366,7 @@ For any nontrivial task, verify all applicable items:
   molecules also verify count versus density mode, integer composition ratio,
   target/actual density, rigid geometry, and committed molecule count;
 - AI contract: exact schema/capability operation and export set equality, an
-  external `v_ase api` mutation visible in the normal GUI, and matching GUI
+  external `v_ase api` mutation visible in the same live GUI, and matching GUI
   and `describe().collaboration.revision` state;
 - trajectory: frame count, active frame, stable selection, analysis reference;
 - volumetric: dataset ID, grid dimensions, cell, origin, PBC, units,
