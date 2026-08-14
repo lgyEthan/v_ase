@@ -25,9 +25,8 @@ from ase.build import (
     surface,
 )
 from ase.constraints import FixAtoms, FixedLine, FixedPlane, Hookean
-from ase.calculators.emt import EMT
 from ase.calculators.singlepoint import SinglePointCalculator
-from ase.io import write
+from ase.io import read, write
 from ase.optimize import FIRE
 from ase.spacegroup import crystal
 from ase.units import Bohr
@@ -560,13 +559,44 @@ def make_material_preset_scene() -> tuple[Atoms, dict[str, list[int]]]:
     return atoms, groups
 
 
-def make_random_addition_scene() -> tuple[Atoms, dict[str, object]]:
-    """Return a Cu(111) terrace with a finite O adsorption volume.
+def make_cu5o4_appearance_scene() -> tuple[Atoms, dict[str, list[int]]]:
+    """Return the supplied Cu surface-oxide model with stable layer groups."""
 
-    Ten O atoms over 42 top-layer Cu sites are close to the quarter-monolayer
-    coverage at which atomic oxygen is reported to prefer threefold hollows.
-    Repulsion remains a placement aid, not an adsorption-energy calculation.
-    """
+    source = DEFAULT_OUT_DIR / "cu5o4_surface_appearance.vasp"
+    atoms = read(source)
+    chemical_symbols = atoms.get_chemical_symbols()
+    substrate = [
+        index
+        for index, (symbol, position) in enumerate(zip(chemical_symbols, atoms.positions))
+        if symbol == "Cu" and float(position[2]) < 7.0
+    ]
+    oxide_copper = [
+        index
+        for index, (symbol, position) in enumerate(zip(chemical_symbols, atoms.positions))
+        if symbol == "Cu" and float(position[2]) >= 7.0
+    ]
+    oxide_oxygen = [
+        index for index, symbol in enumerate(chemical_symbols) if symbol == "O"
+    ]
+    if len(substrate) != 32 or len(oxide_copper) != 5 or len(oxide_oxygen) != 4:
+        raise AssertionError("Unexpected Cu5O4 surface-layer partition.")
+    set_atom_labels(
+        atoms,
+        ["Cu" if symbol == "Cu" else "O_surface_oxide" for symbol in chemical_symbols],
+    )
+    atoms.info.update({
+        "readme_scene": "cu5o4_view_appearance",
+        "purpose": "View-mode index label split and nonstructural appearance editing",
+    })
+    return atoms, {
+        "substrate_copper": substrate,
+        "oxide_copper": oxide_copper,
+        "oxide_oxygen": oxide_oxygen,
+    }
+
+
+def make_random_addition_scene() -> tuple[Atoms, dict[str, object]]:
+    """Return a Cu(111) slab with a finite subsurface O insertion volume."""
 
     host = fcc111(
         "Cu",
@@ -578,99 +608,94 @@ def make_random_addition_scene() -> tuple[Atoms, dict[str, object]]:
     host.pbc = [True, True, False]
     set_atom_labels(host, ["Cu_surface"] * len(host))
     cell_lengths = host.cell.lengths()
-    top_z = float(np.max(host.positions[:, 2]))
+    z_layers = np.unique(np.round(host.positions[:, 2], decimals=6))
+    top_z = float(z_layers[-1])
+    second_z = float(z_layers[-2])
     allow_bounds = [
-        0.18 * cell_lengths[0],
-        0.82 * cell_lengths[0],
-        0.14 * cell_lengths[1],
-        0.86 * cell_lengths[1],
-        top_z + 0.58,
-        top_z + 2.35,
-    ]
-    reject_bounds = [
-        0.43 * cell_lengths[0],
-        0.60 * cell_lengths[0],
-        0.24 * cell_lengths[1],
-        0.76 * cell_lengths[1],
-        top_z + 0.58,
-        top_z + 2.35,
+        0.16 * cell_lengths[0],
+        0.84 * cell_lengths[0],
+        0.12 * cell_lengths[1],
+        0.88 * cell_lengths[1],
+        second_z + 0.28 * (top_z - second_z),
+        top_z - 0.20 * (top_z - second_z),
     ]
     host.info.update({
-        "readme_scene": "cu111_oxygen_addition",
-        "purpose": "random O insertion in a top-surface zone followed by pairwise repulsion",
-        "coverage_monolayer": 10 / 42,
+        "readme_scene": "cu111_subsurface_oxygen_addition",
+        "purpose": "random O insertion below the top Cu layer followed by pairwise repulsion",
+        "coverage_monolayer": 8 / 42,
         "surface_reference": O_CU111_REFERENCE,
     })
     return host, {
-        "entries": [{"element": "O", "label": "O_inserted", "count": 10}],
+        "entries": [{"element": "O", "label": "O_subsurface", "count": 8}],
         "seed": 2021,
-        "coverage_monolayer": 10 / 42,
+        "coverage_monolayer": 8 / 42,
         "allow_region": {
-            "id": "surface-adsorption-zone",
-            "name": "Surface adsorption zone",
+            "id": "subsurface-insertion-zone",
+            "name": "Subsurface insertion zone",
             "role": "allow",
             "bounds": allow_bounds,
-        },
-        "reject_region": {
-            "id": "protected-terrace-patch",
-            "name": "Protected terrace patch",
-            "role": "reject",
-            "bounds": reject_bounds,
         },
         "surface_reference": O_CU111_REFERENCE,
     }
 
 
 def make_layered_water_channel_scene() -> tuple[Atoms, dict[str, object]]:
-    """Return a fully periodic orthorhombic 6 Å water channel."""
+    """Return periodic hydroxylated graphene-oxide layers and solvent space."""
 
-    source = graphene_nanoribbon(6, 4, type="zigzag", sheet=True, vacuum=0.0)
-    sheet = Atoms(
-        "C" * len(source),
-        positions=np.column_stack((
-            source.positions[:, 0],
-            source.positions[:, 2],
-            np.zeros(len(source)),
-        )),
-        cell=[source.cell.lengths()[0], source.cell.lengths()[2], 12.0],
-        pbc=True,
-    )
-    cell = np.asarray(sheet.cell.array, dtype=float)
-    lower = sheet.copy()
-    lower.cell = cell
-    lower.positions[:, 2] = 0.0
-    upper = sheet.copy()
-    upper.cell = cell
-    upper.positions[:, 2] = 6.0
+    source = graphene_nanoribbon(5, 4, type="zigzag", sheet=True, vacuum=0.0)
+    length_x = float(source.cell.lengths()[0])
+    length_y = float(source.cell.lengths()[2])
+    cell = np.diag([length_x, length_y, 16.0])
+    carbon_xy = np.column_stack((source.positions[:, 0], source.positions[:, 2]))
+
+    def graphene_oxide_layer(z: float, layer: str, phase: int) -> tuple[Atoms, list[str]]:
+        carbon = Atoms(
+            "C" * len(source),
+            positions=np.column_stack((carbon_xy, np.full(len(source), z))),
+            cell=cell,
+            pbc=True,
+        )
+        chosen = np.linspace(0, len(source) - 1, 6, dtype=int)
+        ligand_symbols: list[str] = []
+        ligand_positions: list[list[float]] = []
+        for order, index in enumerate(chosen):
+            direction = 1.0 if (order + phase) % 2 == 0 else -1.0
+            carbon_position = carbon.positions[int(index)]
+            oxygen = carbon_position + np.array([0.0, 0.0, 1.36 * direction])
+            hydrogen = oxygen + np.array([0.0, 0.0, 0.97 * direction])
+            ligand_symbols.extend(["O", "H"])
+            ligand_positions.extend([oxygen.tolist(), hydrogen.tolist()])
+        ligands = Atoms(ligand_symbols, positions=ligand_positions, cell=cell, pbc=True)
+        layer_atoms = carbon + ligands
+        labels = (
+            [f"C_GO_{layer}"] * len(carbon)
+            + [value for _ in chosen for value in (f"O_GO_{layer}", f"H_GO_{layer}")]
+        )
+        return layer_atoms, labels
+
+    lower, lower_labels = graphene_oxide_layer(4.0, "lower", 0)
+    upper, upper_labels = graphene_oxide_layer(12.0, "upper", 1)
     channel = lower + upper
     channel.cell = cell
     channel.pbc = True
-    labels = ["C_lower_membrane"] * len(lower) + ["C_upper_membrane"] * len(upper)
-    set_atom_labels(channel, labels)
+    set_atom_labels(channel, lower_labels + upper_labels)
     channel.wrap(eps=1e-10)
     channel.info.update({
-        "readme_scene": "layered_periodic_water_channel",
-        "purpose": "exact multi-region density placement of rigid H2O molecules",
+        "readme_scene": "periodic_graphene_oxide_water",
+        "purpose": "exact solvent density outside ligand-wrapped reject regions",
     })
-    _, length_y, _ = channel.cell.lengths()
     regions = [
         {
-            "id": "lower-slit",
-            "name": "Lower 6 A slit",
-            "role": "allow",
-            "bounds": [1.0, 7.0, 0.7, length_y - 0.7, 0.65, 5.35],
-        },
-        {
-            "id": "upper-periodic-slit",
-            "name": "Upper periodic 6 A slit",
-            "role": "allow",
-            "bounds": [1.0, 7.0, 0.7, length_y - 0.7, 6.65, 11.35],
-        },
-        {
-            "id": "upper-gate",
-            "name": "Upper-slit reject gate",
+            "id": "lower-go-exclusion",
+            "name": "Lower GO exclusion",
             "role": "reject",
-            "bounds": [3.0, 5.0, 3.2, 6.6, 8.0, 10.4],
+            "bounds": [0.0, length_x, 0.0, length_y, 1.45, 6.55],
+        },
+        {
+            "id": "upper-go-exclusion",
+            "name": "Upper GO exclusion",
+            "role": "reject",
+            "bounds": [0.0, length_x, 0.0, length_y, 9.45, 14.55],
         },
     ]
     domain = build_insertion_domain(
@@ -679,7 +704,7 @@ def make_layered_water_channel_scene() -> tuple[Atoms, dict[str, object]]:
         regions=regions,
         pbc_aware=True,
     )
-    target_density = 0.65
+    target_density = 1.0
     _, density = resolve_molecule_density(
         [{"name": "H2O", "label": "water", "count": 1, "atom_count": 3}],
         target_density_g_cm3=target_density,
@@ -692,7 +717,7 @@ def make_layered_water_channel_scene() -> tuple[Atoms, dict[str, object]]:
         "actual_density_g_cm3": density["actual_g_cm3"],
         "regions": regions,
         "accessible_volume_angstrom3": domain.volume,
-        "interlayer_spacing_angstrom": 6.0,
+        "interlayer_spacing_angstrom": 8.0,
         "seed": 1207,
         "placement_mode": "random",
         "coordinate_basis": "cartesian",
@@ -702,31 +727,45 @@ def make_layered_water_channel_scene() -> tuple[Atoms, dict[str, object]]:
 
 
 def make_atom_colorscale_trajectory() -> list[Atoms]:
-    """Return an O probe scan above Cu(111) with stored ASE EMT forces."""
+    """Return a smooth screened-probe force field above a Cu(111) slab.
 
-    surface = fcc111("Cu", size=(8, 6, 2), vacuum=7.0, orthogonal=True)
+    The fixed O marker represents an external probe. Its Gaussian-screened
+    field acts on every Cu atom, so the stored Cartesian response resolves the
+    first, second, and third lateral neighbour shells without one oversized
+    reaction-force arrow dominating the visual scale.
+    """
+
+    surface = fcc111("Cu", size=(8, 8, 3), vacuum=7.0, orthogonal=True)
     surface_center = np.mean(surface.positions, axis=0)
     top_z = float(np.max(surface.positions[:, 2]))
     frames: list[Atoms] = []
     phases = np.linspace(0.0, 2.0 * math.pi, 14, endpoint=False)
     for frame_index, phase in enumerate(phases):
         probe_position = surface_center + np.array([
-            1.85 * math.cos(phase),
-            1.45 * math.sin(phase),
-            top_z - surface_center[2] + 2.20 + 0.05 * math.sin(2.0 * phase),
+            2.35 * math.cos(phase),
+            1.85 * math.sin(phase),
+            top_z - surface_center[2] + 2.45 + 0.08 * math.sin(2.0 * phase),
         ])
         atoms = surface.copy()
         atoms += Atoms("O", positions=[probe_position])
         set_atom_labels(atoms, ["Cu_surface"] * len(surface) + ["O_probe"])
 
         probe_index = len(atoms) - 1
-        atoms.calc = EMT()
-        energy = float(atoms.get_potential_energy())
-        forces = atoms.get_forces().copy()
-        if not np.all(np.linalg.norm(forces, axis=1) > 1e-10):
-            raise AssertionError("README probe scan must store a nonzero force on every atom.")
-        if not np.allclose(np.sum(forces, axis=0), 0.0, atol=1e-10):
-            raise AssertionError("README probe interaction violates force balance.")
+        delta = surface.positions - probe_position
+        distance = np.linalg.norm(delta, axis=1)
+        lateral_distance = np.linalg.norm(delta[:, :2], axis=1)
+        depth = top_z - surface.positions[:, 2]
+        magnitude = (
+            0.22
+            * np.exp(-np.square(lateral_distance / 5.2))
+            * np.exp(-depth / 5.0)
+        )
+        directions = delta / np.maximum(distance[:, None], 1e-12)
+        surface_forces = directions * magnitude[:, None]
+        forces = np.vstack([surface_forces, np.zeros((1, 3), dtype=float)])
+        energy = float(np.sum(0.22 * np.exp(-np.square(lateral_distance / 5.2))))
+        if np.count_nonzero(np.linalg.norm(surface_forces, axis=1) > 0.01) < 36:
+            raise AssertionError("README probe field must visibly resolve multiple neighbour shells.")
         atoms.new_array("forces", forces.copy())
         atoms.calc = SinglePointCalculator(
             atoms,
@@ -734,8 +773,8 @@ def make_atom_colorscale_trajectory() -> list[Atoms]:
             forces=forces,
         )
         atoms.info["readme_scene"] = "force_consistent_atom_colorscale"
-        atoms.info["force_model"] = "ASE EMT Cu/O potential evaluated independently per frame"
-        atoms.info["force_calculator"] = "ase.calculators.emt.EMT"
+        atoms.info["force_model"] = "Gaussian-screened external probe field"
+        atoms.info["force_calculator"] = "analytic external field stored in SinglePointCalculator"
         atoms.info["probe_index"] = probe_index
         atoms.info["frame_index"] = frame_index
         frames.append(atoms)
@@ -1047,17 +1086,16 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
         info = SceneInfo(
             name=name,
             description=(
-                "Cu(111) terrace for O insertion above the top layer with an "
-                "optional protected surface patch."
+                "Cu(111) slab for random O insertion between the top and second layers."
             ),
             static_file="cu111_oxygen_add_atoms.traj",
             selected_indices=(),
             notes=(
                 (
-                    f"Scatter {entries[0]['count']} O_inserted atoms with random seed 2021 "
-                    f"({metadata['coverage_monolayer']:.3f} monolayer over the top Cu layer)."
+                    f"Scatter {entries[0]['count']} O_subsurface atoms with random seed 2021 "
+                    f"({metadata['coverage_monolayer']:.3f} per top-layer Cu atom)."
                 ),
-                "The Allow region is a finite adsorption zone above Cu(111); the optional Reject region protects a central terrace patch.",
+                "The finite Allow region lies strictly between the first two Cu(111) layers.",
                 "All Cu coordinates remain unchanged while only inserted O follows pairwise repulsion.",
                 f"Surface context: {metadata['surface_reference']}",
             ),
@@ -1067,17 +1105,17 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
         atoms, metadata = make_layered_water_channel_scene()
         info = SceneInfo(
             name=name,
-            description="Periodic layered channel for exact multi-region rigid-water insertion.",
+            description="Periodic hydroxylated graphene oxide for exact-density rigid-water insertion.",
             static_file="layered_water_channel.traj",
             selected_indices=(),
             notes=(
                 (
-                    f"Target {metadata['target_density_g_cm3']:.2f} g/cm^3 across two Allow "
-                    f"periodic slits minus one Reject gate; {metadata['expected_molecule_count']} "
-                    "H2O molecules are realizable."
+                    f"Target {metadata['target_density_g_cm3']:.2f} g/cm^3 in the exact "
+                    f"{metadata['accessible_volume_angstrom3']:.3f} A^3 solvent domain; "
+                    f"{metadata['expected_molecule_count']} H2O molecules are realizable."
                 ),
                 "Random orientation is Haar-uniform and rigid placement preserves each molecular geometry.",
-                "Only inserted water is selected and relaxed; the two membrane layers remain unchanged.",
+                "Two Reject regions wrap the ligand-bearing GO layers; only inserted water relaxes.",
             ),
         )
         return atoms, info

@@ -17,6 +17,7 @@ from examples.readme_scenes import (
     make_graphene_pi_volumetric_scene,
     make_black_phosphorene_unit_cell,
     make_copper_oxide_bond_scene,
+    make_cu5o4_appearance_scene,
     make_crowded_c60_relaxation_scene,
     make_ferrocene_scene,
     make_material_preset_scene,
@@ -187,10 +188,10 @@ def test_random_addition_readme_host_is_cu111_surface_and_reproducible():
     assert abs(float(np.linalg.det(host.cell.array))) > 1.0
     assert set(atom_labels(host)) == {"Cu_surface"}
     assert metadata["entries"] == [
-        {"element": "O", "label": "O_inserted", "count": 10},
+        {"element": "O", "label": "O_subsurface", "count": 8},
     ]
     assert metadata["seed"] == 2021
-    assert metadata["coverage_monolayer"] == pytest.approx(10 / 42)
+    assert metadata["coverage_monolayer"] == pytest.approx(8 / 42)
     assert metadata["surface_reference"] == (
         "https://doi.org/10.1016/S0039-6028(01)01464-9"
     )
@@ -203,41 +204,51 @@ def test_random_addition_readme_host_is_cu111_surface_and_reproducible():
     assert len(z_layers) == 4
     assert layer_counts.tolist() == [42, 42, 42, 42]
     allow = np.asarray(metadata["allow_region"]["bounds"], dtype=float)
-    reject = np.asarray(metadata["reject_region"]["bounds"], dtype=float)
-    assert allow[4] > float(np.max(host.positions[:, 2]))
-    assert np.all(reject[::2] >= allow[::2])
-    assert np.all(reject[1::2] <= allow[1::2])
+    assert z_layers[-2] < allow[4] < allow[5] < z_layers[-1]
+    assert "reject_region" not in metadata
 
 
-def test_layered_water_channel_scene_is_periodic_and_leaves_a_visible_channel():
+def test_layered_water_channel_scene_is_periodic_graphene_oxide_with_exact_solvent_volume():
     host, metadata = make_layered_water_channel_scene()
-    assert len(host) == 96
+    assert len(host) == 104
     assert host.pbc.tolist() == [True, True, True]
-    assert set(atom_labels(host)) == {"C_lower_membrane", "C_upper_membrane"}
-    z_values = np.unique(np.round(host.positions[:, 2], 8))
-    np.testing.assert_allclose(z_values, [0.0, 6.0])
-    assert metadata["interlayer_spacing_angstrom"] == pytest.approx(6.0)
-    assert host.cell.lengths()[2] == pytest.approx(12.0)
+    assert set(atom_labels(host)) == {
+        "C_GO_lower", "C_GO_upper",
+        "O_GO_lower", "O_GO_upper",
+        "H_GO_lower", "H_GO_upper",
+    }
+    assert metadata["interlayer_spacing_angstrom"] == pytest.approx(8.0)
+    assert host.cell.lengths()[2] == pytest.approx(16.0)
     assert metadata["molecules"] == [{"name": "H2O", "label": "water", "count": 1}]
-    assert metadata["target_density_g_cm3"] == pytest.approx(0.65)
-    assert metadata["expected_molecule_count"] == 10
-    assert [region["role"] for region in metadata["regions"]] == ["allow", "allow", "reject"]
-    lower, upper, reject = metadata["regions"]
-    assert lower["bounds"][4:6] == pytest.approx([0.65, 5.35])
-    assert upper["bounds"][4:6] == pytest.approx([6.65, 11.35])
-    assert reject["bounds"][4] > upper["bounds"][4]
-    assert reject["bounds"][5] < upper["bounds"][5]
-    assert metadata["accessible_volume_angstrom3"] == pytest.approx(459.58594030630485)
-    assert metadata["actual_density_g_cm3"] == pytest.approx(0.6509035344988875)
+    assert metadata["target_density_g_cm3"] == pytest.approx(1.0)
+    assert metadata["expected_molecule_count"] == 20
+    assert [region["role"] for region in metadata["regions"]] == ["reject", "reject"]
+    lower, upper = metadata["regions"]
+    assert lower["bounds"][4:6] == pytest.approx([1.45, 6.55])
+    assert upper["bounds"][4:6] == pytest.approx([9.45, 14.55])
+    assert metadata["accessible_volume_angstrom3"] == pytest.approx(607.6962966330268)
+    assert metadata["actual_density_g_cm3"] == pytest.approx(0.9845250452604854)
     assert metadata["placement_mode"] == "random"
     assert metadata["coordinate_basis"] == "cartesian"
+
+
+def test_cu5o4_appearance_scene_partitions_substrate_without_changing_elements():
+    atoms, groups = make_cu5o4_appearance_scene()
+
+    assert atoms.get_chemical_formula() == "Cu37O4"
+    assert len(groups["substrate_copper"]) == 32
+    assert len(groups["oxide_copper"]) == 5
+    assert len(groups["oxide_oxygen"]) == 4
+    assert all(atoms[index].symbol == "Cu" for index in groups["substrate_copper"])
+    assert max(atoms.positions[groups["substrate_copper"], 2]) < 7.0
+    assert min(atoms.positions[groups["oxide_copper"], 2]) >= 7.0
 
 
 def test_atom_colorscale_readme_trajectory_colors_every_atom_with_matching_forces():
     frames = make_atom_colorscale_trajectory()
     assert len(frames) == 14
-    assert all(len(frame) == 97 for frame in frames)
-    assert all(frame.get_chemical_symbols().count("Cu") == 96 for frame in frames)
+    assert all(len(frame) == 193 for frame in frames)
+    assert all(frame.get_chemical_symbols().count("Cu") == 192 for frame in frames)
     assert all(frame.get_chemical_symbols().count("O") == 1 for frame in frames)
     assert all(frame.pbc.tolist() == [True, True, False] for frame in frames)
 
@@ -246,16 +257,18 @@ def test_atom_colorscale_readme_trajectory_colors_every_atom_with_matching_force
     all_norms = []
     for frame in frames:
         forces = frame.get_forces()
-        assert np.all(np.linalg.norm(forces, axis=1) > 1e-8)
-        np.testing.assert_allclose(np.sum(forces, axis=0), 0.0, atol=1e-10)
+        force_norms = np.linalg.norm(forces, axis=1)
+        assert np.count_nonzero(force_norms > 0.01) > 100
+        assert force_norms.max() < 0.23
+        assert force_norms[-1] == pytest.approx(0.0)
         np.testing.assert_allclose(frame.positions[:-1], surface_positions, atol=0.0)
         probe_positions.append(frame.positions[-1])
         all_norms.extend(np.linalg.norm(forces, axis=1))
-        assert frame.info["force_model"].startswith("ASE EMT Cu/O")
-        assert frame.info["force_calculator"] == "ase.calculators.emt.EMT"
+        assert frame.info["force_model"] == "Gaussian-screened external probe field"
+        assert frame.info["force_calculator"] == "analytic external field stored in SinglePointCalculator"
         assert frame.get_potential_energy() > 0
     assert np.ptp(np.asarray(probe_positions), axis=0).max() > 3.0
-    assert np.ptp(all_norms) > 0.5
+    assert np.ptp(all_norms) > 0.18
 
     capture = (ROOT / "scripts" / "capture_readme_screenshots.py").read_text()
     colorscale = capture.split("def capture_atom_colorscale_media", 1)[1].split(
@@ -263,8 +276,8 @@ def test_atom_colorscale_readme_trajectory_colors_every_atom_with_matching_force
     )[0]
     assert "scope: 'all'" in colorscale
     assert "map: 'turbo'" in colorscale
-    assert "97 / 97 atoms mapped" in colorscale
-    assert "ASE EMT force colors + vectors" in colorscale
+    assert "193 / 193 atoms mapped" in colorscale
+    assert "neighbour-shell force response" in colorscale
     assert "arg=len(frames[0])" in colorscale
     assert "duration=230" in colorscale
 
@@ -515,20 +528,23 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "**Field smearing σ**" in readme
     assert "**Mesh smoothing passes**" in readme
     assert "source scalar field" in readme
-    assert "ten `o_inserted` atoms start" in normalized_readme
+    assert "eight `o_subsurface` atoms start" in normalized_readme
     assert "Cu(111)/O placement example" in readme
-    assert "The red box is a **Reject region**" in readme
+    assert "separate Reject-region example" not in readme
     assert "half-open primary periodic cell" in readme
     assert "every pre-existing coordinate, array" in readme
     assert "ASE G2" in readme
     assert "Randomize molecular orientation" in readme
     assert "Preserve molecular geometry" in readme
     assert "native coordinate origin" in readme
-    assert "10 rigid h2o molecules" in normalized_readme
-    assert "459.586 å³" in normalized_readme
+    assert "20 rigid h2o molecules" in normalized_readme
+    assert "607.696 å³" in normalized_readme
     assert "rectangular graphene `(√7 × √21) R±19.11°` host" in readme
     assert "MoS2 `2 × 2` guest" in readme
-    assert "96-atom Cu(111) slab" in readme
+    assert "192-atom Cu(111) slab" in readme
+    assert "second, and third lateral neighbor shells" in readme
+    assert "one complete\n  `AdditionRepulsionCalculator`" in readme
+    assert "every FIRE optimizer step" in readme
 
     for filename in (
         "readme_phosphorene_twist.gif",
@@ -545,10 +561,11 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
         "readme_rdf.png",
         "readme_add_atoms.gif",
         "readme_add_atoms_allowed.gif",
-        "readme_add_atoms_prohibited.gif",
         "readme_add_atoms.png",
         "readme_add_molecules.gif",
         "readme_add_molecules.png",
+        "readme_cu5o4_view_appearance.gif",
+        "readme_cu5o4_view_appearance.png",
         "readme_commensurate_host_guest.gif",
     ):
         assert (ROOT / "docs" / "assets" / filename).is_file()
@@ -691,6 +708,8 @@ def test_add_atoms_capture_uses_the_real_batch_workspace_and_optimizer():
     assert 'page.click("#add-atoms-tab-batch")' in capture
     assert 'page.click("#btn-add-atoms-scatter")' in capture
     assert 'page.click("#btn-add-atoms-relax")' in capture
+    assert 'page.select_option("#add-atoms-device", "cpu")' in capture
+    assert 'page.select_option("#add-atoms-cpus"' in capture
     assert 'page.click("#btn-add-atoms-finish")' in capture
     assert "renderer.addAtomsRegionGroup.visible === true" in capture
     assert "renderer.addAtomsRegionGroup.visible === false" in capture
@@ -698,10 +717,8 @@ def test_add_atoms_capture_uses_the_real_batch_workspace_and_optimizer():
     assert "relaxed_positions[: len(host)]" in capture
     assert 'page.click(f"#btn-add-atoms-{role}-region")' in source
     assert "#add-atoms-region-list .add-atoms-region-item" in source
-    assert 'region_role="allowed"' in capture
-    assert 'region_role="prohibited"' in capture
     assert 'gif_name="readme_add_atoms_allowed.gif"' in capture
-    assert 'gif_name="readme_add_atoms_prohibited.gif"' in capture
+    assert 'gif_name="readme_add_atoms_prohibited.gif"' not in capture
     assert "_capture_add_molecules_media(browser)" in capture
     molecule_capture = source.split("def _capture_add_molecules_media", 1)[1].split(
         "def capture_measurement_media", 1
@@ -711,6 +728,8 @@ def test_add_atoms_capture_uses_the_real_batch_workspace_and_optimizer():
     assert 'metadata["regions"]' in molecule_capture
     assert 'metadata["accessible_volume_angstrom3"]' in molecule_capture
     assert 'metadata["expected_molecule_count"]' in molecule_capture
+    assert '["reject", "reject"]' in molecule_capture
+    assert "target density 1.00 g/cm³" in molecule_capture
     assert 'page.click("#add-atoms-placement-random")' in molecule_capture
     assert 'page.locator("#add-molecules-random-orientation").set_checked(True)' in molecule_capture
     assert 'page.locator("#add-molecules-rigid").set_checked(True)' in molecule_capture

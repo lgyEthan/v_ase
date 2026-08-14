@@ -19,6 +19,7 @@ from playwright._impl._errors import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 from scipy.spatial import ConvexHull
 
+import v_ase.repulsion as repulsion_module
 from v_ase.add_atoms import (
     AdditionRepulsionCalculator,
     MOLECULE_GROUP_ARRAY,
@@ -49,6 +50,7 @@ from v_ase.insertion_regions import (
     normalize_insertion_regions,
 )
 from v_ase.io import atom_labels, set_atom_labels
+from v_ase.repulsion import cpu_thread_options
 from v_ase.session import EditorSession
 from v_ase.session import sessions
 from v_ase.server import (
@@ -1070,6 +1072,131 @@ def test_repulsive_placement_keeps_host_exact_after_finish(monkeypatch):
     assert len(session.working_atoms) == len(host) + 6
 
 
+def test_repulsive_placement_uses_selected_compute_resources_and_keeps_every_step(
+    monkeypatch,
+):
+    host = make_host()
+    session = EditorSession("add-relax-resources", host.copy(), host.copy())
+    messages = []
+    monkeypatch.setattr(
+        "v_ase.add_atoms.ws_manager.broadcast_sync",
+        lambda message, *_args, **_kwargs: messages.append(message),
+    )
+    start_atom_addition(session, {
+        "element": "H",
+        "label": "H_mobile",
+        "count": 4,
+        "region_mode": "cell",
+        "seed": 19,
+        "freeze_existing": True,
+    })
+    threads = min(2, cpu_thread_options()[-1])
+    response = start_atom_addition_relaxation(session, {
+        "steps": 4,
+        "fmax": 1e-12,
+        "k_repulsion": 2.0,
+        "pair_cutoffs": {"Cu-H": 4.5, "H-H": 3.0, "H-N": 4.0, "H-O": 4.0},
+        "device": "cpu",
+        "cpu_threads": threads,
+    })
+
+    assert response["requested_device"] == "cpu"
+    assert response["cpu_threads"] == threads
+    deadline = time.monotonic() + 10.0
+    while session.atom_addition.is_relaxing and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert session.atom_addition.is_relaxing is False
+    steps = sorted({
+        int(message["step"])
+        for message in messages
+        if message.get("type") == "add_atoms_relax_step"
+    })
+    assert steps == list(range(0, max(steps) + 1))
+    assert session.atom_addition.requested_device == "cpu"
+    assert session.atom_addition.effective_device == "cpu"
+    assert session.atom_addition.cpu_threads == threads
+
+
+def test_repulsive_placement_calculator_always_receives_the_complete_staged_structure(
+    monkeypatch,
+):
+    host = make_host()
+    session = EditorSession("add-relax-full-structure", host.copy(), host.copy())
+    monkeypatch.setattr(
+        "v_ase.add_atoms.ws_manager.broadcast_sync",
+        lambda *_args, **_kwargs: None,
+    )
+    summary = start_atom_addition(session, {
+        "element": "H",
+        "label": "H_mobile",
+        "count": 5,
+        "region_mode": "cell",
+        "seed": 29,
+        "freeze_existing": True,
+    })
+    evaluations = []
+    original_calculate = AdditionRepulsionCalculator.calculate
+
+    def record_complete_structure(calculator, atoms=None, *args, **kwargs):
+        target = atoms if atoms is not None else calculator.atoms
+        evaluations.append((len(target), np.asarray(target.get_tags(), dtype=int).copy()))
+        return original_calculate(calculator, atoms, *args, **kwargs)
+
+    monkeypatch.setattr(AdditionRepulsionCalculator, "calculate", record_complete_structure)
+    start_atom_addition_relaxation(session, {
+        "steps": 3,
+        "fmax": 1e-12,
+        "pair_cutoffs": {"Cu-H": 4.0, "H-H": 3.0, "H-N": 4.0, "H-O": 4.0},
+    })
+    deadline = time.monotonic() + 10.0
+    while session.atom_addition.is_relaxing and time.monotonic() < deadline:
+        time.sleep(0.02)
+
+    assert evaluations
+    expected_count = len(host) + summary["new_count"]
+    assert all(count == expected_count for count, _tags in evaluations)
+    assert all(np.count_nonzero(tags == 3) == summary["new_count"] for _count, tags in evaluations)
+
+
+def test_exact_overlap_mic_fallback_batches_candidate_vectors(monkeypatch):
+    atoms = Atoms(
+        "H4",
+        positions=np.zeros((4, 3)),
+        cell=[8.0, 8.0, 8.0],
+        pbc=True,
+    )
+    atoms.set_tags([3, 3, 3, 3])
+    monkeypatch.setattr(
+        repulsion_module,
+        "primitive_neighbor_list",
+        lambda *_args, **_kwargs: (
+            np.asarray([], dtype=int),
+            np.asarray([], dtype=int),
+            np.empty((0, 3), dtype=float),
+            np.asarray([], dtype=float),
+        ),
+    )
+    mic_shapes = []
+    original_find_mic = repulsion_module.find_mic
+
+    def record_batched_mic(vectors, *args, **kwargs):
+        mic_shapes.append(np.asarray(vectors).shape)
+        return original_find_mic(vectors, *args, **kwargs)
+
+    monkeypatch.setattr(repulsion_module, "find_mic", record_batched_mic)
+    atoms.calc = AdditionRepulsionCalculator(
+        min_bondinfo={"H-H": 1.0},
+        cutoff_scale=1.0,
+        k_repulsion=2.0,
+        mic=True,
+        work_on_relax_atoms_too=True,
+    )
+    forces = atoms.get_forces()
+
+    assert mic_shapes == [(6, 3)]
+    assert np.linalg.norm(forces) > 0.0
+
+
 def test_rigid_molecule_repulsion_preserves_geometry_and_host_state(monkeypatch):
     host = make_host()
     session = EditorSession("add-rigid-water", host.copy(), host.copy())
@@ -1439,6 +1566,38 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             assert periodic_box_visuals["wrappedSegmentCount"] == (
                 periodic_box_visuals["uniqueWrappedSegmentCount"]
             )
+            full_period_box = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const orthogonalCell = [[8, 0, 0], [0, 8, 0], [0, 0, 8]];
+                app.renderer.setAddAtomsRegions({
+                    visible: true,
+                    pbcAware: true,
+                    pbc: [true, true, true],
+                    cell: orthogonalCell,
+                    selectedIds: ['full-period-box'],
+                    regions: [{
+                        id: 'full-period-box',
+                        name: 'Full-period box',
+                        role: 'reject',
+                        bounds: [0, 8, 0, 8, 1, 3],
+                    }],
+                });
+                const children = app.renderer.addAtomsRegionGroup.children;
+                const wrapped = children.filter(child => (
+                    child.userData?.insertionRegionWrappedFragment
+                    && !child.userData?.cellEdgeInstances
+                ));
+                const result = {
+                    source: children.filter(child => (
+                        child.userData?.insertionRegionSourceBox
+                        && !child.userData?.cellEdgeInstances
+                    )).length,
+                    wrapped: wrapped.length,
+                };
+                app.updateAddAtomsRegionPreview();
+                return result;
+            }""")
+            assert full_period_box == {"source": 1, "wrapped": 0}
             region_picking = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
                 const pickables = app.renderer.addAtomsRegionGroup.userData.pickables || [];
@@ -1585,12 +1744,20 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             ]
             assert_host_unchanged(host, backend.atom_addition.baseline_atoms)
 
+            assert page.locator("#add-atoms-device").is_visible()
+            assert page.locator("#add-atoms-cpus option").count() >= 1
+            thread_value = "2" if page.locator('#add-atoms-cpus option[value="2"]').count() else "1"
+            page.select_option("#add-atoms-device", "cpu")
+            page.select_option("#add-atoms-cpus", thread_value)
             page.fill("#add-atoms-steps", "20")
             page.click("#btn-add-atoms-relax")
             page.wait_for_function(
                 "window.__ASE_APP__.addAtomsUI?.active?.is_relaxing === true"
             )
             assert page.locator("#add-atoms-mic").is_disabled()
+            assert page.locator("#add-atoms-device").is_disabled()
+            assert backend.atom_addition.requested_device == "cpu"
+            assert backend.atom_addition.cpu_threads == int(thread_value)
             page.wait_for_function(
                 "window.__ASE_APP__.addAtomsUI?.active?.is_relaxing === false",
                 timeout=20_000,

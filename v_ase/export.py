@@ -807,6 +807,28 @@ def _html_atom_color_scale_frames(
     return payloads
 
 
+def _html_view_identity_labels(
+    frame_objects,
+    settings: Dict[str, Any],
+) -> list[list[str] | None]:
+    """Return structure-specific View labels without changing ASE elements."""
+    source = settings.get("viewIdentityOverrides")
+    if not isinstance(source, dict):
+        return [None] * len(frame_objects)
+    if source.get("scope") == "trajectory" and isinstance(source.get("labels"), list):
+        labels = [str(value) for value in source["labels"]]
+        return [labels if len(labels) == len(atoms) else None for atoms in frame_objects]
+    frames = source.get("frames")
+    if source.get("scope") != "frames" or not isinstance(frames, dict):
+        return [None] * len(frame_objects)
+    result: list[list[str] | None] = []
+    for index, atoms in enumerate(frame_objects):
+        values = frames.get(str(index))
+        labels = [str(value) for value in values] if isinstance(values, list) else None
+        result.append(labels if labels is not None and len(labels) == len(atoms) else None)
+    return result
+
+
 def export_html_response(session, payload: Dict[str, Any]):
     """Build one offline, view-only HTML document with optional project recovery."""
     from .project import (
@@ -855,6 +877,11 @@ def export_html_response(session, payload: Dict[str, Any]):
             selection.append(index)
     selection = sorted(set(selection))
     frames = [atoms_to_json(frame) for frame in frame_objects]
+    identity_labels = _html_view_identity_labels(frame_objects, settings)
+    for frame, labels in zip(frames, identity_labels):
+        if labels is not None:
+            frame["symbols"] = labels
+            frame["atom_types"] = labels
     color_scale_frames = _html_atom_color_scale_frames(
         frame_objects,
         settings,

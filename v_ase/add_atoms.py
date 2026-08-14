@@ -42,7 +42,13 @@ from .insertion_regions import (
     finite_cell_or_none,
     normalize_insertion_regions,
 )
-from .repulsion import VAseRepulsionCalculator, copy_calculator
+from .repulsion import (
+    VAseRepulsionCalculator,
+    copy_calculator,
+    cpu_thread_options,
+    cuda_available,
+    default_cpu_threads,
+)
 from .websocket_manager import ws_manager
 
 
@@ -1797,6 +1803,10 @@ class AtomAdditionSession:
     status: str = "scattered"
     step: int = 0
     max_steps: int = 0
+    requested_device: str = "cpu"
+    effective_device: str = "cpu"
+    cpu_threads: int = field(default_factory=default_cpu_threads)
+    calculator_backend: str = "numpy"
     lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
     @property
@@ -1862,6 +1872,12 @@ class AtomAdditionSession:
             "is_relaxing": self.is_relaxing,
             "step": self.step,
             "max_steps": self.max_steps,
+            "requested_device": self.requested_device,
+            "effective_device": self.effective_device,
+            "cpu_threads": self.cpu_threads,
+            "calculator_backend": self.calculator_backend,
+            "cpu_thread_options": cpu_thread_options(),
+            "cuda_available": cuda_available(),
         }
 
 
@@ -2304,6 +2320,8 @@ def _temporary_optimizer_atoms(
     k_repulsion: float,
     k_boundary: float,
     mic: bool,
+    device: str,
+    cpu_threads: int,
 ) -> Atoms:
     temporary = session.working_atoms.copy()
     tags = temporary.get_tags()
@@ -2336,7 +2354,8 @@ def _temporary_optimizer_atoms(
         insertion_domain=addition.domain if not addition.allow_escape else None,
         rigid_groups=rigid_groups,
         rigid_references=rigid_references,
-        device="cpu",
+        device=device,
+        cpu_threads=cpu_threads,
     )
     return temporary
 
@@ -2418,6 +2437,8 @@ def _run_addition_relaxation(
     k_repulsion: float,
     k_boundary: float,
     mic: bool,
+    device: str,
+    cpu_threads: int,
 ) -> None:
     status = "converged"
     error_message = None
@@ -2431,6 +2452,8 @@ def _run_addition_relaxation(
             k_repulsion=k_repulsion,
             k_boundary=k_boundary,
             mic=mic,
+            device=device,
+            cpu_threads=cpu_threads,
         )
         optimizer = FIRE(temporary, logfile=None, dt=0.04, maxstep=0.12)
 
@@ -2443,6 +2466,14 @@ def _run_addition_relaxation(
                 ):
                     raise RuntimeError(_STOP_SIGNAL)
             forces = temporary.get_forces()
+            calculator_status = temporary.calc.status()
+            with addition.lock:
+                addition.effective_device = str(
+                    calculator_status.get("effective_device") or "cpu"
+                )
+                addition.calculator_backend = str(
+                    calculator_status.get("backend") or "numpy"
+                )
             current_fmax = (
                 float(np.sqrt((forces**2).sum(axis=1).max()))
                 if len(forces)
@@ -2459,6 +2490,8 @@ def _run_addition_relaxation(
                 run_id=run_id,
             )
 
+        # Every optimizer step is retained in the Add-mode trajectory.  The
+        # calculator evaluates the complete structure before FIRE advances it.
         optimizer.attach(callback, interval=1)
         optimizer.run(fmax=fmax, steps=steps)
         if optimizer.nsteps >= steps:
@@ -2508,6 +2541,8 @@ def start_atom_addition_relaxation(
         steps = int(payload.get("steps", 250))
         k_repulsion = float(payload.get("k_repulsion", 2.0))
         k_boundary = float(payload.get("k_boundary", 5.0))
+        device = str(payload.get("device", addition.requested_device or "cpu")).strip().lower()
+        cpu_threads = int(payload.get("cpu_threads", addition.cpu_threads))
     except (TypeError, ValueError) as exc:
         raise ValueError("Repulsive placement settings must be numeric.") from exc
     if not np.isfinite(fmax) or fmax <= 0:
@@ -2518,6 +2553,13 @@ def start_atom_addition_relaxation(
         raise ValueError("Repulsion strength must be from 0 through 1000.")
     if not np.isfinite(k_boundary) or k_boundary <= 0 or k_boundary > 1000:
         raise ValueError("Boundary strength must be greater than 0 and at most 1000.")
+    if device not in {"cpu", "cuda"}:
+        raise ValueError("Repulsive placement device must be CPU or CUDA.")
+    available_threads = cpu_thread_options()
+    if cpu_threads not in available_threads:
+        raise ValueError(
+            f"CPU threads must be from {available_threads[0]} through {available_threads[-1]}."
+        )
 
     all_elements = [*addition.baseline_atoms.get_chemical_symbols(), *addition.elements]
     pair_cutoffs = normalize_pair_cutoffs(
@@ -2534,6 +2576,9 @@ def start_atom_addition_relaxation(
     addition.stop_requested = False
     addition.step = 0
     addition.max_steps = steps
+    addition.requested_device = device
+    addition.effective_device = "cuda" if device == "cuda" and cuda_available() else "cpu"
+    addition.cpu_threads = cpu_threads
     addition.run_id += 1
     run_id = addition.run_id
     thread = threading.Thread(
@@ -2548,6 +2593,8 @@ def start_atom_addition_relaxation(
             "k_repulsion": k_repulsion,
             "k_boundary": k_boundary,
             "mic": bool(payload.get("mic", True)),
+            "device": device,
+            "cpu_threads": cpu_threads,
         },
         daemon=True,
         name=f"v_ase-add-atoms-{session.session_id[:8]}",

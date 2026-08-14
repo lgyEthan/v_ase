@@ -381,6 +381,8 @@ await applyCurrent({operation: {
   boundaryStrength: 5.0,
   fmax: 0.05,
   steps: 300,
+  device: "cpu",
+  cpuThreads: 4,
   mic: true,
   allowEscape: true
 }});

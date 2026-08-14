@@ -14,7 +14,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.12"
+python -m pip install "v_ase-gui==0.2.13"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -255,10 +255,13 @@ scale the selected bounds about their shared center, and deliberately rejects
 `R`. Use `scale-add-atoms-regions` for the same semantic operation. Region
 fills provide depth but are never selection targets, so a nested box remains
 selectable by its edges. Verify stable IDs and the exact domain in
-`describe().addAtoms`, then optionally run
-`relax-added-atoms` with explicit pair cutoffs and MIC. Its temporary
-`Add Atoms placement` timeline must exist only while the staging mode remains
-active. Wait until
+`describe().addAtoms`, then optionally run `relax-added-atoms` with explicit
+pair cutoffs, MIC, and the requested `device`/`cpuThreads`. The operation
+attaches one complete `AdditionRepulsionCalculator` to the staged structure
+and advances it with FIRE; do not implement pairwise coordinate pushes or
+call MIC per atom pair. Its temporary `Add Atoms placement` timeline retains
+every optimizer step and must exist only while the staging mode remains active.
+Wait until
 `is_relaxing` is false before `finish-add-atoms`. Use `stop-added-atoms` only
 to interrupt the optimizer, and `cancel-add-atoms` to restore the exact host,
 constraints, per-atom arrays, and pre-session history. Never use batch
@@ -427,9 +430,8 @@ For any nontrivial task, verify all applicable items:
   selection, and guest loading preserve the current direct angle: black host
   and orange guest parent grids retain identical dimensions while the mobile
   lattice rotates, and the green common-cell boundary appears only when that
-  angle resolves a bounded match. Only the candidate boundary may change size.
-  For an
-  explicit semantic search with no angle, require the smallest-area admissible
+  angle resolves a bounded match. Only the candidate boundary may change size. For
+  an explicit semantic search with no angle, require the smallest-area admissible
   proposal; with an explicit angle, require the nearest admissible candidate. Confirm
   that the conservative max principal strain
   controls acceptance, while the Paper strain projection reports mean
@@ -480,12 +482,10 @@ work around a stale skill silently.
 
 Read only the references needed for the current task:
 
-- [Agent setup](references/agent-setup.md): exact files to give Codex, Claude
-  Code, ChatGPT desktop agents, Gemini-based agents, agentic IDEs, and clients
-  without native skill loaders.
-- [Live collaboration](references/collaboration.md): same-document human/agent
-  workflow, NDJSON events, optimistic revisions, multi-tab routing, and
-  recovery.
+- [Agent setup](references/agent-setup.md): exact files to give Codex, Claude Code,
+  ChatGPT desktop agents, Gemini-based agents, agentic IDEs, and clients without native skill loaders.
+- [Live collaboration](references/collaboration.md): same-document human/agent workflow,
+  NDJSON events, optimistic revisions, multi-tab routing, and recovery.
 - [CLI and environments](references/cli-and-environments.md): installation,
   input formats, local/remote/server use, dependencies, and process lifecycle.
 - [Semantic API](references/semantic-api.md): complete state, command, display,

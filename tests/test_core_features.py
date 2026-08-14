@@ -660,6 +660,26 @@ def test_repulsion_separates_exactly_coincident_atoms_without_a_cell():
     np.testing.assert_allclose(forces[0], -forces[1], atol=1e-12)
 
 
+def test_repulsion_separates_periodically_equivalent_coincident_atoms():
+    atoms = Atoms(
+        "HH",
+        positions=[[0.0, 0.0, 0.0], [5.0, 0.0, 0.0]],
+        cell=[5.0, 5.0, 5.0],
+        pbc=True,
+    )
+    atoms.calc = RepulsionCalculator(
+        min_bondinfo={"H-H": 1.0},
+        cutoff_scale=1.0,
+        k_repulsion=2.0,
+        mic=True,
+    )
+
+    forces = atoms.get_forces()
+
+    assert np.linalg.norm(forces[0]) > 0.1
+    np.testing.assert_allclose(forces[0], -forces[1], atol=1e-12)
+
+
 def test_default_relaxation_moves_coincident_scratch_atoms_without_a_cell():
     atoms = Atoms("HH", positions=np.zeros((2, 3)), pbc=False)
     session = EditorSession(

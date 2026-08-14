@@ -93,6 +93,10 @@ class EditorSession:
         default=None,
         repr=False,
     )
+    _trajectory_identity_compatible: Optional[bool] = field(
+        default=None,
+        repr=False,
+    )
 
     def _attach_default_calculator(self) -> bool:
         return not bool((self.config or {}).get("viz_only", False))
@@ -310,6 +314,7 @@ class EditorSession:
 
     def invalidate_trajectory_layout(self) -> None:
         self._trajectory_layout_compatible = None
+        self._trajectory_identity_compatible = None
 
     def refresh_trajectory_identity(self) -> Dict[str, Any]:
         """Cache ordered labels and their ASE elements for the whole trajectory."""

@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.2.13
+
+- Changed Add Atoms and Add Molecules placement to attach one
+  `AdditionRepulsionCalculator` to the complete staged structure and run ASE
+  FIRE without pairwise coordinate corrections. Every optimizer step is kept
+  in the mode trajectory, and exact-overlap MIC candidates are vectorized in
+  one calculator call.
+- Added CPU thread and CUDA selection directly to the floating Add panel so
+  placement resources remain accessible when the main inspector is closed.
+  The panel reports the effective backend and safely falls back to CPU when
+  CUDA is unavailable.
+- Enabled View-mode visual relabeling and per-atom materials without changing
+  ASE elements or coordinates. Stable trajectories propagate labels by atom
+  index; incompatible trajectories show a modal and modify only the current
+  frame. Complete project and embedded-HTML saves preserve these identities.
+- Centered odd Edit-mode display supercells around the primary cell, added a
+  stronger editable-cell halo, and rendered noneditable replicas at 16%
+  opacity. View-mode replicas remain fully opaque and selectable.
+- Regenerated all README media, including subsurface O placement, exact-density
+  rigid water placement, trajectory-wide force colors, and Cu5O4 View-mode
+  appearance editing.
+
 ## 0.2.12
 
 - Made a filename-free `v_ase gui` launch an empty Edit document. A full

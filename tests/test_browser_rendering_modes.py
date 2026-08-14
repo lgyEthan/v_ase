@@ -2697,6 +2697,155 @@ def test_trajectory_selection_persists_and_displacement_vectors_render():
         editor.close()
 
 
+def test_view_mode_visual_label_and_appearance_follow_stable_trajectory_indices():
+    first = Atoms(
+        "H3",
+        positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]],
+        cell=[8.0, 8.0, 8.0],
+        pbc=True,
+    )
+    second = first.copy()
+    second.positions += [0.2, 0.1, 0.0]
+    set_atom_labels(first, ["H_host"] * 3)
+    set_atom_labels(second, ["H_host"] * 3)
+    port = find_free_port()
+    editor = view(
+        [first, second],
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1360, "height": 820})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.state?.atoms?.metadata?.trajectory_identity_compatible === true"
+            )
+            _expand_inspector(page)
+            _select_structure_section(page, "appearance")
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.state.selected = new Set([1]);
+                app.updateSelectionVisuals();
+                app.updateUI();
+            }""")
+            page.fill("#selected-atom-label", "H_probe")
+            page.click("#btn-apply-selected-label")
+            page.wait_for_function("window.__ASE_APP__.state.atoms.symbols[1] === 'H_probe'")
+            page.select_option("#selected-atom-material", "metal")
+            page.locator('.label-color-input[data-atom-label="H_probe"]').fill("#2a78c4")
+            page.locator('.label-radius-input[data-atom-label="H_probe"]').fill("1.25")
+            page.locator('.label-radius-input[data-atom-label="H_probe"]').press("Tab")
+            page.wait_for_function(
+                "window.__ASE_APP__.state.display.labelRadii.H_probe === 1.25"
+            )
+            assert page.locator(
+                '.chemical-type-select[data-atom-label="H_probe"]'
+            ).is_disabled()
+
+            page.evaluate("document.activeElement?.blur()")
+            page.keyboard.press("ArrowRight")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.state.atoms.metadata.current_frame === 1
+                    && app.state.atoms.symbols[1] === 'H_probe';
+            }""")
+            state = page.evaluate("""() => ({
+                labels: window.__ASE_APP__.state.atoms.symbols,
+                elements: window.__ASE_APP__.state.atoms.chemical_symbols,
+                radius: window.__ASE_APP__.state.display.labelRadii.H_probe,
+                color: window.__ASE_APP__.state.display.labelColors.H_probe,
+                material: window.__ASE_APP__.state.display.atomMaterials[1],
+            })""")
+            assert state == {
+                "labels": ["H_host", "H_probe", "H_host"],
+                "elements": ["H", "H", "H"],
+                "radius": 1.25,
+                "color": "#2a78c4",
+                "material": "metal",
+            }
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_view_mode_incompatible_trajectory_relabels_current_frame_and_opens_modal():
+    first = Atoms(
+        "H3",
+        positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]],
+        cell=[8.0, 8.0, 8.0],
+        pbc=True,
+    )
+    second = Atoms(
+        "H2He",
+        positions=[[0.2, 0.0, 0.0], [1.2, 0.0, 0.0], [2.2, 0.0, 0.0]],
+        cell=[8.0, 8.0, 8.0],
+        pbc=True,
+    )
+    set_atom_labels(first, ["H_host"] * 3)
+    set_atom_labels(second, ["H_host", "H_host", "He_guest"])
+    port = find_free_port()
+    editor = view(
+        [first, second],
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1360, "height": 820})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.state?.atoms?.metadata?.trajectory_identity_compatible === false"
+            )
+            _expand_inspector(page)
+            _select_structure_section(page, "appearance")
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.state.selected = new Set([0]);
+                app.updateSelectionVisuals();
+                app.updateUI();
+            }""")
+            page.fill("#selected-atom-label", "H_anchor")
+            page.click("#btn-apply-selected-label")
+            page.wait_for_selector("#modal-container:not(.hidden)")
+            assert "this frame only" in page.locator("#modal-content").inner_text().lower()
+            page.click("#modal-close")
+
+            page.evaluate("document.activeElement?.blur()")
+            page.keyboard.press("ArrowRight")
+            page.wait_for_function("window.__ASE_APP__.state.atoms.metadata.current_frame === 1")
+            assert page.evaluate("window.__ASE_APP__.state.atoms.symbols") == [
+                "H_host", "H_host", "He_guest"
+            ]
+            page.evaluate("document.activeElement?.blur()")
+            page.keyboard.press("ArrowLeft")
+            page.wait_for_function(
+                "window.__ASE_APP__.state.atoms.metadata.current_frame === 0"
+            )
+            assert page.evaluate("window.__ASE_APP__.state.atoms.symbols") == [
+                "H_anchor", "H_host", "H_host"
+            ]
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_coordinate_reset_preserves_visual_translation_and_display_supercell():
     atoms = Atoms(
         "H2",
@@ -6589,9 +6738,9 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
             assert repeated["bondInstances"] == 14
             assert repeated["atomMeshes"] >= 1
             assert repeated["bondMeshes"] == 2
-            assert repeated["atomTransparent"] is False
-            assert all(opacity == 1 for opacity in repeated["atomOpacity"])
-            assert repeated["exactBaseMaterials"] is True
+            assert repeated["atomTransparent"] is True
+            assert all(opacity == pytest.approx(0.16) for opacity in repeated["atomOpacity"])
+            assert repeated["exactBaseMaterials"] is False
             assert repeated["selectableChildren"] == 2
             repeated_hover = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
@@ -6626,6 +6775,34 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
             page.mouse.move(repeated_hover["clientX"], repeated_hover["clientY"])
             page.wait_for_function("window.__ASE_APP__.state.hoveredIndex === 0")
             assert "#0@[1,0,0] H" in page.locator('#hover-readout').inner_text()
+
+            page.fill('#super-x', '3')
+            page.fill('#super-y', '3')
+            page.fill('#super-z', '1')
+            page.keyboard.press('Tab')
+            page.wait_for_function(
+                "JSON.stringify(window.__ASE_APP__.state.display.supercell) === '[3,3,1]'"
+            )
+            centered = page.evaluate("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                const replicas = renderer.supercellGroup.children.find(
+                    child => child.userData?.supercellInstanced
+                );
+                return {
+                    offsets: replicas.userData.cellOffsets,
+                    opacity: replicas.material.opacity,
+                    editableCellHalos: renderer.cellGroup.children.filter(
+                        child => child.userData?.editableCellHalo
+                    ).length,
+                };
+            }""")
+            assert sorted(map(tuple, centered["offsets"])) == [
+                (-1, -1, 0), (-1, 0, 0), (-1, 1, 0),
+                (0, -1, 0), (0, 1, 0),
+                (1, -1, 0), (1, 0, 0), (1, 1, 0),
+            ]
+            assert centered["opacity"] == pytest.approx(0.16)
+            assert centered["editableCellHalos"] == 1
             for control in ('#super-x', '#super-y', '#super-z'):
                 page.fill(control, '1')
                 page.keyboard.press('Tab')

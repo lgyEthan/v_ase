@@ -42,6 +42,7 @@ from examples.readme_scenes import (
     make_ai_pyridinic_graphene_scene,
     make_amorphous_cuzr_rdf_scene,
     make_graphene_pi_volumetric_scene,
+    make_cu5o4_appearance_scene,
     make_material_preset_scene,
     make_phosphorene_twist_scene,
     make_random_addition_scene,
@@ -2446,6 +2447,152 @@ def capture_material_media(browser) -> None:
         page.close()
         editor.close()
 
+    capture_cu5o4_view_appearance_media(browser)
+
+
+def capture_cu5o4_view_appearance_media(browser) -> None:
+    atoms, groups = make_cu5o4_appearance_scene()
+    editor, page = open_scene(browser, atoms, show_bonds=True, viz_only=True)
+    try:
+        set_display(page, {
+            "atomRadiusScale": 0.60,
+            "showBonds": True,
+            "showGrid": False,
+            "showAxes": False,
+            "showCell": True,
+            "viewportBackground": "white",
+            "bondMode": "pairwise",
+            "pairwiseBondRanges": {
+                "Cu-Cu": {"enabled": False, "max": 2.8},
+                "Cu-O_surface_oxide": {"enabled": True, "max": 2.25},
+                "O_surface_oxide-O_surface_oxide": {"enabled": False, "max": 3.0},
+            },
+            "pairwiseBondCutoffs": {
+                "Cu-Cu": 0.0,
+                "Cu-O_surface_oxide": 2.25,
+                "O_surface_oxide-O_surface_oxide": 0.0,
+            },
+            "bondThickness": 0.22,
+            "bondColorMode": "split",
+            "labelColors": {
+                "Cu": "#c98442",
+                "O_surface_oxide": "#d9363e",
+            },
+            "labelMaterials": {
+                "Cu": "standard",
+                "O_surface_oxide": "rubber",
+            },
+        })
+        configure_inspector(page, "structure", ["appearance"], width=525)
+        center = np.mean(atoms.positions, axis=0)
+        center[2] = 4.3
+        radius = 27.0
+        set_camera(
+            page,
+            target=center.tolist(),
+            position=(center + np.array([0.0, -radius, 0.0])).tolist(),
+            up=(0, 0, 1),
+            fov=32,
+        )
+        set_atomic_scale(page, 48.0)
+        set_readme_lighting(
+            page,
+            center.tolist(),
+            intensity=3.0,
+            position_offset=(-10.0, -18.0, 18.0),
+        )
+
+        frames: list[Image.Image] = []
+        append_hold(frames, page, 8)
+        substrate = groups["substrate_copper"]
+        page.evaluate(
+            """indices => {
+                const app = window.__V_ASE_APP__;
+                app.state.selected = new Set(indices);
+                app.updateSelectionVisuals();
+                app.updateUI();
+            }""",
+            substrate,
+        )
+        page.fill("#selected-atom-label", "Cu_substrate")
+        page.click("#btn-apply-selected-label")
+        page.wait_for_function(
+            "indices => indices.every(index => window.__V_ASE_APP__.state.atoms.symbols[index] === 'Cu_substrate')",
+            arg=substrate,
+        )
+        visual_identity = page.evaluate("""indices => ({
+            labels: indices.map(index => window.__V_ASE_APP__.state.atoms.symbols[index]),
+            elements: indices.map(index => window.__V_ASE_APP__.state.atoms.chemical_symbols[index]),
+            mode: window.__V_ASE_APP__.state.vizOnly,
+        })""", substrate)
+        if not visual_identity["mode"] or set(visual_identity["elements"]) != {"Cu"}:
+            raise AssertionError("README Cu5O4 label split changed ASE element identity in View mode.")
+
+        set_display(page, {
+            "labelRadii": {
+                "Cu_substrate": 2.0,
+                "Cu": 1.28,
+                "O_surface_oxide": 0.76,
+            },
+            "labelColors": {
+                "Cu_substrate": "#ffffff",
+                "Cu": "#d4934d",
+                "O_surface_oxide": "#d9363e",
+            },
+            "labelMaterials": {
+                "Cu_substrate": "metal",
+                "Cu": "standard",
+                "O_surface_oxide": "rubber",
+            },
+            "pairwiseBondRanges": {
+                "Cu-Cu": {"enabled": False, "max": 2.8},
+                "Cu-Cu_substrate": {"enabled": False, "max": 2.8},
+                "Cu-O_surface_oxide": {"enabled": True, "max": 2.25},
+                "Cu_substrate-Cu_substrate": {"enabled": False, "max": 2.8},
+                "Cu_substrate-O_surface_oxide": {"enabled": False, "max": 2.25},
+                "O_surface_oxide-O_surface_oxide": {"enabled": False, "max": 3.0},
+            },
+            "pairwiseBondCutoffs": {
+                "Cu-Cu": 0.0,
+                "Cu-Cu_substrate": 0.0,
+                "Cu-O_surface_oxide": 2.25,
+                "Cu_substrate-Cu_substrate": 0.0,
+                "Cu_substrate-O_surface_oxide": 0.0,
+                "O_surface_oxide-O_surface_oxide": 0.0,
+            },
+        })
+        page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            app.clearAtomSelection();
+            app.renderer.selectionOutlines.visible = false;
+            app.renderer.renderNow();
+        }""")
+        append_hold(frames, page, 10)
+
+        for angle_degrees in np.linspace(0.0, 90.0, 28):
+            angle = math.radians(float(angle_degrees))
+            offset = np.array([0.0, -radius * math.cos(angle), radius * math.sin(angle)])
+            up = np.array([0.0, math.sin(angle), math.cos(angle)])
+            set_camera(
+                page,
+                target=center.tolist(),
+                position=(center + offset).tolist(),
+                up=up.tolist(),
+                fov=32,
+                wait_ms=45,
+            )
+            frames.append(screenshot_frame(page))
+        append_hold(frames, page, 12)
+        save_gif(frames, ASSET_DIR / "readme_cu5o4_view_appearance.gif", duration=125)
+        frames[-1].save(
+            ASSET_DIR / "readme_cu5o4_view_appearance.png",
+            optimize=True,
+            compress_level=9,
+        )
+    finally:
+        page.close()
+        editor.close()
+
 
 def capture_ai_edit_media(browser) -> None:
     source, expected_final, metadata = make_ai_pyridinic_graphene_scene()
@@ -3254,12 +3401,9 @@ def _assert_temporary_fix_is_material_only(
 def _capture_add_atoms_variant(
     browser,
     *,
-    region_role: str,
     gif_name: str,
     save_static: bool = False,
 ) -> None:
-    if region_role not in {"allowed", "prohibited"}:
-        raise ValueError(f"Unsupported Add Atoms region role: {region_role}")
     host, metadata = make_random_addition_scene()
     editor, page = open_scene(browser, host, show_bonds=False, viz_only=False)
     try:
@@ -3274,18 +3418,18 @@ def _capture_add_atoms_variant(
             "showCell": True,
             "showBonds": False,
             "showOverlays": True,
-            "atomRadiusScale": 0.75,
+            "atomRadiusScale": 0.62,
             "labelRadii": {
-                "Cu_surface": 1.55,
-                "O_inserted": 0.94,
+                "Cu_surface": 1.18,
+                "O_subsurface": 0.98,
             },
             "labelColors": {
                 "Cu_surface": "#b96f38",
-                "O_inserted": "#dc3f3f",
+                "O_subsurface": "#dc3f3f",
             },
             "labelMaterials": {
                 "Cu_surface": "metal",
-                "O_inserted": "standard",
+                "O_subsurface": "standard",
             },
             "cellColor": "#96722f",
             "cellThickness": 0.055,
@@ -3294,7 +3438,7 @@ def _capture_add_atoms_variant(
         set_camera(
             page,
             target=center.tolist(),
-            position=(center + np.asarray([20.0, -31.0, 10.5])).tolist(),
+            position=(center + np.asarray([2.5, -38.0, 2.5])).tolist(),
             up=(0, 0, 1),
             fov=35,
         )
@@ -3324,7 +3468,6 @@ def _capture_add_atoms_variant(
         }""")
 
         allow_region = metadata["allow_region"]
-        reject_region = metadata["reject_region"]
         bounds = np.asarray(allow_region["bounds"], dtype=float)
         _add_insertion_region(
             page,
@@ -3332,13 +3475,6 @@ def _capture_add_atoms_variant(
             name=allow_region["name"],
             bounds=bounds,
         )
-        if region_role == "prohibited":
-            _add_insertion_region(
-                page,
-                role="reject",
-                name=reject_region["name"],
-                bounds=np.asarray(reject_region["bounds"], dtype=float),
-            )
         page.locator("#add-atoms-allow-escape").set_checked(False)
 
         for entry_index, entry in enumerate(metadata["entries"]):
@@ -3354,6 +3490,8 @@ def _capture_add_atoms_variant(
         page.fill("#add-atoms-strength", "2.5")
         page.fill("#add-atoms-fmax", "0.002")
         page.fill("#add-atoms-steps", "180")
+        page.select_option("#add-atoms-device", "cpu")
+        page.select_option("#add-atoms-cpus", str(min(4, os.cpu_count() or 1)))
         unique_elements = {
             *host.get_chemical_symbols(),
             *(entry["element"] for entry in metadata["entries"]),
@@ -3387,16 +3525,16 @@ def _capture_add_atoms_variant(
         # apply the publication palette after that catalog exists.
         set_display(page, {
             "labelRadii": {
-                "Cu_surface": 1.55,
-                "O_inserted": 0.94,
+                "Cu_surface": 1.18,
+                "O_subsurface": 0.98,
             },
             "labelColors": {
                 "Cu_surface": "#b96f38",
-                "O_inserted": "#dc3f3f",
+                "O_subsurface": "#dc3f3f",
             },
             "labelMaterials": {
                 "Cu_surface": "metal",
-                "O_inserted": "standard",
+                "O_subsurface": "standard",
             },
         })
         _assert_temporary_fix_is_material_only(
@@ -3416,14 +3554,6 @@ def _capture_add_atoms_variant(
         )
         if not bool(np.all(inserted_inside)):
             raise AssertionError("Cu(111) Add Atoms demo scattered outside its surface zone.")
-        if region_role == "prohibited":
-            reject_bounds = np.asarray(reject_region["bounds"], dtype=float)
-            inside_reject = np.all(
-                (inserted >= reject_bounds[::2]) & (inserted <= reject_bounds[1::2]),
-                axis=1,
-            )
-            if bool(np.any(inside_reject)):
-                raise AssertionError("Protected Cu(111) terrace received an inserted oxygen.")
         append_hold(frames, page, 8)
 
         page.evaluate("""() => {
@@ -3445,7 +3575,7 @@ def _capture_add_atoms_variant(
         )
         page.wait_for_function(
             "window.__V_ASE_APP__.addAtomsUI?.active?.is_relaxing === false",
-            timeout=20_000,
+            timeout=180_000,
         )
         page.wait_for_function("""() => {
             const app = window.__V_ASE_APP__;
@@ -3487,9 +3617,9 @@ def _capture_add_atoms_variant(
             dtype=float,
         )
         update_positions(page, relaxed_positions)
-        page.evaluate("""role => window.__V_ASE_APP__.setAddAtomsStatus(
-            'active', `${role === 'allowed' ? 'Surface zone' : 'Protected terrace'} · O placement complete`
-        )""", region_role)
+        page.evaluate("""() => window.__V_ASE_APP__.setAddAtomsStatus(
+            'active', 'Subsurface zone · O placement complete'
+        )""")
         page.evaluate("""() => {
             const app = window.__V_ASE_APP__;
             app.setAddAtomsPane('batch');
@@ -3504,16 +3634,6 @@ def _capture_add_atoms_variant(
         )
         if float(displacement.max(initial=0.0)) <= 0.05:
             raise AssertionError("README Add Atoms repulsion did not move any inserted atom visibly.")
-        if region_role == "prohibited":
-            final_inserted = relaxed_positions[len(host):]
-            reject_bounds = np.asarray(reject_region["bounds"], dtype=float)
-            final_inside = np.all(
-                (final_inserted >= reject_bounds[::2])
-                & (final_inserted <= reject_bounds[1::2]),
-                axis=1,
-            )
-            if bool(np.any(final_inside)):
-                raise AssertionError("Cu(111) oxygen relaxation entered the protected patch.")
         append_hold(frames, page, 8)
         placement_frame = frames[-1].copy()
 
@@ -3546,18 +3666,12 @@ def capture_add_atoms_media(browser) -> None:
     _capture_scratch_amorphous_media(browser)
     _capture_add_atoms_variant(
         browser,
-        region_role="allowed",
         gif_name="readme_add_atoms_allowed.gif",
         save_static=True,
     )
     shutil.copy2(
         ASSET_DIR / "readme_add_atoms_allowed.gif",
         ASSET_DIR / "readme_add_atoms.gif",
-    )
-    _capture_add_atoms_variant(
-        browser,
-        region_role="prohibited",
-        gif_name="readme_add_atoms_prohibited.gif",
     )
     _capture_add_molecules_media(browser)
 
@@ -3743,64 +3857,55 @@ def _capture_add_molecules_media(browser) -> None:
             "showAxes": False,
             "showCell": True,
             "showBonds": True,
+            "showPeriodicBonds": True,
             "showOverlays": True,
-            "atomRadiusScale": 0.62,
+            "atomRadiusScale": 0.57,
             "labelRadii": {
-                "C_lower_membrane": 0.56,
-                "C_upper_membrane": 0.56,
+                "C_GO_lower": 0.62,
+                "C_GO_upper": 0.62,
+                "O_GO_lower": 0.70,
+                "O_GO_upper": 0.70,
+                "H_GO_lower": 0.43,
+                "H_GO_upper": 0.43,
                 "O_water": 0.72,
                 "H_water": 0.48,
             },
             "labelColors": {
-                "C_lower_membrane": "#46535a",
-                "C_upper_membrane": "#68767d",
+                "C_GO_lower": "#46535a",
+                "C_GO_upper": "#68767d",
+                "O_GO_lower": "#c44740",
+                "O_GO_upper": "#c44740",
+                "H_GO_lower": "#f2f3f4",
+                "H_GO_upper": "#f2f3f4",
                 "O_water": "#d9433f",
                 "H_water": "#f4f5f6",
             },
             "labelMaterials": {
-                "C_lower_membrane": "metal",
-                "C_upper_membrane": "metal",
+                "C_GO_lower": "standard",
+                "C_GO_upper": "standard",
+                "O_GO_lower": "standard",
+                "O_GO_upper": "standard",
+                "H_GO_lower": "standard",
+                "H_GO_upper": "standard",
                 "O_water": "standard",
                 "H_water": "standard",
             },
-            "bondMode": "pairwise",
-            "pairwiseBondRanges": {
-                "C_lower_membrane-C_lower_membrane": {"enabled": True, "max": 1.55},
-                "C_upper_membrane-C_upper_membrane": {"enabled": True, "max": 1.55},
-                "H_water-O_water": {"enabled": True, "max": 1.15},
-            },
-            "pairwiseBondCutoffs": {
-                "C_lower_membrane-C_lower_membrane": 1.55,
-                "C_upper_membrane-C_upper_membrane": 1.55,
-                "H_water-O_water": 1.15,
-            },
-            "bondThickness": 0.15,
+            "bondMode": "auto",
+            "bondCutoffScale": 1.0,
+            "bondThickness": 0.13,
             "cellColor": "#8b6c2c",
             "cellThickness": 0.055,
         })
         page.evaluate("window.__V_ASE_APP__.renderer.setProjectionMode('orthographic')")
-        camera_right = np.asarray([38.0, 15.0, 0.0], dtype=float)
-        camera_right /= np.linalg.norm(camera_right)
-        shifted_target = center - 5.2 * camera_right
         set_camera(
             page,
-            target=shifted_target.tolist(),
-            position=(shifted_target + np.asarray([8.0, -42.0, 1.8])).tolist(),
+            target=center.tolist(),
+            position=(center + np.asarray([8.0, -34.0, 6.5])).tolist(),
             up=(0, 0, 1),
             fov=35,
         )
         page.evaluate("window.__V_ASE_APP__.renderer.fitCameraToStructure()")
-        page.evaluate(
-            "target => { const r = window.__V_ASE_APP__.renderer; "
-            "const dx = target[0] - r.controls.target.x; "
-            "const dy = target[1] - r.controls.target.y; "
-            "const dz = target[2] - r.controls.target.z; "
-            "r.controls.target.set(...target); "
-            "r.camera.position.x += dx; r.camera.position.y += dy; "
-            "r.camera.position.z += dz; r.renderNow(); }",
-            shifted_target.tolist(),
-        )
-        set_atomic_scale(page, 72.0)
+        set_atomic_scale(page, 62.0)
         set_readme_lighting(page, center.tolist(), intensity=2.8, position_offset=(-16, -18, 22))
         host_visual_before = _atom_mesh_visual_state(page, len(host))
         _assert_temporary_fix_is_material_only(
@@ -3825,23 +3930,21 @@ def _capture_add_molecules_media(browser) -> None:
             overlay.id = 'readme-molecule-stage';
             overlay.innerHTML = `
                 <div class="readme-stage-line">
-                    <strong id="readme-molecule-step">1 · DEFINE REGIONS</strong>
-                    <span>graphene sheets every 6 Å · PBC x/y/z</span>
+                    <strong id="readme-molecule-step">1 · PROTECT GO LAYERS</strong>
+                    <span>periodic hydroxylated graphene oxide · PBC x/y/z</span>
                 </div>
                 <div class="readme-stage-facts">
-                    <span><i class="allow"></i>ALLOW ×<b id="readme-allow-count">0</b></span>
-                    <span><i class="reject"></i>REJECT ×<b id="readme-reject-count">0</b></span>
+                    <span><i class="reject"></i>GO REJECT REGIONS ×<b id="readme-reject-count">0</b></span>
                     <span id="readme-domain-volume">cell domain</span>
-                    <span id="readme-molecule-detail">add the placement regions</span>
+                    <span id="readme-molecule-detail">exclude each functionalized layer</span>
                 </div>`;
             document.body.appendChild(overlay);
             const sceneLabels = document.createElement('div');
             sceneLabels.id = 'readme-molecule-scene-labels';
             sceneLabels.innerHTML = `
-                <span class="region-label upper">ALLOW · upper 6 Å slit</span>
-                <span class="region-label reject">REJECT · gate</span>
-                <span class="spacing-label"><b>6 Å</b><i></i></span>
-                <span class="region-label lower">ALLOW · lower 6 Å slit</span>`;
+                <span class="region-label upper">REJECT · upper GO + ligands</span>
+                <span class="spacing-label"><b>8 Å</b><i></i></span>
+                <span class="region-label lower">REJECT · lower GO + ligands</span>`;
             document.body.appendChild(sceneLabels);
             const style = document.createElement('style');
             style.textContent = `
@@ -3858,31 +3961,27 @@ def _capture_add_molecules_media(browser) -> None:
                 .readme-stage-line span { font-size: 16px; font-weight: 800; }
                 .readme-stage-facts { display: flex; align-items: center; gap: 17px; margin-top: 6px; font-size: 14px; font-weight: 750; }
                 .readme-stage-facts i { display: inline-block; width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; border: 3px solid; }
-                .readme-stage-facts i.allow { border-color: #008f78; background: rgba(0,143,120,.15); }
                 .readme-stage-facts i.reject { border-color: #ad3b98; background: rgba(173,59,152,.14); }
                 #readme-molecule-detail { color: #754d05; }
                 #trajectory-panel { display: none !important; }
                 #toast-container, .status-group { display: none !important; }
                 #readme-molecule-scene-labels { position: fixed; inset: 0; z-index: 4999; pointer-events: none; }
                 .region-label { display: none; position: absolute; padding: 5px 8px; border: 2px solid; border-radius: 4px; background: rgba(255,255,255,.94); font-size: 14px; font-weight: 900; }
-                .region-label.upper { left: 1280px; top: 190px; color: #006f60; border-color: #008f78; }
-                .region-label.lower { left: 1260px; top: 710px; color: #006f60; border-color: #008f78; }
-                .region-label.reject { left: 1085px; top: 288px; color: #8d247a; border-color: #ad3b98; }
-                .spacing-label { position: absolute; left: 750px; top: 488px; display: flex; align-items: center; gap: 7px; color: #674f1f; font-size: 16px; font-weight: 950; }
-                .spacing-label i { display: block; width: 2px; height: 82px; background: #8b6c2c; box-shadow: 0 -5px 0 #8b6c2c, 0 5px 0 #8b6c2c; }
+                .region-label.upper { left: 1260px; top: 250px; color: #8d247a; border-color: #ad3b98; }
+                .region-label.lower { left: 1260px; top: 700px; color: #8d247a; border-color: #ad3b98; }
+                .spacing-label { position: absolute; left: 735px; top: 476px; display: flex; align-items: center; gap: 7px; color: #674f1f; font-size: 16px; font-weight: 950; }
+                .spacing-label i { display: block; width: 2px; height: 98px; background: #8b6c2c; box-shadow: 0 -5px 0 #8b6c2c, 0 5px 0 #8b6c2c; }
             `;
             document.head.appendChild(style);
             window.__setReadmeMoleculeStage = (step, detail) => {
                 document.getElementById('readme-molecule-step').textContent = step;
                 document.getElementById('readme-molecule-detail').textContent = detail;
             };
-            window.__setReadmeMoleculeDomain = (allow, reject, volume) => {
-                document.getElementById('readme-allow-count').textContent = String(allow);
+            window.__setReadmeMoleculeDomain = (reject, volume) => {
                 document.getElementById('readme-reject-count').textContent = String(reject);
                 document.getElementById('readme-domain-volume').textContent = volume;
-                document.querySelector('.region-label.lower').style.display = allow >= 1 ? 'block' : 'none';
-                document.querySelector('.region-label.upper').style.display = allow >= 2 ? 'block' : 'none';
-                document.querySelector('.region-label.reject').style.display = reject >= 1 ? 'block' : 'none';
+                document.querySelector('.region-label.lower').style.display = reject >= 1 ? 'block' : 'none';
+                document.querySelector('.region-label.upper').style.display = reject >= 2 ? 'block' : 'none';
             };
         }""")
         row = page.locator("#add-molecule-entries .add-molecule-entry-row").first
@@ -3893,7 +3992,7 @@ def _capture_add_molecules_media(browser) -> None:
             str(metadata["expected_molecule_count"])
         )
         frames: list[Image.Image] = []
-        page.evaluate("window.__setReadmeMoleculeStage('1 · DEFINE REGIONS', 'start from the periodic cell')")
+        page.evaluate("window.__setReadmeMoleculeStage('1 · PROTECT GO LAYERS', 'the finite periodic cell is the Allow domain')")
         append_hold(frames, page, 11)
         for region_index, region in enumerate(metadata["regions"], start=1):
             _add_insertion_region(
@@ -3902,24 +4001,15 @@ def _capture_add_molecules_media(browser) -> None:
                 name=region["name"],
                 bounds=region["bounds"],
             )
-            if region_index == 1:
-                detail = "lower Allow region added"
-            elif region_index == 2:
-                detail = "upper Allow region added"
-            else:
-                detail = "Reject gate subtracted from upper region"
+            detail = f"{region['name']} subtracted exactly"
             page.evaluate(
-                "detail => window.__setReadmeMoleculeStage('1 · DEFINE REGIONS', detail)",
+                "detail => window.__setReadmeMoleculeStage('1 · PROTECT GO LAYERS', detail)",
                 detail,
             )
             current_volume = page.locator("#add-atoms-domain-volume").inner_text()
             page.evaluate(
-                "([allow, reject, volume]) => window.__setReadmeMoleculeDomain(allow, reject, volume)",
-                [
-                    min(region_index, 2),
-                    1 if region_index >= 3 else 0,
-                    f"exact domain {current_volume}",
-                ],
+                "([reject, volume]) => window.__setReadmeMoleculeDomain(reject, volume)",
+                [region_index, f"exact solvent volume {current_volume}"],
             )
             append_hold(frames, page, 12)
         page.click("#add-molecules-quantity-density")
@@ -3964,14 +4054,18 @@ def _capture_add_molecules_media(browser) -> None:
             raise AssertionError("README Add Molecules source boxes are missing complete edge sets.")
         if region_visuals["wrappedFillCount"] != 0 or region_visuals["wrappedEdgeCount"] != 0:
             raise AssertionError("README Add Molecules uses in-cell regions and should not need wrapped fragments.")
-        np.testing.assert_allclose(region_visuals["inletBounds"], [1.0, 7.0], atol=1e-6)
+        np.testing.assert_allclose(
+            region_visuals["inletBounds"],
+            [0.0, float(host.cell.lengths()[0])],
+            atol=1e-6,
+        )
 
         page.wait_for_function(
             "expected => document.querySelector('#add-molecules-actual-density')?.textContent.includes(`${expected} molecules`)",
             arg=metadata["expected_molecule_count"],
         )
         page.evaluate(
-            "([count, volume]) => { window.__setReadmeMoleculeDomain(2, 1, `exact domain ${volume}`); window.__setReadmeMoleculeStage('2 · READY TO PLACE', `${count} H₂O from target density 0.65 g/cm³`); }",
+            "([count, volume]) => { window.__setReadmeMoleculeDomain(2, `exact solvent volume ${volume}`); window.__setReadmeMoleculeStage('2 · READY TO PLACE', `${count} H₂O from target density 1.00 g/cm³`); }",
             [metadata["expected_molecule_count"], page.locator("#add-atoms-domain-volume").inner_text()],
         )
         page.wait_for_function(
@@ -3997,6 +4091,7 @@ def _capture_add_molecules_media(browser) -> None:
         page.locator("#add-molecules-random-orientation").set_checked(True)
         page.locator("#add-molecules-rigid").set_checked(True)
         page.locator("#add-atoms-select-added").set_checked(True)
+        page.locator("#add-atoms-allow-escape").set_checked(False)
         page.select_option("#add-atoms-cutoff-basis", "pairwise")
         page.evaluate(
             "async () => await window.__V_ASE_APP__.refreshAddAtomsPairCutoffs({preserveManual: false})"
@@ -4027,9 +4122,12 @@ def _capture_add_molecules_media(browser) -> None:
         page.fill("#add-atoms-strength", "3.2")
         page.fill("#add-atoms-fmax", "0.5")
         page.fill("#add-atoms-steps", "220")
+        page.select_option("#add-atoms-device", "cpu")
+        page.select_option("#add-atoms-cpus", str(min(4, os.cpu_count() or 1)))
         page.evaluate(
-            "window.__setReadmeMoleculeStage('2 · READY TO PLACE', "
-            "'10 H₂O · rigid · random orientation · pairwise C/H/O cutoffs')"
+            "count => window.__setReadmeMoleculeStage('2 · READY TO PLACE', "
+            "`${count} H₂O · rigid · random orientation · pairwise C/H/O cutoffs`)",
+            metadata["expected_molecule_count"],
         )
 
         append_hold(frames, page, 12)
@@ -4043,7 +4141,7 @@ def _capture_add_molecules_media(browser) -> None:
             arg=metadata["expected_molecule_count"] * 3,
         )
         summary = page.evaluate("window.__V_ASE_APP__.addAtomsUI.active")
-        if [region["role"] for region in summary["regions"]] != ["allow", "allow", "reject"]:
+        if [region["role"] for region in summary["regions"]] != ["reject", "reject"]:
             raise AssertionError("README Add Molecules did not preserve the multi-region Boolean domain.")
         if not np.isclose(
             float(summary["domain"]["volume_angstrom3"]),
@@ -4087,7 +4185,7 @@ def _capture_add_molecules_media(browser) -> None:
         page.wait_for_function("window.__V_ASE_APP__.addAtomsUI?.active?.is_relaxing === true")
         page.wait_for_function(
             "window.__V_ASE_APP__.addAtomsUI?.active?.is_relaxing === false",
-            timeout=20_000,
+            timeout=180_000,
         )
         trace = page.evaluate("window.__VASE_ADD_MOLECULES_TRACE__")
         final_positions = page.evaluate("window.__V_ASE_APP__.state.atoms.positions")
@@ -4112,7 +4210,7 @@ def _capture_add_molecules_media(browser) -> None:
             page.evaluate(
                 """([step, total]) => window.__setReadmeMoleculeStage(
                     '3 · RIGID-BODY REPULSION',
-                    `MIC · host fixed · rigid H₂O · region exit allowed · frame ${step}/${total}`
+                    `MIC · GO fixed · rigid H₂O · solvent domain enforced · frame ${step}/${total}`
                 )""",
                 [output_index, len(sample_indices)],
             )
@@ -4171,7 +4269,7 @@ def _capture_add_molecules_media(browser) -> None:
             expected_fixed=False,
         )
         page.evaluate(
-            "count => { window.__setReadmeMoleculeDomain(0, 0, 'regions removed'); "
+            "count => { window.__setReadmeMoleculeDomain(0, 'regions removed'); "
             "window.__setReadmeMoleculeStage("
             "'5 · COMMITTED', `${count} H₂O retained · temporary host fixation released · regions removed`); } ",
             metadata["expected_molecule_count"],
@@ -4575,7 +4673,7 @@ def capture_atom_colorscale_media(browser) -> None:
         np.linalg.norm(frame.get_forces(), axis=1)
         for frame in frames
     ])
-    if float(np.ptp(force_norms)) < 0.35:
+    if float(np.ptp(force_norms)) < 0.18:
         raise AssertionError("README force colorscale lacks a visible trajectory-wide range.")
     editor, page = open_scene(browser, frames, show_bonds=False, viz_only=True)
     try:
@@ -4590,7 +4688,7 @@ def capture_atom_colorscale_media(browser) -> None:
             "showForceVectors": True,
             "forceVectorStyle": "3d",
             "forceVectorScale": 3.4,
-            "forceVectorThickness": 0.045,
+            "forceVectorThickness": 0.04,
             "forceVectorColor": "#db4b32",
         })
         configure_inspector(page, "structure", ["appearance"], width=475)
@@ -4623,7 +4721,7 @@ def capture_atom_colorscale_media(browser) -> None:
             arg=len(frames[0]),
         )
         page.wait_for_function(
-            "count => Number(window.__V_ASE_APP__.renderer.domElement.dataset.forceVectorCount) === count",
+            "count => Number(window.__V_ASE_APP__.renderer.domElement.dataset.forceVectorCount) === count - 1",
             arg=len(frames[0]),
         )
         page.evaluate(
@@ -4634,7 +4732,7 @@ def capture_atom_colorscale_media(browser) -> None:
                 window.__V_ASE_APP__.renderer.selectionOutlines.visible = false;
                 const badge = document.createElement('div');
                 badge.id = 'readme-force-contract';
-                badge.textContent = '97 / 97 atoms mapped · ASE EMT force colors + vectors';
+                badge.textContent = '193 / 193 atoms mapped · neighbour-shell force response';
                 Object.assign(badge.style, {
                     position: 'fixed', left: '34px', bottom: '38px', zIndex: '4000',
                     padding: '10px 15px', border: '2px solid #26383b', borderRadius: '5px',
@@ -4703,7 +4801,7 @@ def capture_atom_colorscale_media(browser) -> None:
                 };
             }""", frames[frame_index].get_forces().tolist())
             if (
-                len(force_snapshot["alignments"]) != len(frames[frame_index])
+                len(force_snapshot["alignments"]) != len(frames[frame_index]) - 1
                 or min(force_snapshot["alignments"]) < 1 - 1e-8
             ):
                 raise AssertionError("README force arrows do not follow the stored Cartesian forces.")

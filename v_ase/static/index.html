@@ -52,12 +52,12 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.12&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.13&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.2.12';
+            : '/static/vendor/three.module.js?v=0.2.13';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -116,7 +116,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.2.12</span>
+            <span class="version">0.2.13</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -531,6 +531,20 @@
                         </label>
                     </div>
                     <div id="add-atoms-pair-table" class="add-atoms-pair-table"></div>
+                    <div class="add-atoms-compute-grid" aria-label="Repulsive placement compute resources">
+                        <label>Device
+                            <select id="add-atoms-device">
+                                <option value="cpu">CPU</option>
+                                <option value="cuda">CUDA</option>
+                            </select>
+                        </label>
+                        <label>CPU threads
+                            <select id="add-atoms-cpus"></select>
+                        </label>
+                    </div>
+                    <p id="add-atoms-compute-note" class="add-atoms-field-note">
+                        Compute resources apply to this full repulsion relaxation.
+                    </p>
                     <div class="add-atoms-relax-grid">
                         <label>Strength<input id="add-atoms-strength" type="number" min="0" step="0.1" value="2.0"></label>
                         <label>fmax<input id="add-atoms-fmax" type="number" min="0.001" step="0.01" value="0.05"></label>
@@ -1163,7 +1177,7 @@
                     </p>
                 </div>
             </div>
-            <div id="selected-appearance" class="selected-appearance" data-edit-only>
+            <div id="selected-appearance" class="selected-appearance">
                 <div class="selected-appearance-head">
                     <strong>Selected atoms</strong>
                     <span id="selected-appearance-count">None</span>
@@ -1813,7 +1827,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.2.12&rev=2';
+            : './static/main.js?v=0.2.13&rev=2';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

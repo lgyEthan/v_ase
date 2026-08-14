@@ -460,6 +460,11 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         )
     )
     assert relax_added_schema["properties"]["allowEscape"] == {"type": "boolean"}
+    assert relax_added_schema["properties"]["device"]["enum"] == ["cpu", "cuda"]
+    assert relax_added_schema["properties"]["cpuThreads"] == {
+        "type": "integer",
+        "minimum": 1,
+    }
     show_schema = next(
         item["then"]
         for item in operation_object["allOf"]

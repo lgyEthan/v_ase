@@ -168,26 +168,13 @@ the scratch document meaningful.
 
 ### Add Atoms
 
-#### Allow And Reject Regions
+![Oxygen inserted below the top layer of Cu(111)](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_atoms_allowed.gif)
 
-![Oxygen inserted above a Cu(111) terrace inside an Allow region](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_atoms_allowed.gif)
-
-The teal box is a finite **Allow region** above the top Cu layer. Ten
-`O_inserted` atoms start inside it and separate under explicit Cu-O and O-O
-repulsive cutoffs while every original `Cu_surface` coordinate remains fixed.
-This is an initial-placement example at about `0.24 ML`, close to the
-quarter-monolayer surface context studied for O/Cu(111)
-([Xu and Mavrikakis, 2001](https://doi.org/10.1016/S0039-6028(01)01464-9));
-repulsion here is not an adsorption-energy model.
-
-#### Reject Regions
-
-![Oxygen kept outside a protected region above Cu(111)](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_atoms_prohibited.gif)
-
-The red box is a **Reject region** inside the same surface zone. The reproducible
-O batch is sampled only from the remaining volume and stays outside the
-protected terrace while **Allow inserted content to leave the region domain**
-is off.
+Eight `O_subsurface` atoms start in a finite teal **Allow region** between the
+top and second Cu(111) layers. The side view shows the staged atoms begin at
+reproducible random positions and move into available subsurface space under
+explicit Cu-O and O-O repulsive cutoffs. Every original `Cu_surface`
+coordinate remains fixed throughout placement.
 
 Open **+ Add atoms** in **Edit** mode:
 
@@ -242,8 +229,14 @@ Open **+ Add atoms** in **Edit** mode:
 - **Keep inserted atoms selected** is enabled by default. Use `G` or `R` to
   move or rotate only the staged content before repulsive placement; **Select
   added** restores that selection at any time.
-- Choose covalent, van der Waals, or explicit pair cutoffs, then click **Repel**
-  to remove short contacts with the minimum image convention.
+- Choose covalent, van der Waals, or explicit pair cutoffs. Device and CPU
+  thread controls remain in the floating Add panel, even when the main
+  inspector is closed. Click **Repel** to attach one complete
+  `AdditionRepulsionCalculator` to the staged structure and run ASE FIRE.
+  CPU and CUDA use the same pair model; unavailable CUDA requests fall back to
+  CPU and the effective backend is shown in the panel. Minimum-image vectors
+  are evaluated by the calculator for the complete structure rather than by
+  moving atom pairs independently.
 
 The insertion regions exist only while Add Atoms is active. **Finish** commits the
 inserted content but reconstructs every pre-existing coordinate, array, label,
@@ -251,8 +244,8 @@ calculator, and constraint from the original structure. **Cancel** restores
 that original structure completely. For trajectories, open the target frame
 in a new tab before starting a batch.
 
-Repulsive placement creates an **Add Atoms placement** timeline containing the
-accepted optimizer steps. It can be scrubbed or played while the mode remains
+Repulsive placement creates an **Add Atoms placement** timeline containing
+every FIRE optimizer step. It can be scrubbed or played while the mode remains
 active. Finishing or cancelling the mode closes the panel and removes the
 temporary regions and timeline.
 
@@ -261,13 +254,13 @@ The animations use the included
 
 #### Add Molecules
 
-![Rigid water molecules placed in a periodic layered channel](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_molecules.gif)
+![Rigid water molecules placed around periodic graphene-oxide layers](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_molecules.gif)
 
-The example uses a fully periodic layered channel with sheets at `z = 0 Å` and
-`z = 6 Å` in a `12 Å` cell. Two teal Allow regions expose both periodic
-`6 Å` slits, while one magenta Reject gate removes part of the upper slit. Their
-exact Boolean domain is `459.586 Å³`; a target density of `0.65 g/cm³`
-resolves to 10 rigid H2O molecules at `0.651 g/cm³`.
+The example uses two ligand-bearing graphene-oxide layers in a fully periodic
+cell. Two magenta **Reject regions** wrap the carbon and hydroxylated layer
+volumes; their complement is the solvent domain. Exact box/cell Boolean
+geometry gives `607.696 Å³` of accessible volume. A target density of
+`1.00 g/cm³` resolves to 20 rigid H2O molecules at `0.985 g/cm³`.
 
 Choose a molecule and label from **Batch > Molecules**. **Count** places the
 requested integer composition. **Density** treats each Count value as a
@@ -283,11 +276,11 @@ repulsion, and projects every optimizer step onto each molecule's rigid
 translation and rotation. Turn it off for ordinary atomwise relaxation.
 
 Open the included
-[layered water-channel structure](examples/readme_scene_assets/layered_water_channel.traj)
+[periodic graphene-oxide structure](examples/readme_scene_assets/layered_water_channel.traj)
 to reproduce the workflow. The source region outlines remain visible while the
-waters are inserted and repelled. Every membrane atom remains exact, while the
-10 randomly oriented waters move as rigid bodies with all O-H distances and
-H-O-H angles preserved.
+waters are inserted and repelled. Every graphene-oxide atom remains exact,
+while the 20 randomly oriented waters move as rigid bodies with all O-H
+distances and H-O-H angles preserved.
 
 ### Rotate Selected Atoms
 
@@ -371,6 +364,13 @@ periodic rigid translation are related but distinct operations. Display replicat
 changes only what is visible. **Set Supercell as Cell** materializes a
 replicated structure. **Cell Transform** applies an integer matrix to the cell
 and every compatible trajectory frame.
+
+In **View**, displayed replicas use the same color, material, and opacity as
+the primary atoms and remain selectable for measurements. In **Edit**, the
+editable primary cell is centered for odd repetitions such as `3 x 3 x 1`, its
+cell boundary receives a stronger contrast halo, and noneditable replicas use
+16% opacity. This keeps both sides of a periodic boundary visible without
+making a displayed replica look like a real editable atom.
 
 ### Commensurate Atoms: Match Periodic 2D Cells
 
@@ -606,12 +606,14 @@ Numeric LAMMPS atom columns are exposed by their stored names.
 
 ![Trajectory-wide force-magnitude colorscale with locked limits and matching Cartesian force vectors](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_atom_colorscale.gif)
 
-The example moves one O probe above a 96-atom Cu(111) slab through 14 frames.
-ASE's EMT calculator is evaluated independently at every probe position, and
-the resulting stored Cartesian force is mapped on every one of the 97 atoms.
-The complete
-trajectory is scanned once to lock one `vmin` and `vmax`. At every frame, both
-colors and arrows are reloaded from that same stored force array. Arrow
+The example moves one O probe above a 192-atom Cu(111) slab through 14 frames.
+A smooth screened external-probe field is stored in a
+`SinglePointCalculator` on every frame. Its response extends through the first,
+second, and third lateral neighbor shells instead of coloring only the nearest
+three atoms. All 193 atoms participate in one trajectory-wide range, while the
+zero-force probe remains at the lower endpoint. The complete trajectory is
+scanned once to lock one `vmin` and `vmax`. At every frame, both colors and
+arrows are reloaded from that same stored Cartesian force array. Arrow
 direction is the current Cartesian force direction and arrow length is
 `scale × |F|`; neither remains frozen while the probe moves. Force
 arrows can use 2D or 3D geometry, custom color, thickness, and scale. If a
@@ -873,9 +875,22 @@ physical results.
 - Standard, Metal, or Rubber material;
 - all/partial/none selection checkbox.
 
-View mode applies appearance by label. Edit mode can keep per-atom material
-overrides. Relabeling does not reorder the table or merge otherwise distinct
-atom types accidentally.
+View mode can split or rename visual labels and apply label/per-atom appearance
+without changing ASE element types or coordinates. For a trajectory with a
+stable atom count and element order, the same atom indices keep that label in
+every frame. If topology differs, v_ase opens a modal and applies the label to
+the current frame only. The chemical TYPE field remains disabled until Edit.
+These visual identities are included in complete `.vase` and HTML project
+saves, but are excluded from reusable cross-structure visual presets. Edit mode
+can also keep per-atom material overrides. Relabeling does not reorder the
+table or merge otherwise distinct atom types accidentally.
+
+![View-mode label and appearance editing on Cu5O4](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_cu5o4_view_appearance.gif)
+
+Here the substrate Cu indices are assigned a separate visual label in View,
+then styled white with a `2.0 Å` radius while oxide Cu and O remain unchanged.
+The side-to-top orbit verifies that the operation is visual only: every atom
+keeps its original Cu or O ASE element and coordinate.
 
 ![Standard Metal and Rubber atom materials](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_materials.png)
 

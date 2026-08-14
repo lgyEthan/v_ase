@@ -17,6 +17,7 @@ from v_ase.server import (
     get_atoms,
     reset,
     session_atoms_to_json,
+    trajectory_identity_compatible,
     trajectory_position_array,
     undo,
     update_calculator,
@@ -229,6 +230,33 @@ def test_trajectory_position_cache_is_only_sent_for_same_topology_frames():
 
     assert data["metadata"]["trajectory_positions_cached"] is False
     assert "trajectory_positions" not in data
+
+
+def test_trajectory_view_identity_scope_requires_stable_count_and_element_sequence():
+    first = molecule("H2O")
+    second = molecule("H2O")
+    set_atom_labels(second, ["O_next", "H_next", "H_next"])
+    session = EditorSession(
+        "trajectory-view-identity",
+        first.copy(),
+        first.copy(),
+        original_frames=[first.copy(), second.copy()],
+        trajectory_frames=[first.copy(), second.copy()],
+        config={"viz_only": True},
+    )
+
+    assert trajectory_identity_compatible(session) is True
+    assert session_atoms_to_json(session)["metadata"]["trajectory_identity_compatible"] is True
+
+    reordered = Atoms("HHO", positions=second.positions.copy())
+    session.trajectory_frames[1] = reordered
+    session.invalidate_trajectory_layout()
+    assert trajectory_identity_compatible(session) is False
+    assert session_atoms_to_json(session)["metadata"]["trajectory_identity_compatible"] is False
+
+    session.trajectory_frames[1] = Atoms("HO", positions=second.positions[:2].copy())
+    session.invalidate_trajectory_layout()
+    assert trajectory_identity_compatible(session) is False
 
 
 def test_large_trajectory_uses_binary_position_cache_metadata(monkeypatch):
@@ -616,10 +644,18 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "indeterminate" in main_js
     assert "renameAtomLabel" in main_js
     assert "renameAtomLabelForVisualization" in main_js
+    assert "applySelectedLabelForVisualization" in main_js
+    assert "trajectory_identity_compatible" in main_js
+    assert "Label changed on this frame only" in main_js
+    assert "viewIdentityOverridesSnapshot" in main_js
+    assert "restoreViewIdentityOverrides" in main_js
+    assert "includeIdentityOverrides: true" in main_js
     assert "nameInput.disabled = this.state.vizOnly" not in main_js
+    assert '<div id="selected-appearance" class="selected-appearance">' in index_html
     assert "canViewportSelectAtoms()" in main_js
     assert "this.canViewportSelectAtoms() && this.transform.mode === 'IDLE'" in main_js
-    assert "this.renderer.renameAtomLabel(oldSymbol, label, indices, this.state.display, baseSymbol)" in main_js
+    assert "this.renderer.renameAtomLabel(oldSymbol, label, indices, this.state.display, null)" in main_js
+    assert "this.renderer.renameAtomLabel(null, label, indices, this.state.display, null)" in main_js
     assert "applySelectedLabelEdit" in main_js
     assert "setupRuntimeModeControls" in main_js
     assert "viewModeIdentityPlan" in main_js

@@ -2993,6 +2993,26 @@ export class ASERenderer {
         ];
         const edgePairs = [[0,1],[0,2],[0,3],[1,4],[1,5],[2,4],[2,6],[3,5],[3,6],[4,7],[5,7],[6,7]];
         const segments = edgePairs.map(([i, j]) => [corners[i], corners[j]]);
+        if (!this.displayOptions.vizOnly) {
+            const haloColor = this.viewportBackgroundMode === 'white' ? '#263238' : '#f2f5f4';
+            const haloMaterial = new THREE.MeshBasicMaterial({
+                color: haloColor,
+                transparent: true,
+                opacity: 0.52,
+                depthTest: true,
+                depthWrite: false,
+                toneMapped: false
+            });
+            this.addCellEdgeInstances(
+                this.cellGroup,
+                segments,
+                { unitCell: true, editableCellHalo: true },
+                {
+                    material: haloMaterial,
+                    radius: Math.max(0.026, this.normalizedCellThickness() * 0.86)
+                }
+            );
+        }
         this.addCellEdgeInstances(this.cellGroup, segments, { unitCell: true });
         this.updateCellVisibility();
         this.requestRender();
@@ -3117,6 +3137,28 @@ export class ASERenderer {
             }
         }
         if (vertices.length < 4) return null;
+
+        // Intersections that merely touch a periodic boundary can contain a
+        // coplanar polygon but no 3D volume.  Treat those as empty so a box
+        // spanning a complete periodic direction does not draw duplicate
+        // zero-thickness wrapped fragments on both cell faces.
+        const origin = vertices[0];
+        let volumeDeterminant = 0;
+        for (let first = 1; first < vertices.length - 2 && volumeDeterminant <= 1e-10; first++) {
+            const firstVector = vertices[first].clone().sub(origin);
+            for (let second = first + 1; second < vertices.length - 1 && volumeDeterminant <= 1e-10; second++) {
+                const secondVector = vertices[second].clone().sub(origin);
+                for (let third = second + 1; third < vertices.length; third++) {
+                    const thirdVector = vertices[third].clone().sub(origin);
+                    volumeDeterminant = Math.max(
+                        volumeDeterminant,
+                        Math.abs(firstVector.dot(new THREE.Vector3().crossVectors(secondVector, thirdVector)))
+                    );
+                    if (volumeDeterminant > 1e-10) break;
+                }
+            }
+        }
+        if (volumeDeterminant <= 1e-10) return null;
 
         const triangles = [];
         const edgeKeys = new Set();
@@ -3741,7 +3783,7 @@ export class ASERenderer {
     renameAtomLabel(oldSymbol, label, indices = [], displayOptions = null, baseSymbol = null) {
         if (!this.atomsData?.symbols) return;
         indices.forEach(index => {
-            if (this.atomsData.symbols[index] === oldSymbol) {
+            if (!oldSymbol || this.atomsData.symbols[index] === oldSymbol) {
                 this.atomsData.symbols[index] = label;
             }
             if (baseSymbol && Array.isArray(this.atomsData.chemical_symbols)) {
@@ -6749,11 +6791,17 @@ export class ASERenderer {
         this.requestRender();
     }
 
+    supercellAxisOffsets(count) {
+        const size = Math.max(1, Math.floor(Number(count) || 1));
+        const start = this.displayOptions.vizOnly ? 0 : -Math.floor((size - 1) / 2);
+        return Array.from({ length: size }, (_, index) => start + index);
+    }
+
     supercellTranslations(cell, reps) {
         const translations = [];
-        for (let ix = 0; ix < reps[0]; ix++) {
-            for (let iy = 0; iy < reps[1]; iy++) {
-                for (let iz = 0; iz < reps[2]; iz++) {
+        for (const ix of this.supercellAxisOffsets(reps[0])) {
+            for (const iy of this.supercellAxisOffsets(reps[1])) {
+                for (const iz of this.supercellAxisOffsets(reps[2])) {
                     if (ix === 0 && iy === 0 && iz === 0) continue;
                     translations.push({
                         cellOffset: [ix, iy, iz],
@@ -6824,9 +6872,19 @@ export class ASERenderer {
                 this.materialCache.set(group.materialKey, material);
             }
             const total = group.indices.length * shifts.length;
+            const baseMaterial = this.materialCache.get(group.materialKey);
+            const material = this.displayOptions.vizOnly
+                ? baseMaterial
+                : baseMaterial.clone();
+            if (!this.displayOptions.vizOnly) {
+                material.transparent = true;
+                material.opacity = 0.16;
+                material.depthWrite = false;
+                material.needsUpdate = true;
+            }
             const mesh = new THREE.InstancedMesh(
                 this.geometryCache.get(group.geometryKey),
-                this.materialCache.get(group.materialKey),
+                material,
                 total
             );
             mesh.frustumCulled = false;
@@ -6839,7 +6897,8 @@ export class ASERenderer {
                 fixed: group.isFixed,
                 materialPreset: group.materialPreset,
                 sharedGeometry: true,
-                sharedMaterial: true
+                sharedMaterial: this.displayOptions.vizOnly,
+                replicaOpacity: this.displayOptions.vizOnly ? 1 : 0.16
             };
             let instanceId = 0;
             shifts.forEach(shift => {
@@ -6975,13 +7034,15 @@ export class ASERenderer {
 
     supercellBridgeStartOffsets(imageOffset, repeats) {
         const normalized = [0, 1, 2].map(axis => Math.max(1, Math.floor(Number(repeats[axis]) || 1)));
+        const allowed = normalized.map(value => this.supercellAxisOffsets(value));
+        const allowedSets = allowed.map(values => new Set(values));
         const offsets = [];
-        for (let ix = 0; ix < normalized[0]; ix++) {
-            for (let iy = 0; iy < normalized[1]; iy++) {
-                for (let iz = 0; iz < normalized[2]; iz++) {
+        for (const ix of allowed[0]) {
+            for (const iy of allowed[1]) {
+                for (const iz of allowed[2]) {
                     const start = [ix, iy, iz];
                     const end = start.map((value, axis) => value + (Number(imageOffset[axis]) || 0));
-                    if (end.every((value, axis) => value >= 0 && value < normalized[axis])) {
+                    if (end.every((value, axis) => allowedSets[axis].has(value))) {
                         offsets.push(start);
                     }
                 }
@@ -7061,9 +7122,19 @@ export class ASERenderer {
         this.domElement.dataset.supercellBridgeBondCount = String(bridgeBondCount);
 
         instancesByColor.forEach((bondInstances, color) => {
+            const baseMaterial = this.bondMaterial(flat ? 'flat' : 'cylinder', color);
+            const material = this.displayOptions.vizOnly
+                ? baseMaterial
+                : baseMaterial.clone();
+            if (!this.displayOptions.vizOnly) {
+                material.transparent = true;
+                material.opacity = 0.16;
+                material.depthWrite = false;
+                material.needsUpdate = true;
+            }
             const mesh = new THREE.InstancedMesh(
                 flat ? this.bondFlatGeometry : this.bondCylinderGeometry,
-                this.bondMaterial(flat ? 'flat' : 'cylinder', color),
+                material,
                 bondInstances.length
             );
             mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -7074,7 +7145,8 @@ export class ASERenderer {
                 bondInstances,
                 bondColor: color,
                 sharedGeometry: true,
-                sharedMaterial: true
+                sharedMaterial: this.displayOptions.vizOnly,
+                replicaOpacity: this.displayOptions.vizOnly ? 1 : 0.16
             };
             bondInstances.forEach((instance, instanceId) => {
                 const segment = instance.segment;
@@ -7178,9 +7250,9 @@ export class ASERenderer {
                 o.clone().add(cell[0]).add(cell[1]).add(cell[2])
             ];
         };
-        for (let ix = 0; ix < reps[0]; ix++) {
-            for (let iy = 0; iy < reps[1]; iy++) {
-                for (let iz = 0; iz < reps[2]; iz++) {
+        for (const ix of this.supercellAxisOffsets(reps[0])) {
+            for (const iy of this.supercellAxisOffsets(reps[1])) {
+                for (const iz of this.supercellAxisOffsets(reps[2])) {
                     const shift = new THREE.Vector3()
                         .addScaledVector(cell[0], ix)
                         .addScaledVector(cell[1], iy)

@@ -754,6 +754,8 @@ AI_CONTROL_SCHEMA = {
                                     },
                                     "fmax": {"type": "number", "exclusiveMinimum": 0},
                                     "steps": {"type": "integer", "minimum": 1, "maximum": 100000},
+                                    "device": {"enum": ["cpu", "cuda"]},
+                                    "cpuThreads": {"type": "integer", "minimum": 1},
                                     "mic": {"type": "boolean"},
                                     "allowEscape": {"type": "boolean"},
                                 },
@@ -1357,11 +1359,14 @@ AI_OPERATION_PARAMETERS = {
         "required": ["active-add-atoms-session"],
         "optional": [
             "pairCutoffs", "freezeExisting", "strength", "boundaryStrength",
-            "fmax", "steps", "mic", "allowEscape",
+            "fmax", "steps", "device", "cpuThreads", "mic", "allowEscape",
         ],
         "notes": (
-            "Starts asynchronous pairwise repulsive placement for the scattered atoms. "
-            "Poll describe.addAtoms or consume collaboration events until is_relaxing is false."
+            "Starts asynchronous FIRE relaxation with one AdditionRepulsionCalculator "
+            "attached to the complete staged structure. device selects CPU or CUDA and "
+            "cpuThreads controls CPU parallelism; CUDA falls back to CPU when unavailable. "
+            "Every optimizer step is retained in the Add-mode trajectory. Poll "
+            "describe.addAtoms or consume collaboration events until is_relaxing is false."
         ),
     },
     "stop-added-atoms": {
@@ -1813,6 +1818,30 @@ def trajectory_layout_compatible(session: EditorSession) -> bool:
     return True
 
 
+def trajectory_identity_compatible(session: EditorSession) -> bool:
+    """Return whether stable atom indices have one element sequence in every frame."""
+    if session._trajectory_identity_compatible is not None:
+        return session._trajectory_identity_compatible
+    if session.frame_count <= 1:
+        session._trajectory_identity_compatible = True
+        return True
+    if session.trajectory_source is not None:
+        source = session.trajectory_source
+        compatible = int(getattr(source, "natoms", -1)) == len(session.working_atoms)
+        session._trajectory_identity_compatible = compatible
+        return compatible
+
+    atom_count = len(session.working_atoms)
+    elements = session.working_atoms.get_chemical_symbols()
+    compatible = all(
+        len(frame) == atom_count
+        and frame.get_chemical_symbols() == elements
+        for frame in session.trajectory_frames
+    )
+    session._trajectory_identity_compatible = bool(compatible)
+    return bool(compatible)
+
+
 def trajectory_position_cache(
     session: EditorSession,
     *,
@@ -1911,6 +1940,7 @@ def session_atoms_to_json(session: EditorSession, include_inline_trajectory: boo
         else None
     )
     data["metadata"]["trajectory_positions_cached"] = trajectory_positions is not None
+    data["metadata"]["trajectory_identity_compatible"] = trajectory_identity_compatible(session)
     if trajectory_positions is not None:
         data["trajectory_positions"] = trajectory_positions
     data["metadata"]["trajectory_positions_binary"] = (

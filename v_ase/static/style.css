@@ -4309,12 +4309,20 @@ body.resizing-pairwise-column * {
 
 .add-atoms-region-editor label,
 .add-atoms-cutoff-row label,
+.add-atoms-compute-grid label,
 .add-atoms-relax-grid label {
     display: grid;
     gap: 4px;
     color: var(--muted);
     font-size: 0.57rem;
     font-weight: 650;
+}
+
+.add-atoms-compute-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+    margin-top: 8px;
 }
 
 .add-atoms-domain-volume {

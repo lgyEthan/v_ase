@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.12&rev=1';
-import { ASERenderer } from './renderer.js?v=0.2.12&rev=1';
-import { ASESelection } from './selection.js?v=0.2.12&rev=1';
-import { ASETransform } from './transform.js?v=0.2.12&rev=1';
+import { ASEApi } from './api.js?v=0.2.13&rev=1';
+import { ASERenderer } from './renderer.js?v=0.2.13&rev=1';
+import { ASESelection } from './selection.js?v=0.2.13&rev=1';
+import { ASETransform } from './transform.js?v=0.2.13&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.12&rev=1';
+} from './trajectory.js?v=0.2.13&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -273,6 +273,8 @@ class VAseApp {
             labelOrder: [],
             trajectoryLabels: [],
             trajectoryLabelElements: {},
+            viewIdentityGlobalLabels: null,
+            viewIdentityFrameLabels: new Map(),
             labelIndexCache: new Map(),
             pendingLabelRenames: new Set(),
             modeSwitchInFlight: false,
@@ -1386,7 +1388,7 @@ class VAseApp {
         if (!labelInput || !applyLabel || !material || !count) return;
 
         const indices = this.selectedAtomIndices();
-        const enabled = !this.state.vizOnly && indices.length > 0 && !this.state.modeSwitchInFlight;
+        const enabled = indices.length > 0 && !this.state.modeSwitchInFlight;
         count.textContent = indices.length
             ? `${indices.length} atom${indices.length === 1 ? '' : 's'}`
             : 'None';
@@ -1406,10 +1408,6 @@ class VAseApp {
     }
 
     applySelectedMaterial(value) {
-        if (!this.canEditAtoms()) {
-            this.editOnlyToast();
-            return;
-        }
         const preset = this.normalizedAtomMaterialPreset(value);
         const indices = this.selectedAtomIndices();
         if (!indices.length) {
@@ -1429,6 +1427,7 @@ class VAseApp {
         this.safeApplyDisplayOptions();
         this.renderAppearanceRows();
         this.updateSelectedAppearanceControls();
+        this.scheduleVisualHistoryCommit('selected-material');
     }
 
     uniqueTransitionLabel(base, usedLabels) {
@@ -1557,6 +1556,7 @@ class VAseApp {
                 })
             );
             this.state.vizOnly = vizOnly;
+            this.clearViewIdentityOverrides();
             this.state.display = plan.display;
             this.state.display.vizOnly = vizOnly;
             this.state.labelOrder = [...plan.labelOrder];
@@ -1767,6 +1767,17 @@ class VAseApp {
         });
         document.getElementById('add-atoms-cutoff-scale')?.addEventListener('change', () => {
             void this.refreshAddAtomsPairCutoffs({ preserveManual: false });
+        });
+        document.getElementById('add-atoms-device')?.addEventListener('change', event => {
+            const cpus = document.getElementById('add-atoms-cpus');
+            event.currentTarget.dataset.userSelected = 'true';
+            if (cpus) cpus.disabled = event.currentTarget.value !== 'cpu';
+            this.syncAddAtomsComputeControls(this.state.atoms?.metadata, {
+                preserveSelection: true
+            });
+        });
+        document.getElementById('add-atoms-cpus')?.addEventListener('change', event => {
+            event.currentTarget.dataset.userSelected = 'true';
         });
         document.getElementById('btn-add-atoms-select-added')?.addEventListener('click', () => {
             this.selectAddedAtoms();
@@ -2567,6 +2578,10 @@ class VAseApp {
         if (cancel) cancel.disabled = !active || running;
         if (finish) finish.disabled = !active || running;
         if (selectAdded) selectAdded.disabled = !active;
+        const device = document.getElementById('add-atoms-device');
+        const cpus = document.getElementById('add-atoms-cpus');
+        if (device) device.disabled = running;
+        if (cpus) cpus.disabled = running || device?.value !== 'cpu';
         document.querySelectorAll(
             '#add-atoms-entries input, #add-atoms-entries select, #btn-add-atoms-entry, '
             + '#add-atoms-entries .remove-add-atoms-entry, '
@@ -2656,6 +2671,7 @@ class VAseApp {
             }
             document.getElementById('add-atoms-freeze-existing').checked = summary.freeze_existing !== false;
             document.getElementById('add-atoms-allow-escape').checked = summary.allow_escape !== false;
+            this.syncAddAtomsComputeControls(data?.metadata);
             this.setAddAtomsPane('batch');
             const entity = summary.content_kind === 'molecules'
                 ? `${summary.molecule_count || 0} molecules · ${summary.new_count || 0} atoms`
@@ -2665,6 +2681,7 @@ class VAseApp {
                 : `${entity} ready`;
             this.setAddAtomsStatus(summary.is_relaxing ? 'running' : 'active', detail);
         }
+        if (!summary?.active) this.syncAddAtomsComputeControls(data?.metadata);
         this.syncAddAtomsActionState();
         this.updateEditingAvailability();
     }
@@ -2756,6 +2773,8 @@ class VAseApp {
                 k_repulsion: this.addAtomsNumber('add-atoms-strength', 2.0),
                 fmax: this.addAtomsNumber('add-atoms-fmax', 0.05),
                 steps: requestedSteps,
+                device: document.getElementById('add-atoms-device')?.value || 'cpu',
+                cpu_threads: Math.round(this.addAtomsNumber('add-atoms-cpus', 4)),
                 mic: document.getElementById('add-atoms-mic')?.checked !== false,
                 allow_escape: document.getElementById('add-atoms-allow-escape')?.checked !== false
             });
@@ -6991,6 +7010,7 @@ class VAseApp {
         return {
             schema: 'v_ase.visual_history.v1',
             display: this.clonePlain(this.state.display),
+            viewIdentityOverrides: this.viewIdentityOverridesSnapshot(),
             applyConstraints: Boolean(this.state.applyConstraints),
             antiAliasing: Boolean(this.state.antiAliasing),
             sphereQuality: this.state.sphereQuality || 'auto',
@@ -7400,7 +7420,7 @@ class VAseApp {
             if (!data || !data.positions) return;
 
             this.invalidateForceVectorData();
-            this.state.atoms = data;
+            this.state.atoms = this.applyViewIdentityOverridesToData(data);
             this.syncTrajectoryIdentity(data);
             this.rebuildLabelIndexCache(data.symbols || []);
             this.state.cachedFmax = this.computeFmax(data.forces || []);
@@ -7611,6 +7631,70 @@ class VAseApp {
         return Array.from({ length: count }, (_, idx) => idx + 1);
     }
 
+    syncAddAtomsComputeControls(
+        meta = this.state.atoms?.metadata,
+        { preserveSelection = false } = {}
+    ) {
+        const device = document.getElementById('add-atoms-device');
+        const cpus = document.getElementById('add-atoms-cpus');
+        if (!device || !cpus) return;
+        const details = meta?.calculator_details || {};
+        const addition = this.addAtomsUI?.active || null;
+        const choices = this.cpuThreadChoices({
+            ...details,
+            cpu_thread_options: addition?.cpu_thread_options || details.cpu_thread_options,
+        });
+        const previousCpu = cpus.value;
+        if (cpus.dataset.options !== choices.join(',')) {
+            cpus.replaceChildren();
+            choices.forEach(value => {
+                const option = document.createElement('option');
+                option.value = String(value);
+                option.innerText = String(value);
+                cpus.appendChild(option);
+            });
+            cpus.dataset.options = choices.join(',');
+        }
+        const initialized = device.dataset.initialized === 'true';
+        const keepDevice = preserveSelection || device.dataset.userSelected === 'true';
+        const keepThreads = preserveSelection || cpus.dataset.userSelected === 'true';
+        const requestedDevice = (keepDevice ? device.value : null)
+            || addition?.requested_device
+            || (initialized ? device.value : null)
+            || document.getElementById('calc-device')?.value
+            || details.requested_device
+            || 'cpu';
+        const requestedThreads = Number(
+            (keepThreads ? previousCpu : null)
+            ?? addition?.cpu_threads
+            ?? (initialized ? previousCpu : null)
+            ?? document.getElementById('calc-cpus')?.value
+            ?? details.cpu_threads
+            ?? 4
+        );
+        device.value = requestedDevice === 'cuda' ? 'cuda' : 'cpu';
+        device.dataset.initialized = 'true';
+        const cudaOption = [...device.options].find(option => option.value === 'cuda');
+        const hasCuda = Boolean(addition?.cuda_available ?? details.cuda_available);
+        if (cudaOption) cudaOption.disabled = !hasCuda;
+        if (device.value === 'cuda' && !hasCuda) device.value = 'cpu';
+        const fallback = Math.min(4, choices[choices.length - 1] || 1);
+        cpus.value = choices.includes(requestedThreads)
+            ? String(requestedThreads)
+            : String(fallback);
+        const running = Boolean(addition?.is_relaxing);
+        device.disabled = running;
+        cpus.disabled = running || device.value !== 'cpu';
+        const note = document.getElementById('add-atoms-compute-note');
+        if (note) {
+            const effective = addition?.effective_device || device.value;
+            const backend = addition?.calculator_backend;
+            note.textContent = running || addition?.status === 'relaxed'
+                ? `Full repulsion relaxation: ${backend ? `${backend}/` : ''}${effective}`
+                : 'Compute resources apply to this full repulsion relaxation.';
+        }
+    }
+
     updateCalculatorControls(meta) {
         const details = meta?.calculator_details || {};
         const controls = document.getElementById('calc-controls');
@@ -7654,6 +7738,7 @@ class VAseApp {
         }
         cutoffScale.disabled = !isRepulsion || this.state.isRelaxing;
         strength.disabled = !isRepulsion || this.state.isRelaxing;
+        this.syncAddAtomsComputeControls(meta);
     }
 
     async applyCalculatorControls() {
@@ -7898,6 +7983,7 @@ class VAseApp {
             preserveColorScaleRange = false
         } = {}
     ) {
+        if (resetTrajectoryIdentity) this.clearViewIdentityOverrides();
         this.clearCommensurateSupercellProposal({ keepStatus: true });
         this.invalidateAtomColorScaleData({ preserveRange: preserveColorScaleRange });
         this.invalidateForceVectorData();
@@ -7927,7 +8013,7 @@ class VAseApp {
             ])
         );
         if (preserveDisplay) this.captureBondSettingsFromControls();
-        this.state.atoms = data;
+        this.state.atoms = this.applyViewIdentityOverridesToData(data);
         this.state.isRelaxing = Boolean(data?.metadata?.relaxation?.is_relaxing);
         this.syncUnitCellControls();
         this.syncCommensurateWorkspaceControls();
@@ -10935,6 +11021,119 @@ class VAseApp {
         this.state.trajectoryLabelElements = elements;
     }
 
+    clearViewIdentityOverrides() {
+        this.state.viewIdentityGlobalLabels = null;
+        this.state.viewIdentityFrameLabels = new Map();
+    }
+
+    viewIdentityOverridesSnapshot() {
+        if (!Array.isArray(this.state.atoms?.symbols)) return null;
+        const frame = this.currentTrajectoryFrame();
+        if (this.trajectoryIdentityCompatible()) {
+            return {
+                schema: 'v_ase.view_identity.v1',
+                scope: 'trajectory',
+                labels: [...this.state.atoms.symbols]
+            };
+        }
+        const frames = Object.fromEntries(
+            [...this.state.viewIdentityFrameLabels.entries()]
+                .map(([index, labels]) => [String(index), [...labels]])
+        );
+        frames[String(frame)] = [...this.state.atoms.symbols];
+        return {
+            schema: 'v_ase.view_identity.v1',
+            scope: 'frames',
+            frames
+        };
+    }
+
+    restoreViewIdentityOverrides(source) {
+        if (!source || !Array.isArray(this.state.atoms?.symbols)) return false;
+        const frame = this.currentTrajectoryFrame();
+        const atomCount = this.state.atoms.symbols.length;
+        this.clearViewIdentityOverrides();
+        if (source.scope === 'trajectory' && Array.isArray(source.labels)) {
+            if (source.labels.length !== atomCount) return false;
+            this.state.viewIdentityGlobalLabels = [...source.labels];
+        } else if (source.scope === 'frames' && source.frames && typeof source.frames === 'object') {
+            Object.entries(source.frames).forEach(([index, labels]) => {
+                if (Array.isArray(labels) && labels.length === atomCount) {
+                    this.state.viewIdentityFrameLabels.set(Number(index), [...labels]);
+                }
+            });
+        } else {
+            return false;
+        }
+        const labels = this.state.viewIdentityGlobalLabels
+            || this.state.viewIdentityFrameLabels.get(frame);
+        if (!Array.isArray(labels) || labels.length !== atomCount) return false;
+        this.state.atoms.symbols = [...labels];
+        if (Array.isArray(this.state.atoms.atom_types)) {
+            this.state.atoms.atom_types = [...labels];
+        }
+        this.syncTrajectoryIdentity(this.state.atoms);
+        this.rebuildLabelIndexCache(labels);
+        this.reconcileLabelOrder(labels);
+        return true;
+    }
+
+    trajectoryIdentityCompatible(data = this.state.atoms) {
+        const frameCount = Number(data?.metadata?.frame_count) || 1;
+        if (frameCount <= 1) return true;
+        return data?.metadata?.trajectory_identity_compatible === true;
+    }
+
+    currentTrajectoryFrame(data = this.state.atoms) {
+        return Math.max(0, Number(data?.metadata?.current_frame) || 0);
+    }
+
+    applyViewIdentityOverridesToData(data) {
+        if (!this.state.vizOnly || !data?.symbols) return data;
+        const frame = this.currentTrajectoryFrame(data);
+        const compatible = this.trajectoryIdentityCompatible(data);
+        if (!compatible && Array.isArray(this.state.viewIdentityGlobalLabels)) {
+            this.state.viewIdentityFrameLabels.set(
+                frame,
+                [...this.state.viewIdentityGlobalLabels]
+            );
+            this.state.viewIdentityGlobalLabels = null;
+        }
+        const labels = compatible
+            ? this.state.viewIdentityGlobalLabels
+            : this.state.viewIdentityFrameLabels.get(frame);
+        if (!Array.isArray(labels) || labels.length !== data.symbols.length) return data;
+        data.symbols = [...labels];
+        if (Array.isArray(data.atom_types)) data.atom_types = [...labels];
+        return data;
+    }
+
+    recordViewIdentityOverride() {
+        if (!this.state.vizOnly || !Array.isArray(this.state.atoms?.symbols)) return;
+        const labels = [...this.state.atoms.symbols];
+        if (this.trajectoryIdentityCompatible()) {
+            this.state.viewIdentityGlobalLabels = labels;
+            this.state.viewIdentityFrameLabels.clear();
+            return;
+        }
+        this.state.viewIdentityGlobalLabels = null;
+        this.state.viewIdentityFrameLabels.set(this.currentTrajectoryFrame(), labels);
+    }
+
+    showTrajectoryLabelScopeNotice() {
+        this.showModal(`
+            <h2>Label changed on this frame only</h2>
+            <p class="modal-intro">
+                This trajectory does not keep the same atom count and element sequence in every frame.
+                The selected atom indices were relabelled only in the current frame.
+            </p>
+            <ul class="confirm-list">
+                <li>Coordinates and ASE element types were not changed.</li>
+                <li>Frames with a different topology keep their existing labels.</li>
+            </ul>
+        `, '<button id="modal-close" class="btn primary">Understood</button>');
+    }
+
     labelIndices(symbol) {
         return this.state.labelIndexCache?.get(symbol) || [];
     }
@@ -11260,7 +11459,10 @@ class VAseApp {
             typeSelect.title = `${labelAtomIndices.length} atom${labelAtomIndices.length === 1 ? '' : 's'} with label ${symbol}`;
             typeSelect.value = currentElement || '';
             typeSelect.placeholder = currentElements.length > 1 ? 'Mixed' : 'Element';
-            typeSelect.disabled = labelAtomIndices.length === 0;
+            typeSelect.disabled = this.state.vizOnly || labelAtomIndices.length === 0;
+            typeSelect.title = this.state.vizOnly
+                ? 'Switch to Edit mode to change the ASE element type.'
+                : typeSelect.title;
 
             const visibleBox = document.createElement('input');
             visibleBox.type = 'checkbox';
@@ -11308,6 +11510,7 @@ class VAseApp {
             nameInput.value = symbol;
             nameInput.disabled = labelAtomIndices.length === 0;
             const previewDetectedBase = () => {
+                if (this.state.vizOnly) return;
                 const next = this.normalizedTypeLabel(nameInput.value);
                 const inferredBase = this.detectedElementForLabel(next);
                 if (inferredBase) {
@@ -11327,6 +11530,7 @@ class VAseApp {
                 if (!applied && nameInput.isConnected) renameRequestKey = null;
             };
             typeSelect.addEventListener('change', () => {
+                if (this.state.vizOnly) return;
                 if (!this.chemicalElementOptions().includes(typeSelect.value)) {
                     const invalidType = typeSelect.value;
                     typeSelect.value = currentElement || '';
@@ -11519,13 +11723,17 @@ class VAseApp {
         )];
         const targetExists = targetIndices.length > 0;
         const inferredBase = this.detectedElementForLabel(label);
-        const base = baseSymbol || (targetBases.length === 1 ? targetBases[0] : inferredBase);
+        const base = this.state.vizOnly
+            ? null
+            : (baseSymbol || (targetBases.length === 1 ? targetBases[0] : inferredBase));
         const oldBases = [...new Set(
             indices
                 .map(index => this.state.atoms?.chemical_symbols?.[index])
                 .filter(symbol => CHEMICAL_ELEMENT_SET.has(symbol))
         )];
-        const preserveAppearance = !base || (oldBases.length === 1 && oldBases[0] === base);
+        const preserveAppearance = this.state.vizOnly
+            || !base
+            || (oldBases.length === 1 && oldBases[0] === base);
         if (label === oldSymbol && !baseSymbol && (!base || preserveAppearance)) return true;
         this.state.pendingLabelRenames.add(oldSymbol);
         try {
@@ -11578,26 +11786,14 @@ class VAseApp {
         { preserveAppearance = true, targetExists = false } = {}
     ) {
         if (!this.state.atoms || !indices.length) return;
-        const radius = baseSymbol ? this.defaultElementRadius(baseSymbol) : null;
-        const color = baseSymbol ? this.defaultElementColor(baseSymbol) : null;
+        const appliesToTrajectory = this.trajectoryIdentityCompatible();
         indices.forEach(index => {
             this.state.atoms.symbols[index] = label;
             if (Array.isArray(this.state.atoms.atom_types)) {
                 this.state.atoms.atom_types[index] = label;
             }
-            if (baseSymbol && Array.isArray(this.state.atoms.chemical_symbols)) {
-                this.state.atoms.chemical_symbols[index] = baseSymbol;
-            }
-            if (!preserveAppearance && Number.isFinite(radius) && radius > 0 && Array.isArray(this.state.atoms.visual?.radii)) {
-                this.state.atoms.visual.radii[index] = radius;
-            }
-            if (!preserveAppearance && Number.isFinite(radius) && radius > 0 && Array.isArray(this.state.atoms.visual?.covalent_radii)) {
-                this.state.atoms.visual.covalent_radii[index] = radius;
-            }
-            if (!preserveAppearance && color && Array.isArray(this.state.atoms.visual?.colors)) {
-                this.state.atoms.visual.colors[index] = color;
-            }
         });
+        this.recordViewIdentityOverride();
         this.rebuildLabelIndexCache(this.state.atoms.symbols || []);
         const selected = new Set();
         this.state.selected.forEach(index => {
@@ -11609,26 +11805,28 @@ class VAseApp {
             removeSource: label !== oldSymbol,
             copySource: !targetExists
         });
-        if (!preserveAppearance && !targetExists && baseSymbol) {
-            this.setElementBaseDefaults(label, baseSymbol, { color: true });
-        }
-        this.updateLocalTrajectoryIdentity(oldSymbol, label, baseSymbol);
+        this.updateLocalTrajectoryIdentity(oldSymbol, label, null);
         if (label !== oldSymbol) this.replaceLabelOrder(oldSymbol, label);
         this.renderPairwiseBondControls();
-        this.renderer.renameAtomLabel(oldSymbol, label, indices, this.state.display, baseSymbol);
+        this.renderer.renameAtomLabel(oldSymbol, label, indices, this.state.display, null);
         this.renderAppearanceRows();
         this.updateLabelSelectionControls();
         this.pruneSelection();
         this.updateSelectionVisuals();
         this.updateUI();
+        this.scheduleVisualHistoryCommit('atom-label');
         this.toast(
-            label === oldSymbol
-                ? `Updated ${label} element type to ${baseSymbol} for this visualization.`
-                : (targetExists
+            targetExists
                     ? `Merged ${oldSymbol} into label ${label} for this visualization.`
-                    : `Renamed ${oldSymbol} to ${label} for this visualization.`),
+                    : `Renamed ${oldSymbol} to ${label} for this visualization.`,
             'success'
         );
+        if (
+            Number(this.state.atoms?.metadata?.frame_count || 1) > 1
+            && !appliesToTrajectory
+        ) {
+            this.showTrajectoryLabelScopeNotice();
+        }
     }
 
     prepareLabelOrderForIdentityChange(indices, targetLabel) {
@@ -11653,11 +11851,68 @@ class VAseApp {
         this.state.labelOrder = [...new Set(next)];
     }
 
-    async applySelectedLabelEdit() {
-        if (!this.canEditAtoms()) {
-            this.editOnlyToast();
-            return;
+    applySelectedLabelForVisualization(indices, label) {
+        const appliesToTrajectory = this.trajectoryIdentityCompatible();
+        const selected = new Set(indices);
+        const previousLabels = [...new Set(
+            indices.map(index => this.state.atoms?.symbols?.[index]).filter(Boolean)
+        )];
+        const targetExists = this.labelIndices(label).some(index => !selected.has(index));
+        const previousMaterials = new Map(
+            indices.map(index => [index, this.atomMaterialPreset(index)])
+        );
+        this.prepareLabelOrderForIdentityChange(indices, label);
+        indices.forEach(index => {
+            this.state.atoms.symbols[index] = label;
+            if (Array.isArray(this.state.atoms.atom_types)) {
+                this.state.atoms.atom_types[index] = label;
+            }
+        });
+        this.recordViewIdentityOverride();
+        this.rebuildLabelIndexCache(this.state.atoms.symbols || []);
+
+        let appearanceCopied = targetExists;
+        previousLabels.filter(source => source !== label).forEach(source => {
+            const sourceStillPresent = this.labelIndices(source).length > 0;
+            this.transferLabelDisplaySettings(source, label, {
+                appearance: true,
+                removeSource: !sourceStillPresent,
+                copySource: !appearanceCopied
+            });
+            appearanceCopied = true;
+            this.updateLocalTrajectoryIdentity(source, label, null);
+        });
+
+        const inheritedMaterial = this.normalizedAtomMaterialPreset(
+            this.state.display.labelMaterials?.[label]
+        );
+        const atomMaterials = { ...(this.state.display.atomMaterials || {}) };
+        indices.forEach(index => {
+            const previous = previousMaterials.get(index) || 'standard';
+            if (previous === inheritedMaterial) delete atomMaterials[index];
+            else atomMaterials[index] = previous;
+        });
+        this.state.display.atomMaterials = atomMaterials;
+        this.renderPairwiseBondControls();
+        this.renderer.renameAtomLabel(null, label, indices, this.state.display, null);
+        this.renderAppearanceRows();
+        this.updateLabelSelectionControls();
+        this.updateSelectionVisuals();
+        this.updateUI();
+        this.scheduleVisualHistoryCommit('selected-label');
+        this.toast(
+            `Assigned ${indices.length} selected atom${indices.length === 1 ? '' : 's'} to label ${label}.`,
+            'success'
+        );
+        if (
+            Number(this.state.atoms?.metadata?.frame_count || 1) > 1
+            && !appliesToTrajectory
+        ) {
+            this.showTrajectoryLabelScopeNotice();
         }
+    }
+
+    async applySelectedLabelEdit() {
         const indices = this.selectedAtomIndices();
         if (!indices.length) {
             this.toast('Select atoms before changing their label.', 'warning');
@@ -11671,6 +11926,10 @@ class VAseApp {
         }
         const previousLabels = [...new Set(indices.map(index => this.state.atoms.symbols[index]))];
         if (previousLabels.length === 1 && previousLabels[0] === label) return;
+        if (!this.canEditAtoms()) {
+            this.applySelectedLabelForVisualization(indices, label);
+            return;
+        }
 
         const selectedSet = new Set(indices);
         const targetIndices = this.labelIndices(label);
@@ -13392,6 +13651,16 @@ class VAseApp {
                 k_boundary: Number(operation.boundaryStrength ?? 5.0),
                 fmax: Number(operation.fmax ?? 0.05),
                 steps: Number(operation.steps ?? 250),
+                device: operation.device
+                    ?? document.getElementById('add-atoms-device')?.value
+                    ?? this.addAtomsUI?.active?.requested_device
+                    ?? 'cpu',
+                cpu_threads: Number(
+                    operation.cpuThreads
+                    ?? document.getElementById('add-atoms-cpus')?.value
+                    ?? this.addAtomsUI?.active?.cpu_threads
+                    ?? 4
+                ),
                 mic: operation.mic !== false,
                 allow_escape: operation.allowEscape
                     ?? this.addAtomsUI?.active?.allow_escape
@@ -14361,7 +14630,7 @@ class VAseApp {
             const rendered = await this.renderHtmlCompositionPreview(profile);
             blob = await this.api.exportHtml(
                 positions,
-                this.designSettingsSnapshot(),
+                this.designSettingsSnapshot({ includeIdentityOverrides: true }),
                 this.state.applyConstraints,
                 [...this.state.selected],
                 this.workspaceDocumentTitle(),
@@ -14374,7 +14643,7 @@ class VAseApp {
         } else if (format === 'project') {
             blob = await this.api.saveProject(
                 positions,
-                this.designSettingsSnapshot(),
+                this.designSettingsSnapshot({ includeIdentityOverrides: true }),
                 this.state.applyConstraints
             );
             filename = this.projectFilename();
@@ -14680,7 +14949,11 @@ class VAseApp {
         return this.clonePlain(this.factoryDesignSettings);
     }
 
-    designSettingsSnapshot({ includeAtomOverrides = true, includeCamera = true } = {}) {
+    designSettingsSnapshot({
+        includeAtomOverrides = true,
+        includeCamera = true,
+        includeIdentityOverrides = false
+    } = {}) {
         this.readTransformSettings();
         this.syncAtomicScaleFromCamera({ forceInput: true, syncPreview: false });
         const display = this.clonePlain(this.state.display);
@@ -14695,6 +14968,9 @@ class VAseApp {
             rotateIncrementDeg: this.state.rotateIncrementDeg,
             imageExportProfile: this.clonePlain(this.currentImageExportProfile())
         };
+        if (includeIdentityOverrides) {
+            snapshot.viewIdentityOverrides = this.viewIdentityOverridesSnapshot();
+        }
         if (includeCamera) snapshot.camera = this.currentCameraForExport();
         return snapshot;
     }
@@ -15181,6 +15457,10 @@ class VAseApp {
     applyDesignSettings(settings, { render = true } = {}) {
         if (!settings) return;
         const source = settings.settings || settings;
+        const identityChanged = Object.prototype.hasOwnProperty.call(
+            source,
+            'viewIdentityOverrides'
+        ) && this.restoreViewIdentityOverrides(source.viewIdentityOverrides);
         const nextDisplay = this.reconcileDesignDisplay(source.display || source);
         const requestedAtomicScale = Number(nextDisplay.atomicScalePixelsPerAngstrom);
         this.state.display = {
@@ -15228,6 +15508,12 @@ class VAseApp {
         }
         if (render) {
             this.renderer.setDisplayOptions(this.state.display);
+            if (identityChanged) {
+                this.renderer.rebuildAtoms(
+                    this.state.atoms,
+                    this.state.atoms?.metadata?.custom_colors || {}
+                );
+            }
             this.renderVolumetricControls();
             if (this.state.display.showVolumetric) {
                 this.updateVolumetricSurface({ recordHistory: false }).catch(error => {
@@ -17328,7 +17614,7 @@ class VAseApp {
                         );
                         return await this.api.exportHtml(
                             this.backendPositionsPayload(),
-                            this.designSettingsSnapshot(),
+                            this.designSettingsSnapshot({ includeIdentityOverrides: true }),
                             this.state.applyConstraints,
                             [...this.state.selected],
                             this.workspaceDocumentTitle(),
@@ -19243,7 +19529,7 @@ class VAseApp {
                 const saved = await this.saveBlobFromAction(
                     () => this.api.saveProject(
                         this.backendPositionsPayload(),
-                        this.designSettingsSnapshot(),
+                        this.designSettingsSnapshot({ includeIdentityOverrides: true }),
                         this.state.applyConstraints
                     ),
                     this.projectFilename(),

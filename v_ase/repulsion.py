@@ -296,23 +296,55 @@ class VAseRepulsionCalculator(Calculator):
             pairs.append((i, j, np.asarray(vec, dtype=float), float(dist), float(threshold)))
             seen.add((i, j))
 
-        # Some neighbor-list backends omit exact overlaps.  Add only missing
-        # coincident pairs so periodic and non-periodic scratch structures have
-        # identical repulsion semantics without duplicating normal pairs.
-        positions = atoms.get_positions()
-        for i in range(len(atoms) - 1):
-            for j in range(i + 1, len(atoms)):
+        # Some neighbor-list backends omit exact overlaps.  Hash wrapped
+        # Cartesian positions first so only plausible coincidences require an
+        # MIC check; scanning every missing pair made long placement runs
+        # quadratic in Python even when no atoms overlapped.
+        positions = np.asarray(atoms.get_positions(), dtype=float)
+        if self.mic and np.any(pbc) and atoms.cell.rank == 3:
+            scaled = np.asarray(atoms.get_scaled_positions(wrap=False), dtype=float)
+            for axis, periodic in enumerate(pbc):
+                if periodic:
+                    scaled[:, axis] -= np.floor(scaled[:, axis])
+                    scaled[np.isclose(scaled[:, axis], 1.0, atol=1e-12), axis] = 0.0
+            hash_positions = scaled @ np.asarray(atoms.cell.array, dtype=float)
+        else:
+            hash_positions = positions
+        buckets: dict[tuple[float, float, float], list[int]] = {}
+        coincident_candidates: list[tuple[int, int, float, np.ndarray]] = []
+        for index, point in enumerate(hash_positions):
+            key = tuple(np.round(point, decimals=12))
+            for other in buckets.get(key, []):
+                i, j = (other, index) if other < index else (index, other)
                 if (i, j) in seen:
                     continue
                 threshold = self._threshold_for_pair(min_bondinfo, symbols[i], symbols[j])
                 if threshold is None or threshold <= 0:
                     continue
-                vec = positions[j] - positions[i]
-                if self.mic and np.any(pbc) and atoms.cell.rank == 3:
-                    vec, _ = find_mic(vec, atoms.cell, pbc=pbc)
-                if float(np.linalg.norm(vec)) <= _EPS:
+                coincident_candidates.append(
+                    (i, j, float(threshold), positions[j] - positions[i])
+                )
+            buckets.setdefault(key, []).append(index)
+        if coincident_candidates:
+            candidate_vectors = np.asarray(
+                [candidate[3] for candidate in coincident_candidates],
+                dtype=float,
+            )
+            if self.mic and np.any(pbc) and atoms.cell.rank == 3:
+                candidate_vectors, candidate_distances = find_mic(
+                    candidate_vectors,
+                    atoms.cell,
+                    pbc=pbc,
+                )
+            else:
+                candidate_distances = np.linalg.norm(candidate_vectors, axis=1)
+            for (i, j, threshold, _), distance in zip(
+                coincident_candidates,
+                np.asarray(candidate_distances, dtype=float),
+            ):
+                if float(distance) <= _EPS:
                     unit = _coincident_pair_vector(i, j)
-                    pairs.append((i, j, unit * _EPS, _EPS, float(threshold)))
+                    pairs.append((i, j, unit * _EPS, _EPS, threshold))
         return pairs
 
     def _boundary_energy_forces(self, atoms: Atoms):

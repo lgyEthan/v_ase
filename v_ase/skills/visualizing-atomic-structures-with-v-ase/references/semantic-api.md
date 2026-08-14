@@ -191,7 +191,7 @@ Pass `operation` as a name string or object:
 | `scatter-molecules` | `molecules` or `molecule`/`label`/`count`; optional atom-placement fields plus `randomOrientation`, `rigidMolecules`, `quantityMode`, `targetDensityGcm3` | Stage installed ASE G2 molecules by integer count or exact-volume density with optional unbiased orientation and rigid geometry |
 | `update-add-atoms-region` | Complete `regions`, or `regionId` plus optional `regionName`, `regionRole`, `bounds`; optional `regionMic`, `allowEscape` | Atomically move or reconfigure one or more active Cartesian insertion regions without moving staged atoms |
 | `scale-add-atoms-regions` | `regionIds`, positive `factor`; optional `axis`, `pivot`, `regionMic`, `allowEscape` | Scale selected Cartesian insertion bounds about their shared center or explicit pivot; never moves staged atoms |
-| `relax-added-atoms` | optional `pairCutoffs`, `freezeExisting`, `strength`, `boundaryStrength`, `fmax`, `steps`, `mic`, `allowEscape` | Start asynchronous pairwise repulsive placement of staged atoms; the default lets atoms leave their initial insertion region |
+| `relax-added-atoms` | optional `pairCutoffs`, `freezeExisting`, `strength`, `boundaryStrength`, `fmax`, `steps`, `device`, `cpuThreads`, `mic`, `allowEscape` | Start whole-structure asynchronous FIRE relaxation with the Add repulsion calculator; every optimizer step is retained and the default lets inserted content leave its initial region |
 | `stop-added-atoms` | none | Request optimizer stop while retaining current staged positions |
 | `finish-add-atoms` | none | Commit staged atoms after optimization is inactive |
 | `cancel-add-atoms` | none | Restore the exact structure and history from before scattering |
@@ -414,14 +414,20 @@ await ai.apply({operation: {
   boundaryStrength: 5.0,
   fmax: 0.05,
   steps: 250,
+  device: "cpu",
+  cpuThreads: 4,
   mic: true,
   allowEscape: true
 }});
 ```
 
 The optimizer uses explicit element-pair minimum distances. A pair inside its
-cutoff receives a soft harmonic repulsion. With `mic:true`, ASE periodic
-neighbor vectors are used. Staged atoms are tag 3 in the temporary optimizer;
+cutoff receives a soft harmonic repulsion. With `mic:true`, periodic neighbor
+vectors are evaluated for the complete structure by the calculator. The GUI
+keeps Device and CPU-thread controls inside the floating Add panel so they
+remain accessible while the inspector is closed. `device:"cuda"` uses CUDA
+when available and reports its effective fallback in `describe().addAtoms`.
+Staged atoms are tag 3 in the temporary optimizer;
 the baseline host is reconstructed exactly when committing. Poll compact
 `describe` state or consume collaboration events until
 `addAtoms.is_relaxing` is false. Then use `finish-add-atoms`. Use

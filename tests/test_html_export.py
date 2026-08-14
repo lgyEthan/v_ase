@@ -29,7 +29,7 @@ def _embedded_base64(html, element_id):
     return "".join(match.group(1).split())
 
 
-def _html_export_fixture(*, embed_project=True, atom_colorscale=False):
+def _html_export_fixture(*, embed_project=True, atom_colorscale=False, view_identity=False):
     first = Atoms(
         "CuO",
         positions=[[0.0, 0.0, 0.0], [1.8, 0.0, 0.0]],
@@ -138,6 +138,12 @@ def _html_export_fixture(*, embed_project=True, atom_colorscale=False):
             "atomColorScaleMax": 0.95,
             "atomColorScaleGamma": 2.0,
         })
+    if view_identity:
+        settings["viewIdentityOverrides"] = {
+            "schema": "v_ase.view_identity.v1",
+            "scope": "trajectory",
+            "labels": ["Cu_substrate", "O_surface"],
+        }
     poster_buffer = io.BytesIO()
     Image.new("RGB", (640, 360), (242, 246, 244)).save(
         poster_buffer,
@@ -289,6 +295,36 @@ def test_html_export_freezes_active_selected_atom_colorscale_for_offline_frames(
         assert re.fullmatch(r"#[0-9A-F]{6}", scale["colors"][1])
         frame_colors.append(scale["colors"][1])
     assert frame_colors[0] != frame_colors[1]
+
+
+def test_html_export_preserves_view_labels_without_changing_ase_elements(tmp_path):
+    response, _, _ = _html_export_fixture(
+        embed_project=True,
+        view_identity=True,
+    )
+    html = response.body.decode("utf-8")
+    scene = json.loads(base64.b64decode(
+        _embedded_base64(html, "v-ase-scene-data")
+    ).decode("utf-8"))
+    assert [frame["symbols"] for frame in scene["frames"]] == [
+        ["Cu_substrate", "O_surface"],
+        ["Cu_substrate", "O_surface"],
+    ]
+    assert [frame["chemical_symbols"] for frame in scene["frames"]] == [
+        ["Cu", "O"],
+        ["Cu", "O"],
+    ]
+
+    archive = tmp_path / "identity.vase"
+    archive.write_bytes(base64.b64decode(
+        _embedded_base64(html, "v-ase-project-data")
+    ))
+    project = read_project_archive(archive)
+    assert project.settings["viewIdentityOverrides"]["labels"] == [
+        "Cu_substrate",
+        "O_surface",
+    ]
+    assert project.frames[0].get_chemical_symbols() == ["Cu", "O"]
 
 
 def test_exported_html_opens_offline_as_view_only_interactive_trajectory(tmp_path):
