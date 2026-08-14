@@ -1350,9 +1350,14 @@ v_ase gui physics:/absolute/path/to/trajectory.extxyz
 
 v_ase selects private ports automatically, starts the backend beside the
 remote file, creates the SSH tunnel, and opens the local browser. The source
-file and full trajectory cache remain on the server; only the current frame
-data required for local Three.js rendering crosses the tunnel. Use `ProxyJump`
-in `~/.ssh/config` when a login node is required.
+file and backend trajectory cache remain on the server; a current remote v_ase
+streams only the frame data required for local Three.js rendering. The local
+launcher inspects the remote CLI within the same SSH login and automatically
+falls back when an older installation lacks `--no-browser` or
+`--stream-frames`. Compatibility mode still keeps the source file remote, but
+may transfer a complete trajectory coordinate cache. Upgrade v_ase on the
+server before opening a large trajectory. Use `ProxyJump` in `~/.ssh/config`
+when a login node is required.
 
 ## License
 
@@ -1399,6 +1404,27 @@ gio: http://127.0.0.1:58039/workspace?workspace_id=xxxx&session_id=xxxx: Operati
 
 For better WSL performance, keep trajectories under the Linux filesystem
 rather than `/mnt/c/...`.
+
+</details>
+
+<details>
+<summary>Remote launch reports unrecognized <code>--no-browser</code> or <code>--stream-frames</code></summary>
+
+Upgrade the local launcher to v_ase 0.2.14 or later. It detects the remote CLI
+before starting the viewer and automatically uses a compatible command:
+
+```bash
+python -m pip install --upgrade "v_ase-gui>=0.2.14"
+v_ase gui USER@SERVER:/absolute/path/to/STRUCTURE
+```
+
+The fallback keeps the structure file on the server. Upgrade the remote
+installation as well to retain on-demand frame streaming for large
+trajectories and newer features such as explicit volumetric precision:
+
+```bash
+ssh USER@SERVER 'python -m pip install --upgrade v_ase-gui'
+```
 
 </details>
 

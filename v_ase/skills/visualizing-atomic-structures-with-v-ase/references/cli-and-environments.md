@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.13"
+python -m pip install "v_ase-gui==0.2.14"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.2.13"
+python -m pip install "v_ase-gui[rhino]==0.2.14"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, SciPy, scikit-image,
@@ -257,8 +257,21 @@ an SSH host. For example, with a host configured as `physics`:
 v_ase gui physics:/absolute/server/path/trajectory.extxyz
 ```
 
-The local browser receives only frame data needed for visualization. The source
-file itself is not downloaded.
+The source file itself is never downloaded. The local launcher reads `v_ase
+gui --help` and starts the viewer in the same SSH login, passing only options
+supported by that remote installation. Current installations stream frame data
+on demand. Older installations automatically use compatibility mode: the file
+and parsing remain remote, but a complete trajectory coordinate cache may cross
+the tunnel. Treat the warning as a request to upgrade before opening large
+trajectories:
+
+```bash
+ssh physics 'python -m pip install --upgrade v_ase-gui'
+```
+
+An explicit feature that cannot be preserved is never silently removed. For
+example, requesting FP64 volumetric data from a remote CLI without
+`--volumetric-precision` stops with an upgrade instruction.
 
 Manual tunnel fallback:
 

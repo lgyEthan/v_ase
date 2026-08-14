@@ -161,6 +161,8 @@ test edit and a new filename for output.
 | video capture unavailable | Browser lacks `MediaRecorder` | Use Chromium-family browser |
 | Chrome says the site can view saved-file changes | File System Access permission notice | This is expected after selecting a destination; access is limited to that file and cannot be suppressed while preselecting it |
 | WSL `gio` operation unsupported | Browser launch failed, server did not | Open the printed loopback URL manually |
+| remote `unrecognized arguments: --no-browser --stream-frames` | Local launcher predates remote capability negotiation while the remote v_ase is older | Upgrade the local installation to `v_ase-gui>=0.2.14`; upgrade the remote installation too before large trajectory or FP64 volumetric work |
+| remote compatibility-mode warning | Remote CLI can open the file but lacks on-demand frame streaming | Continue for a small structure, or upgrade remote v_ase before a large trajectory; the source file remains remote in either case |
 | blank or clipped render | Camera/aspect/options mismatch | Fit camera, render exact dimensions, inspect decoded image |
 | unexpected constrained position | ASE projected requested movement | Trust returned backend position and report projection |
 | frame selection disappeared | Topology differs between frames | Re-describe and select valid mapped atoms |

@@ -1,5 +1,7 @@
-import shlex
 import json
+import os
+import shlex
+import subprocess
 import tomllib
 from pathlib import Path
 
@@ -19,6 +21,7 @@ from v_ase.session import EditorSession
 from v_ase.remote import (
     RemoteTarget,
     build_remote_gui_command,
+    build_remote_gui_launcher,
     localize_remote_url,
     parse_remote_target,
 )
@@ -196,6 +199,152 @@ def test_remote_gui_command_preserves_user_options_and_quotes_the_path():
         "--",
         "/data/final structure.extxyz",
     ]
+
+
+def _run_fake_remote_launcher(tmp_path, args, help_text):
+    executable = tmp_path / "v_ase"
+    arguments_file = tmp_path / "arguments.txt"
+    browser_file = tmp_path / "browser.txt"
+    executable.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$1\" = gui ] && [ \"$2\" = --help ]; then\n"
+        "  printf '%s\\n' \"$VASE_FAKE_HELP\"\n"
+        "  exit 0\n"
+        "fi\n"
+        "printf '%s\\n' \"$@\" > \"$VASE_ARGS_FILE\"\n"
+        "printf '%s\\n' \"$BROWSER\" > \"$VASE_BROWSER_FILE\"\n"
+        "printf '%s\\n' "
+        "'Viewer URL: http://127.0.0.1:55363/workspace?session_id=remote'\n",
+        encoding="utf-8",
+    )
+    executable.chmod(0o755)
+    target = parse_remote_target(args.file)
+    assert target is not None
+    environment = os.environ.copy()
+    environment.update({
+        "PATH": f"{tmp_path}:{environment['PATH']}",
+        "VASE_FAKE_HELP": help_text,
+        "VASE_ARGS_FILE": str(arguments_file),
+        "VASE_BROWSER_FILE": str(browser_file),
+    })
+    completed = subprocess.run(
+        ["/bin/sh", "-c", build_remote_gui_launcher(args, target)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+    arguments = (
+        arguments_file.read_text(encoding="utf-8").splitlines()
+        if arguments_file.exists()
+        else []
+    )
+    browser = (
+        browser_file.read_text(encoding="utf-8").strip()
+        if browser_file.exists()
+        else ""
+    )
+    return completed, arguments, browser
+
+
+def test_remote_launcher_uses_streaming_options_for_current_cli(tmp_path):
+    args = build_parser().parse_args([
+        "gui",
+        "physics:/data/final structure.extxyz",
+        "--hide-bonds",
+    ])
+    completed, arguments, browser = _run_fake_remote_launcher(
+        tmp_path,
+        args,
+        "--no-browser --stream-frames --hide-bonds --volumetric-precision",
+    )
+
+    assert completed.returncode == 0
+    assert arguments == [
+        "gui",
+        "--index",
+        ":",
+        "--no-browser",
+        "--stream-frames",
+        "--hide-bonds",
+        "--",
+        "/data/final structure.extxyz",
+    ]
+    assert browser == ""
+    assert "compatibility mode" not in completed.stderr
+
+
+def test_remote_launcher_falls_back_when_streaming_is_unavailable(tmp_path):
+    args = build_parser().parse_args([
+        "gui",
+        "physics:/data/POSCAR",
+        "--show-bonds",
+        "--interactive",
+    ])
+    completed, arguments, browser = _run_fake_remote_launcher(
+        tmp_path,
+        args,
+        "--no-browser --no-block --show-bonds --interactive",
+    )
+
+    assert completed.returncode == 0
+    assert arguments == [
+        "gui",
+        "--index",
+        ":",
+        "--no-browser",
+        "--show-bonds",
+        "--interactive",
+        "--",
+        "/data/POSCAR",
+    ]
+    assert browser == ""
+    assert "compatibility mode without on-demand frame streaming" in completed.stderr
+
+
+def test_remote_launcher_supports_cli_without_no_browser(tmp_path):
+    args = build_parser().parse_args([
+        "gui",
+        "legacy:/data/POSCAR",
+        "--show-bonds",
+    ])
+    completed, arguments, browser = _run_fake_remote_launcher(
+        tmp_path,
+        args,
+        "--no-block --show-bonds --interactive",
+    )
+
+    assert completed.returncode == 0
+    assert arguments == [
+        "gui",
+        "--index",
+        ":",
+        "--show-bonds",
+        "--",
+        "/data/POSCAR",
+    ]
+    assert browser == "/bin/echo"
+    assert "unrecognized arguments" not in completed.stderr
+    assert "compatibility mode without on-demand frame streaming" in completed.stderr
+
+
+def test_remote_launcher_requires_upgrade_for_unsupported_fp64(tmp_path):
+    args = build_parser().parse_args([
+        "gui",
+        "legacy:/data/CHGCAR",
+        "--volumetric-precision",
+        "fp64",
+    ])
+    completed, arguments, _browser = _run_fake_remote_launcher(
+        tmp_path,
+        args,
+        "--no-block --show-bonds --interactive",
+    )
+
+    assert completed.returncode == 64
+    assert arguments == []
+    assert "does not support --volumetric-precision" in completed.stderr
+    assert "pip install --upgrade v_ase-gui" in completed.stderr
 
 
 def test_remote_url_is_rewritten_to_the_automatically_selected_local_endpoint():

@@ -61,19 +61,24 @@ def parse_remote_target(value: str | None) -> RemoteTarget | None:
     return RemoteTarget(host=host, path=path)
 
 
-def build_remote_gui_command(
+def _remote_gui_argv(
     args: argparse.Namespace,
     target: RemoteTarget,
-) -> str:
-    """Build a shell-safe command for the remote SSH session."""
+    *,
+    no_browser: bool,
+    stream_frames: bool,
+    modern_bond_defaults: bool,
+) -> list[str]:
     command = [
         "v_ase",
         "gui",
         "--index",
         str(args.index),
-        "--no-browser",
-        "--stream-frames",
     ]
+    if no_browser:
+        command.append("--no-browser")
+    if stream_frames:
+        command.append("--stream-frames")
     if args.format:
         command.extend(["--format", str(args.format)])
     if getattr(args, "volumetric_precision", "fp32") != "fp32":
@@ -85,7 +90,9 @@ def build_remote_gui_command(
         command.extend(["--output", str(args.output)])
     if args.output_format:
         command.extend(["--output-format", str(args.output_format)])
-    if not args.show_bonds:
+    if args.show_bonds and not modern_bond_defaults:
+        command.append("--show-bonds")
+    elif not args.show_bonds and modern_bond_defaults:
         command.append("--hide-bonds")
     if args.hide_cell:
         command.append("--hide-cell")
@@ -98,7 +105,129 @@ def build_remote_gui_command(
         # The remote process only needs to keep the tunneled server alive.
         command.append("--no-block")
     command.extend(["--", target.path])
+    return command
+
+
+def build_remote_gui_command(
+    args: argparse.Namespace,
+    target: RemoteTarget,
+) -> str:
+    """Build the command used by a current remote v_ase installation."""
+    command = _remote_gui_argv(
+        args,
+        target,
+        no_browser=True,
+        stream_frames=True,
+        modern_bond_defaults=True,
+    )
     return shlex.join(command)
+
+
+def build_remote_gui_launcher(
+    args: argparse.Namespace,
+    target: RemoteTarget,
+) -> str:
+    """Build one SSH command that negotiates remote CLI capabilities.
+
+    The remote shell inspects its own help text and selects a compatible
+    invocation without a second SSH login. For the oldest CLI,
+    BROWSER=/bin/echo exposes the loopback URL while preserving the normal
+    blocking lifecycle.
+    """
+    current_command = build_remote_gui_command(args, target)
+    current_bonds_without_stream = shlex.join(
+        _remote_gui_argv(
+            args,
+            target,
+            no_browser=True,
+            stream_frames=False,
+            modern_bond_defaults=True,
+        )
+    )
+    legacy_bonds_with_stream = shlex.join(
+        _remote_gui_argv(
+            args,
+            target,
+            no_browser=True,
+            stream_frames=True,
+            modern_bond_defaults=False,
+        )
+    )
+    legacy_bonds_without_stream = shlex.join(
+        _remote_gui_argv(
+            args,
+            target,
+            no_browser=True,
+            stream_frames=False,
+            modern_bond_defaults=False,
+        )
+    )
+    oldest_command = shlex.join(
+        _remote_gui_argv(
+            args,
+            target,
+            no_browser=False,
+            stream_frames=False,
+            modern_bond_defaults=False,
+        )
+    )
+
+    unavailable_message = shlex.quote(
+        f"v_ase: could not inspect the v_ase installation on {target.host}. "
+        "Install it with `python -m pip install --upgrade v_ase-gui`."
+    )
+    compatibility_message = shlex.quote(
+        f"v_ase: {target.host} uses an older remote CLI; continuing in "
+        "compatibility mode without on-demand frame streaming. Upgrade with "
+        "`python -m pip install --upgrade v_ase-gui` for large trajectories."
+    )
+    precision_message = shlex.quote(
+        f"v_ase: {target.host} does not support --volumetric-precision. "
+        "Upgrade it with `python -m pip install --upgrade v_ase-gui`."
+    )
+
+    lines = [
+        "_vase_help=$(v_ase gui --help 2>&1)",
+        "_vase_help_status=$?",
+        'if [ "$_vase_help_status" -ne 0 ]; then',
+        '  printf \'%s\\n\' "$_vase_help" >&2',
+        f"  printf '%s\\n' {unavailable_message} >&2",
+        '  exit "$_vase_help_status"',
+        "fi",
+    ]
+    if getattr(args, "volumetric_precision", "fp32") != "fp32":
+        lines.extend([
+            'case "$_vase_help" in',
+            "  *--volumetric-precision*) ;;",
+            f"  *) printf '%s\\n' {precision_message} >&2; exit 64 ;;",
+            "esac",
+        ])
+    lines.extend([
+        'case "$_vase_help" in',
+        "  *--no-browser*)",
+        '    case "$_vase_help" in',
+        "      *--stream-frames*)",
+        '        case "$_vase_help" in',
+        f"          *--hide-bonds*) exec {current_command} ;;",
+        f"          *) exec {legacy_bonds_with_stream} ;;",
+        "        esac",
+        "        ;;",
+        "      *)",
+        f"        printf '%s\\n' {compatibility_message} >&2",
+        '        case "$_vase_help" in',
+        f"          *--hide-bonds*) exec {current_bonds_without_stream} ;;",
+        f"          *) exec {legacy_bonds_without_stream} ;;",
+        "        esac",
+        "        ;;",
+        "    esac",
+        "    ;;",
+        "  *)",
+        f"    printf '%s\\n' {compatibility_message} >&2",
+        f"    BROWSER=/bin/echo exec {oldest_command}",
+        "    ;;",
+        "esac",
+    ])
+    return "\n".join(lines)
 
 
 def localize_remote_url(remote_url: str, local_port: int) -> str:
@@ -254,7 +383,7 @@ def launch_remote_gui(args: argparse.Namespace, target: RemoteTarget) -> int:
                 ssh_executable,
                 "-T",
                 target.host,
-                build_remote_gui_command(args, target),
+                build_remote_gui_launcher(args, target),
             ],
             stdin=None,
             stdout=subprocess.PIPE,

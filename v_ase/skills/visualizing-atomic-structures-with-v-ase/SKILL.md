@@ -14,7 +14,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.13"
+python -m pip install "v_ase-gui==0.2.14"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -467,10 +467,10 @@ For any nontrivial task, verify all applicable items:
   the exact static poster and first live WebGL frame must share one unmoving
   crop without application chrome;
   embedded mode must also restore through `v_ase gui FILE.html`;
-- notebook: `%v_ase inline` and `%v_ase browser` switch the process-local
-  display target, while `%v_ase auto` restores automatic active-kernel
-  detection; an explicit `notebook=` value overrides that preference for one
-  call;
+- notebook: `%v_ase inline`, `%v_ase browser`, and `%v_ase auto` select the
+  process display target; an explicit `notebook=` overrides one call;
+- remote SSH: `HOST:/path` keeps source data remote; CLI negotiation warns on
+  compatibility fallback and rejects unsupported explicit features;
 - video: exact decoded frame count and `frames / FPS` duration, with visible
   displacement vectors present in the captured frames when enabled.
 

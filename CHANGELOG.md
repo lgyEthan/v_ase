@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.14
+
+- Added one-login remote CLI capability negotiation for `HOST:/path` launches.
+  Current servers retain on-demand frame streaming, while older installations
+  automatically omit unsupported `--no-browser` and `--stream-frames` options
+  instead of failing in `argparse`.
+- Preserved the blocking browser-close lifecycle on the oldest compatible
+  remote CLI by exposing its loopback URL through `BROWSER=/bin/echo`. Explicit
+  requests that cannot be preserved, such as FP64 volumetric precision, now
+  stop with a targeted remote-upgrade instruction.
+
 ## 0.2.13
 
 - Changed Add Atoms and Add Molecules placement to attach one
