@@ -155,6 +155,180 @@ def test_exact_selection_rotation_panel_commits_and_undoes_backend_coordinates()
         editor.close()
 
 
+def test_rdf_drawer_controls_and_selected_active_bond_pairs():
+    atoms = Atoms(
+        "COCOC",
+        positions=[
+            [0.0, 0.0, 0.0],
+            [1.2, 0.0, 0.0],
+            [0.0, 1.2, 0.0],
+            [1.2, 1.2, 0.0],
+            [0.0, 2.4, 0.0],
+        ],
+        pbc=False,
+    )
+    set_atom_labels(atoms, ["C_site", "O_site", "C_site", "O_site", "C_site"])
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            try:
+                page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+                page.wait_for_function(
+                    "window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 5"
+                )
+                initial = page.evaluate(
+                    """async () => {
+                        const app = window.__ASE_APP__;
+                        const manualPairs = [[0, 1], [0, 2], [2, 3], [2, 4]];
+                        app.state.display.showBonds = true;
+                        app.state.display.bondMode = 'manual';
+                        app.state.display.manualBondPairs = manualPairs;
+                        app.renderer.setDisplayOptions({
+                            showBonds: true,
+                            bondMode: 'manual',
+                            manualBondPairs: manualPairs
+                        });
+                        app.clearAtomSelection();
+                        app.addSelectionReference(0);
+                        app.addSelectionReference(1);
+                        app.updateSelectionVisuals();
+                        document.getElementById('rdf-pair-mode').value = 'selected';
+                        document.getElementById('rdf-cutoff').value = '3.0';
+                        document.getElementById('rdf-bins').value = '32';
+                        await app.calculateRdf();
+                        return {
+                            pairMode: app.state.rdfResult.pair_mode,
+                            partial: Object.keys(app.state.rdfResult.partial),
+                            selectedPairs: app.selectedActiveRdfPairs()
+                        };
+                    }"""
+                )
+                assert initial == {
+                    "pairMode": "selected",
+                    "partial": ["C_site|O_site"],
+                    "selectedPairs": [["C_site", "O_site"]],
+                }
+                page.wait_for_selector("#rdf-plot .plotly", state="attached")
+                drawer = page.locator("#analysis-drawer")
+                assert drawer.evaluate("element => getComputedStyle(element).pointerEvents") == "auto"
+                for button_id in ("btn-analysis-export", "btn-analysis-drawer-close"):
+                    assert page.evaluate(
+                        """buttonId => {
+                            const button = document.getElementById(buttonId);
+                            const rect = button.getBoundingClientRect();
+                            return document.elementFromPoint(
+                                rect.left + rect.width / 2,
+                                rect.top + rect.height / 2
+                            )?.closest('button')?.id || '';
+                        }""",
+                        button_id,
+                    ) == button_id
+
+                with page.expect_download(timeout=15_000) as download_info:
+                    page.click("#btn-analysis-export")
+                assert download_info.value.suggested_filename == "v_ase_rdf.csv"
+                assert Path(download_info.value.path()).read_text(
+                    encoding="utf-8"
+                ).splitlines()[0] == (
+                    "r_angstrom,total_pair_probability_per_angstrom,C_site|O_site"
+                )
+
+                page.click("#btn-analysis-drawer-close")
+                page.wait_for_function(
+                    "document.getElementById('analysis-drawer').classList.contains('hidden')"
+                )
+                assert page.evaluate("window.__ASE_APP__.state.activeAnalysisPlot") is None
+                closed_token = page.evaluate("window.__ASE_APP__.state.rdfRequestToken")
+                page.evaluate(
+                    """() => {
+                        const app = window.__ASE_APP__;
+                        app.clearAtomSelection();
+                        app.addSelectionReference(0);
+                        app.addSelectionReference(2);
+                        app.updateSelectionVisuals();
+                    }"""
+                )
+                page.wait_for_timeout(250)
+                assert page.evaluate("window.__ASE_APP__.state.rdfRequestToken") == closed_token
+                assert drawer.evaluate("element => element.classList.contains('hidden')")
+
+                reopened = page.evaluate(
+                    """async () => {
+                        const app = window.__ASE_APP__;
+                        await app.calculateRdf();
+                        return Object.keys(app.state.rdfResult.partial);
+                    }"""
+                )
+                assert reopened == ["C_site|C_site"]
+                page.evaluate(
+                    """() => {
+                        const app = window.__ASE_APP__;
+                        app.clearAtomSelection();
+                        app.addSelectionReference(0);
+                        app.addSelectionReference(1);
+                        app.updateSelectionVisuals();
+                    }"""
+                )
+                page.wait_for_function(
+                    """() => {
+                        const result = window.__ASE_APP__.state.rdfResult;
+                        return result?.pair_mode === 'selected'
+                            && JSON.stringify(Object.keys(result.partial))
+                                === JSON.stringify(['C_site|O_site']);
+                    }"""
+                )
+                token_before = page.evaluate("window.__ASE_APP__.state.rdfRequestToken")
+                page.evaluate(
+                    """() => {
+                        const app = window.__ASE_APP__;
+                        app.clearAtomSelection();
+                        app.addSelectionReference(2);
+                        app.addSelectionReference(3);
+                        app.updateSelectionVisuals();
+                    }"""
+                )
+                page.wait_for_timeout(350)
+                assert page.evaluate("window.__ASE_APP__.state.rdfRequestToken") == token_before
+                assert page.evaluate(
+                    "Object.keys(window.__ASE_APP__.state.rdfResult.partial)"
+                ) == ["C_site|O_site"]
+
+                page.evaluate(
+                    """() => {
+                        const app = window.__ASE_APP__;
+                        app.clearAtomSelection();
+                        app.addSelectionReference(1);
+                        app.addSelectionReference(3);
+                        app.updateSelectionVisuals();
+                    }"""
+                )
+                page.wait_for_function(
+                    """() => {
+                        const app = window.__ASE_APP__;
+                        return app.state.rdfResult?.pair_mode === 'selected'
+                            && Object.keys(app.state.rdfResult.partial).length === 0
+                            && document.getElementById('rdf-status').dataset.state === 'warning';
+                    }"""
+                )
+            finally:
+                browser.close()
+    finally:
+        editor.close()
+
+
 def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
     tmp_path,
     monkeypatch,

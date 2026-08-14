@@ -162,6 +162,41 @@ reports `command_transport="http-json-bridge"`,
 `accepts_natural_language=false`, and `stdin_commands=false`, plus
 `events_url`, `event_protocol`, `event_delivery`, and `event_scope`.
 
+### ASE Bulk Builder
+
+The installed ASE compatibility catalog and nonmutating preview are available
+inside each live session:
+
+```text
+GET  /api/build/bulk/catalog/{session_id}
+POST /api/build/bulk/preview/{session_id}
+POST /api/build/bulk/apply/{session_id}
+```
+
+The catalog identifies working reference materials, prototypes, cell modes,
+and conditional arguments. Preview returns either the exact generated cell and
+atom count or a structured `missing_fields` list. Apply is Edit-only and
+replaces the active structure with one periodic frame. A nonempty document
+requires `replace_existing: true`; clients must obtain user confirmation first.
+
+The semantic equivalent is `build-bulk`:
+
+```json
+{
+  "name": "build-bulk",
+  "formula": "CuO",
+  "crystalStructure": "rocksalt",
+  "cellMode": "cubic",
+  "a": 4.27,
+  "confirmReplace": true
+}
+```
+
+Optional fields are `b`, `c`, `alpha`, `covera`, `u`, and an `N x 3`
+fractional `basis`. `c` and `covera` are mutually exclusive. Read
+`capabilities().bulkBuilder.catalogUrl`, preview the exact request, and do not
+guess reference lattice data.
+
 Edit-mode random insertion is available to external agents through the same
 live document and revision contract:
 
@@ -466,13 +501,17 @@ POST /api/analysis/rdf/{session_id}
 POST /api/analysis/rdf-csv/{session_id}
 ```
 
-Payload fields are `cutoff`, `bins`, `pairMode`, and `activePairs`. Full 3D
-PBC is required. The response includes the retained requested/effective
-cutoff, unique-MIC reference, actual periodic-image extent/span, warnings,
-total `g(r)`, and concentration-weighted partial curves. CSV uses the same
-calculation path. The Plotly drawer adds a `g(r) = 1` bulk-limit reference;
-the periodic amorphous regression checks that the long-range curve remains
-flat around that reference.
+Payload fields are `cutoff`, `bins`, `pairMode`, and `activePairs`. `pairMode`
+accepts `active`, `selected`, `all`, or `none`; the browser resolves `selected`
+to label pairs from active bonds whose endpoints are both selected and sends
+those pairs through `activePairs`. Full 3D PBC produces bulk `g(r)`, while a
+finite no-PBC structure produces an unordered-pair probability density. The
+response includes the retained requested/effective cutoff, unique-MIC
+reference, actual periodic-image extent/span, warnings, total curve, and
+concentration-weighted partial curves. CSV uses the same calculation path.
+The Plotly drawer adds a `g(r) = 1` bulk-limit reference for periodic RDF; the
+periodic amorphous regression checks that the long-range curve remains flat
+around that reference.
 
 Agent discovery and semantic state are available through:
 

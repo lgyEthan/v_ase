@@ -61,6 +61,12 @@ from .commensurate import (
 )
 from .analysis import calculate_rdf, rdf_csv
 from .atom_scalars import atom_force_vectors, atom_scalar_catalog, atom_scalar_values
+from .builders import (
+    BulkBuildError,
+    build_bulk_atoms,
+    bulk_builder_catalog,
+    bulk_preview_payload,
+)
 from .colormaps import colormap_catalog, colormap_lut
 from .registry import calculate_registry_map, registry_map_csv
 from .registry_relax import (
@@ -366,7 +372,7 @@ AI_CONTROL_SCHEMA = {
         "operation": {
             "description": (
                 "One semantic structure operation. Supported names are wrap, "
-                "translate-all, set-unit-cell, set-supercell, make-supercell, add-atom, "
+                "translate-all, set-unit-cell, build-bulk, set-supercell, make-supercell, add-atom, "
                 "scatter-atoms, scatter-molecules, update-add-atoms-region, "
                 "scale-add-atoms-regions, "
                 "relax-added-atoms, stop-added-atoms, "
@@ -411,7 +417,7 @@ AI_CONTROL_SCHEMA = {
                     "properties": {
                         "name": {
                             "enum": [
-                                "wrap", "translate-all", "set-unit-cell", "set-supercell",
+                                "wrap", "translate-all", "set-unit-cell", "build-bulk", "set-supercell",
                                 "make-supercell", "add-atom", "scatter-atoms",
                                 "scatter-molecules",
                                 "update-add-atoms-region", "scale-add-atoms-regions",
@@ -449,6 +455,50 @@ AI_CONTROL_SCHEMA = {
                         },
                     },
                     "allOf": [
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {"name": {"const": "build-bulk"}},
+                            },
+                            "then": {
+                                "required": ["formula"],
+                                "properties": {
+                                    "formula": {"type": "string", "minLength": 1},
+                                    "crystalStructure": {
+                                        "enum": [
+                                            "sc", "fcc", "bcc", "bct", "hcp",
+                                            "rhombohedral", "orthorhombic", "diamond",
+                                            "zincblende", "rocksalt", "cesiumchloride",
+                                            "fluorite", "wurtzite",
+                                        ],
+                                    },
+                                    "cellMode": {
+                                        "enum": ["primitive", "orthorhombic", "cubic"],
+                                    },
+                                    "a": {"type": "number", "exclusiveMinimum": 0},
+                                    "b": {"type": "number", "exclusiveMinimum": 0},
+                                    "c": {"type": "number", "exclusiveMinimum": 0},
+                                    "alpha": {
+                                        "type": "number",
+                                        "exclusiveMinimum": 0,
+                                        "exclusiveMaximum": 180,
+                                    },
+                                    "covera": {"type": "number", "exclusiveMinimum": 0},
+                                    "u": {"type": "number", "minimum": 0, "maximum": 1},
+                                    "basis": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "items": {
+                                            "type": "array",
+                                            "items": {"type": "number"},
+                                            "minItems": 3,
+                                            "maxItems": 3,
+                                        },
+                                    },
+                                    "confirmReplace": {"type": "boolean"},
+                                },
+                            },
+                        },
                         {
                             "if": {
                                 "required": ["name"],
@@ -1279,6 +1329,23 @@ AI_OPERATION_PARAMETERS = {
             "atoms have been loaded."
         ),
     },
+    "build-bulk": {
+        "mode": "edit",
+        "required": ["formula"],
+        "optional": [
+            "crystalStructure", "cellMode", "a", "b", "c", "alpha",
+            "covera", "u", "basis", "confirmReplace",
+        ],
+        "notes": (
+            "Builds a periodic crystal with ase.build.bulk. Query "
+            "/api/build/bulk/catalog/{session_id} for installed-ASE reference "
+            "materials and compatible cell shapes, then preview through "
+            "/api/build/bulk/preview/{session_id}. Custom compounds such as CuO "
+            "require crystalStructure and a. c and covera are mutually exclusive. "
+            "The operation replaces the active structure and trajectory; an existing "
+            "document requires explicit human approval and confirmReplace=true."
+        ),
+    },
     "set-supercell": {
         "mode": "edit",
         "required": ["reps"],
@@ -1672,9 +1739,13 @@ AI_OPERATION_PARAMETERS = {
         "required": [],
         "optional": ["cutoff", "bins", "pairMode", "activePairs"],
         "notes": (
-            "pairMode is active, all, or none. Fully periodic 3D cells are "
-            "required. Every periodic image inside the requested cutoff is "
-            "counted; the cutoff is not reduced to a fixed supercell or MIC radius."
+            "pairMode is active, selected, all, or none. selected filters partial "
+            "curves to active bonds whose endpoints are both selected in the GUI; "
+            "activePairs can provide the same label-pair filter explicitly. Fully "
+            "periodic 3D cells use bulk RDF normalization, while finite no-PBC "
+            "structures use an unordered-pair probability density. Every periodic "
+            "image inside the requested cutoff is counted; the cutoff is not reduced "
+            "to a fixed supercell or MIC radius."
         ),
     },
 }
@@ -1707,7 +1778,11 @@ AI_EXPORT_PARAMETERS = {
     "settings": {"optional": []},
     "rdf-csv": {
         "optional": ["cutoff", "bins", "pairMode", "activePairs"],
-        "notes": "Exports the total RDF and currently requested partial curves.",
+        "notes": (
+            "Exports the total RDF and currently requested partial curves. "
+            "pairMode accepts active, selected, all, or none; selected requires "
+            "the browser-derived selected active label pairs or explicit activePairs."
+        ),
     },
     "commensurate-csv": {
         "optional": [
@@ -6266,6 +6341,108 @@ async def apply_supercell(session_id: str, payload: Dict[str, Any]):
     session.volumetric_datasets = repeated_volumes
     session.invalidate_trajectory_layout()
     return session_update_to_json(session)
+
+
+@app.get("/api/build/bulk/catalog/{session_id}")
+async def ase_bulk_catalog(session_id: str):
+    """Describe the installed ASE bulk builder without mutating the session."""
+    get_session(session_id)
+    return bulk_builder_catalog()
+
+
+@app.post("/api/build/bulk/preview/{session_id}")
+async def preview_ase_bulk(session_id: str, payload: Dict[str, Any]):
+    """Validate one bulk request and return its exact generated geometry summary."""
+    get_session(session_id)
+    try:
+        return bulk_preview_payload(payload)
+    except BulkBuildError as exc:
+        return exc.as_dict()
+
+
+def _session_has_replaceable_content(session: EditorSession) -> bool:
+    if len(session.working_atoms):
+        return True
+    cell = np.asarray(session.working_atoms.cell.array, dtype=float)
+    return bool(cell.shape == (3, 3) and abs(float(np.linalg.det(cell))) > 1e-12)
+
+
+def _replace_session_with_built_atoms(session: EditorSession, atoms: Atoms) -> None:
+    """Install a generated single frame while keeping the replacement undoable."""
+    attach_default = not is_viz_only(session)
+    session.push_history(include_trajectory=True, include_original=True)
+    original = copy_atoms_with_calc(atoms, attach_default=attach_default)
+    working = copy_atoms_with_calc(atoms, attach_default=attach_default)
+    session.original_atoms = copy_atoms_with_calc(
+        original,
+        attach_default=attach_default,
+    )
+    session.working_atoms = working
+    session.original_frames = [copy_atoms_with_calc(
+        original,
+        attach_default=attach_default,
+    )]
+    session.trajectory_frames = [copy_atoms_with_calc(
+        working,
+        attach_default=attach_default,
+    )]
+    session.trajectory_source = None
+    session.current_frame = 0
+    session.result_atoms = None
+    session.commensurate_search_cache = None
+    session.stop_relax = False
+    session.is_relaxing = False
+    session.relax_restart_requested = False
+    session.relax_run_id += 1
+    session.relax_params.clear()
+    session.relaxation_baseline = None
+    session.relaxation_mode_active = False
+    session.config["empty_workspace"] = False
+    session.invalidate_trajectory_layout()
+    session.refresh_trajectory_identity()
+
+
+@app.post("/api/build/bulk/apply/{session_id}")
+async def apply_ase_bulk(session_id: str, payload: Dict[str, Any]):
+    """Replace the active Edit document with a validated ASE bulk structure."""
+    session = get_session(session_id)
+    require_editable(session, "Building an ASE bulk structure")
+    if session.volumetric_datasets:
+        raise HTTPException(
+            status_code=409,
+            detail="Remove loaded volumetric data before replacing the structure.",
+        )
+    if session.commensurate_guest_atoms is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Remove the commensurate guest structure before replacing the document.",
+        )
+    if session.is_relaxing or session.relaxation_mode_active:
+        raise HTTPException(
+            status_code=409,
+            detail="Exit the active Relaxation mode before replacing the structure.",
+        )
+    if _session_has_replaceable_content(session) and payload.get("replace_existing") is not True:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This build replaces the current structure and trajectory. "
+                "Confirm the replacement and retry with replace_existing=true."
+            ),
+        )
+    try:
+        atoms, normalized = build_bulk_atoms(payload)
+    except BulkBuildError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _replace_session_with_built_atoms(session, atoms)
+    data = session_update_to_json(session)
+    data["generated_structure"] = {
+        "generator": "ase.build.bulk",
+        "formula": normalized["formula"],
+        "crystalstructure": normalized["effective_crystalstructure"],
+        "cell_mode": normalized["cell_mode"],
+    }
+    return data
 
 
 @app.post("/api/cell/{session_id}")

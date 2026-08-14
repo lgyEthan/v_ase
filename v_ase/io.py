@@ -357,7 +357,13 @@ def set_atom_labels(atoms: Atoms, labels: Iterable[object]) -> None:
 
 
 def _vasp_species_block_labels(path: Path, atoms: Atoms) -> list[str] | None:
-    """Preserve repeated POSCAR species blocks as distinct display labels."""
+    """Preserve repeated POSCAR species blocks as distinct display labels.
+
+    ASE remains authoritative for the physical structure.  Labels are applied
+    only after the explicit VASP 5/6 species header expands to the exact ASE
+    chemical-symbol sequence, so no coordinates, elements, or constraints are
+    inferred or reordered here.
+    """
     try:
         with path.open("r", encoding="utf-8", errors="replace") as handle:
             header = [handle.readline() for _ in range(7)]
@@ -406,7 +412,7 @@ def _vasp_species_block_labels(path: Path, atoms: Atoms) -> list[str] | None:
     for symbol, count in zip(species, counts):
         block_occurrences[symbol] += 1
         label = (
-            f"{symbol}{block_occurrences[symbol]}"
+            f"{symbol}_{block_occurrences[symbol]}"
             if block_totals[symbol] > 1
             else symbol
         )

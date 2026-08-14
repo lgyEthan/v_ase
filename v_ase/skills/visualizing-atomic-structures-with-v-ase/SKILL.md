@@ -14,7 +14,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.15"
+python -m pip install "v_ase-gui==0.2.16"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -102,7 +102,7 @@ Use this sequence for every task:
 1. **Connect**: parse the handshake, keep consuming later NDJSON events, and
    open `human_url` so the human and agent share one live document.
 2. **Plan**: call `schema`, `capabilities`, and `describe`; identify the document,
-   frame, atom indices, labels, elements, cell, PBC, constraints, and camera.
+   frame, atom indices, labels, elements, cell, PBC, constraints, and camera; preserve ordered VASP labels such as `O_1`/`O_2` while verifying their ASE element separately.
    Require `capabilities.operations` to equal the keys of
    `schema.operation_parameters` and `capabilities.exports` to equal the keys
    of `schema.export_parameters`. Stop on a mismatch because the installed
@@ -148,7 +148,7 @@ reference before executing a multi-step workflow:
 | Task | Primary state or operation |
 | --- | --- |
 | Inspect and measure | `describe`, `selection`, ordered `measurement` |
-| Edit a structure | `set-unit-cell`, `move-selection`, `rotate-selection`, `scale-selection`, `add-atom`, `scatter-atoms`, `scatter-molecules`, constraints |
+| Edit or build a structure | `set-unit-cell`, `build-bulk`, `move-selection`, `rotate-selection`, `scale-selection`, `add-atom`, `scatter-atoms`, `scatter-molecules`, constraints |
 | Work with periodic interfaces | display replication, cell transforms, commensurate search, rigid `(hkl)` translation |
 | Analyze trajectories | frame selection, displacement, RDF, colorscale, stored force vectors |
 | Analyze scalar fields | volumetric datasets, isosurfaces, planes, field combinations |
@@ -204,6 +204,7 @@ reload both scalar colors and Cartesian vectors from the same active frame;
 never reuse a force-vector buffer from another frame.
 For a rotation around one atom, pass that atom last in the explicit `indices`
 array and set `pivot: "active"`; verify that its coordinate is unchanged.
+For an ASE bulk crystal, read `capabilities().bulkBuilder.catalogUrl`, preview through its `previewUrl`, then use `build-bulk`; never invent lattice data, and require human-approved `confirmReplace:true` before replacing content. Verify formula, atom count, cell, PBC, and one-frame trajectory, or Undo.
 For batch insertion, use `scatter-atoms` or `scatter-molecules` only on a
 single Edit-mode document. The document may start empty: define a periodic
 cell with `set-unit-cell`, or define at least one finite Allow region for a
@@ -393,9 +394,9 @@ For any nontrivial task, verify all applicable items:
   colormap/range/opacity, cache reuse, and supercell/translation alignment;
   verify suffixed VASP names such as
   `PARCHG_*`, `LOCPOT.*`, and `CHGCAR-*` are identified by contents/type;
-- radial or finite pair distribution: current frame, `analysisKind`, PBC,
-  requested/effective cutoff, bins, pair mode, plotted curves, normalization,
-  and exported CSV columns; for 3D periodic RDF also verify the unique-MIC
+- radial or finite pair distribution: frame, `analysisKind`, PBC, cutoff, bins,
+  curves, normalization, CSV, and that `pairMode:"selected"` filters active bonds
+  with both endpoints selected but retains full-structure normalization; for 3D periodic RDF verify the unique-MIC
   reference, required periodic-image span, `g(r) = 1` bulk reference,
   long-range behavior, and warnings; for a no-PBC finite structure verify the
   unordered-pair probability-density integral instead of calling it bulk RDF;
@@ -477,7 +478,6 @@ For any nontrivial task, verify all applicable items:
 If an instruction in this skill prevents a correct result, inspect the live
 schema and implementation, correct the skill and add a regression test. Do not
 work around a stale skill silently.
-
 ## References
 
 Read only the references needed for the current task:

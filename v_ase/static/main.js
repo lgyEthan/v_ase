@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.15&rev=1';
-import { ASERenderer } from './renderer.js?v=0.2.15&rev=1';
-import { ASESelection } from './selection.js?v=0.2.15&rev=1';
-import { ASETransform } from './transform.js?v=0.2.15&rev=1';
+import { ASEApi } from './api.js?v=0.2.16&rev=2';
+import { ASERenderer } from './renderer.js?v=0.2.16&rev=1';
+import { ASESelection } from './selection.js?v=0.2.16&rev=1';
+import { ASETransform } from './transform.js?v=0.2.16&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.15&rev=1';
+} from './trajectory.js?v=0.2.16&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -302,6 +302,9 @@ class VAseApp {
             volumetricToolView: 'surface',
             rdfResult: null,
             rdfRequestToken: 0,
+            rdfSelectionSignature: '',
+            rdfSelectionPendingSignature: '',
+            rdfSelectionRefreshTimer: null,
             registryResult: null,
             registryRequestToken: 0,
             registryJobId: null,
@@ -338,6 +341,14 @@ class VAseApp {
             trajectoryCache: null,
             frameCaches: new Map(),
             pending: null
+        };
+        this.bulkBuilderRuntime = {
+            catalog: null,
+            catalogPromise: null,
+            previewToken: 0,
+            previewTimer: null,
+            lastPreview: null,
+            lastPreviewSignature: ''
         };
         this.factoryDesignSettings = {
             schema: 'v_ase.visual_settings.v3',
@@ -383,6 +394,7 @@ class VAseApp {
             this.setupRuntimeModeControls();
             this.setupSelectedAppearanceControls();
             this.setupAtomColorScaleControls();
+            this.setupAseBulkBuilder();
             this.setupLightingControls();
             this.setupCreateAtomWidget();
             this.setupEventListeners();
@@ -5322,7 +5334,7 @@ class VAseApp {
             document.getElementById('rdf-bins')?.value || '200',
             10
         ) || 200));
-        const pairMode = ['active', 'all', 'none'].includes(
+        const pairMode = ['active', 'selected', 'all', 'none'].includes(
             document.getElementById('rdf-pair-mode')?.value
         ) ? document.getElementById('rdf-pair-mode').value : 'active';
         Object.assign(this.state.display, {
@@ -5334,7 +5346,9 @@ class VAseApp {
             cutoff: Number.isFinite(cutoff) ? cutoff : null,
             bins,
             pair_mode: pairMode,
-            active_pairs: this.activeRdfPairs()
+            active_pairs: pairMode === 'selected'
+                ? this.selectedActiveRdfPairs()
+                : this.activeRdfPairs()
         };
     }
 
@@ -5361,6 +5375,197 @@ class VAseApp {
         return [...activePairs.values()];
     }
 
+    rdfActiveBondTopology() {
+        if (this.state.display.showBonds) {
+            return {
+                pairs: this.renderer.bondPairs || [],
+                bridges: this.renderer.supercellBridgeBondRecords || []
+            };
+        }
+        if (this.state.display.bondMode === 'manual') {
+            return {
+                pairs: this.state.display.manualBondPairs || [],
+                bridges: this.renderer.inferSupercellBridgeBondRecords(
+                    this.state.display.supercell || [1, 1, 1]
+                )
+            };
+        }
+        const topology = this.renderer.inferCurrentBondTopology();
+        return {
+            pairs: topology.pairs || [],
+            bridges: topology.bridgeRecords || []
+        };
+    }
+
+    rdfBondAdjacency(pairs, bridges) {
+        const cached = this.rdfSelectionTopologyCache;
+        if (cached?.pairs === pairs && cached?.bridges === bridges) return cached;
+        const directByIndex = new Map();
+        const bridgesByIndex = new Map();
+        const add = (map, index, value) => {
+            if (!map.has(index)) map.set(index, []);
+            map.get(index).push(value);
+        };
+        (pairs || []).forEach(pair => {
+            if (!Array.isArray(pair) || pair.length < 2) return;
+            const first = Number(pair[0]);
+            const second = Number(pair[1]);
+            if (!Number.isInteger(first) || !Number.isInteger(second)) return;
+            add(directByIndex, first, [first, second]);
+            if (second !== first) add(directByIndex, second, [first, second]);
+        });
+        (bridges || []).forEach(record => {
+            const first = Number(record?.i);
+            const second = Number(record?.j);
+            if (!Number.isInteger(first) || !Number.isInteger(second)) return;
+            add(bridgesByIndex, first, record);
+            if (second !== first) add(bridgesByIndex, second, record);
+        });
+        this.rdfSelectionTopologyCache = {
+            pairs,
+            bridges,
+            directByIndex,
+            bridgesByIndex
+        };
+        return this.rdfSelectionTopologyCache;
+    }
+
+    selectedActiveRdfPairs() {
+        const labels = this.state.atoms?.symbols || [];
+        const selectedOffsets = new Map();
+        this.selectionEntries().forEach(reference => {
+            const normalized = this.normalizeSelectionReference(reference);
+            if (!normalized || !labels[normalized.index]) return;
+            const offset = normalized.kind === 'replica'
+                ? normalized.cellOffset.map(value => Number(value) || 0)
+                : [0, 0, 0];
+            if (!selectedOffsets.has(normalized.index)) {
+                selectedOffsets.set(normalized.index, new Map());
+            }
+            selectedOffsets.get(normalized.index).set(offset.join(','), offset);
+        });
+        const selectedCount = [...selectedOffsets.values()].reduce(
+            (count, offsets) => count + offsets.size,
+            0
+        );
+        if (selectedCount < 2) return [];
+
+        const { pairs, bridges } = this.rdfActiveBondTopology();
+        const topology = this.rdfBondAdjacency(pairs, bridges);
+        const activePairs = new Map();
+        const addLabelPair = (first, second) => {
+            const left = labels[first];
+            const right = labels[second];
+            if (!left || !right) return;
+            const key = this.labelPairKey(left, right);
+            activePairs.set(key, [left, right]);
+        };
+        const directSeen = new Set();
+        selectedOffsets.forEach((_offsets, index) => {
+            (topology.directByIndex.get(index) || []).forEach(([first, second]) => {
+                const key = `${Math.min(first, second)}:${Math.max(first, second)}`;
+                if (directSeen.has(key)) return;
+                directSeen.add(key);
+                const firstOffsets = selectedOffsets.get(first);
+                const secondOffsets = selectedOffsets.get(second);
+                if (!firstOffsets || !secondOffsets) return;
+                const smaller = firstOffsets.size <= secondOffsets.size
+                    ? firstOffsets
+                    : secondOffsets;
+                const larger = smaller === firstOffsets ? secondOffsets : firstOffsets;
+                if ([...smaller.keys()].some(offsetKey => larger.has(offsetKey))) {
+                    addLabelPair(first, second);
+                }
+            });
+        });
+
+        const bridgeSeen = new Set();
+        const repeats = this.state.display.supercell || [1, 1, 1];
+        selectedOffsets.forEach((_offsets, index) => {
+            (topology.bridgesByIndex.get(index) || []).forEach(record => {
+                const imageOffset = (record.imageOffset || []).map(value => Number(value) || 0);
+                const recordKey = `${record.i}:${record.j}:${imageOffset.join(',')}`;
+                if (bridgeSeen.has(recordKey)) return;
+                bridgeSeen.add(recordKey);
+                const firstOffsets = selectedOffsets.get(record.i);
+                const secondOffsets = selectedOffsets.get(record.j);
+                if (!firstOffsets || !secondOffsets) return;
+                const selectedBridge = this.renderer
+                    .supercellBridgeStartOffsets(imageOffset, repeats)
+                    .some(start => {
+                        const end = start.map((value, axis) => value + imageOffset[axis]);
+                        return firstOffsets.has(start.join(','))
+                            && secondOffsets.has(end.join(','));
+                    });
+                if (selectedBridge) addLabelPair(record.i, record.j);
+            });
+        });
+        return [...activePairs.entries()]
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([, pair]) => pair);
+    }
+
+    rdfPairSignature(pairs = []) {
+        return JSON.stringify(
+            pairs.map(([left, right]) => this.labelPairKey(left, right)).sort()
+        );
+    }
+
+    scheduleSelectedRdfRefresh() {
+        if (
+            this.state.display.rdfPairMode !== 'selected'
+            || this.state.rdfResult?.pair_mode !== 'selected'
+            || this.state.activeAnalysisPlot !== 'rdf'
+        ) return;
+        const pairs = this.selectedActiveRdfPairs();
+        const signature = this.rdfPairSignature(pairs);
+        if (signature === this.state.rdfSelectionSignature) {
+            if (this.state.rdfSelectionRefreshTimer) {
+                clearTimeout(this.state.rdfSelectionRefreshTimer);
+                this.state.rdfSelectionRefreshTimer = null;
+            }
+            this.state.rdfSelectionPendingSignature = '';
+            return;
+        }
+        if (
+            signature === this.state.rdfSelectionPendingSignature
+            && this.state.rdfSelectionRefreshTimer
+        ) return;
+        if (this.state.rdfSelectionRefreshTimer) {
+            clearTimeout(this.state.rdfSelectionRefreshTimer);
+        }
+        this.state.rdfRequestToken += 1;
+        this.state.rdfSelectionPendingSignature = signature;
+        this.state.rdfSelectionRefreshTimer = setTimeout(() => {
+            this.state.rdfSelectionRefreshTimer = null;
+            if (this.state.activeAnalysisPlot !== 'rdf') {
+                this.state.rdfSelectionPendingSignature = '';
+                return;
+            }
+            const latestSignature = this.rdfPairSignature(this.selectedActiveRdfPairs());
+            if (latestSignature !== this.state.rdfSelectionPendingSignature) {
+                this.state.rdfSelectionPendingSignature = '';
+                this.scheduleSelectedRdfRefresh();
+                return;
+            }
+            const latestPairs = this.selectedActiveRdfPairs();
+            const exportButton = document.getElementById('btn-analysis-export');
+            if (exportButton) exportButton.disabled = true;
+            this.setRdfStatus(
+                'loading',
+                'Updating selected bond pairs',
+                latestPairs.length
+                    ? 'Reusing the current RDF settings for the selected active bond labels.'
+                    : 'No active bond currently joins two selected atoms; only the total curve will remain.'
+            );
+            this.calculateRdf({ quiet: true }).catch(error => {
+                this.state.rdfSelectionPendingSignature = '';
+                this.setRdfStatus('warning', 'Selected-pair RDF unavailable', error.message);
+                this.toast(`Selected-pair RDF failed: ${error.message}`, 'error');
+            });
+        }, 160);
+    }
+
     setRdfStatus(state, title, detail = '') {
         const status = document.getElementById('rdf-status');
         if (!status) return;
@@ -5384,8 +5589,14 @@ class VAseApp {
         const status = document.getElementById('rdf-status');
         const wasCalculating = status?.dataset?.state === 'loading';
         const hadResult = Boolean(this.state.rdfResult);
+        if (this.state.rdfSelectionRefreshTimer) {
+            clearTimeout(this.state.rdfSelectionRefreshTimer);
+            this.state.rdfSelectionRefreshTimer = null;
+        }
         this.state.rdfRequestToken += 1;
         this.state.rdfResult = null;
+        this.state.rdfSelectionSignature = '';
+        this.state.rdfSelectionPendingSignature = '';
         const plot = document.getElementById('rdf-plot');
         if (plot && window.Plotly?.purge) window.Plotly.purge(plot);
         if (this.state.activeAnalysisPlot === 'rdf') this.closeAnalysisDrawer();
@@ -5445,6 +5656,15 @@ class VAseApp {
     }
 
     closeAnalysisDrawer() {
+        const closingRdf = this.state.activeAnalysisPlot === 'rdf';
+        if (closingRdf && this.state.rdfSelectionRefreshTimer) {
+            clearTimeout(this.state.rdfSelectionRefreshTimer);
+            this.state.rdfSelectionRefreshTimer = null;
+        }
+        if (closingRdf && this.state.rdfSelectionPendingSignature) {
+            this.state.rdfRequestToken += 1;
+            this.state.rdfSelectionPendingSignature = '';
+        }
         document.getElementById('analysis-drawer')?.classList.add('hidden');
         this.state.activeAnalysisPlot = null;
         const drawer = document.getElementById('analysis-drawer');
@@ -6002,7 +6222,7 @@ class VAseApp {
         });
     }
 
-    async calculateRdf() {
+    async calculateRdf({ quiet = false } = {}) {
         const token = ++this.state.rdfRequestToken;
         const options = this.rdfOptions();
         this.setRdfStatus(
@@ -6010,26 +6230,34 @@ class VAseApp {
             'Calculating structural distribution',
             'Counting pair distances with the boundary conditions of the active structure.'
         );
-        const result = await this.withBusy(
-            'Calculating pair distribution...',
-            () => this.api.fetchRdf(options)
-        );
+        const request = () => this.api.fetchRdf(options);
+        const result = quiet
+            ? await request()
+            : await this.withBusy('Calculating pair distribution...', request);
         if (token !== this.state.rdfRequestToken) return;
         this.state.rdfResult = result;
+        this.state.rdfSelectionSignature = options.pair_mode === 'selected'
+            ? this.rdfPairSignature(options.active_pairs)
+            : '';
+        this.state.rdfSelectionPendingSignature = '';
         await this.plotRdf(result);
         const warning = (result.warnings || []).join(' ');
         const imageSpan = Array.isArray(result.periodic_image_span)
             ? result.periodic_image_span.join(' × ')
             : 'automatic';
         const pairCount = Object.keys(result.partial || {}).length;
+        const selectedWithoutBond = options.pair_mode === 'selected'
+            && options.active_pairs.length === 0;
         this.setRdfStatus(
-            warning ? 'warning' : 'ready',
+            warning || selectedWithoutBond ? 'warning' : 'ready',
             `${result.title || 'Distribution'} · ${result.bins} bins · cutoff ${Number(result.cutoff).toFixed(3)} Å`,
-            warning || (result.analysis_kind === 'pair-distribution'
+            warning || (selectedWithoutBond
+                ? 'No active bond joins two selected atoms; the total curve is shown without partial curves.'
+                : result.analysis_kind === 'pair-distribution'
                 ? `${pairCount} pair curve${pairCount === 1 ? '' : 's'} plus total · finite unordered-pair normalization.`
                 : `${pairCount} pair curve${pairCount === 1 ? '' : 's'} plus total · periodic image span ${imageSpan}.`)
         );
-        this.scheduleVisualHistoryCommit('rdf');
+        if (!quiet) this.scheduleVisualHistoryCommit('rdf');
     }
 
     setupAnalysisDrawerResize() {
@@ -8703,6 +8931,7 @@ class VAseApp {
         if (this.state.registryResult && selectionKey !== this.state.registrySelectionSignature) {
             this.invalidateRegistryResult();
         }
+        this.scheduleSelectedRdfRefresh();
         if (
             this.state.display.commensurateGuide
             && this.commensurateMode() === 'same-lattice'
@@ -10802,6 +11031,293 @@ class VAseApp {
         document.getElementById('tool-scale')?.classList.toggle('active', this.transform.mode === 'SCALE');
     }
 
+    setupAseBulkBuilder() {
+        const formula = document.getElementById('ase-bulk-formula');
+        const structure = document.getElementById('ase-bulk-structure');
+        const cellMode = document.getElementById('ase-bulk-cell-mode');
+        if (!formula || !structure || !cellMode) return;
+
+        formula.addEventListener('input', () => {
+            this.refreshAseBulkBuilderCompatibility({ preserveStructure: true });
+            this.scheduleAseBulkPreview();
+        });
+        [structure, cellMode].forEach(control => {
+            control.addEventListener('change', () => {
+                this.refreshAseBulkBuilderCompatibility({ preserveStructure: true });
+                this.scheduleAseBulkPreview({ immediate: true });
+            });
+        });
+        [
+            'ase-bulk-a', 'ase-bulk-b', 'ase-bulk-c', 'ase-bulk-alpha',
+            'ase-bulk-covera', 'ase-bulk-u', 'ase-bulk-basis'
+        ].forEach(id => {
+            const control = document.getElementById(id);
+            control?.addEventListener('input', () => this.scheduleAseBulkPreview());
+            control?.addEventListener('change', () => this.scheduleAseBulkPreview({ immediate: true }));
+        });
+        document.getElementById('btn-ase-bulk-preview')?.addEventListener('click', () => {
+            this.previewAseBulkStructure({ announceErrors: true }).catch(error => {
+                this.setAseBulkPreviewState('error', 'Preview failed', error.message);
+            });
+        });
+        document.getElementById('btn-ase-bulk-build')?.addEventListener('click', () => {
+            this.buildAseBulkStructure().catch(error => {
+                this.setAseBulkPreviewState('error', 'Build failed', error.message);
+                this.toast(`ASE build failed: ${error.message}`, 'error');
+            });
+        });
+
+        this.ensureAseBulkCatalog().catch(error => {
+            this.setAseBulkPreviewState('error', 'ASE catalog unavailable', error.message);
+        });
+    }
+
+    async ensureAseBulkCatalog() {
+        const runtime = this.bulkBuilderRuntime;
+        if (runtime.catalog) return runtime.catalog;
+        if (!runtime.catalogPromise) {
+            runtime.catalogPromise = this.api.fetchBulkBuilderCatalog().then(catalog => {
+                runtime.catalog = catalog;
+                runtime.catalogPromise = null;
+                const badge = document.getElementById('ase-bulk-version');
+                if (badge) badge.textContent = `ASE ${catalog.ase_version || ''}`.trim();
+                this.refreshAseBulkBuilderCompatibility({ preserveStructure: true });
+                this.scheduleAseBulkPreview({ immediate: true });
+                return catalog;
+            }).catch(error => {
+                runtime.catalogPromise = null;
+                throw error;
+            });
+        }
+        return await runtime.catalogPromise;
+    }
+
+    aseBulkReferenceMaterial(formula = null) {
+        const catalog = this.bulkBuilderRuntime.catalog;
+        const value = String(
+            formula ?? document.getElementById('ase-bulk-formula')?.value ?? ''
+        ).trim();
+        return (catalog?.reference_materials || []).find(item => item.formula === value) || null;
+    }
+
+    aseBulkStructureSpec(structure = null) {
+        const catalog = this.bulkBuilderRuntime.catalog;
+        let identifier = structure ?? document.getElementById('ase-bulk-structure')?.value ?? '';
+        if (!identifier) identifier = this.aseBulkReferenceMaterial()?.crystalstructure || '';
+        return (catalog?.structures || []).find(item => item.id === identifier) || null;
+    }
+
+    refreshAseBulkBuilderCompatibility({ preserveStructure = true } = {}) {
+        const catalog = this.bulkBuilderRuntime.catalog;
+        if (!catalog) return;
+        const structureSelect = document.getElementById('ase-bulk-structure');
+        const formulaList = document.getElementById('ase-bulk-formulas');
+        const formulaHint = document.getElementById('ase-bulk-formula-hint');
+        const cellMode = document.getElementById('ase-bulk-cell-mode')?.value || 'primitive';
+        const requestedStructure = preserveStructure ? structureSelect?.value || '' : '';
+
+        if (structureSelect) {
+            structureSelect.replaceChildren(new Option('Automatic from ASE', ''));
+            (catalog.structures || []).forEach(spec => {
+                if (!(spec.cell_modes || []).includes(cellMode)) return;
+                structureSelect.appendChild(new Option(spec.label, spec.id));
+            });
+            structureSelect.value = [...structureSelect.options].some(option => option.value === requestedStructure)
+                ? requestedStructure
+                : '';
+        }
+
+        const selectedStructure = structureSelect?.value || '';
+        const spec = this.aseBulkStructureSpec(selectedStructure);
+        const suggestions = [];
+        if (!selectedStructure) {
+            (catalog.reference_materials || []).forEach(item => {
+                if ((item.compatible_cell_modes || []).includes(cellMode)) {
+                    suggestions.push({ value: item.formula, label: `${item.formula} · ${item.crystalstructure}` });
+                }
+            });
+            if (formulaHint) {
+                formulaHint.textContent = `${suggestions.length} ASE reference elements support this cell shape. Type a custom formula to use an explicit prototype.`;
+            }
+        } else if (spec?.formula_atoms === 1) {
+            (catalog.elements || []).forEach(symbol => suggestions.push({ value: symbol, label: symbol }));
+            if (formulaHint) formulaHint.textContent = `${spec.formula_hint}. A non-reference prototype requires lattice parameter a.`;
+        } else {
+            (catalog.examples || [])
+                .filter(item => item.crystalstructure === selectedStructure)
+                .forEach(item => suggestions.push({
+                    value: item.formula,
+                    label: `${item.formula} · example`
+                }));
+            if (formulaHint) formulaHint.textContent = `${spec?.formula_hint || 'Enter a compatible formula'}. Lattice parameter a is required.`;
+        }
+        if (formulaList) {
+            formulaList.replaceChildren(...suggestions.map(item => {
+                const option = document.createElement('option');
+                option.value = item.value;
+                option.label = item.label;
+                return option;
+            }));
+        }
+
+        const visibleParameters = new Set(spec?.parameters || ['a']);
+        visibleParameters.add('a');
+        document.querySelectorAll('[data-bulk-parameter]').forEach(label => {
+            label.classList.toggle('hidden', !visibleParameters.has(label.dataset.bulkParameter));
+        });
+        const advanced = document.getElementById('ase-bulk-advanced');
+        advanced?.classList.toggle('hidden', !visibleParameters.has('basis'));
+        if (!visibleParameters.has('basis')) advanced?.removeAttribute('open');
+    }
+
+    aseBulkPayload() {
+        const payload = {
+            formula: String(document.getElementById('ase-bulk-formula')?.value || '').trim(),
+            cell_mode: document.getElementById('ase-bulk-cell-mode')?.value || 'primitive'
+        };
+        const structure = document.getElementById('ase-bulk-structure')?.value || '';
+        if (structure) payload.crystalstructure = structure;
+        const fields = {
+            a: 'ase-bulk-a',
+            b: 'ase-bulk-b',
+            c: 'ase-bulk-c',
+            alpha: 'ase-bulk-alpha',
+            covera: 'ase-bulk-covera',
+            u: 'ase-bulk-u'
+        };
+        Object.entries(fields).forEach(([key, id]) => {
+            const raw = document.getElementById(id)?.value;
+            if (raw !== undefined && String(raw).trim() !== '') payload[key] = Number(raw);
+        });
+        const basis = String(document.getElementById('ase-bulk-basis')?.value || '').trim();
+        if (basis) payload.basis = basis;
+        return payload;
+    }
+
+    aseBulkPayloadSignature(payload = null) {
+        return JSON.stringify(payload || this.aseBulkPayload());
+    }
+
+    setAseBulkPreviewState(state, title, detail = '') {
+        const preview = document.getElementById('ase-bulk-preview');
+        if (preview) preview.dataset.state = state;
+        const titleElement = document.getElementById('ase-bulk-preview-title');
+        const detailElement = document.getElementById('ase-bulk-preview-detail');
+        if (titleElement) titleElement.textContent = title;
+        if (detailElement) detailElement.textContent = detail;
+        const build = document.getElementById('btn-ase-bulk-build');
+        if (build) build.disabled = state !== 'valid' || this.state.vizOnly;
+    }
+
+    markAseBulkRequiredFields(fields = []) {
+        const required = new Set(fields);
+        document.querySelectorAll('[data-bulk-parameter]').forEach(label => {
+            label.classList.toggle('is-required', required.has(label.dataset.bulkParameter));
+        });
+        document.getElementById('ase-bulk-formula')?.classList.toggle('is-required', required.has('formula'));
+        document.getElementById('ase-bulk-structure')?.classList.toggle('is-required', required.has('crystalstructure'));
+    }
+
+    scheduleAseBulkPreview({ immediate = false } = {}) {
+        const runtime = this.bulkBuilderRuntime;
+        const signature = this.aseBulkPayloadSignature();
+        if (
+            runtime.lastPreview
+            && runtime.lastPreviewSignature === signature
+        ) {
+            return;
+        }
+        if (runtime.previewTimer !== null) clearTimeout(runtime.previewTimer);
+        this.setAseBulkPreviewState('loading', 'Checking this crystal', 'Validating against the installed ASE build contract...');
+        runtime.previewTimer = setTimeout(() => {
+            runtime.previewTimer = null;
+            this.previewAseBulkStructure().catch(error => {
+                this.setAseBulkPreviewState('error', 'Preview failed', error.message);
+            });
+        }, immediate ? 0 : 180);
+    }
+
+    async previewAseBulkStructure({ announceErrors = false } = {}) {
+        await this.ensureAseBulkCatalog();
+        const token = ++this.bulkBuilderRuntime.previewToken;
+        const payload = this.aseBulkPayload();
+        const signature = this.aseBulkPayloadSignature(payload);
+        const result = await this.api.previewBulkStructure(payload);
+        if (token !== this.bulkBuilderRuntime.previewToken) return null;
+        this.bulkBuilderRuntime.lastPreview = result;
+        this.bulkBuilderRuntime.lastPreviewSignature = signature;
+        this.markAseBulkRequiredFields(result.missing_fields || []);
+        if (!result.valid) {
+            const title = (result.missing_fields || []).length
+                ? 'More information required'
+                : 'Combination unavailable';
+            this.setAseBulkPreviewState('invalid', title, result.message || 'Check the selected arguments.');
+            if (announceErrors) this.toast(result.message || 'Check the selected arguments.', 'warning');
+            return result;
+        }
+        const cell = result.cell_parameters || {};
+        const lengths = [cell.a, cell.b, cell.c]
+            .map(value => Number(value).toFixed(3))
+            .join(' × ');
+        const angles = [cell.alpha, cell.beta, cell.gamma]
+            .map(value => Number(value).toFixed(1))
+            .join('°, ');
+        this.setAseBulkPreviewState(
+            'valid',
+            `${result.atom_count} atoms · ${result.crystalstructure} · ${result.cell_mode}`,
+            `Cell ${lengths} Å · angles ${angles}°`
+        );
+        return result;
+    }
+
+    async buildAseBulkStructure() {
+        this.aiRequireEdit('Build with ASE');
+        const payload = this.aseBulkPayload();
+        const signature = this.aseBulkPayloadSignature(payload);
+        let preview = this.bulkBuilderRuntime.lastPreview;
+        if (
+            !preview?.valid
+            || this.bulkBuilderRuntime.lastPreviewSignature !== signature
+        ) {
+            preview = await this.previewAseBulkStructure({ announceErrors: true });
+        }
+        if (!preview?.valid) return;
+        const replacing = Boolean(
+            Number(this.state.atoms?.metadata?.natoms || 0) > 0 || this.hasUsableCell()
+        );
+        if (replacing) {
+            const confirmed = await this.showConfirmModal({
+                title: 'Replace with this ASE crystal?',
+                intro: 'The generated bulk cell becomes the active single-frame structure.',
+                items: [
+                    'The current structure and trajectory are replaced.',
+                    'Current visualization settings remain active.',
+                    'Undo restores the replaced structure and trajectory.'
+                ],
+                confirmText: 'Replace and Build',
+                cancelText: 'Keep Current',
+                danger: true
+            });
+            if (!confirmed) return;
+        }
+        const buildPayload = {
+            ...payload,
+            replace_existing: replacing
+        };
+        const data = await this.withBusy(
+            `Building ${preview.formula} with ASE...`,
+            () => this.api.buildBulkStructure(buildPayload)
+        );
+        this.stopPlayback();
+        this.renderer.needsInitialCameraFit = true;
+        this.setAtomsData(data, { clearSelection: true });
+        this.updateUI();
+        this.toast(
+            `Built ${preview.formula} as ${preview.crystalstructure} (${preview.cell_mode}).`,
+            'success'
+        );
+    }
+
     hasUsableCell() {
         return this.state.atoms?.cell?.some(v => new THREE.Vector3(...v).lengthSq() > 1e-12);
     }
@@ -12390,10 +12906,15 @@ class VAseApp {
             cancelAnimationFrame(this.state.bondApplyRequest);
             this.state.bondApplyRequest = null;
         }
+        const rdfPairMode = this.state.display.rdfPairMode;
         const previousRdfPairs = (
             this.state.rdfResult
-            && this.state.display.rdfPairMode === 'active'
-        ) ? JSON.stringify(this.activeRdfPairs()) : null;
+            && ['active', 'selected'].includes(rdfPairMode)
+        ) ? JSON.stringify(
+                rdfPairMode === 'selected'
+                    ? this.selectedActiveRdfPairs()
+                    : this.activeRdfPairs()
+            ) : null;
         this.state.display.showBonds = Boolean(document.getElementById('chk-bonds')?.checked);
         this.state.display.showPeriodicBonds = Boolean(
             document.getElementById('chk-periodic-bonds')?.checked
@@ -12413,13 +12934,17 @@ class VAseApp {
             bondColorMode: this.state.display.bondColorMode,
             bondCustomColor: this.state.display.bondCustomColor
         });
-        if (
-            previousRdfPairs !== null
-            && previousRdfPairs !== JSON.stringify(this.activeRdfPairs())
-        ) {
-            this.invalidateRdfResult(
-                'Active bond-pair settings changed. Calculate the RDF again.'
-            );
+        const nextRdfPairs = rdfPairMode === 'selected'
+            ? this.selectedActiveRdfPairs()
+            : this.activeRdfPairs();
+        if (previousRdfPairs !== null && previousRdfPairs !== JSON.stringify(nextRdfPairs)) {
+            if (rdfPairMode === 'selected') {
+                this.scheduleSelectedRdfRefresh();
+            } else {
+                this.invalidateRdfResult(
+                    'Active bond-pair settings changed. Calculate the RDF again.'
+                );
+            }
         }
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
         this.scheduleVisualHistoryCommit('bonds');
@@ -12971,6 +13496,14 @@ class VAseApp {
 
     async aiCapabilities() {
         const schemaUrl = new URL('/api/ai/schema', window.location.origin).href;
+        const bulkBuilderCatalogUrl = new URL(
+            `/api/build/bulk/catalog/${this.sessionId}`,
+            window.location.origin
+        ).href;
+        const bulkBuilderPreviewUrl = new URL(
+            `/api/build/bulk/preview/${this.sessionId}`,
+            window.location.origin
+        ).href;
         const moleculeCatalogUrl = new URL(
             `/api/add-session/molecules/${this.sessionId}`,
             window.location.origin
@@ -13001,7 +13534,7 @@ class VAseApp {
         const operationParameters = this.clonePlain(discovery.operation_parameters || {});
         const exportParameters = this.clonePlain(discovery.export_parameters || {});
         const fallbackOperations = [
-            'wrap', 'translate-all', 'set-unit-cell', 'set-supercell', 'make-supercell',
+            'wrap', 'translate-all', 'set-unit-cell', 'build-bulk', 'set-supercell', 'make-supercell',
             'add-atom', 'scatter-atoms', 'scatter-molecules',
             'update-add-atoms-region', 'scale-add-atoms-regions', 'relax-added-atoms',
             'stop-added-atoms', 'finish-add-atoms', 'cancel-add-atoms',
@@ -13070,6 +13603,13 @@ class VAseApp {
                 rangeModes: ['current', 'trajectory', 'manual'],
                 gammaRange: [0.1, 5],
                 note: 'Catalogs and trajectory scans are lazy; every rendered frame shares one resolved vmin/vmax.'
+            },
+            bulkBuilder: {
+                generator: 'ase.build.bulk',
+                catalogUrl: bulkBuilderCatalogUrl,
+                previewUrl: bulkBuilderPreviewUrl,
+                replacementOperation: 'build-bulk',
+                note: 'Query the installed-ASE catalog, preview the exact request, and obtain human approval before replacing a non-empty document.'
             },
             addAtoms: {
                 moleculeCatalogUrl,
@@ -13422,6 +13962,37 @@ class VAseApp {
                 throw new Error('set-unit-cell pbc must contain three booleans.');
             }
             setData(await this.api.setUnitCell(cell, pbc.map(Boolean)), true);
+            return;
+        }
+        if (name === 'build-bulk') {
+            this.aiRequireEdit('build-bulk');
+            const replacing = Boolean(
+                Number(this.state.atoms?.metadata?.natoms || 0) > 0
+                || this.hasUsableCell()
+            );
+            if (replacing && operation.confirmReplace !== true) {
+                throw new Error(
+                    'build-bulk replaces the current structure and trajectory. '
+                    + 'Obtain human approval, then retry with confirmReplace: true.'
+                );
+            }
+            const payload = {
+                formula: String(operation.formula || '').trim(),
+                cell_mode: operation.cellMode || 'primitive',
+                replace_existing: replacing
+            };
+            if (operation.crystalStructure) {
+                payload.crystalstructure = operation.crystalStructure;
+            }
+            ['a', 'b', 'c', 'alpha', 'covera', 'u', 'basis'].forEach(key => {
+                if (operation[key] !== undefined && operation[key] !== null) {
+                    payload[key] = operation[key];
+                }
+            });
+            const data = await this.api.buildBulkStructure(payload);
+            this.stopPlayback();
+            this.renderer.needsInitialCameraFit = true;
+            setData(data, true);
             return;
         }
         if (name === 'set-supercell') {
@@ -14356,7 +14927,7 @@ class VAseApp {
             return;
         }
         if (name === 'calculate-rdf') {
-            const pairMode = ['active', 'all', 'none'].includes(operation.pairMode)
+            const pairMode = ['active', 'selected', 'all', 'none'].includes(operation.pairMode)
                 ? operation.pairMode
                 : this.state.display.rdfPairMode;
             const cutoffInput = document.getElementById('rdf-cutoff');
@@ -14382,6 +14953,10 @@ class VAseApp {
                 );
             }
             this.state.rdfResult = result;
+            this.state.rdfSelectionSignature = options.pair_mode === 'selected'
+                ? this.rdfPairSignature(options.active_pairs)
+                : '';
+            this.state.rdfSelectionPendingSignature = '';
             await this.plotRdf(result);
             const warning = (result.warnings || []).join(' ');
             this.setRdfStatus(
@@ -14683,7 +15258,14 @@ class VAseApp {
             const options = this.rdfOptions();
             if (request.cutoff !== undefined) options.cutoff = request.cutoff;
             if (request.bins !== undefined) options.bins = request.bins;
-            if (request.pairMode !== undefined) options.pair_mode = request.pairMode;
+            if (request.pairMode !== undefined) {
+                options.pair_mode = request.pairMode;
+                if (request.activePairs === undefined) {
+                    options.active_pairs = request.pairMode === 'selected'
+                        ? this.selectedActiveRdfPairs()
+                        : this.activeRdfPairs();
+                }
+            }
             if (request.activePairs !== undefined) {
                 options.active_pairs = this.clonePlain(request.activePairs);
             }
@@ -15422,7 +16004,7 @@ class VAseApp {
                 ? Number(nextDisplay.rdfCutoff)
                 : null,
             rdfBins: integerClamped(nextDisplay.rdfBins, 200, 8, 5000),
-            rdfPairMode: ['active', 'all', 'none'].includes(nextDisplay.rdfPairMode)
+            rdfPairMode: ['active', 'selected', 'all', 'none'].includes(nextDisplay.rdfPairMode)
                 ? nextDisplay.rdfPairMode
                 : 'active',
             registryMetric: nextDisplay.registryMetric === 'bond-strain'

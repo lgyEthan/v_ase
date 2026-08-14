@@ -52,12 +52,12 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.15&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.16&amp;rev=2">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.2.15';
+            : '/static/vendor/three.module.js?v=0.2.16';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -116,7 +116,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.2.15</span>
+            <span class="version">0.2.16</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -589,6 +589,7 @@
                 <span>Section</span>
                 <select id="structure-section-select" aria-label="Jump to structure section">
                     <option value="appearance">Atoms &amp; Appearance</option>
+                    <option value="ase-builder" data-edit-only>Build with ASE</option>
                     <option value="cell-replication">Cell &amp; Replication</option>
                     <option value="cell-transform" data-edit-only>Cell Transform</option>
                     <option value="transform">Transform &amp; Cell Match</option>
@@ -943,6 +944,7 @@
                 <label for="rdf-pair-mode">Pair curves</label>
                 <select id="rdf-pair-mode">
                     <option value="active">Active bond pairs</option>
+                    <option value="selected">Selected active bond pairs</option>
                     <option value="all">All label pairs</option>
                     <option value="none">Total only</option>
                 </select>
@@ -1208,6 +1210,91 @@
                     <span>Material</span>
                 </div>
                 <div id="appearance-table-body"></div>
+            </div>
+        </details>
+
+        <details class="panel-section" open data-panel="ase-builder" data-panel-group="structure" data-edit-only>
+            <summary class="section-header">Build with ASE</summary>
+            <div class="ase-builder-heading">
+                <div>
+                    <strong>Bulk crystal</strong>
+                    <span>ase.build.bulk</span>
+                </div>
+                <span id="ase-bulk-version" class="ase-builder-version">ASE</span>
+            </div>
+            <p class="panel-note">
+                Generate a periodic crystal from ASE reference data or an explicit prototype.
+                Building replaces the active structure and trajectory; Undo restores them.
+            </p>
+            <div class="ase-builder-primary-grid">
+                <label for="ase-bulk-formula">
+                    <span>Formula</span>
+                    <input id="ase-bulk-formula" type="text" value="Cu" list="ase-bulk-formulas"
+                           autocomplete="off" spellcheck="false" aria-describedby="ase-bulk-formula-hint">
+                    <datalist id="ase-bulk-formulas"></datalist>
+                </label>
+                <label for="ase-bulk-structure">
+                    <span>Crystal structure</span>
+                    <select id="ase-bulk-structure">
+                        <option value="">Automatic from ASE</option>
+                    </select>
+                </label>
+                <label for="ase-bulk-cell-mode">
+                    <span>Cell shape</span>
+                    <select id="ase-bulk-cell-mode">
+                        <option value="primitive">Native / primitive</option>
+                        <option value="orthorhombic">Orthorhombic</option>
+                        <option value="cubic" selected>Cubic</option>
+                    </select>
+                </label>
+            </div>
+            <p id="ase-bulk-formula-hint" class="ase-builder-field-hint">
+                Choose a compatible ASE reference element or type a custom formula.
+            </p>
+            <div id="ase-bulk-parameters" class="ase-builder-parameter-grid">
+                <label data-bulk-parameter="a" for="ase-bulk-a">
+                    <span>a / Å</span>
+                    <input id="ase-bulk-a" type="number" min="0" step="any" placeholder="ASE default">
+                </label>
+                <label data-bulk-parameter="b" for="ase-bulk-b" class="hidden">
+                    <span>b / Å</span>
+                    <input id="ase-bulk-b" type="number" min="0" step="any" placeholder="Required">
+                </label>
+                <label data-bulk-parameter="c" for="ase-bulk-c" class="hidden">
+                    <span>c / Å</span>
+                    <input id="ase-bulk-c" type="number" min="0" step="any" placeholder="Required">
+                </label>
+                <label data-bulk-parameter="covera" for="ase-bulk-covera" class="hidden">
+                    <span>c/a</span>
+                    <input id="ase-bulk-covera" type="number" min="0" step="any" placeholder="ASE / ideal">
+                </label>
+                <label data-bulk-parameter="alpha" for="ase-bulk-alpha" class="hidden">
+                    <span>α / degree</span>
+                    <input id="ase-bulk-alpha" type="number" min="0" max="180" step="any" placeholder="Required">
+                </label>
+                <label data-bulk-parameter="u" for="ase-bulk-u" class="hidden">
+                    <span>Internal u</span>
+                    <input id="ase-bulk-u" type="number" min="0" max="1" step="any" placeholder="ASE default">
+                </label>
+            </div>
+            <details id="ase-bulk-advanced" class="ase-builder-advanced hidden">
+                <summary>Fractional basis</summary>
+                <label for="ase-bulk-basis">
+                    <span>N × 3 JSON coordinates</span>
+                    <textarea id="ase-bulk-basis" rows="3" spellcheck="false"
+                              placeholder="[[0, 0, 0]]"></textarea>
+                </label>
+            </details>
+            <div id="ase-bulk-preview" class="ase-builder-preview" data-state="loading" aria-live="polite">
+                <span class="ase-builder-preview-mark" aria-hidden="true"></span>
+                <div>
+                    <strong id="ase-bulk-preview-title">Loading ASE catalog</strong>
+                    <span id="ase-bulk-preview-detail">Checking compatible materials and cell shapes...</span>
+                </div>
+            </div>
+            <div class="btn-stack-row two ase-builder-actions">
+                <button id="btn-ase-bulk-preview" type="button">Validate</button>
+                <button id="btn-ase-bulk-build" class="primary" type="button" disabled>Build Structure</button>
             </div>
         </details>
 
@@ -1827,7 +1914,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.2.15&rev=2';
+            : './static/main.js?v=0.2.16&rev=3';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

@@ -235,6 +235,7 @@ export class ASEApi {
             '/api/delete/',
             '/api/atom-identity/',
             '/api/constraints/',
+            '/api/build/bulk/apply/',
             '/api/supercell/apply/',
             '/api/supercell/matrix/',
             '/api/commensurate/apply/',
@@ -317,6 +318,88 @@ export class ASEApi {
                     { name: 'tab20', category: 'Qualitative', reversed_variant: false }
                 ]
             };
+        }
+        if (path.includes('/api/build/bulk/catalog/')) {
+            return {
+                schema: 'v_ase.ase-build.bulk.v1',
+                generator: 'ase.build.bulk',
+                ase_version: 'mock',
+                cell_modes: [
+                    { id: 'primitive', label: 'Native / primitive' },
+                    { id: 'orthorhombic', label: 'Orthorhombic' },
+                    { id: 'cubic', label: 'Cubic' }
+                ],
+                structures: [
+                    { id: 'fcc', label: 'Face-centered cubic', formula_atoms: 1, formula_hint: 'one element', cell_modes: ['primitive', 'orthorhombic', 'cubic'], parameters: ['a'] },
+                    { id: 'hcp', label: 'Hexagonal close-packed', formula_atoms: 1, formula_hint: 'one element', cell_modes: ['primitive', 'orthorhombic'], parameters: ['a', 'c', 'covera'] },
+                    { id: 'rocksalt', label: 'Rocksalt', formula_atoms: 2, formula_hint: '1:1 binary formula', cell_modes: ['primitive', 'orthorhombic', 'cubic'], parameters: ['a'] }
+                ],
+                reference_materials: [
+                    { formula: 'Cu', element: 'Cu', crystalstructure: 'fcc', a: 3.61, compatible_cell_modes: ['primitive', 'orthorhombic', 'cubic'], atom_counts: { primitive: 1, orthorhombic: 2, cubic: 4 } },
+                    { formula: 'Mg', element: 'Mg', crystalstructure: 'hcp', a: 3.21, compatible_cell_modes: ['primitive', 'orthorhombic'], atom_counts: { primitive: 2, orthorhombic: 4 } }
+                ],
+                elements: ['H', 'C', 'O', 'Mg', 'Fe', 'Cu'],
+                examples: []
+            };
+        }
+        if (path.includes('/api/build/bulk/preview/')) {
+            const payload = JSON.parse(options.body || '{}');
+            const formula = String(payload.formula || '').trim();
+            const structure = String(payload.crystalstructure || payload.crystalStructure || (formula === 'Cu' ? 'fcc' : '')).trim();
+            const cellMode = String(payload.cell_mode || payload.cellMode || 'primitive');
+            if (!formula) return { valid: false, message: 'Enter a chemical formula.', missing_fields: ['formula'] };
+            if (formula === 'CuO' && !structure) {
+                return { valid: false, message: 'CuO requires crystal structure and lattice parameter a.', missing_fields: ['crystalstructure', 'a'] };
+            }
+            if (formula === 'CuO' && !Number.isFinite(Number(payload.a))) {
+                return { valid: false, message: 'CuO requires lattice parameter a.', missing_fields: ['a'] };
+            }
+            if (structure === 'hcp' && cellMode === 'cubic') {
+                return { valid: false, message: 'ASE cannot construct a cubic cell for hcp.', missing_fields: [], field: 'cell_mode' };
+            }
+            const lattice = Number(payload.a) || 3.61;
+            const atomCount = formula === 'CuO' ? (cellMode === 'cubic' ? 8 : 2) : (cellMode === 'cubic' ? 4 : 1);
+            return {
+                valid: true,
+                formula,
+                crystalstructure: structure || 'fcc',
+                cell_mode: cellMode,
+                atom_count: atomCount,
+                chemical_formula: formula,
+                cell: [[lattice, 0, 0], [0, lattice, 0], [0, 0, lattice]],
+                cell_parameters: { a: lattice, b: lattice, c: lattice, alpha: 90, beta: 90, gamma: 90 }
+            };
+        }
+        if (path.includes('/api/build/bulk/apply/')) {
+            const payload = JSON.parse(options.body || '{}');
+            const preview = await this.handleMockRequest('/api/build/bulk/preview/', {
+                ...options,
+                body: JSON.stringify(payload)
+            }, { expect });
+            if (!preview.valid) throw new Error(preview.message);
+            const count = preview.atom_count;
+            const symbols = preview.formula === 'CuO'
+                ? Array.from({ length: count }, (_, index) => index % 2 ? 'O' : 'Cu')
+                : Array(count).fill(preview.formula);
+            this.mockPushHistory();
+            this.mockState.atoms.symbols = [...symbols];
+            this.mockState.atoms.chemical_symbols = [...symbols];
+            this.mockState.atoms.positions = Array.from({ length: count }, (_, index) => [
+                (index & 1) * preview.cell_parameters.a * 0.5,
+                ((index >> 1) & 1) * preview.cell_parameters.b * 0.5,
+                ((index >> 2) & 1) * preview.cell_parameters.c * 0.5
+            ]);
+            this.mockState.atoms.cell = preview.cell;
+            this.mockState.atoms.pbc = [true, true, true];
+            this.mockState.atoms.forces = Array.from({ length: count }, () => [0, 0, 0]);
+            this.mockState.atoms.tags = Array(count).fill(0);
+            this.mockState.atoms.charges = Array(count).fill(0);
+            this.mockState.atoms.magmoms = Array(count).fill(0);
+            this.mockState.atoms.visual = this.mockVisualForSymbols(symbols);
+            this.mockState.atoms.metadata.natoms = count;
+            this.mockState.atoms.metadata.frame_count = 1;
+            this.mockState.atoms.metadata.current_frame = 0;
+            return await this.mockResponse(this.mockState.atoms);
         }
         if (path.includes('/api/atoms/')) {
             return await this.mockResponse(this.mockState.atoms);
@@ -1013,6 +1096,18 @@ export class ASEApi {
             pbc,
             scale_atoms: Boolean(scaleAtoms)
         });
+    }
+
+    async fetchBulkBuilderCatalog() {
+        return await this.request(`/api/build/bulk/catalog/{session_id}`);
+    }
+
+    async previewBulkStructure(payload) {
+        return await this.jsonPost(`/api/build/bulk/preview/{session_id}`, payload);
+    }
+
+    async buildBulkStructure(payload) {
+        return await this.jsonPost(`/api/build/bulk/apply/{session_id}`, payload);
     }
 
     async applyTranslation(positions, vector, coordinateMode = 'cartesian', applyConstraint = true) {

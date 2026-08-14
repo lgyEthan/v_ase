@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-from .viewer import find_free_port, open_browser_url
+from .viewer import announce_viewer_url, find_free_port, open_browser_url
 
 
 _REMOTE_TARGET = re.compile(
@@ -424,19 +424,27 @@ def launch_remote_gui(args: argparse.Namespace, target: RemoteTarget) -> int:
                 file=sys.stderr,
                 flush=True,
             )
-        elif args.no_browser or not open_browser_url(local_url):
-            print(
-                "Open this URL in your browser:\n"
-                f"{local_url}",
-                file=sys.stderr,
-                flush=True,
-            )
         else:
-            print(
-                "Connected. The remote structure is open in your browser.",
-                file=sys.stderr,
-                flush=True,
-            )
+            announce_viewer_url(local_url)
+            if args.no_browser:
+                print(
+                    "Automatic browser launch is disabled; use the URL above.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            elif not open_browser_url(local_url):
+                print(
+                    "v_ase could not open a browser automatically; "
+                    "use the URL above.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            else:
+                print(
+                    "Browser launch requested. If no tab appeared, use the URL above.",
+                    file=sys.stderr,
+                    flush=True,
+                )
 
         while True:
             remote_return_code = remote_process.poll()

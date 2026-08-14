@@ -180,6 +180,30 @@ def test_pairwise_rdf_uses_labels_and_active_pair_selection():
     assert csv_text.splitlines()[0] == "r_angstrom,total_g_r,Cu_surface|O_ads"
 
 
+def test_selected_active_bond_mode_uses_explicit_selected_label_pairs():
+    atoms = _random_periodic_atoms(count=320)
+    result = calculate_rdf(
+        atoms,
+        cutoff=4.5,
+        bins=36,
+        pair_mode="selected",
+        active_pairs=[["Cu_surface", "O_ads"]],
+    )
+
+    assert result.pair_mode == "selected"
+    assert list(result.partial) == ["Cu_surface|O_ads"]
+
+    total_only = calculate_rdf(
+        atoms,
+        cutoff=4.5,
+        bins=36,
+        pair_mode="selected",
+        active_pairs=[],
+    )
+    assert total_only.pair_mode == "selected"
+    assert total_only.partial == {}
+
+
 def test_pairwise_rdf_preserves_distinct_labels_with_long_common_prefix():
     atoms = _random_periodic_atoms(count=160)
     prefix = "surface_site_" + ("x" * 70)

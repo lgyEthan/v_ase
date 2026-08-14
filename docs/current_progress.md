@@ -460,7 +460,7 @@ compatibility aliases for code written against v_ase 0.0.77 or earlier.
 
 POSCAR/CONTCAR species headers are also part of label identity. If one element
 appears in multiple species blocks, each occurrence receives an ordered visual
-label (`O1`, `O2`, ...), while the ASE atomic numbers and symbols remain
+label (`O_1`, `O_2`, ...), while the ASE atomic numbers and symbols remain
 unchanged.
 
 Canonical atom-identity route:

@@ -84,6 +84,9 @@ v_ase gui structure.vasp --interactive
 
 No Node.js installation or hosted account is required. Closing the v_ase
 browser document releases the blocking terminal process.
+The complete local viewer URL is always printed before v_ase waits, even when
+automatic browser launch reports success. If no tab appears, Ctrl+click that
+URL or copy it into any local browser.
 
 ## Find A Workflow
 
@@ -91,6 +94,7 @@ browser document releases the blocking terminal process.
 | --- | --- |
 | Inspect a structure | Middle-drag to orbit, wheel to zoom, left-click to select |
 | Build from an empty document | Run `v_ase gui`, define **Structure > Cell & Replication** if needed, then open **+ Add atoms** |
+| Build a periodic crystal with ASE | In **Edit**, open **Structure > Build with ASE**, choose a compatible formula/prototype/cell shape, validate, then build |
 | Edit coordinates | Enter **Edit**, select atoms, press `Esc` to focus the viewport, then use `G`, `R`, or physical `S` |
 | Insert atoms or molecules | In **Edit**, open **+ Add atoms**, choose **Single** or **Batch**, then place atoms or ASE molecules |
 | Measure geometry | Select 2, 3, or 4 atoms in the required order |
@@ -165,6 +169,29 @@ built without loading an input file:
 
 The center Open prompt disappears as soon as a cell, region, or atom edit makes
 the scratch document meaningful.
+
+#### Build A Bulk Crystal With ASE
+
+Open **Structure > Build with ASE** in Edit mode to generate a periodic crystal
+through the installed `ase.build.bulk` implementation. The controls are
+conditional rather than a static list:
+
+- **Automatic from ASE** lists reference elements compatible with the selected
+  cell shape. For example, `Cu` with **Cubic** produces the same structure as
+  `bulk("Cu", cubic=True)`; an hcp reference element is not offered as a cubic
+  reference.
+- Selecting an explicit prototype enables only its relevant arguments and
+  compatible native, orthorhombic, or cubic cell shapes.
+- A compound without ASE reference lattice data reports the exact missing
+  values. For example, `CuO` requires a prototype such as **Rocksalt** and a
+  lattice parameter `a` before it can be built.
+- **Validate** runs the real installed ASE builder and reports atom count, cell
+  lengths, and angles before the document changes. Lengths are in angstrom and
+  fractional basis coordinates use an `N x 3` JSON array.
+
+Building creates one periodic trajectory frame. It replaces the current
+structure only after confirmation, retains the current visual settings, and is
+fully reversible with Undo.
 
 ### Add Atoms
 
@@ -762,9 +789,12 @@ Distribution Function** and reports bulk `g(r)`. A structure with no periodic
 axes is labeled **Pair-distribution function** and reports the probability
 density of unordered pair distances in `Å⁻¹`. Both open in a resizable Plotly
 drawer below the viewport. The total curve is always included; pair curves
-default to active bond-label pairs and can be switched to all label pairs or
-total-only. Set the bin count and cutoff, then export exactly the plotted
-columns as CSV.
+default to active bond-label pairs and can be switched to active bonds whose
+two endpoints are currently selected, all label pairs, or total-only. In the
+selected mode, changing the selection refreshes only when its active label-pair
+set changes; the partial curves keep the full-structure RDF normalization.
+Set the bin count and cutoff, then use the graph's save icon to export exactly
+the plotted columns as CSV or close the drawer with its adjacent close button.
 
 Periodic RDF uses exact spherical shell volumes and ASE's periodic neighbor
 search in the full triclinic cell. The requested cutoff is not limited to a
@@ -1314,9 +1344,11 @@ Use `--index :` for every frame, `--index -1` for the last frame, or an integer
 for one frame.
 
 Repeated POSCAR/CONTCAR species blocks remain separate visual labels. For
-example, `O Cu O` with counts `1 14 5` becomes `O1`, `Cu`, and `O2` while all
-oxygen atoms remain ASE element `O`. Custom labels retain their complete text
-when they are renamed or used for pair analysis.
+example, `Cu O O` with counts `160 15 1` becomes `Cu`, `O_1`, and `O_2` in
+the original block/index order while every oxygen remains ASE element `O`.
+This preserves intentionally separate POTCAR, magnetic, and core-hole groups
+for visualization and pair analysis without changing the ASE structure.
+Custom labels retain their complete text when they are renamed.
 
 ## Controls
 
@@ -1381,6 +1413,12 @@ same-license requirements. Copyright (C) 2026 v_ase contributors.
 The bundled Three.js module retains its own MIT license in
 [`v_ase/static/vendor/THREE_LICENSE`](v_ase/static/vendor/THREE_LICENSE).
 
+## Citation
+
+Use the repository's **Cite this repository** menu or
+[`CITATION.cff`](https://github.com/lgyEthan/v_ase/blob/main/CITATION.cff) to
+cite the exact software version.
+
 ## Troubleshooting
 
 <details>
@@ -1401,14 +1439,18 @@ environment or add its Python scripts directory to `PATH`.
 <details>
 <summary>The browser does not open, or WSL prints <code>gio: ... Operation not supported</code></summary>
 
-The terminal also prints the complete local URL. Ctrl+click it or copy the text
-beginning with `http://` into Chrome, Edge, Firefox, or another browser. Keep
-the terminal process running.
+The terminal always prints the complete local URL before attempting to open a
+browser. Ctrl+click it or copy the text beginning with `http://` into Chrome,
+Edge, Firefox, or another browser. Keep the terminal process running. This
+fallback remains visible even when a WSL interop command exits successfully
+without creating a browser tab.
 
 Example with sensitive session identifiers masked:
 
 ```text
 (base) giyeok@DESKTOP-XXXX:~$ v_ase gui
+v_ase viewer URL (Ctrl+click or copy into a browser):
+http://127.0.0.1:58039/workspace?workspace_id=xxxx&session_id=xxxx
 gio: http://127.0.0.1:58039/workspace?workspace_id=xxxx&session_id=xxxx: Operation not supported
 ```
 

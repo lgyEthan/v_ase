@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.16
+
+- Added an Edit-mode **Build with ASE** workflow backed by the installed
+  `ase.build.bulk` implementation. A cached compatibility catalog filters
+  reference materials, prototypes, and primitive/orthorhombic/cubic cell
+  shapes; custom compounds receive exact missing-parameter guidance before
+  generation. Structure replacement is confirmed, undoable, and available to
+  external agents through the validated `build-bulk` operation.
+- Always print the complete local or SSH-tunneled viewer URL before waiting,
+  so WSL/headless users can Ctrl+click or paste it even when a browser launcher
+  returns a false success without opening a tab.
+- Standardized repeated POSCAR/CONTCAR species-block labels as `O_1`, `O_2`,
+  and so on. The mapping follows the original block/index order while ASE
+  elements, coordinates, cells, PBC, and constraints remain unchanged.
+- Added a selected-active-bond-pairs RDF mode that tracks the current atom
+  selection without changing full-structure normalization, and restored
+  reliable save and close controls in the analysis graph drawer.
+
 ## 0.2.15
 
 - Made Add Atoms infer the Type control from element-symbol Labels in both

@@ -129,6 +129,9 @@ test edit and a new filename for output.
 | Message or symptom | Cause | Action |
 | --- | --- | --- |
 | `requires Edit mode` | A physical operation was attempted in View | Send `apply` with `{"mode":"edit"}`, describe, retry |
+| `requires crystal structure and lattice parameter a` | A custom compound has no ASE reference prototype/lattice data | Read `capabilities().bulkBuilder.catalogUrl`, choose an explicit compatible prototype, supply `a`, and preview before building |
+| `cannot construct a cubic cell` | The selected ASE prototype/reference has no cubic construction path | Use a cell mode listed by the bulk catalog; do not reshape the result silently |
+| `build-bulk replaces the current structure and trajectory` | Replacement was requested without explicit approval | Obtain human approval, then retry with `confirmReplace:true`; verify and Undo on mismatch |
 | HTTP 409, no live browser | `human_url` is not open or viewport is still loading | Open `human_url`, wait for atoms/empty workspace, retry |
 | index outside range | Topology/frame changed or stale index | Describe again and remap by label/position |
 | Batch atom and molecule insertion requires a single structure | A trajectory is active | Open the intended frame as a standalone structure in a new document and retry |
@@ -160,7 +163,7 @@ test edit and a new filename for output.
 | optional 3DM export fails | `rhino3dm` is absent | Install `v_ase-gui[rhino]` |
 | video capture unavailable | Browser lacks `MediaRecorder` | Use Chromium-family browser |
 | Chrome says the site can view saved-file changes | File System Access permission notice | This is expected after selecting a destination; access is limited to that file and cannot be suppressed while preselecting it |
-| WSL `gio` operation unsupported | Browser launch failed, server did not | Open the printed loopback URL manually |
+| WSL browser does not open or `gio` is unsupported | Browser/interop launch failed or returned a false success; the server is still running | Ctrl+click or paste the always-printed loopback URL and keep the terminal alive |
 | remote `unrecognized arguments: --no-browser --stream-frames` | Local launcher predates remote capability negotiation while the remote v_ase is older | Upgrade the local installation to `v_ase-gui>=0.2.14`; upgrade the remote installation too before large trajectory or FP64 volumetric work |
 | remote compatibility-mode warning | Remote CLI can open the file but lacks on-demand frame streaming | Continue for a small structure, or upgrade remote v_ase before a large trajectory; the source file remains remote in either case |
 | blank or clipped render | Camera/aspect/options mismatch | Fit camera, render exact dimensions, inspect decoded image |
@@ -180,6 +183,7 @@ test edit and a new filename for output.
 | Pair distribution cannot choose a valid normalization | PBC is partial, or full PBC has a degenerate cell | Stop; use full 3D PBC with a finite cell for bulk RDF, or disable every PBC axis for the finite Pair-distribution function |
 | RDF periodic image span is large | The requested radius reaches several copies of the primitive cell | Confirm the requested cutoff, allow the complete search to finish, and report `periodicImageSpan`; do not silently truncate it |
 | RDF active mode has no pair curves | No pairwise bond labels are enabled | Choose `pairMode:"all"` or provide `activePairs` explicitly |
+| RDF selected mode has no pair curves | Fewer than two atoms are selected, or no active bond joins two selected atoms | Select both endpoints of an active bond; the total curve remains available meanwhile |
 | personal-default restore asks for confirmation | The operation deletes the saved OS-user preference | Obtain explicit human approval, then retry `restore-app-visual-defaults` with `confirm:true` |
 | per-atom colorscale field is unknown | An agent guessed an array/result name or the active frame lacks it | Read `capabilities().atomColorScale.scalarCatalogUrl`, report the available labels, and retry with an exact field ID |
 | per-atom colorscale has no selected values | `scope:"selected"` was used without a selection or every selected value is non-finite | Select valid atoms or use `scope:"all"`; do not invent replacement values |

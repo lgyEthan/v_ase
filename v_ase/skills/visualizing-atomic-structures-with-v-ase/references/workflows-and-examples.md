@@ -7,6 +7,7 @@
    - Publication Image
 2. Edit Structures
    - Natural-Language Defect Edit
+   - Build An ASE Bulk Crystal
    - Random Multi-Species Insertion And Repulsion
    - Phosphorene Cumulative Tail Rotation
    - Rotate Around A Specific Atom
@@ -313,6 +314,65 @@ intermediate, and expected final structures are generated from
 - `examples/readme_scene_assets/ai_pyridinic_n3_graphene.cif`;
 - `examples/readme_scene_assets/ai_pyridinic_n3_li_graphene.cif`;
 - `examples/readme_scene_assets/ai_pyridinic_n3_li_graphene.traj`.
+
+### Build An ASE Bulk Crystal
+
+Use the installed ASE catalog instead of guessing which reference element,
+prototype, or output cell is valid. This example starts from an empty Edit
+document and builds cubic rocksalt CuO with explicit lattice data:
+
+```javascript
+const capabilities = await ai.capabilities();
+const catalog = await fetch(capabilities.bulkBuilder.catalogUrl).then(response => response.json());
+const rocksalt = catalog.structures.find(item => item.id === "rocksalt");
+if (!rocksalt?.cell_modes.includes("cubic")) {
+  throw new Error("The installed ASE build does not advertise cubic rocksalt.");
+}
+
+const request = {
+  formula: "CuO",
+  crystalstructure: "rocksalt",
+  cell_mode: "cubic",
+  a: 4.27
+};
+const preview = await fetch(capabilities.bulkBuilder.previewUrl, {
+  method: "POST",
+  headers: {"Content-Type": "application/json"},
+  body: JSON.stringify(request)
+}).then(response => response.json());
+if (!preview.valid || preview.atom_count !== 8) {
+  throw new Error(preview.message || "Unexpected ASE bulk preview.");
+}
+
+await applyCurrent({mode: "edit"});
+const before = await ai.describe({includePositions: false});
+if (before.atomCount > 0 || before.cell.some(row => row.some(value => value !== 0))) {
+  throw new Error("Obtain human replacement approval before continuing.");
+}
+await applyCurrent({operation: {
+  name: "build-bulk",
+  formula: "CuO",
+  crystalStructure: "rocksalt",
+  cellMode: "cubic",
+  a: 4.27
+}});
+
+const built = await ai.describe({includePositions: true});
+if (
+  built.atomCount !== 8
+  || built.frameCount !== 1
+  || !built.pbc.every(Boolean)
+  || built.chemicalSymbols.filter(symbol => symbol === "Cu").length !== 4
+  || built.chemicalSymbols.filter(symbol => symbol === "O").length !== 4
+) {
+  throw new Error("The ASE-built CuO document failed semantic verification.");
+}
+```
+
+For a nonempty document, obtain explicit human approval and resend the same
+operation with `confirmReplace:true`. The replacement is one Undo entry and
+retains visual settings. Never infer lattice parameters that the catalog or
+user did not provide.
 
 ### Batch Atom And Molecule Insertion
 
@@ -949,13 +1009,16 @@ Validation:
 
 1. the total curve is always present;
 2. requested partial labels are present;
-3. the requested cutoff is retained and all required periodic-image extents
+3. with `pairMode:"selected"`, both endpoints of at least one active bond are
+   selected and changing to a different active label pair refreshes the curves;
+   selecting another bond of the same label pair must reuse the existing result;
+4. the requested cutoff is retained and all required periodic-image extents
    are reported, even when a fixed `2 x 2 x 2` repetition is insufficient;
-4. CSV radius count equals `bins`;
-5. a homogeneous periodic test system approaches `g(r) = 1` away from the
+5. CSV radius count equals `bins`;
+6. a homogeneous periodic test system approaches `g(r) = 1` away from the
    first few bins across several cutoffs, including beyond the unique-MIC
    reference;
-6. a finite no-PBC full-range result integrates to one unordered-pair
+7. a finite no-PBC full-range result integrates to one unordered-pair
    probability, while a shorter explicit cutoff integrates to the fraction of
    pairs inside that distance.
 

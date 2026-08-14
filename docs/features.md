@@ -95,8 +95,8 @@ present in the active frame.
 
 Specialized readers preserve data ASE cannot represent directly:
 
-- repeated POSCAR/CONTCAR species blocks become ordered labels such as `O1`,
-  `O2`, and `O3` while retaining the original ASE chemical symbol;
+- repeated POSCAR/CONTCAR species blocks become ordered labels such as `O_1`,
+  `O_2`, and `O_3` while retaining the original ASE chemical symbol;
 - custom extxyz labels map to ASE-valid chemical symbols and remain separate
   labels;
 - LAMMPS dump/data integer types remain raw labels;
@@ -140,6 +140,28 @@ Edit additionally enables:
   pivot, and increment controls;
 - add, delete, copy, paste, undo, and redo;
 - constraints editing and calculator-backed relaxation.
+
+### ASE Bulk Builder
+
+**Structure > Build with ASE** exposes the usable construction paths of the
+installed `ase.build.bulk` implementation without probing ASE on every control
+change. A process-local catalog caches reference elements, supported crystal
+prototypes, compatible native/orthorhombic/cubic cell shapes, and conditional
+arguments. The lightweight catalog is generated once; every preview and final
+build still calls ASE so installed-version behavior remains authoritative.
+
+Automatic reference mode filters formula suggestions by actual constructible
+cell shape. Explicit prototypes expose only their relevant lattice fields.
+Custom compounds have no invented defaults: `CuO`, for example, reports that
+both a crystal prototype and lattice parameter `a` are required. Validation
+also rejects incompatible shapes, nonfinite or nonpositive lengths, conflicting
+`c` and `c/a`, and malformed fractional basis arrays before mutation.
+
+The final action replaces the active document with one periodic frame while
+preserving visual configuration. A nonempty structure or finite scratch cell
+requires explicit confirmation, and complete original/trajectory state is
+stored as one Undo entry. Loaded volumetric data, an active commensurate guest,
+or an active relaxation must be resolved before replacement.
 
 ### Add Atoms Workspace
 

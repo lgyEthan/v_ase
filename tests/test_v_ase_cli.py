@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 from ase import Atoms
 from ase.build import molecule
-from ase.io import write
+from ase.io import read, write
 import pytest
 
 import v_ase.remote as remote
@@ -448,10 +448,10 @@ def test_run_gui_delegates_remote_targets_before_local_file_validation(monkeypat
     assert captured["target"] == RemoteTarget("physics", "/data/POSCAR")
 
 
-def test_remote_launch_uses_explicit_port_only_for_the_local_endpoint(monkeypatch):
+def test_remote_launch_uses_explicit_port_only_for_the_local_endpoint(monkeypatch, capsys):
     parser = build_parser()
     args = parser.parse_args(
-        ["gui", "physics:/data/POSCAR", "--port", "49152", "--no-browser"]
+        ["gui", "physics:/data/POSCAR", "--port", "49152"]
     )
     target = RemoteTarget("physics", "/data/POSCAR")
     captured = {}
@@ -501,6 +501,7 @@ def test_remote_launch_uses_explicit_port_only_for_the_local_endpoint(monkeypatc
         return tunnel_process, requested_local_port
 
     monkeypatch.setattr(remote, "_start_tunnel", fake_start_tunnel)
+    monkeypatch.setattr(remote, "open_browser_url", lambda _url: True)
 
     assert remote.launch_remote_gui(args, target) == 0
     assert captured == {
@@ -508,6 +509,10 @@ def test_remote_launch_uses_explicit_port_only_for_the_local_endpoint(monkeypatc
         "requested_local_port": 49152,
     }
     assert tunnel_process.terminated is True
+    stderr = capsys.readouterr().err
+    assert "Ctrl+click or copy into a browser" in stderr
+    assert "http://127.0.0.1:49152/workspace?session_id=remote" in stderr
+    assert "If no tab appeared" in stderr
 
 
 def test_v_ase_gui_without_file_launches_an_empty_visualization_session(monkeypatch):
@@ -768,9 +773,9 @@ Direct
     frames = read_structure_frames(path, "-1", None)
 
     assert frames[0].get_chemical_symbols() == ["O", "Cu", "Cu", "O", "O", "O"]
-    assert atom_labels(frames[0]) == ["O1", "Cu", "Cu", "O2", "O2", "O2"]
+    assert atom_labels(frames[0]) == ["O_1", "Cu", "Cu", "O_2", "O_2", "O_2"]
     payload = atoms_to_json(frames[0])
-    assert payload["labels"] == ["O1", "Cu", "Cu", "O2", "O2", "O2"]
+    assert payload["labels"] == ["O_1", "Cu", "Cu", "O_2", "O_2", "O_2"]
     assert payload["chemical_symbols"] == ["O", "Cu", "Cu", "O", "O", "O"]
 
 
@@ -798,7 +803,59 @@ Direct
     frames = read_structure_frames(path, "-1", "CONTCAR")
 
     assert frames[0].get_chemical_symbols() == ["O", "Cu", "O", "O", "Cu", "O"]
-    assert atom_labels(frames[0]) == ["O1", "Cu1", "O2", "O2", "Cu2", "O3"]
+    assert atom_labels(frames[0]) == [
+        "O_1",
+        "Cu_1",
+        "O_2",
+        "O_2",
+        "Cu_2",
+        "O_3",
+    ]
+
+
+def test_core_hole_poscar_blocks_preserve_the_exact_ase_structure(tmp_path):
+    path = tmp_path / "core-hole.vasp"
+    coordinates = []
+    for index in range(176):
+        x = (index % 20) / 20.0
+        y = ((index // 20) % 10) / 10.0
+        z = (index // 200) / 2.0
+        flags = "F F F" if index == 175 else "T T T"
+        coordinates.append(f"{x:.8f} {y:.8f} {z:.8f} {flags}")
+    path.write_text(
+        "\n".join(
+            [
+                "Cu160 O16 | O 1s core-hole target O00",
+                "1.0",
+                "13.518496 0.0 0.0",
+                "-1.930464 13.37995 0.0",
+                "0.0 0.0 24.0",
+                "Cu O O",
+                "160 15 1",
+                "Selective dynamics",
+                "Direct",
+                *coordinates,
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    ase_atoms = read(path, format="vasp")
+    [vase_atoms] = read_structure_frames(path, "-1", "POSCAR")
+
+    assert vase_atoms.get_chemical_symbols() == ase_atoms.get_chemical_symbols()
+    assert atom_labels(vase_atoms) == [
+        *(["Cu"] * 160),
+        *(["O_1"] * 15),
+        "O_2",
+    ]
+    np.testing.assert_allclose(vase_atoms.positions, ase_atoms.positions)
+    np.testing.assert_allclose(vase_atoms.cell.array, ase_atoms.cell.array)
+    np.testing.assert_array_equal(vase_atoms.pbc, ase_atoms.pbc)
+    assert [constraint.todict() for constraint in vase_atoms.constraints] == [
+        constraint.todict() for constraint in ase_atoms.constraints
+    ]
 
 
 def test_read_structure_frames_supports_multi_frame_files(tmp_path):

@@ -28,6 +28,7 @@ The description should trigger for these requests even when v_ase is not named:
 14. `[trigger]` Match this hBN guest cell to a graphene host below one percent strain.
 15. `[trigger]` Translate this selected layer rigidly in the periodic (1 0 0) plane and map its geometric score.
 16. `[trigger]` Randomly add 20 Li and 10 H atoms to this triclinic cell and repel only the new atoms from short contacts.
+17. `[trigger]` Build a cubic Cu crystal from ASE defaults, or rocksalt CuO with a specified lattice parameter.
 
 It should not trigger for these nearby but unrelated requests:
 
@@ -61,7 +62,7 @@ Before every release:
 
 Current operation coverage:
 
-- wrap, translate-all, set-unit-cell, set-supercell, make-supercell;
+- wrap, translate-all, set-unit-cell, build-bulk, set-supercell, make-supercell;
 - add-atom, scatter-atoms, scatter-molecules, update-add-atoms-region,
   scale-add-atoms-regions, relax-added-atoms, stop-added-atoms,
   finish-add-atoms, cancel-add-atoms, delete-selection, set-identity,
@@ -113,6 +114,10 @@ Run all scenarios, not only static document checks:
    - launch with no input file, require Edit mode, define a triclinic 3 x 3
      cell, add atoms, and verify the empty-workspace prompt disappears after
      either a region, cell, or atom is created;
+   - query the installed ASE bulk catalog; build automatic cubic Cu and verify
+     four atoms, then require `crystalStructure` and `a` for CuO, preview cubic
+     rocksalt CuO, require approval before replacement, build eight atoms, and
+     Undo back to the complete original trajectory and visual settings;
    - enter Edit, move and rotate atoms, then undo/redo;
    - apply FixAtoms, FixedLine, and FixedPlane;
    - verify FixedPlane keeps one local marker per atom and adds one original-
@@ -340,7 +345,10 @@ Run all scenarios, not only static document checks:
      including a radius that needs images beyond a fixed `2 x 2 x 2`
      repetition, and verify its non-edge plateau approaches one and aligns
      with the plotted `g(r) = 1` reference;
-   - calculate active, all, and no-partial modes; verify the
+   - calculate active, selected-active-bond, all, and no-partial modes; change
+     the selection to a different active label pair and verify a debounced
+     refresh, then select another bond of the same label pair and verify no
+     duplicate RDF request; verify the
      concentration-weighted partial RDF relation reconstructs the total;
    - on a finite no-PBC cluster, require `analysisKind="pair-distribution"`,
      title `Pair-distribution function`, full-range probability integral one,
@@ -358,7 +366,9 @@ Run all scenarios, not only static document checks:
    - verify both registry metrics are reported as geometry scores rather than
      energies and that the registry CSV matches every plotted grid point;
    - verify RDF, commensurate, and registry graphs each expose one adjacent
-     icon-only CSV action with an accessible label.
+     icon-only CSV action with an accessible label; use real pointer clicks to
+     download CSV and close the drawer, confirming the viewport canvas does not
+     intercept either action.
 10. **Exports**
    - render exact PNG/WebP dimensions and compare decoded pixels;
    - verify JPEG and PDF preserve dimensions and use opaque output;

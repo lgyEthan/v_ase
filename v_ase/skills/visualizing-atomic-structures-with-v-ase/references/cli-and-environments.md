@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.15"
+python -m pip install "v_ase-gui==0.2.16"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.2.15"
+python -m pip install "v_ase-gui[rhino]==0.2.16"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, SciPy, scikit-image,
@@ -214,6 +214,13 @@ The semantic state keeps visual labels separate from ASE chemical symbols.
 Custom labels such as `O_bridge` remain labels while the backend element can
 remain `O`.
 
+For VASP 5/6 POSCAR and CONTCAR inputs, repeated entries in the explicit
+species header are retained as ordered visual identities. `Cu O O` with counts
+`160 15 1` is described as labels `Cu`, `O_1`, and `O_2` in exact file/index
+order, while both oxygen blocks keep chemical symbol `O`. Preserve these
+labels unless the user explicitly asks to merge them: they may represent
+different POTCARs, magnetic groups, or a core-hole target.
+
 ## Output And Lifecycle
 
 The human GUI uses the operating-system save picker before expensive encoding.
@@ -247,8 +254,10 @@ the export has been verified.
 Loopback ports are selected automatically when `--port` is omitted.
 
 In WSL or a headless environment, `gio` may report `Operation not supported`.
-The server is still valid. Open the printed `http://127.0.0.1:...` URL in the
-local browser.
+The server is still valid. v_ase always prints the complete
+`http://127.0.0.1:...` URL before waiting, including when a WSL browser command
+reports success but no tab appears. Ctrl+click it or paste it into the local
+browser; keep the terminal process running.
 
 Use `HOST:/absolute/server/path/FILE` to keep parsing and trajectory storage on
 an SSH host. For example, with a host configured as `physics`:

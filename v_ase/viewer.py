@@ -96,6 +96,16 @@ def open_browser_url(url: str) -> bool:
         return False
 
 
+def announce_viewer_url(url: str) -> None:
+    """Print one terminal-clickable fallback before a blocking GUI launch."""
+    print(
+        "v_ase viewer URL (Ctrl+click or copy into a browser):\n"
+        f"{url}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 def find_free_port() -> int:
     """Return an available local TCP port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -542,20 +552,21 @@ def view(
         return ASEEditor(session_id, port, server_handle=server_handle)
     else:
         if server_enabled:
+            # Browser launchers, especially Windows interop commands under
+            # WSL, can exit successfully without opening a visible tab. Keep
+            # the loopback URL available before waiting for browser close.
+            if block:
+                announce_viewer_url(url)
             if open_browser:
                 if not open_browser_url(url):
+                    if not block:
+                        announce_viewer_url(url)
                     print(
-                        "v_ase could not open a browser automatically.\n"
-                        f"Open this URL in your browser:\n{url}",
+                        "v_ase could not open a browser automatically; "
+                        "use the URL above.",
                         file=sys.stderr,
                         flush=True,
                     )
-            elif block:
-                print(
-                    f"Open this URL in your browser:\n{url}",
-                    file=sys.stderr,
-                    flush=True,
-                )
         elif not block:
             raise RuntimeError("Cannot open v_ase because this environment does not allow local sockets.")
         

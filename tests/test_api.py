@@ -108,6 +108,40 @@ def test_wsl_browser_launch_uses_windows_interop_without_linux_webbrowser(monkey
     assert launched == [["/mnt/c/Windows/explorer.exe", url]]
 
 
+def test_blocking_view_always_prints_url_when_browser_launch_reports_success(
+    monkeypatch,
+    capsys,
+):
+    existing_sessions = set(sessions)
+    launched = []
+    monkeypatch.setattr("v_ase.viewer.acquire_local_server", lambda _app, _port: object())
+    monkeypatch.setattr("v_ase.viewer.release_local_server", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "v_ase.viewer.open_browser_url",
+        lambda url: launched.append(url) or True,
+    )
+
+    def finish_new_session():
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            new_sessions = set(sessions) - existing_sessions
+            if new_sessions:
+                sessions[next(iter(new_sessions))].done_event.set()
+                return
+            time.sleep(0.01)
+        raise AssertionError("v_ase blocking session was not created")
+
+    thread = threading.Thread(target=finish_new_session)
+    thread.start()
+    view(molecule("H2"), block=True, port=58039, open_browser=True)
+    thread.join(timeout=2.0)
+
+    stderr = capsys.readouterr().err
+    assert launched and launched[0].startswith("http://127.0.0.1:58039/workspace?")
+    assert launched[0] in stderr
+    assert "Ctrl+click or copy into a browser" in stderr
+
+
 def test_view_returns_committed_structure_without_mutating_input():
     atoms = molecule("H2O")
     atoms0 = atoms.copy()

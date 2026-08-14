@@ -184,6 +184,7 @@ Pass `operation` as a name string or object:
 | `wrap` | none | Wrap current View frame or all Edit frames |
 | `translate-all` | `vector`, `coordinateMode` | Physically move every atom, leave cell fixed |
 | `set-unit-cell` | Cartesian 3 x 3 `cell`; optional three-axis `pbc` | Define or replace the ASE cell without moving atoms; creates a usable scratch document when no structure is loaded |
+| `build-bulk` | `formula`; optional `crystalStructure`, `cellMode`, `a`, `b`, `c`, `alpha`, `covera`, `u`, `basis`, `confirmReplace` | Build one periodic frame through installed `ase.build.bulk`; replacing existing content requires prior human approval and `confirmReplace:true` |
 | `set-supercell` | `reps` | Materialize repeated cell in every frame |
 | `make-supercell` | integer `matrix` | Apply ASE `make_supercell` |
 | `add-atom` | `label`/`element`, `position` | Add one atom |
@@ -229,6 +230,28 @@ Pass `operation` as a name string or object:
 | `remove-volumetric` | `datasetId` | Remove one grid from the document |
 | `calculate-rdf` | optional `cutoff`, `bins`, `pairMode`, `activePairs` | Calculate a bulk RDF for full 3D PBC, or an unordered-pair probability density for a finite no-PBC structure |
 | `set-atom-colorscale` | optional `enabled`, `field`, `map`, `reverse`, `scope`, `rangeMode`, `minimum`, `maximum`, `gamma` | Lazily color all or selected atoms by a discovered numeric per-atom value with a trajectory-consistent range |
+
+### ASE Bulk Builder Contract
+
+Read `capabilities().bulkBuilder` before using `build-bulk`:
+
+- `catalogUrl` returns the installed ASE version, working reference materials,
+  compatible cell modes, supported prototypes, conditional parameters, and
+  exact atom counts for reference builds;
+- `previewUrl` accepts backend names (`crystalstructure`, `cell_mode`) and
+  returns the exact generated cell/atom count or structured `missing_fields`;
+- the semantic operation accepts camel-case `crystalStructure`, `cellMode`,
+  and `confirmReplace` plus numeric `a`, `b`, `c`, `alpha`, `covera`, `u`, and
+  an `N x 3` fractional `basis`.
+
+Automatic mode uses ASE reference data only for a single reference element.
+A compound such as `CuO` therefore needs an explicit compatible prototype and
+`a`. Cell modes are `primitive`, `orthorhombic`, or `cubic`; use only modes
+listed for the chosen reference/prototype. `c` and `covera` cannot both be
+supplied. Preview is nonmutating, while the final operation creates one fully
+periodic frame and clears the prior trajectory. Existing atoms or a finite
+scratch cell require prior human approval and `confirmReplace:true`. Undo must
+restore the complete replaced trajectory and original structure.
 
 ### Batch Add Atoms State
 
@@ -1087,12 +1110,17 @@ const result = await ai.describe({includePositions: false});
 `pairMode` is:
 
 - `"active"`: partial curves for currently enabled pairwise bond labels;
+- `"selected"`: partial curves for active bonds whose two endpoints are both
+  selected in the live GUI; selection changes update the label-pair filter,
+  while each partial curve remains normalized over the complete structure;
 - `"all"`: every distinct visual-label pair;
 - `"none"`: total RDF only.
 
 Supply `activePairs` explicitly when reproducibility must not depend on the
-current bond panel, for example `[["Cu_surface", "O_ads"]]`. The total curve is
-always present. Partial curves follow the conventional concentration relation:
+current bond panel or GUI selection, for example
+`[["Cu_surface", "O_ads"]]`. An agent using `pairMode:"selected"` must first
+select the intended atoms in the same live document. The total curve is always
+present. Partial curves follow the conventional concentration relation:
 for a binary system,
 `g = c_a^2 g_aa + 2 c_a c_b g_ab + c_b^2 g_bb`.
 `bins` must be between 8 and 5000.

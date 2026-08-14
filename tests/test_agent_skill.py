@@ -115,12 +115,34 @@ def test_skill_covers_every_live_operation_and_export():
         assert f"`{value}`" in documented, value
 
 
+def test_ase_bulk_builder_schema_skill_and_capabilities_are_synchronized():
+    schema = ai_schema_payload()
+    operation = schema["operation_parameters"]["build-bulk"]
+    documented = _documented_skill_text()
+    main_js = (ROOT / "v_ase/static/main.js").read_text(encoding="utf-8")
+
+    assert operation["required"] == ["formula"]
+    assert {
+        "crystalStructure", "cellMode", "a", "b", "c", "alpha",
+        "covera", "u", "basis", "confirmReplace",
+    } <= set(operation["optional"])
+    assert "capabilities().bulkBuilder.catalogUrl" in documented
+    assert "previewUrl" in documented
+    assert "confirmReplace:true" in documented
+    assert "bulkBuilder:" in main_js
+    assert "/api/build/bulk/catalog/" in main_js
+    assert "/api/build/bulk/preview/" in main_js
+
+
 def test_skill_distinguishes_gui_label_inference_from_agent_element_identity():
     documented = _documented_skill_text()
 
     assert "entering a valid chemical symbol as an atom Label" in documented
     assert "matching Type (`O` selects oxygen" in documented
     assert "must still provide both `element` and `label` explicitly" in documented
+    assert "`Cu O O` with counts" in documented
+    assert "`O_1`, and `O_2`" in documented
+    assert "different POTCARs, magnetic groups, or a core-hole target" in documented
 
 
 def test_readme_agent_media_uses_the_external_cli_bridge():
@@ -189,6 +211,7 @@ def test_skill_version_install_and_environment_contract_are_current():
         "Plotly",
         "CHGCAR",
         "qe-cube",
+        "always prints the complete",
     ):
         assert required in skill_text + cli_text
 
@@ -531,6 +554,7 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         "pairMode",
         "activePairs",
     }.issubset(schema["operation_parameters"]["calculate-rdf"]["optional"])
+    assert "selected" in schema["operation_parameters"]["calculate-rdf"]["notes"]
     assert schema["operation_parameters"]["rotate-to-commensurate"]["required"] == [
         "angleDeg",
         "selection-or-indices",
@@ -653,6 +677,7 @@ def test_skill_documents_volumetric_and_rdf_end_to_end_contracts():
         "`remove-volumetric`",
         "`calculate-rdf`",
         "`rdf-csv`",
+        '`pairMode:"selected"`',
         "analysis.volumetricDatasets",
         "identical dimensions, cell, origin, PBC",
         "`periodicImageSpan`",
