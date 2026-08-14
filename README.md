@@ -168,13 +168,13 @@ the scratch document meaningful.
 
 ### Add Atoms
 
-![Oxygen inserted below the top layer of Cu(111)](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_atoms_allowed.gif)
+![Oxygen distributed through a bulk-like Cu(111) insertion region](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_atoms_allowed.gif)
 
-Eight `O_subsurface` atoms start in a finite teal **Allow region** between the
-top and second Cu(111) layers. The side view shows the staged atoms begin at
-reproducible random positions and move into available subsurface space under
-explicit Cu-O and O-O repulsive cutoffs. Every original `Cu_surface`
-coordinate remains fixed throughout placement.
+Eighteen `O_subsurface` atoms start in a finite teal **Allow region** spanning
+the three bulk-like interior layers of a five-layer Cu(111) slab. The side view
+shows the staged atoms begin at reproducible random positions, then separate
+from nearby Cu and one another under explicit Cu-O and O-O repulsive cutoffs.
+Every original `Cu_surface` coordinate remains fixed throughout placement.
 
 Open **+ Add atoms** in **Edit** mode:
 
@@ -182,6 +182,9 @@ Open **+ Add atoms** in **Edit** mode:
 - **Batch > Atoms** accepts multiple Type, Label, and Count rows. **Batch >
   Molecules** accepts every molecule available through the installed ASE G2
   catalog and supports several molecule species in one placement.
+- Typing a valid element symbol into an atom Label also selects that Type. For
+  example, entering `O` chooses oxygen immediately; the Type control remains
+  available when a distinct visual label or an explicit override is needed.
 - **Random** gives each physical volume element equal probability in an
   orthogonal or triclinic cell. A seed makes the result reproducible.
   Periodic sampling uses one half-open primary periodic cell, so a boundary
@@ -254,13 +257,16 @@ The animations use the included
 
 #### Add Molecules
 
-![Rigid water molecules placed around periodic graphene-oxide layers](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_molecules.gif)
+![Rigid water molecules placed around edge- and basal-hydroxylated graphene-oxide layers](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_molecules.gif)
 
-The example uses two ligand-bearing graphene-oxide layers in a fully periodic
-cell. Two magenta **Reject regions** wrap the carbon and hydroxylated layer
-volumes; their complement is the solvent domain. Exact box/cell Boolean
-geometry gives `607.696 Å³` of accessible volume. A target density of
-`1.00 g/cm³` resolves to 20 rigid H2O molecules at `0.985 g/cm³`.
+The example uses two finite-width graphene-oxide ribbons in a fully periodic
+cell with `6 Å` layer spacing. Every ribbon edge is OH-passivated, while basal
+OH groups occupy reproducibly randomized sites and non-collinear orientations
+instead of one crystallographic row. The x-expanded cell leaves distinct left
+and right solvent chambers. Two `2 Å`-thick magenta **Reject regions** cover
+only the GO planes; their complement is the solvent domain. Exact box/cell
+Boolean geometry gives `1926.683 Å³` of accessible volume. A target density of
+`1.00 g/cm³` resolves to 64 rigid H2O molecules at `0.994 g/cm³`.
 
 Choose a molecule and label from **Batch > Molecules**. **Count** places the
 requested integer composition. **Density** treats each Count value as a
@@ -279,7 +285,7 @@ Open the included
 [periodic graphene-oxide structure](examples/readme_scene_assets/layered_water_channel.traj)
 to reproduce the workflow. The source region outlines remain visible while the
 waters are inserted and repelled. Every graphene-oxide atom remains exact,
-while the 20 randomly oriented waters move as rigid bodies with all O-H
+while the 64 randomly oriented waters move as rigid bodies with all O-H
 distances and H-O-H angles preserved.
 
 ### Rotate Selected Atoms
@@ -847,7 +853,9 @@ remain separate and the active timeline is clearly selected. Leaving
 stops. v_ase safely invalidates the active worker, removes the temporary
 timeline, and asks whether to **Keep Current** relaxed coordinates or **Restore
 Before Relaxation** exactly. Choosing Continue leaves the mode active. A
-stopped run can be started again without reopening the document.
+stopped run can be started again without reopening the document. Very short
+runs may finish before the interface visibly enters its running state; their
+initial, optimizer, and final frames still remain on the Relaxation timeline.
 
 The included example starts from a deliberately compressed C60 geometry and
 runs ASE FIRE with v_ase's repulsive fallback calculator:
@@ -887,10 +895,12 @@ table or merge otherwise distinct atom types accidentally.
 
 ![View-mode label and appearance editing on Cu5O4](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_cu5o4_view_appearance.gif)
 
-Here the substrate Cu indices are assigned a separate visual label in View,
-then styled white with a `2.0 Å` radius while oxide Cu and O remain unchanged.
-The side-to-top orbit verifies that the operation is visual only: every atom
-keeps its original Cu or O ASE element and coordinate.
+The recording begins with a viewport box-selection around the 32 substrate Cu
+atoms. It then enters `Cu_substrate` in **Selected atoms > Label**, applies the
+label, chooses **Metal**, and changes that label's color and radius to white and
+`2.0 Å` in the Appearance table. Oxide Cu and O remain unchanged. The final
+side-to-top orbit verifies that the operation is visual only: every atom keeps
+its original Cu or O ASE element and coordinate.
 
 ![Standard Metal and Rubber atom materials](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_materials.png)
 

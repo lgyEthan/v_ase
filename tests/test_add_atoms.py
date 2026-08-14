@@ -1450,6 +1450,8 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             }""")
 
             page.click("#btn-create-atom-toggle")
+            page.fill("#create-atom-label", "O_single")
+            assert page.locator("#create-atom-type").input_value() == "O"
             page.click("#add-atoms-tab-batch")
             page.locator(".add-atoms-session-actions").scroll_into_view_if_needed()
             panel_layout = page.evaluate("""() => {
@@ -1617,6 +1619,8 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             assert region_picking["fillIsPickable"] is False
 
             first = page.locator("#add-atoms-entries .add-atoms-entry-row").first
+            first.locator(".add-atoms-entry-label").fill("O_batch")
+            assert first.locator(".add-atoms-entry-type").input_value() == "O"
             first.locator(".add-atoms-entry-type").select_option("Li")
             first.locator(".add-atoms-entry-label").fill("Li_mobile")
             first.locator(".add-atoms-entry-count").fill("8")
@@ -1874,8 +1878,21 @@ def test_browser_scratch_relaxation_lifecycle_and_physical_scale():
 
             page.evaluate("document.getElementById('relax-steps').value = '80'")
             page.evaluate("document.getElementById('btn-relax').click()")
-            page.wait_for_function("window.__ASE_APP__.state.isRelaxing === true", timeout=10_000)
-            page.wait_for_function("window.__ASE_APP__.state.isRelaxing === false", timeout=20_000)
+            page.wait_for_function("""() => {
+                const state = window.__ASE_APP__.state;
+                return state.isRelaxing === true || (
+                    state.relaxTrajectory?.kind === 'relaxation'
+                    && state.relaxTrajectory?.finished === true
+                    && state.relaxTrajectory?.frames?.length >= 2
+                );
+            }""", timeout=10_000)
+            page.wait_for_function("""() => {
+                const state = window.__ASE_APP__.state;
+                return state.isRelaxing === false
+                    && state.relaxTrajectory?.kind === 'relaxation'
+                    && state.relaxTrajectory?.finished === true
+                    && state.relaxTrajectory?.frames?.length >= 2;
+            }""", timeout=20_000)
             relaxed = page.evaluate("window.__ASE_APP__.state.atoms.positions")
             assert np.max(np.linalg.norm(np.asarray(relaxed) - np.asarray(seed_positions), axis=1)) > 0.05
 

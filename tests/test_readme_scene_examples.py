@@ -183,15 +183,15 @@ def test_random_addition_readme_host_is_cu111_surface_and_reproducible():
     host, metadata = make_random_addition_scene()
     repeated, repeated_metadata = make_random_addition_scene()
 
-    assert len(host) == 168
+    assert len(host) == 210
     assert host.pbc.tolist() == [True, True, False]
     assert abs(float(np.linalg.det(host.cell.array))) > 1.0
     assert set(atom_labels(host)) == {"Cu_surface"}
     assert metadata["entries"] == [
-        {"element": "O", "label": "O_subsurface", "count": 8},
+        {"element": "O", "label": "O_subsurface", "count": 18},
     ]
     assert metadata["seed"] == 2021
-    assert metadata["coverage_monolayer"] == pytest.approx(8 / 42)
+    assert metadata["coverage_monolayer"] == pytest.approx(18 / 42)
     assert metadata["surface_reference"] == (
         "https://doi.org/10.1016/S0039-6028(01)01464-9"
     )
@@ -201,35 +201,69 @@ def test_random_addition_readme_host_is_cu111_surface_and_reproducible():
         np.round(host.positions[:, 2], 8),
         return_counts=True,
     )
-    assert len(z_layers) == 4
-    assert layer_counts.tolist() == [42, 42, 42, 42]
+    assert len(z_layers) == 5
+    assert layer_counts.tolist() == [42, 42, 42, 42, 42]
     allow = np.asarray(metadata["allow_region"]["bounds"], dtype=float)
-    assert z_layers[-2] < allow[4] < allow[5] < z_layers[-1]
+    assert z_layers[0] < allow[4] < z_layers[1]
+    assert z_layers[-2] < allow[5] < z_layers[-1]
+    assert allow[5] - allow[4] > 3.0 * np.diff(z_layers).mean() - 1e-7
     assert "reject_region" not in metadata
 
 
 def test_layered_water_channel_scene_is_periodic_graphene_oxide_with_exact_solvent_volume():
     host, metadata = make_layered_water_channel_scene()
-    assert len(host) == 104
+    assert len(host) == 132
     assert host.pbc.tolist() == [True, True, True]
     assert set(atom_labels(host)) == {
         "C_GO_lower", "C_GO_upper",
         "O_GO_lower", "O_GO_upper",
         "H_GO_lower", "H_GO_upper",
     }
-    assert metadata["interlayer_spacing_angstrom"] == pytest.approx(8.0)
-    assert host.cell.lengths()[2] == pytest.approx(16.0)
+    assert host.get_chemical_formula() == "C84H24O24"
+    assert metadata["interlayer_spacing_angstrom"] == pytest.approx(6.0)
+    assert host.cell.lengths()[2] == pytest.approx(12.0)
     assert metadata["molecules"] == [{"name": "H2O", "label": "water", "count": 1}]
     assert metadata["target_density_g_cm3"] == pytest.approx(1.0)
-    assert metadata["expected_molecule_count"] == 20
+    assert metadata["expected_molecule_count"] == 64
     assert [region["role"] for region in metadata["regions"]] == ["reject", "reject"]
     lower, upper = metadata["regions"]
-    assert lower["bounds"][4:6] == pytest.approx([1.45, 6.55])
-    assert upper["bounds"][4:6] == pytest.approx([9.45, 14.55])
-    assert metadata["accessible_volume_angstrom3"] == pytest.approx(607.6962966330268)
-    assert metadata["actual_density_g_cm3"] == pytest.approx(0.9845250452604854)
+    assert lower["bounds"][4:6] == pytest.approx([2.0, 4.0])
+    assert upper["bounds"][4:6] == pytest.approx([8.0, 10.0])
+    assert metadata["reject_region_thickness_angstrom"] == pytest.approx(2.0)
+    assert metadata["left_chamber_width_angstrom"] == pytest.approx(5.15)
+    assert metadata["right_chamber_width_angstrom"] == pytest.approx(5.15)
+    assert lower["bounds"][0] > 0.0
+    assert lower["bounds"][1] < host.cell.lengths()[0]
+    assert metadata["edge_hydroxyls_per_layer"] == 6
+    assert metadata["basal_hydroxyls_per_layer"] == 6
+    assert metadata["accessible_volume_angstrom3"] == pytest.approx(1926.683435276361)
+    assert metadata["actual_density_g_cm3"] == pytest.approx(0.9936947024274073)
     assert metadata["placement_mode"] == "random"
     assert metadata["coordinate_basis"] == "cartesian"
+
+    for sites in metadata["basal_hydroxyl_sites"].values():
+        sites = np.asarray(sites, dtype=float)
+        assert len(sites) == 6
+        assert np.ptp(sites[:, 0]) > 6.0
+        assert len(np.unique(np.round(sites[:, 1], decimals=6))) >= 3
+
+    layer_size = len(host) // 2
+    carbon_count = 42
+    hydroxyls_per_layer = 12
+    for layer_index, layer_name in enumerate(("lower", "upper")):
+        offset = layer_index * layer_size
+        carbon_indices = metadata["hydroxyl_carbon_indices"][layer_name]
+        assert len(carbon_indices) == hydroxyls_per_layer
+        for hydroxyl_index, local_carbon in enumerate(carbon_indices):
+            oxygen = offset + carbon_count + 2 * hydroxyl_index
+            hydrogen = oxygen + 1
+            carbon = offset + int(local_carbon)
+            c_o = host.get_distance(carbon, oxygen, mic=True)
+            o_h = host.get_distance(oxygen, hydrogen, mic=True)
+            angle = host.get_angle(carbon, oxygen, hydrogen, mic=True)
+            assert c_o == pytest.approx(1.36 if hydroxyl_index < 6 else 1.42)
+            assert o_h == pytest.approx(0.97)
+            assert angle == pytest.approx(np.degrees(np.arccos(-0.32)))
 
 
 def test_cu5o4_appearance_scene_partitions_substrate_without_changing_elements():
@@ -528,7 +562,9 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "**Field smearing σ**" in readme
     assert "**Mesh smoothing passes**" in readme
     assert "source scalar field" in readme
-    assert "eight `o_subsurface` atoms start" in normalized_readme
+    assert "eighteen `o_subsurface` atoms start" in normalized_readme
+    assert "three bulk-like interior layers" in normalized_readme
+    assert "entering `o` chooses oxygen immediately" in normalized_readme
     assert "Cu(111)/O placement example" in readme
     assert "separate Reject-region example" not in readme
     assert "half-open primary periodic cell" in readme
@@ -537,8 +573,11 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "Randomize molecular orientation" in readme
     assert "Preserve molecular geometry" in readme
     assert "native coordinate origin" in readme
-    assert "20 rigid h2o molecules" in normalized_readme
-    assert "607.696 å³" in normalized_readme
+    assert "64 rigid h2o molecules" in normalized_readme
+    assert "1926.683 å³" in normalized_readme
+    assert "`2 å`-thick" in normalized_readme
+    assert "distinct left and right solvent chambers" in normalized_readme
+    assert "viewport box-selection around the 32 substrate cu atoms" in normalized_readme
     assert "rectangular graphene `(√7 × √21) R±19.11°` host" in readme
     assert "MoS2 `2 × 2` guest" in readme
     assert "192-atom Cu(111) slab" in readme
@@ -735,6 +774,9 @@ def test_add_atoms_capture_uses_the_real_batch_workspace_and_optimizer():
     assert 'page.locator("#add-molecules-rigid").set_checked(True)' in molecule_capture
     assert "reference_distances" in molecule_capture
     assert 'ASSET_DIR / "readme_add_molecules.gif"' in molecule_capture
+    assert "6 Å periodic channels" in molecule_capture
+    assert "GO plane · 2 Å" in molecule_capture
+    assert 'metadata["expected_molecule_count"]' in molecule_capture
 
 
 def test_readme_ferrocene_and_copper_bond_media_use_documented_visual_controls():
@@ -754,6 +796,13 @@ def test_readme_ferrocene_and_copper_bond_media_use_documented_visual_controls()
     assert '"Cu_substrate": "metal"' in source
     assert '"Cu_oxide": "standard"' in source
     assert '"O_oxide": "rubber"' in source
+    assert "1 · BOX-SELECT SUBSTRATE" in source
+    assert 'page.mouse.down(button="left")' in source
+    assert 'page.mouse.up(button="left")' in source
+    assert 'page.fill("#selected-atom-label", "Cu_substrate")' in source
+    assert 'page.select_option("#selected-atom-material", "metal")' in source
+    assert '.label-radius-input[data-atom-label="Cu_substrate"]' in source
+    assert '.label-color-input[data-atom-label="Cu_substrate"]' in source
 
 
 def test_readme_volumetric_media_uses_refined_isosurface_controls():

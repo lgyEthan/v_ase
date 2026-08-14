@@ -2501,20 +2501,87 @@ def capture_cu5o4_view_appearance_media(browser) -> None:
             intensity=3.0,
             position_offset=(-10.0, -18.0, 18.0),
         )
+        page.evaluate("""() => {
+            const stage = document.createElement('div');
+            stage.id = 'readme-style-stage';
+            stage.innerHTML = '<strong>1 · BOX-SELECT SUBSTRATE</strong><span>drag around the lower Cu layers</span>';
+            document.body.appendChild(stage);
+            const style = document.createElement('style');
+            style.textContent = `
+                #readme-style-stage {
+                    position: fixed; z-index: 5000; top: 78px; left: 510px;
+                    min-width: 660px; display: flex; align-items: baseline; gap: 16px;
+                    padding: 10px 15px; border: 2px solid #bfd0ce;
+                    border-left: 7px solid #087f70; border-radius: 6px;
+                    background: rgba(255,255,255,.96); color: #243638;
+                    box-shadow: 0 5px 18px rgba(26,45,48,.13); pointer-events: none;
+                }
+                #readme-style-stage strong { color: #08796d; font-size: 18px; }
+                #readme-style-stage span { font-size: 15px; font-weight: 800; }
+            `;
+            document.head.appendChild(style);
+            window.__setReadmeStyleStage = (title, detail) => {
+                stage.querySelector('strong').textContent = title;
+                stage.querySelector('span').textContent = detail;
+            };
+        }""")
 
         frames: list[Image.Image] = []
         append_hold(frames, page, 8)
         substrate = groups["substrate_copper"]
-        page.evaluate(
-            """indices => {
-                const app = window.__V_ASE_APP__;
-                app.state.selected = new Set(indices);
-                app.updateSelectionVisuals();
-                app.updateUI();
-            }""",
-            substrate,
+        rectangle = page.evaluate("""indices => {
+            const app = window.__V_ASE_APP__;
+            const canvas = app.renderer.renderer.domElement;
+            const rect = canvas.getBoundingClientRect();
+            const camera = app.renderer.camera;
+            camera.updateMatrixWorld(true);
+            const wanted = new Set(indices.map(Number));
+            const selected = [];
+            const excluded = [];
+            app.renderer.forEachAtomProxy((mesh, index) => {
+                const point = mesh.position.clone().project(camera);
+                const projected = {
+                    x: rect.left + 0.5 * (point.x + 1) * rect.width,
+                    y: rect.top + 0.5 * (1 - point.y) * rect.height,
+                };
+                (wanted.has(index) ? selected : excluded).push(projected);
+            });
+            const selectedTop = Math.min(...selected.map(point => point.y));
+            const excludedBottom = Math.max(...excluded.map(point => point.y));
+            const top = 0.5 * (selectedTop + excludedBottom);
+            return {
+                left: Math.max(rect.left + 8, Math.min(...selected.map(point => point.x)) - 24),
+                right: Math.min(rect.right - 8, Math.max(...selected.map(point => point.x)) + 24),
+                top,
+                bottom: Math.min(rect.bottom - 12, Math.max(...selected.map(point => point.y)) + 24),
+            };
+        }""", substrate)
+        page.mouse.move(rectangle["left"], rectangle["top"])
+        page.mouse.down(button="left")
+        for fraction in np.linspace(0.2, 1.0, 5):
+            page.mouse.move(
+                rectangle["left"] + fraction * (rectangle["right"] - rectangle["left"]),
+                rectangle["top"] + fraction * (rectangle["bottom"] - rectangle["top"]),
+            )
+            page.wait_for_timeout(70)
+            frames.append(screenshot_frame(page))
+        page.mouse.up(button="left")
+        page.wait_for_function(
+            "count => window.__V_ASE_APP__.state.selected.size === count",
+            arg=len(substrate),
         )
+        selected_indices = page.evaluate(
+            "[...window.__V_ASE_APP__.state.selected].sort((a, b) => a - b)"
+        )
+        if selected_indices != sorted(substrate):
+            raise AssertionError("README appearance marquee did not select exactly the substrate layer.")
+        append_hold(frames, page, 8)
+        page.evaluate("""() => window.__setReadmeStyleStage(
+            '2 · ASSIGN A VISUAL LABEL',
+            '32 selected Cu atoms · ASE element remains Cu'
+        )""")
         page.fill("#selected-atom-label", "Cu_substrate")
+        append_hold(frames, page, 4)
         page.click("#btn-apply-selected-label")
         page.wait_for_function(
             "indices => indices.every(index => window.__V_ASE_APP__.state.atoms.symbols[index] === 'Cu_substrate')",
@@ -2527,20 +2594,51 @@ def capture_cu5o4_view_appearance_media(browser) -> None:
         })""", substrate)
         if not visual_identity["mode"] or set(visual_identity["elements"]) != {"Cu"}:
             raise AssertionError("README Cu5O4 label split changed ASE element identity in View mode.")
+        append_hold(frames, page, 7)
+
+        page.evaluate("""() => window.__setReadmeStyleStage(
+            '3 · STYLE THE SELECTED LABEL',
+            'Metal material · white · 2.00 Å radius'
+        )""")
+        page.select_option("#selected-atom-material", "metal")
+        page.wait_for_function(
+            "window.__V_ASE_APP__.state.display.atomMaterials && "
+            "Object.values(window.__V_ASE_APP__.state.display.atomMaterials).every(value => value === 'metal')"
+        )
+        append_hold(frames, page, 5)
+        page.evaluate("""() => {
+            const table = document.getElementById('appearance-table');
+            table.scrollLeft = table.scrollWidth;
+        }""")
+        radius_input = page.locator(
+            '.label-radius-input[data-atom-label="Cu_substrate"]'
+        )
+        radius_input.fill("2.0")
+        radius_input.blur()
+        color_input = page.locator(
+            '.label-color-input[data-atom-label="Cu_substrate"]'
+        )
+        color_input.evaluate("""input => {
+            input.value = '#ffffff';
+            input.dispatchEvent(new Event('input', {bubbles: true}));
+            input.dispatchEvent(new Event('change', {bubbles: true}));
+        }""")
+        page.wait_for_function("""() => (
+            Math.abs(Number(window.__V_ASE_APP__.state.display.labelRadii.Cu_substrate) - 2.0) < 1e-9
+            && window.__V_ASE_APP__.state.display.labelColors.Cu_substrate === '#ffffff'
+        )""")
+        append_hold(frames, page, 8)
 
         set_display(page, {
             "labelRadii": {
-                "Cu_substrate": 2.0,
                 "Cu": 1.28,
                 "O_surface_oxide": 0.76,
             },
             "labelColors": {
-                "Cu_substrate": "#ffffff",
                 "Cu": "#d4934d",
                 "O_surface_oxide": "#d9363e",
             },
             "labelMaterials": {
-                "Cu_substrate": "metal",
                 "Cu": "standard",
                 "O_surface_oxide": "rubber",
             },
@@ -2563,11 +2661,17 @@ def capture_cu5o4_view_appearance_media(browser) -> None:
         })
         page.evaluate("""() => {
             const app = window.__V_ASE_APP__;
+            document.getElementById('appearance-table').scrollLeft = 0;
             app.clearAtomSelection();
             app.renderer.selectionOutlines.visible = false;
             app.renderer.renderNow();
+            window.__setReadmeStyleStage(
+                '4 · VISUAL STYLE APPLIED',
+                'coordinates and ASE element identities are unchanged'
+            );
         }""")
         append_hold(frames, page, 10)
+        page.evaluate("document.getElementById('readme-style-stage').remove()")
 
         for angle_degrees in np.linspace(0.0, 90.0, 28):
             angle = math.radians(float(angle_degrees))
@@ -3363,8 +3467,14 @@ def _atom_mesh_visual_state(page, count: int) -> list[dict[str, object]]:
         (_, index) => {
             const renderer = window.__V_ASE_APP__.renderer;
             const mesh = renderer.atomMeshByIndex.get(index);
+            const instance = renderer.atomInstanceRefs.get(index);
+            const offset = instance?.matrixOffset ?? (instance?.instanceId ?? 0) * 16;
+            const matrix = instance?.matrix || instance?.mesh?.instanceMatrix?.array;
+            const scale = matrix
+                ? [matrix[offset], matrix[offset + 5], matrix[offset + 10]]
+                : (mesh?.scale?.toArray?.() || null);
             return {
-                scale: mesh?.scale?.toArray?.() || null,
+                scale,
                 fixed: Boolean(mesh?.userData?.fixed),
                 radius: renderer.atomVisualRadius(index)
             };
@@ -3382,7 +3492,8 @@ def _assert_temporary_fix_is_material_only(
     np.testing.assert_allclose(
         [item["scale"] for item in current],
         [item["scale"] for item in before],
-        atol=0.0,
+        # InstancedMesh matrices use Float32Array on the GPU path.
+        atol=1e-7,
         rtol=0.0,
     )
     np.testing.assert_allclose(
@@ -3408,8 +3519,13 @@ def _capture_add_atoms_variant(
     editor, page = open_scene(browser, host, show_bonds=False, viz_only=False)
     try:
         lengths = host.cell.lengths()
-        top_z = float(np.max(host.positions[:, 2]))
-        center = np.asarray([lengths[0] * 0.5, lengths[1] * 0.5, top_z - 1.7])
+        allow_region = metadata["allow_region"]
+        bounds = np.asarray(allow_region["bounds"], dtype=float)
+        center = np.asarray([
+            lengths[0] * 0.5,
+            lengths[1] * 0.5,
+            0.5 * (bounds[4] + bounds[5]),
+        ])
         set_display(page, {
             "viewportBackground": "white",
             "projectionMode": "orthographic",
@@ -3418,10 +3534,10 @@ def _capture_add_atoms_variant(
             "showCell": True,
             "showBonds": False,
             "showOverlays": True,
-            "atomRadiusScale": 0.62,
+            "atomRadiusScale": 0.54,
             "labelRadii": {
-                "Cu_surface": 1.18,
-                "O_subsurface": 0.98,
+                "Cu_surface": 1.12,
+                "O_subsurface": 0.84,
             },
             "labelColors": {
                 "Cu_surface": "#b96f38",
@@ -3438,12 +3554,12 @@ def _capture_add_atoms_variant(
         set_camera(
             page,
             target=center.tolist(),
-            position=(center + np.asarray([2.5, -38.0, 2.5])).tolist(),
+            position=(center + np.asarray([1.5, -42.0, 1.5])).tolist(),
             up=(0, 0, 1),
             fov=35,
         )
         page.evaluate("window.__V_ASE_APP__.renderer.fitCameraToStructure()")
-        set_atomic_scale(page, 43.0)
+        set_atomic_scale(page, 40.0)
         set_readme_lighting(
             page,
             center.tolist(),
@@ -3467,8 +3583,6 @@ def _capture_add_atoms_variant(
             widget.style.bottom = 'auto';
         }""")
 
-        allow_region = metadata["allow_region"]
-        bounds = np.asarray(allow_region["bounds"], dtype=float)
         _add_insertion_region(
             page,
             role="allow",
@@ -3487,9 +3601,9 @@ def _capture_add_atoms_variant(
         page.fill("#add-atoms-seed", str(metadata["seed"]))
         page.select_option("#add-atoms-cutoff-basis", "pairwise")
         page.fill("#add-atoms-cutoff-scale", "1.00")
-        page.fill("#add-atoms-strength", "2.5")
-        page.fill("#add-atoms-fmax", "0.002")
-        page.fill("#add-atoms-steps", "180")
+        page.fill("#add-atoms-strength", "3.0")
+        page.fill("#add-atoms-fmax", "0.010")
+        page.fill("#add-atoms-steps", "220")
         page.select_option("#add-atoms-device", "cpu")
         page.select_option("#add-atoms-cpus", str(min(4, os.cpu_count() or 1)))
         unique_elements = {
@@ -3508,7 +3622,7 @@ def _capture_add_atoms_variant(
                 input.value = String(cutoffs[row.dataset.pair]);
                 input.dispatchEvent(new Event('change', {bubbles: true}));
             });
-        }""", {"Cu-Cu": 0.0, "Cu-O": 1.78, "O-O": 2.20})
+        }""", {"Cu-Cu": 0.0, "Cu-O": 2.05, "O-O": 2.40})
 
         frames: list[Image.Image] = []
         append_hold(frames, page, 7)
@@ -3525,8 +3639,8 @@ def _capture_add_atoms_variant(
         # apply the publication palette after that catalog exists.
         set_display(page, {
             "labelRadii": {
-                "Cu_surface": 1.18,
-                "O_subsurface": 0.98,
+                "Cu_surface": 1.12,
+                "O_subsurface": 0.84,
             },
             "labelColors": {
                 "Cu_surface": "#b96f38",
@@ -3553,7 +3667,7 @@ def _capture_add_atoms_variant(
             axis=1,
         )
         if not bool(np.all(inserted_inside)):
-            raise AssertionError("Cu(111) Add Atoms demo scattered outside its surface zone.")
+            raise AssertionError("Cu(111) Add Atoms demo scattered outside its bulk-like zone.")
         append_hold(frames, page, 8)
 
         page.evaluate("""() => {
@@ -3618,7 +3732,7 @@ def _capture_add_atoms_variant(
         )
         update_positions(page, relaxed_positions)
         page.evaluate("""() => window.__V_ASE_APP__.setAddAtomsStatus(
-            'active', 'Subsurface zone · O placement complete'
+            'active', 'Bulk-like zone · O placement complete'
         )""")
         page.evaluate("""() => {
             const app = window.__V_ASE_APP__;
@@ -3900,12 +4014,12 @@ def _capture_add_molecules_media(browser) -> None:
         set_camera(
             page,
             target=center.tolist(),
-            position=(center + np.asarray([8.0, -34.0, 6.5])).tolist(),
+            position=(center + np.asarray([1.8, -46.0, 2.8])).tolist(),
             up=(0, 0, 1),
             fov=35,
         )
         page.evaluate("window.__V_ASE_APP__.renderer.fitCameraToStructure()")
-        set_atomic_scale(page, 62.0)
+        set_atomic_scale(page, 44.0)
         set_readme_lighting(page, center.tolist(), intensity=2.8, position_offset=(-16, -18, 22))
         host_visual_before = _atom_mesh_visual_state(page, len(host))
         _assert_temporary_fix_is_material_only(
@@ -3931,7 +4045,7 @@ def _capture_add_molecules_media(browser) -> None:
             overlay.innerHTML = `
                 <div class="readme-stage-line">
                     <strong id="readme-molecule-step">1 · PROTECT GO LAYERS</strong>
-                    <span>periodic hydroxylated graphene oxide · PBC x/y/z</span>
+                    <span>edge + basal OH graphene oxide · 6 Å periodic channels</span>
                 </div>
                 <div class="readme-stage-facts">
                     <span><i class="reject"></i>GO REJECT REGIONS ×<b id="readme-reject-count">0</b></span>
@@ -3942,9 +4056,9 @@ def _capture_add_molecules_media(browser) -> None:
             const sceneLabels = document.createElement('div');
             sceneLabels.id = 'readme-molecule-scene-labels';
             sceneLabels.innerHTML = `
-                <span class="region-label upper">REJECT · upper GO + ligands</span>
-                <span class="spacing-label"><b>8 Å</b><i></i></span>
-                <span class="region-label lower">REJECT · lower GO + ligands</span>`;
+                <span class="region-label upper">REJECT · upper GO plane · 2 Å</span>
+                <span class="spacing-label"><b>6 Å</b><i></i></span>
+                <span class="region-label lower">REJECT · lower GO plane · 2 Å</span>`;
             document.body.appendChild(sceneLabels);
             const style = document.createElement('style');
             style.textContent = `
@@ -3967,10 +4081,10 @@ def _capture_add_molecules_media(browser) -> None:
                 #toast-container, .status-group { display: none !important; }
                 #readme-molecule-scene-labels { position: fixed; inset: 0; z-index: 4999; pointer-events: none; }
                 .region-label { display: none; position: absolute; padding: 5px 8px; border: 2px solid; border-radius: 4px; background: rgba(255,255,255,.94); font-size: 14px; font-weight: 900; }
-                .region-label.upper { left: 1260px; top: 250px; color: #8d247a; border-color: #ad3b98; }
-                .region-label.lower { left: 1260px; top: 700px; color: #8d247a; border-color: #ad3b98; }
-                .spacing-label { position: absolute; left: 735px; top: 476px; display: flex; align-items: center; gap: 7px; color: #674f1f; font-size: 16px; font-weight: 950; }
-                .spacing-label i { display: block; width: 2px; height: 98px; background: #8b6c2c; box-shadow: 0 -5px 0 #8b6c2c, 0 5px 0 #8b6c2c; }
+                .region-label.upper { left: 1370px; top: 315px; color: #8d247a; border-color: #ad3b98; }
+                .region-label.lower { left: 1370px; top: 655px; color: #8d247a; border-color: #ad3b98; }
+                .spacing-label { position: absolute; left: 845px; top: 468px; display: flex; align-items: center; gap: 7px; color: #674f1f; font-size: 16px; font-weight: 950; }
+                .spacing-label i { display: block; width: 2px; height: 86px; background: #8b6c2c; box-shadow: 0 -5px 0 #8b6c2c, 0 5px 0 #8b6c2c; }
             `;
             document.head.appendChild(style);
             window.__setReadmeMoleculeStage = (step, detail) => {
@@ -4056,7 +4170,7 @@ def _capture_add_molecules_media(browser) -> None:
             raise AssertionError("README Add Molecules uses in-cell regions and should not need wrapped fragments.")
         np.testing.assert_allclose(
             region_visuals["inletBounds"],
-            [0.0, float(host.cell.lengths()[0])],
+            metadata["regions"][0]["bounds"][:2],
             atol=1e-6,
         )
 

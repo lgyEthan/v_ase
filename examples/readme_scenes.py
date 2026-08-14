@@ -596,11 +596,11 @@ def make_cu5o4_appearance_scene() -> tuple[Atoms, dict[str, list[int]]]:
 
 
 def make_random_addition_scene() -> tuple[Atoms, dict[str, object]]:
-    """Return a Cu(111) slab with a finite subsurface O insertion volume."""
+    """Return a Cu(111) slab with a finite bulk-like O insertion volume."""
 
     host = fcc111(
         "Cu",
-        size=(7, 6, 4),
+        size=(7, 6, 5),
         a=3.615,
         vacuum=7.0,
         orthogonal=True,
@@ -610,28 +610,27 @@ def make_random_addition_scene() -> tuple[Atoms, dict[str, object]]:
     cell_lengths = host.cell.lengths()
     z_layers = np.unique(np.round(host.positions[:, 2], decimals=6))
     top_z = float(z_layers[-1])
-    second_z = float(z_layers[-2])
     allow_bounds = [
-        0.16 * cell_lengths[0],
-        0.84 * cell_lengths[0],
-        0.12 * cell_lengths[1],
-        0.88 * cell_lengths[1],
-        second_z + 0.28 * (top_z - second_z),
-        top_z - 0.20 * (top_z - second_z),
+        0.10 * cell_lengths[0],
+        0.90 * cell_lengths[0],
+        0.08 * cell_lengths[1],
+        0.92 * cell_lengths[1],
+        0.5 * (float(z_layers[0]) + float(z_layers[1])),
+        0.5 * (float(z_layers[-2]) + top_z),
     ]
     host.info.update({
-        "readme_scene": "cu111_subsurface_oxygen_addition",
-        "purpose": "random O insertion below the top Cu layer followed by pairwise repulsion",
-        "coverage_monolayer": 8 / 42,
+        "readme_scene": "cu111_bulk_like_oxygen_addition",
+        "purpose": "random O insertion through the interior Cu layers followed by pairwise repulsion",
+        "coverage_monolayer": 18 / 42,
         "surface_reference": O_CU111_REFERENCE,
     })
     return host, {
-        "entries": [{"element": "O", "label": "O_subsurface", "count": 8}],
+        "entries": [{"element": "O", "label": "O_subsurface", "count": 18}],
         "seed": 2021,
-        "coverage_monolayer": 8 / 42,
+        "coverage_monolayer": 18 / 42,
         "allow_region": {
-            "id": "subsurface-insertion-zone",
-            "name": "Subsurface insertion zone",
+            "id": "bulk-like-insertion-zone",
+            "name": "Bulk-like insertion zone",
             "role": "allow",
             "bounds": allow_bounds,
         },
@@ -640,41 +639,98 @@ def make_random_addition_scene() -> tuple[Atoms, dict[str, object]]:
 
 
 def make_layered_water_channel_scene() -> tuple[Atoms, dict[str, object]]:
-    """Return periodic hydroxylated graphene-oxide layers and solvent space."""
+    """Return periodic edge/basal-hydroxylated GO layers and solvent chambers."""
 
-    source = graphene_nanoribbon(5, 4, type="zigzag", sheet=True, vacuum=0.0)
-    length_x = float(source.cell.lengths()[0])
+    source = graphene_nanoribbon(7, 3, type="zigzag", sheet=False, vacuum=0.0)
+    carbon_x = np.asarray(source.positions[:, 0], dtype=float)
+    carbon_y = np.asarray(source.positions[:, 2], dtype=float)
+    ribbon_min_x = float(np.min(carbon_x))
+    ribbon_max_x = float(np.max(carbon_x))
+    chamber_padding = 7.0
+    shifted_x = carbon_x - ribbon_min_x + chamber_padding
     length_y = float(source.cell.lengths()[2])
-    cell = np.diag([length_x, length_y, 16.0])
-    carbon_xy = np.column_stack((source.positions[:, 0], source.positions[:, 2]))
+    length_x = float(ribbon_max_x - ribbon_min_x + 2.0 * chamber_padding)
+    cell = np.diag([length_x, length_y, 12.0])
+    carbon_xy = np.column_stack((shifted_x, carbon_y))
+    edge_tolerance = 1e-7
+    left_edge = np.flatnonzero(np.isclose(carbon_x, ribbon_min_x, atol=edge_tolerance))
+    right_edge = np.flatnonzero(np.isclose(carbon_x, ribbon_max_x, atol=edge_tolerance))
+    edge_indices = np.concatenate((left_edge, right_edge))
+    edge_index_set = set(edge_indices.tolist())
+    left_edge_set = set(left_edge.tolist())
+    interior_indices = np.asarray(
+        [index for index in range(len(source)) if index not in edge_index_set],
+        dtype=int,
+    )
 
-    def graphene_oxide_layer(z: float, layer: str, phase: int) -> tuple[Atoms, list[str]]:
+    def graphene_oxide_layer(
+        z: float,
+        layer: str,
+        seed: int,
+    ) -> tuple[Atoms, list[str], dict[str, object]]:
         carbon = Atoms(
             "C" * len(source),
             positions=np.column_stack((carbon_xy, np.full(len(source), z))),
             cell=cell,
             pbc=True,
         )
-        chosen = np.linspace(0, len(source) - 1, 6, dtype=int)
+        rng = np.random.default_rng(seed)
+        basal_indices = np.sort(rng.choice(interior_indices, size=6, replace=False))
         ligand_symbols: list[str] = []
         ligand_positions: list[list[float]] = []
-        for order, index in enumerate(chosen):
-            direction = 1.0 if (order + phase) % 2 == 0 else -1.0
+
+        # Every finite-ribbon edge carbon is hydroxyl-passivated.  The O-H
+        # direction is tilted around the C-O bond, rather than drawn collinear.
+        for edge_order, index in enumerate(edge_indices):
             carbon_position = carbon.positions[int(index)]
-            oxygen = carbon_position + np.array([0.0, 0.0, 1.36 * direction])
-            hydrogen = oxygen + np.array([0.0, 0.0, 0.97 * direction])
+            outward = -1.0 if int(index) in left_edge_set else 1.0
+            oxygen = carbon_position + np.array([1.36 * outward, 0.0, 0.0])
+            azimuth = 2.0 * math.pi * ((edge_order + 0.37 * seed) % 7) / 7.0
+            perpendicular = np.array([0.0, math.cos(azimuth), math.sin(azimuth)])
+            oh_direction = (
+                0.32 * np.array([outward, 0.0, 0.0])
+                + math.sqrt(1.0 - 0.32**2) * perpendicular
+            )
+            hydrogen = oxygen + 0.97 * oh_direction
+            ligand_symbols.extend(["O", "H"])
+            ligand_positions.extend([oxygen.tolist(), hydrogen.tolist()])
+
+        # Basal hydroxyls use deterministic random sites and azimuths, so they
+        # cover both faces without collapsing into a single crystallographic row.
+        for order, index in enumerate(basal_indices):
+            direction = 1.0 if rng.random() >= 0.5 else -1.0
+            carbon_position = carbon.positions[int(index)]
+            oxygen = carbon_position + np.array([0.0, 0.0, 1.42 * direction])
+            azimuth = float(rng.uniform(0.0, 2.0 * math.pi))
+            lateral = np.array([math.cos(azimuth), math.sin(azimuth), 0.0])
+            oh_direction = (
+                math.sqrt(1.0 - 0.32**2) * lateral
+                + 0.32 * np.array([0.0, 0.0, direction])
+            )
+            hydrogen = oxygen + 0.97 * oh_direction
             ligand_symbols.extend(["O", "H"])
             ligand_positions.extend([oxygen.tolist(), hydrogen.tolist()])
         ligands = Atoms(ligand_symbols, positions=ligand_positions, cell=cell, pbc=True)
         layer_atoms = carbon + ligands
         labels = (
             [f"C_GO_{layer}"] * len(carbon)
-            + [value for _ in chosen for value in (f"O_GO_{layer}", f"H_GO_{layer}")]
+            + [
+                value
+                for _ in range(len(edge_indices) + len(basal_indices))
+                for value in (f"O_GO_{layer}", f"H_GO_{layer}")
+            ]
         )
-        return layer_atoms, labels
+        return layer_atoms, labels, {
+            "edge_indices": edge_indices.tolist(),
+            "basal_indices": basal_indices.tolist(),
+            "basal_xy": carbon_xy[basal_indices].tolist(),
+            "hydroxyl_carbon_indices": np.concatenate(
+                (edge_indices, basal_indices)
+            ).tolist(),
+        }
 
-    lower, lower_labels = graphene_oxide_layer(4.0, "lower", 0)
-    upper, upper_labels = graphene_oxide_layer(12.0, "upper", 1)
+    lower, lower_labels, lower_ligands = graphene_oxide_layer(3.0, "lower", 1207)
+    upper, upper_labels, upper_ligands = graphene_oxide_layer(9.0, "upper", 2710)
     channel = lower + upper
     channel.cell = cell
     channel.pbc = True
@@ -684,18 +740,20 @@ def make_layered_water_channel_scene() -> tuple[Atoms, dict[str, object]]:
         "readme_scene": "periodic_graphene_oxide_water",
         "purpose": "exact solvent density outside ligand-wrapped reject regions",
     })
+    reject_min_x = float(np.min(shifted_x) - 1.85)
+    reject_max_x = float(np.max(shifted_x) + 1.85)
     regions = [
         {
             "id": "lower-go-exclusion",
             "name": "Lower GO exclusion",
             "role": "reject",
-            "bounds": [0.0, length_x, 0.0, length_y, 1.45, 6.55],
+            "bounds": [reject_min_x, reject_max_x, 0.0, length_y, 2.0, 4.0],
         },
         {
             "id": "upper-go-exclusion",
             "name": "Upper GO exclusion",
             "role": "reject",
-            "bounds": [0.0, length_x, 0.0, length_y, 9.45, 14.55],
+            "bounds": [reject_min_x, reject_max_x, 0.0, length_y, 8.0, 10.0],
         },
     ]
     domain = build_insertion_domain(
@@ -717,7 +775,20 @@ def make_layered_water_channel_scene() -> tuple[Atoms, dict[str, object]]:
         "actual_density_g_cm3": density["actual_g_cm3"],
         "regions": regions,
         "accessible_volume_angstrom3": domain.volume,
-        "interlayer_spacing_angstrom": 8.0,
+        "interlayer_spacing_angstrom": 6.0,
+        "reject_region_thickness_angstrom": 2.0,
+        "left_chamber_width_angstrom": reject_min_x,
+        "right_chamber_width_angstrom": length_x - reject_max_x,
+        "edge_hydroxyls_per_layer": len(edge_indices),
+        "basal_hydroxyls_per_layer": len(lower_ligands["basal_indices"]),
+        "basal_hydroxyl_sites": {
+            "lower": lower_ligands["basal_xy"],
+            "upper": upper_ligands["basal_xy"],
+        },
+        "hydroxyl_carbon_indices": {
+            "lower": lower_ligands["hydroxyl_carbon_indices"],
+            "upper": upper_ligands["hydroxyl_carbon_indices"],
+        },
         "seed": 1207,
         "placement_mode": "random",
         "coordinate_basis": "cartesian",
@@ -1086,7 +1157,7 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
         info = SceneInfo(
             name=name,
             description=(
-                "Cu(111) slab for random O insertion between the top and second layers."
+                "Five-layer Cu(111) slab for random O insertion across its bulk-like interior."
             ),
             static_file="cu111_oxygen_add_atoms.traj",
             selected_indices=(),
@@ -1095,7 +1166,7 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
                     f"Scatter {entries[0]['count']} O_subsurface atoms with random seed 2021 "
                     f"({metadata['coverage_monolayer']:.3f} per top-layer Cu atom)."
                 ),
-                "The finite Allow region lies strictly between the first two Cu(111) layers.",
+                "The finite Allow region spans the three interior Cu(111) layers.",
                 "All Cu coordinates remain unchanged while only inserted O follows pairwise repulsion.",
                 f"Surface context: {metadata['surface_reference']}",
             ),
@@ -1105,7 +1176,9 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
         atoms, metadata = make_layered_water_channel_scene()
         info = SceneInfo(
             name=name,
-            description="Periodic hydroxylated graphene oxide for exact-density rigid-water insertion.",
+            description=(
+                "Periodic edge/basal-hydroxylated graphene oxide with left and right water chambers."
+            ),
             static_file="layered_water_channel.traj",
             selected_indices=(),
             notes=(
@@ -1115,7 +1188,8 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
                     f"{metadata['expected_molecule_count']} H2O molecules are realizable."
                 ),
                 "Random orientation is Haar-uniform and rigid placement preserves each molecular geometry.",
-                "Two Reject regions wrap the ligand-bearing GO layers; only inserted water relaxes.",
+                "Two 2 A Reject regions cover only the GO planes in a 6 A periodic layered cell.",
+                "The expanded x cell leaves distinct left and right solvent chambers.",
             ),
         )
         return atoms, info

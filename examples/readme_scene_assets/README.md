@@ -2,12 +2,12 @@
 
 ## add-atoms
 
-Cu(111) slab for random O insertion between the top and second layers.
+Five-layer Cu(111) slab for random O insertion across its bulk-like interior.
 
 - Static: `cu111_oxygen_add_atoms.traj`
 - Suggested selected indices: ``
-- Scatter 8 O_subsurface atoms with random seed 2021 (0.190 per top-layer Cu atom).
-- The finite Allow region lies strictly between the first two Cu(111) layers.
+- Scatter 18 O_subsurface atoms with random seed 2021 (0.429 per top-layer Cu atom).
+- The finite Allow region spans the three interior Cu(111) layers.
 - All Cu coordinates remain unchanged while only inserted O follows pairwise repulsion.
 - Surface context: https://doi.org/10.1016/S0039-6028(01)01464-9
 
@@ -19,13 +19,14 @@ v_ase gui examples/readme_scene_assets/cu111_oxygen_add_atoms.traj --show-bonds
 
 ## add-molecules
 
-Periodic hydroxylated graphene oxide for exact-density rigid-water insertion.
+Periodic edge/basal-hydroxylated graphene oxide with left and right water chambers.
 
 - Static: `layered_water_channel.traj`
 - Suggested selected indices: ``
-- Target 1.00 g/cm^3 in the exact 607.696 A^3 solvent domain; 20 H2O molecules are realizable.
+- Target 1.00 g/cm^3 in the exact 1926.683 A^3 solvent domain; 64 H2O molecules are realizable.
 - Random orientation is Haar-uniform and rigid placement preserves each molecular geometry.
-- Two Reject regions wrap the ligand-bearing GO layers; only inserted water relaxes.
+- Two 2 A Reject regions cover only the GO planes in a 6 A periodic layered cell.
+- The expanded x cell leaves distinct left and right solvent chambers.
 
 Open command:
 

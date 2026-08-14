@@ -202,6 +202,10 @@ isosurface extraction, and high-bin RDF calculations can take time.
 - During Add Atoms, consume `add_atoms_relax_step` and
   `add_atoms_relax_finished` events or poll `describe().addAtoms`; commit only
   after `is_relaxing` becomes false.
+- `start-relaxation` can finish before the first state poll. Accept either an
+  active run or an already-finished Relaxation timeline, then verify the final
+  positions and retained optimizer frames; do not require observing a transient
+  running state.
 - Poll semantic state at a reasonable interval; one second is sufficient for
   normal relaxation UI updates.
 - For video, verify the expected output frame count:

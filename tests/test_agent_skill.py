@@ -115,6 +115,14 @@ def test_skill_covers_every_live_operation_and_export():
         assert f"`{value}`" in documented, value
 
 
+def test_skill_distinguishes_gui_label_inference_from_agent_element_identity():
+    documented = _documented_skill_text()
+
+    assert "entering a valid chemical symbol as an atom Label" in documented
+    assert "matching Type (`O` selects oxygen" in documented
+    assert "must still provide both `element` and `label` explicitly" in documented
+
+
 def test_readme_agent_media_uses_the_external_cli_bridge():
     capture = (ROOT / "scripts/capture_readme_screenshots.py").read_text(
         encoding="utf-8"

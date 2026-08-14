@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.15
+
+- Made Add Atoms infer the Type control from element-symbol Labels in both
+  Single and Batch workflows while preserving explicit manual Type overrides.
+- Expanded the Cu(111) insertion example to a five-layer bulk-like domain with
+  18 staged oxygen atoms and regenerated the optimizer-backed README media.
+- Rebuilt the rigid-water example with edge- and basal-hydroxylated graphene
+  oxide, `6 Å` periodic layering, two `2 Å` GO-only Reject regions, separate
+  left/right solvent chambers, and 64 H2O molecules at `0.994 g/cm³`.
+- Re-recorded View-mode appearance editing from the actual viewport box
+  selection through label, material, color, and radius controls, including
+  InstancedMesh-safe visual-invariance checks.
+- Preserved completed short relaxation trajectories when the terminal
+  WebSocket event arrives before the start response, in both GUI and agent
+  command paths.
+
 ## 0.2.14
 
 - Added one-login remote CLI capability negotiation for `HOST:/path` launches.

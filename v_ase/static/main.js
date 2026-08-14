@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.14&rev=1';
-import { ASERenderer } from './renderer.js?v=0.2.14&rev=1';
-import { ASESelection } from './selection.js?v=0.2.14&rev=1';
-import { ASETransform } from './transform.js?v=0.2.14&rev=1';
+import { ASEApi } from './api.js?v=0.2.15&rev=1';
+import { ASERenderer } from './renderer.js?v=0.2.15&rev=1';
+import { ASESelection } from './selection.js?v=0.2.15&rev=1';
+import { ASETransform } from './transform.js?v=0.2.15&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.14&rev=1';
+} from './trajectory.js?v=0.2.15&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -1678,6 +1678,11 @@ class VAseApp {
                 labelInput.value = typeSelect.value;
             }
         });
+        const syncSingleTypeFromLabel = () => {
+            this.syncElementSelectFromLabel(labelInput, typeSelect);
+        };
+        labelInput?.addEventListener('input', syncSingleTypeFromLabel);
+        labelInput?.addEventListener('change', syncSingleTypeFromLabel);
         centerButton?.addEventListener('click', event => {
             event.preventDefault();
             setPositionInputs(this.createAtomViewCenter());
@@ -2062,6 +2067,13 @@ class VAseApp {
             type.dataset.previous = type.value;
             void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
         });
+        const syncBatchTypeFromLabel = () => {
+            if (!this.syncElementSelectFromLabel(label, type)) return;
+            type.dataset.previous = type.value;
+            void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
+        };
+        label.addEventListener('input', syncBatchTypeFromLabel);
+        label.addEventListener('change', syncBatchTypeFromLabel);
         remove.addEventListener('click', () => {
             if (container.children.length <= 1) {
                 this.toast('Add Atoms requires at least one atom type.', 'warning');
@@ -11194,6 +11206,15 @@ class VAseApp {
         return String(value || '').trim();
     }
 
+    syncElementSelectFromLabel(labelInput, typeSelect) {
+        if (!labelInput || !typeSelect) return false;
+        const inferred = this.detectedElementForLabel(labelInput.value);
+        if (!inferred || !this.chemicalElementOptions().includes(inferred)) return false;
+        if (typeSelect.value === inferred) return false;
+        typeSelect.value = inferred;
+        return true;
+    }
+
     chemicalElementOptions() {
         return CHEMICAL_ELEMENT_SYMBOLS;
     }
@@ -14062,7 +14083,13 @@ class VAseApp {
                 applyConstraints,
                 operation.calculator || this.currentCalculatorPayload()
             );
-            this.state.isRelaxing = ['started', 'restarting'].includes(response.status);
+            const completionArrivedFirst = (
+                this.state.relaxTrajectory?.kind === 'relaxation'
+                && this.state.relaxTrajectory?.finished === true
+                && this.state.isRelaxing === false
+            );
+            this.state.isRelaxing = !completionArrivedFirst
+                && ['started', 'restarting'].includes(response.status);
             this.updateUI();
             return;
         }
@@ -19615,8 +19642,15 @@ class VAseApp {
                     this.currentCalculatorPayload()
                 );
                 if (response.status === 'started' || response.status === 'restarting') {
-                    this.state.isRelaxing = true;
-                    this.toast(response.status === 'restarting' ? 'Relaxation restarting.' : 'Relaxation started.', 'success');
+                    const completionArrivedFirst = (
+                        this.state.relaxTrajectory?.kind === 'relaxation'
+                        && this.state.relaxTrajectory?.finished === true
+                        && this.state.isRelaxing === false
+                    );
+                    if (!completionArrivedFirst) {
+                        this.state.isRelaxing = true;
+                        this.toast(response.status === 'restarting' ? 'Relaxation restarting.' : 'Relaxation started.', 'success');
+                    }
                 } else {
                     this.clearModeTrajectory('relaxation');
                     this.toast(response.message || 'Relaxation did not start.', 'warning');

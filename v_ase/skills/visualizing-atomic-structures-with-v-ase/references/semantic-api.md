@@ -232,6 +232,12 @@ Pass `operation` as a name string or object:
 
 ### Batch Add Atoms State
 
+In the GUI, entering a valid chemical symbol as an atom Label also selects the
+matching Type (`O` selects oxygen, for example). A later manual Type choice is
+authoritative and permits distinct visual labels. Semantic `scatter-atoms`
+operations must still provide both `element` and `label` explicitly; do not
+infer the physical element from an arbitrary label in agent code.
+
 `scatter-atoms` accepts mixed populations:
 
 ```javascript
