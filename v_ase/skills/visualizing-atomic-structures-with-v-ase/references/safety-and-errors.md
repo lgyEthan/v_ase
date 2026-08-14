@@ -166,6 +166,7 @@ test edit and a new filename for output.
 | WSL browser does not open or `gio` is unsupported | Browser/interop launch failed or returned a false success; the server is still running | Ctrl+click or paste the always-printed loopback URL and keep the terminal alive |
 | remote `unrecognized arguments: --no-browser --stream-frames` | Local launcher predates remote capability negotiation while the remote v_ase is older | Upgrade the local installation to `v_ase-gui>=0.2.14`; upgrade the remote installation too before large trajectory or FP64 volumetric work |
 | remote compatibility-mode warning | Remote CLI can open the file but lacks on-demand frame streaming | Continue for a small structure, or upgrade remote v_ase before a large trajectory; the source file remains remote in either case |
+| remote URL returns `ERR_CONNECTION_RESET` on a load-balanced cluster | A local launcher older than 0.2.17 opened the backend and forward in separate SSH connections that reached different login nodes | Upgrade local v_ase to `>=0.2.17`; current launchers carry the backend and tunnel over one SSH connection while leaving the source remote |
 | blank or clipped render | Camera/aspect/options mismatch | Fit camera, render exact dimensions, inspect decoded image |
 | unexpected constrained position | ASE projected requested movement | Trust returned backend position and report projection |
 | frame selection disappeared | Topology differs between frames | Re-describe and select valid mapped atoms |

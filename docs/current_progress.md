@@ -193,8 +193,9 @@ and documentation use `view()`.
     omitted. No public listener or administrator-assigned port is required.
 35. An scp-style `HOST:/path` input makes remote use a one-command workflow.
     The local launcher starts remote v_ase, allocates both private endpoints,
-    creates and monitors the SSH tunnel, opens the local browser, and cleans up
-    both SSH processes when the browser closes.
+    carries the backend and tunnel over one SSH connection, opens the local
+    browser, and cleans up that connection when the browser closes. This pins
+    load-balanced cluster aliases to one login node.
 36. Remote sessions force frame streaming for every trajectory size. Source
     files, ASE objects, and full trajectory caches stay on the server; the
     browser receives the current frame only.

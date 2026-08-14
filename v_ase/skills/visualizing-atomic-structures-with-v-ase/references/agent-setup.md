@@ -192,7 +192,9 @@ evaluation alone is not sufficient evidence of external-agent compatibility.
 
 For a remote server, keep the structure and v_ase process on the server. Use
 the automatic SSH tunnel command documented in `cli-and-environments.md`; the
-browser receives rendered/session data, not the original structure file.
+single managed SSH connection pins the backend and forward to the same login
+node. The browser receives requested frame or derived rendering data, not the
+original structure file.
 
 ## Live Human Collaboration
 

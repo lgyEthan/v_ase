@@ -201,7 +201,7 @@ def test_remote_gui_command_preserves_user_options_and_quotes_the_path():
     ]
 
 
-def _run_fake_remote_launcher(tmp_path, args, help_text):
+def _run_fake_remote_launcher(tmp_path, args, help_text, remote_port=None):
     executable = tmp_path / "v_ase"
     arguments_file = tmp_path / "arguments.txt"
     browser_file = tmp_path / "browser.txt"
@@ -228,7 +228,11 @@ def _run_fake_remote_launcher(tmp_path, args, help_text):
         "VASE_BROWSER_FILE": str(browser_file),
     })
     completed = subprocess.run(
-        ["/bin/sh", "-c", build_remote_gui_launcher(args, target)],
+        [
+            "/bin/sh",
+            "-c",
+            build_remote_gui_launcher(args, target, remote_port),
+        ],
         check=False,
         capture_output=True,
         text=True,
@@ -347,6 +351,21 @@ def test_remote_launcher_requires_upgrade_for_unsupported_fp64(tmp_path):
     assert "pip install --upgrade v_ase-gui" in completed.stderr
 
 
+def test_remote_launcher_requires_port_support_for_one_connection_tunnel(tmp_path):
+    args = build_parser().parse_args(["gui", "legacy:/data/POSCAR"])
+    completed, arguments, _browser = _run_fake_remote_launcher(
+        tmp_path,
+        args,
+        "--no-browser --stream-frames --hide-bonds",
+        remote_port=55363,
+    )
+
+    assert completed.returncode == 64
+    assert arguments == []
+    assert "does not support the managed SSH tunnel port" in completed.stderr
+    assert "pip install --upgrade v_ase-gui" in completed.stderr
+
+
 def test_remote_url_is_rewritten_to_the_automatically_selected_local_endpoint():
     remote_url = (
         "http://127.0.0.1:55363/workspace"
@@ -448,7 +467,10 @@ def test_run_gui_delegates_remote_targets_before_local_file_validation(monkeypat
     assert captured["target"] == RemoteTarget("physics", "/data/POSCAR")
 
 
-def test_remote_launch_uses_explicit_port_only_for_the_local_endpoint(monkeypatch, capsys):
+def test_remote_launch_uses_one_ssh_connection_for_server_and_tunnel(
+    monkeypatch,
+    capsys,
+):
     parser = build_parser()
     args = parser.parse_args(
         ["gui", "physics:/data/POSCAR", "--port", "49152"]
@@ -474,14 +496,15 @@ def test_remote_launch_uses_explicit_port_only_for_the_local_endpoint(monkeypatc
             return self.return_code
 
     remote_process = FakeProcess(0)
-    tunnel_process = FakeProcess(None)
 
     monkeypatch.setattr(remote.shutil, "which", lambda name: "/usr/bin/ssh")
-    monkeypatch.setattr(
-        remote.subprocess,
-        "Popen",
-        lambda *popen_args, **popen_kwargs: remote_process,
-    )
+
+    def fake_popen(command, **_kwargs):
+        captured["command"] = command
+        return remote_process
+
+    monkeypatch.setattr(remote.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(remote, "find_free_port", lambda: 55363)
     monkeypatch.setattr(
         remote,
         "_read_remote_url",
@@ -490,25 +513,30 @@ def test_remote_launch_uses_explicit_port_only_for_the_local_endpoint(monkeypatc
         ),
     )
 
-    def fake_start_tunnel(
-        ssh_executable,
-        remote_target,
-        remote_port,
-        requested_local_port=None,
-    ):
-        captured["remote_port"] = remote_port
-        captured["requested_local_port"] = requested_local_port
-        return tunnel_process, requested_local_port
-
-    monkeypatch.setattr(remote, "_start_tunnel", fake_start_tunnel)
+    monkeypatch.setattr(
+        remote,
+        "_wait_for_forwarded_http",
+        lambda process, url: captured.update({"wait_process": process, "url": url}),
+    )
     monkeypatch.setattr(remote, "open_browser_url", lambda _url: True)
 
     assert remote.launch_remote_gui(args, target) == 0
-    assert captured == {
-        "remote_port": 55363,
-        "requested_local_port": 49152,
-    }
-    assert tunnel_process.terminated is True
+    assert captured["command"][:7] == [
+        "/usr/bin/ssh",
+        "-T",
+        "-o",
+        "ExitOnForwardFailure=yes",
+        "-L",
+        "127.0.0.1:49152:127.0.0.1:55363",
+        "physics",
+    ]
+    remote_argv = shlex.split(captured["command"][7])
+    assert "--port" in remote_argv
+    assert remote_argv[remote_argv.index("--port") + 1] == "55363"
+    assert captured["wait_process"] is remote_process
+    assert captured["url"] == (
+        "http://127.0.0.1:49152/workspace?session_id=remote"
+    )
     stderr = capsys.readouterr().err
     assert "Ctrl+click or copy into a browser" in stderr
     assert "http://127.0.0.1:49152/workspace?session_id=remote" in stderr

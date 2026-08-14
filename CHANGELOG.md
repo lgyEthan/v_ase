@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.17
+
+- Fixed `HOST:/path` launches on load-balanced HPC aliases by starting the
+  remote backend and local port forward on one SSH connection. The launcher
+  now verifies a real forwarded HTTP response before opening the browser, so a
+  TCP listener that cannot reach the backend no longer appears ready.
+- Documented the remote/local processing boundary: source I/O, ASE parsing,
+  trajectory caching, volumetric processing, and backend calculations stay on
+  the remote host, while the local browser performs UI interaction and WebGL
+  rendering without downloading the original source file.
+
 ## 0.2.16
 
 - Added an Edit-mode **Build with ASE** workflow backed by the installed

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import re
 import shlex
 import shutil
-import socket
 import subprocess
 import sys
 import threading
@@ -68,6 +68,7 @@ def _remote_gui_argv(
     no_browser: bool,
     stream_frames: bool,
     modern_bond_defaults: bool,
+    remote_port: int | None = None,
 ) -> list[str]:
     command = [
         "v_ase",
@@ -79,6 +80,8 @@ def _remote_gui_argv(
         command.append("--no-browser")
     if stream_frames:
         command.append("--stream-frames")
+    if remote_port is not None:
+        command.extend(["--port", str(remote_port)])
     if args.format:
         command.extend(["--format", str(args.format)])
     if getattr(args, "volumetric_precision", "fp32") != "fp32":
@@ -111,6 +114,7 @@ def _remote_gui_argv(
 def build_remote_gui_command(
     args: argparse.Namespace,
     target: RemoteTarget,
+    remote_port: int | None = None,
 ) -> str:
     """Build the command used by a current remote v_ase installation."""
     command = _remote_gui_argv(
@@ -119,6 +123,7 @@ def build_remote_gui_command(
         no_browser=True,
         stream_frames=True,
         modern_bond_defaults=True,
+        remote_port=remote_port,
     )
     return shlex.join(command)
 
@@ -126,6 +131,7 @@ def build_remote_gui_command(
 def build_remote_gui_launcher(
     args: argparse.Namespace,
     target: RemoteTarget,
+    remote_port: int | None = None,
 ) -> str:
     """Build one SSH command that negotiates remote CLI capabilities.
 
@@ -134,7 +140,7 @@ def build_remote_gui_launcher(
     BROWSER=/bin/echo exposes the loopback URL while preserving the normal
     blocking lifecycle.
     """
-    current_command = build_remote_gui_command(args, target)
+    current_command = build_remote_gui_command(args, target, remote_port)
     current_bonds_without_stream = shlex.join(
         _remote_gui_argv(
             args,
@@ -142,6 +148,7 @@ def build_remote_gui_launcher(
             no_browser=True,
             stream_frames=False,
             modern_bond_defaults=True,
+            remote_port=remote_port,
         )
     )
     legacy_bonds_with_stream = shlex.join(
@@ -151,6 +158,7 @@ def build_remote_gui_launcher(
             no_browser=True,
             stream_frames=True,
             modern_bond_defaults=False,
+            remote_port=remote_port,
         )
     )
     legacy_bonds_without_stream = shlex.join(
@@ -160,6 +168,7 @@ def build_remote_gui_launcher(
             no_browser=True,
             stream_frames=False,
             modern_bond_defaults=False,
+            remote_port=remote_port,
         )
     )
     oldest_command = shlex.join(
@@ -169,6 +178,7 @@ def build_remote_gui_launcher(
             no_browser=False,
             stream_frames=False,
             modern_bond_defaults=False,
+            remote_port=remote_port,
         )
     )
 
@@ -185,6 +195,10 @@ def build_remote_gui_launcher(
         f"v_ase: {target.host} does not support --volumetric-precision. "
         "Upgrade it with `python -m pip install --upgrade v_ase-gui`."
     )
+    port_message = shlex.quote(
+        f"v_ase: {target.host} does not support the managed SSH tunnel port. "
+        "Upgrade it with `python -m pip install --upgrade v_ase-gui`."
+    )
 
     lines = [
         "_vase_help=$(v_ase gui --help 2>&1)",
@@ -195,6 +209,13 @@ def build_remote_gui_launcher(
         '  exit "$_vase_help_status"',
         "fi",
     ]
+    if remote_port is not None:
+        lines.extend([
+            'case "$_vase_help" in',
+            "  *--port*) ;;",
+            f"  *) printf '%s\\n' {port_message} >&2; exit 64 ;;",
+            "esac",
+        ])
     if getattr(args, "volumetric_precision", "fp32") != "fp32":
         lines.extend([
             'case "$_vase_help" in',
@@ -296,62 +317,47 @@ def _drain_remote_output(process: subprocess.Popen[str]) -> None:
         print(line, end="", file=sys.stderr, flush=True)
 
 
-def _wait_for_tunnel(
+def _wait_for_forwarded_http(
     process: subprocess.Popen[str],
-    local_port: int,
-    timeout: float = 8.0,
+    local_url: str,
+    timeout: float = 10.0,
 ) -> None:
+    parsed = urlsplit(local_url)
+    local_port = parsed.port
+    if local_port is None:
+        raise RemoteLaunchError("remote v_ase returned an invalid local URL")
+    request_target = parsed.path or "/"
+    if parsed.query:
+        request_target = f"{request_target}?{parsed.query}"
+
     deadline = time.monotonic() + timeout
+    last_error: Exception | None = None
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            detail = process.stderr.read().strip() if process.stderr else ""
-            suffix = f": {detail}" if detail else ""
-            raise RemoteLaunchError(f"SSH tunnel could not be opened{suffix}")
+            raise RemoteLaunchError(
+                "remote v_ase exited before the tunnel became ready"
+            )
+        connection = http.client.HTTPConnection(
+            "127.0.0.1",
+            local_port,
+            timeout=0.5,
+        )
         try:
-            with socket.create_connection(("127.0.0.1", local_port), timeout=0.15):
+            connection.request("GET", request_target)
+            response = connection.getresponse()
+            response.read(1)
+            if 200 <= response.status < 400:
                 return
-        except OSError:
-            time.sleep(0.03)
-    raise RemoteLaunchError("SSH tunnel did not become ready")
-
-
-def _start_tunnel(
-    ssh_executable: str,
-    target: RemoteTarget,
-    remote_port: int,
-    requested_local_port: int | None = None,
-) -> tuple[subprocess.Popen[str], int]:
-    last_error: RemoteLaunchError | None = None
-    attempts = 1 if requested_local_port is not None else 5
-    for _ in range(attempts):
-        local_port = (
-            requested_local_port
-            if requested_local_port is not None
-            else find_free_port()
-        )
-        process = subprocess.Popen(
-            [
-                ssh_executable,
-                "-T",
-                "-N",
-                "-o",
-                "ExitOnForwardFailure=yes",
-                "-L",
-                f"127.0.0.1:{local_port}:127.0.0.1:{remote_port}",
-                target.host,
-            ],
-            stdin=None,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        try:
-            _wait_for_tunnel(process, local_port)
-            return process, local_port
-        except RemoteLaunchError as exc:
+            last_error = RemoteLaunchError(
+                f"forwarded viewer returned HTTP {response.status}"
+            )
+        except (OSError, http.client.HTTPException) as exc:
             last_error = exc
-            _terminate_process(process)
-    raise last_error or RemoteLaunchError("SSH tunnel could not be opened")
+        finally:
+            connection.close()
+        time.sleep(0.05)
+    detail = f": {last_error}" if last_error is not None else ""
+    raise RemoteLaunchError(f"SSH tunnel did not reach the remote viewer{detail}")
 
 
 def launch_remote_gui(args: argparse.Namespace, target: RemoteTarget) -> int:
@@ -369,7 +375,6 @@ def launch_remote_gui(args: argparse.Namespace, target: RemoteTarget) -> int:
         )
 
     remote_process: subprocess.Popen[str] | None = None
-    tunnel_process: subprocess.Popen[str] | None = None
     drain_thread: threading.Thread | None = None
     event_stream = None
     print(
@@ -378,12 +383,18 @@ def launch_remote_gui(args: argparse.Namespace, target: RemoteTarget) -> int:
         flush=True,
     )
     try:
+        local_port = args.port if args.port is not None else find_free_port()
+        remote_port = find_free_port()
         remote_process = subprocess.Popen(
             [
                 ssh_executable,
                 "-T",
+                "-o",
+                "ExitOnForwardFailure=yes",
+                "-L",
+                f"127.0.0.1:{local_port}:127.0.0.1:{remote_port}",
                 target.host,
-                build_remote_gui_launcher(args, target),
+                build_remote_gui_launcher(args, target, remote_port),
             ],
             stdin=None,
             stdout=subprocess.PIPE,
@@ -392,16 +403,14 @@ def launch_remote_gui(args: argparse.Namespace, target: RemoteTarget) -> int:
             bufsize=1,
         )
         remote_url = _read_remote_url(remote_process, target)
-        remote_port = urlsplit(remote_url).port
-        if remote_port is None:
+        reported_remote_port = urlsplit(remote_url).port
+        if reported_remote_port is None:
             raise RemoteLaunchError("remote v_ase returned an invalid viewer URL")
-
-        tunnel_process, local_port = _start_tunnel(
-            ssh_executable,
-            target,
-            remote_port,
-            requested_local_port=args.port,
-        )
+        if reported_remote_port != remote_port:
+            raise RemoteLaunchError(
+                "remote v_ase did not honor the requested tunnel port; "
+                "upgrade the remote installation"
+            )
         local_url = localize_remote_url(remote_url, local_port)
         drain_thread = threading.Thread(
             target=_drain_remote_output,
@@ -410,6 +419,7 @@ def launch_remote_gui(args: argparse.Namespace, target: RemoteTarget) -> int:
             name="v_ase-remote-output",
         )
         drain_thread.start()
+        _wait_for_forwarded_http(remote_process, local_url)
 
         if args.cli_mode:
             from .ai import ai_handshake, start_collaboration_event_stream
@@ -454,14 +464,6 @@ def launch_remote_gui(args: argparse.Namespace, target: RemoteTarget) -> int:
                         f"remote v_ase exited with status {remote_return_code}"
                     )
                 return 0
-            if tunnel_process.poll() is not None:
-                detail = (
-                    tunnel_process.stderr.read().strip()
-                    if tunnel_process.stderr
-                    else ""
-                )
-                suffix = f": {detail}" if detail else ""
-                raise RemoteLaunchError(f"SSH tunnel closed unexpectedly{suffix}")
             time.sleep(0.1)
     except KeyboardInterrupt:
         return 130
@@ -470,7 +472,6 @@ def launch_remote_gui(args: argparse.Namespace, target: RemoteTarget) -> int:
             stop_event, event_thread = event_stream
             stop_event.set()
             event_thread.join(timeout=1.5)
-        _terminate_process(tunnel_process)
         _terminate_process(remote_process)
         if drain_thread is not None:
             drain_thread.join(timeout=0.5)

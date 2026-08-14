@@ -14,7 +14,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.16"
+python -m pip install "v_ase-gui==0.2.17"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -470,8 +470,8 @@ For any nontrivial task, verify all applicable items:
   embedded mode must also restore through `v_ase gui FILE.html`;
 - notebook: `%v_ase inline`, `%v_ase browser`, and `%v_ase auto` select the
   process display target; an explicit `notebook=` overrides one call;
-- remote SSH: `HOST:/path` keeps source data remote; CLI negotiation warns on
-  compatibility fallback and rejects unsupported explicit features;
+- remote SSH: `HOST:/path` keeps data work remote while the local browser
+  renders; one SSH connection pins backend/forward to one load-balanced node;
 - video: exact decoded frame count and `frames / FPS` duration, with visible
   displacement vectors present in the captured frames when enabled.
 

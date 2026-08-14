@@ -1377,8 +1377,8 @@ The **?** button contains the complete shortcut table.
 
 ## Remote Servers
 
-Install v_ase on both the local computer and remote host, then run one command
-locally:
+Run one command locally after installing the same current v_ase release on the
+local computer and remote host:
 
 ```bash
 v_ase gui USER@SERVER:/absolute/path/to/STRUCTURE
@@ -1390,16 +1390,25 @@ An SSH config alias works:
 v_ase gui physics:/absolute/path/to/trajectory.extxyz
 ```
 
-v_ase selects private ports automatically, starts the backend beside the
-remote file, creates the SSH tunnel, and opens the local browser. The source
-file and backend trajectory cache remain on the server; a current remote v_ase
-streams only the frame data required for local Three.js rendering. The local
-launcher inspects the remote CLI within the same SSH login and automatically
-falls back when an older installation lacks `--no-browser` or
-`--stream-frames`. Compatibility mode still keeps the source file remote, but
-may transfer a complete trajectory coordinate cache. Upgrade v_ase on the
-server before opening a large trajectory. Use `ProxyJump` in `~/.ssh/config`
-when a login node is required.
+No port number is required. v_ase selects private ports, starts the backend
+beside the remote file, carries that backend and the port forward over one SSH
+connection, and opens the local browser. Keeping both operations on the same
+SSH connection is important for cluster aliases that distribute logins across
+multiple nodes.
+
+Processing is split deliberately:
+
+- **Remote host:** source-file I/O, ASE parsing, trajectory cache, volumetric
+  sampling and isosurface generation, and backend calculations.
+- **Local computer:** the browser UI, camera interaction, and WebGL rendering.
+
+The source file is not downloaded. A current remote v_ase sends only the frame
+or derived rendering data requested by the browser through the encrypted SSH
+tunnel. The remote installation is therefore required because the Python
+backend and its ASE dependencies execute next to the remote data. Upgrade the
+remote installation before opening a large trajectory or using a newly added
+backend feature. Use `ProxyJump` in `~/.ssh/config` when an intermediate login
+host is required.
 
 ## License
 
@@ -1477,6 +1486,22 @@ trajectories and newer features such as explicit volumetric precision:
 ```bash
 ssh USER@SERVER 'python -m pip install --upgrade v_ase-gui'
 ```
+
+</details>
+
+<details>
+<summary>A remote URL opens and then reports <code>ERR_CONNECTION_RESET</code></summary>
+
+Upgrade the local launcher to v_ase 0.2.17 or later:
+
+```bash
+python -m pip install --upgrade "v_ase-gui>=0.2.17"
+```
+
+Older launchers created the remote backend and the port forward with separate
+SSH connections. A load-balanced cluster alias could place those connections
+on different login nodes. Current releases keep both on one SSH connection.
+The remote file remains on the server in either case.
 
 </details>
 

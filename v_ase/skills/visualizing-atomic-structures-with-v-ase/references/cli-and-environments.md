@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.16"
+python -m pip install "v_ase-gui==0.2.17"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.2.16"
+python -m pip install "v_ase-gui[rhino]==0.2.17"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, SciPy, scikit-image,
@@ -266,17 +266,29 @@ an SSH host. For example, with a host configured as `physics`:
 v_ase gui physics:/absolute/server/path/trajectory.extxyz
 ```
 
-The source file itself is never downloaded. The local launcher reads `v_ase
-gui --help` and starts the viewer in the same SSH login, passing only options
-supported by that remote installation. Current installations stream frame data
-on demand. Older installations automatically use compatibility mode: the file
-and parsing remain remote, but a complete trajectory coordinate cache may cross
-the tunnel. Treat the warning as a request to upgrade before opening large
-trajectories:
+No explicit port is needed. The local launcher starts the remote backend and
+the local forward on one SSH connection, which pins both ends to the same login
+node even when a cluster alias is load balanced. The source file itself is
+never downloaded.
+
+The remote process owns source-file I/O, ASE parsing, trajectory caching,
+volumetric sampling/isosurface generation, and backend calculations. The local
+browser owns UI interaction and WebGL rendering. Only requested frame or
+derived rendering payloads cross the encrypted tunnel. v_ase must therefore be
+installed remotely so that the Python backend and ASE dependencies execute
+next to the data.
+
+The launcher reads remote `v_ase gui --help` and passes only supported options.
+Treat an upgrade warning as a request to update before opening large
+trajectories or using a newly added backend feature:
 
 ```bash
 ssh physics 'python -m pip install --upgrade v_ase-gui'
 ```
+
+`ERR_CONNECTION_RESET` immediately after remote startup indicates a local
+launcher older than 0.2.17 on a load-balanced cluster. Upgrade the local
+installation; do not copy the source file locally as a workaround.
 
 An explicit feature that cannot be preserved is never silently removed. For
 example, requesting FP64 volumetric data from a remote CLI without

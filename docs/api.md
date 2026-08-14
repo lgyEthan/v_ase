@@ -128,18 +128,21 @@ v_ase gui FILE --no-browser
 The default is View mode. `--interactive` starts in Edit mode. The top-bar
 switch can change mode after startup without reopening the file.
 `HOST:/REMOTE/FILE` is an scp-style remote target. The local v_ase process
-starts the remote backend over SSH, selects both loopback endpoints, creates
-the forwarding connection, opens the browser, and tears everything down after
-the browser closes:
+selects both loopback endpoints, then starts the remote backend and forwarding
+listener on one SSH connection. This keeps both endpoints on the same login
+node when a cluster alias is load balanced. The launcher opens the browser and
+tears the connection down after the browser closes:
 
 ```bash
 v_ase gui physics:/data/trajectory.lammpstrj
 ```
 
-The file reader, ASE objects, session state, and scientific operations remain
-on the remote host. The original file is never copied to the local computer.
-Remote trajectories disable inline and whole-trajectory browser caches; frame
-changes request only the needed frame through the encrypted tunnel.
+The file reader, ASE objects, session state, trajectory cache, volumetric
+processing, and backend scientific operations remain on the remote host. The
+original file is never copied to the local computer. The browser performs UI
+interaction and WebGL rendering. Remote trajectories disable inline and
+whole-trajectory browser caches; frame changes request only the needed frame
+through the encrypted tunnel.
 
 `--no-browser` is still available for headless local sessions. `--stream-frames`
 applies the same per-frame transfer policy to a local trajectory. `--port`
