@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.17&rev=2';
-import { ASERenderer } from './renderer.js?v=0.2.17&rev=1';
-import { ASESelection } from './selection.js?v=0.2.17&rev=1';
-import { ASETransform } from './transform.js?v=0.2.17&rev=1';
+import { ASEApi } from './api.js?v=0.2.18&rev=1';
+import { ASERenderer } from './renderer.js?v=0.2.18&rev=1';
+import { ASESelection } from './selection.js?v=0.2.18&rev=1';
+import { ASETransform } from './transform.js?v=0.2.18&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.17&rev=1';
+} from './trajectory.js?v=0.2.18&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -1611,6 +1611,10 @@ class VAseApp {
         if (!widget) return;
         widget.classList.toggle('collapsed', !expanded);
         if (!expanded) {
+            widget.style.removeProperty('left');
+            widget.style.removeProperty('top');
+            widget.style.removeProperty('right');
+            widget.style.removeProperty('bottom');
             this.setAddAtomsRegionSelected(false, { update: false });
             this.renderer.clearAddAtomsRegion();
         }

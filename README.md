@@ -203,7 +203,8 @@ shows the staged atoms begin at reproducible random positions, then separate
 from nearby Cu and one another under explicit Cu-O and O-O repulsive cutoffs.
 Every original `Cu_surface` coordinate remains fixed throughout placement.
 
-Open **+ Add atoms** in **Edit** mode:
+Open **+ Add atoms** in **Edit** mode. The launcher stays at the upper-left of
+the viewport below the app header, leaving bottom-left notifications visible:
 
 - **Single** places one atom at an exact position or the current view center.
 - **Batch > Atoms** accepts multiple Type, Label, and Count rows. **Batch >

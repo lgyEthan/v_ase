@@ -713,6 +713,10 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "setupCreateAtomWidget" in main_js
     assert "createAtomFromWidget" in main_js
     assert "makeCreateAtomWidgetDraggable" in main_js
+    assert "top: calc(var(--header-height) + 16px)" in style_css
+    assert "bottom: auto" in style_css
+    assert "widget.style.removeProperty('top')" in main_js
+    assert "widget.style.removeProperty('bottom')" in main_js
     assert "this.api.addAtom(symbol, position, baseSymbol)" in main_js
     assert "async addAtom(symbol, position, baseSymbol = null)" in (ROOT / "v_ase/static/api.js").read_text()
     assert ".create-atom-widget" in style_css

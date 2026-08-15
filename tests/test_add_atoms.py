@@ -1434,6 +1434,33 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
 
+            page.evaluate("window.__ASE_APP__.toast('Layout check')")
+            page.wait_for_selector("#toast-container .toast.show")
+            launcher_layout = page.evaluate("""() => {
+                const launcher = document.getElementById('create-atom-widget').getBoundingClientRect();
+                const header = document.getElementById('top-bar').getBoundingClientRect();
+                const toast = document.querySelector('#toast-container .toast.show').getBoundingClientRect();
+                return {
+                    left: launcher.left,
+                    top: launcher.top,
+                    right: launcher.right,
+                    bottom: launcher.bottom,
+                    headerBottom: header.bottom,
+                    toastLeft: toast.left,
+                    toastTop: toast.top,
+                    toastRight: toast.right,
+                    toastBottom: toast.bottom,
+                };
+            }""")
+            assert launcher_layout["left"] == pytest.approx(18, abs=1)
+            assert launcher_layout["top"] >= launcher_layout["headerBottom"] + 12
+            assert (
+                launcher_layout["right"] <= launcher_layout["toastLeft"]
+                or launcher_layout["left"] >= launcher_layout["toastRight"]
+                or launcher_layout["bottom"] <= launcher_layout["toastTop"]
+                or launcher_layout["top"] >= launcher_layout["toastBottom"]
+            )
+
             host_visual_radii = page.evaluate("""async () => {
                 await window.v_aseAI.apply({
                     display: {
@@ -1783,6 +1810,10 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             assert page.locator("#create-atom-widget").evaluate(
                 "element => element.classList.contains('collapsed')"
             )
+            collapsed_layout = page.locator("#create-atom-widget").bounding_box()
+            assert collapsed_layout is not None
+            assert collapsed_layout["x"] == pytest.approx(launcher_layout["left"], abs=1)
+            assert collapsed_layout["y"] == pytest.approx(launcher_layout["top"], abs=1)
             assert page.evaluate(
                 "window.__ASE_APP__.renderer.addAtomsRegionGroup.visible"
             ) is False

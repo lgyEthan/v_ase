@@ -4017,11 +4017,13 @@ body.resizing-pairwise-column * {
 
 .create-atom-widget {
     position: absolute;
+    top: calc(var(--header-height) + 16px);
     left: 18px;
-    bottom: 22px;
+    bottom: auto;
     z-index: 210;
     width: min(440px, calc(100vw - 36px));
-    max-height: calc(100vh - 112px);
+    max-height: calc(100vh - var(--header-height) - 34px);
+    max-height: calc(100dvh - var(--header-height) - 34px);
     border-radius: 7px;
     background: var(--panel);
     overflow: hidden;
@@ -4105,13 +4107,15 @@ body.resizing-pairwise-column * {
 }
 
 .create-atom-card {
-    max-height: calc(100vh - 112px);
+    max-height: calc(100vh - var(--header-height) - 34px);
+    max-height: calc(100dvh - var(--header-height) - 34px);
     overflow: hidden;
 }
 
 .create-atom-card.batch-active {
     display: flex;
-    height: min(840px, calc(100vh - 112px));
+    height: min(840px, calc(100vh - var(--header-height) - 34px));
+    height: min(840px, calc(100dvh - var(--header-height) - 34px));
     min-height: 0;
     flex-direction: column;
 }

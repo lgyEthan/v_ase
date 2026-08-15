@@ -10,10 +10,10 @@ authors:
     affiliation: "The University of Sydney"
     email: "giyeok.lee@sydney.edu.au"
 repository-code: "https://github.com/lgyEthan/v_ase"
-repository-artifact: "https://pypi.org/project/v-ase-gui/0.2.17/"
+repository-artifact: "https://pypi.org/project/v-ase-gui/0.2.18/"
 url: "https://github.com/lgyEthan/v_ase"
 license: AGPL-3.0-or-later
-version: 0.2.17
+version: 0.2.18
 date-released: 2026-08-15
 abstract: >-
   v_ase is an ASE-native local browser workspace for interactive atomistic

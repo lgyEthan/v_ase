@@ -255,6 +255,10 @@ restore the complete replaced trajectory and original structure.
 
 ### Batch Add Atoms State
 
+The GUI launcher is anchored at the viewport's upper-left below the app
+header. Closing the draggable panel restores that anchor, while bottom-left
+notifications remain visible.
+
 In the GUI, entering a valid chemical symbol as an atom Label also selects the
 matching Type (`O` selects oxygen, for example). A later manual Type choice is
 authoritative and permits distinct visual labels. Semantic `scatter-atoms`

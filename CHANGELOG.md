@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.18
+
+- Moved the collapsed **+ Add atoms** launcher to the upper-left viewport,
+  directly below the app header, so it no longer overlaps bottom-left
+  notifications. Closing the draggable panel now restores that stable anchor.
+
 ## 0.2.17
 
 - Fixed `HOST:/path` launches on load-balanced HPC aliases by starting the
