@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.21&rev=1';
-import { ASERenderer } from './renderer.js?v=0.2.21&rev=1';
-import { ASESelection } from './selection.js?v=0.2.21&rev=1';
-import { ASETransform } from './transform.js?v=0.2.21&rev=1';
+import { ASEApi } from './api.js?v=0.2.22&rev=1';
+import { ASERenderer } from './renderer.js?v=0.2.22&rev=1';
+import { ASESelection } from './selection.js?v=0.2.22&rev=1';
+import { ASETransform } from './transform.js?v=0.2.22&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.21&rev=1';
+} from './trajectory.js?v=0.2.22&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -263,8 +263,10 @@ class VAseApp {
             trajectoryStopPromise: null,
             trajectoryPlaybackSource: null,
             timelineSource: 'loaded',
+            displayedTimelineSource: 'loaded',
             trajectoryBinaryCache: null,
             trajectoryBinaryPromise: null,
+            relaxTrajectoryGeneration: 0,
             relaxTrajectory: {
                 frames: [],
                 frame: 0,
@@ -5638,7 +5640,12 @@ class VAseApp {
         this.renderVolumetricControls();
     }
 
-    rdfOptions({ frameIndex = null, includePositions = true } = {}) {
+    rdfOptions({
+        frameIndex = null,
+        includePositions = true,
+        source = null,
+        positions = null
+    } = {}) {
         const cutoffText = document.getElementById('rdf-cutoff')?.value.trim() || '';
         const cutoff = cutoffText ? Number(cutoffText) : null;
         const bins = Math.max(8, Math.min(5000, parseInt(
@@ -5653,6 +5660,7 @@ class VAseApp {
             rdfBins: bins,
             rdfPairMode: pairMode
         });
+        const context = this.rdfFrameContext({ source, frameIndex, positions });
         const options = {
             cutoff: Number.isFinite(cutoff) ? cutoff : null,
             bins,
@@ -5660,11 +5668,11 @@ class VAseApp {
             active_pairs: pairMode === 'selected'
                 ? this.selectedActiveRdfPairs()
                 : this.activeRdfPairs(),
-            frame_index: frameIndex !== null && Number.isInteger(Number(frameIndex))
-                ? Number(frameIndex)
-                : Number(this.state.atoms?.metadata?.current_frame || 0)
+            frame_index: context.backendFrameIndex
         };
-        if (includePositions) options.positions = this.currentPositionsFromScene();
+        if (includePositions) {
+            options.positions = positions || this.currentPositionsFromScene();
+        }
         return options;
     }
 
@@ -5901,7 +5909,10 @@ class VAseApp {
         return 'Distribution';
     }
 
-    rdfSettingsSignature(options = this.rdfOptions({ includePositions: false })) {
+    rdfSettingsSignature(
+        options = this.rdfOptions({ includePositions: false }),
+        context = this.rdfFrameContext()
+    ) {
         const activePairs = (options.active_pairs || [])
             .map(([left, right]) => this.labelPairKey(left, right))
             .sort();
@@ -5910,11 +5921,17 @@ class VAseApp {
             bins: Number(options.bins) || 200,
             pairMode: options.pair_mode || 'active',
             activePairs,
-            frameCount: this.loadedFrameCount(),
+            source: context.source,
+            sourceGeneration: context.source === 'relax'
+                ? this.state.relaxTrajectoryGeneration
+                : 0,
+            frameCount: context.source === 'relax' ? null : context.frameCount,
             atomCount: Number(this.state.atoms?.metadata?.natoms)
                 || this.state.atoms?.positions?.length
                 || 0,
-            labels: this.uniqueAtomLabels()
+            labels: this.uniqueAtomLabels(),
+            cell: this.state.atoms?.cell || null,
+            pbc: this.state.atoms?.pbc || null
         });
     }
 
@@ -5926,8 +5943,8 @@ class VAseApp {
         this.state.rdfPrefetchPromise = null;
     }
 
-    ensureRdfFrameCache(options) {
-        const signature = this.rdfSettingsSignature(options);
+    ensureRdfFrameCache(options, context = this.rdfFrameContext()) {
+        const signature = this.rdfSettingsSignature(options, context);
         if (signature !== this.state.rdfFrameCacheSignature) {
             this.clearRdfFrameCache();
             this.state.rdfFrameCacheSignature = signature;
@@ -5935,11 +5952,33 @@ class VAseApp {
         return signature;
     }
 
-    cacheRdfResult(result, signature = this.state.rdfFrameCacheSignature) {
+    rdfFrameCacheKey(context = this.rdfFrameContext()) {
+        return context.source === 'relax'
+            ? `relax:${this.state.relaxTrajectoryGeneration}:${context.index}`
+            : context.index;
+    }
+
+    decorateRdfResult(result, context = this.rdfFrameContext()) {
+        if (!result) return result;
+        return {
+            ...result,
+            frame_index: context.index,
+            display_source: context.source,
+            display_frame_index: context.index,
+            display_frame_count: context.frameCount,
+            source_frame_index: Number(result.frame_index ?? context.backendFrameIndex)
+        };
+    }
+
+    cacheRdfResult(
+        result,
+        signature = this.state.rdfFrameCacheSignature,
+        context = this.rdfFrameContext()
+    ) {
         if (!result || signature !== this.state.rdfFrameCacheSignature) return;
-        const frameIndex = Number(result.frame_index);
+        const frameIndex = Number(context.index);
         if (!Number.isInteger(frameIndex) || frameIndex < 0) return;
-        this.state.rdfFrameCache.set(frameIndex, result);
+        this.state.rdfFrameCache.set(this.rdfFrameCacheKey(context), result);
     }
 
     rdfCurveCount(options) {
@@ -5969,15 +6008,23 @@ class VAseApp {
         return [...new Set(indices)];
     }
 
-    rdfFrameOverridePositions(frameIndex) {
+    rdfFrameOverridePositions(frameIndex, source = 'loaded') {
+        if (source === 'relax') {
+            const positions = this.state.relaxTrajectory?.frames?.[frameIndex];
+            return positions ? positions.map(position => [...position]) : null;
+        }
         const override = this.relaxOverridePositions(frameIndex);
         return override ? override.map(position => [...position]) : null;
     }
 
-    async precomputeRdfTrajectory(options, { showBusy = true } = {}) {
-        const frameCount = this.loadedFrameCount();
+    async precomputeRdfTrajectory(
+        options,
+        { showBusy = true, source = null } = {}
+    ) {
+        const initialContext = this.rdfFrameContext({ source });
+        const frameCount = initialContext.frameCount;
         if (frameCount <= 1) return;
-        const signature = this.ensureRdfFrameCache(options);
+        const signature = this.ensureRdfFrameCache(options, initialContext);
         if (this.state.rdfPrefetchPromise) {
             await this.state.rdfPrefetchPromise;
             if (signature !== this.state.rdfFrameCacheSignature) return;
@@ -5987,7 +6034,7 @@ class VAseApp {
             * this.rdfCurveCount(options);
         const complete = frameCount <= 300
             && valueEstimate <= MAX_RDF_TRAJECTORY_CACHE_VALUES;
-        const currentFrame = Number(this.state.atoms?.metadata?.current_frame || 0);
+        const currentFrame = initialContext.index;
         const valuesPerFrame = Math.max(
             1,
             Number(options.bins || 200) * this.rdfCurveCount(options)
@@ -6004,13 +6051,21 @@ class VAseApp {
             maximumFrames
         );
         if (!complete) {
-            const retained = new Set(targetIndices);
-            [...this.state.rdfFrameCache.keys()].forEach(index => {
-                if (!retained.has(index)) this.state.rdfFrameCache.delete(index);
+            const retained = new Set(targetIndices.map(index => this.rdfFrameCacheKey(
+                this.rdfFrameContext({ source: initialContext.source, frameIndex: index })
+            )));
+            [...this.state.rdfFrameCache.keys()].forEach(key => {
+                if (!retained.has(key)) this.state.rdfFrameCache.delete(key);
             });
         }
         const indices = targetIndices
-            .filter(index => !this.state.rdfFrameCache.has(index));
+            .filter(index => {
+                const context = this.rdfFrameContext({
+                    source: initialContext.source,
+                    frameIndex: index
+                });
+                return !this.state.rdfFrameCache.has(this.rdfFrameCacheKey(context));
+            });
         if (!indices.length) {
             this.state.rdfFrameCacheComplete = complete
                 && this.state.rdfFrameCache.size >= frameCount;
@@ -6035,17 +6090,25 @@ class VAseApp {
         const worker = async () => {
             while (cursor < indices.length) {
                 const frameIndex = indices[cursor++];
-                const overridePositions = this.rdfFrameOverridePositions(frameIndex);
-                const result = await this.api.fetchRdf({
+                const context = this.rdfFrameContext({
+                    source: initialContext.source,
+                    frameIndex
+                });
+                const overridePositions = this.rdfFrameOverridePositions(
+                    frameIndex,
+                    initialContext.source
+                );
+                const response = await this.api.fetchRdf({
                     ...baseOptions,
-                    frame_index: frameIndex,
+                    frame_index: context.backendFrameIndex,
                     ...(overridePositions ? { positions: overridePositions } : {})
                 });
                 if (
                     token !== this.state.rdfPrefetchToken
                     || signature !== this.state.rdfFrameCacheSignature
                 ) return;
-                this.cacheRdfResult(result, signature);
+                const result = this.decorateRdfResult(response, context);
+                this.cacheRdfResult(result, signature, context);
                 completed += 1;
                 if (showBusy) {
                     const progress = completed / indices.length * 100;
@@ -6085,9 +6148,15 @@ class VAseApp {
             : 'automatic';
         const pairCount = Object.keys(result.partial || {}).length;
         const selectedWithoutBond = result.pair_mode === 'selected' && pairCount === 0;
-        const frameCount = this.loadedFrameCount();
+        const frameCount = Number(result.display_frame_count || 1);
+        const frameIndex = Number(
+            result.display_frame_index ?? result.frame_index ?? 0
+        );
+        const sourceName = result.display_source === 'relax'
+            ? this.timelineSourceName('relax')
+            : this.timelineSourceName('loaded');
         const frameDetail = frameCount > 1
-            ? `Frame ${Number(result.frame_index || 0) + 1} of ${frameCount}. `
+            ? `${sourceName}: frame ${frameIndex + 1} of ${frameCount}. `
             : '';
         this.setRdfStatus(
             warning || selectedWithoutBond ? 'warning' : 'ready',
@@ -6100,7 +6169,7 @@ class VAseApp {
         );
     }
 
-    invalidateRdfResult(detail = null) {
+    invalidateRdfResult(detail = null, { preserveActivePlot = false } = {}) {
         const status = document.getElementById('rdf-status');
         const wasCalculating = status?.dataset?.state === 'loading';
         const hadResult = Boolean(this.state.rdfResult);
@@ -6110,6 +6179,19 @@ class VAseApp {
         }
         this.state.rdfRequestToken += 1;
         this.clearRdfFrameCache();
+        if (
+            preserveActivePlot
+            && this.state.rdfAutoRefresh
+            && this.state.activeAnalysisPlot === 'rdf'
+        ) {
+            const analysisName = this.distributionAnalysisName();
+            this.setRdfStatus(
+                'loading',
+                `Updating ${analysisName}`,
+                detail || 'The displayed structure changed; recalculating without closing the graph.'
+            );
+            return true;
+        }
         this.state.rdfAutoRefresh = false;
         this.state.rdfResult = null;
         this.state.rdfSelectionSignature = '';
@@ -6125,6 +6207,26 @@ class VAseApp {
                 detail || `The structure or trajectory frame changed. Calculate the ${analysisName} again.`
             );
         }
+        return false;
+    }
+
+    scheduleActiveStructureAnalysisRefresh(
+        detail = 'The displayed coordinates changed.',
+        delay = (this.state.trajectoryTimer || this.state.isRelaxing) ? 70 : 35
+    ) {
+        if (
+            !this.state.rdfAutoRefresh
+            || this.state.activeAnalysisPlot !== 'rdf'
+        ) return;
+        const context = this.rdfFrameContext();
+        this.state.rdfFrameCache.delete(this.rdfFrameCacheKey(context));
+        this.state.rdfRequestToken += 1;
+        this.setRdfStatus(
+            'loading',
+            `Updating ${this.distributionAnalysisName()}`,
+            `${detail} Keeping the current graph visible until the new result is ready.`
+        );
+        this.scheduleFrameDependentAnalysisRefresh(delay);
     }
 
     ensurePlotly() {
@@ -6741,19 +6843,24 @@ class VAseApp {
 
     async calculateRdf({ quiet = false } = {}) {
         const token = ++this.state.rdfRequestToken;
-        const options = this.rdfOptions();
-        const signature = this.ensureRdfFrameCache(options);
+        const context = this.rdfFrameContext();
+        const options = this.rdfOptions({
+            source: context.source,
+            frameIndex: context.index
+        });
+        const signature = this.ensureRdfFrameCache(options, context);
         this.setRdfStatus(
             'loading',
             'Calculating structural distribution',
             'Counting pair distances with the boundary conditions of the active structure.'
         );
         const request = () => this.api.fetchRdf(options);
-        const result = quiet
+        const response = quiet
             ? await request()
             : await this.withBusy('Calculating pair distribution...', request);
         if (token !== this.state.rdfRequestToken) return;
-        this.cacheRdfResult(result, signature);
+        const result = this.decorateRdfResult(response, context);
+        this.cacheRdfResult(result, signature, context);
         this.state.rdfResult = result;
         this.state.rdfAutoRefresh = true;
         this.state.rdfSelectionSignature = options.pair_mode === 'selected'
@@ -6762,11 +6869,15 @@ class VAseApp {
         this.state.rdfSelectionPendingSignature = '';
         await this.plotRdf(result);
         this.setRdfReadyStatus(result);
-        if (!quiet && this.loadedFrameCount() > 1) {
-            await this.precomputeRdfTrajectory(options, { showBusy: true });
+        if (!quiet && context.frameCount > 1) {
+            await this.precomputeRdfTrajectory(options, {
+                showBusy: true,
+                source: context.source
+            });
             if (token !== this.state.rdfRequestToken) return;
-            const currentFrame = Number(this.state.atoms?.metadata?.current_frame || 0);
-            const currentResult = this.state.rdfFrameCache.get(currentFrame) || result;
+            const currentResult = this.state.rdfFrameCache.get(
+                this.rdfFrameCacheKey(context)
+            ) || result;
             this.state.rdfResult = currentResult;
             await this.plotRdf(currentResult);
             this.setRdfReadyStatus(currentResult);
@@ -6818,9 +6929,16 @@ class VAseApp {
         this.syncRdfControls();
         ['rdf-cutoff', 'rdf-bins', 'rdf-pair-mode'].forEach(id => {
             document.getElementById(id)?.addEventListener('input', () => {
-                this.invalidateRdfResult(
-                    'Distribution settings changed. Calculate again before exporting CSV.'
+                const keptOpen = this.invalidateRdfResult(
+                    'Distribution settings changed; recalculating the active graph.',
+                    { preserveActivePlot: true }
                 );
+                if (keptOpen) {
+                    this.scheduleActiveStructureAnalysisRefresh(
+                        'Distribution settings changed.',
+                        180
+                    );
+                }
             });
         });
         document.getElementById('btn-rdf-calculate')?.addEventListener('click', () => {
@@ -7417,22 +7535,13 @@ class VAseApp {
         )));
         if (fmaxControl) fmaxControl.value = `${fmax}`;
         if (stepsControl) stepsControl.value = `${steps}`;
-        const requestedCalculator = calculator && typeof calculator === 'object'
-            ? {
-                device: calculator.device,
-                cpu_threads: calculator.cpu_threads ?? calculator.cpuThreads,
-                cutoff_mode: calculator.cutoff_mode ?? calculator.cutoffMode,
-                cutoff_distance: calculator.cutoff_distance ?? calculator.cutoffDistance,
-                cutoff_scale: calculator.cutoff_scale ?? calculator.cutoffScale,
-                k_repulsion: calculator.k_repulsion ?? calculator.kRepulsion ?? calculator.strength
-            }
-            : null;
+        const requestedCalculator = this.calculatorPayloadWithOverrides(calculator);
         this.startModeTrajectory('registry', 'Rigid planar translation relaxation');
         try {
             const summary = await this.api.runRegistryRelaxation({
                 fmax,
                 steps,
-                calculator: requestedCalculator || this.currentCalculatorPayload()
+                calculator: requestedCalculator
             });
             // A very short optimization can publish its WebSocket completion
             // before this HTTP start response resolves.  Never let that older
@@ -8411,6 +8520,45 @@ class VAseApp {
         return this.state.atoms?.metadata?.calculator_details || {};
     }
 
+    automaticRepulsionPairCutoff(left, right) {
+        const bondingCutoff = this.defaultPairwiseCutoff(left, right);
+        if (bondingCutoff > 0) return bondingCutoff;
+        const first = this.elementCovalentRadius(this.chemicalSymbolForLabel(left));
+        const second = this.elementCovalentRadius(this.chemicalSymbolForLabel(right));
+        const contactCutoff = Number(first) + Number(second);
+        return Number.isFinite(contactCutoff) && contactCutoff > 0
+            ? contactCutoff
+            : 0;
+    }
+
+    repulsionPairCutoffs() {
+        const mode = this.state.display.bondMode || 'auto';
+        const autoScale = Math.max(0, Number(this.state.display.bondCutoffScale) || 1);
+        const manualPairs = mode === 'manual'
+            ? new Set(
+                this.activeRdfPairs().map(([left, right]) => [left, right].sort().join('|'))
+            )
+            : null;
+        const cutoffs = {};
+        this.uniqueLabelPairs().forEach(([left, right]) => {
+            const key = [left, right].sort().join('|');
+            let enabled = true;
+            let cutoff = 0;
+            if (mode === 'pairwise') {
+                const range = this.pairwiseBondRange(left, right);
+                enabled = Boolean(range.enabled && Number(range.max) > 0);
+                cutoff = Number(range.max) || 0;
+            } else {
+                enabled = mode !== 'manual' || manualPairs.has(key);
+                cutoff = this.automaticRepulsionPairCutoff(left, right) * autoScale;
+            }
+            cutoffs[key] = enabled && Number.isFinite(cutoff) && cutoff > 0
+                ? Number(cutoff.toFixed(6))
+                : 0;
+        });
+        return cutoffs;
+    }
+
     currentCalculatorPayload() {
         const details = this.repulsionCalculatorDetails();
         if (!details.is_default_repulsion) return null;
@@ -8418,7 +8566,7 @@ class VAseApp {
         const cpuThreads = parseInt(document.getElementById('calc-cpus')?.value || details.cpu_threads || '4', 10);
         const cutoffMode = document.getElementById('calc-cutoff-mode')?.value === 'absolute'
             ? 'absolute'
-            : 'scaled';
+            : 'bonding';
         const cutoffDistanceValue = Number(
             document.getElementById('calc-cutoff-distance')?.value
                 ?? details.cutoff_distance
@@ -8440,19 +8588,38 @@ class VAseApp {
             cutoff_scale: Number.isFinite(cutoffScaleValue)
                 ? Math.max(0.05, Math.min(3, cutoffScaleValue))
                 : 0.7,
+            pair_cutoffs: this.repulsionPairCutoffs(),
             k_repulsion: Number.isFinite(strengthValue)
                 ? Math.max(0, Math.min(1000, strengthValue))
                 : 1.0
         };
     }
 
+    calculatorPayloadWithOverrides(overrides = null) {
+        const baseline = this.currentCalculatorPayload();
+        if (!overrides || typeof overrides !== 'object') return baseline;
+        const requested = {
+            device: overrides.device,
+            cpu_threads: overrides.cpu_threads ?? overrides.cpuThreads,
+            cutoff_mode: overrides.cutoff_mode ?? overrides.cutoffMode,
+            cutoff_distance: overrides.cutoff_distance ?? overrides.cutoffDistance,
+            cutoff_scale: overrides.cutoff_scale ?? overrides.cutoffScale,
+            pair_cutoffs: overrides.pair_cutoffs ?? overrides.pairCutoffs,
+            k_repulsion: overrides.k_repulsion ?? overrides.kRepulsion ?? overrides.strength
+        };
+        const supplied = Object.fromEntries(
+            Object.entries(requested).filter(([, value]) => value !== undefined)
+        );
+        return baseline ? { ...baseline, ...supplied } : supplied;
+    }
+
     syncRepulsionCutoffControls() {
         const mode = document.getElementById('calc-cutoff-mode')?.value === 'absolute'
             ? 'absolute'
-            : 'scaled';
+            : 'bonding';
         document.getElementById('calc-cutoff-scale-row')?.classList.toggle(
             'hidden',
-            mode !== 'scaled'
+            mode !== 'bonding'
         );
         document.getElementById('calc-cutoff-distance-row')?.classList.toggle(
             'hidden',
@@ -8462,7 +8629,7 @@ class VAseApp {
         if (note) {
             note.textContent = mode === 'absolute'
                 ? 'Every enabled pair repels below the stated distance and has zero pair force at or above it. This is not a hard minimum separation.'
-                : 'Repulsion starts below the ASE covalent-radius sum multiplied by the scale and is zero at or above that distance. This is not a hard minimum separation.';
+                : 'Each label pair uses its active automatic bonding cutoff. Same-class pairs hidden only from automatic bond rendering use their covalent contact cutoff. Explicitly disabled and 0 Å Pairwise pairs remain inactive.';
         }
     }
 
@@ -8580,7 +8747,7 @@ class VAseApp {
         device.disabled = !isRepulsion || this.state.isRelaxing;
         cpus.disabled = !isRepulsion || this.state.isRelaxing || device.value !== 'cpu';
         if (document.activeElement !== cutoffMode) {
-            cutoffMode.value = details.cutoff_mode === 'absolute' ? 'absolute' : 'scaled';
+            cutoffMode.value = details.cutoff_mode === 'absolute' ? 'absolute' : 'bonding';
         }
         if (document.activeElement !== cutoffDistance) {
             cutoffDistance.value = Number(details.cutoff_distance ?? 2.0).toFixed(2);
@@ -8626,7 +8793,7 @@ class VAseApp {
         }
     }
 
-    applyCalculatorControls() {
+    applyCalculatorControls({ quiet = false } = {}) {
         const payload = this.currentCalculatorPayload();
         if (!payload) return Promise.resolve();
         const revision = ++this.calculatorConfigRevision;
@@ -8640,7 +8807,7 @@ class VAseApp {
                 const suffix = details.backend === 'torch'
                     ? `torch/${details.effective_device}`
                     : 'numpy';
-                this.toast(`Repulsion calculator set to ${suffix}.`, 'success');
+                if (!quiet) this.toast(`Repulsion calculator set to ${suffix}.`, 'success');
                 return data;
             })
             .catch(err => {
@@ -8879,12 +9046,21 @@ class VAseApp {
             preserveColorScaleRange = false
         } = {}
     ) {
+        const refreshActiveRdf = Boolean(
+            this.state.rdfAutoRefresh
+            && this.state.activeAnalysisPlot === 'rdf'
+        );
         if (resetTrajectoryIdentity) this.clearViewIdentityOverrides();
         this.clearCommensurateSupercellProposal({ keepStatus: true });
         this.invalidateSelectionPropertyData();
         this.invalidateAtomColorScaleData({ preserveRange: preserveColorScaleRange });
         this.invalidateForceVectorData();
-        if (!preserveRdf) this.invalidateRdfResult();
+        if (!preserveRdf) {
+            this.invalidateRdfResult(
+                'The structure changed; recalculating the active distribution.',
+                { preserveActivePlot: true }
+            );
+        }
         const previousLatticeSignature = JSON.stringify({
             cell: this.state.atoms?.cell || null,
             pbc: this.state.atoms?.pbc || null,
@@ -8996,6 +9172,12 @@ class VAseApp {
         this.scheduleDisplacementAnalysisRefresh();
         this.updateForceVectorStatus();
         this.observeCollaborationFrame();
+        if (refreshActiveRdf) {
+            this.scheduleActiveStructureAnalysisRefresh(
+                'The structure changed.',
+                0
+            );
+        }
     }
 
     hasLoadedAtoms() {
@@ -9075,6 +9257,52 @@ class VAseApp {
             : 0;
     }
 
+    rdfTimelineSource() {
+        const displayed = this.state.displayedTimelineSource;
+        if (displayed === 'relax' && this.relaxFrameCount() > 0) return 'relax';
+        return 'loaded';
+    }
+
+    rdfFrameContext({ source = null, frameIndex = null, positions = null } = {}) {
+        const resolvedSource = source === 'relax' && this.relaxFrameCount() > 0
+            ? 'relax'
+            : source === 'loaded'
+                ? 'loaded'
+                : this.rdfTimelineSource();
+        if (resolvedSource === 'relax') {
+            const frameCount = Math.max(1, this.relaxFrameCount());
+            const requested = frameIndex === null
+                ? Number(this.state.relaxTrajectory?.frame || 0)
+                : Number(frameIndex);
+            const index = Math.max(0, Math.min(
+                frameCount - 1,
+                Number.isInteger(requested) ? requested : 0
+            ));
+            return {
+                source: 'relax',
+                index,
+                frameCount,
+                backendFrameIndex: Number(this.state.relaxTrajectory?.sourceFrame || 0),
+                positions: positions || this.state.relaxTrajectory?.frames?.[index] || null
+            };
+        }
+        const frameCount = Math.max(1, this.loadedFrameCount());
+        const requested = frameIndex === null
+            ? Number(this.state.atoms?.metadata?.current_frame || 0)
+            : Number(frameIndex);
+        const index = Math.max(0, Math.min(
+            frameCount - 1,
+            Number.isInteger(requested) ? requested : 0
+        ));
+        return {
+            source: 'loaded',
+            index,
+            frameCount,
+            backendFrameIndex: index,
+            positions
+        };
+    }
+
     timelineSourceAvailable(source) {
         return source === 'relax'
             ? this.relaxFrameCount() > 1
@@ -9122,6 +9350,7 @@ class VAseApp {
     startModeTrajectory(kind = 'relaxation', label = '') {
         const meta = this.state.atoms?.metadata || {};
         const sourceFrame = Number.isFinite(Number(meta.current_frame)) ? Number(meta.current_frame) : 0;
+        this.state.relaxTrajectoryGeneration += 1;
         this.state.relaxTrajectory = {
             frames: [],
             frame: 0,
@@ -9132,6 +9361,7 @@ class VAseApp {
             label
         };
         this.state.timelineSource = 'relax';
+        this.state.displayedTimelineSource = 'relax';
         const positions = this.currentPositionsFromScene?.() || this.state.atoms?.positions || [];
         if (positions.length) this.appendRelaxFrame(positions, { force: true });
         this.updateTrajectoryUI();
@@ -9155,6 +9385,9 @@ class VAseApp {
             label: ''
         };
         if (this.state.timelineSource === 'relax') this.state.timelineSource = 'loaded';
+        if (this.state.displayedTimelineSource === 'relax') {
+            this.state.displayedTimelineSource = 'loaded';
+        }
         this.updateTrajectoryUI();
         this.syncRelaxationModeUI();
     }
@@ -9250,7 +9483,13 @@ class VAseApp {
         if (!force && last && this.samePositionFrame(last, frame)) return;
         trajectory.frames.push(frame);
         trajectory.frame = trajectory.frames.length - 1;
+        this.state.displayedTimelineSource = 'relax';
+        this.state.rdfFrameCacheComplete = false;
         this.updateTrajectoryUI();
+        this.scheduleActiveStructureAnalysisRefresh(
+            `${this.timelineSourceName('relax')} added a new frame.`,
+            this.state.isRelaxing ? 90 : 0
+        );
     }
 
     relaxOverridePositions(frameIndex) {
@@ -9267,6 +9506,7 @@ class VAseApp {
         const normalized = Math.max(0, Math.min(count - 1, parseInt(index, 10) || 0));
         const positions = this.state.relaxTrajectory.frames[normalized];
         if (!positions) return;
+        this.state.displayedTimelineSource = 'relax';
         this.state.relaxTrajectory.frame = normalized;
         this.state.atoms.positions = positions;
         this.state.originalPositions = this.state.vizOnly ? positions : positions.map(p => [...p]);
@@ -9290,6 +9530,9 @@ class VAseApp {
             label: ''
         };
         if (this.state.timelineSource === 'relax') this.state.timelineSource = 'loaded';
+        if (this.state.displayedTimelineSource === 'relax') {
+            this.state.displayedTimelineSource = 'loaded';
+        }
     }
 
     pruneSelection() {
@@ -11303,6 +11546,10 @@ class VAseApp {
         this.renderer.updateHookeanPositions();
         this.updateSelectionMeasureUI();
         this.scheduleAtomColorScaleRefresh({ coordinatesOnly: true });
+        this.scheduleActiveStructureAnalysisRefresh(
+            'The atom transform preview changed.',
+            120
+        );
         if (this.transform.mode === 'ROTATE') {
             this.updateRotationReferenceGuide(appliedRotationAngle);
             this.renderCommensurateRotationGuides(appliedRotationAngle);
@@ -11348,6 +11595,10 @@ class VAseApp {
                 this.renderer.updateHookeanPositions();
                 this.updateSelectionMeasureUI();
                 this.scheduleAtomColorScaleRefresh({ coordinatesOnly: true });
+                this.scheduleActiveStructureAnalysisRefresh(
+                    'The constrained atom positions changed.',
+                    80
+                );
                 this.renderer.requestRender();
             }
         } catch (err) {
@@ -11567,6 +11818,10 @@ class VAseApp {
         this.renderer.controls.enabled = true;
         this.updateToolState();
         this.updateUI();
+        this.scheduleActiveStructureAnalysisRefresh(
+            'The atom transform was cancelled.',
+            0
+        );
     }
 
     addAtomsRegionMoveDelta() {
@@ -13657,6 +13912,7 @@ class VAseApp {
                     ? this.selectedActiveRdfPairs()
                     : this.activeRdfPairs()
             ) : null;
+        const previousRepulsionCutoffs = JSON.stringify(this.repulsionPairCutoffs());
         this.state.display.showBonds = Boolean(document.getElementById('chk-bonds')?.checked);
         this.state.display.showPeriodicBonds = Boolean(
             document.getElementById('chk-periodic-bonds')?.checked
@@ -13683,10 +13939,27 @@ class VAseApp {
             if (rdfPairMode === 'selected') {
                 this.scheduleSelectedRdfRefresh();
             } else {
-                this.invalidateRdfResult(
-                    'Active bond-pair settings changed. Calculate the RDF again.'
+                const keptOpen = this.invalidateRdfResult(
+                    'Active bond-pair settings changed; recalculating the distribution.',
+                    { preserveActivePlot: true }
                 );
+                if (keptOpen) {
+                    this.scheduleActiveStructureAnalysisRefresh(
+                        'Active bond-pair settings changed.',
+                        80
+                    );
+                }
             }
+        }
+        const calculatorDetails = this.repulsionCalculatorDetails();
+        if (
+            previousRepulsionCutoffs !== JSON.stringify(this.repulsionPairCutoffs())
+            && calculatorDetails.is_default_repulsion
+            && calculatorDetails.cutoff_mode !== 'absolute'
+            && !this.state.vizOnly
+            && !this.state.isRelaxing
+        ) {
+            this.applyCalculatorControls({ quiet: true });
         }
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
         this.scheduleVisualHistoryCommit('bonds');
@@ -15434,7 +15707,7 @@ class VAseApp {
                 Number(operation.fmax) || 0.05,
                 Math.max(1, Math.round(Number(operation.steps) || 200)),
                 applyConstraints,
-                operation.calculator || this.currentCalculatorPayload()
+                this.calculatorPayloadWithOverrides(operation.calculator)
             );
             const completionArrivedFirst = (
                 this.state.relaxTrajectory?.kind === 'relaxation'
@@ -20463,24 +20736,32 @@ class VAseApp {
         }
         if (refreshRdf) {
             this.state.rdfRequestToken += 1;
-            rdfOptions = this.rdfOptions();
-            this.ensureRdfFrameCache(rdfOptions);
-            const frameIndex = Number(this.state.atoms?.metadata?.current_frame || 0);
-            cachedRdf = this.state.rdfFrameCache.get(frameIndex) || null;
+            const context = this.rdfFrameContext();
+            rdfOptions = this.rdfOptions({
+                source: context.source,
+                frameIndex: context.index
+            });
+            this.ensureRdfFrameCache(rdfOptions, context);
+            cachedRdf = this.state.rdfFrameCache.get(
+                this.rdfFrameCacheKey(context)
+            ) || null;
             if (cachedRdf) {
                 this.state.rdfResult = cachedRdf;
                 this.setRdfReadyStatus(cachedRdf);
                 this.plotRdf(cachedRdf).catch(error => {
                     this.setRdfStatus('warning', 'Distribution display failed', error.message);
                 });
-                this.precomputeRdfTrajectory(rdfOptions, { showBusy: false }).catch(error => {
+                this.precomputeRdfTrajectory(rdfOptions, {
+                    showBusy: false,
+                    source: context.source
+                }).catch(error => {
                     console.warn('RDF trajectory prefetch failed', error);
                 });
             } else {
                 this.setRdfStatus(
                     'loading',
                     'Preparing structural distribution',
-                    `Keeping the current graph visible while frame ${frameIndex + 1} is calculated.`
+                    `Keeping the current graph visible while ${this.timelineSourceName(context.source).toLowerCase()} frame ${context.index + 1} is calculated.`
                 );
             }
         }
@@ -20500,6 +20781,7 @@ class VAseApp {
 
     async loadFrame(index) {
         if (this.transform.mode !== 'IDLE') this.cancelTransform();
+        this.state.displayedTimelineSource = 'loaded';
         const meta = this.state.atoms?.metadata || {};
         if (
             this.state.registryResult
@@ -20746,11 +21028,13 @@ class VAseApp {
             if (!cache) return;
         }
         if (
-            source === 'loaded'
-            && this.state.rdfAutoRefresh
+            this.state.rdfAutoRefresh
             && this.state.activeAnalysisPlot === 'rdf'
         ) {
-            await this.precomputeRdfTrajectory(this.rdfOptions(), { showBusy: true });
+            await this.precomputeRdfTrajectory(
+                this.rdfOptions({ source }),
+                { showBusy: true, source }
+            );
         }
         this.state.trajectoryPlaybackSource = source;
         const tick = async () => {

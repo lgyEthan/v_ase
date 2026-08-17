@@ -12,8 +12,8 @@
 direct, Blender-style 3D structure editing. Open a structure or trajectory
 with one command, inspect and measure it in a local browser, edit it manually
 or let an external AI agent translate a natural-language request into verified
-structure operations, then export publication images, videos, and reusable 3D
-scenes.
+structure operations, then export publication images, videos, reusable 3D
+scenes, or a self-contained HTML project.
 
 ![Phosphorene nanoribbon manipulation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_phosphorene_twist.gif)
 
@@ -30,7 +30,16 @@ completed structure is inspected from above and below.
 | **Direct 3D structure editing** | Start from a file or an empty document, define a cell, insert atoms or molecules, and use `G`, `R`, and physical `S` transforms in the same local browser. [Explore editing](#edit-structures). |
 | **Periodic interfaces and analysis** | Build supercells, search commensurate 2D cells, optimize a rigid translation in any compatible periodic `(hkl)` plane, measure ordered geometry, plot periodic RDFs or finite pair distributions, and inspect volumetric fields. [Explore interfaces](#periodic-cells-and-interfaces) and [analysis](#analyze-structures-and-fields). |
 | **External AI collaboration** | Give a scientific request to an external AI Agent; the bundled Skill lets it operate exact revisioned state while you watch and refine the same GUI. [See the collaboration workflow](#work-with-an-ai-agent). |
-| **Publication and reusable output** | Prepare consistent atoms, bonds, lighting, images, videos, offline HTML views, Blender scenes, and self-contained `.vase` projects. [See export options](#export-and-save). |
+| **Portable HTML projects** | Save the structure, trajectory, camera, labels, bonds, lighting, analysis state, and visualization settings in one HTML file. Preview it with macOS Quick Look, open the offline 3D view in a browser, or restore the embedded project in v_ase. [See HTML projects](#project-or-shareable-html). |
+| **Publication and reusable output** | Prepare consistent atoms, bonds, lighting, images, videos, Blender scenes, and compact self-contained `.vase` projects. [See export options](#export-and-save). |
+
+![A self-contained v_ase HTML project in macOS Quick Look and an offline browser](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_html_quicklook.gif)
+
+An **HTML Project** is both a shareable offline 3D document and a complete
+save file. macOS Quick Look reads its optimized poster without installing
+v_ase, while opening the same file in a browser enables orbit, pan, zoom, and
+trajectory playback. Loading it with `v_ase gui FILE.html` restores the
+embedded structure or trajectory and all saved visualization settings.
 
 ![Human and external AI agent working in one live v_ase document](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.png)
 
@@ -629,15 +638,17 @@ changes apply during playback, and **Skip** advances by `skip + 1` source
 frames per tick. Bond topology is evaluated independently for each frame, so
 bonds form or break when a pair crosses its cutoff.
 
-Active analysis follows the displayed frame as well. Per-atom colors and force
-vectors load that frame's stored values, displacement vectors retain the chosen
-reference but move to the new endpoint, and an open RDF or finite
-pair-distribution plot remains visible and follows playback. For ordinary
+Active analysis follows the displayed structure as well. Per-atom colors and
+force vectors load that frame's stored values, displacement vectors retain the
+chosen reference but move to the new endpoint, and an open RDF or finite
+pair-distribution plot remains visible during source playback, Relaxation
+playback, and live `G`/`R`/`S` edits. Every committed structure change triggers
+a fresh curve; while it is calculated, the previous curve stays visible rather
+than closing the drawer. For ordinary source or completed relaxation
 trajectories, v_ase prepares every frame after the first calculation. For
 larger frame/bin/partial-curve combinations, it keeps a bounded rolling cache
-around the displayed frame instead of retaining an unbounded result table; a
-cache miss leaves the previous curve visible until the requested frame is
-ready. Changing RDF settings, labels, or structure invalidates that cache.
+around the displayed frame instead of retaining an unbounded result table.
+Changing RDF settings, labels, or structure invalidates the affected cache.
 Volumetric
 datasets explicitly associated with trajectory frames switch with the atoms;
 if a frame has no matching field, v_ase hides the previous field instead of
@@ -823,6 +834,10 @@ selected mode, changing the selection refreshes only when its active label-pair
 set changes; the partial curves keep the full-structure RDF normalization.
 Set the bin count and cutoff, then use the graph's save icon to export exactly
 the plotted columns as CSV or close the drawer with its adjacent close button.
+The graph is tied to the coordinates currently on screen, not only to the
+original input trajectory. It therefore follows manual atom transforms and
+the separate optimization timeline produced by Relaxation without dismissing
+the drawer.
 
 Periodic RDF uses exact spherical shell volumes and ASE's periodic neighbor
 search in the full triclinic cell. The requested cutoff is not limited to a
@@ -929,9 +944,14 @@ v_ase gui examples/readme_scene_assets/crowded_c60_initial.cif --interactive
 The fallback calculator is intended for removing obvious close contacts, not
 for predictive chemistry. **Cutoff definition** has two explicit meanings:
 
-- **Pair radii x scale** uses
-  `r_cut,ij = scale x (ASE covalent radius i + ASE covalent radius j)`.
-  The scale is dimensionless and is not a minimum permitted distance.
+- **Bond cutoffs x multiplier** uses
+  `r_cut,ij = multiplier x active bonding cutoff(label_i, label_j)`.
+  It follows the current automatic, pairwise, or manual label-pair bond setup.
+  Automatic same-class pairs hidden only to reduce visual bond clutter use
+  their covalent contact distance, so overlapping scratch atoms can still
+  separate. A Pairwise pair explicitly disabled or set to `0 Å` remains
+  non-repulsive. The multiplier is dimensionless and is not a minimum
+  permitted distance.
 - **Absolute distance / Å** uses one physical `r_cut` for every enabled pair.
   Pairs at or beyond that distance have exactly zero repulsive energy and
   force.

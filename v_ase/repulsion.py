@@ -13,6 +13,8 @@ from ase.data import atomic_numbers, covalent_radii, vdw_radii
 from ase.geometry import find_mic
 from ase.neighborlist import primitive_neighbor_list
 
+from .io import atom_labels
+
 _EPS = 1e-12
 
 
@@ -90,7 +92,24 @@ def _valid_cutoff_scale(value: Any | None) -> float:
 
 
 def _valid_cutoff_mode(value: Any | None) -> str:
-    return "absolute" if str(value or "").strip().lower() == "absolute" else "scaled"
+    return "absolute" if str(value or "").strip().lower() == "absolute" else "bonding"
+
+
+def _valid_pair_cutoffs(value: Any | None) -> dict[str, float] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        return None
+    normalized: dict[str, float] = {}
+    for key, raw in value.items():
+        try:
+            cutoff = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(cutoff):
+            continue
+        normalized[str(key)] = min(100.0, max(0.0, cutoff))
+    return normalized
 
 
 def _valid_cutoff_distance(value: Any | None) -> float:
@@ -145,8 +164,9 @@ def is_vase_repulsion_calculator(calc) -> bool:
 class VAseRepulsionCalculator(Calculator):
     """ASE calculator for soft pair repulsion and optional region penalties.
 
-    In ``scaled`` cutoff mode, atoms repel below ``cutoff_scale`` times their
-    pair threshold (the ASE covalent-radius sum by default). In ``absolute``
+    In ``bonding`` cutoff mode, atoms repel below ``cutoff_scale`` times their
+    active label-pair bonding cutoff. The ASE covalent-radius sum remains a
+    compatibility fallback when no pair table is supplied. In ``absolute``
     mode, every enabled pair instead uses ``cutoff_distance`` in Angstrom.
     Both modes use ``0.5 * k_repulsion * (r_cut - r)**2`` below the threshold
     and exactly zero pair energy and force at or beyond it. The threshold is an
@@ -165,9 +185,10 @@ class VAseRepulsionCalculator(Calculator):
         set_region_as_prohibited: bool = False,
         k_boundary: float = 1.0,
         k_repulsion: float = 1.0,
-        cutoff_mode: str = "scaled",
+        cutoff_mode: str = "bonding",
         cutoff_distance: float = 2.0,
         cutoff_scale: float = 0.7,
+        pair_cutoffs: dict[str, float] | None = None,
         max_force_norm: float | None = 10.0,
         mic: bool = True,
         work_on_relax_atoms_too: bool = True,
@@ -177,7 +198,12 @@ class VAseRepulsionCalculator(Calculator):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.min_bondinfo = min_bondinfo.lower() if isinstance(min_bondinfo, str) else min_bondinfo
+        normalized_pair_cutoffs = _valid_pair_cutoffs(pair_cutoffs)
+        self.min_bondinfo = (
+            normalized_pair_cutoffs
+            if normalized_pair_cutoffs is not None
+            else min_bondinfo.lower() if isinstance(min_bondinfo, str) else min_bondinfo
+        )
         self.region = [None] * 6 if region is None else list(region)
         if len(self.region) != 6:
             raise ValueError("region must be a list of length 6")
@@ -204,6 +230,7 @@ class VAseRepulsionCalculator(Calculator):
         cutoff_mode: str | None = None,
         cutoff_distance: float | None = None,
         cutoff_scale: float | None = None,
+        pair_cutoffs: dict[str, float] | None = None,
         k_repulsion: float | None = None,
     ):
         if device is not None:
@@ -216,6 +243,9 @@ class VAseRepulsionCalculator(Calculator):
             self.cutoff_distance = _valid_cutoff_distance(cutoff_distance)
         if cutoff_scale is not None:
             self.cutoff_scale = _valid_cutoff_scale(cutoff_scale)
+        normalized_pair_cutoffs = _valid_pair_cutoffs(pair_cutoffs)
+        if normalized_pair_cutoffs is not None:
+            self.min_bondinfo = normalized_pair_cutoffs
         if k_repulsion is not None:
             self.k_repulsion = _valid_repulsion_strength(k_repulsion)
         self.reset()
@@ -235,6 +265,11 @@ class VAseRepulsionCalculator(Calculator):
             "cutoff_mode": self.cutoff_mode,
             "cutoff_distance": self.cutoff_distance,
             "cutoff_scale": self.cutoff_scale,
+            "pair_cutoffs": (
+                dict(self.min_bondinfo)
+                if isinstance(self.min_bondinfo, dict)
+                else None
+            ),
             "k_repulsion": self.k_repulsion,
         }
 
@@ -256,11 +291,27 @@ class VAseRepulsionCalculator(Calculator):
             return values
         return self.min_bondinfo
 
-    def _threshold_for_pair(self, min_bondinfo, sym_i: str, sym_j: str) -> float | None:
+    def _threshold_for_pair(
+        self,
+        min_bondinfo,
+        label_i: str,
+        label_j: str,
+        sym_i: str,
+        sym_j: str,
+    ) -> float | None:
         if isinstance(min_bondinfo, dict):
-            key_ij = f"{sym_i}-{sym_j}"
-            key_ji = f"{sym_j}-{sym_i}"
-            value = min_bondinfo.get(key_ij, min_bondinfo.get(key_ji))
+            keys = (
+                f"{label_i}-{label_j}",
+                f"{label_j}-{label_i}",
+                f"{label_i}|{label_j}",
+                f"{label_j}|{label_i}",
+                f"{sym_i}-{sym_j}",
+                f"{sym_j}-{sym_i}",
+            )
+            value = next(
+                (min_bondinfo[key] for key in keys if key in min_bondinfo),
+                None,
+            )
             if value is None:
                 return None
             # Pair dictionaries use zero or a negative value to disable a
@@ -278,10 +329,17 @@ class VAseRepulsionCalculator(Calculator):
     def _manual_pairs(self, atoms: Atoms, min_bondinfo):
         positions = atoms.get_positions()
         symbols = atoms.get_chemical_symbols()
+        labels = atom_labels(atoms)
         pairs = []
         for i in range(len(atoms) - 1):
             for j in range(i + 1, len(atoms)):
-                threshold = self._threshold_for_pair(min_bondinfo, symbols[i], symbols[j])
+                threshold = self._threshold_for_pair(
+                    min_bondinfo,
+                    labels[i],
+                    labels[j],
+                    symbols[i],
+                    symbols[j],
+                )
                 if threshold is None or threshold <= 0:
                     continue
                 vec = positions[j] - positions[i]
@@ -327,6 +385,7 @@ class VAseRepulsionCalculator(Calculator):
             return self._manual_pairs(atoms, min_bondinfo)
 
         symbols = atoms.get_chemical_symbols()
+        labels = atom_labels(atoms)
         pairs = []
         seen = set()
         for i, j, vec, dist in zip(is_, js, vecs, dists):
@@ -334,7 +393,13 @@ class VAseRepulsionCalculator(Calculator):
             j = int(j)
             if i >= j:
                 continue
-            threshold = self._threshold_for_pair(min_bondinfo, symbols[i], symbols[j])
+            threshold = self._threshold_for_pair(
+                min_bondinfo,
+                labels[i],
+                labels[j],
+                symbols[i],
+                symbols[j],
+            )
             if threshold is None or dist >= threshold:
                 continue
             if dist <= _EPS:
@@ -365,7 +430,13 @@ class VAseRepulsionCalculator(Calculator):
                 i, j = (other, index) if other < index else (index, other)
                 if (i, j) in seen:
                     continue
-                threshold = self._threshold_for_pair(min_bondinfo, symbols[i], symbols[j])
+                threshold = self._threshold_for_pair(
+                    min_bondinfo,
+                    labels[i],
+                    labels[j],
+                    symbols[i],
+                    symbols[j],
+                )
                 if threshold is None or threshold <= 0:
                     continue
                 coincident_candidates.append(

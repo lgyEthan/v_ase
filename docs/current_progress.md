@@ -221,9 +221,11 @@ and documentation use `view()`.
 41. Camera toolbar tilt and orbit use the camera world quaternion to derive
     screen right, up, and forward. Their meaning stays screen-relative after
     cell transforms, axis views, roll, and arbitrary camera motion.
-42. Repulsion configuration is calculator state, not display state. Its default
-    pair cutoff scale is `0.70`, strength is user-configurable, and both values
-    survive working-frame and trajectory calculator copies.
+42. Repulsion configuration is calculator state. Its default `0.70` multiplier
+    applies to the active label-pair Bonding cutoffs, including explicit zero
+    and disabled pairs, while strength remains independently configurable.
+    Both values and the pair table survive working-frame and trajectory
+    calculator copies.
 43. Commensurate candidates are deterministic cell-boundary matches. The
     workspace and magnetic snapping are both disabled by default, and neither
     feature depends on the current bond list. Enabling the workspace starts the

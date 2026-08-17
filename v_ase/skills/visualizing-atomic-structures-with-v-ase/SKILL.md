@@ -14,7 +14,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.21"
+python -m pip install "v_ase-gui==0.2.22"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -153,7 +153,7 @@ reference before executing a multi-step workflow:
 | Analyze trajectories | frame selection, displacement, RDF, colorscale, stored force vectors |
 | Analyze scalar fields | volumetric datasets, isosurfaces, planes, field combinations |
 | Style and render | `display`, `quality`, `camera`, `render` |
-| Save or share | `export`, `.vase`, media, HTML, and geometry formats |
+| Save or share | `export`, compact `.vase`, portable HTML projects, media, and geometry formats |
 
 ### Live Methods
 
@@ -386,7 +386,7 @@ For any nontrivial task, verify all applicable items:
 - AI contract: exact schema/capability operation and export set equality, an
   external `v_ase api` mutation visible in the same live GUI, and matching GUI
   and `describe().collaboration.revision` state;
-- trajectory: frame count, active frame, stable selection, analysis reference, and frame-synchronized cached RDF playback;
+- trajectory: frame count, active frame, stable selection, analysis reference, and cached RDF playback across loaded and relaxation timelines;
 - volumetric: dataset ID, grid dimensions, cell, origin, PBC, units,
   component, FP32/FP64 precision, memory size, visible default/custom
   isovalue, raw or absolute-value histogram, mesh count, live color/opacity
@@ -394,12 +394,9 @@ For any nontrivial task, verify all applicable items:
   colormap/range/opacity, cache reuse, and supercell/translation alignment;
   verify suffixed VASP names such as
   `PARCHG_*`, `LOCPOT.*`, and `CHGCAR-*` are identified by contents/type;
-- radial or finite pair distribution: displayed frame, `analysisKind`, PBC, cutoff, bins,
-  curves, normalization, CSV, and that `pairMode:"selected"` filters active bonds
-  with both endpoints selected but retains full-structure normalization; for 3D periodic RDF verify the unique-MIC
-  reference, required periodic-image span, `g(r) = 1` bulk reference,
-  long-range behavior, and warnings; for a no-PBC finite structure verify the
-  unordered-pair probability-density integral instead of calling it bulk RDF;
+- radial or finite pair distribution: displayed frame, `analysisKind`, PBC, cutoff, bins, curves, normalization, CSV, and selected-active-bond filtering with full-structure normalization;
+  for 3D periodic RDF verify the unique-MIC reference, image span, `g(r) = 1` bulk limit, long-range behavior, and warnings; for no PBC verify the unordered-pair probability-density integral;
+  require open plots to follow `G`/`R`/`S`, committed edits, and relaxation frames without closing;
 - appearance: visibility, radii, colors, materials, bonds, cell, background;
 - per-atom colorscale: exact catalog field ID, scope, map, reverse state,
   gamma, resolved `vmin`/`vmax`, current/trajectory/manual range source, and
@@ -456,11 +453,8 @@ For any nontrivial task, verify all applicable items:
   annotation-free 3D helix at `r > rt`, and ASE force magnitude
   `k * (r - rt)` without altering backend constraint semantics; verify the same
   threshold transition on every trajectory frame;
-- relaxation modes: source, structure-relaxation, Add Atoms placement, and
-  rigid planar-translation timelines remain distinguishable; stopping permits
-  restart; exiting an active or finished structure relaxation explicitly keeps
-  the current coordinates or restores the exact pre-relaxation baseline, then
-  removes only that temporary optimizer timeline;
+- relaxation modes: source, structure, Add Atoms, and planar-translation timelines remain distinguishable; stop permits restart, while exit keeps current coordinates or restores the exact baseline and removes only that optimizer timeline;
+- built-in repulsion: Bonding mode uses the active label-pair cutoff table times a multiplier; explicit disabled/zero Pairwise entries stay inactive, while automatic same-class visual suppression uses a covalent contact fallback. Absolute mode uses one Angstrom onset.
 - render: exact dimensions, format, options, nonblank decoded pixels;
 - export: MIME type, filename, byte count, and reopenability where supported;
 - standalone HTML: both lightweight and project-embedded modes load from

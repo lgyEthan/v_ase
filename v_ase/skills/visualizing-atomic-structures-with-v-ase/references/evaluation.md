@@ -358,6 +358,12 @@ Run all scenarios, not only static document checks:
    - calculate a trajectory RDF once, play through cached frames without the
      Plotly drawer disappearing, and force the bounded rolling-cache path with
      a large frame/bin/curve product;
+   - calculate a distribution, preview and commit a selected-atom `G` move,
+     and require the same open drawer to replace its curve with one calculated
+     from the displayed preview/committed coordinates;
+   - run structure relaxation, switch between its operation-specific movie
+     frames, and require the distribution source/frame metadata and curve to
+     follow that relaxation timeline rather than the loaded source frame;
    - calculate active, selected-active-bond, all, and no-partial modes; change
      the selection to a different active label pair and verify a debounced
      refresh, then select another bond of the same label pair and verify no
@@ -399,6 +405,9 @@ Run all scenarios, not only static document checks:
      fill the exact export rectangle with no logo, header, border, or page
      margin; compare it to the first WebGL frame and reject any frame-bound
      movement during the cross-fade;
+   - on macOS, generate a real Quick Look thumbnail for project-embedded HTML,
+     require a nonblank structure poster, then open the same file from
+     `file://`, rotate it, and recover the embedded project through v_ase;
    - execute a real notebook using `%v_ase inline`, `%v_ase browser`, and
      `%v_ase auto`; confirm inline produces one iframe while browser mode
      creates the ordinary external workspace session;

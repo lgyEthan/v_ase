@@ -584,9 +584,12 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
             )
             assert calculator_schema["additionalProperties"] is False
             assert calculator_schema["properties"]["cutoff_mode"]["enum"] == [
-                "scaled",
+                "bonding",
                 "absolute",
             ]
+            assert calculator_schema["properties"]["pair_cutoffs"]["additionalProperties"][
+                "minimum"
+            ] == 0
             assert calculator_schema["properties"]["cutoff_distance"]["minimum"] == 0.01
             assert "cutoff_distance in Angstrom" in (
                 schema["operation_parameters"]["start-relaxation"]["notes"]

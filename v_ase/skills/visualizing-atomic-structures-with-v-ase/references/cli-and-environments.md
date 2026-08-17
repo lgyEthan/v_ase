@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.21"
+python -m pip install "v_ase-gui==0.2.22"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.2.21"
+python -m pip install "v_ase-gui[rhino]==0.2.22"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, SciPy, scikit-image,
@@ -234,7 +234,8 @@ Main outputs:
 - image: PNG by default, or JPEG, PDF, and lossless WebP;
 - trajectory movie: MOV/H.264 or AVI/MPEG-4;
 - editable scene: Blender Python, Rhino 3DM, or OBJ bundle;
-- shareable view: one offline view-only HTML document with optional embedded `.vase` recovery;
+- shareable view or save file: one offline HTML document with an optimized
+  Quick Look poster and optional embedded `.vase` recovery;
 - complete session: `.vase`;
 - reusable appearance: visual settings JSON.
 - analysis table: total and pairwise RDF as CSV.
@@ -244,7 +245,8 @@ should inspect the saved 3D scene and trajectory in a browser without
 installing v_ase. HTML always includes the renderer and browser scene data.
 Set **Embed editable .vase project** when lossless recovery is required; this
 adds a Base64 copy of the archive and allows `v_ase gui FILE.html`. Disable it
-for a smaller view-only file.
+for a smaller view-only file. On macOS, Finder/Quick Look displays the embedded
+optimized poster without running the browser renderer or requiring v_ase.
 
 The terminal remains occupied while the browser document is active unless
 `--no-block` or `--cli` is used. Close the document or stop the process after

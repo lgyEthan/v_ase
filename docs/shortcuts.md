@@ -140,5 +140,8 @@ the move is confirmed or canceled.
   Edit mode with the built-in v_ase calculator.
 - `CPU` is the default device. `CUDA` is enabled only when torch and CUDA are
   available in the Python environment.
-- Cutoff scale defaults to `0.70`; strength defaults to `1.0`.
+- The bond-cutoff multiplier defaults to `0.70`; strength defaults to `1.0`.
+  In Bonding mode, each label-pair cutoff comes from the current Bonding setup.
+  Automatic same-class visual suppression uses a covalent contact fallback;
+  explicit Pairwise disabled and `0 Å` pairs remain inactive.
 - Torch is optional; NumPy fallback is used when torch is not installed.

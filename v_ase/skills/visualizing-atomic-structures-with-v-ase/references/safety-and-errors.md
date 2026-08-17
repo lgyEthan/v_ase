@@ -122,8 +122,10 @@ test edit and a new filename for output.
   total with `c_a^2 g_aa`, `2 c_a c_b g_ab`, and `c_b^2 g_bb`; do not sum the
   unweighted curves directly.
 - The built-in repulsion cutoff is an onset, not a hard minimum distance.
-  Scaled mode multiplies an ASE pair-radius sum; absolute mode uses Angstrom.
-  Both have zero pair energy and force at and beyond the onset.
+  Bonding mode multiplies each label-pair Bonding cutoff. Automatic same-class
+  visual suppression uses a covalent contact fallback, while explicit
+  Pairwise disabled and zero-Angstrom pairs remain inactive. Absolute mode uses
+  one Angstrom onset. Both have zero pair energy and force at and beyond it.
 - Never claim a result is physically relaxed unless an actual calculator and
   optimizer completed.
 
@@ -163,7 +165,7 @@ test edit and a new filename for output.
 | `(hkl)` plane is incompatible with PBC | Its primitive in-plane basis uses a nonperiodic cell vector or is degenerate | Choose a compatible plane or correct PBC; do not silently replace the requested Miller indices |
 | repeated atoms cannot be selected | Edit keeps preview replicas noneditable | Use View for replica measurements or materialize with Set Supercell as Cell |
 | relaxation requires calculator | No ASE calculator is attached | Attach a supported calculator or do not relax |
-| repulsion atoms cross the requested cutoff | The cutoff is a zero-force onset, not a minimum-distance constraint; optimizer tolerance or other forces can stop elsewhere | Verify `cutoff_mode`, the active scale/distance, `k_repulsion`, and final pair distances; use a true ASE constraint when a separation must be enforced |
+| repulsion atoms cross the requested cutoff | The cutoff is a zero-force onset, not a minimum-distance constraint; optimizer tolerance or other forces can stop elsewhere | Verify `cutoff_mode`, the active Bonding pair cutoff and multiplier or absolute distance, `k_repulsion`, and final pair distances; use a true ASE constraint when a separation must be enforced |
 | optional 3DM export fails | `rhino3dm` is absent | Install `v_ase-gui[rhino]` |
 | video capture unavailable | Browser lacks `MediaRecorder` | Use Chromium-family browser |
 | Chrome says the site can view saved-file changes | File System Access permission notice | This is expected after selecting a destination; access is limited to that file and cannot be suppressed while preselecting it |

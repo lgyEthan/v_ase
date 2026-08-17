@@ -419,7 +419,7 @@ def _restore_calculator_sidecar(frames: list[Atoms], path: Path, manifest: Any) 
                 # Projects written before cutoff_scale was persisted used the
                 # unscaled radius threshold. Preserve that behavior on load.
                 parameters.setdefault("cutoff_scale", 1.0)
-                parameters.setdefault("cutoff_mode", "scaled")
+                parameters.setdefault("cutoff_mode", "bonding")
                 parameters.setdefault("cutoff_distance", 2.0)
                 calculator = VAseRepulsionCalculator(**parameters)
                 calculator.atoms = frame.copy()

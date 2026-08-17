@@ -432,12 +432,16 @@ without per-frame HTTP, JSON, geometry rebuilds, or complete matrix rewrites.
 Manual scrubbing still synchronizes the backend frame.
 
 The fallback repulsion calculator exposes two alternative onset definitions
-and one force strength under Structure > Relaxation. **Scaled** mode keeps the
-default `0.70` multiplier on each ASE covalent-radius sum. **Absolute** mode
-uses one user-entered distance in Angstrom for every enabled pair. The harmonic
-pair energy and force are zero at and beyond either onset, so the value is not
-a hard minimum-separation constraint. These are calculator parameters and do
-not change visualization bond cutoffs.
+and one force strength under Structure > Relaxation. **Bonding** mode applies
+the default `0.70` multiplier to each active label-pair cutoff from the current
+Bonding setup. Automatic same-class pairs suppressed only from visual bond
+rendering use a covalent contact cutoff so overlapping scratch atoms still
+separate; explicit Pairwise disabled and `0 Å` entries remain inactive.
+**Absolute** mode uses one user-entered distance in Angstrom for every enabled
+pair. The harmonic pair energy and force are zero at and beyond either onset,
+so the value is not a hard minimum-separation constraint. Bonding settings
+remain visualization state, but their active cutoff table is synchronized into
+the fallback calculator before relaxation.
 
 The Add Atoms repulsion is separate from that whole-structure fallback. It
 evaluates only explicit element-pair minimum distances, can keep every host
@@ -449,6 +453,12 @@ structure relaxation.
 Base-atom selections survive frame changes and are removed only when the new
 frame does not contain the selected index or its label is hidden. Measurements
 are recomputed from the newly displayed positions.
+
+An open radial or finite pair-distribution drawer follows both source frames
+and operation-specific relaxation frames. Coordinate previews and committed
+`G`/`R`/`S` edits invalidate only the affected cached curve; the drawer and
+previous curve remain visible until the current displayed coordinates finish
+recalculation.
 
 Displacement arrows begin at the currently visible atom position, repeat over
 the displayed supercell, and retain the physical vector returned by the

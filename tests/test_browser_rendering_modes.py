@@ -603,6 +603,127 @@ def test_active_trajectory_frame_updates_rdf_volume_colors_and_displacements():
         editor.close()
 
 
+def test_pdf_stays_open_for_g_move_and_relaxation_movie_frames():
+    atoms = Atoms(
+        "H3",
+        positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [3.2, 0.0, 0.0]],
+        cell=[8.0, 8.0, 8.0],
+        pbc=False,
+    )
+    set_atom_labels(atoms, ["H_left", "H_middle", "H_right"])
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3"
+            )
+            initial = page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                document.getElementById('rdf-cutoff').value = '5.0';
+                document.getElementById('rdf-bins').value = '80';
+                document.getElementById('rdf-pair-mode').value = 'none';
+                await app.calculateRdf();
+                app.state.selected = new Set([1]);
+                app.updateSelectionVisuals();
+                return [...app.state.rdfResult.total];
+            }""")
+
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.enterTransformMode('MOVE');
+                app.transform.setAxis('X', app.renderer.camera);
+                app.transform.buffer = '0.65';
+                app.applyTransformPreview();
+            }""")
+            page.wait_for_function(
+                """initial => {
+                    const app = window.__ASE_APP__;
+                    return app.transform.mode === 'MOVE'
+                        && app.state.rdfResult?.total?.some(
+                            (value, index) => Math.abs(value - initial[index]) > 1e-12
+                        )
+                        && !document.getElementById('analysis-drawer').classList.contains('hidden');
+                }""",
+                arg=initial,
+                timeout=20_000,
+            )
+            page.evaluate("window.__ASE_APP__.commitTransform()")
+            page.wait_for_function(
+                """() => window.__ASE_APP__.transform.mode === 'IDLE'
+                    && window.__ASE_APP__.state.activeAnalysisPlot === 'rdf'
+                    && !document.getElementById('analysis-drawer').classList.contains('hidden')""",
+                timeout=20_000,
+            )
+
+            page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                const start = app.currentPositionsFromScene();
+                app.startRelaxTrajectory();
+                app.appendRelaxFrame([
+                    [...start[0]],
+                    [start[1][0] + 0.55, start[1][1], start[1][2]],
+                    [...start[2]]
+                ]);
+                app.state.relaxTrajectory.finished = true;
+                await app.loadRelaxFrame(1);
+            }""")
+            page.wait_for_function(
+                """() => {
+                    const result = window.__ASE_APP__.state.rdfResult;
+                    return result?.display_source === 'relax'
+                        && result?.display_frame_index === 1
+                        && result?.display_frame_count === 2;
+                }""",
+                timeout=20_000,
+            )
+            relaxation = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                return {
+                    source: app.state.rdfResult?.display_source,
+                    frame: app.state.rdfResult?.display_frame_index,
+                    count: app.state.rdfResult?.display_frame_count,
+                    curve: [...(app.state.rdfResult?.total || [])],
+                    visible: !document.getElementById('analysis-drawer').classList.contains('hidden')
+                };
+            }""")
+            assert relaxation["source"] == "relax"
+            assert relaxation["frame"] == 1
+            assert relaxation["count"] == 2
+            assert relaxation["visible"] is True
+
+            page.evaluate("window.__ASE_APP__.loadRelaxFrame(0)")
+            page.wait_for_function(
+                """curve => {
+                    const result = window.__ASE_APP__.state.rdfResult;
+                    return result?.display_source === 'relax'
+                        && result?.display_frame_index === 0
+                        && result.total.some(
+                            (value, index) => Math.abs(value - curve[index]) > 1e-12
+                        )
+                        && !document.getElementById('analysis-drawer').classList.contains('hidden');
+                }""",
+                arg=relaxation["curve"],
+                timeout=20_000,
+            )
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
     tmp_path,
     monkeypatch,

@@ -264,15 +264,20 @@ await applyCurrent({
 });
 ```
 
-`cutoff_mode:"scaled"` uses
-`r_cut,ij = cutoff_scale * (ASE covalent radius i + ASE covalent radius j)`;
-the scale is dimensionless. `cutoff_mode:"absolute"` uses the one
+`cutoff_mode:"bonding"` uses
+`r_cut,ij = cutoff_scale * pair_cutoffs[label_i|label_j]`. Supply the live
+Bonding table with unordered label-pair keys; zero keeps a pair inactive. The
+browser does this automatically when the calculator object is omitted. In
+automatic bond mode, same-class pairs suppressed only from visual bond
+rendering receive a covalent contact cutoff so scratch overlaps can separate;
+an explicit Pairwise zero remains disabled.
+`cutoff_mode:"absolute"` uses the one
 `cutoff_distance` value in Angstrom for every enabled pair. Below either onset,
 `E_pair = 0.5 * k_repulsion * (r_cut - r)^2`; energy and force are exactly zero
 at and beyond `r_cut`. This is not a hard minimum-separation constraint. Read
 `describe().calculator.details` after applying the command and verify
-`cutoff_mode`, the active cutoff field, and `k_repulsion` before trusting the
-run.
+`cutoff_mode`, `pair_cutoffs` when bonding mode is active, the active cutoff
+field, and `k_repulsion` before trusting the run.
 
 ### ASE Bulk Builder Contract
 

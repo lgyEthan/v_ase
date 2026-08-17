@@ -93,9 +93,10 @@ export class ASEApi {
                     effective_device: 'cpu',
                     cpu_threads: 4,
                     cpu_thread_options: [1, 2, 3, 4],
-                    cutoff_mode: 'scaled',
+                    cutoff_mode: 'bonding',
                     cutoff_distance: 2.0,
                     cutoff_scale: 0.7,
+                    pair_cutoffs: {},
                     k_repulsion: 1.0,
                     torch_available: false,
                     cuda_available: false
@@ -807,15 +808,18 @@ export class ASEApi {
             details.cpu_threads = payload.cpu_threads || details.cpu_threads || 4;
             details.cutoff_mode = payload.cutoff_mode === 'absolute'
                 ? 'absolute'
-                : payload.cutoff_mode === 'scaled'
-                    ? 'scaled'
-                    : details.cutoff_mode || 'scaled';
+                : ['bonding', 'scaled'].includes(payload.cutoff_mode)
+                    ? 'bonding'
+                    : details.cutoff_mode || 'bonding';
             details.cutoff_distance = Number.isFinite(Number(payload.cutoff_distance))
                 ? Math.max(0.01, Math.min(100, Number(payload.cutoff_distance)))
                 : Number(details.cutoff_distance ?? 2.0);
             details.cutoff_scale = Number.isFinite(Number(payload.cutoff_scale))
                 ? Math.max(0.05, Math.min(3, Number(payload.cutoff_scale)))
                 : Number(details.cutoff_scale ?? 0.7);
+            if (payload.pair_cutoffs && typeof payload.pair_cutoffs === 'object') {
+                details.pair_cutoffs = this.clone(payload.pair_cutoffs);
+            }
             details.k_repulsion = Number.isFinite(Number(payload.k_repulsion))
                 ? Math.max(0, Math.min(1000, Number(payload.k_repulsion)))
                 : Number(details.k_repulsion ?? 1.0);

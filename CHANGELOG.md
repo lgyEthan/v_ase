@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.22
+
+- Kept active radial and finite pair-distribution plots open and synchronized
+  with live coordinate transforms, committed structure changes, and dedicated
+  relaxation movie frames, including bounded per-source trajectory caching.
+- Replaced the ambiguous covalent-radius scale UI with an active
+  label-pair-bond-cutoff multiplier. Disabled and `0 Å` bonding pairs remain
+  non-repulsive when set explicitly; automatically hidden same-class visual
+  bonds use a covalent contact fallback so scratch overlaps still relax. The
+  absolute-Angstrom onset remains available.
+- Extended the live AI calculator schema and regression suite for the same
+  label-aware pair table and relaxation-analysis behavior.
+- Highlighted project-embedded HTML as a portable save file with a macOS
+  Finder/Quick Look poster and an offline interactive browser view.
+
 ## 0.2.21
 
 - Expanded the one-atom **Measure** readout with the displayed Cartesian and

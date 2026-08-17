@@ -587,6 +587,7 @@ def test_default_repulsion_calculator_device_settings_are_configurable():
         "cutoff_mode": "absolute",
         "cutoff_distance": 1.35,
         "cutoff_scale": 0.7,
+        "pair_cutoffs": {"H|H": 1.1},
         "k_repulsion": 3.5,
     }))
 
@@ -597,8 +598,21 @@ def test_default_repulsion_calculator_device_settings_are_configurable():
     assert details["cutoff_mode"] == "absolute"
     assert details["cutoff_distance"] == pytest.approx(1.35)
     assert details["cutoff_scale"] == pytest.approx(0.7)
+    assert details["pair_cutoffs"] == {"H|H": pytest.approx(1.1)}
     assert details["k_repulsion"] == pytest.approx(3.5)
     assert 1 in details["cpu_thread_options"]
+    calculator_frames = [
+        session.working_atoms,
+        *session.trajectory_frames,
+        *session.original_frames,
+    ]
+    assert calculator_frames
+    for frame in calculator_frames:
+        if not is_vase_repulsion_calculator(frame.calc):
+            continue
+        assert frame.calc.status()["pair_cutoffs"] == {
+            "H|H": pytest.approx(1.1)
+        }
 
 
 def test_default_repulsion_cutoff_scale_controls_the_physical_threshold():
@@ -610,6 +624,28 @@ def test_default_repulsion_cutoff_scale_controls_the_physical_threshold():
 
     atoms.calc = RepulsionCalculator(cutoff_scale=1.0, k_repulsion=2.0)
     assert atoms.get_potential_energy() > 0
+
+
+def test_default_repulsion_uses_active_label_pair_bond_cutoffs():
+    atoms = Atoms("HH", positions=[[0, 0, 0], [1.20, 0, 0]])
+    set_atom_labels(atoms, ["H_left", "H_right"])
+    atoms.calc = RepulsionCalculator(
+        pair_cutoffs={"H_left|H_right": 1.50},
+        cutoff_mode="bonding",
+        cutoff_scale=1.0,
+        k_repulsion=2.0,
+    )
+
+    assert atoms.get_potential_energy() == pytest.approx(0.09)
+    assert np.linalg.norm(atoms.get_forces()[0]) > 0
+    assert atoms.calc.status()["pair_cutoffs"] == {"H_left|H_right": 1.5}
+
+    atoms.calc.configure(
+        pair_cutoffs={"H_left|H_right": 0.0},
+        cutoff_scale=3.0,
+    )
+    assert atoms.get_potential_energy() == pytest.approx(0.0, abs=1e-12)
+    np.testing.assert_allclose(atoms.get_forces(), 0.0, atol=1e-12)
 
 
 def test_default_repulsion_absolute_cutoff_is_a_physical_distance():

@@ -299,11 +299,15 @@ Visualization mode does not attach it.
 
 ```python
 from v_ase.calculators import RepulsionCalculator
+from v_ase.io import set_atom_labels
 
+labels = [f"{symbol}_{index}" for index, symbol in enumerate(atoms.get_chemical_symbols())]
+set_atom_labels(atoms, labels)
 atoms.calc = RepulsionCalculator(
     device="cpu",
     cpu_threads=4,
-    cutoff_mode="scaled",
+    cutoff_mode="bonding",
+    pair_cutoffs={"|".join(sorted((labels[0], labels[1]))): 2.00},
     cutoff_scale=0.70,
     k_repulsion=1.0,
 )
@@ -313,9 +317,12 @@ forces = atoms.get_forces()
 
 Torch is optional. The calculator uses NumPy when torch is absent and can use
 torch CPU or CUDA when available. Browser DEVICE/CPU controls apply only to
-this built-in calculator. In `cutoff_mode="scaled"`, the default onset for pair
-`i,j` is `cutoff_scale * (covalent_radius_i + covalent_radius_j)`. The scale is
-dimensionless. Use a direct physical onset instead with:
+this built-in calculator. In `cutoff_mode="bonding"`, the onset for pair `i,j`
+is `cutoff_scale * pair_cutoffs[label_i|label_j]`. A zero value disables that
+label pair. The browser supplies this table from the active Bonding settings;
+direct Python use should supply it explicitly. Omitting the table retains the
+ASE covalent-radius fallback for compatibility. Use one direct physical onset
+instead with:
 
 ```python
 atoms.calc = RepulsionCalculator(

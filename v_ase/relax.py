@@ -33,6 +33,7 @@ def _configure_default_calculator(session, payload):
         cutoff_mode=settings.get("cutoff_mode"),
         cutoff_distance=settings.get("cutoff_distance"),
         cutoff_scale=settings.get("cutoff_scale"),
+        pair_cutoffs=settings.get("pair_cutoffs"),
         k_repulsion=settings.get("k_repulsion"),
     )
     for frame in session.trajectory_frames:
@@ -43,6 +44,7 @@ def _configure_default_calculator(session, payload):
                 cutoff_mode=settings.get("cutoff_mode"),
                 cutoff_distance=settings.get("cutoff_distance"),
                 cutoff_scale=settings.get("cutoff_scale"),
+                pair_cutoffs=settings.get("pair_cutoffs"),
                 k_repulsion=settings.get("k_repulsion"),
             )
 

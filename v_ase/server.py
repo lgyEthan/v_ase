@@ -299,22 +299,33 @@ async def plotly_javascript_bundle():
 _AI_REPULSION_CALCULATOR_SCHEMA = {
     "type": "object",
     "description": (
-        "Optional settings for v_ase's built-in repulsion calculator. In scaled "
-        "mode the onset distance is cutoff_scale times the pair's ASE covalent-"
-        "radius sum. In absolute mode it is cutoff_distance in Angstrom for every "
-        "enabled pair. Pair energy and force are exactly zero at and beyond the "
-        "onset distance."
+        "Optional settings for v_ase's built-in repulsion calculator. In bonding "
+        "mode the onset distance is cutoff_scale times each active label-pair "
+        "bonding cutoff supplied in pair_cutoffs. In absolute mode it is "
+        "cutoff_distance in Angstrom for every enabled pair. Disabled and zero-"
+        "cutoff pairs remain inactive. Pair energy and force are exactly zero at "
+        "and beyond the onset distance."
     ),
     "additionalProperties": False,
     "properties": {
         "device": {"enum": ["cpu", "cuda"]},
         "cpu_threads": {"type": "integer", "minimum": 1},
-        "cutoff_mode": {"enum": ["scaled", "absolute"]},
+        "cutoff_mode": {"enum": ["bonding", "absolute"]},
         "cutoff_distance": {
             "type": "number", "minimum": 0.01, "maximum": 100,
         },
         "cutoff_scale": {
             "type": "number", "minimum": 0.05, "maximum": 3,
+        },
+        "pair_cutoffs": {
+            "type": "object",
+            "description": (
+                "Active bonding cutoffs in Angstrom, keyed by an unordered "
+                "label pair such as Cu_surface|O_ads. Zero disables the pair."
+            ),
+            "additionalProperties": {
+                "type": "number", "minimum": 0, "maximum": 100,
+            },
         },
         "k_repulsion": {
             "type": "number", "minimum": 0, "maximum": 1000,
@@ -1643,8 +1654,9 @@ AI_OPERATION_PARAMETERS = {
             "Optimizes the two rigid in-plane translation degrees of freedom with the "
             "attached calculator or the default pairwise repulsion calculator. Consume "
             "registry_relax_step events until is_relaxing is false. calculator may "
-            "configure cutoff_mode=scaled with cutoff_scale, or cutoff_mode=absolute "
-            "with cutoff_distance in Angstrom; neither cutoff is a hard constraint."
+            "configure cutoff_mode=bonding with pair_cutoffs and cutoff_scale, or "
+            "cutoff_mode=absolute with cutoff_distance in Angstrom; neither cutoff "
+            "is a hard constraint."
         ),
     },
     "stop-registry-relaxation": {
@@ -1677,8 +1689,9 @@ AI_OPERATION_PARAMETERS = {
         "optional": ["fmax", "steps", "calculator", "applyConstraints"],
         "notes": (
             "For the built-in repulsion calculator, calculator accepts device, "
-            "cpu_threads, k_repulsion, and either cutoff_mode=scaled with "
-            "cutoff_scale or cutoff_mode=absolute with cutoff_distance in Angstrom. "
+            "cpu_threads, k_repulsion, and either cutoff_mode=bonding with active "
+            "label-pair pair_cutoffs plus cutoff_scale, or cutoff_mode=absolute "
+            "with cutoff_distance in Angstrom. "
             "The cutoff is the zero-force onset distance, not a guaranteed minimum "
             "separation."
         ),
@@ -3479,6 +3492,7 @@ def configure_repulsion_calculators(
     cutoff_mode=None,
     cutoff_distance=None,
     cutoff_scale=None,
+    pair_cutoffs=None,
     k_repulsion=None,
 ):
     configured = False
@@ -3491,6 +3505,7 @@ def configure_repulsion_calculators(
                 cutoff_mode=cutoff_mode,
                 cutoff_distance=cutoff_distance,
                 cutoff_scale=cutoff_scale,
+                pair_cutoffs=pair_cutoffs,
                 k_repulsion=k_repulsion,
             )
             configured = True
@@ -5632,6 +5647,7 @@ async def update_calculator(session_id: str, payload: Dict[str, Any]):
         cutoff_mode=payload.get("cutoff_mode"),
         cutoff_distance=payload.get("cutoff_distance"),
         cutoff_scale=payload.get("cutoff_scale"),
+        pair_cutoffs=payload.get("pair_cutoffs"),
         k_repulsion=payload.get("k_repulsion"),
     )
     session.sync_current_frame()
@@ -6358,6 +6374,7 @@ async def run_registry_relaxation_endpoint(session_id: str, payload: Dict[str, A
             cutoff_mode=calculator.get("cutoff_mode"),
             cutoff_distance=calculator.get("cutoff_distance"),
             cutoff_scale=calculator.get("cutoff_scale"),
+            pair_cutoffs=calculator.get("pair_cutoffs"),
             k_repulsion=calculator.get("k_repulsion"),
         )
         mode = session.registry_relaxation
@@ -6368,6 +6385,7 @@ async def run_registry_relaxation_endpoint(session_id: str, payload: Dict[str, A
                 cutoff_mode=calculator.get("cutoff_mode"),
                 cutoff_distance=calculator.get("cutoff_distance"),
                 cutoff_scale=calculator.get("cutoff_scale"),
+                pair_cutoffs=calculator.get("pair_cutoffs"),
                 k_repulsion=calculator.get("k_repulsion"),
             )
     try:
