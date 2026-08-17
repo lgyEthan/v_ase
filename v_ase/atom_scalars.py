@@ -11,6 +11,15 @@ import numpy as np
 
 _EXCLUDED_ARRAYS = {"numbers", "positions", "forces", "v_ase_atom_type"}
 _EXCLUDED_RESULTS = {"forces"}
+_STANDARD_PROPERTY_ARRAYS = {
+    "numbers",
+    "positions",
+    "tags",
+    "masses",
+    "initial_charges",
+    "initial_magmoms",
+    "v_ase_atom_type",
+}
 _VECTOR_LABELS = ("x", "y", "z")
 
 
@@ -97,6 +106,99 @@ def atom_force_vectors(atoms) -> np.ndarray | None:
     if array is None or array.shape[1] < 3:
         return None
     return np.asarray(array[:, :3], dtype=np.float64)
+
+
+def _json_property_value(value):
+    """Convert one atom's stored value to a JSON-safe value without loss of shape."""
+
+    if isinstance(value, np.ndarray):
+        return [_json_property_value(item) for item in value]
+    if isinstance(value, np.generic):
+        return _json_property_value(value.item())
+    if isinstance(value, (list, tuple)):
+        return [_json_property_value(item) for item in value]
+    if isinstance(value, Mapping):
+        return {str(key): _json_property_value(item) for key, item in value.items()}
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, int):
+        return int(value)
+    if isinstance(value, float):
+        return float(value) if np.isfinite(value) else None
+    if isinstance(value, complex):
+        return {"real": float(value.real), "imag": float(value.imag)}
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def _atom_property_entry(source: str, name: str, value, *, unit: str = "") -> dict:
+    array = np.asarray(value)
+    return {
+        "source": source,
+        "name": str(name),
+        "value": _json_property_value(value),
+        "shape": list(array.shape),
+        "dtype": str(array.dtype),
+        "unit": unit or _field_unit(name, source),
+    }
+
+
+def atom_property_snapshot(atoms, atom_index: int) -> list[dict]:
+    """Return every available stored property for one atom.
+
+    The snapshot includes ASE's standard per-atom attributes, arbitrary
+    ``Atoms.arrays``, and already stored calculator results. It deliberately
+    never calls a calculator, which keeps a one-atom inspection cheap and
+    side-effect free even for attached external calculators.
+    """
+
+    natoms = len(atoms)
+    index = int(atom_index)
+    if index < 0 or index >= natoms:
+        raise IndexError(f"Atom index {index} is out of range for {natoms} atoms.")
+
+    standard = [
+        _atom_property_entry("ase", "atomic_number", atoms.numbers[index]),
+        _atom_property_entry("ase", "mass", atoms.get_masses()[index], unit="amu"),
+        _atom_property_entry("ase", "tag", atoms.get_tags()[index]),
+        _atom_property_entry("ase", "initial_charge", atoms.get_initial_charges()[index], unit="e"),
+        _atom_property_entry(
+            "ase",
+            "initial_magmom",
+            atoms.get_initial_magnetic_moments()[index],
+            unit="mu_B",
+        ),
+    ]
+
+    arrays = []
+    for name in sorted(atoms.arrays, key=str.casefold):
+        if str(name) in _STANDARD_PROPERTY_ARRAYS:
+            continue
+        values = atoms.arrays[name]
+        try:
+            array = np.asarray(values)
+        except Exception:
+            continue
+        if array.ndim < 1 or array.shape[0] != natoms:
+            continue
+        arrays.append(_atom_property_entry("array", str(name), array[index]))
+
+    results = []
+    calculator_results = _calculator_results(atoms)
+    for name in sorted(calculator_results, key=str.casefold):
+        values = calculator_results[name]
+        try:
+            array = np.asarray(values)
+        except Exception:
+            continue
+        if array.ndim < 1 or array.shape[0] != natoms:
+            continue
+        results.append(_atom_property_entry("calculator", str(name), array[index]))
+
+    return standard + arrays + results
 
 
 def _array_field_descriptors(source: str, name: str, value, natoms: int) -> list[AtomScalarField]:

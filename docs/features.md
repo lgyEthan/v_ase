@@ -131,7 +131,11 @@ Positive supercell images are selectable and measurable using a base index and
 cell offset. Two-point measurements report the displayed direct distance, the
 periodic MIC distance, and, when a replica is involved, the distance after both
 atoms are mapped into the original unit cell. Angles and torsions use displayed
-coordinates only.
+coordinates only. A one-atom Measure shows the displayed Cartesian and
+fractional position plus standard ASE attributes, every stored per-atom array,
+and every already available per-atom calculator result. This detail is loaded
+for only the selected base index and current frame; inspecting an atom never
+evaluates its calculator.
 
 Edit additionally enables:
 
@@ -631,8 +635,10 @@ Sequential one-to-four atom selections produce ordered point, distance, angle,
 and signed torsion measurements. Direct-coordinate and
 minimum-image-convention (MIC) values are shown together; displayed supercell
 replicas retain their on-screen coordinate measurement contract. Selection
-measurements and pointer hover metadata use separate persistent HUDs. Five or
-more selected atoms show the total followed by stable first-seen label counts.
+measurements and pointer hover metadata use separate persistent HUDs. One-atom
+property detail is scroll-bounded in the Inspector while the viewport HUD keeps
+only position and property count. Five or more selected atoms show the total
+followed by stable first-seen label counts.
 
 The camera-step toolbar is ordered as the three view-relative pairs up/down,
 left/right, and counterclockwise/clockwise roll. Up/down and left/right use

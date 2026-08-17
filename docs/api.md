@@ -471,6 +471,18 @@ Returned vectors retain physical values. The renderer anchors them at current
 visible atom positions, repeats them over display supercells, and applies visual
 translation equally to both endpoints.
 
+One-atom Measure detail is available lazily through:
+
+```text
+GET /api/analysis/atom-properties/{session_id}/{atom_index}?frame_index=N
+```
+
+The response contains standard ASE atom attributes, every stored per-atom
+`Atoms.arrays` entry, and every already stored per-atom calculator result for
+the requested frame. It does not evaluate the attached calculator. A selected
+display-supercell replica uses this base-index payload while the browser keeps
+the replica's displayed Cartesian and fractional position.
+
 Volumetric data is loaded through the ordinary file/path open or append
 pipeline. VASP scalar grids, Cube, and XSF are detected before ASE structure
 dispatch. Browser file/path endpoints accept `volumetric_precision` as

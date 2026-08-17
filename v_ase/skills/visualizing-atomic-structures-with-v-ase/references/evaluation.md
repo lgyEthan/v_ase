@@ -108,7 +108,12 @@ Run all scenarios, not only static document checks:
    - verify camera changes do not enter undo history.
 3. **Selection and measurement**
    - select one through four ordered atoms;
-   - verify atom summary, direct/MIC distance, angle, and torsion;
+   - verify one-atom displayed Cartesian/fractional position, standard ASE
+     attributes, arbitrary scalar/vector/string arrays, and stored calculator
+     results, then verify direct/MIC distance, angle, and torsion;
+   - change trajectory frame while keeping one atom selected and verify every
+     property comes from the displayed frame without duplicate requests or a
+     calculator evaluation;
    - select a replica and verify its `cellOffset`.
 4. **Edit and constraints**
    - launch with no input file, require Edit mode, define a triclinic 3 x 3

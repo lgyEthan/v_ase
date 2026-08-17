@@ -739,6 +739,12 @@ if (measured.selection.length !== 4 || !measured.measurement) {
 
 Never sort the ordered selection. Two atoms measure direct and MIC distance,
 three use `a1-a2-a3`, and four use the signed `a1-a2-a3-a4` torsion.
+With one selected atom, the Inspector shows its displayed Cartesian/fractional
+position and lazily retrieves every stored ASE per-atom array and calculator
+result for the active frame. Replica inspection keeps the replica's displayed
+position but reads properties from its base index. Use
+`capabilities().atomProperties` for the equivalent machine-readable payload;
+this inspection must not evaluate an attached calculator.
 
 ### Trajectory Analysis And Video
 

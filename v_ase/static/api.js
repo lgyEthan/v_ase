@@ -1252,6 +1252,36 @@ export class ASEApi {
         return await this.request(`/api/analysis/atom-scalars/catalog/{session_id}?${query.toString()}`);
     }
 
+    async fetchAtomProperties(atomIndex, frameIndex = this.currentFrameIndex()) {
+        const index = Math.max(0, parseInt(atomIndex, 10) || 0);
+        const frame = Math.max(0, parseInt(frameIndex, 10) || 0);
+        if (this.mock) {
+            const atoms = this.mockState.atoms;
+            const force = atoms.forces?.[index] ?? null;
+            return {
+                frame_index: frame,
+                atom_index: index,
+                atom_count: atoms.positions.length,
+                properties: [
+                    { source: 'ase', name: 'atomic_number', value: null, shape: [], dtype: 'int64', unit: '' },
+                    { source: 'ase', name: 'mass', value: null, shape: [], dtype: 'float64', unit: 'amu' },
+                    { source: 'ase', name: 'tag', value: atoms.tags?.[index] ?? 0, shape: [], dtype: 'int64', unit: '' },
+                    { source: 'ase', name: 'initial_charge', value: atoms.charges?.[index] ?? 0, shape: [], dtype: 'float64', unit: 'e' },
+                    { source: 'ase', name: 'initial_magmom', value: atoms.magmoms?.[index] ?? 0, shape: [], dtype: 'float64', unit: 'mu_B' },
+                    ...(Array.isArray(force)
+                        ? [{ source: 'calculator', name: 'forces', value: force, shape: [force.length], dtype: 'float64', unit: 'eV/A' }]
+                        : [])
+                ]
+            };
+        }
+        const query = new URLSearchParams({ frame_index: `${frame}` });
+        return await this.request(
+            `/api/analysis/atom-properties/{session_id}/${index}?${query.toString()}`,
+            {},
+            { emitMutation: false }
+        );
+    }
+
     async fetchAtomScalarValues(fieldId, frameIndex = this.currentFrameIndex(), allFrames = false) {
         if (this.mock) {
             const atoms = this.mockState.atoms;

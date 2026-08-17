@@ -458,6 +458,7 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     api_js = (ROOT / "v_ase/static/api.js").read_text()
     index_html = (ROOT / "v_ase/static/index.html").read_text()
     selection_js = (ROOT / "v_ase/static/selection.js").read_text()
+    style_css = (ROOT / "v_ase/static/style.css").read_text()
 
     assert "constrainedMoveDelta" in main_js
     assert "fixed_line" in main_js
@@ -582,6 +583,13 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert 'id="selection-measure-readout"' in index_html
     assert 'id="selection-measure-value"' in index_html
     assert "getSelectionMeasureSummary" in main_js
+    assert "fetchAtomProperties" in api_js
+    assert "/api/analysis/atom-properties/" in api_js
+    assert "ensureSingleSelectionProperties" in main_js
+    assert "singleSelectionPropertyLines" in main_js
+    assert "single-atom-properties" in style_css
+    assert "single-atom-measure-grid" in main_js
+    assert ".single-atom-measure-grid .selection-measure-panel-label" in style_css
     assert "measure=${measure}" not in main_js
     assert "selectionAngle" in main_js
     assert "selectionTorsion" in main_js

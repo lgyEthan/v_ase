@@ -167,13 +167,23 @@ await ai.apply({
 
 Measurements are ordered:
 
-- one atom: atom summary;
+- one atom: label, element, displayed Cartesian/fractional position, and every
+  available per-atom property;
 - two atoms: direct, MIC, and replica-to-unit-cell distances when applicable;
 - three atoms: angle `a1-a2-a3`;
 - four atoms: ordered torsion;
 - larger selections: total and per-label counts.
 
 Never sort a user-defined two-, three-, or four-atom measurement order.
+
+The GUI resolves one-atom property detail lazily for the active frame. It
+includes standard ASE attributes, arbitrary `Atoms.arrays` entries (including
+non-numeric values), and already stored per-atom calculator results without
+calling the calculator. For a selected replica, use its displayed position and
+the base index's property values. Agents that need the machine-readable payload
+read `capabilities().atomProperties.baseUrl`, append the documented
+`pathTemplate`, and pass the exact current frame index; do not infer values from
+another trajectory frame.
 
 ## Structure Operations
 

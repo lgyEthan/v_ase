@@ -9,11 +9,17 @@ from ase.calculators.singlepoint import SinglePointCalculator
 from playwright._impl._errors import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
-from v_ase.atom_scalars import atom_force_vectors, atom_scalar_catalog, atom_scalar_values
+from v_ase.atom_scalars import (
+    atom_force_vectors,
+    atom_property_snapshot,
+    atom_scalar_catalog,
+    atom_scalar_values,
+)
 from v_ase.colormaps import colormap_catalog, colormap_lut
 from v_ase.export import _cad_scene_data
 from v_ase.server import (
     per_atom_force_vectors,
+    per_atom_properties,
     per_atom_scalar_catalog,
     per_atom_scalar_range,
     per_atom_scalar_values,
@@ -68,6 +74,160 @@ def test_catalog_discovers_coordinates_forces_arrays_and_calculator_results():
     assert np.allclose(atom_scalar_values(atoms, descriptor_norm["id"]), [5.0, 2.0])
     assert np.allclose(atom_scalar_values(atoms, descriptor_y["id"]), [4.0, 0.0])
     assert np.allclose(atom_scalar_values(atoms, charges["id"]), [-0.3, 0.3])
+
+
+def test_atom_property_snapshot_includes_standard_arrays_strings_and_stored_results():
+    atoms = Atoms("HO", positions=[[0, 0, 0], [1, 2, 3]])
+    atoms.set_tags([2, 5])
+    atoms.set_masses([1.2, 16.5])
+    atoms.set_initial_charges([-0.1, 0.2])
+    atoms.set_initial_magnetic_moments([0.5, 1.5])
+    atoms.new_array("site_name", np.array(["donor", "acceptor"]))
+    atoms.new_array("descriptor", np.array([[1.0, 2.0], [3.0, 4.0]]))
+    atoms.calc = SinglePointCalculator(
+        atoms,
+        forces=np.array([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]),
+        charges=np.array([-0.3, 0.3]),
+        energies=np.array([-1.2, -1.1]),
+    )
+
+    properties = atom_property_snapshot(atoms, 1)
+    by_key = {(item["source"], item["name"]): item for item in properties}
+
+    assert by_key[("ase", "atomic_number")]["value"] == 8
+    assert by_key[("ase", "mass")]["value"] == pytest.approx(16.5)
+    assert by_key[("ase", "tag")]["value"] == 5
+    assert by_key[("ase", "initial_charge")]["value"] == pytest.approx(0.2)
+    assert by_key[("ase", "initial_magmom")]["value"] == pytest.approx(1.5)
+    assert by_key[("array", "site_name")]["value"] == "acceptor"
+    assert by_key[("array", "descriptor")]["value"] == [3.0, 4.0]
+    assert by_key[("calculator", "forces")]["value"] == [0.4, 0.5, 0.6]
+    assert by_key[("calculator", "forces")]["unit"] == "eV/A"
+    assert by_key[("calculator", "charges")]["value"] == pytest.approx(0.3)
+    assert by_key[("calculator", "energies")]["value"] == pytest.approx(-1.1)
+
+
+def test_atom_property_api_uses_the_requested_trajectory_frame():
+    first = Atoms("H", positions=[[0, 0, 0]])
+    second = Atoms("H", positions=[[1, 2, 3]])
+    first.new_array("score", np.array([1.25]))
+    second.new_array("score", np.array([9.75]))
+    session = EditorSession(
+        "atom-property-frame-api",
+        first.copy(),
+        first.copy(),
+        original_frames=[first.copy(), second.copy()],
+        trajectory_frames=[first.copy(), second.copy()],
+    )
+    sessions[session.session_id] = session
+    try:
+        result = asyncio.run(per_atom_properties(session.session_id, 0, frame_index=1))
+    finally:
+        sessions.pop(session.session_id, None)
+
+    score = next(item for item in result["properties"] if item["name"] == "score")
+    assert result["frame_index"] == 1
+    assert result["atom_index"] == 0
+    assert score["source"] == "array"
+    assert score["value"] == pytest.approx(9.75)
+
+
+def test_single_atom_measure_lists_current_frame_properties_lazily():
+    first = Atoms("HO", positions=[[0, 0, 0], [1, 2, 3]], cell=[8, 8, 8], pbc=True)
+    first.set_tags([2, 5])
+    first.set_initial_charges([-0.1, 0.2])
+    first.set_initial_magnetic_moments([0.5, 1.5])
+    first.new_array("score", np.array([1.25, 2.5]))
+    first.new_array("descriptor", np.array([[1.0, 2.0], [3.0, 4.0]]))
+    first.new_array("site_name", np.array(["donor", "acceptor"]))
+    first.calc = SinglePointCalculator(
+        first,
+        forces=np.array([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]),
+        charges=np.array([-0.3, 0.3]),
+        energies=np.array([-1.2, -1.1]),
+    )
+    second = first.copy()
+    second.positions[1] = [4, 5, 6]
+    second.arrays["score"][:] = [8.5, 9.75]
+    second.arrays["descriptor"][1] = [7.0, 8.0]
+    second.calc = SinglePointCalculator(
+        second,
+        forces=np.array([[1.0, 0.0, 0.0], [0.0, 2.0, 0.0]]),
+        charges=np.array([-0.4, 0.4]),
+        energies=np.array([-1.0, -0.9]),
+    )
+    port = find_free_port()
+    editor = view(
+        [first, second],
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1360, "height": 860})
+            property_requests = []
+            page.on(
+                "request",
+                lambda request: property_requests.append(request.url)
+                if "/api/analysis/atom-properties/" in request.url else None,
+            )
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.addSelectionReference(1);
+                app.updateSelectionVisuals();
+                app.updateUI();
+            }""")
+            page.wait_for_function("""() => (
+                document.getElementById('selected-measure').innerText.includes(
+                    'Per-atom properties (11):'
+                )
+            )""")
+            first_measure = page.locator("#selected-measure").inner_text()
+            assert "a1=#1 O" in first_measure
+            assert "Element: O" in first_measure
+            assert "Position (Cartesian): (1.000000, 2.000000, 3.000000) A" in first_measure
+            assert "Position (fractional): (0.125000, 0.250000, 0.375000)" in first_measure
+            assert "[ASE] atomic_number = 8" in first_measure
+            assert "[ASE] tag = 5" in first_measure
+            assert "[ASE] initial_charge = 0.2 e" in first_measure
+            assert "[ASE array] descriptor = [3, 4]" in first_measure
+            assert "[ASE array] site_name = acceptor" in first_measure
+            assert "[Calculator] charges = 0.3 e" in first_measure
+            assert "[Calculator] energies = -1.1 eV" in first_measure
+            assert "11 properties" in page.locator("#selection-measure-value").inner_text()
+            assert len(property_requests) == 1
+
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.updateUI();
+                app.updateUI();
+            }""")
+            page.wait_for_timeout(50)
+            assert len(property_requests) == 1
+
+            page.evaluate("() => window.__ASE_APP__.loadFrame(1)")
+            page.wait_for_function("window.__ASE_APP__.state.atoms.metadata.current_frame === 1")
+            page.wait_for_function("""() => (
+                document.getElementById('selected-measure').innerText.includes(
+                    '[ASE array] score = 9.75'
+                )
+            )""")
+            second_measure = page.locator("#selected-measure").inner_text()
+            assert "Position (Cartesian): (4.000000, 5.000000, 6.000000) A" in second_measure
+            assert "[ASE array] descriptor = [7, 8]" in second_measure
+            assert len(property_requests) == 2
+            browser.close()
+    finally:
+        editor.close()
 
 
 def test_force_vector_api_returns_frame_specific_cartesian_vectors():

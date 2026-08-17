@@ -134,6 +134,21 @@ def test_ase_bulk_builder_schema_skill_and_capabilities_are_synchronized():
     assert "/api/build/bulk/preview/" in main_js
 
 
+def test_single_atom_property_inspection_is_documented_and_discoverable():
+    documented = _documented_skill_text()
+    main_js = (ROOT / "v_ase/static/main.js").read_text(encoding="utf-8")
+    api_js = (ROOT / "v_ase/static/api.js").read_text(encoding="utf-8")
+    server = (ROOT / "v_ase/server.py").read_text(encoding="utf-8")
+
+    assert "capabilities().atomProperties.baseUrl" in documented
+    assert "current frame" in documented
+    assert "without\ncalling the calculator" in documented
+    assert "atomProperties:" in main_js
+    assert "pathTemplate: '/{atomIndex}?frame_index={frameIndex}'" in main_js
+    assert "fetchAtomProperties" in api_js
+    assert '@app.get("/api/analysis/atom-properties/{session_id}/{atom_index}")' in server
+
+
 def test_skill_distinguishes_gui_label_inference_from_agent_element_identity():
     documented = _documented_skill_text()
 

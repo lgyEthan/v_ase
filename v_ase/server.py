@@ -60,7 +60,12 @@ from .commensurate import (
     row_rotation_matrix,
 )
 from .analysis import calculate_rdf, rdf_csv
-from .atom_scalars import atom_force_vectors, atom_scalar_catalog, atom_scalar_values
+from .atom_scalars import (
+    atom_force_vectors,
+    atom_property_snapshot,
+    atom_scalar_catalog,
+    atom_scalar_values,
+)
 from .builders import (
     BulkBuildError,
     build_bulk_atoms,
@@ -5682,6 +5687,24 @@ def _atom_scalar_frame_atoms(session: EditorSession, frame_index: int):
     return _analysis_frame_atoms(session, frame_index)
 
 
+def _stored_atom_property_frame_atoms(session: EditorSession, frame_index: int):
+    """Return a lock-protected frame without dropping its stored calculator."""
+
+    if frame_index < 0 or frame_index >= session.frame_count:
+        raise IndexError(
+            f"Frame index {frame_index} is out of range for {session.frame_count} frames."
+        )
+    if frame_index == session.current_frame:
+        return session.working_atoms
+    if session.trajectory_source is not None:
+        return session.trajectory_source.read_atoms(frame_index)
+    if session.trajectory_frames:
+        return session.trajectory_frames[frame_index]
+    if frame_index == 0:
+        return session.working_atoms
+    raise IndexError("The requested trajectory frame is unavailable.")
+
+
 def _fast_trajectory_scalar_values(
     session: EditorSession,
     frame_index: int,
@@ -5871,6 +5894,38 @@ async def per_atom_scalar_catalog(session_id: str, frame_index: int | None = Non
 
     try:
         return await asyncio.to_thread(discover)
+    except (IndexError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/analysis/atom-properties/{session_id}/{atom_index}")
+async def per_atom_properties(
+    session_id: str,
+    atom_index: int,
+    frame_index: int | None = None,
+):
+    """Return one atom's stored ASE arrays and calculator results lazily."""
+
+    session = get_session(session_id)
+
+    def inspect():
+        with session.mode_transition_lock:
+            index = session.current_frame if frame_index is None else int(frame_index)
+            atoms = _stored_atom_property_frame_atoms(session, index)
+            if atom_index < 0 or atom_index >= len(atoms):
+                raise IndexError(
+                    f"Atom index {atom_index} is out of range for frame {index} "
+                    f"with {len(atoms)} atoms."
+                )
+            return {
+                "frame_index": index,
+                "atom_index": int(atom_index),
+                "atom_count": len(atoms),
+                "properties": atom_property_snapshot(atoms, atom_index),
+            }
+
+    try:
+        return await asyncio.to_thread(inspect)
     except (IndexError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

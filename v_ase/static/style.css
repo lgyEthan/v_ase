@@ -1490,6 +1490,22 @@ body.dragging-inspector #inspector-resizer::before {
     white-space: pre-line;
 }
 
+#inspector #selected-measure.single-atom-properties {
+    display: block;
+    grid-column: 1 / -1;
+    max-height: min(30vh, 260px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding-right: 4px;
+    text-align: left;
+    white-space: pre-wrap;
+    scrollbar-gutter: stable;
+}
+
+#inspector .single-atom-measure-grid .selection-measure-panel-label {
+    grid-column: 1 / -1;
+}
+
 #inspector .badge,
 #inspector .p-val.badge {
     display: inline-flex;

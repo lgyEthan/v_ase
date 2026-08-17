@@ -6185,13 +6185,24 @@ def test_grid_button_and_ordered_distance_angle_torsion_measurements():
                 }""")
 
             click_atom(0)
+            page.wait_for_function("""() => (
+                document.getElementById('selected-measure').innerText.includes(
+                    'Per-atom properties (5):'
+                )
+            )""")
             one = measurement_state()
             assert one["order"] == ["atom:0"]
             assert one["kind"] == "point"
             assert one["labels"] == ["a1"]
             assert one["references"] == ["0"]
             assert one["connectors"] == 0
-            assert one["detail"] == "a1=#0 H"
+            assert one["detail"].startswith("a1=#0 H")
+            assert "Element: H" in one["detail"]
+            assert "Position (Cartesian): (-3.000000, -1.000000, 0.000000) A" in one["detail"]
+            assert "[ASE] atomic_number = 1" in one["detail"]
+            assert "[ASE] mass = " in one["detail"]
+            assert "[ASE] tag = 0" in one["detail"]
+            assert "5 properties" in one["summary"]
 
             click_atom(1, additive=True)
             two = measurement_state()
@@ -7409,6 +7420,16 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
                 };
             }""")
             page.mouse.click(points['xReplica']['x'], points['xReplica']['y'])
+            page.wait_for_function("""() => (
+                window.__ASE_APP__.selectionCount() === 1
+                && document.getElementById('selected-measure').innerText.includes(
+                    'Per-atom properties (5):'
+                )
+            )""")
+            replica_atom_detail = page.locator('#selected-measure').inner_text()
+            assert replica_atom_detail.startswith("a1=#0@[1,0,0] Cu")
+            assert "Position (Cartesian): (4.000000, 0.000000, 0.000000) A" in replica_atom_detail
+            assert "[ASE] atomic_number = 29" in replica_atom_detail
             page.keyboard.down('Shift')
             page.mouse.click(points['base']['x'], points['base']['y'])
             page.keyboard.up('Shift')

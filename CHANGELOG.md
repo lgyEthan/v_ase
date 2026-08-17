@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.21
+
+- Expanded the one-atom **Measure** readout with the displayed Cartesian and
+  fractional position, standard ASE atom attributes, every stored per-atom
+  `Atoms.arrays` value, and stored per-atom calculator results.
+- Kept inspection lazy and frame-specific for trajectories, preserved replica
+  display positions while resolving properties from their base atoms, and
+  avoided evaluating attached calculators.
+- Made the detailed Inspector readout use the full panel width with bounded
+  scrolling while keeping the viewport Measure HUD compact.
+
 ## 0.2.20
 
 - Added synchronized **Section** menus to Analysis and Export, matching the

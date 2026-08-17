@@ -14,7 +14,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.20"
+python -m pip install "v_ase-gui==0.2.21"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -147,7 +147,7 @@ reference before executing a multi-step workflow:
 
 | Task | Primary state or operation |
 | --- | --- |
-| Inspect and measure | `describe`, `selection`, ordered `measurement` |
+| Inspect and measure | `describe`, `selection`, ordered `measurement`, lazy single-atom properties |
 | Edit or build a structure | `set-unit-cell`, `build-bulk`, `move-selection`, `rotate-selection`, `scale-selection`, `add-atom`, `scatter-atoms`, `scatter-molecules`, constraints |
 | Work with periodic interfaces | display replication, cell transforms, commensurate search, rigid `(hkl)` translation |
 | Analyze trajectories | frame selection, displacement, RDF, colorscale, stored force vectors |

@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.20&rev=1';
-import { ASERenderer } from './renderer.js?v=0.2.20&rev=1';
-import { ASESelection } from './selection.js?v=0.2.20&rev=1';
-import { ASETransform } from './transform.js?v=0.2.20&rev=1';
+import { ASEApi } from './api.js?v=0.2.21&rev=1';
+import { ASERenderer } from './renderer.js?v=0.2.21&rev=1';
+import { ASESelection } from './selection.js?v=0.2.21&rev=1';
+import { ASETransform } from './transform.js?v=0.2.21&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.20&rev=1';
+} from './trajectory.js?v=0.2.21&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -350,6 +350,11 @@ class VAseApp {
             prefetchPromise: null,
             prefetchTimer: null,
             renderedFrame: -1
+        };
+        this.selectionPropertyRuntime = {
+            cache: new Map(),
+            pending: new Map(),
+            requestToken: 0
         };
         this.forceVectorRuntime = {
             requestToken: 0,
@@ -8170,6 +8175,7 @@ class VAseApp {
             const data = await this.api.fetchAtoms();
             if (!data || !data.positions) return;
 
+            this.invalidateSelectionPropertyData();
             this.invalidateForceVectorData();
             this.state.atoms = this.applyViewIdentityOverridesToData(data);
             this.syncTrajectoryIdentity(data);
@@ -8310,13 +8316,68 @@ class VAseApp {
     updateSelectionMeasureUI(selectedEntries = this.selectionEntries()) {
         const detail = this.getSelectionMeasureText(selectedEntries);
         const panelValue = document.getElementById('selected-measure');
-        if (panelValue) panelValue.innerText = detail;
+        if (panelValue) {
+            panelValue.innerText = detail;
+            panelValue.classList.toggle('single-atom-properties', selectedEntries.length === 1);
+            panelValue.closest('.prop-grid')?.classList.toggle(
+                'single-atom-measure-grid',
+                selectedEntries.length === 1
+            );
+        }
         const readout = document.getElementById('selection-measure-readout');
         const readoutValue = document.getElementById('selection-measure-value');
         if (!readout || !readoutValue) return;
         const summary = this.getSelectionMeasureSummary(selectedEntries);
         readoutValue.innerText = summary;
+        readoutValue.title = selectedEntries.length === 1 ? detail : summary;
         readout.classList.toggle('hidden', selectedEntries.length === 0);
+        if (selectedEntries.length === 1) this.ensureSingleSelectionProperties(selectedEntries[0]);
+    }
+
+    invalidateSelectionPropertyData() {
+        const runtime = this.selectionPropertyRuntime;
+        if (!runtime) return;
+        runtime.requestToken += 1;
+        runtime.cache.clear();
+        runtime.pending.clear();
+    }
+
+    singleSelectionPropertyKey(reference) {
+        const normalized = this.normalizeSelectionReference(reference);
+        if (!normalized) return '';
+        const frame = Number(this.state.atoms?.metadata?.current_frame || 0);
+        return `${frame}:${normalized.index}`;
+    }
+
+    ensureSingleSelectionProperties(reference) {
+        const normalized = this.normalizeSelectionReference(reference);
+        const runtime = this.selectionPropertyRuntime;
+        if (!normalized || !runtime) return;
+        const frame = Number(this.state.atoms?.metadata?.current_frame || 0);
+        const key = this.singleSelectionPropertyKey(normalized);
+        if (!key || runtime.cache.has(key) || runtime.pending.has(key)) return;
+        const token = runtime.requestToken;
+        const request = this.api.fetchAtomProperties(normalized.index, frame)
+            .then(snapshot => {
+                if (token === runtime.requestToken) {
+                    runtime.cache.set(key, snapshot);
+                    while (runtime.cache.size > 64) runtime.cache.delete(runtime.cache.keys().next().value);
+                }
+            })
+            .catch(error => {
+                if (token === runtime.requestToken) {
+                    runtime.cache.set(key, { error: error?.message || 'Per-atom properties are unavailable.' });
+                }
+            })
+            .finally(() => {
+                runtime.pending.delete(key);
+                if (token !== runtime.requestToken) return;
+                const selected = this.selectionEntries();
+                if (selected.length === 1 && this.singleSelectionPropertyKey(selected[0]) === key) {
+                    this.updateSelectionMeasureUI(selected);
+                }
+            });
+        runtime.pending.set(key, request);
     }
 
     async copySelectionField(targetId) {
@@ -8820,6 +8881,7 @@ class VAseApp {
     ) {
         if (resetTrajectoryIdentity) this.clearViewIdentityOverrides();
         this.clearCommensurateSupercellProposal({ keepStatus: true });
+        this.invalidateSelectionPropertyData();
         this.invalidateAtomColorScaleData({ preserveRange: preserveColorScaleRange });
         this.invalidateForceVectorData();
         if (!preserveRdf) this.invalidateRdfResult();
@@ -10098,6 +10160,79 @@ class VAseApp {
         )).join(', ');
     }
 
+    formatMeasurePropertyScalar(value) {
+        if (value === null || value === undefined) return '-';
+        if (typeof value === 'boolean') return value ? 'true' : 'false';
+        if (typeof value === 'number') {
+            if (!Number.isFinite(value)) return '-';
+            const magnitude = Math.abs(value);
+            if (magnitude >= 1e6 || (magnitude > 0 && magnitude < 1e-5)) {
+                return value.toExponential(5);
+            }
+            return Number(value.toPrecision(7)).toString();
+        }
+        return String(value).replace(/\s+/g, ' ').trim() || '-';
+    }
+
+    formatMeasurePropertyValue(value) {
+        if (Array.isArray(value)) {
+            return `[${value.map(item => this.formatMeasurePropertyValue(item)).join(', ')}]`;
+        }
+        if (value && typeof value === 'object') {
+            if ('real' in value && 'imag' in value) {
+                const real = this.formatMeasurePropertyScalar(value.real);
+                const imagNumber = Number(value.imag);
+                const sign = Number.isFinite(imagNumber) && imagNumber < 0 ? '-' : '+';
+                return `${real} ${sign} ${this.formatMeasurePropertyScalar(Math.abs(imagNumber))}i`;
+            }
+            return `{${Object.entries(value).map(([key, item]) => (
+                `${key}: ${this.formatMeasurePropertyValue(item)}`
+            )).join(', ')}}`;
+        }
+        return this.formatMeasurePropertyScalar(value);
+    }
+
+    singleSelectionPropertySnapshot(reference) {
+        const key = this.singleSelectionPropertyKey(reference);
+        return key ? this.selectionPropertyRuntime?.cache?.get(key) || null : null;
+    }
+
+    singleSelectionPositionLines(reference) {
+        const normalized = this.normalizeSelectionReference(reference);
+        const position = this.selectionReferencePosition(normalized);
+        if (!normalized || !position) return ['Position: unavailable'];
+        const lines = [
+            `Element: ${this.state.atoms?.chemical_symbols?.[normalized.index] || '-'}`,
+            `Position (Cartesian): ${this.formatVectorTuple(position.toArray(), 6)} A`
+        ];
+        if (this.renderer?.hasValidCell?.()) {
+            const fractional = this.renderer.cartToFrac(position);
+            lines.push(`Position (fractional): ${this.formatVectorTuple(fractional.toArray(), 6)}`);
+        }
+        return lines;
+    }
+
+    singleSelectionPropertyLines(reference) {
+        const snapshot = this.singleSelectionPropertySnapshot(reference);
+        if (!snapshot) return ['Per-atom properties: loading...'];
+        if (snapshot.error) return [`Per-atom properties: ${snapshot.error}`];
+        const properties = Array.isArray(snapshot.properties) ? snapshot.properties : [];
+        if (!properties.length) return ['Per-atom properties: none stored'];
+        const sourceLabels = {
+            ase: 'ASE',
+            array: 'ASE array',
+            calculator: 'Calculator'
+        };
+        return [
+            `Per-atom properties (${properties.length}):`,
+            ...properties.map(property => {
+                const source = sourceLabels[property.source] || property.source || 'Property';
+                const unit = property.unit ? ` ${property.unit}` : '';
+                return `[${source}] ${property.name} = ${this.formatMeasurePropertyValue(property.value)}${unit}`;
+            })
+        ];
+    }
+
     selectionCountText(selectedReferences = this.selectionEntries()) {
         const counts = new Map();
         selectedReferences.forEach(reference => {
@@ -10113,7 +10248,13 @@ class VAseApp {
     getSelectionMeasureText(selectedReferences = this.selectionEntries()) {
         if (!this.state.atoms || selectedReferences.length === 0) return '-';
         const referenceMap = this.selectionMeasurementMap(selectedReferences);
-        if (selectedReferences.length === 1) return referenceMap;
+        if (selectedReferences.length === 1) {
+            return [
+                referenceMap,
+                ...this.singleSelectionPositionLines(selectedReferences[0]),
+                ...this.singleSelectionPropertyLines(selectedReferences[0])
+            ].join('\n');
+        }
         if (selectedReferences.length === 2) {
             const [i, j] = selectedReferences;
             const direct = this.selectionDistance(i, j, { mic: false });
@@ -10159,7 +10300,18 @@ class VAseApp {
     getSelectionMeasureSummary(selectedReferences = this.selectionEntries()) {
         if (!this.state.atoms || selectedReferences.length === 0) return '-';
         if (selectedReferences.length === 1) {
-            return `a1 = #${this.selectionReferenceLabel(selectedReferences[0])}`;
+            const reference = selectedReferences[0];
+            const position = this.selectionReferencePosition(reference);
+            const positionText = position
+                ? this.formatVectorTuple(position.toArray(), 4)
+                : 'unavailable';
+            const snapshot = this.singleSelectionPropertySnapshot(reference);
+            const propertyCount = Array.isArray(snapshot?.properties)
+                ? snapshot.properties.length
+                : null;
+            return `a1 #${this.selectionReferenceLabel(reference)} | Position ${positionText} A | ${
+                propertyCount === null ? 'properties loading' : `${propertyCount} properties`
+            }`;
         }
         if (selectedReferences.length === 2) {
             const direct = this.selectionDistance(selectedReferences[0], selectedReferences[1], { mic: false });
@@ -14225,6 +14377,14 @@ class VAseApp {
                 rangeModes: ['current', 'trajectory', 'manual'],
                 gammaRange: [0.1, 5],
                 note: 'Catalogs and trajectory scans are lazy; every rendered frame shares one resolved vmin/vmax.'
+            },
+            atomProperties: {
+                baseUrl: new URL(
+                    `/api/analysis/atom-properties/${this.sessionId}`,
+                    window.location.origin
+                ).href,
+                pathTemplate: '/{atomIndex}?frame_index={frameIndex}',
+                note: 'One selected atom is inspected lazily. The response contains standard ASE attributes, arbitrary per-atom arrays, and stored calculator results without evaluating a calculator.'
             },
             bulkBuilder: {
                 generator: 'ase.build.bulk',
@@ -20267,6 +20427,7 @@ class VAseApp {
         // trajectory playback, especially when no atoms were selected.
         if (this.state.selected.size || this.state.replicaSelected.size) {
             this.pruneSelection();
+            this.updateSelectionMeasureUI(this.selectionEntries());
         }
         if (this.state.display.atomColorScaleEnabled) {
             await this.updateAtomColorScale({

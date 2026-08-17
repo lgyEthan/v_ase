@@ -603,7 +603,7 @@ different from atom indices.
 
 | Ordered selection | Reported result |
 | --- | --- |
-| 1 atom | Label, element, position, force, charge, tag, magnetic moment |
+| 1 atom | Label, element, displayed Cartesian/fractional position, and all available per-atom properties |
 | 2 atoms | Direct distance and minimum-image distance |
 | 3 atoms | Angle `a1-a2-a3`, centered on `a2` |
 | 4 atoms | Signed torsion `a1-a2-a3-a4` |
@@ -612,6 +612,14 @@ different from atom indices.
 The connector, angle arc, torsion axis, and compact value badge stay attached
 to the selected atoms. Hover information is independent, so moving the pointer
 does not replace a saved measurement.
+
+For one selected atom, **Inspect > Selection > Measure** lists ASE attributes
+such as atomic number, mass, tag, initial charge, and initial magnetic moment,
+then every stored per-atom `Atoms.arrays` value and per-atom calculator result.
+Vector and tensor shapes are retained. The data is fetched only for that atom
+and the displayed trajectory frame; selecting a repeated View-mode atom uses
+its on-screen replica position with the base atom's properties. Attached
+calculators are never evaluated merely to populate Measure.
 
 ### Trajectories And Displacement
 
