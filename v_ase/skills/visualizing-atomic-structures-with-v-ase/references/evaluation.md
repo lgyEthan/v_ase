@@ -350,6 +350,9 @@ Run all scenarios, not only static document checks:
      including a radius that needs images beyond a fixed `2 x 2 x 2`
      repetition, and verify its non-edge plateau approaches one and aligns
      with the plotted `g(r) = 1` reference;
+   - calculate a trajectory RDF once, play through cached frames without the
+     Plotly drawer disappearing, and force the bounded rolling-cache path with
+     a large frame/bin/curve product;
    - calculate active, selected-active-bond, all, and no-partial modes; change
      the selection to a different active label pair and verify a debounced
      refresh, then select another bond of the same label pair and verify no

@@ -303,6 +303,7 @@ from v_ase.calculators import RepulsionCalculator
 atoms.calc = RepulsionCalculator(
     device="cpu",
     cpu_threads=4,
+    cutoff_mode="scaled",
     cutoff_scale=0.70,
     k_repulsion=1.0,
 )
@@ -312,8 +313,22 @@ forces = atoms.get_forces()
 
 Torch is optional. The calculator uses NumPy when torch is absent and can use
 torch CPU or CUDA when available. Browser DEVICE/CPU controls apply only to
-this built-in calculator. `cutoff_scale` multiplies its pair-distance
-thresholds; `k_repulsion` scales the repulsive force. Both are editable under
+this built-in calculator. In `cutoff_mode="scaled"`, the default onset for pair
+`i,j` is `cutoff_scale * (covalent_radius_i + covalent_radius_j)`. The scale is
+dimensionless. Use a direct physical onset instead with:
+
+```python
+atoms.calc = RepulsionCalculator(
+    cutoff_mode="absolute",
+    cutoff_distance=1.50,  # Angstrom
+    k_repulsion=1.0,
+)
+```
+
+For `r < r_cut`, both modes use
+`E_pair = 0.5 * k_repulsion * (r_cut - r)**2`; at and beyond `r_cut`, pair
+energy and force are exactly zero. `r_cut` is therefore an onset distance, not
+a hard minimum-separation constraint. All settings are editable under
 **Structure > Relaxation** and persist with supported calculator state.
 
 Compatibility imports remain available from `v_ase`, `v_ase.calculator`, and

@@ -577,6 +577,20 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
             ]
             assert "hkl" in schema["operation_parameters"]["calculate-registry-map"]["optional"]
             assert "hkl" in schema["operation_parameters"]["start-registry-relaxation"]["optional"]
+            calculator_schema = next(
+                branch["then"]["properties"]["calculator"]
+                for branch in schema["control_schema"]["properties"]["operation"]["oneOf"][1]["allOf"]
+                if "calculator" in branch.get("then", {}).get("properties", {})
+            )
+            assert calculator_schema["additionalProperties"] is False
+            assert calculator_schema["properties"]["cutoff_mode"]["enum"] == [
+                "scaled",
+                "absolute",
+            ]
+            assert calculator_schema["properties"]["cutoff_distance"]["minimum"] == 0.01
+            assert "cutoff_distance in Angstrom" in (
+                schema["operation_parameters"]["start-relaxation"]["notes"]
+            )
             assert schema["operation_parameters"]["set-registry-translation"]["required"] == [
                 "active-registry-relaxation",
                 "coordinates",

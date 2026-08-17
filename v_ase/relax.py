@@ -30,12 +30,20 @@ def _configure_default_calculator(session, payload):
     calc.configure(
         device=settings.get("device"),
         cpu_threads=settings.get("cpu_threads"),
+        cutoff_mode=settings.get("cutoff_mode"),
+        cutoff_distance=settings.get("cutoff_distance"),
+        cutoff_scale=settings.get("cutoff_scale"),
+        k_repulsion=settings.get("k_repulsion"),
     )
     for frame in session.trajectory_frames:
         if is_vase_repulsion_calculator(frame.calc):
             frame.calc.configure(
                 device=settings.get("device"),
                 cpu_threads=settings.get("cpu_threads"),
+                cutoff_mode=settings.get("cutoff_mode"),
+                cutoff_distance=settings.get("cutoff_distance"),
+                cutoff_scale=settings.get("cutoff_scale"),
+                k_repulsion=settings.get("k_repulsion"),
             )
 
 

@@ -47,7 +47,15 @@ RDF uses one periodic neighbor-list pass at the requested cutoff. ASE
 enumerates every contributing periodic shift, so a long cutoff is not
 truncated to a prebuilt supercell. Total and selected partial histograms share
 that pass. Plotly is loaded from the local Python installation and the drawer
-is created only when analysis is requested. CSV reuses the same calculation
+is created only when analysis is requested. After the first trajectory RDF
+request, ordinary trajectories precompute every frame with two concurrent
+backend workers. Large frame/bin/curve products use a bounded circular cache
+covering up to eight frames behind and 32 ahead of the displayed frame; the
+window contracts further when many bins or partial curves would exceed its
+value budget, and entries outside the new window are evicted. Playback
+swaps cached results without purging Plotly; on a miss, the previous graph
+stays visible until the requested frame finishes. Structure, label, pair-mode,
+cutoff, or bin changes invalidate the cache. CSV reuses the same calculation
 function rather than scraping or resampling the plotted curve.
 
 Video interpolation is also opt-in. `1x` follows the existing one-render-per-

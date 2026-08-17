@@ -231,6 +231,39 @@ Pass `operation` as a name string or object:
 | `calculate-rdf` | optional `cutoff`, `bins`, `pairMode`, `activePairs` | Calculate a bulk RDF for full 3D PBC, or an unordered-pair probability density for a finite no-PBC structure |
 | `set-atom-colorscale` | optional `enabled`, `field`, `map`, `reverse`, `scope`, `rangeMode`, `minimum`, `maximum`, `gamma` | Lazily color all or selected atoms by a discovered numeric per-atom value with a trajectory-consistent range |
 
+### Repulsion Calculator Contract
+
+The optional `calculator` object on `start-relaxation` and
+`run-registry-relaxation` configures only v_ase's built-in repulsion
+calculator. Use snake-case fields exactly as returned by the live schema:
+
+```javascript
+await applyCurrent({
+  operation: {
+    name: "start-relaxation",
+    fmax: 0.05,
+    steps: 300,
+    calculator: {
+      device: "cpu",
+      cpu_threads: 4,
+      cutoff_mode: "absolute",
+      cutoff_distance: 1.5,
+      k_repulsion: 1.0
+    }
+  }
+});
+```
+
+`cutoff_mode:"scaled"` uses
+`r_cut,ij = cutoff_scale * (ASE covalent radius i + ASE covalent radius j)`;
+the scale is dimensionless. `cutoff_mode:"absolute"` uses the one
+`cutoff_distance` value in Angstrom for every enabled pair. Below either onset,
+`E_pair = 0.5 * k_repulsion * (r_cut - r)^2`; energy and force are exactly zero
+at and beyond `r_cut`. This is not a hard minimum-separation constraint. Read
+`describe().calculator.details` after applying the command and verify
+`cutoff_mode`, the active cutoff field, and `k_repulsion` before trusting the
+run.
+
 ### ASE Bulk Builder Contract
 
 Read `capabilities().bulkBuilder` before using `build-bulk`:
@@ -908,6 +941,14 @@ per-atom colors, force vectors, displacement vectors, and frame-scoped
 volumetric surfaces or planes. `describe().analysis.frameSynchronization`
 reports the frame currently rendered by each result. A frame with no matching
 volumetric grid hides the previous surface instead of reusing stale data.
+
+In the GUI, the first trajectory RDF calculation prepares all ordinary-sized
+frame/result combinations. Large frame/bin/partial-curve products retain a
+bounded rolling window around the displayed frame. During playback, cached
+curves replace one another without closing or clearing the Plotly drawer; a
+missing frame keeps the previous curve visible until its calculation finishes.
+This cache is a GUI playback optimization only. Agent verification still reads
+the active `describe().analysis.rdf.frameIndex` after each requested frame.
 
 ## Volumetric And RDF Analysis
 

@@ -367,6 +367,8 @@ def _write_calculator_sidecar(path: Path, frames: list[Atoms]) -> dict[str, Any]
                 "set_region_as_prohibited": calculator.set_region_as_prohibited,
                 "k_boundary": calculator.k_boundary,
                 "k_repulsion": calculator.k_repulsion,
+                "cutoff_mode": calculator.cutoff_mode,
+                "cutoff_distance": calculator.cutoff_distance,
                 "cutoff_scale": calculator.cutoff_scale,
                 "max_force_norm": calculator.max_force_norm,
                 "mic": calculator.mic,
@@ -417,6 +419,8 @@ def _restore_calculator_sidecar(frames: list[Atoms], path: Path, manifest: Any) 
                 # Projects written before cutoff_scale was persisted used the
                 # unscaled radius threshold. Preserve that behavior on load.
                 parameters.setdefault("cutoff_scale", 1.0)
+                parameters.setdefault("cutoff_mode", "scaled")
+                parameters.setdefault("cutoff_distance", 2.0)
                 calculator = VAseRepulsionCalculator(**parameters)
                 calculator.atoms = frame.copy()
                 calculator.results = results

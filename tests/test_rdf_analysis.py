@@ -355,3 +355,29 @@ def test_rdf_http_contract_uses_displayed_positions_without_mutating_session():
     dr = result["cutoff"] / result["bins"]
     assert np.sum(result["total"]) * dr == pytest.approx(1.0, abs=1e-12)
     np.testing.assert_allclose(session.working_atoms.positions, baseline)
+
+
+def test_rdf_prefetches_another_trajectory_frame_without_moving_live_session():
+    first = Atoms("H3", positions=[[0, 0, 0], [1, 0, 0], [0, 2, 0]], pbc=False)
+    second = Atoms("H3", positions=[[0, 0, 0], [1.5, 0, 0], [0, 3, 0]], pbc=False)
+    session = EditorSession(
+        "rdf-prefetch",
+        first.copy(),
+        first.copy(),
+        trajectory_frames=[first.copy(), second.copy()],
+    )
+    sessions[session.session_id] = session
+    baseline = session.working_atoms.positions.copy()
+    try:
+        result = asyncio.run(radial_distribution_analysis(session.session_id, {
+            "frame_index": 1,
+            "cutoff": 4.0,
+            "bins": 40,
+            "pair_mode": "none",
+        }))
+    finally:
+        sessions.pop(session.session_id, None)
+
+    assert result["frame_index"] == 1
+    assert session.current_frame == 0
+    np.testing.assert_allclose(session.working_atoms.positions, baseline)

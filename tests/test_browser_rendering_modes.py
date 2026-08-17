@@ -190,6 +190,42 @@ def test_rdf_drawer_controls_and_selected_active_bond_pairs():
                 page.wait_for_function(
                     "window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 5"
                 )
+                _expand_inspector(page)
+                page.click('[data-inspector-group="analysis"]')
+                assert page.locator("#structure-section-picker").is_visible()
+                assert page.locator("#structure-section-select option").all_text_contents() == [
+                    "Displacement",
+                    "Forces",
+                    "Volumetric Data",
+                    "Distribution Functions",
+                    "Planar Translation",
+                ]
+                page.select_option("#structure-section-select", "rdf")
+                page.click('[data-inspector-group="export"]')
+                assert page.locator("#structure-section-select option").all_text_contents() == [
+                    "Files & Media",
+                    "v_ase Project",
+                    "Visual Settings",
+                    "Format Guide",
+                ]
+                page.click('[data-inspector-group="structure"]')
+                page.select_option("#structure-section-select", "appearance")
+                label_font, apply_font = page.evaluate("""() => [
+                    getComputedStyle(document.getElementById('selected-atom-label')).fontSize,
+                    getComputedStyle(document.getElementById('btn-apply-selected-label')).fontSize
+                ]""")
+                assert apply_font == label_font
+                page.select_option("#structure-section-select", "scientific-tools")
+                page.select_option("#calc-cutoff-mode", "absolute")
+                page.fill("#calc-cutoff-distance", "1.35")
+                page.locator("#calc-cutoff-distance").dispatch_event("change")
+                page.wait_for_function("""() => {
+                    const details = window.__ASE_APP__.state.atoms.metadata.calculator_details;
+                    return details.cutoff_mode === 'absolute'
+                        && Math.abs(details.cutoff_distance - 1.35) < 1e-9;
+                }""")
+                assert page.locator("#calc-cutoff-distance-row").is_visible()
+                assert not page.locator("#calc-cutoff-scale-row").is_visible()
                 initial = page.evaluate(
                     """async () => {
                         const app = window.__ASE_APP__;
@@ -324,6 +360,65 @@ def test_rdf_drawer_controls_and_selected_active_bond_pairs():
                             && document.getElementById('rdf-status').dataset.state === 'warning';
                     }"""
                 )
+                bounded_cache = page.evaluate(
+                    """async () => {
+                        const app = window.__ASE_APP__;
+                        const originalFrameCount = app.loadedFrameCount;
+                        const originalFetch = app.api.fetchRdf;
+                        const originalCurrentFrame = app.state.atoms.metadata.current_frame;
+                        let requests = 0;
+                        app.loadedFrameCount = () => 1000;
+                        app.api.fetchRdf = async options => {
+                            requests += 1;
+                            return {
+                                frame_index: options.frame_index,
+                                bins: options.bins,
+                                cutoff: options.cutoff,
+                                title: 'Pair-distribution function',
+                                analysis_kind: 'pair-distribution',
+                                pair_mode: options.pair_mode,
+                                warnings: [],
+                                r: [0.5],
+                                total: [0],
+                                partial: {}
+                            };
+                        };
+                        app.clearRdfFrameCache();
+                        const options = {
+                            cutoff: 3,
+                            bins: 5000,
+                            pair_mode: 'all',
+                            active_pairs: []
+                        };
+                        try {
+                            await app.precomputeRdfTrajectory(options, {showBusy: false});
+                            const firstWindow = [...app.state.rdfFrameCache.keys()]
+                                .sort((a, b) => a - b);
+                            app.state.atoms.metadata.current_frame = 500;
+                            await app.precomputeRdfTrajectory(options, {showBusy: false});
+                            return {
+                                requests,
+                                size: app.state.rdfFrameCache.size,
+                                complete: app.state.rdfFrameCacheComplete,
+                                firstWindow,
+                                indices: [...app.state.rdfFrameCache.keys()].sort((a, b) => a - b)
+                            };
+                        } finally {
+                            app.state.atoms.metadata.current_frame = originalCurrentFrame;
+                            app.loadedFrameCount = originalFrameCount;
+                            app.api.fetchRdf = originalFetch;
+                            app.clearRdfFrameCache();
+                        }
+                    }"""
+                )
+                assert bounded_cache["requests"] == 82
+                assert bounded_cache["size"] == 41
+                assert bounded_cache["complete"] is False
+                assert bounded_cache["firstWindow"] == [
+                    *range(33),
+                    *range(992, 1000),
+                ]
+                assert bounded_cache["indices"] == list(range(492, 533))
             finally:
                 browser.close()
     finally:
@@ -426,10 +521,26 @@ def test_active_trajectory_frame_updates_rdf_volume_colors_and_displacements():
                 return {
                     rdf: [...app.state.rdfResult.total],
                     colors: [...app.renderer.atomColorScaleColors],
-                    volume: app.state.volumetricSurfaceSummary.datasetId
+                    volume: app.state.volumetricSurfaceSummary.datasetId,
+                    rdfCacheSize: app.state.rdfFrameCache.size,
+                    rdfCacheComplete: app.state.rdfFrameCacheComplete
                 };
             }""")
             assert initial["volume"] == first_field.dataset_id
+            assert initial["rdfCacheSize"] == 3
+            assert initial["rdfCacheComplete"] is True
+
+            page.evaluate("window.__ASE_APP__.startPlayback()")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                const plot = document.getElementById('rdf-plot');
+                return app.state.atoms.metadata.current_frame !== 0
+                    && app.state.rdfResult?.frame_index === app.state.atoms.metadata.current_frame
+                    && Array.isArray(plot?.data)
+                    && plot.data.length > 0;
+            }""", timeout=20_000)
+            assert page.locator("#rdf-plot .plotly").count() == 1
+            page.evaluate("window.__ASE_APP__.stopPlayback()")
 
             page.evaluate("window.__ASE_APP__.loadFrame(1)")
             page.wait_for_function(

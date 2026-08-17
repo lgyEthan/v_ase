@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.20
+
+- Added synchronized **Section** menus to Analysis and Export, matching the
+  existing Structure navigation, and normalized the Selected Atoms Apply
+  control typography.
+- Kept RDF and finite pair-distribution graphs synchronized during trajectory
+  playback through eager per-frame preparation for ordinary trajectories and
+  a bounded rolling cache for larger frame/bin/curve products.
+- Added a physical **Absolute distance / Å** onset to the built-in repulsion
+  calculator beside the existing dimensionless covalent-radius scale. Pair
+  energy and force are exactly zero at and beyond either selected onset.
+- Serialized calculator setting updates without rebuilding atom geometry, so
+  late responses cannot clear active analysis, selection, or viewport state.
+
 ## 0.2.19
 
 - Added transient `--remote-python /absolute/path/to/python` selection and

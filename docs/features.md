@@ -427,10 +427,13 @@ Playback loads the binary array once, then updates GPU instance translations
 without per-frame HTTP, JSON, geometry rebuilds, or complete matrix rewrites.
 Manual scrubbing still synchronizes the backend frame.
 
-The fallback repulsion calculator exposes a pair-cutoff scale and force
-strength under Structure > Relaxation. New calculator instances use a `0.70`
-cutoff scale and `1.0` strength. These are calculator parameters and do not
-change visualization bond cutoffs.
+The fallback repulsion calculator exposes two alternative onset definitions
+and one force strength under Structure > Relaxation. **Scaled** mode keeps the
+default `0.70` multiplier on each ASE covalent-radius sum. **Absolute** mode
+uses one user-entered distance in Angstrom for every enabled pair. The harmonic
+pair energy and force are zero at and beyond either onset, so the value is not
+a hard minimum-separation constraint. These are calculator parameters and do
+not change visualization bond cutoffs.
 
 The Add Atoms repulsion is separate from that whole-structure fallback. It
 evaluates only explicit element-pair minimum distances, can keep every host

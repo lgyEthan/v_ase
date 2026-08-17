@@ -803,6 +803,12 @@ if (movie.mimeType !== "video/quicktime" || movie.bytes <= 0) {
 Interpolation can be expensive. Inform the user before choosing a multiplier
 above one.
 
+For GUI RDF playback, calculate the distribution once before pressing Play.
+Confirm the drawer remains mounted while frames advance and that
+`describe().analysis.frameSynchronization.rdfFrame` follows `displayedFrame`.
+Ordinary trajectories may be fully prepared; large result products must use a
+bounded rolling cache rather than retain every curve indefinitely.
+
 ## Analyze Scalar Fields
 
 ### Volumetric Difference And Isosurface

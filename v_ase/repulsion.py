@@ -89,6 +89,20 @@ def _valid_cutoff_scale(value: Any | None) -> float:
     return min(3.0, max(0.05, scale))
 
 
+def _valid_cutoff_mode(value: Any | None) -> str:
+    return "absolute" if str(value or "").strip().lower() == "absolute" else "scaled"
+
+
+def _valid_cutoff_distance(value: Any | None) -> float:
+    try:
+        distance = float(value)
+    except (TypeError, ValueError):
+        distance = 2.0
+    if not np.isfinite(distance):
+        distance = 2.0
+    return min(100.0, max(0.01, distance))
+
+
 def _valid_repulsion_strength(value: Any | None) -> float:
     try:
         strength = float(value)
@@ -106,6 +120,8 @@ def _copy_calc_config(source: "VAseRepulsionCalculator") -> dict[str, Any]:
         "set_region_as_prohibited": source.set_region_as_prohibited,
         "k_boundary": source.k_boundary,
         "k_repulsion": source.k_repulsion,
+        "cutoff_mode": source.cutoff_mode,
+        "cutoff_distance": source.cutoff_distance,
         "cutoff_scale": source.cutoff_scale,
         "max_force_norm": source.max_force_norm,
         "mic": source.mic,
@@ -129,10 +145,15 @@ def is_vase_repulsion_calculator(calc) -> bool:
 class VAseRepulsionCalculator(Calculator):
     """ASE calculator for soft pair repulsion and optional region penalties.
 
-    The default model follows the semantics of the reference Conditioner:
-    atoms closer than a covalent-radius threshold receive a harmonic repulsive
-    force. Torch is used when available, including CUDA if requested; otherwise
-    the same force expression is evaluated with NumPy.
+    In ``scaled`` cutoff mode, atoms repel below ``cutoff_scale`` times their
+    pair threshold (the ASE covalent-radius sum by default). In ``absolute``
+    mode, every enabled pair instead uses ``cutoff_distance`` in Angstrom.
+    Both modes use ``0.5 * k_repulsion * (r_cut - r)**2`` below the threshold
+    and exactly zero pair energy and force at or beyond it. The threshold is an
+    onset distance, not a constrained minimum separation.
+
+    Torch is used when available, including CUDA if requested; otherwise the
+    same force expression is evaluated with NumPy.
     """
 
     implemented_properties = ["energy", "forces"]
@@ -144,6 +165,8 @@ class VAseRepulsionCalculator(Calculator):
         set_region_as_prohibited: bool = False,
         k_boundary: float = 1.0,
         k_repulsion: float = 1.0,
+        cutoff_mode: str = "scaled",
+        cutoff_distance: float = 2.0,
         cutoff_scale: float = 0.7,
         max_force_norm: float | None = 10.0,
         mic: bool = True,
@@ -161,6 +184,8 @@ class VAseRepulsionCalculator(Calculator):
         self.set_region_as_prohibited = bool(set_region_as_prohibited)
         self.k_boundary = float(k_boundary)
         self.k_repulsion = _valid_repulsion_strength(k_repulsion)
+        self.cutoff_mode = _valid_cutoff_mode(cutoff_mode)
+        self.cutoff_distance = _valid_cutoff_distance(cutoff_distance)
         self.cutoff_scale = _valid_cutoff_scale(cutoff_scale)
         self.max_force_norm = None if max_force_norm is None else float(max_force_norm)
         self.mic = bool(mic)
@@ -176,6 +201,8 @@ class VAseRepulsionCalculator(Calculator):
         *,
         device: str | None = None,
         cpu_threads: int | None = None,
+        cutoff_mode: str | None = None,
+        cutoff_distance: float | None = None,
         cutoff_scale: float | None = None,
         k_repulsion: float | None = None,
     ):
@@ -183,6 +210,10 @@ class VAseRepulsionCalculator(Calculator):
             self.device_requested = _normalized_device(device)
         if cpu_threads is not None:
             self.cpu_threads = _valid_cpu_threads(cpu_threads)
+        if cutoff_mode is not None:
+            self.cutoff_mode = _valid_cutoff_mode(cutoff_mode)
+        if cutoff_distance is not None:
+            self.cutoff_distance = _valid_cutoff_distance(cutoff_distance)
         if cutoff_scale is not None:
             self.cutoff_scale = _valid_cutoff_scale(cutoff_scale)
         if k_repulsion is not None:
@@ -201,6 +232,8 @@ class VAseRepulsionCalculator(Calculator):
             "torch_available": torch_available(),
             "cuda_available": cuda_available(),
             "min_bondinfo": self.min_bondinfo,
+            "cutoff_mode": self.cutoff_mode,
+            "cutoff_distance": self.cutoff_distance,
             "cutoff_scale": self.cutoff_scale,
             "k_repulsion": self.k_repulsion,
         }
@@ -228,7 +261,18 @@ class VAseRepulsionCalculator(Calculator):
             key_ij = f"{sym_i}-{sym_j}"
             key_ji = f"{sym_j}-{sym_i}"
             value = min_bondinfo.get(key_ij, min_bondinfo.get(key_ji))
-            return None if value is None else float(value) * self.cutoff_scale
+            if value is None:
+                return None
+            # Pair dictionaries use zero or a negative value to disable a
+            # pair. Absolute mode changes the active threshold distance; it
+            # must not reactivate an explicitly disabled pair.
+            if float(value) <= 0:
+                return None
+            if self.cutoff_mode == "absolute":
+                return self.cutoff_distance
+            return float(value) * self.cutoff_scale
+        if self.cutoff_mode == "absolute":
+            return self.cutoff_distance
         return float(min_bondinfo) * self.cutoff_scale
 
     def _manual_pairs(self, atoms: Atoms, min_bondinfo):
@@ -252,7 +296,10 @@ class VAseRepulsionCalculator(Calculator):
     def _neighbor_pairs(self, atoms: Atoms, min_bondinfo):
         if len(atoms) < 2:
             return []
-        if isinstance(min_bondinfo, dict):
+        if self.cutoff_mode == "absolute":
+            max_cutoff = self.cutoff_distance
+            cutoff = max_cutoff
+        elif isinstance(min_bondinfo, dict):
             max_cutoff = max(float(value) for value in min_bondinfo.values()) if min_bondinfo else 0.0
             max_cutoff *= self.cutoff_scale
             cutoff = max_cutoff

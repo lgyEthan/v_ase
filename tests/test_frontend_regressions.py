@@ -881,6 +881,8 @@ def test_new_scientific_defaults_and_ai_control_contract_are_wired():
     assert 'id="commensurate-supercell-proposal"' in index_html
     assert 'id="chk-commensurate-snap">' in index_html
     assert 'id="calc-cutoff-scale" value="0.70"' in index_html
+    assert 'id="calc-cutoff-mode"' in index_html
+    assert 'id="calc-cutoff-distance" value="2.00"' in index_html
     assert 'id="calc-strength" value="1.0"' in index_html
     assert "showBonds: true" in main_js
     assert "commensurateGuide: false" in main_js
@@ -1086,7 +1088,10 @@ def test_trajectory_controls_update_live_and_space_toggles_playback():
     assert "currentPlaybackFps" in main_js
     assert "currentPlaybackSkip" in main_js
     assert "currentPlaybackStep" in main_js
-    assert "this.stepFrame(this.currentPlaybackStep(), this.state.trajectoryPlaybackSource || source)" in main_js
+    assert "playbackTask = this.stepFrame(" in main_js
+    assert "this.currentPlaybackStep()," in main_js
+    assert "this.state.trajectoryPlaybackSource || source" in main_js
+    assert "this.state.trajectoryPlaybackTask = playbackTask" in main_js
     assert "setTimeout(tick, 1000 / this.currentPlaybackFps())" in main_js
     assert "e.code === 'Space'" in main_js
     assert "e.key === 'ArrowLeft' || e.key === 'ArrowRight'" in main_js

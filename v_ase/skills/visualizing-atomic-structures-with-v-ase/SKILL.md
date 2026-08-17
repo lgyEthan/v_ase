@@ -14,7 +14,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.19"
+python -m pip install "v_ase-gui==0.2.20"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -128,7 +128,7 @@ resulting semantic state and rendered output.
 ## Degrees Of Freedom
 
 - **Low freedom**: deletion, identity/element changes, constraint edits,
-  materialized supercells, volumetric linear combinations, relaxation,
+  materialized supercells, volumetric linear combinations, relaxation and its repulsion cutoff definition,
   overwrite-prone exports, deleting a saved personal visual default, and
   release publishing. Use exact documented commands and verify afterward.
 - **Medium freedom**: camera placement, bond cutoffs, materials, lighting,
@@ -386,7 +386,7 @@ For any nontrivial task, verify all applicable items:
 - AI contract: exact schema/capability operation and export set equality, an
   external `v_ase api` mutation visible in the same live GUI, and matching GUI
   and `describe().collaboration.revision` state;
-- trajectory: frame count, active frame, stable selection, analysis reference;
+- trajectory: frame count, active frame, stable selection, analysis reference, and frame-synchronized cached RDF playback;
 - volumetric: dataset ID, grid dimensions, cell, origin, PBC, units,
   component, FP32/FP64 precision, memory size, visible default/custom
   isovalue, raw or absolute-value histogram, mesh count, live color/opacity
@@ -394,7 +394,7 @@ For any nontrivial task, verify all applicable items:
   colormap/range/opacity, cache reuse, and supercell/translation alignment;
   verify suffixed VASP names such as
   `PARCHG_*`, `LOCPOT.*`, and `CHGCAR-*` are identified by contents/type;
-- radial or finite pair distribution: frame, `analysisKind`, PBC, cutoff, bins,
+- radial or finite pair distribution: displayed frame, `analysisKind`, PBC, cutoff, bins,
   curves, normalization, CSV, and that `pairMode:"selected"` filters active bonds
   with both endpoints selected but retains full-structure normalization; for 3D periodic RDF verify the unique-MIC
   reference, required periodic-image span, `g(r) = 1` bulk reference,

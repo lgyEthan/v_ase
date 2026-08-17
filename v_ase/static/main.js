@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.19&rev=1';
-import { ASERenderer } from './renderer.js?v=0.2.19&rev=1';
-import { ASESelection } from './selection.js?v=0.2.19&rev=1';
-import { ASETransform } from './transform.js?v=0.2.19&rev=1';
+import { ASEApi } from './api.js?v=0.2.20&rev=1';
+import { ASERenderer } from './renderer.js?v=0.2.20&rev=1';
+import { ASESelection } from './selection.js?v=0.2.20&rev=1';
+import { ASETransform } from './transform.js?v=0.2.20&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.19&rev=1';
+} from './trajectory.js?v=0.2.20&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -35,6 +35,8 @@ const MAX_COMMENSURATE_AREA_RATIO = 128;
 const MIN_ATOM_COLORSCALE_TRAJECTORY_CACHE_VALUES = 10_000;
 const MAX_ATOM_COLORSCALE_TRAJECTORY_CACHE_VALUES = 2_000_000;
 const MAX_FORCE_VECTOR_TRAJECTORY_CACHE_VALUES = 6_000_000;
+const MAX_RDF_TRAJECTORY_CACHE_VALUES = 4_000_000;
+const MAX_RDF_ROLLING_CACHE_FRAMES = 41;
 
 class VAseApp {
     constructor() {
@@ -257,6 +259,8 @@ class VAseApp {
             sunSelected: null,
             sunTransformOriginal: null,
             trajectoryTimer: null,
+            trajectoryPlaybackTask: null,
+            trajectoryStopPromise: null,
             trajectoryPlaybackSource: null,
             timelineSource: 'loaded',
             trajectoryBinaryCache: null,
@@ -307,6 +311,11 @@ class VAseApp {
             rdfSelectionSignature: '',
             rdfSelectionPendingSignature: '',
             rdfSelectionRefreshTimer: null,
+            rdfFrameCache: new Map(),
+            rdfFrameCacheSignature: '',
+            rdfFrameCacheComplete: false,
+            rdfPrefetchPromise: null,
+            rdfPrefetchToken: 0,
             frameAnalysisRefreshTimer: null,
             frameAnalysisRequestToken: 0,
             volumetricFrameSignature: '',
@@ -349,6 +358,8 @@ class VAseApp {
             pending: null,
             renderedFrame: -1
         };
+        this.calculatorConfigQueue = Promise.resolve();
+        this.calculatorConfigRevision = 0;
         this.bulkBuilderRuntime = {
             catalog: null,
             catalogPromise: null,
@@ -562,6 +573,13 @@ class VAseApp {
         document.querySelectorAll('[data-edit-only]').forEach(el => {
             if ('disabled' in el) el.disabled = this.state.vizOnly;
         });
+        const sectionSelect = document.getElementById('structure-section-select');
+        if (
+            ['structure', 'analysis', 'export'].includes(this.inspectorGroup)
+            && sectionSelect?.selectedOptions?.[0]?.disabled
+        ) {
+            this.populateInspectorSectionNavigation(this.inspectorGroup);
+        }
         if (
             this.transform.mode !== 'IDLE'
             && this.state.transformSubject === 'atoms'
@@ -3274,10 +3292,12 @@ class VAseApp {
             const labels = { export: 'Export' };
             label.textContent = labels[next] || (next.charAt(0).toUpperCase() + next.slice(1));
         }
+        const hasSectionNavigation = ['structure', 'analysis', 'export'].includes(next);
         document.getElementById('structure-section-picker')?.classList.toggle(
             'hidden',
-            next !== 'structure'
+            !hasSectionNavigation
         );
+        if (hasSectionNavigation) this.populateInspectorSectionNavigation(next);
         if (persist) {
             try {
                 window.localStorage?.setItem('v_ase.inspectorGroup', next);
@@ -3285,9 +3305,68 @@ class VAseApp {
                 // Local storage may be unavailable in restricted browser contexts.
             }
         }
-        if (next === 'structure') {
+        if (hasSectionNavigation) {
             requestAnimationFrame(() => this.syncStructureSectionNavigation());
         }
+    }
+
+    inspectorSectionCatalog(group = this.inspectorGroup) {
+        const catalogs = {
+            structure: [
+                ['appearance', 'Atoms & Appearance'],
+                ['ase-builder', 'Build with ASE', true],
+                ['cell-replication', 'Cell & Replication'],
+                ['cell-transform', 'Cell Transform', true],
+                ['transform', 'Transform & Cell Match'],
+                ['constraints', 'Constraints', true],
+                ['bonding', 'Bonding'],
+                ['scientific-tools', 'Relaxation', true]
+            ],
+            analysis: [
+                ['displacement', 'Displacement'],
+                ['forces', 'Forces'],
+                ['volumetric', 'Volumetric Data'],
+                ['rdf', 'Distribution Functions'],
+                ['registry-map', 'Planar Translation']
+            ],
+            export: [
+                ['export', 'Files & Media'],
+                ['project', 'v_ase Project'],
+                ['settings', 'Visual Settings'],
+                ['save-guide', 'Format Guide']
+            ]
+        };
+        return catalogs[group] || [];
+    }
+
+    populateInspectorSectionNavigation(group = this.inspectorGroup) {
+        const select = document.getElementById('structure-section-select');
+        if (!select) return;
+        this.inspectorSectionSelections ||= {};
+        const previous = select.value;
+        if (select.dataset.group) {
+            this.inspectorSectionSelections[select.dataset.group] = previous;
+        }
+        select.replaceChildren();
+        this.inspectorSectionCatalog(group).forEach(([value, label, editOnly]) => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = label;
+            if (editOnly) {
+                option.dataset.editOnly = '';
+                option.disabled = Boolean(this.state.vizOnly);
+            }
+            select.appendChild(option);
+        });
+        select.dataset.group = group;
+        const preferred = this.inspectorSectionSelections[group];
+        const available = [...select.options].find(option => (
+            option.value === preferred && !option.disabled
+        ));
+        select.value = available?.value
+            || [...select.options].find(option => !option.disabled)?.value
+            || select.options[0]?.value
+            || '';
     }
 
     structureSectionTargets() {
@@ -3303,7 +3382,7 @@ class VAseApp {
     }
 
     syncStructureSectionNavigation() {
-        if (this.inspectorGroup !== 'structure') return;
+        if (!['structure', 'analysis', 'export'].includes(this.inspectorGroup)) return;
         const content = document.getElementById('inspector-content');
         const select = document.getElementById('structure-section-select');
         const targets = this.structureSectionTargets().filter(
@@ -3319,6 +3398,8 @@ class VAseApp {
             active = targets[targets.length - 1];
         }
         select.value = active.option.value;
+        this.inspectorSectionSelections ||= {};
+        this.inspectorSectionSelections[this.inspectorGroup] = active.option.value;
     }
 
     setupStructureSectionNavigation() {
@@ -3326,6 +3407,8 @@ class VAseApp {
         const select = document.getElementById('structure-section-select');
         if (!content || !select) return;
         select.addEventListener('change', () => {
+            this.inspectorSectionSelections ||= {};
+            this.inspectorSectionSelections[this.inspectorGroup] = select.value;
             const panel = document.querySelector(
                 `#inspector-content [data-panel="${select.value}"]`
             );
@@ -5550,7 +5633,7 @@ class VAseApp {
         this.renderVolumetricControls();
     }
 
-    rdfOptions() {
+    rdfOptions({ frameIndex = null, includePositions = true } = {}) {
         const cutoffText = document.getElementById('rdf-cutoff')?.value.trim() || '';
         const cutoff = cutoffText ? Number(cutoffText) : null;
         const bins = Math.max(8, Math.min(5000, parseInt(
@@ -5565,15 +5648,19 @@ class VAseApp {
             rdfBins: bins,
             rdfPairMode: pairMode
         });
-        return {
+        const options = {
             cutoff: Number.isFinite(cutoff) ? cutoff : null,
             bins,
             pair_mode: pairMode,
             active_pairs: pairMode === 'selected'
                 ? this.selectedActiveRdfPairs()
                 : this.activeRdfPairs(),
-            positions: this.currentPositionsFromScene()
+            frame_index: frameIndex !== null && Number.isInteger(Number(frameIndex))
+                ? Number(frameIndex)
+                : Number(this.state.atoms?.metadata?.current_frame || 0)
         };
+        if (includePositions) options.positions = this.currentPositionsFromScene();
+        return options;
     }
 
     activeRdfPairs() {
@@ -5809,6 +5896,205 @@ class VAseApp {
         return 'Distribution';
     }
 
+    rdfSettingsSignature(options = this.rdfOptions({ includePositions: false })) {
+        const activePairs = (options.active_pairs || [])
+            .map(([left, right]) => this.labelPairKey(left, right))
+            .sort();
+        return JSON.stringify({
+            cutoff: options.cutoff ?? null,
+            bins: Number(options.bins) || 200,
+            pairMode: options.pair_mode || 'active',
+            activePairs,
+            frameCount: this.loadedFrameCount(),
+            atomCount: Number(this.state.atoms?.metadata?.natoms)
+                || this.state.atoms?.positions?.length
+                || 0,
+            labels: this.uniqueAtomLabels()
+        });
+    }
+
+    clearRdfFrameCache() {
+        this.state.rdfPrefetchToken += 1;
+        this.state.rdfFrameCache.clear();
+        this.state.rdfFrameCacheSignature = '';
+        this.state.rdfFrameCacheComplete = false;
+        this.state.rdfPrefetchPromise = null;
+    }
+
+    ensureRdfFrameCache(options) {
+        const signature = this.rdfSettingsSignature(options);
+        if (signature !== this.state.rdfFrameCacheSignature) {
+            this.clearRdfFrameCache();
+            this.state.rdfFrameCacheSignature = signature;
+        }
+        return signature;
+    }
+
+    cacheRdfResult(result, signature = this.state.rdfFrameCacheSignature) {
+        if (!result || signature !== this.state.rdfFrameCacheSignature) return;
+        const frameIndex = Number(result.frame_index);
+        if (!Number.isInteger(frameIndex) || frameIndex < 0) return;
+        this.state.rdfFrameCache.set(frameIndex, result);
+    }
+
+    rdfCurveCount(options) {
+        if (options.pair_mode === 'none') return 1;
+        if (options.pair_mode === 'all') return 1 + this.uniqueLabelPairs().length;
+        return 1 + (options.active_pairs || []).length;
+    }
+
+    rdfPrefetchIndices(
+        frameCount,
+        currentFrame,
+        complete,
+        maximumFrames = MAX_RDF_ROLLING_CACHE_FRAMES
+    ) {
+        if (complete) return Array.from({ length: frameCount }, (_, index) => index);
+        const windowSize = Math.max(1, Math.min(
+            frameCount,
+            MAX_RDF_ROLLING_CACHE_FRAMES,
+            Math.floor(Number(maximumFrames) || 1)
+        ));
+        const before = Math.floor((windowSize - 1) * 0.2);
+        const after = windowSize - before - 1;
+        const indices = [];
+        for (let offset = -before; offset <= after; offset += 1) {
+            indices.push((currentFrame + offset + frameCount) % frameCount);
+        }
+        return [...new Set(indices)];
+    }
+
+    rdfFrameOverridePositions(frameIndex) {
+        const override = this.relaxOverridePositions(frameIndex);
+        return override ? override.map(position => [...position]) : null;
+    }
+
+    async precomputeRdfTrajectory(options, { showBusy = true } = {}) {
+        const frameCount = this.loadedFrameCount();
+        if (frameCount <= 1) return;
+        const signature = this.ensureRdfFrameCache(options);
+        if (this.state.rdfPrefetchPromise) {
+            await this.state.rdfPrefetchPromise;
+            if (signature !== this.state.rdfFrameCacheSignature) return;
+        }
+
+        const valueEstimate = frameCount * Number(options.bins || 200)
+            * this.rdfCurveCount(options);
+        const complete = frameCount <= 300
+            && valueEstimate <= MAX_RDF_TRAJECTORY_CACHE_VALUES;
+        const currentFrame = Number(this.state.atoms?.metadata?.current_frame || 0);
+        const valuesPerFrame = Math.max(
+            1,
+            Number(options.bins || 200) * this.rdfCurveCount(options)
+        );
+        const maximumFrames = complete
+            ? frameCount
+            : Math.max(1, Math.floor(
+                MAX_RDF_TRAJECTORY_CACHE_VALUES / valuesPerFrame
+            ));
+        const targetIndices = this.rdfPrefetchIndices(
+            frameCount,
+            currentFrame,
+            complete,
+            maximumFrames
+        );
+        if (!complete) {
+            const retained = new Set(targetIndices);
+            [...this.state.rdfFrameCache.keys()].forEach(index => {
+                if (!retained.has(index)) this.state.rdfFrameCache.delete(index);
+            });
+        }
+        const indices = targetIndices
+            .filter(index => !this.state.rdfFrameCache.has(index));
+        if (!indices.length) {
+            this.state.rdfFrameCacheComplete = complete
+                && this.state.rdfFrameCache.size >= frameCount;
+            return;
+        }
+
+        const token = ++this.state.rdfPrefetchToken;
+        const startedAt = performance.now();
+        const { positions: _positions, frame_index: _frameIndex, ...baseOptions } = options;
+        if (showBusy) {
+            this.setBusy(
+                complete
+                    ? `Preparing RDF for ${frameCount} trajectory frames...`
+                    : `Preparing nearby RDF frames within the memory limit...`,
+                { title: 'Preparing trajectory analysis', progress: 0 }
+            );
+            await new Promise(resolve => requestAnimationFrame(resolve));
+        }
+
+        let cursor = 0;
+        let completed = 0;
+        const worker = async () => {
+            while (cursor < indices.length) {
+                const frameIndex = indices[cursor++];
+                const overridePositions = this.rdfFrameOverridePositions(frameIndex);
+                const result = await this.api.fetchRdf({
+                    ...baseOptions,
+                    frame_index: frameIndex,
+                    ...(overridePositions ? { positions: overridePositions } : {})
+                });
+                if (
+                    token !== this.state.rdfPrefetchToken
+                    || signature !== this.state.rdfFrameCacheSignature
+                ) return;
+                this.cacheRdfResult(result, signature);
+                completed += 1;
+                if (showBusy) {
+                    const progress = completed / indices.length * 100;
+                    this.setBusyProgress(progress, {
+                        message: `Prepared RDF frame ${completed} of ${indices.length}`,
+                        etaSeconds: this.estimatedRemainingFromProgress(startedAt, progress),
+                        complete: completed === indices.length
+                    });
+                }
+            }
+        };
+        const task = Promise.all(
+            Array.from({ length: Math.min(2, indices.length) }, () => worker())
+        );
+        this.state.rdfPrefetchPromise = task;
+        try {
+            await task;
+            if (
+                token === this.state.rdfPrefetchToken
+                && signature === this.state.rdfFrameCacheSignature
+            ) {
+                this.state.rdfFrameCacheComplete = complete
+                    && this.state.rdfFrameCache.size >= frameCount;
+            }
+        } finally {
+            if (this.state.rdfPrefetchPromise === task) {
+                this.state.rdfPrefetchPromise = null;
+            }
+            if (showBusy) this.clearBusy();
+        }
+    }
+
+    setRdfReadyStatus(result) {
+        const warning = (result.warnings || []).join(' ');
+        const imageSpan = Array.isArray(result.periodic_image_span)
+            ? result.periodic_image_span.join(' × ')
+            : 'automatic';
+        const pairCount = Object.keys(result.partial || {}).length;
+        const selectedWithoutBond = result.pair_mode === 'selected' && pairCount === 0;
+        const frameCount = this.loadedFrameCount();
+        const frameDetail = frameCount > 1
+            ? `Frame ${Number(result.frame_index || 0) + 1} of ${frameCount}. `
+            : '';
+        this.setRdfStatus(
+            warning || selectedWithoutBond ? 'warning' : 'ready',
+            `${result.title || 'Distribution'} · ${result.bins} bins · cutoff ${Number(result.cutoff).toFixed(3)} Å`,
+            frameDetail + (warning || (selectedWithoutBond
+                ? 'No active bond joins two selected atoms; the total curve is shown without partial curves.'
+                : result.analysis_kind === 'pair-distribution'
+                ? `${pairCount} pair curve${pairCount === 1 ? '' : 's'} plus total · finite unordered-pair normalization.`
+                : `${pairCount} pair curve${pairCount === 1 ? '' : 's'} plus total · periodic image span ${imageSpan}.`))
+        );
+    }
+
     invalidateRdfResult(detail = null) {
         const status = document.getElementById('rdf-status');
         const wasCalculating = status?.dataset?.state === 'loading';
@@ -5818,6 +6104,7 @@ class VAseApp {
             this.state.rdfSelectionRefreshTimer = null;
         }
         this.state.rdfRequestToken += 1;
+        this.clearRdfFrameCache();
         this.state.rdfAutoRefresh = false;
         this.state.rdfResult = null;
         this.state.rdfSelectionSignature = '';
@@ -6450,6 +6737,7 @@ class VAseApp {
     async calculateRdf({ quiet = false } = {}) {
         const token = ++this.state.rdfRequestToken;
         const options = this.rdfOptions();
+        const signature = this.ensureRdfFrameCache(options);
         this.setRdfStatus(
             'loading',
             'Calculating structural distribution',
@@ -6460,6 +6748,7 @@ class VAseApp {
             ? await request()
             : await this.withBusy('Calculating pair distribution...', request);
         if (token !== this.state.rdfRequestToken) return;
+        this.cacheRdfResult(result, signature);
         this.state.rdfResult = result;
         this.state.rdfAutoRefresh = true;
         this.state.rdfSelectionSignature = options.pair_mode === 'selected'
@@ -6467,22 +6756,16 @@ class VAseApp {
             : '';
         this.state.rdfSelectionPendingSignature = '';
         await this.plotRdf(result);
-        const warning = (result.warnings || []).join(' ');
-        const imageSpan = Array.isArray(result.periodic_image_span)
-            ? result.periodic_image_span.join(' × ')
-            : 'automatic';
-        const pairCount = Object.keys(result.partial || {}).length;
-        const selectedWithoutBond = options.pair_mode === 'selected'
-            && options.active_pairs.length === 0;
-        this.setRdfStatus(
-            warning || selectedWithoutBond ? 'warning' : 'ready',
-            `${result.title || 'Distribution'} · ${result.bins} bins · cutoff ${Number(result.cutoff).toFixed(3)} Å`,
-            warning || (selectedWithoutBond
-                ? 'No active bond joins two selected atoms; the total curve is shown without partial curves.'
-                : result.analysis_kind === 'pair-distribution'
-                ? `${pairCount} pair curve${pairCount === 1 ? '' : 's'} plus total · finite unordered-pair normalization.`
-                : `${pairCount} pair curve${pairCount === 1 ? '' : 's'} plus total · periodic image span ${imageSpan}.`)
-        );
+        this.setRdfReadyStatus(result);
+        if (!quiet && this.loadedFrameCount() > 1) {
+            await this.precomputeRdfTrajectory(options, { showBusy: true });
+            if (token !== this.state.rdfRequestToken) return;
+            const currentFrame = Number(this.state.atoms?.metadata?.current_frame || 0);
+            const currentResult = this.state.rdfFrameCache.get(currentFrame) || result;
+            this.state.rdfResult = currentResult;
+            await this.plotRdf(currentResult);
+            this.setRdfReadyStatus(currentResult);
+        }
         if (!quiet) this.scheduleVisualHistoryCommit('rdf');
     }
 
@@ -7133,6 +7416,8 @@ class VAseApp {
             ? {
                 device: calculator.device,
                 cpu_threads: calculator.cpu_threads ?? calculator.cpuThreads,
+                cutoff_mode: calculator.cutoff_mode ?? calculator.cutoffMode,
+                cutoff_distance: calculator.cutoff_distance ?? calculator.cutoffDistance,
                 cutoff_scale: calculator.cutoff_scale ?? calculator.cutoffScale,
                 k_repulsion: calculator.k_repulsion ?? calculator.kRepulsion ?? calculator.strength
             }
@@ -8070,6 +8355,14 @@ class VAseApp {
         if (!details.is_default_repulsion) return null;
         const device = document.getElementById('calc-device')?.value || details.requested_device || 'cpu';
         const cpuThreads = parseInt(document.getElementById('calc-cpus')?.value || details.cpu_threads || '4', 10);
+        const cutoffMode = document.getElementById('calc-cutoff-mode')?.value === 'absolute'
+            ? 'absolute'
+            : 'scaled';
+        const cutoffDistanceValue = Number(
+            document.getElementById('calc-cutoff-distance')?.value
+                ?? details.cutoff_distance
+                ?? 2.0
+        );
         const cutoffScaleValue = Number(
             document.getElementById('calc-cutoff-scale')?.value ?? details.cutoff_scale ?? 0.7
         );
@@ -8079,6 +8372,10 @@ class VAseApp {
         return {
             device,
             cpu_threads: Number.isFinite(cpuThreads) ? cpuThreads : 4,
+            cutoff_mode: cutoffMode,
+            cutoff_distance: Number.isFinite(cutoffDistanceValue)
+                ? Math.max(0.01, Math.min(100, cutoffDistanceValue))
+                : 2.0,
             cutoff_scale: Number.isFinite(cutoffScaleValue)
                 ? Math.max(0.05, Math.min(3, cutoffScaleValue))
                 : 0.7,
@@ -8086,6 +8383,26 @@ class VAseApp {
                 ? Math.max(0, Math.min(1000, strengthValue))
                 : 1.0
         };
+    }
+
+    syncRepulsionCutoffControls() {
+        const mode = document.getElementById('calc-cutoff-mode')?.value === 'absolute'
+            ? 'absolute'
+            : 'scaled';
+        document.getElementById('calc-cutoff-scale-row')?.classList.toggle(
+            'hidden',
+            mode !== 'scaled'
+        );
+        document.getElementById('calc-cutoff-distance-row')?.classList.toggle(
+            'hidden',
+            mode !== 'absolute'
+        );
+        const note = document.getElementById('calc-cutoff-note');
+        if (note) {
+            note.textContent = mode === 'absolute'
+                ? 'Every enabled pair repels below the stated distance and has zero pair force at or above it. This is not a hard minimum separation.'
+                : 'Repulsion starts below the ASE covalent-radius sum multiplied by the scale and is zero at or above that distance. This is not a hard minimum separation.';
+        }
     }
 
     cpuThreadChoices(details) {
@@ -8166,9 +8483,14 @@ class VAseApp {
         const controls = document.getElementById('calc-controls');
         const device = document.getElementById('calc-device');
         const cpus = document.getElementById('calc-cpus');
+        const cutoffMode = document.getElementById('calc-cutoff-mode');
+        const cutoffDistance = document.getElementById('calc-cutoff-distance');
         const cutoffScale = document.getElementById('calc-cutoff-scale');
         const strength = document.getElementById('calc-strength');
-        if (!controls || !device || !cpus || !cutoffScale || !strength) return;
+        if (
+            !controls || !device || !cpus || !cutoffMode
+            || !cutoffDistance || !cutoffScale || !strength
+        ) return;
 
         const isRepulsion = Boolean(details.is_default_repulsion);
         controls.classList.toggle('disabled', !isRepulsion);
@@ -8196,31 +8518,78 @@ class VAseApp {
         if (cudaOption) cudaOption.disabled = !details.cuda_available;
         device.disabled = !isRepulsion || this.state.isRelaxing;
         cpus.disabled = !isRepulsion || this.state.isRelaxing || device.value !== 'cpu';
+        if (document.activeElement !== cutoffMode) {
+            cutoffMode.value = details.cutoff_mode === 'absolute' ? 'absolute' : 'scaled';
+        }
+        if (document.activeElement !== cutoffDistance) {
+            cutoffDistance.value = Number(details.cutoff_distance ?? 2.0).toFixed(2);
+        }
         if (document.activeElement !== cutoffScale) {
             cutoffScale.value = Number(details.cutoff_scale ?? 0.7).toFixed(2);
         }
         if (document.activeElement !== strength) {
             strength.value = Number(details.k_repulsion ?? 1.0).toFixed(2);
         }
+        cutoffMode.disabled = !isRepulsion || this.state.isRelaxing;
+        cutoffDistance.disabled = !isRepulsion || this.state.isRelaxing;
         cutoffScale.disabled = !isRepulsion || this.state.isRelaxing;
         strength.disabled = !isRepulsion || this.state.isRelaxing;
+        this.syncRepulsionCutoffControls();
         this.syncAddAtomsComputeControls(meta);
     }
 
-    async applyCalculatorControls() {
-        const payload = this.currentCalculatorPayload();
-        if (!payload) return;
-        try {
-            const data = await this.api.updateCalculatorConfig(payload);
-            this.setAtomsData(data);
-            const details = data.metadata?.calculator_details || {};
-            const suffix = details.backend === 'torch'
-                ? `torch/${details.effective_device}`
-                : 'numpy';
-            this.toast(`Repulsion calculator set to ${suffix}.`, 'success');
-        } catch (err) {
-            this.toast(`Calculator settings failed: ${err.message}`, 'error');
+    applyCalculatorResponse(data) {
+        const atoms = this.state.atoms || {};
+        const nextMetadata = data?.metadata || {};
+        atoms.metadata = {
+            ...(atoms.metadata || {}),
+            ...nextMetadata
+        };
+        if (Array.isArray(data?.forces)) atoms.forces = data.forces;
+        this.state.atoms = atoms;
+        this.state.cachedFmax = this.computeFmax(atoms.forces || []);
+        this.invalidateForceVectorData();
+        this.invalidateAtomColorScaleData({ preserveRange: true });
+        this.updateUI();
+        this.syncForceVectorControls();
+        this.updateForceVectorStatus();
+        if (this.state.display.showForceVectors) {
+            this.updateForceVectorsForCurrentFrame().catch(error => {
+                this.toast(`Force vectors could not be refreshed: ${error.message}`, 'warning');
+            });
         }
+        if (this.state.display.atomColorScaleEnabled) {
+            this.updateAtomColorScale({ quiet: true, refreshCatalog: true }).catch(error => {
+                this.handleAtomColorScaleError(error);
+            });
+        }
+    }
+
+    applyCalculatorControls() {
+        const payload = this.currentCalculatorPayload();
+        if (!payload) return Promise.resolve();
+        const revision = ++this.calculatorConfigRevision;
+        const task = this.calculatorConfigQueue
+            .catch(() => {})
+            .then(async () => {
+                const data = await this.api.updateCalculatorConfig(payload);
+                if (revision !== this.calculatorConfigRevision) return data;
+                this.applyCalculatorResponse(data);
+                const details = data.metadata?.calculator_details || {};
+                const suffix = details.backend === 'torch'
+                    ? `torch/${details.effective_device}`
+                    : 'numpy';
+                this.toast(`Repulsion calculator set to ${suffix}.`, 'success');
+                return data;
+            })
+            .catch(err => {
+                if (revision === this.calculatorConfigRevision) {
+                    this.toast(`Calculator settings failed: ${err.message}`, 'error');
+                }
+                return null;
+            });
+        this.calculatorConfigQueue = task;
+        return task;
     }
 
     toast(message, type = 'info') {
@@ -19916,7 +20285,7 @@ class VAseApp {
         this.scheduleFrameDependentAnalysisRefresh();
     }
 
-    scheduleFrameDependentAnalysisRefresh(delay = this.state.trajectoryTimer ? 180 : 35) {
+    scheduleFrameDependentAnalysisRefresh(delay = this.state.trajectoryTimer ? 20 : 35) {
         if (this.state.frameAnalysisRefreshTimer !== null) {
             clearTimeout(this.state.frameAnalysisRefreshTimer);
         }
@@ -19924,6 +20293,8 @@ class VAseApp {
         this.hideStaleVolumetricDataForCurrentFrame();
         const refreshRdf = this.state.rdfAutoRefresh
             && this.state.activeAnalysisPlot === 'rdf';
+        let rdfOptions = null;
+        let cachedRdf = null;
         if (this.state.rdfAutoRefresh && !refreshRdf) {
             this.state.rdfRequestToken += 1;
             this.state.rdfAutoRefresh = false;
@@ -19931,13 +20302,26 @@ class VAseApp {
         }
         if (refreshRdf) {
             this.state.rdfRequestToken += 1;
-            const plot = document.getElementById('rdf-plot');
-            if (plot && window.Plotly?.purge) window.Plotly.purge(plot);
-            this.setRdfStatus(
-                'loading',
-                'Updating structural distribution',
-                `Following displayed frame ${Number(this.state.atoms?.metadata?.current_frame || 0) + 1}.`
-            );
+            rdfOptions = this.rdfOptions();
+            this.ensureRdfFrameCache(rdfOptions);
+            const frameIndex = Number(this.state.atoms?.metadata?.current_frame || 0);
+            cachedRdf = this.state.rdfFrameCache.get(frameIndex) || null;
+            if (cachedRdf) {
+                this.state.rdfResult = cachedRdf;
+                this.setRdfReadyStatus(cachedRdf);
+                this.plotRdf(cachedRdf).catch(error => {
+                    this.setRdfStatus('warning', 'Distribution display failed', error.message);
+                });
+                this.precomputeRdfTrajectory(rdfOptions, { showBusy: false }).catch(error => {
+                    console.warn('RDF trajectory prefetch failed', error);
+                });
+            } else {
+                this.setRdfStatus(
+                    'loading',
+                    'Preparing structural distribution',
+                    `Keeping the current graph visible while frame ${frameIndex + 1} is calculated.`
+                );
+            }
         }
         this.state.frameAnalysisRefreshTimer = setTimeout(() => {
             this.state.frameAnalysisRefreshTimer = null;
@@ -19945,10 +20329,8 @@ class VAseApp {
             this.refreshVolumetricDataForCurrentFrame().catch(error => {
                 this.setVolumeStatus('warning', 'Frame field update failed', error.message);
             });
-            if (refreshRdf && this.state.activeAnalysisPlot === 'rdf') {
+            if (refreshRdf && !cachedRdf && this.state.activeAnalysisPlot === 'rdf') {
                 this.calculateRdf({ quiet: true }).catch(error => {
-                    this.state.rdfResult = null;
-                    this.state.rdfAutoRefresh = false;
                     this.setRdfStatus('warning', 'Distribution update failed', error.message);
                 });
             }
@@ -20132,9 +20514,9 @@ class VAseApp {
     requestFrameStep(delta) {
         const source = this.primaryTimelineSource();
         if (this.timelineFrameCount(source) <= 1) return Promise.resolve();
-        this.stopPlayback();
         this.timelineStepQueue = this.timelineStepQueue
             .catch(() => {})
+            .then(() => this.stopPlayback())
             .then(() => this.stepFrame(delta, source));
         return this.timelineStepQueue;
     }
@@ -20154,20 +20536,41 @@ class VAseApp {
     }
 
     stopPlayback() {
+        if (this.state.trajectoryStopPromise) return this.state.trajectoryStopPromise;
+        const playbackTask = this.state.trajectoryPlaybackTask;
+        const source = this.state.trajectoryPlaybackSource || this.primaryTimelineSource();
+        const wasPlaying = Boolean(this.state.trajectoryTimer || playbackTask);
         if (this.state.trajectoryTimer) {
             clearTimeout(this.state.trajectoryTimer);
             this.state.trajectoryTimer = null;
-            const source = this.state.trajectoryPlaybackSource || this.primaryTimelineSource();
-            this.state.trajectoryPlaybackSource = null;
-            this.updateTrajectoryUI();
-            if (source === 'loaded' && this.state.atoms?.metadata?.current_frame !== undefined) {
-                if (this.state.atoms.metadata.virtual_trajectory) {
-                    this.loadFrame(this.state.atoms.metadata.current_frame).catch(err => console.warn("Failed to sync frame", err));
-                } else {
-                    this.api.setFrame(this.state.atoms.metadata.current_frame).catch(err => console.warn("Failed to sync frame", err));
-                }
-            }
         }
+        this.state.trajectoryPlaybackSource = null;
+        this.updateTrajectoryUI();
+        if (!wasPlaying) return Promise.resolve();
+
+        const stopPromise = Promise.resolve(playbackTask)
+            .catch(error => {
+                console.warn('Trajectory frame did not finish cleanly before stop.', error);
+            })
+            .then(async () => {
+                if (source !== 'loaded' || this.state.atoms?.metadata?.current_frame === undefined) return;
+                const currentFrame = this.state.atoms.metadata.current_frame;
+                if (this.state.atoms.metadata.virtual_trajectory) {
+                    await this.loadFrame(currentFrame);
+                } else {
+                    await this.api.setFrame(currentFrame);
+                }
+            })
+            .catch(error => {
+                console.warn('Failed to synchronize the stopped trajectory frame.', error);
+            })
+            .finally(() => {
+                if (this.state.trajectoryStopPromise === stopPromise) {
+                    this.state.trajectoryStopPromise = null;
+                }
+            });
+        this.state.trajectoryStopPromise = stopPromise;
+        return stopPromise;
     }
 
     async startPlayback() {
@@ -20181,15 +20584,32 @@ class VAseApp {
             );
             if (!cache) return;
         }
+        if (
+            source === 'loaded'
+            && this.state.rdfAutoRefresh
+            && this.state.activeAnalysisPlot === 'rdf'
+        ) {
+            await this.precomputeRdfTrajectory(this.rdfOptions(), { showBusy: true });
+        }
         this.state.trajectoryPlaybackSource = source;
         const tick = async () => {
             if (!this.state.trajectoryTimer) return;
+            let playbackTask = null;
             try {
-                await this.stepFrame(this.currentPlaybackStep(), this.state.trajectoryPlaybackSource || source);
+                playbackTask = this.stepFrame(
+                    this.currentPlaybackStep(),
+                    this.state.trajectoryPlaybackSource || source
+                );
+                this.state.trajectoryPlaybackTask = playbackTask;
+                await playbackTask;
             } catch (err) {
                 this.toast(`Movie playback failed: ${err.message}`, 'error');
                 this.stopPlayback();
                 return;
+            } finally {
+                if (this.state.trajectoryPlaybackTask === playbackTask) {
+                    this.state.trajectoryPlaybackTask = null;
+                }
             }
             if (!this.state.trajectoryTimer) return;
             this.state.trajectoryTimer = setTimeout(tick, 1000 / this.currentPlaybackFps());
@@ -20200,13 +20620,13 @@ class VAseApp {
 
     async restartPlayback() {
         if (!this.state.trajectoryTimer) return;
-        this.stopPlayback();
+        await this.stopPlayback();
         await this.startPlayback();
     }
 
     async togglePlayback() {
         if (this.state.trajectoryTimer) {
-            this.stopPlayback();
+            await this.stopPlayback();
             return;
         }
         await this.startPlayback();
@@ -20556,6 +20976,11 @@ class VAseApp {
             this.applyCalculatorControls();
         });
         document.getElementById('calc-cpus')?.addEventListener('change', () => this.applyCalculatorControls());
+        document.getElementById('calc-cutoff-mode')?.addEventListener('change', () => {
+            this.syncRepulsionCutoffControls();
+            this.applyCalculatorControls();
+        });
+        document.getElementById('calc-cutoff-distance')?.addEventListener('change', () => this.applyCalculatorControls());
         document.getElementById('calc-cutoff-scale')?.addEventListener('change', () => this.applyCalculatorControls());
         document.getElementById('calc-strength')?.addEventListener('change', () => this.applyCalculatorControls());
         document.getElementById('chk-bonds').onchange = () => this.safeApplyBondOptions();

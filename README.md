@@ -114,6 +114,11 @@ URL or copy it into any local browser.
 > panel before using `G`, `R`, or `S`. The selection is preserved and keyboard focus
 > returns to the 3D viewport.
 
+**Structure**, **Analysis**, and **Export** each expose a **Section** menu in
+the panel header. Selecting an item opens it and scrolls directly to that
+section; scrolling the panel updates the menu to show the section currently in
+view.
+
 The guide is organized by task:
 
 - [Edit structures](#edit-structures): select, move, insert, and rotate atoms.
@@ -619,7 +624,13 @@ bonds form or break when a pair crosses its cutoff.
 Active analysis follows the displayed frame as well. Per-atom colors and force
 vectors load that frame's stored values, displacement vectors retain the chosen
 reference but move to the new endpoint, and an open RDF or finite
-pair-distribution plot recalculates after frame scrubbing settles. Volumetric
+pair-distribution plot remains visible and follows playback. For ordinary
+trajectories, v_ase prepares every frame after the first calculation. For
+larger frame/bin/partial-curve combinations, it keeps a bounded rolling cache
+around the displayed frame instead of retaining an unbounded result table; a
+cache miss leaves the previous curve visible until the requested frame is
+ready. Changing RDF settings, labels, or structure invalidates that cache.
+Volumetric
 datasets explicitly associated with trajectory frames switch with the atoms;
 if a frame has no matching field, v_ase hides the previous field instead of
 presenting it as data for the new structure.
@@ -908,8 +919,20 @@ v_ase gui examples/readme_scene_assets/crowded_c60_initial.cif --interactive
 ```
 
 The fallback calculator is intended for removing obvious close contacts, not
-for predictive chemistry. Its cutoff scale and strength are editable. Attach a
-scientific ASE calculator when the optimized energy or forces will be used as
+for predictive chemistry. **Cutoff definition** has two explicit meanings:
+
+- **Pair radii x scale** uses
+  `r_cut,ij = scale x (ASE covalent radius i + ASE covalent radius j)`.
+  The scale is dimensionless and is not a minimum permitted distance.
+- **Absolute distance / Å** uses one physical `r_cut` for every enabled pair.
+  Pairs at or beyond that distance have exactly zero repulsive energy and
+  force.
+
+Below either onset distance, the pair potential is
+`E = 1/2 k (r_cut - r)^2`. Because there is no restoring term beyond the
+cutoff, neither mode constrains the final separation to equal `r_cut`;
+optimizer tolerance and other forces determine where the run stops. Attach a
+scientific ASE calculator when optimized energies or forces will be used as
 physical results.
 
 ## Style Atoms, Bonds, And Rendering

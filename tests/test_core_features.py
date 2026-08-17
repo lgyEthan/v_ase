@@ -584,6 +584,8 @@ def test_default_repulsion_calculator_device_settings_are_configurable():
     data = asyncio.run(update_calculator(session.session_id, {
         "device": "cpu",
         "cpu_threads": 2,
+        "cutoff_mode": "absolute",
+        "cutoff_distance": 1.35,
         "cutoff_scale": 0.7,
         "k_repulsion": 3.5,
     }))
@@ -592,6 +594,8 @@ def test_default_repulsion_calculator_device_settings_are_configurable():
     assert details["is_default_repulsion"] is True
     assert details["requested_device"] == "cpu"
     assert details["cpu_threads"] == 2
+    assert details["cutoff_mode"] == "absolute"
+    assert details["cutoff_distance"] == pytest.approx(1.35)
     assert details["cutoff_scale"] == pytest.approx(0.7)
     assert details["k_repulsion"] == pytest.approx(3.5)
     assert 1 in details["cpu_thread_options"]
@@ -606,6 +610,48 @@ def test_default_repulsion_cutoff_scale_controls_the_physical_threshold():
 
     atoms.calc = RepulsionCalculator(cutoff_scale=1.0, k_repulsion=2.0)
     assert atoms.get_potential_energy() > 0
+
+
+def test_default_repulsion_absolute_cutoff_is_a_physical_distance():
+    atoms = Atoms("HH", positions=[[0, 0, 0], [1.20, 0, 0]])
+    atoms.calc = RepulsionCalculator(
+        cutoff_mode="absolute",
+        cutoff_distance=1.0,
+        k_repulsion=2.0,
+    )
+    assert atoms.get_potential_energy() == pytest.approx(0.0, abs=1e-12)
+    np.testing.assert_allclose(atoms.get_forces(), 0.0, atol=1e-12)
+
+    atoms.calc = RepulsionCalculator(
+        cutoff_mode="absolute",
+        cutoff_distance=1.2,
+        k_repulsion=2.0,
+    )
+    assert atoms.get_potential_energy() == pytest.approx(0.0, abs=1e-12)
+    np.testing.assert_allclose(atoms.get_forces(), 0.0, atol=1e-12)
+
+    atoms.calc = RepulsionCalculator(
+        cutoff_mode="absolute",
+        cutoff_distance=1.5,
+        k_repulsion=2.0,
+    )
+    assert atoms.get_potential_energy() == pytest.approx(0.09)
+    assert np.linalg.norm(atoms.get_forces()[0]) > 0
+    assert atoms.calc.status()["cutoff_mode"] == "absolute"
+    assert atoms.calc.status()["cutoff_distance"] == pytest.approx(1.5)
+
+
+def test_absolute_cutoff_does_not_reactivate_a_disabled_pair():
+    atoms = Atoms("HH", positions=[[0, 0, 0], [0.25, 0, 0]])
+    atoms.calc = RepulsionCalculator(
+        min_bondinfo={"H-H": 0.0},
+        cutoff_mode="absolute",
+        cutoff_distance=2.0,
+        k_repulsion=2.0,
+    )
+
+    assert atoms.get_potential_energy() == pytest.approx(0.0, abs=1e-12)
+    np.testing.assert_allclose(atoms.get_forces(), 0.0, atol=1e-12)
 
 
 def test_ai_semantic_state_and_schema_are_machine_readable():
@@ -1455,6 +1501,8 @@ def test_vase_project_restores_builtin_repulsion_calculator_configuration():
     atoms.calc = RepulsionCalculator(
         min_bondinfo=1.1,
         k_repulsion=2.75,
+        cutoff_mode="absolute",
+        cutoff_distance=1.25,
         cutoff_scale=0.65,
         max_force_norm=4.5,
         mic=False,
@@ -1484,6 +1532,8 @@ def test_vase_project_restores_builtin_repulsion_calculator_configuration():
     assert restored.min_bondinfo == pytest.approx(1.1)
     assert restored.k_repulsion == pytest.approx(2.75)
     assert restored.cutoff_scale == pytest.approx(0.65)
+    assert restored.cutoff_mode == "absolute"
+    assert restored.cutoff_distance == pytest.approx(1.25)
     assert restored.max_force_norm == pytest.approx(4.5)
     assert restored.mic is False
     assert restored.cpu_threads == 2

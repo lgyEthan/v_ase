@@ -93,6 +93,10 @@ export class ASEApi {
                     effective_device: 'cpu',
                     cpu_threads: 4,
                     cpu_thread_options: [1, 2, 3, 4],
+                    cutoff_mode: 'scaled',
+                    cutoff_distance: 2.0,
+                    cutoff_scale: 0.7,
+                    k_repulsion: 1.0,
                     torch_available: false,
                     cuda_available: false
                 },
@@ -801,6 +805,20 @@ export class ASEApi {
             details.requested_device = payload.device || details.requested_device || 'cpu';
             details.effective_device = details.requested_device === 'cuda' && details.cuda_available ? 'cuda' : 'cpu';
             details.cpu_threads = payload.cpu_threads || details.cpu_threads || 4;
+            details.cutoff_mode = payload.cutoff_mode === 'absolute'
+                ? 'absolute'
+                : payload.cutoff_mode === 'scaled'
+                    ? 'scaled'
+                    : details.cutoff_mode || 'scaled';
+            details.cutoff_distance = Number.isFinite(Number(payload.cutoff_distance))
+                ? Math.max(0.01, Math.min(100, Number(payload.cutoff_distance)))
+                : Number(details.cutoff_distance ?? 2.0);
+            details.cutoff_scale = Number.isFinite(Number(payload.cutoff_scale))
+                ? Math.max(0.05, Math.min(3, Number(payload.cutoff_scale)))
+                : Number(details.cutoff_scale ?? 0.7);
+            details.k_repulsion = Number.isFinite(Number(payload.k_repulsion))
+                ? Math.max(0, Math.min(1000, Number(payload.k_repulsion)))
+                : Number(details.k_repulsion ?? 1.0);
             this.mockState.atoms.metadata.has_calculator = true;
             this.mockState.atoms.metadata.calculator = 'Repulsion';
             this.mockState.atoms.metadata.calculator_details = details;
@@ -1704,9 +1722,13 @@ export class ASEApi {
     }
 
     async fetchRdf(options = {}) {
+        const payload = this.framePayload(options);
+        if (Number.isInteger(Number(options.frame_index)) && Number(options.frame_index) >= 0) {
+            payload.frame_index = Number(options.frame_index);
+        }
         return await this.jsonPost(
             `/api/analysis/rdf/{session_id}`,
-            this.framePayload(options)
+            payload
         );
     }
 

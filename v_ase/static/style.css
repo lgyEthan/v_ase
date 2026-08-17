@@ -3181,6 +3181,15 @@ body.inspector-wide #inspector #appearance-table-body {
     min-width: 0;
 }
 
+#btn-apply-selected-label {
+    min-height: 32px;
+    padding: 0 9px;
+    font-family: inherit;
+    font-size: 0.74rem;
+    font-weight: 680;
+    line-height: 1;
+}
+
 .appearance-material-select {
     width: 100%;
 }

@@ -290,6 +290,34 @@ async def plotly_javascript_bundle():
         headers={"Cache-Control": "public, max-age=86400"},
     )
 
+
+_AI_REPULSION_CALCULATOR_SCHEMA = {
+    "type": "object",
+    "description": (
+        "Optional settings for v_ase's built-in repulsion calculator. In scaled "
+        "mode the onset distance is cutoff_scale times the pair's ASE covalent-"
+        "radius sum. In absolute mode it is cutoff_distance in Angstrom for every "
+        "enabled pair. Pair energy and force are exactly zero at and beyond the "
+        "onset distance."
+    ),
+    "additionalProperties": False,
+    "properties": {
+        "device": {"enum": ["cpu", "cuda"]},
+        "cpu_threads": {"type": "integer", "minimum": 1},
+        "cutoff_mode": {"enum": ["scaled", "absolute"]},
+        "cutoff_distance": {
+            "type": "number", "minimum": 0.01, "maximum": 100,
+        },
+        "cutoff_scale": {
+            "type": "number", "minimum": 0.05, "maximum": 3,
+        },
+        "k_repulsion": {
+            "type": "number", "minimum": 0, "maximum": 1000,
+        },
+    },
+}
+
+
 AI_CONTROL_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": (
@@ -1102,7 +1130,12 @@ AI_CONTROL_SCHEMA = {
                             "if": {
                                 "required": ["name"],
                                 "properties": {
-                                    "name": {"const": "run-registry-relaxation"},
+                                    "name": {
+                                        "enum": [
+                                            "run-registry-relaxation",
+                                            "start-relaxation",
+                                        ],
+                                    },
                                 },
                             },
                             "then": {
@@ -1111,7 +1144,7 @@ AI_CONTROL_SCHEMA = {
                                     "steps": {
                                         "type": "integer", "minimum": 1, "maximum": 100000
                                     },
-                                    "calculator": {"type": "object"},
+                                    "calculator": _AI_REPULSION_CALCULATOR_SCHEMA,
                                 },
                             },
                         },
@@ -1604,7 +1637,9 @@ AI_OPERATION_PARAMETERS = {
         "notes": (
             "Optimizes the two rigid in-plane translation degrees of freedom with the "
             "attached calculator or the default pairwise repulsion calculator. Consume "
-            "registry_relax_step events until is_relaxing is false."
+            "registry_relax_step events until is_relaxing is false. calculator may "
+            "configure cutoff_mode=scaled with cutoff_scale, or cutoff_mode=absolute "
+            "with cutoff_distance in Angstrom; neither cutoff is a hard constraint."
         ),
     },
     "stop-registry-relaxation": {
@@ -1635,6 +1670,13 @@ AI_OPERATION_PARAMETERS = {
         "mode": "edit",
         "required": ["attached-calculator"],
         "optional": ["fmax", "steps", "calculator", "applyConstraints"],
+        "notes": (
+            "For the built-in repulsion calculator, calculator accepts device, "
+            "cpu_threads, k_repulsion, and either cutoff_mode=scaled with "
+            "cutoff_scale or cutoff_mode=absolute with cutoff_distance in Angstrom. "
+            "The cutoff is the zero-force onset distance, not a guaranteed minimum "
+            "separation."
+        ),
     },
     "stop-relaxation": {
         "mode": "edit",
@@ -3429,6 +3471,8 @@ def configure_repulsion_calculators(
     *,
     device=None,
     cpu_threads=None,
+    cutoff_mode=None,
+    cutoff_distance=None,
     cutoff_scale=None,
     k_repulsion=None,
 ):
@@ -3439,6 +3483,8 @@ def configure_repulsion_calculators(
             atoms.calc.configure(
                 device=device,
                 cpu_threads=cpu_threads,
+                cutoff_mode=cutoff_mode,
+                cutoff_distance=cutoff_distance,
                 cutoff_scale=cutoff_scale,
                 k_repulsion=k_repulsion,
             )
@@ -5567,14 +5613,19 @@ async def update_constraints(session_id: str, payload: Dict[str, Any]):
 @app.post("/api/calculator/{session_id}")
 async def update_calculator(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
-    require_editable(session, "Calculator device settings")
+    require_editable(session, "Repulsion calculator settings")
     sync_session_frame_from_payload(session, payload)
     if not is_vase_repulsion_calculator(session.working_atoms.calc):
-        raise HTTPException(status_code=400, detail="Calculator device settings are only available for the default repulsion calculator.")
+        raise HTTPException(
+            status_code=400,
+            detail="These settings are only available for the default repulsion calculator.",
+        )
     configure_repulsion_calculators(
         session,
         device=payload.get("device"),
         cpu_threads=payload.get("cpu_threads"),
+        cutoff_mode=payload.get("cutoff_mode"),
+        cutoff_distance=payload.get("cutoff_distance"),
         cutoff_scale=payload.get("cutoff_scale"),
         k_repulsion=payload.get("k_repulsion"),
     )
@@ -6066,9 +6117,11 @@ async def sampled_colormap(session_id: str, payload: Dict[str, Any]):
 
 def _calculate_session_rdf(session: EditorSession, payload: Dict[str, Any]):
     with session.mode_transition_lock:
-        sync_session_frame_from_payload(session, payload)
-        atoms = session.working_atoms.copy()
-        frame_index = int(session.current_frame)
+        frame_index = int(payload.get("frame_index", session.current_frame))
+        # Analysis requests must not move the live editor session. This also
+        # permits trajectory RDF frames to be prefetched safely while the GUI
+        # remains on the frame chosen by the user.
+        atoms = _atom_scalar_frame_atoms(session, frame_index)
     supplied_positions = payload.get("positions")
     if supplied_positions is not None:
         positions = np.asarray(supplied_positions, dtype=float)
@@ -6247,6 +6300,8 @@ async def run_registry_relaxation_endpoint(session_id: str, payload: Dict[str, A
             session,
             device=calculator.get("device"),
             cpu_threads=calculator.get("cpu_threads"),
+            cutoff_mode=calculator.get("cutoff_mode"),
+            cutoff_distance=calculator.get("cutoff_distance"),
             cutoff_scale=calculator.get("cutoff_scale"),
             k_repulsion=calculator.get("k_repulsion"),
         )
@@ -6255,6 +6310,8 @@ async def run_registry_relaxation_endpoint(session_id: str, payload: Dict[str, A
             mode.baseline_atoms.calc.configure(
                 device=calculator.get("device"),
                 cpu_threads=calculator.get("cpu_threads"),
+                cutoff_mode=calculator.get("cutoff_mode"),
+                cutoff_distance=calculator.get("cutoff_distance"),
                 cutoff_scale=calculator.get("cutoff_scale"),
                 k_repulsion=calculator.get("k_repulsion"),
             )
