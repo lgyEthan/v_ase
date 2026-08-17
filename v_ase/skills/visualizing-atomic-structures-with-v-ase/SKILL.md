@@ -14,7 +14,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.18"
+python -m pip install "v_ase-gui==0.2.19"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -472,6 +472,13 @@ For any nontrivial task, verify all applicable items:
   process display target; an explicit `notebook=` overrides one call;
 - remote SSH: `HOST:/path` keeps data work remote while the local browser
   renders; one SSH connection pins backend/forward to one load-balanced node;
+  use transient `--remote-python /absolute/path/to/python` or a saved
+  `v_ase remote configure HOST --python ...` mapping when the required remote
+  environment is absent from the non-interactive SSH `PATH`;
+- trajectory analysis: after every displayed-frame change, verify that active
+  RDF/pair-distribution results, per-atom colors, force and displacement
+  vectors, and frame-associated volumetric fields identify the same frame;
+  hide unavailable frame fields instead of reusing stale scalar data;
 - video: exact decoded frame count and `frames / FPS` duration, with visible
   displacement vectors present in the captured frames when enabled.
 
@@ -482,18 +489,11 @@ work around a stale skill silently.
 
 Read only the references needed for the current task:
 
-- [Agent setup](references/agent-setup.md): exact files to give Codex, Claude Code,
-  ChatGPT desktop agents, Gemini-based agents, agentic IDEs, and clients without native skill loaders.
-- [Live collaboration](references/collaboration.md): same-document human/agent workflow,
-  NDJSON events, optimistic revisions, multi-tab routing, and recovery.
-- [CLI and environments](references/cli-and-environments.md): installation,
-  input formats, local/remote/server use, dependencies, and process lifecycle.
-- [Semantic API](references/semantic-api.md): complete state, command, display,
-  colorscale/force, periodic-interface, volumetric/RDF analysis, render, and
-  export fields.
-- [Workflows and examples](references/workflows-and-examples.md): tested edit,
-  periodic-interface, analysis, trajectory, rendering, collaboration, and
-  export recipes grouped in the same order as the user guide.
+- [Agent setup](references/agent-setup.md): files for agents and clients without native skill loaders.
+- [Live collaboration](references/collaboration.md): human/agent events, revisions, tabs, and recovery.
+- [CLI and environments](references/cli-and-environments.md): install, input, local/remote use, and lifecycle.
+- [Semantic API](references/semantic-api.md): state, commands, display, analysis, render, and export.
+- [Workflows and examples](references/workflows-and-examples.md): tested recipes in user-guide order.
 - [Safety and errors](references/safety-and-errors.md): destructive actions,
   common errors, fallbacks, and verification requirements.
 - [Evaluation](references/evaluation.md): trigger tests, capability audit, and

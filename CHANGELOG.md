@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.19
+
+- Added transient `--remote-python /absolute/path/to/python` selection and
+  persistent `v_ase remote configure/show/remove` host mappings for HPC and
+  virtual-environment launches without sourcing remote shell profiles. The
+  exact environment participates in existing CLI capability negotiation while
+  the source file remains remote.
+- Kept the full Add Atoms panel inside the browser viewport after dragging,
+  including tall Batch layouts, pointer cancellation, window blur, and resize.
+- Synchronized active trajectory analysis with the displayed frame: RDF and
+  finite pair distributions recalculate after scrubbing settles, per-atom
+  colors/forces/displacements update immediately, and explicitly frame-bound
+  scalar fields switch or hide instead of leaving a stale isosurface.
+
 ## 0.2.18
 
 - Moved the collapsed **+ Add atoms** launcher to the upper-left viewport,

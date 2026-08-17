@@ -4016,7 +4016,7 @@ body.resizing-pairwise-column * {
 }
 
 .create-atom-widget {
-    position: absolute;
+    position: fixed;
     top: calc(var(--header-height) + 16px);
     left: 18px;
     bottom: auto;

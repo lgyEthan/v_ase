@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.18&rev=1';
-import { ASERenderer } from './renderer.js?v=0.2.18&rev=1';
-import { ASESelection } from './selection.js?v=0.2.18&rev=1';
-import { ASETransform } from './transform.js?v=0.2.18&rev=1';
+import { ASEApi } from './api.js?v=0.2.19&rev=1';
+import { ASERenderer } from './renderer.js?v=0.2.19&rev=1';
+import { ASESelection } from './selection.js?v=0.2.19&rev=1';
+import { ASETransform } from './transform.js?v=0.2.19&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.18&rev=1';
+} from './trajectory.js?v=0.2.19&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -299,12 +299,17 @@ class VAseApp {
             volumetricPlanePreviewTimer: null,
             volumetricPlaneSettledTimer: null,
             volumetricPlaneTransformOriginal: null,
+            volumetricFrameHiddenPlaneIds: new Set(),
             volumetricToolView: 'surface',
             rdfResult: null,
             rdfRequestToken: 0,
+            rdfAutoRefresh: false,
             rdfSelectionSignature: '',
             rdfSelectionPendingSignature: '',
             rdfSelectionRefreshTimer: null,
+            frameAnalysisRefreshTimer: null,
+            frameAnalysisRequestToken: 0,
+            volumetricFrameSignature: '',
             registryResult: null,
             registryRequestToken: 0,
             registryJobId: null,
@@ -334,13 +339,15 @@ class VAseApp {
             prefetchField: '',
             prefetchFrame: -1,
             prefetchPromise: null,
-            prefetchTimer: null
+            prefetchTimer: null,
+            renderedFrame: -1
         };
         this.forceVectorRuntime = {
             requestToken: 0,
             trajectoryCache: null,
             frameCaches: new Map(),
-            pending: null
+            pending: null,
+            renderedFrame: -1
         };
         this.bulkBuilderRuntime = {
             catalog: null,
@@ -762,6 +769,7 @@ class VAseApp {
     }
 
     handleAtomColorScaleError(error) {
+        this.atomColorScaleRuntime.renderedFrame = -1;
         this.renderer.setAtomColorScaleColors(null);
         this.updateAtomColorScaleLegend(null);
         this.setAtomColorScaleStatus(error?.message || 'Atom color scale could not be applied.', 'error');
@@ -790,6 +798,7 @@ class VAseApp {
         }
         if (runtime.refreshRequest !== null) cancelAnimationFrame(runtime.refreshRequest);
         runtime.refreshRequest = null;
+        runtime.renderedFrame = -1;
         this.renderer.atomColorScaleColors = null;
     }
 
@@ -1302,6 +1311,7 @@ class VAseApp {
         refreshBonds = true
     } = {}) {
         if (!this.state.display.atomColorScaleEnabled) {
+            this.atomColorScaleRuntime.renderedFrame = -1;
             if (this.renderer.atomColorScaleColors !== null) {
                 this.renderer.setAtomColorScaleColors(null);
                 this.updateAtomColorScaleLegend(null);
@@ -1335,6 +1345,9 @@ class VAseApp {
             });
         }
         this.renderer.setAtomColorScaleColors(colors, { refreshBonds });
+        this.atomColorScaleRuntime.renderedFrame = Number(
+            this.state.atoms?.metadata?.current_frame || 0
+        );
         if (range) {
             this.updateAtomColorScaleLegend({
                 descriptor: this.atomColorScaleDescriptor(),
@@ -2889,28 +2902,52 @@ class VAseApp {
     makeCreateAtomWidgetDraggable(widget, handle) {
         if (!widget || !handle) return;
         let dragging = false;
+        let pointerId = null;
         let startX = 0;
         let startY = 0;
         let startLeft = 0;
         let startTop = 0;
         const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-        const onMove = event => {
-            if (!dragging) return;
+        const dragBounds = () => {
             const rect = widget.getBoundingClientRect();
-            const left = clamp(startLeft + event.clientX - startX, 12, window.innerWidth - rect.width - 12);
-            const top = clamp(startTop + event.clientY - startY, 84, window.innerHeight - rect.height - 88);
-            widget.style.left = `${left}px`;
-            widget.style.top = `${top}px`;
+            const headerBottom = document.getElementById('top-bar')
+                ?.getBoundingClientRect().bottom || 0;
+            const margin = window.innerWidth <= 760 ? 8 : 12;
+            const minimumTop = Math.max(margin, headerBottom + margin);
+            return {
+                minimumLeft: margin,
+                maximumLeft: Math.max(margin, window.innerWidth - rect.width - margin),
+                minimumTop,
+                maximumTop: Math.max(minimumTop, window.innerHeight - rect.height - margin)
+            };
+        };
+        const placeWithinViewport = (left, top) => {
+            const bounds = dragBounds();
+            widget.style.left = `${clamp(left, bounds.minimumLeft, bounds.maximumLeft)}px`;
+            widget.style.top = `${clamp(top, bounds.minimumTop, bounds.maximumTop)}px`;
             widget.style.right = 'auto';
             widget.style.bottom = 'auto';
         };
-        const onUp = () => {
+        const onMove = event => {
+            if (!dragging || (pointerId !== null && event.pointerId !== pointerId)) return;
+            placeWithinViewport(
+                startLeft + event.clientX - startX,
+                startTop + event.clientY - startY
+            );
+        };
+        const onUp = event => {
             if (!dragging) return;
+            if (event?.pointerId !== undefined && pointerId !== null && event.pointerId !== pointerId) return;
             dragging = false;
             document.body.classList.remove('dragging-create-atom');
             window.removeEventListener('pointermove', onMove, true);
             window.removeEventListener('pointerup', onUp, true);
             window.removeEventListener('pointercancel', onUp, true);
+            window.removeEventListener('blur', onUp, true);
+            if (pointerId !== null && handle.hasPointerCapture?.(pointerId)) {
+                handle.releasePointerCapture(pointerId);
+            }
+            pointerId = null;
         };
         handle.addEventListener('pointerdown', event => {
             if (event.target?.closest?.('button')) return;
@@ -2922,12 +2959,20 @@ class VAseApp {
             startY = event.clientY;
             startLeft = rect.left;
             startTop = rect.top;
+            pointerId = event.pointerId;
+            placeWithinViewport(startLeft, startTop);
             document.body.classList.add('dragging-create-atom');
             handle.setPointerCapture?.(event.pointerId);
             window.addEventListener('pointermove', onMove, true);
             window.addEventListener('pointerup', onUp, true);
             window.addEventListener('pointercancel', onUp, true);
+            window.addEventListener('blur', onUp, true);
         });
+        window.addEventListener('resize', () => {
+            if (widget.classList.contains('collapsed')) return;
+            const rect = widget.getBoundingClientRect();
+            placeWithinViewport(rect.left, rect.top);
+        }, { passive: true });
     }
 
     syncCreateAtomDefaults({ position = false } = {}) {
@@ -3653,6 +3698,7 @@ class VAseApp {
         this.forceVectorRuntime.trajectoryCache = null;
         this.forceVectorRuntime.frameCaches.clear();
         this.forceVectorRuntime.pending = null;
+        this.forceVectorRuntime.renderedFrame = -1;
     }
 
     forceVectorsFromCache(cache, frameIndex) {
@@ -3668,7 +3714,10 @@ class VAseApp {
     }
 
     async updateForceVectorsForCurrentFrame() {
-        if (!this.state.display.showForceVectors || !this.state.atoms?.positions?.length) return;
+        if (!this.state.display.showForceVectors || !this.state.atoms?.positions?.length) {
+            this.forceVectorRuntime.renderedFrame = -1;
+            return;
+        }
         const frameIndex = Number(this.state.atoms.metadata?.current_frame || 0);
         const frameCount = Math.max(1, Number(this.state.atoms.metadata?.frame_count || 1));
         const atomCount = this.state.atoms.positions.length;
@@ -3701,6 +3750,7 @@ class VAseApp {
         this.state.atoms.forces = forces;
         this.renderer.atomsData.forces = forces;
         this.renderer.setForceVectors(forces, this.state.display);
+        this.forceVectorRuntime.renderedFrame = frameIndex;
         this.updateForceVectorStatus();
     }
 
@@ -3729,6 +3779,173 @@ class VAseApp {
         const datasets = this.volumetricDatasets();
         const selectedId = this.state.display.volumetricDatasetId;
         return datasets.find(dataset => dataset.id === selectedId) || datasets[0] || null;
+    }
+
+    volumetricDatasetFrameAssignments() {
+        const datasets = this.volumetricDatasets();
+        const sourceFrames = new Set(datasets.map(dataset => Number(
+            dataset?.metadata?.source_frame
+        )).filter(Number.isInteger));
+        const useSourceFrames = sourceFrames.size > 1;
+        const assignments = new Map();
+        datasets.forEach(dataset => {
+            const explicit = Number(dataset?.metadata?.trajectory_frame);
+            const source = Number(dataset?.metadata?.source_frame);
+            const frame = Number.isInteger(explicit)
+                ? explicit
+                : (useSourceFrames && Number.isInteger(source) ? source : null);
+            assignments.set(dataset.id, frame);
+        });
+        return assignments;
+    }
+
+    matchingVolumetricDataset(dataset, frameIndex, assignments) {
+        if (!dataset) return null;
+        const candidates = this.volumetricDatasets().filter(candidate => (
+            assignments.get(candidate.id) === frameIndex
+        ));
+        if (!candidates.length) return null;
+        const score = candidate => [
+            candidate.component === dataset.component,
+            candidate.quantity === dataset.quantity,
+            candidate.metadata?.source_file === dataset.metadata?.source_file,
+            candidate.source_format === dataset.source_format
+        ].reduce((total, matches, index) => total + (matches ? 8 >> index : 0), 0);
+        return candidates.sort((left, right) => score(right) - score(left))[0];
+    }
+
+    volumetricDatasetMatchesDisplayedCell(dataset) {
+        const fieldCell = dataset?.cell;
+        const structureCell = this.state.atoms?.cell;
+        if (!Array.isArray(fieldCell) || !Array.isArray(structureCell)) return false;
+        if (fieldCell.length !== 3 || structureCell.length !== 3) return false;
+        for (let row = 0; row < 3; row++) {
+            if (!Array.isArray(fieldCell[row]) || !Array.isArray(structureCell[row])) return false;
+            for (let column = 0; column < 3; column++) {
+                const expected = Number(fieldCell[row][column]);
+                const actual = Number(structureCell[row][column]);
+                const tolerance = 1e-7 + 1e-6 * Math.max(Math.abs(expected), Math.abs(actual));
+                if (!Number.isFinite(expected) || !Number.isFinite(actual) || Math.abs(expected - actual) > tolerance) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    async refreshVolumetricDataForCurrentFrame() {
+        const datasets = this.volumetricDatasets();
+        if (!datasets.length) return;
+        const frameIndex = Number(this.state.atoms?.metadata?.current_frame || 0);
+        const assignments = this.volumetricDatasetFrameAssignments();
+        const selected = this.selectedVolumetricDataset();
+        const selectedFrame = assignments.get(selected?.id);
+        let active = selected;
+        let datasetChanged = false;
+        if (selectedFrame !== null && selectedFrame !== undefined && selectedFrame !== frameIndex) {
+            active = this.matchingVolumetricDataset(selected, frameIndex, assignments);
+            if (active) {
+                this.state.display.volumetricDatasetId = active.id;
+                datasetChanged = active.id !== selected.id;
+            }
+        }
+        let planeDatasetChanged = false;
+        const hiddenPlaneIds = new Set();
+        this.state.display.volumetricPlanes = this.volumetricPlanes().map(plane => {
+            const planeDataset = datasets.find(dataset => dataset.id === plane.datasetId);
+            const planeFrame = assignments.get(plane.datasetId);
+            if (planeFrame === null || planeFrame === undefined || planeFrame === frameIndex) {
+                if (planeDataset && !this.volumetricDatasetMatchesDisplayedCell(planeDataset)) {
+                    hiddenPlaneIds.add(plane.id);
+                }
+                return plane;
+            }
+            const replacement = this.matchingVolumetricDataset(
+                planeDataset,
+                frameIndex,
+                assignments
+            );
+            if (!replacement || !this.volumetricDatasetMatchesDisplayedCell(replacement)) {
+                hiddenPlaneIds.add(plane.id);
+                return plane;
+            }
+            planeDatasetChanged = planeDatasetChanged || replacement.id !== plane.datasetId;
+            return { ...plane, datasetId: replacement.id };
+        });
+        this.state.volumetricFrameHiddenPlaneIds = hiddenPlaneIds;
+        this.renderer.volumetricPlanes.forEach((record, planeId) => {
+            if (hiddenPlaneIds.has(planeId)) record.group.visible = false;
+        });
+        const signature = JSON.stringify({
+            datasetId: active?.id || null,
+            structureCell: this.state.atoms?.cell || null,
+            planes: this.volumetricPlanes().map(plane => [plane.id, plane.datasetId, plane.visible]),
+            hiddenPlanes: [...hiddenPlaneIds].sort()
+        });
+        if (signature === this.state.volumetricFrameSignature) return;
+        this.state.volumetricFrameSignature = signature;
+        const activeUnavailable = !active || (
+            selectedFrame !== null
+            && selectedFrame !== undefined
+            && !datasetChanged
+            && selectedFrame !== frameIndex
+        );
+        const activeCellMismatch = active && !this.volumetricDatasetMatchesDisplayedCell(active);
+        if (activeUnavailable || activeCellMismatch) {
+            this.state.volumetricRequestToken += 1;
+            this.renderer.clearVolumetricSurfaces();
+            this.state.volumetricSurfaceSummary = null;
+            this.setVolumeStatus(
+                'warning',
+                activeUnavailable
+                    ? `No scalar field for frame ${frameIndex + 1}`
+                    : `Scalar field cell differs at frame ${frameIndex + 1}`,
+                activeUnavailable
+                    ? 'The previous frame field was hidden rather than reused for a different structure.'
+                    : 'Load a field calculated for this frame and unit cell.'
+            );
+        }
+        if (datasetChanged || planeDatasetChanged) this.renderVolumetricControls();
+        const requests = [];
+        if (!activeUnavailable && !activeCellMismatch && this.state.display.showVolumetric) {
+            requests.push(this.updateVolumetricSurface({ recordHistory: false }));
+        }
+        if (this.volumetricPlanes().some(plane => (
+            plane.visible && !hiddenPlaneIds.has(plane.id)
+        ))) {
+            requests.push(this.renderAllVolumetricPlanes({
+                updateControls: datasetChanged || planeDatasetChanged
+            }));
+        }
+        await Promise.all(requests);
+    }
+
+    hideStaleVolumetricDataForCurrentFrame() {
+        const datasets = this.volumetricDatasets();
+        if (!datasets.length) return;
+        const frameIndex = Number(this.state.atoms?.metadata?.current_frame || 0);
+        const assignments = this.volumetricDatasetFrameAssignments();
+        const selected = this.selectedVolumetricDataset();
+        const selectedFrame = assignments.get(selected?.id);
+        if (selectedFrame !== null && selectedFrame !== undefined && selectedFrame !== frameIndex) {
+            this.state.volumetricRequestToken += 1;
+            this.renderer.clearVolumetricSurfaces();
+            this.state.volumetricSurfaceSummary = null;
+        }
+        const hidden = new Set();
+        this.volumetricPlanes().forEach(plane => {
+            const planeFrame = assignments.get(plane.datasetId);
+            if (planeFrame !== null && planeFrame !== undefined && planeFrame !== frameIndex) {
+                hidden.add(plane.id);
+                const record = this.renderer.volumetricPlanes.get(plane.id);
+                if (record) record.group.visible = false;
+                this.state.volumetricPlaneRequestTokens.set(
+                    plane.id,
+                    (this.state.volumetricPlaneRequestTokens.get(plane.id) || 0) + 1
+                );
+            }
+        });
+        this.state.volumetricFrameHiddenPlaneIds = hidden;
     }
 
     activateNewestVolumetricDataset({ show = true } = {}) {
@@ -4643,7 +4860,7 @@ class VAseApp {
     }
 
     async renderVolumetricPlane(plane, { preview = false } = {}) {
-        if (!plane?.visible) {
+        if (!plane?.visible || this.state.volumetricFrameHiddenPlaneIds.has(plane?.id)) {
             const record = this.renderer.volumetricPlanes.get(plane?.id);
             if (record) record.group.visible = false;
             return null;
@@ -4700,7 +4917,9 @@ class VAseApp {
         const validIds = new Set(planes.map(plane => plane.id));
         const stale = [...this.renderer.volumetricPlanes.keys()].filter(id => !validIds.has(id));
         if (stale.length) this.renderer.clearVolumetricPlanes(stale);
-        const visible = planes.filter(plane => plane.visible);
+        const visible = planes.filter(plane => (
+            plane.visible && !this.state.volumetricFrameHiddenPlaneIds.has(plane.id)
+        ));
         const requestedIds = Array.isArray(planeIds) ? new Set(planeIds.map(String)) : null;
         const requested = requestedIds
             ? visible.filter(plane => requestedIds.has(plane.id))
@@ -5352,7 +5571,8 @@ class VAseApp {
             pair_mode: pairMode,
             active_pairs: pairMode === 'selected'
                 ? this.selectedActiveRdfPairs()
-                : this.activeRdfPairs()
+                : this.activeRdfPairs(),
+            positions: this.currentPositionsFromScene()
         };
     }
 
@@ -5598,6 +5818,7 @@ class VAseApp {
             this.state.rdfSelectionRefreshTimer = null;
         }
         this.state.rdfRequestToken += 1;
+        this.state.rdfAutoRefresh = false;
         this.state.rdfResult = null;
         this.state.rdfSelectionSignature = '';
         this.state.rdfSelectionPendingSignature = '';
@@ -6240,6 +6461,7 @@ class VAseApp {
             : await this.withBusy('Calculating pair distribution...', request);
         if (token !== this.state.rdfRequestToken) return;
         this.state.rdfResult = result;
+        this.state.rdfAutoRefresh = true;
         this.state.rdfSelectionSignature = options.pair_mode === 'selected'
             ? this.rdfPairSignature(options.active_pairs)
             : '';
@@ -8618,13 +8840,8 @@ class VAseApp {
         this.state.atoms.positions = positions;
         this.state.originalPositions = this.state.vizOnly ? positions : positions.map(p => [...p]);
         this.renderer.updatePositions(positions);
-        if (this.state.display.atomColorScaleEnabled) {
-            await this.updateAtomColorScale({
-                quiet: true,
-                refreshBonds: !this.state.trajectoryTimer
-            });
-        }
         this.updateUI();
+        await this.completeTrajectoryFrameUpdate();
     }
 
     clearRelaxTrajectoryIfTopologyChanged(data) {
@@ -13332,6 +13549,13 @@ class VAseApp {
         (atoms.chemical_symbols || []).forEach(symbol => {
             elementCounts[symbol] = (elementCounts[symbol] || 0) + 1;
         });
+        const displayedFrame = Number(atoms.metadata?.current_frame || 0);
+        const volumetricAssignments = this.volumetricDatasetFrameAssignments();
+        const surfaceDatasetId = this.state.volumetricSurfaceSummary?.datasetId || null;
+        const surfaceFrame = surfaceDatasetId === null
+            ? null
+            : (volumetricAssignments.get(surfaceDatasetId) ?? null);
+        const displacement = this.state.displacementStats;
         const result = {
             protocol: 'v_ase.ai.v1',
             units: { length: 'angstrom', angle: 'degree' },
@@ -13368,6 +13592,19 @@ class VAseApp {
             },
             imageExport: this.clonePlain(this.currentImageExportProfile()),
             analysis: {
+                frameSynchronization: {
+                    displayedFrame,
+                    rdfFrame: this.state.rdfResult?.frame_index ?? null,
+                    atomColorScaleFrame: this.state.display.atomColorScaleEnabled
+                        ? this.atomColorScaleRuntime.renderedFrame
+                        : null,
+                    forceVectorFrame: this.state.display.showForceVectors
+                        ? this.forceVectorRuntime.renderedFrame
+                        : null,
+                    displacementFrame: displacement?.current_frame ?? null,
+                    volumetricSurfaceFrame: surfaceFrame,
+                    volumetricSurfaceDatasetId: surfaceDatasetId
+                },
                 volumetricDatasets: this.clonePlain(this.volumetricDatasets()),
                 volumetricSurface: this.clonePlain(this.state.volumetricSurfaceSummary),
                 volumetricPlanes: this.clonePlain(this.volumetricPlanes().map(plane => ({
@@ -13408,6 +13645,18 @@ class VAseApp {
                     partialCurves: Object.keys(this.state.rdfResult.partial || {}),
                     warnings: [...(this.state.rdfResult.warnings || [])],
                     frame: this.state.rdfResult.frame_index
+                } : null,
+                displacement: displacement ? {
+                    currentFrame: displacement.current_frame,
+                    referenceFrame: displacement.reference_frame,
+                    referenceMode: displacement.reference_mode,
+                    mapping: displacement.mapping,
+                    micApplied: displacement.mic_applied,
+                    matched: displacement.matched,
+                    unmatchedCurrent: displacement.unmatched_current,
+                    unmatchedReference: displacement.unmatched_reference,
+                    stats: this.clonePlain(displacement.stats || {}),
+                    warnings: [...(displacement.warnings || [])]
                 } : null,
                 commensurate: {
                     enabled: Boolean(this.state.display.commensurateGuide),
@@ -19664,6 +19913,46 @@ class VAseApp {
             this.renderer.clearDisplacementVectors();
         }
         this.scheduleDisplacementAnalysisRefresh();
+        this.scheduleFrameDependentAnalysisRefresh();
+    }
+
+    scheduleFrameDependentAnalysisRefresh(delay = this.state.trajectoryTimer ? 180 : 35) {
+        if (this.state.frameAnalysisRefreshTimer !== null) {
+            clearTimeout(this.state.frameAnalysisRefreshTimer);
+        }
+        const token = ++this.state.frameAnalysisRequestToken;
+        this.hideStaleVolumetricDataForCurrentFrame();
+        const refreshRdf = this.state.rdfAutoRefresh
+            && this.state.activeAnalysisPlot === 'rdf';
+        if (this.state.rdfAutoRefresh && !refreshRdf) {
+            this.state.rdfRequestToken += 1;
+            this.state.rdfAutoRefresh = false;
+            this.state.rdfResult = null;
+        }
+        if (refreshRdf) {
+            this.state.rdfRequestToken += 1;
+            const plot = document.getElementById('rdf-plot');
+            if (plot && window.Plotly?.purge) window.Plotly.purge(plot);
+            this.setRdfStatus(
+                'loading',
+                'Updating structural distribution',
+                `Following displayed frame ${Number(this.state.atoms?.metadata?.current_frame || 0) + 1}.`
+            );
+        }
+        this.state.frameAnalysisRefreshTimer = setTimeout(() => {
+            this.state.frameAnalysisRefreshTimer = null;
+            if (token !== this.state.frameAnalysisRequestToken) return;
+            this.refreshVolumetricDataForCurrentFrame().catch(error => {
+                this.setVolumeStatus('warning', 'Frame field update failed', error.message);
+            });
+            if (refreshRdf && this.state.activeAnalysisPlot === 'rdf') {
+                this.calculateRdf({ quiet: true }).catch(error => {
+                    this.state.rdfResult = null;
+                    this.state.rdfAutoRefresh = false;
+                    this.setRdfStatus('warning', 'Distribution update failed', error.message);
+                });
+            }
+        }, Math.max(0, delay));
     }
 
     async loadFrame(index) {
@@ -19791,7 +20080,12 @@ class VAseApp {
             await this.completeTrajectoryFrameUpdate();
             return;
         }
-        this.setAtomsData(data, { clearSelection: false, preserveColorScaleRange: true });
+        this.setAtomsData(data, {
+            clearSelection: false,
+            preserveRdf: true,
+            preserveColorScaleRange: true
+        });
+        await this.completeTrajectoryFrameUpdate();
     }
 
     queueFrameLoad(index, source = this.primaryTimelineSource()) {

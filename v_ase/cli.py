@@ -85,6 +85,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="do not launch a browser automatically; print the URL for SSH tunnels or headless servers",
     )
     gui.add_argument(
+        "--remote-python",
+        metavar="ABSOLUTE_PATH",
+        help=(
+            "for a HOST:/path input, run the remote backend with this exact "
+            "Python executable instead of the remote shell PATH; the value "
+            "overrides any saved host setting for this launch"
+        ),
+    )
+    gui.add_argument(
         "--no-block",
         action="store_true",
         help="open without waiting for session finalization; keep the local server alive until Ctrl+C",
@@ -130,6 +139,41 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     gui.set_defaults(func=run_gui, show_bonds=True)
+
+    remote = subparsers.add_parser(
+        "remote",
+        help="configure exact Python runtimes for SSH hosts",
+        description=(
+            "Save or inspect the Python executable used for HOST:/path launches. "
+            "No shell activation or .bashrc sourcing is required."
+        ),
+    )
+    remote_subparsers = remote.add_subparsers(dest="remote_command", required=True)
+    remote_configure = remote_subparsers.add_parser(
+        "configure",
+        help="save the Python executable for one SSH host",
+    )
+    remote_configure.add_argument("host", help="SSH host or user@host, matching HOST:/path")
+    remote_configure.add_argument(
+        "--python",
+        required=True,
+        dest="remote_python_path",
+        metavar="ABSOLUTE_PATH",
+        help="absolute Python executable containing the v_ase installation",
+    )
+    remote_configure.set_defaults(func=run_remote_configure)
+    remote_show = remote_subparsers.add_parser(
+        "show",
+        help="show saved remote Python runtimes",
+    )
+    remote_show.add_argument("host", nargs="?", help="optional single SSH host")
+    remote_show.set_defaults(func=run_remote_show)
+    remote_remove = remote_subparsers.add_parser(
+        "remove",
+        help="remove one saved remote Python runtime",
+    )
+    remote_remove.add_argument("host", help="SSH host or user@host")
+    remote_remove.set_defaults(func=run_remote_remove)
 
     api = subparsers.add_parser(
         "api",
@@ -191,7 +235,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def normalize_argv(argv: list[str] | None) -> list[str]:
     args = list(sys.argv[1:] if argv is None else argv)
-    if args and args[0] not in {"gui", "api", "-h", "--help", "--version"} and not args[0].startswith("-"):
+    if args and args[0] not in {"gui", "api", "remote", "-h", "--help", "--version"} and not args[0].startswith("-"):
         return ["gui", *args]
     return args
 
@@ -285,6 +329,56 @@ def run_api_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_remote_configure(args: argparse.Namespace) -> int:
+    from v_ase.remote import RemoteLaunchError, configure_remote_runtime
+
+    try:
+        path = configure_remote_runtime(args.host, args.remote_python_path)
+    except (OSError, ValueError, RemoteLaunchError) as exc:
+        raise SystemExit(f"v_ase remote configure: {exc}") from exc
+    print(f"Configured {args.host} to use {args.remote_python_path}")
+    print(f"Saved in {path}")
+    return 0
+
+
+def run_remote_show(args: argparse.Namespace) -> int:
+    from v_ase.remote import (
+        RemoteLaunchError,
+        load_remote_runtime_config,
+        remote_runtime_config_path,
+    )
+
+    try:
+        hosts = load_remote_runtime_config()
+    except (OSError, ValueError, RemoteLaunchError) as exc:
+        raise SystemExit(f"v_ase remote show: {exc}") from exc
+    if args.host:
+        python = hosts.get(args.host)
+        if python is None:
+            raise SystemExit(f"v_ase remote show: no runtime is configured for {args.host}")
+        print(f"{args.host}\t{python}")
+        return 0
+    if not hosts:
+        print(f"No remote runtimes configured ({remote_runtime_config_path()})")
+        return 0
+    for host, python in sorted(hosts.items()):
+        print(f"{host}\t{python}")
+    return 0
+
+
+def run_remote_remove(args: argparse.Namespace) -> int:
+    from v_ase.remote import RemoteLaunchError, remove_remote_runtime
+
+    try:
+        path, removed = remove_remote_runtime(args.host)
+    except (OSError, ValueError, RemoteLaunchError) as exc:
+        raise SystemExit(f"v_ase remote remove: {exc}") from exc
+    if not removed:
+        raise SystemExit(f"v_ase remote remove: no runtime is configured for {args.host}")
+    print(f"Removed the saved runtime for {args.host} from {path}")
+    return 0
+
+
 def run_gui(args: argparse.Namespace) -> int:
     if args.file:
         from v_ase.remote import (
@@ -299,6 +393,11 @@ def run_gui(args: argparse.Namespace) -> int:
                 return launch_remote_gui(args, remote_target)
             except RemoteLaunchError as exc:
                 raise SystemExit(f"v_ase: {exc}") from exc
+
+    if args.remote_python:
+        raise SystemExit(
+            "v_ase: --remote-python is only valid with a HOST:/path input"
+        )
 
     path = Path(args.file).expanduser() if args.file else None
     if path is not None and not path.exists():

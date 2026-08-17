@@ -903,6 +903,12 @@ Vectors begin at each atom's currently visible position, repeat across the
 displayed supercell, and keep their physical value when visual translation
 moves both endpoints.
 
+Changing `frame` also refreshes every enabled frame-dependent result: RDF,
+per-atom colors, force vectors, displacement vectors, and frame-scoped
+volumetric surfaces or planes. `describe().analysis.frameSynchronization`
+reports the frame currently rendered by each result. A frame with no matching
+volumetric grid hides the previous surface instead of reusing stale data.
+
 ## Volumetric And RDF Analysis
 
 Use `load-volumetric` for VASP `CHGCAR`/`CHG`, `LOCPOT`, `PARCHG`, and

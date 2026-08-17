@@ -29,6 +29,14 @@ from v_ase.remote import (
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.fixture(autouse=True)
+def isolate_remote_runtime_configuration(tmp_path, monkeypatch):
+    monkeypatch.setenv(
+        "V_ASE_REMOTE_CONFIG",
+        str(tmp_path / "isolated-remote-runtimes.json"),
+    )
+
+
 def test_v_ase_gui_parser_accepts_ase_gui_style_file_argument():
     parser = build_parser()
     args = parser.parse_args(["gui", "XXXX.vasp"])
@@ -50,6 +58,7 @@ def test_v_ase_gui_parser_accepts_an_empty_workspace():
     assert args.show_bonds is True
     assert args.cli_mode is False
     assert args.volumetric_precision == "fp32"
+    assert args.remote_python is None
 
 
 def test_v_ase_gui_parser_accepts_headless_server_mode():
@@ -202,11 +211,19 @@ def test_remote_gui_command_preserves_user_options_and_quotes_the_path():
 
 
 def _run_fake_remote_launcher(tmp_path, args, help_text, remote_port=None):
-    executable = tmp_path / "v_ase"
+    executable = (
+        Path(args.remote_python)
+        if getattr(args, "remote_python", None)
+        else tmp_path / "v_ase"
+    )
+    executable.parent.mkdir(parents=True, exist_ok=True)
     arguments_file = tmp_path / "arguments.txt"
     browser_file = tmp_path / "browser.txt"
     executable.write_text(
         "#!/bin/sh\n"
+        "if [ \"$1\" = -m ] && [ \"$2\" = v_ase.cli ]; then\n"
+        "  shift 2\n"
+        "fi\n"
         "if [ \"$1\" = gui ] && [ \"$2\" = --help ]; then\n"
         "  printf '%s\\n' \"$VASE_FAKE_HELP\"\n"
         "  exit 0\n"
@@ -249,6 +266,99 @@ def _run_fake_remote_launcher(tmp_path, args, help_text, remote_port=None):
         else ""
     )
     return completed, arguments, browser
+
+
+def test_remote_python_transient_override_runs_exact_environment(tmp_path):
+    python = tmp_path / "miniconda3" / "envs" / "vase" / "bin" / "python"
+    args = build_parser().parse_args([
+        "gui",
+        "physics:/data/POSCAR",
+        "--remote-python",
+        str(python),
+    ])
+
+    command = shlex.split(build_remote_gui_command(
+        args,
+        RemoteTarget("physics", "/data/POSCAR"),
+    ))
+    assert command[:4] == [str(python), "-m", "v_ase.cli", "gui"]
+
+    completed, arguments, _browser = _run_fake_remote_launcher(
+        tmp_path,
+        args,
+        "--no-browser --stream-frames --hide-bonds --volumetric-precision",
+    )
+    assert completed.returncode == 0
+    assert arguments[:4] == ["gui", "--index", ":", "--no-browser"]
+    assert arguments[-2:] == ["--", "/data/POSCAR"]
+
+
+def test_remote_runtime_configuration_roundtrips_and_transient_path_wins(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    config = tmp_path / "remote-runtimes.json"
+    monkeypatch.setenv("V_ASE_REMOTE_CONFIG", str(config))
+    parser = build_parser()
+    configured_python = "/home/user/miniconda3/envs/vase/bin/python"
+
+    configure = parser.parse_args([
+        "remote",
+        "configure",
+        "physics",
+        "--python",
+        configured_python,
+    ])
+    assert configure.func(configure) == 0
+    if os.name != "nt":
+        assert config.stat().st_mode & 0o777 == 0o600
+    assert remote.load_remote_runtime_config() == {"physics": configured_python}
+    capsys.readouterr()
+
+    saved_args = parser.parse_args(["gui", "physics:/data/POSCAR"])
+    saved_command = shlex.split(build_remote_gui_command(
+        saved_args,
+        RemoteTarget("physics", "/data/POSCAR"),
+    ))
+    assert saved_command[:3] == [configured_python, "-m", "v_ase.cli"]
+
+    transient_python = "/opt/conda/envs/new-vase/bin/python"
+    transient_args = parser.parse_args([
+        "gui",
+        "physics:/data/POSCAR",
+        "--remote-python",
+        transient_python,
+    ])
+    transient_command = shlex.split(build_remote_gui_command(
+        transient_args,
+        RemoteTarget("physics", "/data/POSCAR"),
+    ))
+    assert transient_command[:3] == [transient_python, "-m", "v_ase.cli"]
+
+    show = parser.parse_args(["remote", "show", "physics"])
+    assert show.func(show) == 0
+    assert capsys.readouterr().out.strip() == f"physics\t{configured_python}"
+
+    remove = parser.parse_args(["remote", "remove", "physics"])
+    assert remove.func(remove) == 0
+    assert remote.load_remote_runtime_config() == {}
+
+
+def test_remote_runtime_configuration_requires_absolute_python_path(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("V_ASE_REMOTE_CONFIG", str(tmp_path / "remote.json"))
+    args = build_parser().parse_args([
+        "remote",
+        "configure",
+        "physics",
+        "--python",
+        "envs/vase/bin/python",
+    ])
+    with pytest.raises(SystemExit, match="absolute remote Python path"):
+        args.func(args)
 
 
 def test_remote_launcher_uses_streaming_options_for_current_cli(tmp_path):

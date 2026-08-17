@@ -1500,6 +1500,47 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             assert panel_layout["actionsTop"] >= panel_layout["cardTop"]
             assert panel_layout["actionsBottom"] <= panel_layout["cardBottom"] + 1
             assert panel_layout["bodyScrollHeight"] > panel_layout["bodyClientHeight"]
+            drag_handle = page.locator("#create-atom-drag")
+            drag_box = drag_handle.bounding_box()
+            assert drag_box is not None
+            page.mouse.move(
+                drag_box["x"] + drag_box["width"] / 2,
+                drag_box["y"] + drag_box["height"] / 2,
+            )
+            page.mouse.down()
+            page.mouse.move(10_000, 10_000, steps=4)
+            page.mouse.up()
+            dragged_layout = page.evaluate("""() => {
+                const panel = document.getElementById('create-atom-widget').getBoundingClientRect();
+                const header = document.getElementById('top-bar').getBoundingClientRect();
+                return {
+                    left: panel.left,
+                    right: panel.right,
+                    top: panel.top,
+                    bottom: panel.bottom,
+                    width: window.innerWidth,
+                    height: window.innerHeight,
+                    headerBottom: header.bottom
+                };
+            }""")
+            assert dragged_layout["left"] >= 8
+            assert dragged_layout["right"] <= dragged_layout["width"] - 8 + 1
+            assert dragged_layout["top"] >= dragged_layout["headerBottom"] + 8
+            assert dragged_layout["bottom"] <= dragged_layout["height"] - 8 + 1
+
+            drag_box = drag_handle.bounding_box()
+            assert drag_box is not None
+            page.mouse.move(
+                drag_box["x"] + drag_box["width"] / 2,
+                drag_box["y"] + drag_box["height"] / 2,
+            )
+            page.mouse.down()
+            page.mouse.move(-10_000, -10_000, steps=4)
+            page.mouse.up()
+            clamped_layout = page.locator("#create-atom-widget").bounding_box()
+            assert clamped_layout is not None
+            assert clamped_layout["x"] >= 8
+            assert clamped_layout["y"] >= dragged_layout["headerBottom"] + 8
             page.locator("#add-atoms-placement-random").scroll_into_view_if_needed()
             assert page.locator("#add-atoms-spacing-basis-row").is_hidden()
             assert page.locator("#add-atoms-placement-pbc-row").is_hidden()

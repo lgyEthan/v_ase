@@ -334,3 +334,24 @@ def test_rdf_http_contract_returns_plot_payload_and_matching_csv():
     assert response.media_type == "text/csv"
     header = response.body.decode("utf-8").splitlines()[0]
     assert header == "r_angstrom,total_g_r,Cu_surface|O_ads"
+
+
+def test_rdf_http_contract_uses_displayed_positions_without_mutating_session():
+    atoms = Atoms("H2", positions=[[0, 0, 0], [10, 0, 0]], pbc=False)
+    baseline = atoms.positions.copy()
+    session = EditorSession("rdf-displayed", atoms.copy(), atoms.copy())
+    sessions[session.session_id] = session
+    payload = {
+        "cutoff": 2.0,
+        "bins": 20,
+        "pair_mode": "none",
+        "positions": [[0, 0, 0], [1, 0, 0]],
+    }
+    try:
+        result = asyncio.run(radial_distribution_analysis(session.session_id, payload))
+    finally:
+        sessions.pop(session.session_id, None)
+
+    dr = result["cutoff"] / result["bins"]
+    assert np.sum(result["total"]) * dr == pytest.approx(1.0, abs=1e-12)
+    np.testing.assert_allclose(session.working_atoms.positions, baseline)

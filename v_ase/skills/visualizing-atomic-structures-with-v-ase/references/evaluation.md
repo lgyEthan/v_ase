@@ -305,6 +305,11 @@ Run all scenarios, not only static document checks:
      endpoint translation without changing vector values;
    - render interpolation with known frame count.
 9. **Volumetric and RDF analysis**
+   - open a multi-frame trajectory with two explicitly frame-associated scalar
+     fields, keep RDF, per-atom colors, force/displacement vectors, and the
+     isosurface visible, then step frames and require every result to report the
+     active frame; step to a frame without a field and require the previous
+     surface and its semantic summary to disappear;
    - load VASP CHGCAR/LOCPOT/PARCHG/ELFCAR plus Cube and XSF fixtures, including
      VASP basenames with `.`, `_`, and `-` calculation suffixes;
    - compare parsed shape, cell, origin, PBC, scalar range, quantity, and units

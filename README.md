@@ -616,6 +616,14 @@ changes apply during playback, and **Skip** advances by `skip + 1` source
 frames per tick. Bond topology is evaluated independently for each frame, so
 bonds form or break when a pair crosses its cutoff.
 
+Active analysis follows the displayed frame as well. Per-atom colors and force
+vectors load that frame's stored values, displacement vectors retain the chosen
+reference but move to the new endpoint, and an open RDF or finite
+pair-distribution plot recalculates after frame scrubbing settles. Volumetric
+datasets explicitly associated with trajectory frames switch with the atoms;
+if a frame has no matching field, v_ase hides the previous field instead of
+presenting it as data for the new structure.
+
 Video export uses FPS as playback speed. Optional `N x` interpolation creates
 `(source_frames - 1) * N + 1` output frames. Minimum-image interpolation uses
 periodic cells to avoid jumps across a boundary. Interpolation takes longer
@@ -1411,6 +1419,30 @@ remote installation before opening a large trajectory or using a newly added
 backend feature. Use `ProxyJump` in `~/.ssh/config` when an intermediate login
 host is required.
 
+If `v_ase` is not on the non-interactive SSH `PATH`, select the exact remote
+environment for one launch. This does not source `.bashrc` or activate Conda:
+
+```bash
+v_ase gui physics:/absolute/path/to/POSCAR \
+  --remote-python /home/user/miniconda3/envs/vase/bin/python
+```
+
+For a host used repeatedly, save the Python executable once. Use the exact
+host text that appears to the left of `:` in the file argument:
+
+```bash
+v_ase remote configure physics \
+  --python /home/user/miniconda3/envs/vase/bin/python
+v_ase remote show
+v_ase gui physics:/absolute/path/to/POSCAR
+```
+
+The one-launch `--remote-python` value overrides the saved host setting. Inspect
+one mapping with `v_ase remote show physics`, or remove it with
+`v_ase remote remove physics`. The configuration stores only host names and
+absolute Python paths in the local user configuration directory; the remote
+source file and SSH credentials are never copied into it.
+
 ## License
 
 v_ase is licensed under the
@@ -1466,6 +1498,33 @@ gio: http://127.0.0.1:58039/workspace?workspace_id=xxxx&session_id=xxxx: Operati
 
 For better WSL performance, keep trajectories under the Linux filesystem
 rather than `/mnt/c/...`.
+
+</details>
+
+<details>
+<summary>Remote launch cannot find <code>v_ase</code>, or it is installed only in a Conda/venv environment</summary>
+
+An interactive login shell may activate Conda or alter `PATH`, while the
+non-interactive SSH command used by `HOST:/path` may not. Point v_ase directly
+at the Python executable that contains the remote installation:
+
+```bash
+v_ase gui USER@SERVER:/absolute/path/to/STRUCTURE \
+  --remote-python /home/user/miniconda3/envs/vase/bin/python
+```
+
+Verify the path independently when needed:
+
+```bash
+ssh USER@SERVER '/home/user/miniconda3/envs/vase/bin/python -m v_ase.cli --version'
+```
+
+For repeated launches, save the same path with `v_ase remote configure
+USER@SERVER --python /home/user/miniconda3/envs/vase/bin/python`. The transient
+flag always wins, so it can temporarily select a different environment without
+changing the saved default. If neither setting is present, v_ase retains the
+normal `PATH`-based behavior that works on clusters where the entry point is
+already exported to non-interactive SSH sessions.
 
 </details>
 

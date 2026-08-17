@@ -4389,6 +4389,13 @@ async def _append_session_from_file(
                         "Added volumetric data must use the current structure's "
                         "unit cell and periodic boundary conditions."
                     )
+                if session.frame_count > 1:
+                    for dataset in datasets:
+                        local_frame = int(dataset.metadata.get("source_frame", 0))
+                        dataset.metadata["trajectory_frame"] = min(
+                            session.frame_count - 1,
+                            session.current_frame + max(0, local_frame),
+                        )
                 session.volumetric_datasets.extend(datasets)
                 session.original_volumetric_datasets.extend(
                     dataset
@@ -6062,6 +6069,12 @@ def _calculate_session_rdf(session: EditorSession, payload: Dict[str, Any]):
         sync_session_frame_from_payload(session, payload)
         atoms = session.working_atoms.copy()
         frame_index = int(session.current_frame)
+    supplied_positions = payload.get("positions")
+    if supplied_positions is not None:
+        positions = np.asarray(supplied_positions, dtype=float)
+        if positions.shape != (len(atoms), 3) or not np.all(np.isfinite(positions)):
+            raise ValueError("Displayed RDF positions must contain one finite xyz row per atom.")
+        atoms.set_positions(positions, apply_constraint=False)
     requested_cutoff = payload.get("cutoff")
     cutoff = (
         None

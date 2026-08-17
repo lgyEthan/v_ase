@@ -5,11 +5,13 @@ from __future__ import annotations
 import argparse
 import http.client
 import json
+import os
 import re
 import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -38,6 +40,139 @@ class RemoteTarget:
 
 class RemoteLaunchError(RuntimeError):
     """Raised when an automatic SSH viewer session cannot be established."""
+
+
+_REMOTE_CONFIG_SCHEMA = "v_ase.remote-runtimes.v1"
+
+
+def remote_runtime_config_path() -> Path:
+    """Return the local per-user remote runtime configuration path."""
+    override = os.environ.get("V_ASE_REMOTE_CONFIG")
+    if override:
+        return Path(override).expanduser()
+    if os.name == "nt" and os.environ.get("APPDATA"):
+        root = Path(os.environ["APPDATA"])
+    elif os.environ.get("XDG_CONFIG_HOME"):
+        root = Path(os.environ["XDG_CONFIG_HOME"]).expanduser()
+    else:
+        root = Path.home() / ".config"
+    return root / "v_ase" / "remote-runtimes.json"
+
+
+def _validated_remote_python(value: str) -> str:
+    path = str(value or "").strip()
+    if not path:
+        raise ValueError("The remote Python path cannot be empty.")
+    if "\x00" in path or "\n" in path or "\r" in path:
+        raise ValueError("The remote Python path contains an invalid character.")
+    if not path.startswith("/"):
+        raise ValueError(
+            "Use an absolute remote Python path, for example "
+            "/home/user/miniconda3/envs/vase/bin/python."
+        )
+    return path
+
+
+def load_remote_runtime_config(path: Path | None = None) -> dict[str, str]:
+    """Read saved host-to-Python mappings without executing remote shell setup."""
+    config_path = path or remote_runtime_config_path()
+    if not config_path.exists():
+        return {}
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RemoteLaunchError(
+            f"could not read remote runtime settings at {config_path}: {exc}"
+        ) from exc
+    if not isinstance(payload, dict) or payload.get("schema") != _REMOTE_CONFIG_SCHEMA:
+        raise RemoteLaunchError(
+            f"remote runtime settings at {config_path} use an unsupported format"
+        )
+    hosts = payload.get("hosts")
+    if not isinstance(hosts, dict):
+        raise RemoteLaunchError(
+            f"remote runtime settings at {config_path} do not contain a host map"
+        )
+    result: dict[str, str] = {}
+    for host, entry in hosts.items():
+        if not isinstance(host, str) or not isinstance(entry, dict):
+            continue
+        try:
+            result[host] = _validated_remote_python(entry.get("python", ""))
+        except ValueError:
+            continue
+    return result
+
+
+def save_remote_runtime_config(
+    hosts: dict[str, str],
+    path: Path | None = None,
+) -> Path:
+    """Atomically save validated host runtime mappings."""
+    config_path = path or remote_runtime_config_path()
+    normalized = {
+        str(host).strip(): {"python": _validated_remote_python(python)}
+        for host, python in hosts.items()
+        if str(host).strip()
+    }
+    payload = {
+        "schema": _REMOTE_CONFIG_SCHEMA,
+        "hosts": dict(sorted(normalized.items())),
+    }
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=config_path.parent,
+            prefix=f".{config_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            json.dump(payload, handle, ensure_ascii=True, indent=2, sort_keys=True)
+            handle.write("\n")
+            temporary_path = Path(handle.name)
+        temporary_path.chmod(0o600)
+        temporary_path.replace(config_path)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink()
+    return config_path
+
+
+def configure_remote_runtime(host: str, python: str) -> Path:
+    """Persist one SSH host's exact Python executable."""
+    normalized_host = str(host or "").strip()
+    if not normalized_host or normalized_host.startswith("-") or any(
+        character.isspace() for character in normalized_host
+    ):
+        raise ValueError("Enter one valid SSH host or user@host value.")
+    hosts = load_remote_runtime_config()
+    hosts[normalized_host] = _validated_remote_python(python)
+    return save_remote_runtime_config(hosts)
+
+
+def remove_remote_runtime(host: str) -> tuple[Path, bool]:
+    """Remove one saved SSH host runtime mapping."""
+    normalized_host = str(host or "").strip()
+    hosts = load_remote_runtime_config()
+    removed = hosts.pop(normalized_host, None) is not None
+    return save_remote_runtime_config(hosts), removed
+
+
+def remote_command_prefix(
+    args: argparse.Namespace,
+    target: RemoteTarget,
+) -> list[str]:
+    """Resolve transient, saved, then PATH-based remote CLI execution."""
+    explicit = getattr(args, "remote_python", None)
+    configured = load_remote_runtime_config().get(target.host)
+    selected = explicit or configured
+    python = _validated_remote_python(selected) if selected else None
+    if python:
+        return [python, "-m", "v_ase.cli"]
+    return ["v_ase"]
 
 
 def parse_remote_target(value: str | None) -> RemoteTarget | None:
@@ -69,9 +204,10 @@ def _remote_gui_argv(
     stream_frames: bool,
     modern_bond_defaults: bool,
     remote_port: int | None = None,
+    command_prefix: list[str] | None = None,
 ) -> list[str]:
     command = [
-        "v_ase",
+        *(command_prefix or remote_command_prefix(args, target)),
         "gui",
         "--index",
         str(args.index),
@@ -115,6 +251,7 @@ def build_remote_gui_command(
     args: argparse.Namespace,
     target: RemoteTarget,
     remote_port: int | None = None,
+    command_prefix: list[str] | None = None,
 ) -> str:
     """Build the command used by a current remote v_ase installation."""
     command = _remote_gui_argv(
@@ -124,6 +261,7 @@ def build_remote_gui_command(
         stream_frames=True,
         modern_bond_defaults=True,
         remote_port=remote_port,
+        command_prefix=command_prefix,
     )
     return shlex.join(command)
 
@@ -140,7 +278,13 @@ def build_remote_gui_launcher(
     BROWSER=/bin/echo exposes the loopback URL while preserving the normal
     blocking lifecycle.
     """
-    current_command = build_remote_gui_command(args, target, remote_port)
+    command_prefix = remote_command_prefix(args, target)
+    current_command = build_remote_gui_command(
+        args,
+        target,
+        remote_port,
+        command_prefix=command_prefix,
+    )
     current_bonds_without_stream = shlex.join(
         _remote_gui_argv(
             args,
@@ -149,6 +293,7 @@ def build_remote_gui_launcher(
             stream_frames=False,
             modern_bond_defaults=True,
             remote_port=remote_port,
+            command_prefix=command_prefix,
         )
     )
     legacy_bonds_with_stream = shlex.join(
@@ -159,6 +304,7 @@ def build_remote_gui_launcher(
             stream_frames=True,
             modern_bond_defaults=False,
             remote_port=remote_port,
+            command_prefix=command_prefix,
         )
     )
     legacy_bonds_without_stream = shlex.join(
@@ -169,6 +315,7 @@ def build_remote_gui_launcher(
             stream_frames=False,
             modern_bond_defaults=False,
             remote_port=remote_port,
+            command_prefix=command_prefix,
         )
     )
     oldest_command = shlex.join(
@@ -179,12 +326,23 @@ def build_remote_gui_launcher(
             stream_frames=False,
             modern_bond_defaults=False,
             remote_port=remote_port,
+            command_prefix=command_prefix,
         )
     )
 
+    if command_prefix[0] == "v_ase":
+        runtime_instruction = (
+            "Install it with `python -m pip install --upgrade v_ase-gui`, "
+            "or select its environment with --remote-python /absolute/path/to/python."
+        )
+    else:
+        runtime_instruction = (
+            f"Verify that {command_prefix[0]} exists and contains v_ase-gui, "
+            "or choose another --remote-python path."
+        )
     unavailable_message = shlex.quote(
-        f"v_ase: could not inspect the v_ase installation on {target.host}. "
-        "Install it with `python -m pip install --upgrade v_ase-gui`."
+        f"v_ase: could not inspect the selected v_ase runtime on {target.host}. "
+        f"{runtime_instruction}"
     )
     compatibility_message = shlex.quote(
         f"v_ase: {target.host} uses an older remote CLI; continuing in "
@@ -201,7 +359,7 @@ def build_remote_gui_launcher(
     )
 
     lines = [
-        "_vase_help=$(v_ase gui --help 2>&1)",
+        f"_vase_help=$({shlex.join([*command_prefix, 'gui', '--help'])} 2>&1)",
         "_vase_help_status=$?",
         'if [ "$_vase_help_status" -ne 0 ]; then',
         '  printf \'%s\\n\' "$_vase_help" >&2',

@@ -24,6 +24,7 @@ from examples.readme_scenes import make_ai_pyridinic_graphene_scene
 from v_ase.io import set_atom_labels
 from v_ase.session import sessions
 from v_ase.viewer import find_free_port, view
+from v_ase.volumetric import VolumetricData
 
 
 def _expand_inspector(page):
@@ -325,6 +326,168 @@ def test_rdf_drawer_controls_and_selected_active_bond_pairs():
                 )
             finally:
                 browser.close()
+    finally:
+        editor.close()
+
+
+def test_active_trajectory_frame_updates_rdf_volume_colors_and_displacements():
+    first = Atoms(
+        "H3",
+        positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [3.0, 0.0, 0.0]],
+        cell=[4.0, 4.0, 4.0],
+        pbc=False,
+    )
+    second = first.copy()
+    second.positions[:] = [[0.0, 0.0, 0.0], [1.8, 0.0, 0.0], [3.8, 0.0, 0.0]]
+    third = first.copy()
+    third.positions[:] = [[0.0, 0.0, 0.0], [0.5, 0.0, 0.0], [2.5, 0.0, 0.0]]
+    set_atom_labels(first, ["H_left", "H_middle", "H_right"])
+    set_atom_labels(second, ["H_left", "H_middle", "H_right"])
+    set_atom_labels(third, ["H_left", "H_middle", "H_right"])
+
+    fractional = np.indices((12, 12, 12), dtype=float) / 12.0
+    first_values = np.exp(-70.0 * np.sum(
+        (fractional - np.array([0.3, 0.5, 0.5])[:, None, None, None]) ** 2,
+        axis=0,
+    )).astype(np.float32)
+    second_values = np.exp(-70.0 * np.sum(
+        (fractional - np.array([0.7, 0.5, 0.5])[:, None, None, None]) ** 2,
+        axis=0,
+    )).astype(np.float32)
+    first_field = VolumetricData(
+        name="frame 1 density",
+        values=first_values,
+        cell=first.cell.array,
+        pbc=first.pbc,
+        quantity="density",
+        metadata={"trajectory_frame": 0},
+    )
+    second_field = VolumetricData(
+        name="frame 2 density",
+        values=second_values,
+        cell=second.cell.array,
+        pbc=second.pbc,
+        quantity="density",
+        metadata={"trajectory_frame": 1},
+    )
+
+    port = find_free_port()
+    editor = view(
+        [first, second, third],
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+        volumetric_datasets=[first_field, second_field],
+        initial_design_settings={
+            "display": {
+                "showVolumetric": True,
+                "volumetricDatasetId": first_field.dataset_id,
+                "volumetricLevel": 0.3,
+                "volumetricStepSize": 1,
+                "volumetricSmearingSigma": 0,
+                "volumetricSmoothingIterations": 0,
+            }
+        },
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3"
+            )
+            initial = page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                Object.assign(app.state.display, {
+                    atomColorScaleEnabled: true,
+                    atomColorScaleField: 'position:x',
+                    atomColorScaleRangeMode: 'manual',
+                    atomColorScaleMin: 0,
+                    atomColorScaleMax: 4,
+                    atomColorScaleGamma: 1,
+                    atomColorScaleScope: 'all',
+                    showDisplacements: true,
+                    displacementReferenceMode: 'frame',
+                    displacementReferenceFrame: 0,
+                    displacementMic: false
+                });
+                document.getElementById('rdf-cutoff').value = '4.0';
+                document.getElementById('rdf-bins').value = '40';
+                document.getElementById('rdf-pair-mode').value = 'none';
+                await app.updateAtomColorScale({quiet: true, refreshCatalog: true});
+                await app.updateVolumetricSurface({recordHistory: false});
+                await app.calculateRdf();
+                return {
+                    rdf: [...app.state.rdfResult.total],
+                    colors: [...app.renderer.atomColorScaleColors],
+                    volume: app.state.volumetricSurfaceSummary.datasetId
+                };
+            }""")
+            assert initial["volume"] == first_field.dataset_id
+
+            page.evaluate("window.__ASE_APP__.loadFrame(1)")
+            page.wait_for_function(
+                """expected => {
+                    const app = window.__ASE_APP__;
+                    return app.state.atoms.metadata.current_frame === 1
+                        && app.state.rdfResult?.frame_index === 1
+                        && app.state.volumetricSurfaceSummary?.datasetId === expected
+                        && app.state.displacementStats?.current_frame === 1;
+                }""",
+                arg=second_field.dataset_id,
+                timeout=20_000,
+            )
+            updated = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                return {
+                    rdf: [...app.state.rdfResult.total],
+                    colors: [...app.renderer.atomColorScaleColors],
+                    volume: app.state.volumetricSurfaceSummary.datasetId,
+                    displacementFrame: app.state.displacementStats.current_frame,
+                    displacementMax: app.state.displacementStats.stats.max,
+                    analysis: app.aiDescribe({includePositions: false}).analysis
+                };
+            }""")
+            assert updated["rdf"] != initial["rdf"]
+            assert updated["colors"] != initial["colors"]
+            assert updated["volume"] == second_field.dataset_id
+            assert updated["displacementFrame"] == 1
+            assert updated["displacementMax"] == pytest.approx(0.8)
+            assert updated["analysis"]["displacement"]["currentFrame"] == 1
+            assert updated["analysis"]["frameSynchronization"] == {
+                "displayedFrame": 1,
+                "rdfFrame": 1,
+                "atomColorScaleFrame": 1,
+                "forceVectorFrame": None,
+                "displacementFrame": 1,
+                "volumetricSurfaceFrame": 1,
+                "volumetricSurfaceDatasetId": second_field.dataset_id,
+            }
+
+            page.evaluate("window.__ASE_APP__.loadFrame(2)")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.state.atoms.metadata.current_frame === 2
+                    && app.state.rdfResult?.frame_index === 2
+                    && app.state.volumetricSurfaceSummary === null
+                    && app.renderer.volumetricSurfaces.length === 0
+                    && app.state.displacementStats?.current_frame === 2;
+            }""", timeout=20_000)
+            missing = page.evaluate(
+                "window.__ASE_APP__.aiDescribe({includePositions: false}).analysis"
+            )
+            assert missing["frameSynchronization"]["displayedFrame"] == 2
+            assert missing["frameSynchronization"]["rdfFrame"] == 2
+            assert missing["frameSynchronization"]["displacementFrame"] == 2
+            assert missing["frameSynchronization"]["volumetricSurfaceDatasetId"] is None
+            assert missing["volumetricSurface"] is None
+            browser.close()
     finally:
         editor.close()
 

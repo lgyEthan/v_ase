@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.18"
+python -m pip install "v_ase-gui==0.2.19"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.2.18"
+python -m pip install "v_ase-gui[rhino]==0.2.19"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, SciPy, scikit-image,
@@ -94,6 +94,7 @@ Useful options:
 | `--no-browser` | Print the URL without launching a browser |
 | `--no-block` | Keep the server alive until interrupted |
 | `--stream-frames` | Load trajectory coordinates frame by frame |
+| `--remote-python ABSOLUTE_PATH` | For `HOST:/path` input, launch through that exact remote Python instead of remote `PATH` discovery |
 | `--show-bonds` / `--hide-bonds` | Override startup bond visibility |
 | `--hide-cell` / `--hide-axes` | Hide viewport guides at startup |
 
@@ -277,6 +278,29 @@ browser owns UI interaction and WebGL rendering. Only requested frame or
 derived rendering payloads cross the encrypted tunnel. v_ase must therefore be
 installed remotely so that the Python backend and ASE dependencies execute
 next to the data.
+
+If the remote `v_ase` entry point is not available to a non-interactive SSH
+shell, select its Python executable directly for one launch:
+
+```bash
+v_ase gui physics:/absolute/server/path/trajectory.extxyz \
+  --remote-python /home/user/miniconda3/envs/vase/bin/python
+```
+
+For a stable host environment, persist the same exact executable locally:
+
+```bash
+v_ase remote configure physics \
+  --python /home/user/miniconda3/envs/vase/bin/python
+v_ase remote show physics
+v_ase gui physics:/absolute/server/path/trajectory.extxyz
+```
+
+Precedence is transient `--remote-python`, saved exact-host mapping, then the
+remote `PATH` entry point. Remove a mapping with `v_ase remote remove physics`.
+These commands never source `.bashrc`, activate Conda, copy the remote source,
+or store SSH credentials. Configure the exact `USER@HOST`/alias string used to
+the left of `:`; differently written hosts are intentionally separate.
 
 The launcher reads remote `v_ase gui --help` and passes only supported options.
 Treat an upgrade warning as a request to update before opening large

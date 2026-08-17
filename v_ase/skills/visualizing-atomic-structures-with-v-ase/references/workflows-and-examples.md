@@ -772,6 +772,11 @@ const analyzed = await ai.describe({includePositions: false});
 if (analyzed.frame !== initial.frameCount - 1) {
   throw new Error("Trajectory frame verification failed.");
 }
+const sync = analyzed.analysis.frameSynchronization;
+if (sync.displayedFrame !== analyzed.frame
+    || sync.displacementFrame !== analyzed.frame) {
+  throw new Error("Enabled trajectory analysis is stale.");
+}
 
 const movie = await ai.export({
   format: "video",
