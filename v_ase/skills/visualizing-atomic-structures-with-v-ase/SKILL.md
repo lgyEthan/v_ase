@@ -14,7 +14,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.22"
+python -m pip install "v_ase-gui==0.2.23"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -152,7 +152,7 @@ reference before executing a multi-step workflow:
 | Work with periodic interfaces | display replication, cell transforms, commensurate search, rigid `(hkl)` translation |
 | Analyze trajectories | frame selection, displacement, RDF, colorscale, stored force vectors |
 | Analyze scalar fields | volumetric datasets, isosurfaces, planes, field combinations |
-| Style and render | `display`, `quality`, `camera`, `render` |
+| Style and render | `display`, `quality`, `camera`, persistent `renderArea`, `render` |
 | Save or share | `export`, compact `.vase`, portable HTML projects, media, and geometry formats |
 
 ### Live Methods
@@ -178,7 +178,7 @@ v_ase api "$COMMAND_URL" newDocument
 ```
 
 The `apply` method accepts `frame`, `mode`, `display`, `quality`,
-`applyConstraints`, `camera`, `selection`, and `operation`. Query `schema`
+`applyConstraints`, `camera`, `renderArea`, `selection`, and `operation`. Query `schema`
 and `capabilities` instead of assuming that a command or parameter exists.
 `schema` returns operation and export parameter maps without requiring the
 browser to execute a document command.
@@ -262,8 +262,8 @@ attaches one complete `AdditionRepulsionCalculator` to the staged structure
 and advances it with FIRE; do not implement pairwise coordinate pushes or
 call MIC per atom pair. Its temporary `Add Atoms placement` timeline retains
 every optimizer step and must exist only while the staging mode remains active.
-Wait until
-`is_relaxing` is false before `finish-add-atoms`. Use `stop-added-atoms` only
+Wait until `is_relaxing` is false before `finish-add-atoms`. Use
+`stop-added-atoms` only
 to interrupt the optimizer, and `cancel-add-atoms` to restore the exact host,
 constraints, per-atom arrays, and pre-session history. Never use batch
 insertion on a trajectory because it would create inconsistent frame topology.
@@ -275,6 +275,9 @@ again after finish or cancel.
 Use `scale-selection` for physical atom-coordinate scaling about a requested
 pivot. It changes spacing in global Cartesian `X`, `Y`, `Z`, or all axes and
 never changes atom radii, bond diameter, or the unit cell.
+Use `display.atomDisplayMode:"2d"` for a flat unlit scene that keeps atom color/radius/depth, outlines atoms/bonds, marks FixAtoms with X, and flattens vectors/cells/regions; `"3d"` restores materials.
+Top-level `renderArea` locks the shared image/video/HTML camera; capture once with `{"enabled":true,"followViewport":false,"fromCurrentView":true}` or provide
+explicit camera state, then verify `describe().renderArea` before exporting.
 For scalar-field sections, use `add-volumetric-plane` with a dataset ID and a
 nonzero hkl normal, `update-volumetric-planes` with the current plane IDs for
 atomic multi-plane edits, and `remove-volumetric-planes` to delete them. Read
@@ -351,6 +354,9 @@ handling, use the references below rather than improvising field names.
   `confirm: true`.
 - Never treat a visual label as an ASE element. Verify `chemicalSymbols`.
 - Never infer a periodic replica from screen position. Use `cellOffset`.
+- In View, `delete-selection` hides exact visual references and does not modify
+  ASE topology. Switch to Edit only after explicit intent to delete the unique
+  corresponding base indices; deduplicate repeated images first.
 - Never reuse indices after topology or frame changes without `describe()`.
 - Treat `scatter-atoms` and `scatter-molecules` as reversible staging
   operations, not committed topology changes. Do not finish until inserted

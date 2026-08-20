@@ -17,6 +17,7 @@ from ase.io import read
 from ase.io.extxyz import key_val_str_to_dict
 from ase.io.formats import string2index
 from ase.io.lammpsdata import read_lammps_data
+from ase.io.trajectory import Trajectory
 
 ATOM_LABEL_ARRAY = "v_ase_atom_type"
 # Compatibility name for code written against v_ase <= 0.0.77.
@@ -261,6 +262,244 @@ class FastLammpsDumpResult:
     atoms: Atoms
     trajectory: FastLammpsDumpTrajectory
     initial_frame: int = 0
+
+
+@dataclass
+class IndexedTrajectoryResult:
+    """One immediately available frame plus an on-demand trajectory source."""
+
+    atoms: Atoms
+    trajectory: object
+    initial_frame: int = 0
+
+
+def _selected_trajectory_indices(
+    index: str | int | slice | None,
+    frame_count: int,
+) -> list[int]:
+    parsed = string2index(":") if index is None else string2index(index) if isinstance(index, str) else index
+    available = range(frame_count)
+    if isinstance(parsed, slice):
+        return list(available[parsed])
+    if isinstance(parsed, int):
+        try:
+            return [available[parsed]]
+        except IndexError as exc:
+            raise ValueError(f"Frame index {parsed} is out of range") from exc
+    return list(available)
+
+
+def _labels_for_species_blocks(species: list[str], counts: list[int]) -> list[str]:
+    totals = Counter(species)
+    occurrences: Counter[str] = Counter()
+    labels: list[str] = []
+    for symbol, count in zip(species, counts):
+        occurrences[symbol] += 1
+        label = f"{symbol}_{occurrences[symbol]}" if totals[symbol] > 1 else symbol
+        labels.extend([label] * count)
+    return labels
+
+
+@dataclass
+class IndexedXdatcarTrajectory:
+    """Byte-offset XDATCAR reader that parses only the requested frame."""
+
+    path: str
+    natoms: int
+    symbols: list[str]
+    labels: list[str]
+    coordinate_offsets: list[int]
+    coordinate_end_offsets: list[int]
+    cells: np.ndarray
+    pbc: np.ndarray
+    template_atoms: Atoms | None = None
+
+    @property
+    def frame_count(self) -> int:
+        return len(self.coordinate_offsets)
+
+    def __len__(self) -> int:
+        return self.frame_count
+
+    def read_positions(self, frame_index: int) -> np.ndarray:
+        if frame_index < 0 or frame_index >= self.frame_count:
+            raise IndexError(f"Frame index {frame_index} is out of range")
+        start = self.coordinate_offsets[frame_index]
+        end = self.coordinate_end_offsets[frame_index]
+        with open(self.path, "rb", buffering=1024 * 1024) as handle:
+            handle.seek(start)
+            block = handle.read(end - start)
+        scaled = np.fromstring(block, sep=" ", dtype=np.float64)
+        expected = self.natoms * 3
+        if scaled.size != expected:
+            raise ValueError(
+                f"XDATCAR frame {frame_index} contains {scaled.size} coordinate values; "
+                f"expected {expected}."
+            )
+        return scaled.reshape(self.natoms, 3) @ self.cells[frame_index]
+
+    def read_atoms(self, frame_index: int) -> Atoms:
+        atoms = Atoms(
+            symbols=self.symbols,
+            positions=self.read_positions(frame_index),
+            cell=self.cells[frame_index],
+            pbc=self.pbc[frame_index],
+        )
+        set_atom_labels(atoms, self.labels)
+        atoms.info["configuration"] = int(frame_index + 1)
+        return atoms
+
+
+@dataclass
+class IndexedAseTrajectory:
+    """Random-access wrapper around ASE's native ``.traj`` container."""
+
+    path: str
+    source_indices: list[int]
+    natoms: int
+    template_atoms: Atoms
+    # Unknown cell evolution deliberately disables eager trajectory caches.
+    cells: np.ndarray = field(default_factory=lambda: np.empty((0, 3, 3), dtype=float))
+    pbc: np.ndarray = field(default_factory=lambda: np.empty((0, 3), dtype=bool))
+
+    @property
+    def frame_count(self) -> int:
+        return len(self.source_indices)
+
+    def __len__(self) -> int:
+        return self.frame_count
+
+    def read_atoms(self, frame_index: int) -> Atoms:
+        if frame_index < 0 or frame_index >= self.frame_count:
+            raise IndexError(f"Frame index {frame_index} is out of range")
+        with Trajectory(self.path, mode="r") as trajectory:
+            return trajectory[self.source_indices[frame_index]]
+
+    def read_positions(self, frame_index: int) -> np.ndarray:
+        return np.asarray(self.read_atoms(frame_index).positions, dtype=np.float32)
+
+
+def index_vasp_xdatcar(
+    path: str | Path,
+    index: str | int | slice | None = ":",
+) -> IndexedXdatcarTrajectory:
+    """Index XDATCAR frames without parsing every coordinate table."""
+
+    source = Path(path)
+    coordinate_offsets: list[int] = []
+    coordinate_end_offsets: list[int] = []
+    cells: list[np.ndarray] = []
+    frame_symbols: list[str] | None = None
+    frame_labels: list[str] | None = None
+    natoms: int | None = None
+    current_cell: np.ndarray | None = None
+
+    with source.open("rb") as handle:
+        while True:
+            line = handle.readline()
+            if not line:
+                break
+            if b"Direct configuration=" not in line:
+                scale_line = handle.readline()
+                if not scale_line:
+                    break
+                try:
+                    scale_values = scale_line.split()
+                    if len(scale_values) != 1:
+                        raise ValueError(
+                            "XDATCAR vector scaling requires the compatible reader."
+                        )
+                    scale = float(scale_values[0])
+                    if scale <= 0:
+                        raise ValueError(
+                            "XDATCAR non-positive scaling requires the compatible reader."
+                        )
+                    cell = np.asarray(
+                        [[float(value) for value in handle.readline().split()[:3]] for _ in range(3)],
+                        dtype=float,
+                    ) * scale
+                    species = handle.readline().decode("utf-8", errors="replace").split()
+                    counts = [int(value) for value in handle.readline().split()]
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("XDATCAR header is incomplete or invalid.") from exc
+                if cell.shape != (3, 3) or not species or len(species) != len(counts):
+                    raise ValueError("XDATCAR species, counts, or cell header is invalid.")
+                if any(symbol not in atomic_numbers for symbol in species):
+                    raise ValueError("XDATCAR contains an unsupported chemical symbol.")
+                expanded = [symbol for symbol, count in zip(species, counts) for _ in range(count)]
+                labels = _labels_for_species_blocks(species, counts)
+                if frame_symbols is None:
+                    frame_symbols = expanded
+                    frame_labels = labels
+                    natoms = len(expanded)
+                elif expanded != frame_symbols or labels != frame_labels:
+                    raise ValueError(
+                        "XDATCAR atom identities change between frames; use the compatible reader."
+                    )
+                current_cell = cell
+                configuration_line = handle.readline()
+                if b"Direct configuration=" not in configuration_line:
+                    raise ValueError("XDATCAR frame is missing its Direct configuration marker.")
+            elif natoms is None or current_cell is None:
+                raise ValueError("XDATCAR starts with coordinates before a structure header.")
+
+            start = handle.tell()
+            for _ in range(int(natoms or 0)):
+                if not handle.readline():
+                    raise ValueError("XDATCAR coordinate block ended before all atoms were read.")
+            coordinate_offsets.append(start)
+            coordinate_end_offsets.append(handle.tell())
+            cells.append(np.asarray(current_cell, dtype=float).copy())
+
+    if natoms is None or frame_symbols is None or frame_labels is None or not coordinate_offsets:
+        raise ValueError("No frames found in XDATCAR.")
+    selected = _selected_trajectory_indices(index, len(coordinate_offsets))
+    if not selected:
+        raise ValueError("The requested XDATCAR frame selection is empty.")
+    trajectory = IndexedXdatcarTrajectory(
+        path=str(source),
+        natoms=natoms,
+        symbols=frame_symbols,
+        labels=frame_labels,
+        coordinate_offsets=[coordinate_offsets[i] for i in selected],
+        coordinate_end_offsets=[coordinate_end_offsets[i] for i in selected],
+        cells=np.asarray([cells[i] for i in selected], dtype=float),
+        pbc=np.ones((len(selected), 3), dtype=bool),
+    )
+    trajectory.template_atoms = trajectory.read_atoms(0)
+    return trajectory
+
+
+def read_indexed_trajectory(
+    path: str | Path,
+    index: str | int | slice | None = ":",
+    fmt: str | None = None,
+) -> IndexedTrajectoryResult | None:
+    """Return an on-demand source for formats with reliable random access."""
+
+    source = Path(path)
+    resolved = resolve_input_format(fmt)
+    name = source.name.upper()
+    if resolved == "vasp-xdatcar" or (fmt is None and name.startswith("XDATCAR")):
+        trajectory = index_vasp_xdatcar(source, index)
+        return IndexedTrajectoryResult(
+            atoms=trajectory.template_atoms.copy(),
+            trajectory=trajectory,
+        )
+    if resolved == "traj" or (fmt is None and source.suffix.lower() == ".traj"):
+        with Trajectory(str(source), mode="r") as reader:
+            selected = _selected_trajectory_indices(index, len(reader))
+            if not selected:
+                raise ValueError("The requested ASE trajectory frame selection is empty.")
+            template = reader[selected[0]]
+        trajectory = IndexedAseTrajectory(
+            path=str(source),
+            source_indices=selected,
+            natoms=len(template),
+            template_atoms=template.copy(),
+        )
+        return IndexedTrajectoryResult(atoms=template, trajectory=trajectory)
+    return None
 
 
 def _integer_type_suffix(label: object) -> str | None:

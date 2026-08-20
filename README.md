@@ -31,7 +31,7 @@ completed structure is inspected from above and below.
 | **Periodic interfaces and analysis** | Build supercells, search commensurate 2D cells, optimize a rigid translation in any compatible periodic `(hkl)` plane, measure ordered geometry, plot periodic RDFs or finite pair distributions, and inspect volumetric fields. [Explore interfaces](#periodic-cells-and-interfaces) and [analysis](#analyze-structures-and-fields). |
 | **External AI collaboration** | Give a scientific request to an external AI Agent; the bundled Skill lets it operate exact revisioned state while you watch and refine the same GUI. [See the collaboration workflow](#work-with-an-ai-agent). |
 | **Portable HTML projects** | Save the structure, trajectory, camera, labels, bonds, lighting, analysis state, and visualization settings in one HTML file. Preview it with macOS Quick Look, open the offline 3D view in a browser, or restore the embedded project in v_ase. [See HTML projects](#project-or-shareable-html). |
-| **Publication and reusable output** | Prepare consistent atoms, bonds, lighting, images, videos, Blender scenes, and compact self-contained `.vase` projects. [See export options](#export-and-save). |
+| **Publication and reusable output** | Switch the whole scene between 3D materials and a flat 2D diagram, lock a persistent Render Area, then prepare images, videos, HTML, Blender scenes, and compact `.vase` projects. [See styling](#style-atoms-bonds-and-rendering) and [export options](#export-and-save). |
 
 ![A self-contained v_ase HTML project in macOS Quick Look and an offline browser](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_html_quicklook.gif)
 
@@ -111,6 +111,8 @@ URL or copy it into any local browser.
 | Plot pair statistics | Use **Analysis > Radial Distribution Function** for fully periodic bulk cells or **Pair-distribution function** for finite structures |
 | View a charge or potential grid | Open CHGCAR/LOCPOT/PARCHG/Cube/XSF, then use **Analysis > Volumetric Data** |
 | Style a figure | Use **Structure > Appearance/Bonding** and **View** |
+| Draw a flat structural diagram | Choose **View > Viewport rendering > 2D flat** |
+| Lock an export composition | Enable **Export > Render Area**, disable **Follow viewport**, and use **Set from Current View** |
 | Match the app to the computer theme | Keep **View > Interface theme** on **System**, or choose Light/Dark explicitly |
 | Reuse the current visual style automatically | Use **Export > Visual Settings > Set Current as Default** |
 | Repeat or wrap a cell | Use **Structure > Cell & Replication** |
@@ -126,7 +128,8 @@ URL or copy it into any local browser.
 **Structure**, **Analysis**, and **Export** each expose a **Section** menu in
 the panel header. Selecting an item opens it and scrolls directly to that
 section; scrolling the panel updates the menu to show the section currently in
-view.
+view. On a narrow window the top action strip scrolls horizontally instead of
+placing camera, render, reset, and help controls on top of one another.
 
 The guide is organized by task:
 
@@ -154,6 +157,10 @@ remain available in the default **View** mode.
 - Left-drag draws a visible selection box.
 - Appearance rows select complete label groups without merging distinct labels.
 - Ordered single-atom selections are retained for geometry measurement.
+- In View, repeated supercell atoms are independent visual references for
+  measurement, appearance, and hiding. In Edit, clicking or box-selecting a
+  replica selects its unique base atom in the editable unit cell; replicas
+  remain fully opaque so the mapping is visible.
 
 ### Move
 
@@ -161,6 +168,11 @@ Press `G` after selecting atoms. Lock the move with `X`, `Y`, or `Z`, type an
 exact displacement in angstrom, then confirm with left-click or `Enter`.
 Configured ASE constraints remain authoritative when **Apply constraints** is
 enabled.
+
+`Ctrl+C` and `Ctrl+V` paste an exact-coordinate duplicate. The copy keeps its
+label, element, every per-atom ASE array, compatible atom constraint,
+single-point per-atom result, and per-atom material. Whole-structure energy is
+not copied because it is no longer valid after atom count changes.
 
 ### Build From Scratch
 
@@ -987,8 +999,8 @@ table or merge otherwise distinct atom types accidentally.
 
 The recording begins with a viewport box-selection around the 32 substrate Cu
 atoms. It then enters `Cu_substrate` in **Selected atoms > Label**, applies the
-label, chooses **Metal**, and changes that label's color and radius to white and
-`2.0 Å` in the Appearance table. Oxide Cu and O remain unchanged. The final
+**Metal** material, presses the shared **Apply** once, and changes that label's
+color and radius to white and `2.0 Å` in the Appearance table. Oxide Cu and O remain unchanged. The final
 side-to-top orbit verifies that the operation is visual only: every atom keeps
 its original Cu or O ASE element and coordinate.
 
@@ -1042,6 +1054,14 @@ immediately; they are not export-only settings. Hiding world axes does not
 remove the compact orientation gizmo. New documents use orthographic
 projection and a true-white background.
 
+**2D flat** is a scene-wide display mode, not a bond-only shortcut. It keeps
+atom colors and radii while disabling lighting and 3D materials, draws atoms
+and bonds with background-aware outlines, marks FixAtoms with an X, and
+flattens force/displacement arrows, unit-cell edges, and Add Atoms regions.
+Depth testing still preserves which atom or bond lies in front. Switching back
+to **3D materials** restores the previously selected materials and lighting
+without rebuilding scientific state.
+
 The top-bar renderer switches between fast modeling light and Sun/soft-shadow
 rendering. Sun source, target, intensity, and direction can be manipulated in
 the viewport and carried into Blender export.
@@ -1073,7 +1093,7 @@ preset between users or computers.
 | --- | --- |
 | Export POSCAR | Current physical ASE structure in VASP format |
 | Export ASE Pickle | ASE `Atoms`, labels, constraints, arrays, and a valid `SinglePointCalculator` |
-| Export Image | PNG by default; JPEG, PDF, and lossless WebP from the exact preview frame |
+| Export Image | PNG by default; JPEG, PDF, and lossless WebP from the exact Render Area |
 | Export Video | Constant-frame-rate H.264 MOV or MPEG-4 AVI with optional interpolation |
 | Export Blender | Optimized scene script with atoms, bonds, cell, camera, and Sun |
 | Export 3DM | Instanced Rhino geometry, metadata, and saved camera views |
@@ -1083,10 +1103,15 @@ preset between users or computers.
 | HTML Project | Browser-ready project with complete embedded `.vase` recovery by default |
 | Export/Import Preset | Portable visual settings file without coordinates |
 
-Image, video, and HTML use one shared **Preview Area** composition. Its aspect
-ratio, camera, crop, lighting, atom scale, and included overlays match the
-saved output. HTML View defaults to grid off, axes on, and unit cell on; all
-three overlays can be changed before saving.
+Image, video, and HTML use one shared persistent **Render Area**. The gray
+outside mask shows exactly what will be excluded; atom picking inside the gate
+uses the same camera and therefore selects the visible atom under the pointer.
+Keep **Follow viewport** enabled while composing, or disable it and use **Set
+from Current View** to lock the export camera while continuing to orbit, edit,
+restyle, or relight the working viewport. In Edit, select the eye indicator and
+press `G` to translate the fixed Render Area camera and target together.
+Its aspect ratio, crop, lighting, atom scale, and overlays match saved output.
+HTML View defaults to grid off, axes on, and unit cell on.
 
 The system save picker is opened before expensive rendering or scene
 generation when the browser supports it. Canceling the picker cancels the
@@ -1112,7 +1137,7 @@ analysis, and export settings. It is self-contained and never references the
 original input file.
 
 Use **HTML Project** or **HTML View** when the result should open directly in a
-browser. The save dialog shows the exact shared Preview Area crop and lets you
+browser. The save dialog shows the exact shared Render Area crop and lets you
 choose grid, axes, and unit-cell visibility. Every generated HTML:
 
 - opens offline without v_ase, Python, a server, or a CDN;
@@ -1137,7 +1162,7 @@ reports this explicitly if that lightweight HTML is opened as input.
 
 The exported frame is stored as an automatically optimized high-resolution
 poster as well as an interactive 3D scene. The initial HTML surface contains
-only that exact Preview Area crop: no v_ase logo, header, decorative border, or
+only that exact Render Area crop: no v_ase logo, header, decorative border, or
 page margin is included. This lets macOS Finder/Quick Look show the structure
 without executing WebGL. In a browser, the first prepared WebGL frame replaces
 the poster with a short cross-fade as soon as the first live frame is ready,
@@ -1145,7 +1170,7 @@ before camera input begins. Both surfaces occupy the same rectangle, so the
 structure does not jump. View-only controls appear only after pointer or
 keyboard activity.
 
-HTML width and height inherit the image/video Preview Area. They define the
+HTML width and height inherit the image/video Render Area. They define the
 saved camera aspect and crop, not a fixed live WebGL resolution. The
 interactive renderer automatically follows the browser size and display pixel
 density.
@@ -1309,7 +1334,8 @@ than this user guide:
 ## Documents And File Opening
 
 The top-bar **Open** button starts with the operating system file picker. A
-selected file can:
+selected file can be confirmed with **Open** or `Enter`; one confirmation
+starts one load and does not reopen the picker. It can:
 
 1. replace the active document;
 2. append structures to its current trajectory;
@@ -1425,9 +1451,9 @@ Custom labels retain their complete text when they are renamed.
 | Number keys | Exact move distance, rotation angle, or scale factor |
 | `Enter` or left click | Confirm transform |
 | `Esc` or right click | Cancel transform |
-| `Ctrl+C`, `Ctrl+V` | Copy and paste atoms |
+| `Ctrl+C`, `Ctrl+V` | Copy and paste exact-coordinate atoms with per-atom state |
 | `Ctrl+Z`, `Ctrl+Shift+Z` | Undo and redo structure and visualization-setting changes; camera navigation is excluded |
-| `Delete` / `Backspace` | Delete selected atoms |
+| `Delete` / `Backspace` | Hide exact visual instances in View; physically delete base atoms in Edit |
 | `Space` | Play or pause the active timeline |
 | Left / Right Arrow | Previous / next frame in the active timeline |
 | `Tab` or `Esc` | Open a collapsed control panel |
@@ -1469,6 +1495,13 @@ backend and its ASE dependencies execute next to the remote data. Upgrade the
 remote installation before opening a large trajectory or using a newly added
 backend feature. Use `ProxyJump` in `~/.ssh/config` when an intermediate login
 host is required.
+
+In View mode, XDATCAR is byte-indexed once and native ASE `.traj` files use
+their random-access container. Startup parses only the first requested frame;
+scrubbing asks the remote process for later frames on demand. Uncommon XDATCAR
+headers automatically fall back to ASE's compatible reader instead of being
+misinterpreted. Edit mode still materializes frames because physical topology
+operations require editable ASE objects.
 
 If `v_ase` is not on the non-interactive SSH `PATH`, select the exact remote
 environment for one launch. This does not source `.bashrc` or activate Conda:
@@ -1647,12 +1680,18 @@ ordinary structure loading depend on a newer VASP-internal helper.
 </details>
 
 <details>
-<summary>Replicated supercell atoms cannot be selected</summary>
+<summary>What does selecting or deleting a replicated supercell atom change?</summary>
 
-In **Edit**, displayed replicas are noneditable previews. Use
-**Set Supercell as Cell** to create real ASE atoms and an editable larger cell.
-In **View**, displayed replicas are selectable and participate in center,
-distance, and other measurements.
+In **View**, each displayed replica is independently selectable for
+measurement and appearance. **Hide Selected** removes only that visual
+instance and its bonds; the ASE structure is unchanged. Structural analysis
+warns that hidden atoms remain in the backend and offers **Switch to Edit &
+Delete** when physical removal is intended.
+
+In **Edit**, every opaque replica maps to its corresponding base atom in the
+editable unit cell. Click or box selection is deduplicated across periodic
+images. Use **Set Supercell as Cell** only when every displayed copy must
+become a real ASE atom in a larger physical cell.
 
 </details>
 
@@ -1683,11 +1722,26 @@ browser download would remove advance destination selection.
 <summary>A large trajectory opens or plays slowly</summary>
 
 - For a loaded large structure or trajectory, use View unless editing is required.
-- Use `--stream-frames` when frame data should be loaded on demand.
+- Current XDATCAR and native ASE `.traj` inputs are indexed for on-demand View
+  loading automatically, including through `HOST:/path` remote sessions.
+- Use `--stream-frames` for other supported virtual trajectory readers when
+  launching a backend manually.
 - Keep browser hardware acceleration enabled.
 - Close unused v_ase tabs; inactive tabs pause rendering but retain document
   state in memory.
 - In WSL, keep data in the Linux filesystem.
+
+</details>
+
+<details>
+<summary>Open or Add to trajectory reports a file-reader error</summary>
+
+v_ase shows the final useful reader message rather than a generic Internal
+Server Error. If it says the format could not be determined, choose the
+matching **Reader** explicitly or use a recognized extension. Missing-file,
+permission, directory, invalid-text, and truncated-file failures have targeted
+messages. For an unrecognized failure, the dialog shows the final exception
+line while the complete traceback remains only in the terminal log.
 
 </details>
 

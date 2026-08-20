@@ -366,6 +366,17 @@ def test_skill_trigger_evaluation_has_positive_and_negative_boundaries():
     ):
         assert required in evaluation
 
+    for regression in (
+        "byte-offset index pass",
+        "Could not guess file type",
+        "complete scene to 2D",
+        "persistent Render Area",
+        "deduplicated base index",
+        "exactly identical coordinates",
+        "horizontal scroll track",
+    ):
+        assert regression in evaluation
+
 
 def test_skill_trajectory_workflow_names_a_real_multiframe_fixture():
     relative = Path("examples/readme_scene_assets/crowded_c60_relaxation.traj")
@@ -451,6 +462,12 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
     assert schema["operation_parameters"]["exit-relaxation-mode"]["optional"] == [
         "keep"
     ]
+    assert schema["operation_parameters"]["delete-selection"]["mode"] == "view-or-edit"
+    render_area = schema["control_schema"]["properties"]["renderArea"]
+    assert render_area["additionalProperties"] is False
+    assert {"enabled", "followViewport", "fromCurrentView", "camera"}.issubset(
+        render_area["properties"]
+    )
     assert "embedProject" in schema["export_parameters"]["html"]["optional"]
     assert schema["operation_parameters"]["load-volumetric"]["required"] == ["path"]
     assert "precision" in schema["operation_parameters"]["load-volumetric"]["optional"]

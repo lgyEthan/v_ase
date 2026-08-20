@@ -52,12 +52,12 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.22&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.23&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.2.22';
+            : '/static/vendor/three.module.js?v=0.2.23';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -75,7 +75,14 @@
     <div id="app-viewport">
         <div id="export-preview-frame" class="export-preview-frame hidden" aria-hidden="true">
             <div class="export-preview-caption">
-                <span>EXPORT PREVIEW</span>
+                <button id="render-area-eye" class="render-area-eye" type="button"
+                        aria-pressed="false" aria-label="Select render area" title="Select render area; press G in Edit mode to move it">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M2.2 12s3.6-6 9.8-6 9.8 6 9.8 6-3.6 6-9.8 6-9.8-6-9.8-6Z"></path>
+                        <circle cx="12" cy="12" r="2.8"></circle>
+                    </svg>
+                </button>
+                <span>RENDER AREA</span>
                 <strong id="export-preview-dimensions">1920 x 1080</strong>
             </div>
             <span class="export-preview-corner corner-tl" aria-hidden="true"></span>
@@ -116,7 +123,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.2.22</span>
+            <span class="version">0.2.23</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -632,7 +639,7 @@
                 <span class="p-label">Center (unwrapped)</span><span id="selected-center" class="p-val selection-center-value">-</span>
                 <span class="p-label selection-measure-panel-label">Measure</span><span id="selected-measure" class="p-val">-</span>
             </div>
-            <button id="btn-delete-selection" class="btn-block danger-soft" data-edit-only>Delete Selected</button>
+            <button id="btn-delete-selection" class="btn-block danger-soft">Delete Selected</button>
         </details>
 
         <details class="panel-section" open data-panel="displacement" data-panel-group="analysis">
@@ -1040,9 +1047,9 @@
                 </select>
             </div>
             <div class="prop-row">
-                <label for="atom-display-mode">Atom &amp; bond display</label>
+                <label for="atom-display-mode">Viewport rendering</label>
                 <select id="atom-display-mode">
-                    <option value="3d" selected>3D solid</option>
+                    <option value="3d" selected>3D materials</option>
                     <option value="2d">2D flat</option>
                 </select>
             </div>
@@ -1686,7 +1693,7 @@
             <div class="export-group rendered-output-group">
                 <div class="panel-subhead">Rendered media</div>
                 <p class="panel-note">
-                    Image, video, and HTML use one shared camera crop. Preview Area is the exact composition for all three.
+                    Image, video, and HTML use this persistent Render Area camera and crop.
                 </p>
                 <div class="relax-grid export-dimensions">
                     <label for="image-width">Width</label>
@@ -1700,8 +1707,17 @@
                         <path d="M2.5 2.5h15v11h-15z"></path>
                         <path d="M5 2.5v2M15 2.5v2M5 11.5v2M15 11.5v2"></path>
                     </svg>
-                    <span>Preview Area</span>
+                    <span>Render Area</span>
                 </button>
+                <div class="render-area-options">
+                    <label class="check-row" for="render-area-follow-view">
+                        <span>Follow viewport</span>
+                        <input type="checkbox" id="render-area-follow-view" checked>
+                    </label>
+                    <button id="btn-render-area-from-view" type="button" data-requires-atoms>
+                        Set from Current View
+                    </button>
+                </div>
                 <div class="btn-stack-row two export-image-actions">
                     <button id="btn-export-image" data-requires-atoms>Image</button>
                     <button id="btn-export-video" data-requires-atoms disabled>Video</button>
@@ -1743,7 +1759,7 @@
                 <button id="btn-save-settings">Export Preset</button>
                 <button id="btn-load-settings">Import Preset</button>
             </div>
-            <input type="file" id="settings-file" class="hidden" accept=".json,.pkl,.pickle,application/json">
+            <input type="file" id="settings-file" class="hidden" accept=".json,.pkl,.pickle,.html,.htm,application/json,text/html">
             <div class="btn-stack-row">
                 <button id="btn-undo" title="Undo (Ctrl+Z)">↺</button>
                 <button id="btn-redo" title="Redo (Ctrl+Shift+Z)">↻</button>
@@ -1760,7 +1776,7 @@
             </div>
             <div>
                 <strong>HTML View</strong>
-                <span>A self-contained offline 3D viewer using the exact Preview Area crop. Lightweight view-only is the default; complete .vase recovery is optional.</span>
+                <span>A self-contained offline 3D viewer using the exact Render Area crop. Lightweight view-only is the default; complete .vase recovery is optional.</span>
             </div>
             <div>
                 <strong>ASE Pickle</strong>
@@ -1899,7 +1915,7 @@
                     <strong>v_ase Project (.vase)</strong>
                     <span>Complete working state: structures or trajectory, current frame, coordinates, cell, constraints, labels, cached results, and visual setup.</span>
                     <strong>HTML View / HTML Project</strong>
-                    <span>Both use the image/video Preview Area crop. HTML View is lightweight by default; HTML Project embeds complete .vase recovery by default.</span>
+                    <span>Both use the image/video Render Area crop. HTML View is lightweight by default; HTML Project embeds complete .vase recovery by default.</span>
                 </div>
                 <h3 class="help-section-title">License</h3>
                 <div class="help-save-grid">
@@ -1925,7 +1941,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.2.22&rev=1';
+            : './static/main.js?v=0.2.23&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

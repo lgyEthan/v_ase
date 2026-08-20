@@ -361,7 +361,11 @@ def test_image_export_has_exact_preview_and_option_modal_controls():
     assert "this.scene.background = null" in renderer_js
     assert "options.includeGrid !== false" in renderer_js
     assert "exportCameraSetup" in renderer_js
-    assert "const camera = this.camera.clone()" in renderer_js
+    assert "cameraFromSettings(settings, aspect = 1)" in renderer_js
+    assert "const configured = this.cameraFromSettings(options.camera, outputAspect)" in renderer_js
+    assert "interactionProjectionContext(clientX, clientY)" in renderer_js
+    assert 'id="render-area-follow-view"' in index_html
+    assert 'id="render-area-eye"' in index_html
     assert "camera.aspect = outputAspect" in renderer_js
     assert "const halfWidth = halfHeight * outputAspect" in renderer_js
     assert "offsetX = Math.floor" not in renderer_js
@@ -819,8 +823,8 @@ def test_camera_view_background_and_2d_display_controls_are_wired():
     assert "'roll-cw': { axis: basis.forward, sign: -1 }" in main_js
     assert "left: { axis: basis.up, sign: 1 }" in main_js
     assert "right: { axis: basis.up, sign: -1 }" in main_js
-    assert "up: { axis: basis.right, sign: -1 }" in main_js
-    assert "down: { axis: basis.right, sign: 1 }" in main_js
+    assert "up: { axis: basis.right, sign: 1 }" in main_js
+    assert "down: { axis: basis.right, sign: -1 }" in main_js
     assert 'id="view-arrow-orbit-shape"' in index_html
     assert 'id="view-arrow-orbit-highlight"' in index_html
     assert 'id="view-arrow-orbit-seam"' in index_html
@@ -859,6 +863,13 @@ def test_camera_view_background_and_2d_display_controls_are_wired():
     assert "vec3(0.012)" in renderer_js
     assert ".view-toolbar" in style_css
     assert ".view-arrow-btn" in style_css
+
+
+def test_native_file_picker_suppresses_the_trailing_enter_activation():
+    main_js = (ROOT / "v_ase/static/main.js").read_text()
+
+    assert "performance.now() < this.filePickerSuppressUntil" in main_js
+    assert "this.filePickerSuppressUntil = performance.now() + 750" in main_js
 
 
 def test_new_scientific_defaults_and_ai_control_contract_are_wired():

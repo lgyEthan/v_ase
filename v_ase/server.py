@@ -7,11 +7,13 @@ import pickle
 import io
 import html
 import json
+import logging
 import tempfile
 from collections import Counter
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from typing import Dict, Any, List
+from ase.io.formats import UnknownFileTypeError
 from .session import (
     append_session_frames,
     copy_atoms_with_calc,
@@ -115,6 +117,7 @@ import numpy as np
 from ase import Atom, Atoms
 from ase.build import make_supercell
 from ase.build.supercells import lattice_points_in_supercell
+from ase.calculators.singlepoint import SinglePointCalculator
 from ase.constraints import FixAtoms, FixCartesian, FixedLine, FixedPlane, FixScaled, Hookean
 from ase.data import atomic_numbers
 from ase.geometry import find_mic
@@ -210,6 +213,7 @@ _AI_COMMAND_DEFAULT_TIMEOUT_SECONDS = 300.0
 _AI_COMMAND_MAX_TIMEOUT_SECONDS = 1800.0
 _AI_COMMAND_CONNECT_TIMEOUT_SECONDS = 15.0
 _ai_command_waiters: Dict[str, asyncio.Future] = {}
+LOGGER = logging.getLogger(__name__)
 
 
 def _remove_temporary_file(path: str) -> None:
@@ -217,6 +221,63 @@ def _remove_temporary_file(path: str) -> None:
         os.unlink(path)
     except OSError:
         pass
+
+
+def _root_exception_message(exc: BaseException) -> str:
+    """Return the final useful exception line without exposing a traceback."""
+
+    root = exc
+    visited: set[int] = set()
+    while id(root) not in visited:
+        visited.add(id(root))
+        nested = root.__cause__ or root.__context__
+        if nested is None:
+            break
+        root = nested
+    lines = [line.strip() for line in str(root).splitlines() if line.strip()]
+    return lines[-1] if lines else root.__class__.__name__
+
+
+def _exception_chain_contains(exc: BaseException, kind: type[BaseException]) -> bool:
+    current: BaseException | None = exc
+    visited: set[int] = set()
+    while current is not None and id(current) not in visited:
+        if isinstance(current, kind):
+            return True
+        visited.add(id(current))
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _file_read_error_detail(action: str, display_name: str, exc: BaseException) -> str:
+    message = _root_exception_message(exc)
+    if _exception_chain_contains(exc, UnknownFileTypeError):
+        message = (
+            "Could not determine the file format. Choose a Reader explicitly "
+            "or use a recognized filename extension."
+        )
+    elif _exception_chain_contains(exc, FileNotFoundError):
+        message = "The selected file no longer exists or is not accessible at that path."
+    elif _exception_chain_contains(exc, PermissionError):
+        message = "Permission was denied while reading the selected file."
+    elif _exception_chain_contains(exc, IsADirectoryError):
+        message = "The selected path is a directory, not a structure file."
+    elif _exception_chain_contains(exc, UnicodeDecodeError):
+        message = (
+            "The file is not valid text for the selected Reader. "
+            "Choose the matching binary Reader or another file."
+        )
+    elif _exception_chain_contains(exc, EOFError):
+        message = "The file ended unexpectedly and may be empty, incomplete, or damaged."
+    return f"Could not {action} {display_name}: {message}"
+
+
+def _file_read_http_error(action: str, display_name: str, exc: BaseException) -> HTTPException:
+    LOGGER.exception("Could not %s %s", action, display_name, exc_info=exc)
+    return HTTPException(
+        status_code=400,
+        detail=_file_read_error_detail(action, display_name, exc),
+    )
 
 if FASTAPI_AVAILABLE:
     @app.exception_handler(ValueError)
@@ -1309,6 +1370,48 @@ AI_CONTROL_SCHEMA = {
                 },
             },
         },
+        "renderArea": {
+            "type": "object",
+            "description": (
+                "Persistent image, video, and HTML framing. Enable it to show "
+                "the render gate, follow the viewport while composing, or set "
+                "an independent camera that remains fixed while the scene changes."
+            ),
+            "additionalProperties": False,
+            "properties": {
+                "enabled": {"type": "boolean"},
+                "followViewport": {"type": "boolean"},
+                "fromCurrentView": {"type": "boolean"},
+                "camera": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "position": {
+                            "type": "array", "items": {"type": "number"},
+                            "minItems": 3, "maxItems": 3,
+                        },
+                        "target": {
+                            "type": "array", "items": {"type": "number"},
+                            "minItems": 3, "maxItems": 3,
+                        },
+                        "up": {
+                            "type": "array", "items": {"type": "number"},
+                            "minItems": 3, "maxItems": 3,
+                        },
+                        "projection": {"enum": ["orthographic", "perspective"]},
+                        "fov": {
+                            "type": "number", "exclusiveMinimum": 1,
+                            "exclusiveMaximum": 179,
+                        },
+                        "zoom": {"type": "number", "exclusiveMinimum": 0},
+                        "ortho_scale": {"type": "number", "exclusiveMinimum": 0},
+                        "near": {"type": "number", "exclusiveMinimum": 0},
+                        "far": {"type": "number", "exclusiveMinimum": 0},
+                        "aspect": {"type": "number", "exclusiveMinimum": 0},
+                    },
+                },
+            },
+        },
     },
 }
 
@@ -1503,9 +1606,14 @@ AI_OPERATION_PARAMETERS = {
         "notes": "Restores the complete pre-session structure and history state.",
     },
     "delete-selection": {
-        "mode": "edit",
+        "mode": "view-or-edit",
         "required": ["selection-or-indices"],
         "optional": ["indices"],
+        "notes": (
+            "View mode hides the exact selected visual instances without "
+            "changing ASE atoms. Edit mode deletes the corresponding base "
+            "atom indices from the physical structure."
+        ),
     },
     "set-identity": {
         "mode": "edit",
@@ -3159,6 +3267,98 @@ def delete_indices_from_atoms(atoms, delete_indices):
     return new_atoms
 
 
+def constraints_for_duplicated_atoms(atoms: Atoms, source_indices: List[int]):
+    """Copy constraints whose complete physical subject is duplicated."""
+
+    selected = sorted({int(index) for index in source_indices})
+    index_map = {
+        old_index: len(atoms) + new_offset
+        for new_offset, old_index in enumerate(selected)
+    }
+    duplicated = []
+    for constraint in atoms.constraints or []:
+        if isinstance(constraint, FixAtoms):
+            indices = [index_map[index] for index in _constraint_indices(constraint, len(atoms)) if index in index_map]
+            if indices:
+                duplicated.append(FixAtoms(indices=indices))
+        elif isinstance(constraint, FixCartesian):
+            indices = [index_map[index] for index in _constraint_indices(constraint, len(atoms)) if index in index_map]
+            if indices:
+                duplicated.append(FixCartesian(indices, mask=constraint.mask.tolist()))
+        elif isinstance(constraint, FixedLine):
+            indices = [index_map[index] for index in _constraint_indices(constraint, len(atoms)) if index in index_map]
+            if indices:
+                duplicated.append(FixedLine(indices, constraint.dir.tolist()))
+        elif isinstance(constraint, FixedPlane):
+            indices = [index_map[index] for index in _constraint_indices(constraint, len(atoms)) if index in index_map]
+            if indices:
+                duplicated.append(FixedPlane(indices, constraint.dir.tolist()))
+        elif isinstance(constraint, FixScaled):
+            indices = [index_map[index] for index in _constraint_indices(constraint, len(atoms)) if index in index_map]
+            if indices:
+                duplicated.append(FixScaled(indices, mask=constraint.mask.tolist()))
+        elif isinstance(constraint, Hookean) and constraint._type == "two atoms":
+            first, second = [int(value) for value in constraint.indices]
+            if first in index_map and second in index_map:
+                duplicated.append(Hookean(
+                    index_map[first],
+                    index_map[second],
+                    rt=constraint.threshold,
+                    k=constraint.spring,
+                ))
+        elif isinstance(constraint, Hookean) and constraint._type == "point":
+            index = int(constraint.index)
+            if index in index_map:
+                duplicated.append(Hookean(
+                    index_map[index],
+                    np.asarray(constraint.origin, dtype=float),
+                    rt=constraint.threshold,
+                    k=constraint.spring,
+                ))
+        elif isinstance(constraint, Hookean) and constraint._type == "plane":
+            index = int(constraint.index)
+            if index in index_map:
+                duplicated.append(Hookean(
+                    index_map[index],
+                    constraint.plane,
+                    rt=constraint.threshold,
+                    k=constraint.spring,
+                ))
+    return duplicated
+
+
+def duplicate_indices_in_atoms(atoms: Atoms, source_indices: List[int]) -> tuple[Atoms, list[int]]:
+    """Duplicate atoms in place, retaining every per-atom ASE array and constraint."""
+
+    indices = sorted({int(index) for index in source_indices})
+    if not indices:
+        return atoms.copy(), []
+    if indices[0] < 0 or indices[-1] >= len(atoms):
+        raise HTTPException(status_code=400, detail="Duplicate indices are out of range.")
+
+    duplicated_constraints = constraints_for_duplicated_atoms(atoms, indices)
+    duplicate = atoms[indices]
+    duplicate.set_constraint()
+    result = atoms.copy()
+    original_constraints = list(result.constraints or [])
+    result.set_constraint()
+    result.extend(duplicate)
+    result.set_constraint([*original_constraints, *duplicated_constraints])
+    if isinstance(atoms.calc, SinglePointCalculator):
+        copied_results = {}
+        for name, value in atoms.calc.results.items():
+            if isinstance(value, np.ndarray):
+                copied = np.asarray(value).copy()
+                if copied.ndim >= 1 and copied.shape[0] == len(atoms):
+                    copied = np.concatenate([copied, copied[indices]], axis=0)
+                    copied_results[name] = copied
+        if copied_results:
+            result.calc = SinglePointCalculator(result, **copied_results)
+    elif atoms.calc:
+        result.calc = copy_calculator(atoms.calc)
+    return result, list(range(len(atoms), len(result)))
+
+
 def inferred_base_symbol_for_label(label) -> str | None:
     normalized = normalize_atom_type_label(label)
     if normalized in atomic_numbers:
@@ -4253,7 +4453,12 @@ async def _replace_session_from_file(
     volumetric_precision: str = "float32",
     runtime_mode: str | None = None,
 ) -> tuple[Dict[str, Any], bool]:
-    from .io import read_fast_lammps_dump, read_structure_frames, resolve_input_format
+    from .io import (
+        read_fast_lammps_dump,
+        read_indexed_trajectory,
+        read_structure_frames,
+        resolve_input_format,
+    )
 
     requested_mode = None
     if runtime_mode is not None and str(runtime_mode).strip():
@@ -4332,6 +4537,41 @@ async def _replace_session_from_file(
             )
             session.cleanup_temporary_files()
             replace_session_frames(session, frames)
+        loaded_kind = "trajectory" if session.frame_count > 1 else "structure"
+    elif is_viz_only(session):
+        try:
+            indexed = await asyncio.to_thread(
+                read_indexed_trajectory,
+                source_path,
+                index,
+                format_hint,
+            )
+        except ValueError as exc:
+            LOGGER.info(
+                "Indexed trajectory loading is unavailable for %s; "
+                "falling back to the general ASE reader: %s",
+                display_name,
+                exc,
+            )
+            indexed = None
+        if indexed is None:
+            frames = await asyncio.to_thread(
+                read_structure_frames, source_path, index, format_hint
+            )
+            session.cleanup_temporary_files()
+            replace_session_frames(session, frames)
+        else:
+            session.cleanup_temporary_files()
+            replace_session_frames(
+                session,
+                [indexed.atoms],
+                trajectory_source=indexed.trajectory,
+                current_frame=indexed.initial_frame,
+            )
+            if source_is_temporary:
+                source_text = str(source_path)
+                session.temporary_files.add(source_text)
+                keep_source = True
         loaded_kind = "trajectory" if session.frame_count > 1 else "structure"
     else:
         frames = await asyncio.to_thread(
@@ -4553,8 +4793,8 @@ async def load_structure_file(
         return data
     except HTTPException:
         raise
-    except (TypeError, ValueError, KeyError, OSError) as exc:
-        raise HTTPException(status_code=400, detail=f"Could not load {display_name}: {exc}") from exc
+    except Exception as exc:
+        raise _file_read_http_error("load", display_name, exc) from exc
     finally:
         if not keep_temporary_file:
             _remove_temporary_file(tmp_path)
@@ -4591,8 +4831,8 @@ async def load_structure_path(session_id: str, payload: Dict[str, Any]):
         return data
     except HTTPException:
         raise
-    except (TypeError, ValueError, KeyError, OSError) as exc:
-        raise HTTPException(status_code=400, detail=f"Could not load {display_name}: {exc}") from exc
+    except Exception as exc:
+        raise _file_read_http_error("load", display_name, exc) from exc
 
 
 @app.post("/api/file/append/{session_id}")
@@ -4621,8 +4861,8 @@ async def append_structure_file(
         )
     except HTTPException:
         raise
-    except (TypeError, ValueError, KeyError, OSError) as exc:
-        raise HTTPException(status_code=400, detail=f"Could not append {display_name}: {exc}") from exc
+    except Exception as exc:
+        raise _file_read_http_error("append", display_name, exc) from exc
     finally:
         _remove_temporary_file(tmp_path)
 
@@ -4654,8 +4894,8 @@ async def append_structure_path(session_id: str, payload: Dict[str, Any]):
         )
     except HTTPException:
         raise
-    except (TypeError, ValueError, KeyError, OSError) as exc:
-        raise HTTPException(status_code=400, detail=f"Could not append {display_name}: {exc}") from exc
+    except Exception as exc:
+        raise _file_read_http_error("append", display_name, exc) from exc
 
 
 @app.post("/api/volumetric/difference/{session_id}")
@@ -5225,8 +5465,29 @@ async def save_visual_settings(session_id: str, payload: Dict[str, Any]):
 async def load_visual_settings(session_id: str, request: Request):
     get_session(session_id)
     raw = await request.body()
-    if len(raw) > 8 * 1024 * 1024:
+    if len(raw) > 512 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Visual settings file is too large.")
+    stripped = raw.lstrip()
+    if stripped.startswith((b"<!doctype html", b"<html")) or b'v-ase-project-data' in raw[:2 * 1024 * 1024]:
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as temporary:
+                temporary.write(raw)
+                temporary_path = temporary.name
+            project = read_project_html(temporary_path)
+            return {
+                "schema": SETTINGS_SCHEMA,
+                "settings": normalize_visual_settings(project.settings),
+            }
+        except (OSError, TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"This HTML file does not contain an importable v_ase project preset: {exc}",
+            ) from exc
+        finally:
+            if temporary_path:
+                with suppress(OSError):
+                    Path(temporary_path).unlink()
     try:
         data = json.loads(raw.decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -5556,6 +5817,30 @@ async def delete_atoms(session_id: str, payload: Dict[str, Any]):
     session.sync_current_frame()
     session.refresh_trajectory_identity()
     return session_update_to_json(session)
+
+
+@app.post("/api/duplicate/{session_id}")
+async def duplicate_atoms(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(session, "Duplicating atoms")
+    require_no_atom_addition(session, "duplicating atoms")
+    sync_session_frame_from_payload(session, payload)
+    indices = payload.get("indices", [])
+    if not indices:
+        return session_update_to_json(session)
+
+    session.push_history()
+    session.working_atoms, new_indices = duplicate_indices_in_atoms(
+        session.working_atoms,
+        indices,
+    )
+    session.config["empty_workspace"] = False
+    session.invalidate_trajectory_layout()
+    session.sync_current_frame()
+    session.refresh_trajectory_identity()
+    data = session_update_to_json(session)
+    data["duplicated_indices"] = new_indices
+    return data
 
 
 @app.post("/api/atom-identity/{session_id}")

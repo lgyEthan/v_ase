@@ -651,7 +651,12 @@ def replace_session_frames(
     attach_default = not bool((session.config or {}).get("viz_only", False))
     original_frames = [copy_atoms_with_calc(frame, attach_default=attach_default) for frame in frames]
     working_frames = [copy_atoms_with_calc(frame, attach_default=attach_default) for frame in frames]
-    frame_index = max(0, min(int(current_frame), len(working_frames) - 1))
+    available_frames = (
+        int(trajectory_source.frame_count)
+        if trajectory_source is not None
+        else len(working_frames)
+    )
+    frame_index = max(0, min(int(current_frame), available_frames - 1))
 
     session.original_frames = original_frames
     session.trajectory_frames = working_frames
@@ -665,7 +670,12 @@ def replace_session_frames(
     session.registry_relaxation = None
     session.current_frame = frame_index
     session.original_atoms = copy_atoms_with_calc(original_frames[0], attach_default=attach_default)
-    session.working_atoms = copy_atoms_with_calc(working_frames[frame_index], attach_default=attach_default)
+    source_atoms = (
+        trajectory_source.read_atoms(frame_index)
+        if trajectory_source is not None and frame_index >= len(working_frames)
+        else working_frames[frame_index]
+    )
+    session.working_atoms = copy_atoms_with_calc(source_atoms, attach_default=attach_default)
     session.result_atoms = None
     session.history.clear()
     session.redo_stack.clear()

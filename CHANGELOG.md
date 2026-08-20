@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.2.23
+
+- Added byte-offset, on-demand View-mode readers for VASP XDATCAR and native
+  ASE trajectories. Remote sessions now transfer only the active frame while
+  retaining a compatibility fallback for uncommon headers and older formats.
+- Replaced generic file-load failures with concise reader diagnostics for
+  unknown formats, missing files, permissions, directories, invalid text, and
+  incomplete data.
+- Added a complete flat 2D viewport mode for atoms, bonds, vectors, cell and
+  insertion-region edges, including adaptive outlines and an X mark on
+  FixAtoms, with lighting and 3D materials disabled automatically.
+- Rebuilt export framing as a persistent Render Area with an independent
+  camera, gray outside mask, exact pointer projection, viewport-follow mode,
+  and an Edit-mode eye object movable with `G`.
+- Made copy/paste preserve exact coordinates, labels, all per-atom arrays,
+  compatible constraints, per-atom calculator results, and visual materials.
+- Centered displayed supercells across View/Edit switches. View replicas now
+  accept appearance edits and exact-instance hiding; Edit replicas remain
+  opaque and map click or box selection back to unique base atoms.
+- Kept lighting, Render Area transforms, appearance edits, and analysis
+  refreshes responsive during trajectory playback; corrected screen-relative
+  toolbar tilt directions and added overflow-safe compact toolbar behavior.
+- Added project-embedded HTML support to Import Preset and synchronized the
+  live Agent schema with Render Area control and View-mode visual deletion.
+
 ## 0.2.22
 
 - Kept active radial and finite pair-distribution plots open and synchronized

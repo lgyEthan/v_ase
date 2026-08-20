@@ -1,4 +1,5 @@
 import base64
+import asyncio
 import io
 import json
 from pathlib import Path
@@ -16,7 +17,8 @@ from playwright.sync_api import sync_playwright
 from v_ase.export import HTML_VIEW_SCHEMA, export_html_response
 from v_ase.io import set_atom_labels
 from v_ase.project import read_project_archive, read_project_html
-from v_ase.session import EditorSession
+from v_ase.server import load_visual_settings
+from v_ase.session import EditorSession, sessions
 from v_ase.viewer import find_free_port, view
 
 
@@ -27,6 +29,14 @@ def _embedded_base64(html, element_id):
     )
     assert match, f"Missing embedded payload {element_id}"
     return "".join(match.group(1).split())
+
+
+class _BodyRequest:
+    def __init__(self, body):
+        self._body = body
+
+    async def body(self):
+        return self._body
 
 
 def _html_export_fixture(*, embed_project=True, atom_colorscale=False, view_identity=False):
@@ -242,6 +252,29 @@ def test_html_export_is_self_contained_and_embeds_lossless_vase(tmp_path):
     np.testing.assert_allclose(project.frames[1].positions, second.positions)
     assert project.frames[1].constraints
     assert project.frames[1].get_potential_energy() == pytest.approx(-1.40)
+
+
+def test_project_embedded_html_can_be_imported_as_a_visual_preset():
+    response, _, settings = _html_export_fixture(embed_project=True)
+    session = EditorSession(
+        "html-settings-import",
+        Atoms("H"),
+        Atoms("H"),
+        config={"viz_only": True},
+    )
+    sessions[session.session_id] = session
+    try:
+        loaded = asyncio.run(load_visual_settings(
+            session.session_id,
+            _BodyRequest(response.body),
+        ))
+    finally:
+        sessions.pop(session.session_id, None)
+
+    assert loaded["schema"] == "v_ase.visual_settings.v3"
+    assert loaded["settings"]["display"]["supercell"] == [2, 1, 1]
+    assert loaded["settings"]["display"]["lightingMode"] == "studio-shadow"
+    assert loaded["settings"]["camera"]["position"] == settings["camera"]["position"]
 
 
 def test_lightweight_html_omits_project_recovery_and_is_smaller(tmp_path):

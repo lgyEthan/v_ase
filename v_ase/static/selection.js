@@ -8,16 +8,18 @@ export class ASESelection {
         this.startPoint = new THREE.Vector2();
     }
 
-    getMouse(e) {
-        return new THREE.Vector2(
-            (e.clientX / window.innerWidth) * 2 - 1,
-            -(e.clientY / window.innerHeight) * 2 + 1
-        );
+    projectionContext(e) {
+        return this.renderer.interactionProjectionContext(e.clientX, e.clientY);
+    }
+
+    getMouse(e, context = null) {
+        return this.renderer.pointerNdc(e, context || this.projectionContext(e));
     }
 
     pick(e, atomGroup, supercellGroup = null, includeReplicas = false) {
-        const mouse = this.getMouse(e);
-        this.raycaster.setFromCamera(mouse, this.renderer.camera);
+        const context = this.projectionContext(e);
+        const mouse = this.getMouse(e, context);
+        this.raycaster.setFromCamera(mouse, context.camera);
 
         const repeatedAtoms = includeReplicas
             ? (supercellGroup?.children || [])
@@ -38,12 +40,13 @@ export class ASESelection {
             }
         }
         if ((this.renderer.atomMeshByIndex?.size || 0) > 2000) return null;
-        return this.nearestProjectedAtom(e, atomGroup);
+        return this.nearestProjectedAtom(e, atomGroup, context);
     }
 
     pickHover(e, atomGroup, supercellGroup) {
-        const mouse = this.getMouse(e);
-        this.raycaster.setFromCamera(mouse, this.renderer.camera);
+        const context = this.projectionContext(e);
+        const mouse = this.getMouse(e, context);
+        this.raycaster.setFromCamera(mouse, context.camera);
         const repeatedAtoms = (supercellGroup?.children || [])
             .filter(object => object.userData?.supercellInstanced && object.visible !== false);
         const candidates = [...atomGroup.children, ...repeatedAtoms];
@@ -60,21 +63,22 @@ export class ASESelection {
             if (hit.object.userData.index !== undefined) return hit.object.userData.index;
         }
         if ((this.renderer.atomMeshByIndex?.size || 0) > 2000) return null;
-        return this.nearestProjectedAtom(e, atomGroup);
+        return this.nearestProjectedAtom(e, atomGroup, context);
     }
 
-    nearestProjectedAtom(e, atomGroup) {
+    nearestProjectedAtom(e, atomGroup, context = this.projectionContext(e)) {
         let best = null;
         const tolerance = 24;
         const pos = new THREE.Vector3();
         this.renderer.forEachAtomProxy((mesh, index) => {
-            if (mesh.visible === false || !this.renderer.atomLabelVisible(index)) return;
+            if (
+                mesh.visible === false
+                || !this.renderer.atomReferenceVisible(index)
+            ) return;
             pos.copy(mesh.position);
-            const screenPos = pos.project(this.renderer.camera);
+            const screenPos = this.renderer.projectWorldToClient(pos, context);
             if (screenPos.z > 1 || screenPos.z < -1) return;
-            const x = (screenPos.x + 1) / 2 * window.innerWidth;
-            const y = -(screenPos.y - 1) / 2 * window.innerHeight;
-            const dist = Math.hypot(e.clientX - x, e.clientY - y);
+            const dist = Math.hypot(e.clientX - screenPos.x, e.clientY - screenPos.y);
             if (dist <= tolerance && (!best || dist < best.dist)) {
                 best = { index, dist };
             }
@@ -86,22 +90,24 @@ export class ASESelection {
     boxSelect(rect, atomGroup, camera, supercellGroup = null, includeReplicas = false) {
         const selected = new Set();
         const pos = new THREE.Vector3();
+        const context = this.renderer.interactionProjectionContext(
+            (rect.left + rect.right) * 0.5,
+            (rect.top + rect.bottom) * 0.5
+        );
         
         this.renderer.forEachAtomProxy((mesh, index) => {
-            if (mesh.visible === false || !this.renderer.atomLabelVisible(index)) return;
+            if (
+                mesh.visible === false
+                || !this.renderer.atomReferenceVisible(index)
+            ) return;
             pos.copy(mesh.position);
-            
-            // Project to screen space
-            const screenPos = pos.project(camera);
-            
-            // Check if behind camera
+            const screenPos = this.renderer.projectWorldToClient(pos, context);
             if (screenPos.z > 1 || screenPos.z < -1) return;
-            
-            // Convert to CSS pixels
-            const x = (screenPos.x + 1) / 2 * window.innerWidth;
-            const y = -(screenPos.y - 1) / 2 * window.innerHeight;
 
-            if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+            if (
+                screenPos.x >= rect.left && screenPos.x <= rect.right
+                && screenPos.y >= rect.top && screenPos.y <= rect.bottom
+            ) {
                 selected.add(index);
             }
         });
@@ -113,14 +119,18 @@ export class ASESelection {
                 mesh.updateMatrixWorld(true);
                 for (let instanceId = 0; instanceId < mesh.count; instanceId++) {
                     const reference = this.renderer.supercellAtomReference(mesh, instanceId);
-                    if (!reference || !this.renderer.atomLabelVisible(reference.index)) continue;
+                    if (
+                        !reference
+                        || !this.renderer.atomReferenceVisible(reference.index, reference.cellOffset)
+                    ) continue;
                     mesh.getMatrixAt(instanceId, matrix);
                     pos.setFromMatrixPosition(matrix).applyMatrix4(mesh.matrixWorld);
-                    const screenPos = pos.clone().project(camera);
+                    const screenPos = this.renderer.projectWorldToClient(pos, context);
                     if (screenPos.z > 1 || screenPos.z < -1) continue;
-                    const x = (screenPos.x + 1) / 2 * window.innerWidth;
-                    const y = -(screenPos.y - 1) / 2 * window.innerHeight;
-                    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+                    if (
+                        screenPos.x >= rect.left && screenPos.x <= rect.right
+                        && screenPos.y >= rect.top && screenPos.y <= rect.bottom
+                    ) {
                         selected.add(reference);
                     }
                 }

@@ -158,6 +158,16 @@ if (configured.camera.projection !== "orthographic") {
   await applyCurrent({camera: {projection: "orthographic", fit: "structure"}});
 }
 
+await applyCurrent({renderArea: {
+  enabled: true,
+  followViewport: false,
+  fromCurrentView: true
+}});
+const framed = await ai.describe({includePositions: false});
+if (!framed.renderArea.enabled || framed.renderArea.followViewport) {
+  throw new Error("The independent Render Area was not locked.");
+}
+
 const image = await ai.render({
   format: "webp",
   width: 3840,
@@ -1305,6 +1315,14 @@ physical coordinates. Use `[0,0,0]` to remove it.
 Use `set-supercell` only when the user explicitly wants new atoms and a
 materialized larger cell. It changes topology in every frame and requires Edit
 mode.
+
+View replicas remain independent visual references. To hide only one displayed
+image without changing ASE topology, select its exact `cellOffset`, run
+`delete-selection`, and verify the resulting key in
+`display.hiddenAtomReferences`. Structural analyses still use the complete ASE
+structure and therefore require the GUI warning to be acknowledged. If the
+user instead authorizes physical deletion, switch to Edit and delete the
+deduplicated base index.
 
 ## Collaborate And Share
 

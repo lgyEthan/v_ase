@@ -16,6 +16,7 @@ from ase.io import write
 from v_ase._version import __version__
 from v_ase.io import (
     read_fast_lammps_dump,
+    read_indexed_trajectory,
     read_structure_frames,
     resolve_input_format,
 )
@@ -501,6 +502,22 @@ def run_gui(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
                 frames = read_structure_frames(path, args.index, args.format)
+        elif viz_only and args.stream_frames:
+            try:
+                indexed = read_indexed_trajectory(path, args.index, args.format)
+            except ValueError as exc:
+                print(
+                    f"v_ase: indexed trajectory loader unavailable ({exc}); "
+                    "falling back to the compatible loader.",
+                    file=sys.stderr,
+                )
+                indexed = None
+            if indexed is None:
+                frames = read_structure_frames(path, args.index, args.format)
+            else:
+                frames = [indexed.atoms]
+                trajectory_source = indexed.trajectory
+                initial_frame = indexed.initial_frame
         else:
             frames = read_structure_frames(path, args.index, args.format)
     if not frames:

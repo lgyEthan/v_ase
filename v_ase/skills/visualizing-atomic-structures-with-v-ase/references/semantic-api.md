@@ -66,7 +66,7 @@ v_ase api "$COMMAND_URL" describe \
 count, labels, ASE elements, atomic numbers, positions, cell, PBC, constraints,
 forces, calculator attachment/name/details, charges, tags, magnetic moments,
 selection references, measurements, display settings, camera, image export
-profile, `preferences.interfaceTheme`,
+profile, persistent `renderArea`, `preferences.interfaceTheme`,
 `preferences.personalVisualDefaults`, `analysis.volumetricDatasets`, the
 current RDF summary, and `collaboration.revision`.
 
@@ -90,6 +90,7 @@ count, and render dimensions where applicable.
 | `quality` | Anti-aliasing and sphere quality |
 | `applyConstraints` | Enable or disable constraint enforcement |
 | `camera` | Projection, axis, explicit camera, fit, or screen orbit |
+| `renderArea` | Enable, follow, capture, or explicitly set the persistent export camera |
 | `selection` | Replace or extend atom/replica selection |
 | `operation` | One semantic structure or analysis operation |
 
@@ -139,6 +140,28 @@ await ai.apply({
 });
 ```
 
+### Persistent Render Area
+
+Image, video, and standalone HTML share one independently stored Render Area
+camera. Capture the current viewport and then keep it fixed while the human
+continues editing or orbiting the working view:
+
+```javascript
+await ai.apply({
+  renderArea: {
+    enabled: true,
+    followViewport: false,
+    fromCurrentView: true
+  }
+});
+```
+
+Set `followViewport:true` while composing, or provide an explicit
+`renderArea.camera` with `position`, `target`, `up`, `projection`, and the
+matching projection fields. `describe().renderArea` reports `enabled`,
+`followViewport`, camera, width, and height. The GUI gray mask and pointer
+projection use that same camera; never infer the crop from a page screenshot.
+
 Directions are `left`, `right`, `up`, `down`, `roll-cw`, and `roll-ccw`.
 Camera navigation does not enter undo history. `undo` and `redo` are reserved
 for structure mutations and visualization settings.
@@ -164,6 +187,13 @@ await ai.apply({
   }
 });
 ```
+
+In View, `delete-selection` stores the exact selected reference keys in
+`display.hiddenAtomReferences`; matching visual atoms and bonds become hidden
+and non-interactive, but ASE topology and structural analysis remain complete.
+In Edit, periodic replica selection is mapped and deduplicated to base atom
+indices, and `delete-selection` physically removes those atoms. Obtain human
+intent before crossing from visual hiding to physical deletion.
 
 Measurements are ordered:
 
@@ -206,7 +236,7 @@ Pass `operation` as a name string or object:
 | `stop-added-atoms` | none | Request optimizer stop while retaining current staged positions |
 | `finish-add-atoms` | none | Commit staged atoms after optimization is inactive |
 | `cancel-add-atoms` | none | Restore the exact structure and history from before scattering |
-| `delete-selection` | selection or `indices` | Delete and remap constraints |
+| `delete-selection` | selection or `indices` | View: hide exact visual references only. Edit: delete unique base atoms and remap constraints |
 | `set-identity` | selection/`indices`, `label`, optional `element` | Set visual label and optional ASE element |
 | `set-constraints` | selection/`indices`; `fixAtoms`; `kind` = `fixed_line`/`fixed_plane`; `vector`; `clearDirectional` | Edit supported constraints |
 | `move-selection` | `vector` | Translate selected atoms |
@@ -841,7 +871,14 @@ Atom settings:
 | `labelVisible` | `{label: boolean}` |
 | `labelMaterials` | `{label: "standard"|"metal"|"rubber"}` |
 | `atomMaterials` | `{atomIndex: material}` in Edit |
-| `atomDisplayMode` | `"3d"` or `"2d"` |
+| `atomDisplayMode` | `"3d"` materials or complete `"2d"` flat scene |
+
+In `"2d"`, atom colors/radii and depth ordering remain authoritative, but
+lighting and material response are disabled. Background-aware outlines are
+applied to atoms/bonds, FixAtoms receives an X, and vectors, cell edges, and
+insertion-region edges use flat camera-facing geometry. Switching back to
+`"3d"` restores the stored material and lighting settings without a backend
+structure mutation.
 
 Bond settings:
 
@@ -1344,7 +1381,7 @@ embedded mode, also verify `window.v_aseStandalone.hasEmbeddedProject` and
 reopen the written file with `v_ase gui FILE.html`.
 The document also carries the exact rendered frame as a static poster, so
 macOS Finder/Quick Look can preview it without executing JavaScript. The poster
-contains only the Preview Area frame: no v_ase logo, header, page margin, or
+contains only the Render Area frame: no v_ase logo, header, page margin, or
 decorative border. Its optimized high-resolution raster and the adaptive
 device-pixel-ratio WebGL canvas share one integer-sized viewport. In a browser
 the first completed live frame automatically cross-fades over the poster

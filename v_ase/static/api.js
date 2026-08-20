@@ -236,6 +236,7 @@ export class ASEApi {
             '/api/reset-coordinates/',
             '/api/wrap/',
             '/api/add/',
+            '/api/duplicate/',
             '/api/add-session/start/',
             '/api/delete/',
             '/api/atom-identity/',
@@ -694,6 +695,29 @@ export class ASEApi {
             this.mockState.atoms.metadata.natoms = this.mockState.atoms.positions.length;
             return await this.mockResponse(this.mockState.atoms);
         }
+        if (path.includes('/api/duplicate/')) {
+            const payload = JSON.parse(options.body || '{}');
+            const indices = [...new Set((payload.indices || []).map(Number))]
+                .filter(index => index >= 0 && index < this.mockState.atoms.positions.length)
+                .sort((a, b) => a - b);
+            this.mockPushHistory();
+            const start = this.mockState.atoms.positions.length;
+            for (const index of indices) {
+                this.mockState.atoms.symbols.push(this.mockState.atoms.symbols[index]);
+                this.mockState.atoms.chemical_symbols.push(this.mockState.atoms.chemical_symbols[index]);
+                this.mockState.atoms.positions.push([...this.mockState.atoms.positions[index]]);
+                this.mockState.atoms.forces.push([...(this.mockState.atoms.forces[index] || [0, 0, 0])]);
+                this.mockState.atoms.tags.push(this.mockState.atoms.tags[index] || 0);
+                this.mockState.atoms.charges.push(this.mockState.atoms.charges[index] || 0);
+                this.mockState.atoms.magmoms.push(this.mockState.atoms.magmoms[index] || 0);
+            }
+            this.mockState.atoms.visual = this.mockVisualForSymbols(this.mockState.atoms.chemical_symbols);
+            this.mockState.atoms.metadata.natoms = this.mockState.atoms.positions.length;
+            return {
+                ...await this.mockResponse(this.mockState.atoms),
+                duplicated_indices: indices.map((_, offset) => start + offset)
+            };
+        }
         if (path.includes('/api/delete/')) {
             const payload = JSON.parse(options.body || '{}');
             const deleted = new Set((payload.indices || []).map(Number));
@@ -987,6 +1011,13 @@ export class ASEApi {
         const payload = { symbols, positions };
         if (baseSymbols) payload.base_symbols = baseSymbols;
         return await this.jsonPost(`/api/add/{session_id}`, this.framePayload(payload));
+    }
+
+    async duplicateAtoms(indices) {
+        return await this.jsonPost(
+            `/api/duplicate/{session_id}`,
+            this.framePayload({ indices })
+        );
     }
 
     async atomAdditionMoleculeCatalog() {

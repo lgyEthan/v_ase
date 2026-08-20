@@ -9,6 +9,15 @@ function numberArrayEqual(first = [], second = []) {
     return true;
 }
 
+function stringArrayEqual(first = [], second = []) {
+    if (first === second) return true;
+    if (first.length !== second.length) return false;
+    for (let index = 0; index < first.length; index++) {
+        if (String(first[index]) !== String(second[index])) return false;
+    }
+    return true;
+}
+
 function flatPairArrayEqual(first = [], second = []) {
     if (first === second) return true;
     if (first.length !== second.length) return false;
@@ -488,6 +497,8 @@ export class ASERenderer {
         };
         this.previewRenderCount = 0;
         this.lastExportPreview = null;
+        this.exportPreviewCamera = null;
+        this.exportPreviewTarget = null;
 
         this.controls = new BlenderTumbleControls(this.camera, this.renderer.domElement);
         this.controls.onChange = () => {
@@ -558,6 +569,10 @@ export class ASERenderer {
         this.sunShadowBoundsCache = null;
         this.onLightingChange = null;
 
+        this.renderAreaGizmoGroup = this.buildRenderAreaGizmo();
+        this.scene.add(this.renderAreaGizmoGroup);
+        this.renderAreaRaycaster = new THREE.Raycaster();
+
         this.viewportGuides = this.buildViewportGuides();
         this.gridGroup = this.viewportGuides.gridGroup;
         this.axesHelper = this.viewportGuides.axisGroup;
@@ -575,6 +590,7 @@ export class ASERenderer {
         this.cellGroup = new THREE.Group();
         this.scene.add(this.cellGroup);
         this.addAtomsRegionGroup = new THREE.Group();
+        this.addAtomsRegionConfiguration = null;
         this.addAtomsRegionGroup.name = 'v_ase_add_atoms_region';
         this.scene.add(this.addAtomsRegionGroup);
         this.bondGroup = new THREE.Group();
@@ -656,6 +672,7 @@ export class ASERenderer {
             labelVisible: {},
             labelMaterials: {},
             atomMaterials: {},
+            hiddenAtomReferences: [],
             rotatePivot: 'selection',
             commensurateGuide: false,
             commensurateSnap: false,
@@ -709,6 +726,7 @@ export class ASERenderer {
         this.supercellBridgeBondRecords = [];
         this.cellEdgeGeometry = new THREE.CylinderGeometry(1, 1, 1, 10, 1, false);
         this.cellEdgeDummy = new THREE.Object3D();
+        this.cellEdgeCameraSignature = '';
         this.bondCylinderGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 16);
         this.bondFlatGeometry = new THREE.PlaneGeometry(1, 1);
         this.displacementConeGeometry = new THREE.ConeGeometry(0.5, 1, 12);
@@ -917,6 +935,14 @@ export class ASERenderer {
                 depthTest: true,
                 depthWrite: false
             }),
+            hookeanFlat: new THREE.MeshBasicMaterial({
+                color: 0xff9f43,
+                transparent: true,
+                opacity: 0.92,
+                depthTest: true,
+                depthWrite: false,
+                toneMapped: false
+            }),
             hookeanInactive: new THREE.MeshBasicMaterial({
                 color: 0x8fb7ff,
                 transparent: true,
@@ -1060,6 +1086,121 @@ export class ASERenderer {
         return group;
     }
 
+    buildRenderAreaGizmo() {
+        const group = new THREE.Group();
+        group.name = 'v_ase_render_area_eye';
+        group.visible = false;
+        group.renderOrder = 140;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 160;
+        canvas.height = 112;
+        const context = canvas.getContext('2d');
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.lineWidth = 8;
+        context.lineCap = 'round';
+        context.lineJoin = 'round';
+        context.strokeStyle = '#69dfc7';
+        context.fillStyle = 'rgba(17, 31, 31, 0.82)';
+        context.beginPath();
+        context.moveTo(12, 56);
+        context.bezierCurveTo(44, 10, 116, 10, 148, 56);
+        context.bezierCurveTo(116, 102, 44, 102, 12, 56);
+        context.closePath();
+        context.fill();
+        context.stroke();
+        context.beginPath();
+        context.arc(80, 56, 22, 0, Math.PI * 2);
+        context.fillStyle = '#69dfc7';
+        context.fill();
+        context.beginPath();
+        context.arc(80, 56, 9, 0, Math.PI * 2);
+        context.fillStyle = '#10201f';
+        context.fill();
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.needsUpdate = true;
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            transparent: true,
+            depthTest: false,
+            depthWrite: false,
+            sizeAttenuation: true
+        });
+        const eye = new THREE.Sprite(material);
+        eye.name = 'v_ase_render_area_eye_handle';
+        eye.userData.renderAreaEye = true;
+        eye.renderOrder = 142;
+
+        const directionMaterial = new THREE.LineDashedMaterial({
+            color: 0x69dfc7,
+            transparent: true,
+            opacity: 0.54,
+            dashSize: 0.22,
+            gapSize: 0.16,
+            depthTest: false,
+            depthWrite: false
+        });
+        const direction = new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(10, 10, 10),
+                new THREE.Vector3(0, 0, 0)
+            ]),
+            directionMaterial
+        );
+        direction.name = 'v_ase_render_area_direction';
+        direction.renderOrder = 139;
+        direction.computeLineDistances();
+        group.add(direction, eye);
+        group.userData = { eye, direction };
+        return group;
+    }
+
+    setRenderAreaGizmo(cameraSettings, { visible = false, selected = false } = {}) {
+        const group = this.renderAreaGizmoGroup;
+        if (!group) return;
+        group.visible = Boolean(visible && cameraSettings);
+        if (!group.visible) {
+            this.requestRender();
+            return;
+        }
+        const position = new THREE.Vector3(...cameraSettings.position);
+        const target = new THREE.Vector3(...cameraSettings.target);
+        const { eye, direction } = group.userData;
+        eye.position.copy(position);
+        eye.material.color.set(selected ? 0xffc857 : 0xffffff);
+        const attribute = direction.geometry.getAttribute('position');
+        attribute.setXYZ(0, position.x, position.y, position.z);
+        attribute.setXYZ(1, target.x, target.y, target.z);
+        attribute.needsUpdate = true;
+        direction.geometry.computeBoundingSphere();
+        direction.computeLineDistances();
+        direction.material.color.set(selected ? 0xffc857 : 0x69dfc7);
+        this.updateRenderAreaGizmoScale();
+        this.requestRender();
+    }
+
+    updateRenderAreaGizmoScale() {
+        if (!this.renderAreaGizmoGroup?.visible) return;
+        const eye = this.renderAreaGizmoGroup.userData.eye;
+        const scale = Math.max(0.42, this.sunWorldPerPixel(eye.position) * 64);
+        eye.scale.set(scale * 1.42, scale, 1);
+    }
+
+    pickRenderAreaEye(event) {
+        if (!this.renderAreaGizmoGroup?.visible || !event) return false;
+        const rect = this.domElement.getBoundingClientRect();
+        const pointer = new THREE.Vector2(
+            ((event.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1,
+            -((event.clientY - rect.top) / Math.max(1, rect.height)) * 2 + 1
+        );
+        this.renderAreaRaycaster.setFromCamera(pointer, this.camera);
+        return this.renderAreaRaycaster.intersectObject(
+            this.renderAreaGizmoGroup.userData.eye,
+            false
+        ).length > 0;
+    }
+
     normalizedLightingVector(value, fallback) {
         if (!Array.isArray(value) || value.length < 3) return [...fallback];
         return value.slice(0, 3).map((component, index) => {
@@ -1132,6 +1273,7 @@ export class ASERenderer {
         const mode = ['studio', 'studio-shadow'].includes(options.lightingMode)
             ? options.lightingMode
             : 'modeling';
+        const flatDisplay = this.atomDisplayMode() === '2d';
         const intensity = Math.max(0, Number(options.sunIntensity ?? this.lightingOptions?.sunIntensity ?? 2.2));
         const position = this.normalizedLightingVector(
             options.sunPosition || this.lightingOptions?.sunPosition,
@@ -1151,8 +1293,8 @@ export class ASERenderer {
         };
         Object.assign(this.displayOptions, this.lightingOptions);
 
-        const studio = mode !== 'modeling';
-        this.modelingLightGroup.visible = !studio;
+        const studio = !flatDisplay && mode !== 'modeling';
+        this.modelingLightGroup.visible = !flatDisplay && !studio;
         this.studioLightGroup.visible = studio;
         this.studioSunLight.intensity = this.lightingOptions.sunIntensity;
         this.applyStudioSunDirection();
@@ -1160,11 +1302,11 @@ export class ASERenderer {
         if (!this.sunGizmoGroup.visible) this.setSunGizmoSelected(false, { requestRender });
         this.renderer.toneMapping = studio ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
         this.renderer.toneMappingExposure = studio ? 1.05 : 1.0;
-        this.domElement.dataset.lightingMode = mode;
-        this.domElement.dataset.shadowMode = mode === 'studio-shadow' ? 'true' : 'false';
-        this.setShadowMode(mode === 'studio-shadow');
+        this.domElement.dataset.lightingMode = flatDisplay ? 'flat' : mode;
+        this.domElement.dataset.shadowMode = !flatDisplay && mode === 'studio-shadow' ? 'true' : 'false';
+        this.setShadowMode(!flatDisplay && mode === 'studio-shadow');
         this.syncSunGizmo();
-        if (previousMode !== mode && mode === 'studio-shadow') this.fitSunShadowCamera();
+        if (!flatDisplay && previousMode !== mode && mode === 'studio-shadow') this.fitSunShadowCamera();
         if (requestRender) this.requestRender();
     }
 
@@ -1209,7 +1351,7 @@ export class ASERenderer {
         const low = new THREE.Vector3();
         const high = new THREE.Vector3();
         this.forEachAtomProxy?.((proxy, index) => {
-            if (!proxy || proxy.visible === false || !this.atomLabelVisible(index)) return;
+            if (!proxy || proxy.visible === false || !this.atomReferenceVisible(index)) return;
             const radius = Math.max(0.05, Number(this.atomVisualRadius(index) || 0.5));
             low.copy(proxy.position).addScalar(-radius);
             high.copy(proxy.position).addScalar(radius);
@@ -1651,12 +1793,14 @@ export class ASERenderer {
         material.userData.fixedEtchedFlatApplied = Boolean(isFixed);
         const etchedCode = isFixed
             ? `
-                vec2 etchedUv = gl_FragCoord.xy * 0.022;
-                float etchedLineA = abs(fract(etchedUv.x * 14.0) - 0.5);
-                float etchedLineB = abs(fract(etchedUv.y * 11.0 + etchedUv.x * 0.5) - 0.5);
-                float etchedGrid = 1.0 - smoothstep(0.030, 0.082, min(etchedLineA, etchedLineB));
-                diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.30 + vec3(0.055), etchedGrid * 0.88);
-                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.74, 0.28), etchedGrid * 0.10);
+                vec2 fixedMark = vFlatViewNormal.xy;
+                float fixedDiagonal = abs(abs(fixedMark.x) - abs(fixedMark.y));
+                float fixedStrokeAA = max(fwidth(fixedDiagonal) * 1.55, 0.020);
+                float fixedStroke = 1.0 - smoothstep(0.080 - fixedStrokeAA, 0.135 + fixedStrokeAA, fixedDiagonal);
+                float fixedRadius = length(fixedMark);
+                float fixedReach = smoothstep(0.12, 0.22, fixedRadius)
+                    * (1.0 - smoothstep(0.74, 0.88, fixedRadius));
+                diffuseColor.rgb = mix(diffuseColor.rgb, ${outlineColor}, fixedStroke * fixedReach);
             `
             : '';
         const outlineCode = outline
@@ -1758,6 +1902,19 @@ export class ASERenderer {
         return !label || this.displayOptions?.labelVisible?.[label] !== false;
     }
 
+    atomReferenceKey(index, cellOffset = null) {
+        return Array.isArray(cellOffset)
+            ? this.supercellReferenceKey(index, cellOffset)
+            : `atom:${index}`;
+    }
+
+    atomReferenceVisible(index, cellOffset = null) {
+        if (!this.atomLabelVisible(index)) return false;
+        const hidden = this.hiddenAtomReferenceSet
+            || new Set(this.displayOptions?.hiddenAtomReferences || []);
+        return !hidden.has(this.atomReferenceKey(index, cellOffset));
+    }
+
     rebuildAtomLabelIndex() {
         this.atomIndicesByLabel.clear();
         (this.atomsData?.symbols || []).forEach((label, index) => {
@@ -1774,7 +1931,7 @@ export class ASERenderer {
             const updateIndex = (index) => {
                 const proxy = this.atomMeshByIndex.get(index);
                 if (!proxy) return;
-                proxy.visible = this.atomLabelVisible(index);
+                proxy.visible = this.atomReferenceVisible(index);
                 this.updateAtomInstanceMatrix(index);
             };
             if (affectedIndices) affectedIndices.forEach(updateIndex);
@@ -1789,11 +1946,11 @@ export class ASERenderer {
                     return;
                 }
                 const idx = outline.userData.outlineFor;
-                outline.visible = this.atomLabelVisible(idx);
+                outline.visible = this.atomReferenceVisible(idx);
             });
             this.constraintMarkGroup.children.forEach(group => {
                 const idx = group.userData.constraintGuideFor;
-                group.visible = this.atomLabelVisible(idx);
+                group.visible = this.atomReferenceVisible(idx);
             });
             this.constraintGuideGroup.children.forEach(group => {
                 group.visible = this.constraintGuideVisible(group);
@@ -1808,15 +1965,15 @@ export class ASERenderer {
         const targets = affectedIndices || [...this.atomMeshByIndex.keys()];
         targets.forEach(index => {
             const mesh = this.atomMeshByIndex.get(index);
-            if (mesh) mesh.visible = this.atomLabelVisible(index);
+            if (mesh) mesh.visible = this.atomReferenceVisible(index);
         });
         this.selectionOutlines.children.forEach(outline => {
             const idx = outline.userData.outlineFor;
-            outline.visible = this.atomLabelVisible(idx);
+            outline.visible = this.atomReferenceVisible(idx);
         });
         this.constraintMarkGroup.children.forEach(group => {
             const idx = group.userData.constraintGuideFor;
-            group.visible = this.atomLabelVisible(idx);
+            group.visible = this.atomReferenceVisible(idx);
         });
         this.constraintGuideGroup.children.forEach(group => {
             group.visible = this.constraintGuideVisible(group);
@@ -2024,7 +2181,7 @@ export class ASERenderer {
             mesh.position.set(pos[0], pos[1], pos[2]);
             mesh.scale.setScalar(radius);
             mesh.userData = { index: i, symbol: sym, fixed: isFixed, materialPreset };
-            mesh.visible = this.atomLabelVisible(i);
+            mesh.visible = this.atomReferenceVisible(i);
             
             this.atomMeshes.add(mesh);
             this.atomMeshByIndex.set(i, mesh);
@@ -2059,7 +2216,7 @@ export class ASERenderer {
     atomProxy(index, position, symbol, fixed = false, materialPreset = 'standard') {
         return {
             position: position.clone(),
-            visible: this.atomLabelVisible(index),
+            visible: this.atomReferenceVisible(index),
             userData: { index, symbol, fixed, materialPreset }
         };
     }
@@ -2157,7 +2314,7 @@ export class ASERenderer {
         const ref = this.atomInstanceRefs.get(index);
         const proxy = this.atomMeshByIndex.get(index);
         if (!ref || !proxy) return;
-        const visible = proxy.visible !== false && this.atomLabelVisible(index);
+        const visible = proxy.visible !== false && this.atomReferenceVisible(index);
         const scale = visible ? this.atomVisualRadius(index) : 0;
         const matrix = ref.mesh.instanceMatrix.array;
         const offset = ref.instanceId * 16;
@@ -2507,6 +2664,7 @@ export class ASERenderer {
             }
         }
         this.updateSunGizmoScale();
+        this.updateRenderAreaGizmoScale();
     }
 
     currentPixelsPerAngstrom() {
@@ -2552,24 +2710,81 @@ export class ASERenderer {
         return this.currentPixelsPerAngstrom();
     }
 
+    cameraFromSettings(settings, aspect = 1) {
+        if (!settings || typeof settings !== 'object') return null;
+        const vector = (value, fallback) => (
+            Array.isArray(value)
+            && value.length === 3
+            && value.every(component => Number.isFinite(Number(component)))
+                ? value.map(Number)
+                : [...fallback]
+        );
+        const projection = settings.projection === 'perspective'
+            ? 'perspective'
+            : 'orthographic';
+        const position = vector(settings.position, [10, 10, 10]);
+        const target = new THREE.Vector3(...vector(settings.target, [0, 0, 0]));
+        const up = vector(settings.up, [0, 0, 1]);
+        const near = Number(settings.near);
+        const far = Number(settings.far);
+        let camera;
+        if (projection === 'perspective') {
+            const fov = Number(settings.fov);
+            camera = new THREE.PerspectiveCamera(
+                Number.isFinite(fov) && fov > 1 && fov < 179 ? fov : 50,
+                Math.max(0.01, Number(aspect) || 1),
+                Number.isFinite(near) && near > 0 ? near : 0.1,
+                Number.isFinite(far) && far > 0 ? far : 10000
+            );
+            const zoom = Number(settings.zoom);
+            camera.zoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+        } else {
+            const scale = Number(settings.ortho_scale);
+            const worldHeight = Number.isFinite(scale) && scale > 0 ? scale : 20;
+            const halfHeight = worldHeight * 0.5;
+            const halfWidth = halfHeight * Math.max(0.01, Number(aspect) || 1);
+            camera = new THREE.OrthographicCamera(
+                -halfWidth,
+                halfWidth,
+                halfHeight,
+                -halfHeight,
+                Number.isFinite(near) && near > 0 ? near : 0.1,
+                Number.isFinite(far) && far > 0 ? far : 10000
+            );
+            camera.zoom = 1;
+        }
+        camera.position.fromArray(position);
+        camera.up.fromArray(up).normalize();
+        camera.lookAt(target);
+        camera.updateProjectionMatrix();
+        camera.updateMatrixWorld(true);
+        return { camera, target };
+    }
+
     exportCameraSetup(width, height, options = {}) {
         const outputWidth = Math.max(1, Math.round(Number(width) || 1));
         const outputHeight = Math.max(1, Math.round(Number(height) || 1));
         const outputAspect = outputWidth / outputHeight;
         const scaleMode = options.scaleMode === 'physical' ? 'physical' : 'viewport';
-        const target = (this.controls?.target || new THREE.Vector3()).clone();
-        const camera = this.camera.clone();
-        camera.position.copy(this.camera.position);
-        camera.quaternion.copy(this.camera.quaternion);
-        camera.up.copy(this.camera.up);
-        camera.near = this.camera.near;
-        camera.far = this.camera.far;
+        const configured = this.cameraFromSettings(options.camera, outputAspect);
+        const target = configured?.target
+            || (this.controls?.target || new THREE.Vector3()).clone();
+        const camera = configured?.camera || this.camera.clone();
+        if (!configured) {
+            camera.position.copy(this.camera.position);
+            camera.quaternion.copy(this.camera.quaternion);
+            camera.up.copy(this.camera.up);
+            camera.near = this.camera.near;
+            camera.far = this.camera.far;
+        }
 
         let renderWidth = outputWidth;
         let renderHeight = outputHeight;
         let offsetX = 0;
         let offsetY = 0;
-        let pixelsPerAngstrom = this.currentPixelsPerAngstrom();
+        let pixelsPerAngstrom = configured && camera.isOrthographicCamera
+            ? outputHeight / Math.max(1e-9, Math.abs(camera.top - camera.bottom))
+            : this.currentPixelsPerAngstrom();
 
         if (scaleMode === 'physical') {
             pixelsPerAngstrom = Math.max(0.1, Math.min(5000, Number(options.pixelsPerAngstrom) || 100));
@@ -2670,7 +2885,11 @@ export class ASERenderer {
             this.exportPreviewDimensions.textContent = `${width} x ${height}`;
         }
         this.domElement.dataset.exportPreview = next.enabled ? 'true' : 'false';
-        if (!next.enabled) this.lastExportPreview = null;
+        if (!next.enabled) {
+            this.lastExportPreview = null;
+            this.exportPreviewCamera = null;
+            this.exportPreviewTarget = null;
+        }
         if (previousSignature !== nextSignature) this.requestRender();
     }
 
@@ -2732,6 +2951,64 @@ export class ASERenderer {
         this.exportPreviewFrame.dataset.frameAspect = `${rect.width / Math.max(1, rect.height)}`;
     }
 
+    interactionProjectionContext(clientX, clientY) {
+        const canvasRect = this.domElement.getBoundingClientRect();
+        const preview = this.lastExportPreview?.frameRect;
+        if (this.exportPreview?.enabled && preview && this.exportPreviewCamera) {
+            const rect = {
+                left: canvasRect.left + preview.left,
+                top: canvasRect.top + preview.top,
+                width: preview.width,
+                height: preview.height
+            };
+            rect.right = rect.left + rect.width;
+            rect.bottom = rect.top + rect.height;
+            if (
+                clientX >= rect.left && clientX <= rect.right
+                && clientY >= rect.top && clientY <= rect.bottom
+            ) {
+                return {
+                    camera: this.exportPreviewCamera,
+                    target: this.exportPreviewTarget,
+                    rect,
+                    kind: 'render-area'
+                };
+            }
+        }
+        return {
+            camera: this.camera,
+            target: this.controls?.target,
+            rect: {
+                left: canvasRect.left,
+                top: canvasRect.top,
+                right: canvasRect.right,
+                bottom: canvasRect.bottom,
+                width: Math.max(1, canvasRect.width),
+                height: Math.max(1, canvasRect.height)
+            },
+            kind: 'viewport'
+        };
+    }
+
+    pointerNdc(event, context = null) {
+        const view = context || this.interactionProjectionContext(event.clientX, event.clientY);
+        const rect = view.rect;
+        return new THREE.Vector2(
+            ((event.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1,
+            -((event.clientY - rect.top) / Math.max(1, rect.height)) * 2 + 1
+        );
+    }
+
+    projectWorldToClient(position, context) {
+        const view = context || this.interactionProjectionContext(-1, -1);
+        const projected = position.clone().project(view.camera);
+        return {
+            x: view.rect.left + (projected.x + 1) * 0.5 * view.rect.width,
+            y: view.rect.top + (1 - projected.y) * 0.5 * view.rect.height,
+            z: projected.z
+        };
+    }
+
     beginExportScene(options = {}) {
         const oldLighting = {
             ...this.lightingOptions,
@@ -2747,6 +3024,7 @@ export class ASERenderer {
         const oldGridVisible = this.gridGroup?.visible;
         const oldAxesVisible = this.axesHelper?.visible;
         const oldCellVisible = this.cellGroup?.visible;
+        const oldRenderAreaGizmoVisible = this.renderAreaGizmoGroup?.visible;
         const supercellCellPreviews = (this.supercellGroup?.children || [])
             .filter(child => child.userData?.supercellCellPreview)
             .map(child => ({ child, visible: child.visible }));
@@ -2784,6 +3062,7 @@ export class ASERenderer {
         if (this.axesHelper) {
             this.axesHelper.visible = options.includeAxes !== false && this.displayOptions.showAxes;
         }
+        if (this.renderAreaGizmoGroup) this.renderAreaGizmoGroup.visible = false;
         const includeCell = options.includeCell !== false;
         if (this.cellGroup) this.cellGroup.visible = includeCell;
         supercellCellPreviews.forEach(({ child }) => { child.visible = includeCell; });
@@ -2797,19 +3076,31 @@ export class ASERenderer {
                 if (this.gridGroup) this.gridGroup.visible = oldGridVisible;
                 if (this.axesHelper) this.axesHelper.visible = oldAxesVisible;
                 if (this.cellGroup) this.cellGroup.visible = oldCellVisible;
+                if (this.renderAreaGizmoGroup) {
+                    this.renderAreaGizmoGroup.visible = oldRenderAreaGizmoVisible;
+                }
                 supercellCellPreviews.forEach(({ child, visible }) => { child.visible = visible; });
             }
         };
     }
 
     renderExportView(exportView, sceneState) {
-        this.updateBondPositions();
-        this.syncSelectionOutlines();
-        this.updateHookeanPositions();
-        this.updateViewLighting(exportView.camera, exportView.target);
-        this.renderer.render(this.scene, exportView.camera);
-        if (sceneState.requestedMode === 'studio-shadow') {
+        const previousFlatOrientationCamera = this.flatOrientationCamera;
+        this.flatOrientationCamera = exportView.camera;
+        try {
+            this.updateBondPositions();
+            this.updateDisplacementVectorMatrices(true);
+            this.updateForceVectorMatrices(true);
+            this.updateFlatCellEdgeMatrices(true);
+            this.syncSelectionOutlines();
+            this.updateHookeanPositions();
+            this.updateViewLighting(exportView.camera, exportView.target);
             this.renderer.render(this.scene, exportView.camera);
+            if (sceneState.requestedMode === 'studio-shadow') {
+                this.renderer.render(this.scene, exportView.camera);
+            }
+        } finally {
+            this.flatOrientationCamera = previousFlatOrientationCamera;
         }
     }
 
@@ -2900,6 +3191,9 @@ export class ASERenderer {
         );
         this.renderer.setScissorTest(capture.oldScissorTest);
         this.updateBondPositions();
+        this.updateDisplacementVectorMatrices(true);
+        this.updateForceVectorMatrices(true);
+        this.updateFlatCellEdgeMatrices(true);
         this.syncSelectionOutlines();
         this.updateViewLighting();
         this.exportCaptureActive = false;
@@ -2912,6 +3206,8 @@ export class ASERenderer {
         const rect = this.exportPreviewRect(width, height);
         this.updateExportPreviewFrame(rect);
         const exportView = this.exportCameraSetup(width, height, options);
+        this.exportPreviewCamera = exportView.camera;
+        this.exportPreviewTarget = exportView.target;
         const oldViewport = this.renderer.getViewport(new THREE.Vector4());
         const oldScissor = this.renderer.getScissor(new THREE.Vector4());
         const oldScissorTest = this.renderer.getScissorTest();
@@ -2954,6 +3250,7 @@ export class ASERenderer {
                 cameraProjection: exportView.camera.projectionMatrix.elements.slice(),
                 cameraPosition: exportView.camera.position.toArray(),
                 cameraQuaternion: exportView.camera.quaternion.toArray(),
+                cameraTarget: exportView.target.toArray(),
                 options: JSON.parse(JSON.stringify(options || {}))
             };
         } finally {
@@ -2962,6 +3259,9 @@ export class ASERenderer {
             this.renderer.setScissor(oldScissor.x, oldScissor.y, oldScissor.z, oldScissor.w);
             this.renderer.setScissorTest(oldScissorTest);
             this.updateBondPositions();
+            this.updateDisplacementVectorMatrices(true);
+            this.updateForceVectorMatrices(true);
+            this.updateFlatCellEdgeMatrices(true);
             this.syncSelectionOutlines();
             this.updateViewLighting();
         }
@@ -3215,6 +3515,9 @@ export class ASERenderer {
 
     setAddAtomsRegions(configuration = null) {
         if (!this.addAtomsRegionGroup) return;
+        this.addAtomsRegionConfiguration = configuration
+            ? JSON.parse(JSON.stringify(configuration))
+            : null;
         this.clearGroup(this.addAtomsRegionGroup);
         const regions = Array.isArray(configuration?.regions) ? configuration.regions : [];
         if (!configuration || configuration.visible === false || !regions.length) {
@@ -3265,20 +3568,26 @@ export class ASERenderer {
                 sourceEdgeMesh.userData.shift = [0, 0, 0];
                 pickables.push(sourceEdgeMesh);
             }
-            const sourceFill = new THREE.Mesh(
-                source.geometry,
-                new THREE.MeshStandardMaterial({
+            const sourceFillOptions = {
                     color,
-                    emissive: color,
-                    emissiveIntensity: isSelected ? 0.16 : 0.09,
-                    metalness: 0.02,
-                    roughness: 0.52,
                     transparent: true,
                     opacity: isSelected ? 0.18 : (rejected ? 0.13 : 0.10),
                     side: THREE.DoubleSide,
                     depthTest: true,
                     depthWrite: false
-                })
+            };
+            const sourceFillMaterial = this.atomDisplayMode() === '2d'
+                ? new THREE.MeshBasicMaterial({ ...sourceFillOptions, toneMapped: false })
+                : new THREE.MeshStandardMaterial({
+                    ...sourceFillOptions,
+                    emissive: color,
+                    emissiveIntensity: isSelected ? 0.16 : 0.09,
+                    metalness: 0.02,
+                    roughness: 0.52
+                });
+            const sourceFill = new THREE.Mesh(
+                source.geometry,
+                sourceFillMaterial
             );
             sourceFill.renderOrder = 14;
             sourceFill.userData = {
@@ -3310,14 +3619,8 @@ export class ASERenderer {
                     segmentKeys.add(key);
                     wrappedSegments.push(segment);
                 });
-                const fill = new THREE.Mesh(
-                    clipped.geometry,
-                    new THREE.MeshStandardMaterial({
+                const wrappedFillOptions = {
                         color,
-                        emissive: color,
-                        emissiveIntensity: isSelected ? 0.12 : 0.06,
-                        metalness: 0.02,
-                        roughness: 0.56,
                         transparent: true,
                         opacity: isSelected ? 0.12 : (rejected ? 0.085 : 0.065),
                         side: THREE.DoubleSide,
@@ -3326,7 +3629,19 @@ export class ASERenderer {
                         polygonOffset: true,
                         polygonOffsetFactor: -1,
                         polygonOffsetUnits: -1
-                    })
+                };
+                const wrappedFillMaterial = this.atomDisplayMode() === '2d'
+                    ? new THREE.MeshBasicMaterial({ ...wrappedFillOptions, toneMapped: false })
+                    : new THREE.MeshStandardMaterial({
+                        ...wrappedFillOptions,
+                        emissive: color,
+                        emissiveIntensity: isSelected ? 0.12 : 0.06,
+                        metalness: 0.02,
+                        roughness: 0.56
+                    });
+                const fill = new THREE.Mesh(
+                    clipped.geometry,
+                    wrappedFillMaterial
                 );
                 fill.renderOrder = 13;
                 fill.userData = {
@@ -3415,6 +3730,7 @@ export class ASERenderer {
     }
 
     normalizedCellMaterial() {
+        if (this.atomDisplayMode() === '2d') return 'unlit';
         const value = String(this.displayOptions.cellMaterial || 'unlit');
         return ['unlit', 'standard', 'metal'].includes(value) ? value : 'unlit';
     }
@@ -3453,36 +3769,69 @@ export class ASERenderer {
         ));
         if (!valid.length) return null;
 
+        const flat = this.atomDisplayMode() === '2d';
         const mesh = new THREE.InstancedMesh(
-            this.cellEdgeGeometry,
+            flat ? this.bondFlatGeometry : this.cellEdgeGeometry,
             style.material || this.createCellMaterial(),
             valid.length
         );
         const radius = Number.isFinite(Number(style.radius))
             ? Math.max(0.004, Number(style.radius))
             : this.normalizedCellThickness() * 0.5;
-        valid.forEach(([start, end], index) => {
-            const delta = end.clone().sub(start);
-            const length = delta.length();
-            this.cellEdgeDummy.position.copy(start).add(end).multiplyScalar(0.5);
-            this.cellEdgeDummy.quaternion.setFromUnitVectors(
-                this.yAxis,
-                delta.multiplyScalar(1 / length)
-            );
-            this.cellEdgeDummy.scale.set(radius, length, radius);
-            this.cellEdgeDummy.updateMatrix();
-            mesh.setMatrixAt(index, this.cellEdgeDummy.matrix);
-        });
-        mesh.instanceMatrix.needsUpdate = true;
         mesh.frustumCulled = false;
         mesh.renderOrder = 3;
         mesh.userData = {
             ...userData,
             sharedGeometry: true,
-            cellEdgeInstances: true
+            cellEdgeInstances: true,
+            flatCellEdges: flat,
+            cellEdgeRadius: radius,
+            cellEdgeSegments: valid.map(([start, end]) => [start.clone(), end.clone()])
         };
+        this.updateCellEdgeInstanceMatrices(mesh);
         group.add(mesh);
         return mesh;
+    }
+
+    updateCellEdgeInstanceMatrices(mesh) {
+        const segments = mesh?.userData?.cellEdgeSegments;
+        if (!mesh?.isInstancedMesh || !Array.isArray(segments)) return;
+        const flat = mesh.userData.flatCellEdges === true;
+        const radius = Math.max(0.004, Number(mesh.userData.cellEdgeRadius) || 0.02);
+        segments.forEach(([start, end], index) => {
+            const delta = end.clone().sub(start);
+            const length = delta.length();
+            this.cellEdgeDummy.position.copy(start).add(end).multiplyScalar(0.5);
+            if (flat) {
+                this.cellEdgeDummy.scale.set(radius * 2, length, 1);
+                this.orientFlatBond(this.cellEdgeDummy, delta);
+            } else {
+                this.cellEdgeDummy.quaternion.setFromUnitVectors(
+                    this.yAxis,
+                    delta.multiplyScalar(1 / length)
+                );
+                this.cellEdgeDummy.scale.set(radius, length, radius);
+            }
+            this.cellEdgeDummy.updateMatrix();
+            mesh.setMatrixAt(index, this.cellEdgeDummy.matrix);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+    }
+
+    updateFlatCellEdgeMatrices(force = false) {
+        if (this.atomDisplayMode() !== '2d') return;
+        const signature = this.displacementCameraKey();
+        if (!force && signature === this.cellEdgeCameraSignature) return;
+        this.cellEdgeCameraSignature = signature;
+        [
+            this.cellGroup,
+            this.supercellGroup,
+            this.addAtomsRegionGroup,
+            this.commensurateSupercellGroup,
+            this.commensurateGuideGroup
+        ].forEach(group => group?.traverse?.(object => {
+            if (object.userData?.flatCellEdges) this.updateCellEdgeInstanceMatrices(object);
+        }));
     }
 
     updateCellVisibility() {
@@ -3620,11 +3969,13 @@ export class ASERenderer {
             labelVisible: { ...(options.labelVisible || this.displayOptions.labelVisible || {}) },
             labelMaterials: { ...(options.labelMaterials || this.displayOptions.labelMaterials || {}) },
             atomMaterials: { ...(options.atomMaterials || this.displayOptions.atomMaterials || {}) },
+            hiddenAtomReferences: [...(options.hiddenAtomReferences || this.displayOptions.hiddenAtomReferences || [])],
             supercell: [...(options.supercell || this.displayOptions.supercell || [1, 1, 1])],
             translation: [...(options.translation || this.displayOptions.translation || [0, 0, 0])],
             sunPosition: [...(options.sunPosition || this.displayOptions.sunPosition || [8, -10, 14])],
             sunTarget: [...(options.sunTarget || this.displayOptions.sunTarget || [0, 0, 0])]
         };
+        this.hiddenAtomReferenceSet = new Set(this.displayOptions.hiddenAtomReferences);
         const antiAliasingChanged = previous.antiAliasing !== this.displayOptions.antiAliasing;
         const sphereQualityChanged = previous.sphereQuality !== this.displayOptions.sphereQuality;
         const atomDisplayModeChanged = previous.atomDisplayMode !== this.displayOptions.atomDisplayMode;
@@ -3639,6 +3990,10 @@ export class ASERenderer {
             !scalarRecordEqual(previous.atomMaterials, this.displayOptions.atomMaterials);
         const overlayChanged = previous.showOverlays !== this.displayOptions.showOverlays;
         const visibilityChanged = !scalarRecordEqual(previous.labelVisible, this.displayOptions.labelVisible);
+        const hiddenReferencesChanged = !stringArrayEqual(
+            previous.hiddenAtomReferences,
+            this.displayOptions.hiddenAtomReferences
+        );
         const changedVisibilityLabels = visibilityChanged
             ? [...new Set([
                 ...Object.keys(previous.labelVisible || {}),
@@ -3656,12 +4011,14 @@ export class ASERenderer {
             previous.sunGizmo !== this.displayOptions.sunGizmo ||
             !numberArrayEqual(previous.sunPosition, this.displayOptions.sunPosition) ||
             !numberArrayEqual(previous.sunTarget, this.displayOptions.sunTarget);
-        const displacementChanged = previous.showDisplacements !== this.displayOptions.showDisplacements ||
+        const displacementChanged = atomDisplayModeChanged ||
+            previous.showDisplacements !== this.displayOptions.showDisplacements ||
             previous.displacementStyle !== this.displayOptions.displacementStyle ||
             previous.displacementScale !== this.displayOptions.displacementScale ||
             previous.displacementThickness !== this.displayOptions.displacementThickness ||
             previous.displacementColor !== this.displayOptions.displacementColor;
-        const forceVectorsChanged = previous.showForceVectors !== this.displayOptions.showForceVectors ||
+        const forceVectorsChanged = atomDisplayModeChanged ||
+            previous.showForceVectors !== this.displayOptions.showForceVectors ||
             previous.forceVectorStyle !== this.displayOptions.forceVectorStyle ||
             previous.forceVectorScale !== this.displayOptions.forceVectorScale ||
             previous.forceVectorThickness !== this.displayOptions.forceVectorThickness ||
@@ -3676,7 +4033,7 @@ export class ASERenderer {
             this.setViewportBackground(this.displayOptions.viewportBackground);
         }
         this.domElement.dataset.atomDisplayMode = this.atomDisplayMode();
-        if (lightingChanged) this.setLightingOptions(this.displayOptions);
+        if (lightingChanged || atomDisplayModeChanged) this.setLightingOptions(this.displayOptions);
         if (!rebuild) {
             if (antiAliasingChanged) this.updateRenderQuality();
             if (translationChanged) this.applyVisualTranslation();
@@ -3694,6 +4051,9 @@ export class ASERenderer {
         if (sphereQualityChanged || overlayChanged || atomDisplayModeChanged || flatOutlineChanged || materialChanged) {
             if (this.atomsData) {
                 this.rebuildAtoms(this.atomsData, this.customColors);
+            }
+            if (this.addAtomsRegionConfiguration) {
+                this.setAddAtomsRegions(this.addAtomsRegionConfiguration);
             }
             this.applyOverlayVisibility();
             this.requestRender();
@@ -3728,18 +4088,21 @@ export class ASERenderer {
             !flatPairArrayEqual(previous.manualBondPairs, this.displayOptions.manualBondPairs) ||
             !scalarRecordEqual(previous.pairwiseBondCutoffs, this.displayOptions.pairwiseBondCutoffs) ||
             !bondRangeRecordEqual(previous.pairwiseBondRanges, this.displayOptions.pairwiseBondRanges) ||
-            visibilityChanged;
+            visibilityChanged ||
+            hiddenReferencesChanged;
         if (bondsChanged) this.invalidateBondNeighborCache();
-        if (visibilityChanged) this.applyAtomVisibility(changedVisibilityLabels);
+        if (visibilityChanged || hiddenReferencesChanged) {
+            this.applyAtomVisibility(hiddenReferencesChanged ? null : changedVisibilityLabels);
+        }
         else if (bondsChanged) this.rebuildBonds();
         if (supercellChanged) this.rebuildSupercell();
         if (supercellChanged && this.volumetricSurfaces.length) {
             this.rebuildVolumetricSurfaces();
         }
-        if ((displacementChanged || visibilityChanged || supercellChanged) && this.displacementData) {
+        if ((displacementChanged || visibilityChanged || hiddenReferencesChanged || supercellChanged) && this.displacementData) {
             this.setDisplacementVectors(this.displacementData, this.displayOptions);
         }
-        if ((forceVectorsChanged || visibilityChanged || supercellChanged) && this.atomsData) {
+        if ((forceVectorsChanged || visibilityChanged || hiddenReferencesChanged || supercellChanged) && this.atomsData) {
             this.setForceVectors(this.atomsData.forces, this.displayOptions);
         }
         if (translationChanged) this.applyVisualTranslation();
@@ -3751,7 +4114,7 @@ export class ASERenderer {
         }
         if (
             this.commensurateSupercellPreview
-            && (radiusChanged || colorChanged || materialChanged || visibilityChanged || bondsChanged || cellStyleChanged)
+            && (radiusChanged || colorChanged || materialChanged || visibilityChanged || hiddenReferencesChanged || bondsChanged || cellStyleChanged)
         ) {
             this.setCommensurateSupercellPreview(this.commensurateSupercellPreview);
         }
@@ -3867,7 +4230,7 @@ export class ASERenderer {
             mesh.geometry = this.geometryCache.get(geometryKey);
             mesh.material = this.materialCache.get(materialKey);
             mesh.scale.setScalar(radius);
-            mesh.visible = this.atomLabelVisible(index);
+            mesh.visible = this.atomReferenceVisible(index);
             mesh.userData.materialPreset = materialPreset;
         });
         this.requestRender();
@@ -4921,11 +5284,13 @@ export class ASERenderer {
     }
 
     displacementStyle(options = this.displayOptions) {
-        return options?.displacementStyle === '2d' ? '2d' : '3d';
+        return options?.atomDisplayMode === '2d' || options?.displacementStyle === '2d'
+            ? '2d'
+            : '3d';
     }
 
     displacementCameraKey() {
-        const quaternion = this.camera.quaternion;
+        const quaternion = (this.flatOrientationCamera || this.camera).quaternion;
         return [
             quaternion.x.toFixed(5),
             quaternion.y.toFixed(5),
@@ -4981,6 +5346,10 @@ export class ASERenderer {
                 ? visibleStart.clone()
                 : new THREE.Vector3(...start.map(Number));
             displacementTranslations.forEach(translation => {
+                const cellReference = translation.cellOffset.some(Boolean)
+                    ? translation.cellOffset
+                    : null;
+                if (!this.atomReferenceVisible(index, cellReference)) return;
                 entries.push({
                     index,
                     cellOffset: [...translation.cellOffset],
@@ -5107,7 +5476,9 @@ export class ASERenderer {
     }
 
     forceVectorStyle(options = this.displayOptions) {
-        return options?.forceVectorStyle === '2d' ? '2d' : '3d';
+        return options?.atomDisplayMode === '2d' || options?.forceVectorStyle === '2d'
+            ? '2d'
+            : '3d';
     }
 
     setForceVectors(forces, options = this.displayOptions) {
@@ -5139,12 +5510,18 @@ export class ASERenderer {
             const values = vector.slice(0, 3).map(Number);
             const magnitudeSquared = values.reduce((sum, value) => sum + value * value, 0);
             if (magnitudeSquared < 1e-14) return;
-            translations.forEach(translation => entries.push({
-                index,
-                cellOffset: [...translation.cellOffset],
-                translation: translation.vector.toArray(),
-                vector: values
-            }));
+            translations.forEach(translation => {
+                const cellReference = translation.cellOffset.some(Boolean)
+                    ? translation.cellOffset
+                    : null;
+                if (!this.atomReferenceVisible(index, cellReference)) return;
+                entries.push({
+                    index,
+                    cellOffset: [...translation.cellOffset],
+                    translation: translation.vector.toArray(),
+                    vector: values
+                });
+            });
         });
         if (!entries.length) {
             this.domElement.dataset.forceVectorCount = '0';
@@ -5215,7 +5592,8 @@ export class ASERenderer {
         const dummy = this.displacementDummy;
         entries.forEach((entry, instanceId) => {
             const atom = this.atomMeshByIndex.get(entry.index);
-            if (!atom || !this.atomLabelVisible(entry.index)) {
+            const cellReference = entry.cellOffset?.some(Boolean) ? entry.cellOffset : null;
+            if (!atom || !this.atomReferenceVisible(entry.index, cellReference)) {
                 dummy.position.set(0, 0, 0);
                 dummy.scale.setScalar(0);
                 dummy.updateMatrix();
@@ -6055,6 +6433,7 @@ export class ASERenderer {
                 sharedGeometry: true,
                 sharedMaterial: true
             };
+            const dummy = this.bondInstanceDummy;
             segments.forEach((segment, instanceId) => {
                 const start = new THREE.Vector3(...positions[segment.firstRow]);
                 const end = new THREE.Vector3(...positions[segment.secondRow]);
@@ -6065,17 +6444,25 @@ export class ASERenderer {
                 const segmentDelta = segmentEnd.clone().sub(segmentStart);
                 const segmentLength = segmentDelta.length();
                 const center = segmentStart.add(segmentEnd).multiplyScalar(0.5);
-                this.writeCylinderBondInstance(
-                    mesh,
-                    instanceId,
-                    segmentDelta,
-                    segmentLength,
-                    segmentLength,
-                    thickness,
-                    center.x,
-                    center.y,
-                    center.z
-                );
+                if (flat) {
+                    dummy.position.copy(center);
+                    dummy.scale.set(thickness, segmentLength, 1);
+                    this.orientFlatBond(dummy, segmentDelta);
+                    dummy.updateMatrix();
+                    mesh.setMatrixAt(instanceId, dummy.matrix);
+                } else {
+                    this.writeCylinderBondInstance(
+                        mesh,
+                        instanceId,
+                        segmentDelta,
+                        segmentLength,
+                        segmentLength,
+                        thickness,
+                        center.x,
+                        center.y,
+                        center.z
+                    );
+                }
             });
             mesh.instanceMatrix.needsUpdate = true;
             this.commensurateSupercellGroup.add(mesh);
@@ -6572,11 +6959,12 @@ export class ASERenderer {
     }
 
     orientFlatBond(object, direction) {
+        const camera = this.flatOrientationCamera || this.camera;
         const y = this.bondFlatY.copy(direction).normalize();
-        const z = this.camera.getWorldDirection(this.bondFlatZ).multiplyScalar(-1);
+        const z = camera.getWorldDirection(this.bondFlatZ).multiplyScalar(-1);
         z.addScaledVector(y, -z.dot(y));
         if (z.lengthSq() < 1e-10) {
-            z.copy(this.camera.up).addScaledVector(y, -this.camera.up.dot(y));
+            z.copy(camera.up).addScaledVector(y, -camera.up.dot(y));
         }
         if (z.lengthSq() < 1e-10) {
             z.set(0, 0, 1).addScaledVector(y, -y.z);
@@ -6594,7 +6982,7 @@ export class ASERenderer {
     positionBondMesh(bond, i, j) {
         const a = this.atomMeshByIndex.get(i);
         const b = this.atomMeshByIndex.get(j);
-        if (!a || !b || !this.atomLabelVisible(i) || !this.atomLabelVisible(j)) {
+        if (!a || !b || !this.atomReferenceVisible(i) || !this.atomReferenceVisible(j)) {
             bond.visible = false;
             return;
         }
@@ -6625,12 +7013,28 @@ export class ASERenderer {
         t1 = 1,
         shift = null,
         imageOffset = null,
-        thickness = this.bondThickness()
+        thickness = this.bondThickness(),
+        cellOffset = null
     ) {
         const a = this.atomMeshByIndex.get(i);
         const b = this.atomMeshByIndex.get(j);
         const dummy = this.bondInstanceDummy;
-        if (!a || !b || !this.atomLabelVisible(i) || !this.atomLabelVisible(j)) {
+        const startOffset = Array.isArray(cellOffset) ? cellOffset : [0, 0, 0];
+        const endpointImageOffset = Array.isArray(imageOffset)
+            ? imageOffset
+            : (this.displayOptions.showPeriodicBonds
+                ? this.minimumImageBondData(i, j).imageOffset
+                : [0, 0, 0]);
+        const endOffset = startOffset.map((value, axis) => (
+            Number(value) + (Number(endpointImageOffset[axis]) || 0)
+        ));
+        const startCellReference = startOffset.some(Boolean) ? startOffset : null;
+        const endCellReference = endOffset.some(Boolean) ? endOffset : null;
+        if (
+            !a || !b
+            || !this.atomReferenceVisible(i, startCellReference)
+            || !this.atomReferenceVisible(j, endCellReference)
+        ) {
             this.hideBondInstance(mesh, instanceId);
             return;
         }
@@ -6793,7 +7197,7 @@ export class ASERenderer {
 
     supercellAxisOffsets(count) {
         const size = Math.max(1, Math.floor(Number(count) || 1));
-        const start = this.displayOptions.vizOnly ? 0 : -Math.floor((size - 1) / 2);
+        const start = -Math.floor((size - 1) / 2);
         return Array.from({ length: size }, (_, index) => start + index);
     }
 
@@ -6872,16 +7276,7 @@ export class ASERenderer {
                 this.materialCache.set(group.materialKey, material);
             }
             const total = group.indices.length * shifts.length;
-            const baseMaterial = this.materialCache.get(group.materialKey);
-            const material = this.displayOptions.vizOnly
-                ? baseMaterial
-                : baseMaterial.clone();
-            if (!this.displayOptions.vizOnly) {
-                material.transparent = true;
-                material.opacity = 0.16;
-                material.depthWrite = false;
-                material.needsUpdate = true;
-            }
+            const material = this.materialCache.get(group.materialKey);
             const mesh = new THREE.InstancedMesh(
                 this.geometryCache.get(group.geometryKey),
                 material,
@@ -6897,13 +7292,19 @@ export class ASERenderer {
                 fixed: group.isFixed,
                 materialPreset: group.materialPreset,
                 sharedGeometry: true,
-                sharedMaterial: this.displayOptions.vizOnly,
-                replicaOpacity: this.displayOptions.vizOnly ? 1 : 0.16
+                sharedMaterial: true,
+                replicaOpacity: 1
             };
             let instanceId = 0;
-            shifts.forEach(shift => {
+            shifts.forEach((shift, shiftIndex) => {
                 group.indices.forEach(index => {
-                    this.setSupercellInstanceMatrix(mesh, instanceId, index, shift);
+                    this.setSupercellInstanceMatrix(
+                        mesh,
+                        instanceId,
+                        index,
+                        shift,
+                        cellOffsets[shiftIndex]
+                    );
                     if (group.perInstanceColor) {
                         mesh.setColorAt(
                             instanceId,
@@ -6951,7 +7352,7 @@ export class ASERenderer {
             const cellOffsets = mesh.userData.cellOffsets || [];
             cellOffsets.forEach(cellOffset => {
                 atomIndices.forEach(index => {
-                    if (!this.atomLabelVisible(index)) return;
+                    if (!this.atomReferenceVisible(index, cellOffset)) return;
                     if (symbol !== null && this.atomsData?.symbols?.[index] !== symbol) return;
                     references.push({
                         kind: 'replica',
@@ -7076,8 +7477,8 @@ export class ASERenderer {
         const repeats = reps || this.displayOptions.supercell || [1, 1, 1];
         if (repeats.every(value => value <= 1)) return;
         const basis = cell || this.atomsData.cell.map(values => new THREE.Vector3(...values));
-        const shifts = this.supercellShifts(basis, repeats);
-        if (!shifts.length) return;
+        const translations = this.supercellTranslations(basis, repeats);
+        if (!translations.length) return;
 
         const split = this.displayOptions.bondColorMode !== 'custom';
         const segmentsForPair = (i, j) => split
@@ -7089,15 +7490,27 @@ export class ASERenderer {
         const flat = this.effectiveBondStyle() === 'flat';
         const thickness = this.bondThickness();
         const instancesByColor = new Map();
-        const addInstance = (segment, shift, imageOffset = null, bridge = false) => {
+        const addInstance = (
+            segment,
+            shift,
+            imageOffset = null,
+            bridge = false,
+            cellOffset = null
+        ) => {
             const color = this.bondSegmentColor(segment);
             if (!instancesByColor.has(color)) instancesByColor.set(color, []);
-            instancesByColor.get(color).push({ segment, shift, imageOffset, bridge });
+            instancesByColor.get(color).push({ segment, shift, imageOffset, bridge, cellOffset });
         };
 
         this.bondPairs.forEach(([i, j]) => {
             segmentsForPair(i, j).forEach(segment => {
-                shifts.forEach(shift => addInstance(segment, shift));
+                translations.forEach(translation => addInstance(
+                    segment,
+                    translation.vector,
+                    null,
+                    false,
+                    translation.cellOffset
+                ));
             });
         });
 
@@ -7114,7 +7527,7 @@ export class ASERenderer {
             this.supercellBridgeStartOffsets(record.imageOffset, repeats).forEach(cellOffset => {
                 const shift = this.cellOffsetVector(cellOffset, basis);
                 segmentsForPair(record.i, record.j).forEach(segment => {
-                    addInstance(segment, shift, record.imageOffset, true);
+                    addInstance(segment, shift, record.imageOffset, true, cellOffset);
                 });
                 bridgeBondCount++;
             });
@@ -7122,16 +7535,7 @@ export class ASERenderer {
         this.domElement.dataset.supercellBridgeBondCount = String(bridgeBondCount);
 
         instancesByColor.forEach((bondInstances, color) => {
-            const baseMaterial = this.bondMaterial(flat ? 'flat' : 'cylinder', color);
-            const material = this.displayOptions.vizOnly
-                ? baseMaterial
-                : baseMaterial.clone();
-            if (!this.displayOptions.vizOnly) {
-                material.transparent = true;
-                material.opacity = 0.16;
-                material.depthWrite = false;
-                material.needsUpdate = true;
-            }
+            const material = this.bondMaterial(flat ? 'flat' : 'cylinder', color);
             const mesh = new THREE.InstancedMesh(
                 flat ? this.bondFlatGeometry : this.bondCylinderGeometry,
                 material,
@@ -7145,8 +7549,8 @@ export class ASERenderer {
                 bondInstances,
                 bondColor: color,
                 sharedGeometry: true,
-                sharedMaterial: this.displayOptions.vizOnly,
-                replicaOpacity: this.displayOptions.vizOnly ? 1 : 0.16
+                sharedMaterial: true,
+                replicaOpacity: 1
             };
             bondInstances.forEach((instance, instanceId) => {
                 const segment = instance.segment;
@@ -7159,7 +7563,8 @@ export class ASERenderer {
                     segment.t1,
                     instance.shift,
                     instance.imageOffset,
-                    thickness
+                    thickness,
+                    instance.cellOffset
                 );
             });
             mesh.instanceMatrix.needsUpdate = true;
@@ -7182,16 +7587,17 @@ export class ASERenderer {
                     segment.t1,
                     instance.shift,
                     instance.imageOffset,
-                    thickness
+                    thickness,
+                    instance.cellOffset
                 );
             });
             mesh.instanceMatrix.needsUpdate = true;
         });
     }
 
-    setSupercellInstanceMatrix(mesh, instanceId, index, shift) {
+    setSupercellInstanceMatrix(mesh, instanceId, index, shift, cellOffset = null) {
         const atom = this.atomMeshByIndex.get(index);
-        const visible = atom && this.atomLabelVisible(index);
+        const visible = atom && this.atomReferenceVisible(index, cellOffset);
         const scale = visible ? this.atomVisualRadius(index) : 0;
         const matrix = mesh.instanceMatrix.array;
         const offset = instanceId * 16;
@@ -7284,12 +7690,18 @@ export class ASERenderer {
             if (mesh.userData.supercellCellPreview || mesh.userData.supercellBonds) return;
             if (mesh.userData.supercellInstanced) {
                 let instanceId = 0;
-                mesh.userData.shifts.forEach(shift => {
+                mesh.userData.shifts.forEach((shift, shiftIndex) => {
                     mesh.userData.atomIndices.forEach(index => {
                         if (translationsOnly) {
                             this.setSupercellInstanceTranslation(mesh, instanceId, index, shift);
                         } else {
-                            this.setSupercellInstanceMatrix(mesh, instanceId, index, shift);
+                            this.setSupercellInstanceMatrix(
+                                mesh,
+                                instanceId,
+                                index,
+                                shift,
+                                mesh.userData.cellOffsets?.[shiftIndex]
+                            );
                         }
                         instanceId++;
                     });
@@ -7322,7 +7734,7 @@ export class ASERenderer {
 
     constraintGuideVisible(group) {
         const indices = this.constraintGuideIndices(group);
-        return indices.some(idx => this.atomLabelVisible(idx));
+        return indices.some(idx => this.atomReferenceVisible(idx));
     }
 
     orientYAxis(object, direction) {
@@ -7545,7 +7957,7 @@ export class ASERenderer {
             const normalValues = fixedPlane[index] || fixedPlane[String(index)];
             const source = originalPositions[index];
             const atom = this.atomMeshByIndex.get(index);
-            if ((!lineValues && !normalValues) || (!source && !atom) || !this.atomLabelVisible(index)) return;
+            if ((!lineValues && !normalValues) || (!source && !atom) || !this.atomReferenceVisible(index)) return;
             const anchor = source
                 ? new THREE.Vector3(...source)
                 : atom.position.clone();
@@ -7653,7 +8065,7 @@ export class ASERenderer {
         let count = 0;
         indices.forEach(idx => {
             const atom = this.atomMeshByIndex.get(idx);
-            if (!atom || !this.atomLabelVisible(idx)) return;
+            if (!atom || !this.atomReferenceVisible(idx)) return;
             center.add(atom.position);
             count += 1;
         });
@@ -7764,7 +8176,12 @@ export class ASERenderer {
         catchLine.userData = { sharedMaterial: true, catchLine: true };
         group.add(catchLine);
 
-        const spring = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.hookean);
+        const spring = new THREE.Mesh(
+            new THREE.BufferGeometry(),
+            this.atomDisplayMode() === '2d'
+                ? this.constraintMaterials.hookeanFlat
+                : this.constraintMaterials.hookean
+        );
         spring.userData = { sharedMaterial: true, springLine: true };
         group.add(spring);
 
@@ -7937,7 +8354,11 @@ export class ASERenderer {
                 Math.max(72, coils * 18)
             ), 'springSignature', this.hookeanSpringWireRadius());
         }
-        springLine.material = state === 'inactive' ? this.constraintMaterials.hookeanInactive : this.constraintMaterials.hookean;
+        springLine.material = state === 'inactive'
+            ? this.constraintMaterials.hookeanInactive
+            : (this.atomDisplayMode() === '2d'
+                ? this.constraintMaterials.hookeanFlat
+                : this.constraintMaterials.hookean);
         springLine.userData.sharedMaterial = true;
 
         gapLine.visible = state === 'inactive' && thresholdY > right;
@@ -7961,7 +8382,7 @@ export class ASERenderer {
             if (spec.kind === 'plane') {
                 const item = spec.item;
                 const atom = this.atomMeshByIndex.get(item.index);
-                if (!atom || !this.atomLabelVisible(item.index)) {
+                if (!atom || !this.atomReferenceVisible(item.index)) {
                     group.visible = false;
                     return;
                 }
@@ -7984,7 +8405,11 @@ export class ASERenderer {
             }
 
             const atom = this.atomMeshByIndex.get(spec.i);
-            if (!atom || !this.atomLabelVisible(spec.i) || (spec.kind === 'two_atoms' && !this.atomLabelVisible(spec.j))) {
+            if (
+                !atom
+                || !this.atomReferenceVisible(spec.i)
+                || (spec.kind === 'two_atoms' && !this.atomReferenceVisible(spec.j))
+            ) {
                 group.visible = false;
                 return;
             }
@@ -8057,7 +8482,7 @@ export class ASERenderer {
             if (!child.userData.fixedPlaneAtomMarker) return;
             const idx = child.userData.atomIndex;
             const atom = this.atomMeshByIndex.get(idx);
-            if (!atom || !this.atomLabelVisible(idx)) {
+            if (!atom || !this.atomReferenceVisible(idx)) {
                 child.visible = false;
                 return;
             }
@@ -8085,7 +8510,7 @@ export class ASERenderer {
         this.clearReplicaSelectionOutlines();
         const visible = [...references].filter(reference =>
             reference?.kind === 'replica' &&
-            this.atomLabelVisible(reference.index) &&
+            this.atomReferenceVisible(reference.index, reference.cellOffset) &&
             this.replicaSelectionPosition(reference)
         );
         if (!visible.length) {
@@ -8122,7 +8547,9 @@ export class ASERenderer {
     setSelection(selectedIndices) {
         this.clearSelectionOutlines();
         const selected = new Set(selectedIndices);
-        const visibleIndices = [...selected].filter(idx => this.atomMeshByIndex.has(idx) && this.atomLabelVisible(idx));
+        const visibleIndices = [...selected].filter(
+            idx => this.atomMeshByIndex.has(idx) && this.atomReferenceVisible(idx)
+        );
         if (visibleIndices.length >= 64) {
             const outline = new THREE.InstancedMesh(
                 this.selectionOutlineGeometry,
@@ -8148,7 +8575,7 @@ export class ASERenderer {
         }
         selected.forEach(idx => {
             const mesh = this.atomMeshByIndex.get(idx);
-            if (!mesh || !this.atomLabelVisible(idx)) return;
+            if (!mesh || !this.atomReferenceVisible(idx)) return;
             const radius = this.atomVisualRadius(idx);
             const outlineGeo = new THREE.SphereGeometry(radius * 1.18, 32, 18);
             const outlineMat = new THREE.MeshBasicMaterial({
@@ -8171,7 +8598,7 @@ export class ASERenderer {
 
     setSelectionInstanceMatrix(mesh, instanceId, index) {
         const atom = this.atomMeshByIndex.get(index);
-        const visible = atom && this.atomLabelVisible(index);
+        const visible = atom && this.atomReferenceVisible(index);
         const scale = visible ? this.atomVisualRadius(index) * 1.18 : 0;
         const matrix = mesh.instanceMatrix.array;
         const offset = instanceId * 16;
@@ -8195,7 +8622,7 @@ export class ASERenderer {
 
     setReplicaSelectionInstanceMatrix(mesh, instanceId, reference) {
         const position = this.replicaSelectionPosition(reference);
-        const visible = position && this.atomLabelVisible(reference.index);
+        const visible = position && this.atomReferenceVisible(reference.index, reference.cellOffset);
         const scale = visible ? this.atomVisualRadius(reference.index) * 1.18 : 0;
         const matrix = mesh.instanceMatrix.array;
         const offset = instanceId * 16;
@@ -8238,7 +8665,7 @@ export class ASERenderer {
             }
             const idx = outline.userData.outlineFor;
             const mesh = this.atomMeshByIndex.get(idx);
-            if (!mesh || !this.atomLabelVisible(idx)) {
+            if (!mesh || !this.atomReferenceVisible(idx)) {
                 outline.visible = false;
                 return;
             }
@@ -8319,6 +8746,7 @@ export class ASERenderer {
         if (this.effectiveBondStyle() === 'flat') this.updateBondPositions();
         if (this.displacementStyle() === '2d') this.updateDisplacementVectorMatrices();
         if (this.forceVectorStyle() === '2d') this.updateForceVectorMatrices();
+        this.updateFlatCellEdgeMatrices();
         this.syncSelectionOutlines();
         this.onFrame?.();
         this.updateViewLighting();

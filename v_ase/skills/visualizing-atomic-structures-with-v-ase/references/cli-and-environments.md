@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.22"
+python -m pip install "v_ase-gui==0.2.23"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.2.22"
+python -m pip install "v_ase-gui[rhino]==0.2.23"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, SciPy, scikit-image,
@@ -280,6 +280,14 @@ browser owns UI interaction and WebGL rendering. Only requested frame or
 derived rendering payloads cross the encrypted tunnel. v_ase must therefore be
 installed remotely so that the Python backend and ASE dependencies execute
 next to the data.
+
+Current View-mode XDATCAR files are indexed by coordinate byte offset and
+native ASE `.traj` files use their random-access container. Startup reads only
+the first selected frame; later frames are parsed remotely on demand. Do not
+download a remote trajectory as a performance workaround. An uncommon
+XDATCAR header that the fast path cannot prove safe is sent to ASE's compatible
+reader automatically. Edit mode may materialize the trajectory because
+physical topology operations require editable ASE frame objects.
 
 If the remote `v_ase` entry point is not available to a non-interactive SSH
 shell, select its Python executable directly for one launch:

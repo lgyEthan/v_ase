@@ -3307,9 +3307,18 @@ def test_view_mode_visual_label_and_appearance_follow_stable_trajectory_indices(
                 app.updateUI();
             }""")
             page.fill("#selected-atom-label", "H_probe")
-            page.click("#btn-apply-selected-label")
-            page.wait_for_function("window.__ASE_APP__.state.atoms.symbols[1] === 'H_probe'")
             page.select_option("#selected-atom-material", "metal")
+            pending = page.evaluate("""() => ({
+                label: window.__ASE_APP__.state.atoms.symbols[1],
+                material: window.__ASE_APP__.state.display.atomMaterials[1] || null,
+            })""")
+            assert pending == {"label": "H_host", "material": None}
+            page.click("#btn-apply-selected-label")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.state.atoms.symbols[1] === 'H_probe'
+                    && app.state.display.atomMaterials[1] === 'metal';
+            }""")
             page.locator('.label-color-input[data-atom-label="H_probe"]').fill("#2a78c4")
             page.locator('.label-radius-input[data-atom-label="H_probe"]').fill("1.25")
             page.locator('.label-radius-input[data-atom-label="H_probe"]').press("Tab")
@@ -3341,6 +3350,240 @@ def test_view_mode_visual_label_and_appearance_follow_stable_trajectory_indices(
                 "color": "#2a78c4",
                 "material": "metal",
             }
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_view_supercell_instances_style_hide_warn_and_delete_base_once():
+    atoms = Atoms(
+        "C2",
+        positions=[[0.0, 0.0, 0.0], [1.3, 0.0, 0.0]],
+        cell=[6.0, 6.0, 6.0],
+        pbc=True,
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        show_bonds=True,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1360, "height": 820})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
+            initial = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.setSupercellInputs([3, 1, 1]);
+                app.state.display.supercell = [3, 1, 1];
+                app.renderer.setDisplayOptions(app.state.display);
+                const positions = [];
+                const matrix = new app.renderer.camera.matrixWorld.constructor();
+                const point = new app.renderer.camera.position.constructor();
+                app.renderer.supercellGroup.children.forEach(mesh => {
+                    if (!mesh.userData?.supercellInstanced) return;
+                    for (let id = 0; id < mesh.count; id++) {
+                        const reference = app.renderer.supercellAtomReference(mesh, id);
+                        mesh.getMatrixAt(id, matrix);
+                        point.setFromMatrixPosition(matrix);
+                        positions.push([reference.key, ...point.toArray()]);
+                    }
+                });
+                positions.sort((a, b) => a[0].localeCompare(b[0]));
+                return positions;
+            }""")
+            assert len(initial) == 4
+
+            page.evaluate("window.__ASE_APP__.switchRuntimeMode(false)")
+            page.wait_for_function("window.__ASE_APP__.state.vizOnly === false")
+            edit_positions = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const positions = [];
+                const matrix = new app.renderer.camera.matrixWorld.constructor();
+                const point = new app.renderer.camera.position.constructor();
+                app.renderer.supercellGroup.children.forEach(mesh => {
+                    if (!mesh.userData?.supercellInstanced) return;
+                    for (let id = 0; id < mesh.count; id++) {
+                        const reference = app.renderer.supercellAtomReference(mesh, id);
+                        mesh.getMatrixAt(id, matrix);
+                        point.setFromMatrixPosition(matrix);
+                        positions.push([reference.key, ...point.toArray()]);
+                    }
+                });
+                positions.sort((a, b) => a[0].localeCompare(b[0]));
+                return {
+                    positions,
+                    supercell: app.state.display.supercell,
+                    opaque: app.renderer.supercellGroup.children
+                        .filter(mesh => mesh.userData?.supercellInstanced)
+                        .every(mesh => !mesh.material.transparent && mesh.material.opacity === 1),
+                };
+            }""")
+            assert [row[0] for row in edit_positions["positions"]] == [
+                row[0] for row in initial
+            ]
+            np.testing.assert_allclose(
+                [row[1:] for row in edit_positions["positions"]],
+                [row[1:] for row in initial],
+                atol=1e-8,
+            )
+            assert edit_positions["supercell"] == [3, 1, 1]
+            assert edit_positions["opaque"] is True
+
+            edit_box_selection = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const rect = {
+                    left: 0,
+                    right: window.innerWidth,
+                    top: 0,
+                    bottom: window.innerHeight,
+                };
+                const references = app.selection.boxSelect(
+                    rect,
+                    app.renderer.atomMeshes,
+                    app.renderer.camera,
+                    app.renderer.supercellGroup,
+                    true
+                );
+                app.clearAtomSelection();
+                references.forEach(reference => app.addSelectionReference(reference));
+                return {
+                    references: references.size,
+                    base: [...app.state.selected].sort((a, b) => a - b),
+                    replicas: [...app.state.replicaSelected.keys()],
+                    order: [...app.state.selectionOrder],
+                };
+            }""")
+            assert edit_box_selection["references"] > 2
+            assert edit_box_selection["base"] == [0, 1]
+            assert edit_box_selection["replicas"] == []
+            assert edit_box_selection["order"] == ["atom:0", "atom:1"]
+
+            page.evaluate("window.__ASE_APP__.switchRuntimeMode(true)")
+            page.wait_for_function("window.__ASE_APP__.state.vizOnly === true")
+            _expand_inspector(page)
+            _select_structure_section(page, "appearance")
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection();
+                app.addSelectionReference({
+                    kind: 'replica', index: 0, cellOffset: [1, 0, 0],
+                    key: 'replica:0:1,0,0'
+                });
+                app.updateSelectionVisuals();
+                app.updateUI();
+            }""")
+            assert page.evaluate("""() => ({
+                base: [...window.__ASE_APP__.state.selected],
+                replicas: [...window.__ASE_APP__.state.replicaSelected.keys()]
+            })""") == {"base": [], "replicas": ["replica:0:1,0,0"]}
+            page.fill('#selected-atom-label', 'C')
+            page.select_option('#selected-atom-material', 'metal')
+            page.click('#btn-apply-selected-label')
+            page.wait_for_function("window.__ASE_APP__.state.display.atomMaterials['0'] === 'metal'")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                const replicasMatch = app.renderer.supercellGroup.children
+                    .filter(mesh => mesh.userData?.supercellInstanced)
+                    .filter(mesh => mesh.userData.atomIndices.includes(0))
+                    .every(mesh => mesh.material.metalness > 0.85);
+                return replicasMatch
+                    && app.renderer.atomMeshByIndex.get(0).material.metalness > 0.85;
+            }""")
+
+            before_hide = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection();
+                const added = app.addSelectionReference({
+                    kind: 'replica', index: 0, cellOffset: [1, 0, 0],
+                    key: 'replica:0:1,0,0'
+                });
+                return {
+                    added,
+                    vizOnly: app.state.vizOnly,
+                    supercell: app.state.display.supercell,
+                    entries: app.selectionEntries().map(reference => reference.key),
+                };
+            }""")
+            assert before_hide == {
+                "added": True,
+                "vizOnly": True,
+                "supercell": [3, 1, 1],
+                "entries": ["replica:0:1,0,0"],
+            }
+            page.evaluate("window.__ASE_APP__.deleteSelection()")
+            hidden = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const hiddenMatrices = [];
+                const visibleMatrices = [];
+                app.renderer.supercellGroup.children.forEach(mesh => {
+                    if (!mesh.userData?.supercellBonds) return;
+                    mesh.userData.bondInstances.forEach((instance, id) => {
+                        if (instance.segment.i !== 0 && instance.segment.j !== 0) return;
+                        const values = Array.from(mesh.instanceMatrix.array.slice(id * 16, id * 16 + 15));
+                        if (JSON.stringify(instance.cellOffset) === '[1,0,0]') hiddenMatrices.push(values);
+                        if (JSON.stringify(instance.cellOffset) === '[-1,0,0]') visibleMatrices.push(values);
+                    });
+                });
+                return {
+                    keys: app.state.display.hiddenAtomReferences,
+                    baseVisible: app.renderer.atomReferenceVisible(0),
+                    hiddenVisible: app.renderer.atomReferenceVisible(0, [1, 0, 0]),
+                    otherReplicaVisible: app.renderer.atomReferenceVisible(0, [-1, 0, 0]),
+                    hiddenBondsZero: hiddenMatrices.length > 0 && hiddenMatrices.every(
+                        values => values.every(value => Math.abs(value) < 1e-12)
+                    ),
+                    visibleBondsRemain: visibleMatrices.some(
+                        values => values.some(value => Math.abs(value) > 1e-8)
+                    ),
+                };
+            }""")
+            assert hidden == {
+                "keys": ["replica:0:1,0,0"],
+                "baseVisible": True,
+                "hiddenVisible": False,
+                "otherReplicaVisible": True,
+                "hiddenBondsZero": True,
+                "visibleBondsRemain": True,
+            }
+
+            page.evaluate("""() => {
+                window.__hiddenAnalysisPromise = window.__ASE_APP__.confirmAnalysisWithHiddenAtoms();
+            }""")
+            page.wait_for_selector('#modal-container:not(.hidden)')
+            assert "complete ase structure" in page.locator('#modal-content').inner_text().lower()
+            page.click('#modal-hidden-analysis-continue')
+            assert page.evaluate("window.__hiddenAnalysisPromise") is True
+
+            page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection();
+                app.addSelectionReference({
+                    kind: 'replica', index: 0, cellOffset: [-1, 0, 0],
+                    key: 'replica:0:-1,0,0'
+                });
+                await window.v_aseAI.apply({operation: {name: 'delete-selection'}});
+                window.__hiddenAnalysisPromise = app.confirmAnalysisWithHiddenAtoms();
+            }""")
+            page.wait_for_selector('#modal-container:not(.hidden)')
+            page.click('#modal-hidden-analysis-edit')
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.state.vizOnly === false
+                    && app.state.atoms.positions.length === 1
+                    && app.state.display.hiddenAtomReferences.length === 0;
+            }""")
+            assert page.evaluate("window.__hiddenAnalysisPromise") is True
+            assert len(editor.get_atoms()) == 1
             browser.close()
     finally:
         editor.close()
@@ -4815,7 +5058,7 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
                 const camera = app.renderer.camera;
                 camera.zoom *= 0.62;
                 camera.updateProjectionMatrix();
-                app.renderer.requestRender();
+                app.completeCameraViewChange('test-render-area-follow');
                 await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
                 const frame = document.getElementById('export-preview-frame').getBoundingClientRect();
                 return {
@@ -5024,6 +5267,298 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
             page.click('#btn-preview-image')
             page.wait_for_function("window.__ASE_APP__.renderer.domElement.dataset.exportPreview === 'false'")
             assert page.locator('#export-preview-frame').is_hidden()
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_render_area_keeps_an_independent_camera_and_maps_selection_to_its_gate():
+    atoms = Atoms(
+        "C3",
+        positions=[[-3.0, -1.0, 0.0], [0.0, 2.0, 0.0], [3.0, -1.0, 0.0]],
+        cell=[12.0, 12.0, 8.0],
+        pbc=False,
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 820})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
+            _expand_inspector(page)
+            page.click('[data-inspector-group="export"]')
+            page.fill('#image-width', '1200')
+            page.fill('#image-height', '700')
+            page.click('#btn-preview-image')
+            page.wait_for_function("window.__ASE_APP__.state.exportPreviewEnabled === true")
+
+            configured = page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                const renderer = app.renderer;
+                const target = renderer.controls.target.clone();
+                const distance = Math.max(renderer.camera.position.distanceTo(target), 8);
+                renderer.camera.position.copy(target).add(
+                    new renderer.camera.position.constructor(0, 0, distance)
+                );
+                renderer.camera.up.set(0, 1, 0);
+                renderer.camera.lookAt(target);
+                app.completeCameraViewChange('render-area-test-top');
+                app.state.exportPreviewFollowViewport = false;
+                app.captureRenderAreaCamera({syncPreview: true});
+                app.syncRenderAreaControls();
+                await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                const saved = structuredClone(app.state.exportPreviewCamera);
+
+                renderer.camera.position.copy(target).add(
+                    new renderer.camera.position.constructor(distance, 0, 0)
+                );
+                renderer.camera.up.set(0, 0, 1);
+                renderer.camera.lookAt(target);
+                app.completeCameraViewChange('render-area-test-side');
+                await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+                const canvas = renderer.domElement.getBoundingClientRect();
+                const frame = renderer.lastExportPreview.frameRect;
+                const world = renderer.atomMeshByIndex.get(0).position.clone();
+                const projected = world.project(renderer.exportPreviewCamera);
+                return {
+                    saved,
+                    current: app.currentCameraForExport(),
+                    preview: structuredClone(app.state.exportPreviewCamera),
+                    pointer: [
+                        canvas.left + frame.left + (projected.x + 1) * 0.5 * frame.width,
+                        canvas.top + frame.top + (1 - projected.y) * 0.5 * frame.height,
+                    ],
+                    frame: [
+                        canvas.left + frame.left,
+                        canvas.top + frame.top,
+                        frame.width,
+                        frame.height,
+                    ],
+                    context: renderer.interactionProjectionContext(
+                        canvas.left + frame.left + frame.width * 0.5,
+                        canvas.top + frame.top + frame.height * 0.5
+                    ).kind,
+                };
+            }""")
+            assert configured["context"] == "render-area"
+            assert configured["preview"] == configured["saved"]
+            assert configured["current"]["position"] != pytest.approx(
+                configured["saved"]["position"], abs=1e-8
+            )
+            left, top, width, height = configured["frame"]
+            pointer_x, pointer_y = configured["pointer"]
+            assert left <= pointer_x <= left + width
+            assert top <= pointer_y <= top + height
+
+            page.mouse.click(pointer_x, pointer_y)
+            page.wait_for_function("JSON.stringify([...window.__ASE_APP__.state.selected]) === '[0]'")
+
+            before_move = page.evaluate("structuredClone(window.__ASE_APP__.state.exportPreviewCamera)")
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.setRenderAreaSelected(true);
+                app.renderer.domElement.focus();
+            }""")
+            page.keyboard.press('g')
+            page.keyboard.press('x')
+            page.keyboard.type('1')
+            page.keyboard.press('Enter')
+            page.wait_for_function("window.__ASE_APP__.transform.mode === 'IDLE'")
+            after_move = page.evaluate("""() => ({
+                camera: window.__ASE_APP__.state.exportPreviewCamera,
+                follow: window.__ASE_APP__.state.exportPreviewFollowViewport,
+                selected: window.__ASE_APP__.state.renderAreaSelected,
+            })""")
+            assert after_move["follow"] is False
+            assert after_move["selected"] is True
+            assert after_move["camera"]["position"] == pytest.approx(
+                [before_move["position"][0] + 1, *before_move["position"][1:]],
+                abs=1e-7,
+            )
+            assert after_move["camera"]["target"] == pytest.approx(
+                [before_move["target"][0] + 1, *before_move["target"][1:]],
+                abs=1e-7,
+            )
+            ai_render_area = page.evaluate("""async () => {
+                const result = await window.v_aseAI.apply({
+                    renderArea: {
+                        enabled: true,
+                        followViewport: false,
+                        fromCurrentView: true,
+                    },
+                });
+                const capabilities = await window.v_aseAI.capabilities();
+                return {
+                    renderArea: result.renderArea,
+                    state: capabilities.state,
+                    apply: capabilities.apply,
+                };
+            }""")
+            assert ai_render_area["renderArea"]["enabled"] is True
+            assert ai_render_area["renderArea"]["followViewport"] is False
+            assert len(ai_render_area["renderArea"]["camera"]["position"]) == 3
+            assert "render-area" in ai_render_area["state"]
+            assert "renderArea" in ai_render_area["apply"]
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_narrow_toolbar_scrolls_instead_of_overlapping_controls():
+    port = find_free_port()
+    editor = view(
+        molecule("H2O"),
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 720, "height": 760})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
+            layout = page.evaluate("""() => {
+                const bounds = selector => {
+                    const rect = document.querySelector(selector).getBoundingClientRect();
+                    return [rect.left, rect.top, rect.right, rect.bottom, rect.width, rect.height];
+                };
+                const top = document.getElementById('top-bar');
+                const actions = document.querySelector('.action-group');
+                return {
+                    top: bounds('#top-bar'),
+                    logo: bounds('#top-bar .logo'),
+                    mode: bounds('#runtime-mode-switch'),
+                    actions: bounds('.action-group'),
+                    topOverflow: top.scrollWidth - top.clientWidth,
+                    actionOverflow: actions.scrollWidth - actions.clientWidth,
+                    overflowX: getComputedStyle(actions).overflowX,
+                    initialScroll: actions.scrollLeft,
+                };
+            }""")
+            assert layout["topOverflow"] <= 1
+            assert layout["logo"][2] <= layout["mode"][0] + 1
+            assert layout["mode"][2] <= layout["actions"][0] + 1
+            assert layout["actions"][2] <= layout["top"][2] + 1
+            assert layout["actionOverflow"] > 20
+            assert layout["overflowX"] in {"auto", "scroll"}
+
+            action_box = page.locator('.action-group').bounding_box()
+            assert action_box is not None
+            page.mouse.move(
+                action_box["x"] + action_box["width"] * 0.5,
+                action_box["y"] + action_box["height"] * 0.5,
+            )
+            page.mouse.wheel(0, 260)
+            page.wait_for_function(
+                "start => document.querySelector('.action-group').scrollLeft > start",
+                arg=layout["initialScroll"],
+            )
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_playback_keeps_sun_transform_and_visual_settings_interactive():
+    frames = [
+        Atoms("H2", positions=[[0, 0, 0], [1.0 + offset, 0, 0]], cell=[8, 8, 8], pbc=True)
+        for offset in (0.0, 0.15, 0.30)
+    ]
+    port = find_free_port()
+    editor = view(
+        frames,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.state?.atoms?.metadata?.frame_count === 3")
+            original = page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                app.state.display.lightingMode = 'studio';
+                app.state.display.sunGizmo = true;
+                app.renderer.setLightingOptions(app.state.display);
+                app.setSunSelected('source');
+                document.getElementById('movie-fps').value = '20';
+                await app.startPlayback();
+                return {
+                    position: [...app.state.display.sunPosition],
+                    target: [...app.state.display.sunTarget],
+                };
+            }""")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return Boolean(app.state.trajectoryTimer)
+                    && Number(app.state.atoms.metadata.current_frame) !== 0;
+            }""")
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.setSunSelected('source');
+                app.renderer.domElement.focus();
+            }""")
+            page.keyboard.press('g')
+            page.keyboard.press('x')
+            page.keyboard.type('1')
+            page.wait_for_timeout(180)
+            assert page.evaluate("""() => ({
+                playing: Boolean(window.__ASE_APP__.state.trajectoryTimer),
+                subject: window.__ASE_APP__.state.transformSubject,
+                mode: window.__ASE_APP__.transform.mode,
+            })""") == {"playing": True, "subject": "sun", "mode": "MOVE"}
+            page.keyboard.press('Enter')
+            page.wait_for_function("window.__ASE_APP__.transform.mode === 'IDLE'")
+
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.state.display.labelColors.H = '#2a78c4';
+                app.renderer.setDisplayOptions(app.state.display);
+            }""")
+            page.wait_for_timeout(180)
+            changed = page.evaluate("""() => ({
+                playing: Boolean(window.__ASE_APP__.state.trajectoryTimer),
+                position: window.__ASE_APP__.state.display.sunPosition,
+                target: window.__ASE_APP__.state.display.sunTarget,
+                color: window.__ASE_APP__.renderer.atomVisualColor(0),
+                frame: window.__ASE_APP__.state.atoms.metadata.current_frame,
+            })""")
+            assert changed["playing"] is True
+            assert changed["position"] == pytest.approx(
+                [original["position"][0] + 1, *original["position"][1:]], abs=1e-7
+            )
+            assert changed["target"] == pytest.approx(
+                [original["target"][0] + 1, *original["target"][1:]], abs=1e-7
+            )
+            assert changed["color"].lower() == "#2a78c4"
+            assert changed["frame"] in {0, 1, 2}
+            page.evaluate("window.__ASE_APP__.stopPlayback()")
+            page.wait_for_function("!window.__ASE_APP__.state.trajectoryTimer")
             browser.close()
     finally:
         editor.close()
@@ -6122,16 +6657,24 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width <= 1")
             mobile_collapsed = page.evaluate("""() => {
-                const trigger = document.getElementById('btn-lighting-toggle').getBoundingClientRect();
+                const actions = document.querySelector('.action-group');
+                const triggerElement = document.getElementById('btn-lighting-toggle');
+                triggerElement.scrollIntoView({block: 'nearest', inline: 'nearest'});
+                const trigger = triggerElement.getBoundingClientRect();
                 const handle = document.getElementById('btn-inspector-collapse').getBoundingClientRect();
                 const panel = document.getElementById('inspector').getBoundingClientRect();
-                const actionGroup = document.querySelector('.action-group').getBoundingClientRect();
+                const actionGroup = actions.getBoundingClientRect();
                 return {
                     panelWidth: panel.width,
                     handleRight: handle.right,
                     viewportWidth: window.innerWidth,
+                    triggerLeft: trigger.left,
                     triggerRight: trigger.right,
+                    actionLeft: actionGroup.left,
+                    actionRight: actionGroup.right,
                     handleLeft: handle.left,
+                    actionOverflow: actions.scrollWidth - actions.clientWidth,
+                    actionScroll: actions.scrollLeft,
                     handleOverlap: !(
                         trigger.right <= handle.left ||
                         trigger.left >= handle.right ||
@@ -6151,8 +6694,11 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             }""")
             assert mobile_collapsed['panelWidth'] == pytest.approx(0, abs=1)
             assert mobile_collapsed['handleRight'] == pytest.approx(mobile_collapsed['viewportWidth'], abs=1)
+            assert mobile_collapsed['actionOverflow'] > 20
+            assert mobile_collapsed['actionScroll'] > 0
             assert mobile_collapsed['handleOverlap'] is False
-            assert mobile_collapsed['triggerContained'] is True
+            assert mobile_collapsed['triggerLeft'] >= mobile_collapsed['actionLeft'], mobile_collapsed
+            assert mobile_collapsed['triggerRight'] <= mobile_collapsed['actionRight'], mobile_collapsed
             assert mobile_collapsed['headerCenterDelta'] <= 2
             assert mobile_collapsed['handleVerticalCenterDelta'] <= 1.5
 
@@ -7318,9 +7864,9 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
             assert repeated["bondInstances"] == 14
             assert repeated["atomMeshes"] >= 1
             assert repeated["bondMeshes"] == 2
-            assert repeated["atomTransparent"] is True
-            assert all(opacity == pytest.approx(0.16) for opacity in repeated["atomOpacity"])
-            assert repeated["exactBaseMaterials"] is False
+            assert repeated["atomTransparent"] is False
+            assert all(opacity == pytest.approx(1.0) for opacity in repeated["atomOpacity"])
+            assert repeated["exactBaseMaterials"] is True
             assert repeated["selectableChildren"] == 2
             repeated_hover = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
@@ -7340,7 +7886,12 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
                 };
                 return {
                     hover: app.selection.pickHover(pointer, renderer.atomMeshes, renderer.supercellGroup),
-                    selectable: app.selection.pick(pointer, renderer.atomMeshes),
+                    selectable: app.selection.pick(
+                        pointer,
+                        renderer.atomMeshes,
+                        renderer.supercellGroup,
+                        true
+                    ),
                     clientX: pointer.clientX,
                     clientY: pointer.clientY,
                 };
@@ -7351,7 +7902,22 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
                 "cellOffset": [1, 0, 0],
                 "key": "replica:0:1,0,0",
             }
-            assert repeated_hover["selectable"] is None
+            assert repeated_hover["selectable"] == repeated_hover["hover"]
+            selected_base = page.evaluate("""reference => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection();
+                app.addSelectionReference(reference);
+                return {
+                    base: [...app.state.selected],
+                    replicas: [...app.state.replicaSelected.keys()],
+                    order: [...app.state.selectionOrder]
+                };
+            }""", repeated_hover["selectable"])
+            assert selected_base == {
+                "base": [0],
+                "replicas": [],
+                "order": ["atom:0"],
+            }
             page.mouse.move(repeated_hover["clientX"], repeated_hover["clientY"])
             page.wait_for_function("window.__ASE_APP__.state.hoveredIndex === 0")
             assert "#0@[1,0,0] H" in page.locator('#hover-readout').inner_text()
@@ -7381,7 +7947,7 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
                 (0, -1, 0), (0, 1, 0),
                 (1, -1, 0), (1, 0, 0), (1, 1, 0),
             ]
-            assert centered["opacity"] == pytest.approx(0.16)
+            assert centered["opacity"] == pytest.approx(1.0)
             assert centered["editableCellHalos"] == 1
             for control in ('#super-x', '#super-y', '#super-z'):
                 page.fill(control, '1')
@@ -7746,20 +8312,23 @@ def test_runtime_mode_switch_merges_labels_and_splits_only_material_variants():
                 app.updateUI();
             }""")
             page.fill("#selected-atom-label", "C_b")
+            page.select_option("#selected-atom-material", "rubber")
+            assert page.evaluate("""() => ({
+                label: window.__ASE_APP__.state.atoms.symbols[0],
+                material: window.__ASE_APP__.state.display.atomMaterials['0'] || null,
+            })""") == {"label": "C_a", "material": None}
             page.click("#btn-apply-selected-label")
-            page.wait_for_function("""() =>
-                window.__ASE_APP__.state.atoms.symbols.every(label => label === 'C_b')
-            """)
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.state.atoms.symbols.every(label => label === 'C_b')
+                    && app.state.display.atomMaterials['0'] === 'rubber';
+            }""")
             assert page.locator("#toast-container").inner_text().count(
                 "Merged selected atoms into label C_b"
             ) == 1
-
-            page.select_option("#selected-atom-material", "rubber")
             page.wait_for_function("""() => {
-                const app = window.__ASE_APP__;
-                const material = app.renderer.atomMeshByIndex.get(0).material;
-                return app.state.display.atomMaterials['0'] === 'rubber'
-                    && Math.abs(material.roughness - 0.88) < 1e-6
+                const material = window.__ASE_APP__.renderer.atomMeshByIndex.get(0).material;
+                return Math.abs(material.roughness - 0.88) < 1e-6
                     && Math.abs(material.metalness) < 1e-6;
             }""")
 
@@ -7959,9 +8528,6 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                 const grid = app.renderer.gridGroup.children[0];
                 return {
                     background: `#${app.renderer.scene.background.getHexString()}`,
-                    clear: `#${app.renderer.renderer.getClearColor(
-                        new app.renderer.scene.background.constructor()
-                    ).getHexString()}`,
                     dataset: app.renderer.domElement.dataset.viewportBackground,
                     sidebar: document.getElementById('viewport-background').value,
                     gridOpacity: grid.material.opacity
@@ -7969,7 +8535,6 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             }""")
             assert white_state == {
                 "background": "#ffffff",
-                "clear": "#ffffff",
                 "dataset": "white",
                 "sidebar": "white",
                 "gridOpacity": pytest.approx(0.48),
@@ -8132,8 +8697,8 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             for first, inverse, component, expected_sign, screen_component, screen_sign in (
                 ("left", "right", 0, 1, 0, -1),
                 ("right", "left", 0, -1, 0, 1),
-                ("up", "down", 1, 1, 1, -1),
-                ("down", "up", 1, -1, 1, 1),
+                ("up", "down", 1, -1, 1, -1),
+                ("down", "up", 1, 1, 1, 1),
             ):
                 page.evaluate("""() => {
                     const app = window.__ASE_APP__;
@@ -8204,7 +8769,10 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                     probe_after["projected"][screen_component]
                     - probe_before["projected"][screen_component]
                 ) * screen_sign > 1e-4
-                assert probe_after["distance"] < probe_before["distance"]
+                if first in {"left", "right"}:
+                    assert probe_after["distance"] < probe_before["distance"]
+                else:
+                    assert probe_after["distance"] > probe_before["distance"]
                 page.click(f'[data-view-rotate="{inverse}"]')
                 camera_after_pair = page.evaluate("""() => {
                     const renderer = window.__ASE_APP__.renderer;

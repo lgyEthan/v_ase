@@ -101,11 +101,29 @@ Run all scenarios, not only static document checks:
    - verify `command_transport` is `http-json-bridge`;
    - use a separate `v_ase api` process for ready/describe/apply/render/export
      without evaluating page-main-world JavaScript.
+   - open a remote 15-frame XDATCAR in View mode and require one byte-offset index pass
+     plus on-demand frame reads rather than a complete trajectory
+     transfer; repeat with native ASE `.traj`, then verify an unsupported or
+     unusual XDATCAR header falls back to the standard ASE reader;
+   - submit an unknown extension and require a concise reader message such as
+     `Could not guess file type` in the GUI, never an unexplained
+     `Internal Server Error` or a Python traceback.
 2. **Structure and camera**
    - describe a periodic structure;
    - align `+X`, `-Y`, and `+Z`;
    - orbit left/right/up/down and roll both directions;
-   - verify camera changes do not enter undo history.
+   - verify camera changes do not enter undo history;
+   - switch the complete scene to 2D and require flat unlit atoms, adaptive
+     outlines, flat bonds/vectors/cell/regions, and an X on FixAtoms while
+     preserving atom color and radius; switch back and require the prior 3D
+     materials and lighting to return without reloading structure data;
+   - capture a persistent Render Area, disable Follow Viewport, orbit the work
+     camera, and require the stored export camera to remain unchanged; select
+     through the gray-masked frame and require picking to use the Render Area
+     projection, then move its eye with `G` in Edit and verify
+     `describe().renderArea` and image/video/HTML exports share that camera;
+   - play a trajectory while moving the Sun and Render Area and changing atom
+     appearance; require uninterrupted playback and immediate visual updates.
 3. **Selection and measurement**
    - select one through four ordered atoms;
    - verify one-atom displayed Cartesian/fractional position, standard ASE
@@ -114,7 +132,13 @@ Run all scenarios, not only static document checks:
    - change trajectory frame while keeping one atom selected and verify every
      property comes from the displayed frame without duplicate requests or a
      calculator evaluation;
-   - select a replica and verify its `cellOffset`.
+   - select a View replica and verify its `cellOffset`, then apply appearance
+     to that exact replica without disabling the controls;
+   - hide one View replica with Delete and require only that reference and its
+     bonds to become invisible/non-interactive; opening structural analysis
+     must show a Continue or Switch to Edit & Delete decision before plotting;
+   - enter Edit, select repeated images by click and box, and require one
+     deduplicated base index per physical atom, including periodic boundaries.
 4. **Edit and constraints**
    - launch with no input file, require Edit mode, define a triclinic 3 x 3
      cell, add atoms, and verify the empty-workspace prompt disappears after
@@ -124,6 +148,10 @@ Run all scenarios, not only static document checks:
      rocksalt CuO, require approval before replacement, build eight atoms, and
      Undo back to the complete original trajectory and visual settings;
    - enter Edit, move and rotate atoms, then undo/redo;
+   - copy and paste constrained atoms at exactly identical coordinates; require
+     labels, custom arrays, tags, momenta, charges, supported constraints,
+     per-atom stored calculator values, and per-atom material overrides to
+     survive while invalidated global total energy is omitted;
    - apply FixAtoms, FixedLine, and FixedPlane;
    - verify FixedPlane keeps one local marker per atom and adds one original-
      position motion plane per selected constrained atom during `G`;
@@ -207,7 +235,8 @@ Run all scenarios, not only static document checks:
    - wrap atoms;
    - display a monoclinic supercell;
    - apply Cartesian and fractional visual offsets after repetition;
-   - verify View replicas remain selectable while Edit replicas do not;
+   - verify View replicas remain independently selectable while Edit replicas
+     select and deduplicate their corresponding base atoms;
    - materialize repetitions and an integer cell transform;
    - verify every trajectory frame gets its own transformed cell.
    - rotate a selected graphene layer near `21.2` degrees with
@@ -580,7 +609,12 @@ Every browser render test must check:
 - stored-force arrows preserve exact Cartesian direction and configured scale
   in both 2D and 3D, follow displayed replicas, and remain absent without
   stored force data;
-- preview and exported image decode to the same composition;
+- a narrow viewport keeps every top-bar command reachable through one stable
+  horizontal scroll track without overlap or wrapping;
+- the native file picker confirms one file with Enter and does not immediately
+  reopen from a trailing key event;
+- the Render Area gray mask, eye marker, border, pointer projection, live
+  lighting, and exported image decode to the same composition and camera;
 - README assets are inspected after regeneration, not merely written.
 
 ## Release Gate

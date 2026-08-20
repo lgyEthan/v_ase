@@ -2130,7 +2130,11 @@ def capture_registry_media(browser) -> None:
                 "fmax": 0.002,
                 "steps": 80,
                 "calculator": {
-                    "cutoffScale": 2.15,
+                    # Use a physical cross-layer onset that resolves the
+                    # top-view overlap without coupling this deterministic
+                    # README scene to the current automatic bond table.
+                    "cutoffMode": "absolute",
+                    "cutoffDistance": 4.0,
                     "kRepulsion": 2.4,
                 },
             },
